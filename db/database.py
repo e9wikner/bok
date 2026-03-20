@@ -50,20 +50,37 @@ class Database:
             self.connection.rollback()
     
     def init_db(self) -> None:
-        """Initialize database schema from migration file."""
+        """Initialize database schema from migration files."""
         self.connect()
         
-        # Read and execute migration
-        migration_file = Path(__file__).parent / "migrations" / "001_initial_schema.sql"
-        with open(migration_file, "r") as f:
-            sql_script = f.read()
+        # Get current schema version
+        try:
+            cursor = self.connection.execute("SELECT MAX(version) as v FROM schema_version")
+            row = cursor.fetchone()
+            current_version = row["v"] if row["v"] else 0
+        except:
+            current_version = 0
         
-        # Split by semicolon and execute each statement
-        statements = [s.strip() for s in sql_script.split(";") if s.strip()]
-        for statement in statements:
-            self.connection.execute(statement)
+        # Apply migrations
+        migrations_dir = Path(__file__).parent / "migrations"
+        migration_files = sorted(migrations_dir.glob("*.sql"))
         
-        self.commit()
+        for migration_file in migration_files:
+            # Extract version from filename (e.g., 001_initial_schema.sql → 1)
+            version = int(migration_file.name.split("_")[0])
+            
+            if version > current_version:
+                print(f"  📝 Applying migration {version}: {migration_file.name}")
+                with open(migration_file, "r") as f:
+                    sql_script = f.read()
+                
+                # Split by semicolon and execute each statement
+                statements = [s.strip() for s in sql_script.split(";") if s.strip()]
+                for statement in statements:
+                    self.connection.execute(statement)
+                
+                self.commit()
+        
         print(f"✓ Database initialized: {self.db_path}")
 
 
