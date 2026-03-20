@@ -1,0 +1,297 @@
+"""Ledger service - core accounting logic."""
+
+from datetime import datetime, date
+from typing import List, Dict
+import uuid
+
+from domain.models import Voucher, VoucherRow, Period, Account
+from domain.types import VoucherStatus, VoucherSeries, AuditAction
+from domain.validation import (
+    validate_complete_voucher,
+    VoucherValidator,
+    PeriodValidator,
+    ValidationError
+)
+from repositories.voucher_repo import VoucherRepository
+from repositories.period_repo import PeriodRepository
+from repositories.account_repo import AccountRepository
+from repositories.audit_repo import AuditRepository
+
+
+class LedgerService:
+    """Core accounting service (Bokföringssystem)."""
+    
+    def __init__(self):
+        self.vouchers = VoucherRepository()
+        self.periods = PeriodRepository()
+        self.accounts = AccountRepository()
+        self.audit = AuditRepository()
+    
+    def create_voucher(
+        self,
+        series: str,
+        date: date,
+        period_id: str,
+        description: str,
+        rows_data: List[Dict],
+        created_by: str = "system",
+    ) -> Voucher:
+        """Create new draft voucher with rows."""
+        # Get period to verify it's open
+        period = self.periods.get_period(period_id)
+        if not period:
+            raise ValidationError("period_not_found", "Period not found", f"period_id={period_id}")
+        
+        PeriodValidator.validate_period_closed(period)
+        
+        # Create voucher
+        number = self.vouchers.get_next_number(series)
+        voucher = self.vouchers.create(
+            series=series,
+            number=number,
+            date=date,
+            period_id=period_id,
+            description=description,
+            created_by=created_by
+        )
+        
+        # Get all accounts for validation
+        all_accounts = self.accounts.get_all_as_dict()
+        
+        # Add rows
+        for row_data in rows_data:
+            row = self.vouchers.add_row(
+                voucher_id=voucher.id,
+                account_code=row_data["account"],
+                debit=row_data.get("debit", 0),
+                credit=row_data.get("credit", 0),
+                description=row_data.get("description")
+            )
+            voucher.rows.append(row)
+        
+        # Validate
+        validate_complete_voucher(voucher, period, all_accounts)
+        
+        # Log
+        self.audit.log(
+            entity_type="voucher",
+            entity_id=voucher.id,
+            action=AuditAction.CREATED.value,
+            actor=created_by,
+            payload={
+                "series": voucher.series.value,
+                "number": voucher.number,
+                "date": voucher.date.isoformat(),
+                "rows_count": len(voucher.rows)
+            }
+        )
+        
+        return voucher
+    
+    def post_voucher(
+        self,
+        voucher_id: str,
+        auto_post: bool = False,
+        actor: str = "system"
+    ) -> Voucher:
+        """Post voucher (make immutable - BFL varaktighet requirement)."""
+        voucher = self.vouchers.get(voucher_id)
+        if not voucher:
+            raise ValidationError("voucher_not_found", "Voucher not found", f"voucher_id={voucher_id}")
+        
+        # Get period
+        period = self.periods.get_period(voucher.period_id)
+        if not period:
+            raise ValidationError("period_not_found", "Period not found", f"period_id={voucher.period_id}")
+        
+        # Validate can post
+        VoucherValidator.validate_can_post(voucher, period)
+        
+        # Post (make immutable)
+        self.vouchers.post(voucher.id)
+        
+        # Log
+        self.audit.log(
+            entity_type="voucher",
+            entity_id=voucher.id,
+            action=AuditAction.POSTED.value,
+            actor=actor,
+            payload={
+                "series": voucher.series.value,
+                "number": voucher.number,
+                "total_debit": voucher.get_total_debit(),
+                "total_credit": voucher.get_total_credit()
+            }
+        )
+        
+        # Reload to get updated status
+        return self.vouchers.get(voucher.id)
+    
+    def create_correction(
+        self,
+        original_voucher_id: str,
+        correction_rows: List[Dict],
+        actor: str = "system"
+    ) -> Voucher:
+        """Create correction voucher (B-series) for an original voucher."""
+        original = self.vouchers.get(original_voucher_id)
+        if not original:
+            raise ValidationError("voucher_not_found", "Original voucher not found")
+        
+        if not original.is_posted():
+            raise ValidationError(
+                "not_posted",
+                "Can only correct posted vouchers",
+                "original voucher must be in 'posted' status"
+            )
+        
+        # Create B-series correction voucher
+        correction = self.vouchers.create_correction(
+            original_voucher_id=original.id,
+            series="B",
+            created_by=actor
+        )
+        
+        # Get period and accounts for validation
+        period = self.periods.get_period(original.period_id)
+        all_accounts = self.accounts.get_all_as_dict()
+        
+        # Add correction rows (typically reversal + corrected entries)
+        for row_data in correction_rows:
+            row = self.vouchers.add_row(
+                voucher_id=correction.id,
+                account_code=row_data["account"],
+                debit=row_data.get("debit", 0),
+                credit=row_data.get("credit", 0),
+                description=row_data.get("description", "Correction")
+            )
+            correction.rows.append(row)
+        
+        # Validate
+        validate_complete_voucher(correction, period, all_accounts)
+        
+        # Log
+        self.audit.log(
+            entity_type="voucher",
+            entity_id=correction.id,
+            action=AuditAction.CORRECTED.value,
+            actor=actor,
+            payload={
+                "correcting": original.id,
+                "original_series": original.series.value,
+                "original_number": original.number
+            }
+        )
+        
+        return correction
+    
+    def lock_period(self, period_id: str, actor: str = "system") -> Period:
+        """Lock period (irreversible - BFL varaktighet requirement)."""
+        period = self.periods.get_period(period_id)
+        if not period:
+            raise ValidationError("period_not_found", "Period not found")
+        
+        PeriodValidator.validate_can_lock(period)
+        
+        # Check that no draft vouchers exist in period
+        drafts = self.vouchers.list_for_period(period_id, status="draft")
+        if drafts:
+            raise ValidationError(
+                "draft_vouchers_exist",
+                f"Cannot lock period - {len(drafts)} draft vouchers exist",
+                "all vouchers must be posted or deleted before locking"
+            )
+        
+        # Lock period
+        self.periods.lock_period(period_id)
+        
+        # Log
+        self.audit.log(
+            entity_type="period",
+            entity_id=period_id,
+            action=AuditAction.LOCKED.value,
+            actor=actor,
+            payload={
+                "period": f"{period.year}-{period.month:02d}",
+                "locked_at": datetime.now().isoformat()
+            }
+        )
+        
+        return self.periods.get_period(period_id)
+    
+    def get_trial_balance(self, period_id: str) -> Dict[str, Dict]:
+        """Get trial balance (råbalans) for a period."""
+        # Get all vouchers posted up to and including this period
+        period = self.periods.get_period(period_id)
+        if not period:
+            raise ValidationError("period_not_found", "Period not found")
+        
+        # Get all periods up to and including this one in same fiscal year
+        all_periods = self.periods.list_periods(period.fiscal_year_id)
+        relevant_periods = [p.id for p in all_periods if (p.year < period.year or (p.year == period.year and p.month <= period.month))]
+        
+        balances = {}
+        
+        for period_id_item in relevant_periods:
+            vouchers = self.vouchers.list_for_period(period_id_item, status="posted")
+            
+            for voucher in vouchers:
+                for row in voucher.rows:
+                    if row.account_code not in balances:
+                        balances[row.account_code] = {
+                            "debit": 0,
+                            "credit": 0
+                        }
+                    
+                    balances[row.account_code]["debit"] += row.debit
+                    balances[row.account_code]["credit"] += row.credit
+        
+        return balances
+    
+    def get_account_ledger(self, account_code: str, period_id: str) -> List[Dict]:
+        """Get account ledger (huvudbok) for a specific account."""
+        period = self.periods.get_period(period_id)
+        if not period:
+            raise ValidationError("period_not_found", "Period not found")
+        
+        # Get all periods up to and including this one
+        all_periods = self.periods.list_periods(period.fiscal_year_id)
+        relevant_periods = [p.id for p in all_periods if (p.year < period.year or (p.year == period.year and p.month <= period.month))]
+        
+        ledger_rows = []
+        running_balance = 0
+        
+        for period_id_item in relevant_periods:
+            vouchers = self.vouchers.list_for_period(period_id_item, status="posted")
+            
+            for voucher in vouchers:
+                for row in voucher.rows:
+                    if row.account_code == account_code:
+                        debit = row.debit
+                        credit = row.credit
+                        running_balance += (debit - credit)
+                        
+                        ledger_rows.append({
+                            "date": voucher.date.isoformat(),
+                            "voucher_series": voucher.series.value,
+                            "voucher_number": f"{voucher.number:06d}",
+                            "description": voucher.description,
+                            "debit": debit,
+                            "credit": credit,
+                            "balance": running_balance
+                        })
+        
+        return ledger_rows
+    
+    def get_audit_history(self, entity_type: str, entity_id: str) -> List[Dict]:
+        """Get audit trail for an entity."""
+        entries = self.audit.get_history(entity_type, entity_id)
+        return [
+            {
+                "timestamp": entry.timestamp.isoformat(),
+                "action": entry.action.value,
+                "actor": entry.actor,
+                "payload": entry.payload
+            }
+            for entry in entries
+        ]
