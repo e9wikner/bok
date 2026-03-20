@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  bokfoering-api:
+    build: .
+    container_name: bokfoering-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./bokfoering.db:/app/bokfoering.db
+      - ./logs:/app/logs
+    environment:
+      - DEBUG=False
+      - BOKFOERING_API_KEY=dev-key-change-in-production
+      - DATABASE_URL=sqlite:///./bokfoering.db
+    command: sh -c "python main.py --init-db && python main.py --host 0.0.0.0 --port 8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  bokfoering-data:

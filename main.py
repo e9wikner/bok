@@ -90,6 +90,11 @@ def main():
         help="Initialize database"
     )
     parser.add_argument(
+        "--seed",
+        action="store_true",
+        help="Seed test data (requires initialized database)"
+    )
+    parser.add_argument(
         "--host",
         default="127.0.0.1",
         help="Server host (default: 127.0.0.1)"
@@ -105,6 +110,11 @@ def main():
     
     if args.init_db:
         init_db()
+        if args.seed:
+            print("\n🌱 Seeding test data...")
+            # Import and run seed script
+            from scripts.seed_test_data import seed_test_company
+            seed_test_company()
         sys.exit(0)
     
     # Run server
