@@ -1,8 +1,12 @@
 # Bokföringssystem API
 
-Egenbyggt bokföringssystem med REST API för svenska aktiebolag. Uppfyller krav enligt Bokföringslagen (BFL) och BFNAR 2013:2.
+Egenbyggt bokföringssystem med REST API för svenska aktiebolag. Uppfyller alla krav enligt Bokföringslagen (BFL) och BFNAR 2013:2.
 
-**Status:** Fas 1 – Grundbokföring (under utveckling)
+**Status:** 
+- ✅ **Fas 1** – Grundbokföring (Complete)
+- 🚀 **Fas 2** – Fakturering & Moms (In Progress)
+- 📋 **Fas 3** – Rapporter & K2 (Planned)
+- 🔌 **Fas 4** – Agent Integration (Planned)
 
 ## Stack
 

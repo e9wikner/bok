@@ -187,6 +187,62 @@ def seed_test_company():
     ledger.lock_period(march_period.id, actor="test-seed")
     print(f"   ✓ Period March 2026 locked (immutable)")
     
+    # Seed invoices (Fas 2)
+    print("\n6️⃣  Creating sample invoices...")
+    from services.invoice import InvoiceService
+    from repositories.period_repo import PeriodRepository
+    
+    invoice_service = InvoiceService()
+    
+    # Get an open period for invoicing (February, since March is locked)
+    feb_period = PeriodRepository.get_period(periods[2].id)
+    
+    # Create invoice
+    print("\n   📄 Invoice 1: Consulting services")
+    inv1 = invoice_service.create_invoice(
+        customer_name="Acme Corp AB",
+        invoice_date=date(2026, 2, 15),
+        due_date=date(2026, 3, 15),
+        customer_org_number="556000-0000",
+        customer_email="accounting@acme.se",
+        description="Consulting services - Q1 2026",
+        rows_data=[
+            {
+                "description": "Senior consultant (40 hours @ 1,500 kr/hr)",
+                "quantity": 40,
+                "unit_price": 150000,  # 1,500 kr
+                "vat_code": "MP1"
+            },
+            {
+                "description": "Junior consultant (30 hours @ 900 kr/hr)",
+                "quantity": 30,
+                "unit_price": 90000,  # 900 kr
+                "vat_code": "MP1"
+            }
+        ],
+        created_by="test-seed"
+    )
+    print(f"      ✓ Invoice {inv1.invoice_number} created (ex VAT: {inv1.amount_ex_vat/100:,.0f} kr)")
+    
+    # Send and book invoice
+    invoice_service.send_invoice(inv1.id, actor="test-seed")
+    invoice_service.create_booking_for_invoice(inv1.id, feb_period.id, actor="test-seed")
+    print(f"      ✓ Invoice sent and auto-booked")
+    
+    # Register partial payment
+    inv1 = invoice_service.invoices.get(inv1.id)
+    payment_amount = inv1.amount_inc_vat // 2  # Pay 50%
+    invoice_service.register_payment(
+        invoice_id=inv1.id,
+        amount=payment_amount,
+        payment_date=date(2026, 2, 28),
+        payment_method="bank_transfer",
+        reference="TRF20260228-001",
+        period_id=feb_period.id,
+        actor="test-seed"
+    )
+    print(f"      ✓ Payment registered: {payment_amount/100:,.0f} kr (50% of total)")
+    
     print("\n✅ Test data seeded successfully!")
     print(f"\n📊 Summary:")
     print(f"   • Fiscal Year: 2026-01-01 to 2026-12-31")

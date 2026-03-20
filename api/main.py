@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 
 # Import routers
-from api.routes import vouchers, accounts, periods, reports
+from api.routes import vouchers, accounts, periods, reports, invoices
 
 # Create app
 app = FastAPI(
@@ -26,11 +26,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
+# Include routers (organized by phase)
+# Fas 1: Grundbokföring
 app.include_router(vouchers.router)
 app.include_router(accounts.router)
 app.include_router(periods.router)
 app.include_router(reports.router)
+
+# Fas 2: Fakturering & Moms
+app.include_router(invoices.router)
 
 
 @app.get("/health", tags=["health"])
