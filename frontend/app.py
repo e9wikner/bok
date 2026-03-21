@@ -31,17 +31,20 @@ HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 def check_health():
     try:
         resp = requests.get(f"{API_URL}/health", timeout=5)
-        return resp.status_code == 200
+        if resp.status_code == 200:
+            return resp.json()
+        return None
     except:
-        return False
+        return None
 
 # Sidebar navigation
 st.sidebar.title("📊 Bokföringssystem")
 st.sidebar.markdown("---")
 
 # Health check
-if check_health():
-    st.sidebar.success("✅ API Connected")
+health = check_health()
+if health:
+    st.sidebar.success(f"✅ API Connected (v{health.get('version', '?')})")
 else:
     st.sidebar.error("❌ API Offline")
     st.sidebar.info("Starta API:et med: `docker-compose up`")
