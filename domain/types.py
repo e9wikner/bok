@@ -34,6 +34,7 @@ class AuditAction(str, Enum):
     POSTED = "posted"
     SENT = "sent"
     BOOKED = "booked"
+    REGISTERED = "registered"
     LOCKED = "locked"
     DELETED = "deleted"
     CORRECTED = "corrected"

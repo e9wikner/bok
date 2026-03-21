@@ -1,7 +1,7 @@
 """Pydantic schemas for API requests/responses."""
 
 from pydantic import BaseModel, Field, ConfigDict
-from datetime import date, datetime
+from datetime import date as DateType, datetime as DateTimeType
 from typing import Optional, List
 from decimal import Decimal
 
@@ -23,13 +23,13 @@ class VoucherRowResponse(BaseModel):
     account_code: str
     debit: int
     credit: int
-    description: Optional[str]
+    description: Optional[str] = None
 
 
 class CreateVoucherRequest(BaseModel):
     """Request to create new voucher."""
     series: str = Field("A", description="Voucher series (A=normal, B=correction)")
-    date: date = Field(..., description="Voucher date")
+    date: DateType = Field(..., description="Voucher date")
     period_id: str = Field(..., description="Period ID")
     description: str = Field(..., description="Voucher description")
     rows: List[VoucherRowRequest] = Field(..., description="Accounting rows (min 2)")
@@ -41,15 +41,15 @@ class VoucherResponse(BaseModel):
     id: str
     series: str
     number: int
-    date: date
+    date: DateType
     period_id: str
     description: str
     status: str  # draft, posted
     rows: List[VoucherRowResponse]
     correction_of: Optional[str] = None
-    created_at: datetime
+    created_at: DateTimeType
     created_by: str
-    posted_at: Optional[datetime] = None
+    posted_at: Optional[DateTimeType] = None
 
 
 # Account Schemas
@@ -78,21 +78,21 @@ class PeriodResponse(BaseModel):
     fiscal_year_id: str
     year: int
     month: int
-    start_date: date
-    end_date: date
+    start_date: DateType
+    end_date: DateType
     locked: bool
-    locked_at: Optional[datetime] = None
-    created_at: datetime
+    locked_at: Optional[DateTimeType] = None
+    created_at: DateTimeType
 
 
 class FiscalYearResponse(BaseModel):
     """Response model for fiscal year."""
     id: str
-    start_date: date
-    end_date: date
+    start_date: DateType
+    end_date: DateType
     locked: bool
-    locked_at: Optional[datetime] = None
-    created_at: datetime
+    locked_at: Optional[DateTimeType] = None
+    created_at: DateTimeType
 
 
 # Report Schemas
@@ -109,7 +109,7 @@ class TrialBalanceResponse(BaseModel):
     """Trial balance report."""
     period_id: str
     period: str
-    as_of: date
+    as_of: DateType
     rows: List[TrialBalanceRow]
     total_debit: int
     total_credit: int
@@ -117,7 +117,7 @@ class TrialBalanceResponse(BaseModel):
 
 class AccountLedgerRow(BaseModel):
     """Row in account ledger."""
-    date: date
+    date: DateType
     voucher_series: str
     voucher_number: str
     description: str
@@ -145,7 +145,7 @@ class AuditLogEntryResponse(BaseModel):
     action: str
     actor: str
     payload: Optional[dict] = None
-    timestamp: datetime
+    timestamp: DateTimeType
 
 
 class AuditHistoryResponse(BaseModel):
@@ -162,4 +162,4 @@ class ErrorResponse(BaseModel):
     error: str
     code: str
     details: Optional[str] = None
-    timestamp: datetime = Field(default_factory=datetime.now)
+    timestamp: DateTimeType = Field(default_factory=DateTimeType.now)
