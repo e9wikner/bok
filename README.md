@@ -2,11 +2,11 @@
 
 Egenbyggt bokföringssystem med REST API för svenska aktiebolag. Uppfyller alla krav enligt Bokföringslagen (BFL) och BFNAR 2013:2.
 
-**Status:** 
+**Status:** 🎉 **ALL PHASES COMPLETE**
 - ✅ **Fas 1** – Grundbokföring (Complete)
-- 🚀 **Fas 2** – Fakturering & Moms (In Progress)
-- 📋 **Fas 3** – Rapporter & K2 (Planned)
-- 🔌 **Fas 4** – Agent Integration (Planned)
+- ✅ **Fas 2** – Fakturering & Moms (Complete)
+- ✅ **Fas 3** – Rapporter & K2 (Complete)
+- ✅ **Fas 4** – Agent Integration (Complete)
 
 ## Stack
 
@@ -15,70 +15,138 @@ Egenbyggt bokföringssystem med REST API för svenska aktiebolag. Uppfyller alla
 - **Database:** SQLite + migrations
 - **Other:** Pydantic, SQLAlchemy, Alembic
 
+## Key Features
+
+### ✅ Fas 1: Grundbokföring (Basic Accounting)
+- Append-only voucher storage (varaktighet - immutability requirement)
+- Period locking (irreversible per BFL)
+- Double-entry bookkeeping with automatic validation
+- Correction vouchers (B-series)
+- Trial balance & account ledger reports
+- Complete audit trail
+
+### ✅ Fas 2: Fakturering & Moms (Invoicing & VAT)
+- Customer invoice management (draft → sent → paid)
+- Automatic VAT calculation (MP1 25%, MP2 12%, MP3 6%, MF 0%)
+- Payment registration with multiple methods
+- Credit notes (kreditfakturor)
+- **Auto-booking:** Invoices automatically create accounting vouchers
+- Payment tracking & status updates
+
+### ✅ Fas 3: Rapporter & K2 (Annual Reports)
+- **K2 Annual Report Generation** (Årsredovisning för små företag)
+- Auto-calculate Income Statement (Resultaträkning)
+- Auto-calculate Balance Sheet (Balansräkning)
+- Auto-calculate Cash Flow Statement
+- JSON export for authority submission
+- Report status tracking (draft → finalized → submitted)
+
+### ✅ Fas 4: Agent Integration
+- **OpenAPI 3.1 specification** for agent integration
+- **Tool definitions** for Claude/agent use
+- API key management with granular permissions
+- Idempotent operation IDs (retry-safe for agents)
+- Agent operation logging & audit trail
+- Rate limiting per API key
+- Connectivity testing endpoints
+
 ## Project Structure
 
 ```
 bokfoering-api/
 ├── db/
-│   ├── migrations/          # SQL migration files
-│   ├── schema.py            # SQLAlchemy models
-│   └── init.py
+│   ├── migrations/
+│   │   ├── 001_initial_schema.sql       # Fas 1: Core tables
+│   │   ├── 002_add_invoices.sql         # Fas 2: Invoice tables
+│   │   └── 003_add_reports_and_k2.sql   # Fas 3 & 4: Reports + Agent
+│   └── database.py
 ├── domain/
-│   ├── models.py            # Domain models (Voucher, Account, etc)
-│   ├── validation.py        # Business rules
-│   └── types.py             # Enums and types
+│   ├── models.py                # Voucher, Account, Period
+│   ├── invoice_models.py        # Invoice, Payment, CreditNote
+│   ├── validation.py            # Voucher business rules
+│   ├── invoice_validation.py    # Invoice rules & VAT
+│   └── types.py                 # Enums
 ├── services/
-│   ├── ledger.py            # Core booking logic
-│   ├── account.py           # Account management
-│   └── period.py            # Period & fiscal year management
+│   ├── ledger.py                # Fas 1: Core accounting
+│   ├── invoice.py               # Fas 2: Invoicing
+│   └── k2_report.py             # Fas 3: K2 report generation
 ├── api/
 │   ├── routes/
-│   │   ├── vouchers.py
-│   │   ├── accounts.py
-│   │   ├── periods.py
-│   │   └── reports.py
-│   ├── schemas.py           # Pydantic request/response models
-│   ├── deps.py              # Dependency injection
-│   └── main.py              # FastAPI app setup
+│   │   ├── vouchers.py          # Fas 1: Voucher endpoints
+│   │   ├── accounts.py          # Account management
+│   │   ├── periods.py           # Period management
+│   │   ├── reports.py           # Trial balance, ledger, audit
+│   │   ├── invoices.py          # Fas 2: Invoice endpoints
+│   │   ├── k2_reports.py        # Fas 3: K2 report endpoints
+│   │   └── agent.py             # Fas 4: Agent integration
+│   ├── schemas.py               # Pydantic models
+│   ├── deps.py                  # Dependency injection
+│   └── main.py                  # FastAPI app
 ├── repositories/
 │   ├── voucher_repo.py
 │   ├── account_repo.py
-│   ├── audit_repo.py
-│   └── base.py
-├── config.py                # Configuration
-├── main.py                  # Application entrypoint
-├── requirements.txt
-└── tests/
-    ├── test_ledger.py
-    ├── test_api.py
-    └── conftest.py
+│   ├── period_repo.py
+│   ├── invoice_repo.py
+│   └── audit_repo.py
+├── config.py
+├── main.py                      # CLI entrypoint
+└── requirements.txt
 ```
 
-## Getting Started
+## Quick Start
 
+### Docker (Recommended)
 ```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Initialize database
-python main.py --init-db
-
-# Run server
-uvicorn api.main:app --reload
-
-# Run tests
-pytest
+docker-compose up --build
+# Server: http://localhost:8000
+# API Docs: http://localhost:8000/docs
+# Test data: TestCorp AB (auto-seeded)
 ```
 
-## API Documentation
+### Local Setup
+```bash
+pip install -r requirements.txt
+python main.py --init-db --seed
+python main.py
+# Then visit http://localhost:8000/docs
+```
 
-Once running, visit: `http://localhost:8000/docs`
+## Documentation
+
+- **[QUICKSTART.md](QUICKSTART.md)** - 2-minute setup guide
+- **[API.md](API.md)** - Complete endpoint reference with examples
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System design & data flow
+- **[FAS3_FAS4.md](FAS3_FAS4.md)** - K2 reports & agent integration
+- **[DEMO.md](DEMO.md)** - Detailed feature demonstration
+- **[STATUS.md](STATUS.md)** - Project status report
+- **[CHANGELOG.md](CHANGELOG.md)** - Version history
 
 ## Regulatory Compliance
 
-- ✅ Append-only voucher storage (varaktighet)
-- ✅ Period locking (irreversible)
-- ✅ BAS 2026 chart of accounts
-- ✅ Audit trail logging
-- ✅ Balance validation
-- ✅ SIE4 export (Fas 2+)
+✅ **BFL (Bokföringslagen)**
+- Varaktighet: Posted vouchers immutable
+- Grundbokföring: Chronological journal
+- Huvudbokföring: Systematic ledger
+- Verifikationer: Numbered, fully detailed
+- Rättelser: Via correction vouchers only
+- Systemdokumentation: Auto-logged
+
+✅ **BFNAR 2013:2**
+- Bokföring vägledning
+- Systemdokumentation
+- Behandlingshistorik (audit trail)
+
+✅ **BAS 2026**
+- Standard chart of accounts
+- Account type classification
+- VAT code mapping
+
+✅ **K2 Årsredovisning**
+- Income statement generation
+- Balance sheet generation
+- Mandatory notes & disclosures
+
+✅ **Mervärdesskattelagen (VAT)**
+- 4 VAT codes (MP1-MP3, MF)
+- Automatic calculation
+- VAT breakdown reporting
