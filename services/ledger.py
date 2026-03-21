@@ -36,7 +36,11 @@ class LedgerService:
         rows_data: List[Dict],
         created_by: str = "system",
     ) -> Voucher:
-        """Create new draft voucher with rows."""
+        """Create new draft voucher with rows.
+        
+        Validates all business rules before persisting to ensure
+        no invalid data is written to the database.
+        """
         # Get period to verify it's open
         period = self.periods.get_period(period_id)
         if not period:
@@ -44,33 +48,57 @@ class LedgerService:
         
         PeriodValidator.validate_period_closed(period)
         
-        # Create voucher
+        # Get all accounts for validation
+        all_accounts = self.accounts.get_all_as_dict()
+        
+        # Build in-memory voucher for validation BEFORE persisting
         number = self.vouchers.get_next_number(series)
-        voucher = self.vouchers.create(
-            series=series,
+        temp_voucher = Voucher(
+            id="temp",
+            series=VoucherSeries(series),
             number=number,
             date=date,
             period_id=period_id,
             description=description,
-            created_by=created_by
+            status=VoucherStatus.DRAFT,
+            created_by=created_by,
         )
-        
-        # Get all accounts for validation
-        all_accounts = self.accounts.get_all_as_dict()
-        
-        # Add rows
         for row_data in rows_data:
-            row = self.vouchers.add_row(
-                voucher_id=voucher.id,
+            temp_voucher.rows.append(VoucherRow(
+                id="temp",
+                voucher_id="temp",
                 account_code=row_data["account"],
                 debit=row_data.get("debit", 0),
                 credit=row_data.get("credit", 0),
-                description=row_data.get("description")
-            )
-            voucher.rows.append(row)
+                description=row_data.get("description"),
+            ))
         
-        # Validate
-        validate_complete_voucher(voucher, period, all_accounts)
+        # Validate BEFORE writing to database
+        validate_complete_voucher(temp_voucher, period, all_accounts)
+        
+        # Now persist (validation passed) - use transaction for atomicity
+        from db.database import db
+        with db.transaction():
+            voucher = self.vouchers.create(
+                series=series,
+                number=number,
+                date=date,
+                period_id=period_id,
+                description=description,
+                created_by=created_by,
+                _commit=False,
+            )
+            
+            for row_data in rows_data:
+                row = self.vouchers.add_row(
+                    voucher_id=voucher.id,
+                    account_code=row_data["account"],
+                    debit=row_data.get("debit", 0),
+                    credit=row_data.get("credit", 0),
+                    description=row_data.get("description"),
+                    _commit=False,
+                )
+                voucher.rows.append(row)
         
         # Log
         self.audit.log(

@@ -19,6 +19,7 @@ class VoucherRepository:
         period_id: str,
         description: str,
         created_by: str = "system",
+        _commit: bool = True,
     ) -> Voucher:
         """Create new draft voucher."""
         voucher_id = str(uuid.uuid4())
@@ -28,7 +29,8 @@ class VoucherRepository:
         """
         now = datetime.now()
         db.execute(sql, (voucher_id, series, number, date, period_id, description, created_by, now))
-        db.commit()
+        if _commit:
+            db.commit()
         
         return Voucher(
             id=voucher_id,
@@ -49,6 +51,7 @@ class VoucherRepository:
         debit: int = 0,
         credit: int = 0,
         description: Optional[str] = None,
+        _commit: bool = True,
     ) -> VoucherRow:
         """Add accounting row to draft voucher."""
         row_id = str(uuid.uuid4())
@@ -58,7 +61,8 @@ class VoucherRepository:
         """
         now = datetime.now()
         db.execute(sql, (row_id, voucher_id, account_code, debit, credit, description, now))
-        db.commit()
+        if _commit:
+            db.commit()
         
         return VoucherRow(
             id=row_id,
