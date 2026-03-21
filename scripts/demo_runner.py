@@ -21,6 +21,62 @@ HEADERS = {
 }
 
 
+def ensure_accounts_exist():
+    """Create missing accounts that demo data needs."""
+    required_accounts = [
+        ("1930", "Företagskonto / checkräkningskonto", "asset"),
+        ("5410", "Inventarier", "asset"),
+        ("2440", "Leverantörsskulder", "liability"),
+        ("3041", "Försäljning tjänster 25% moms", "revenue"),
+        ("3042", "Försäljning tjänster 12% moms", "revenue"),
+        ("6210", "Telefon och post", "expense"),
+        ("5010", "Lokalhyra", "expense"),
+        ("7010", "Lön tjänstemän", "expense"),
+        ("2013", "Eget uttag", "equity"),
+        ("7830", "Avskrivningar inventarier", "expense"),
+        ("1220", "Ackumulerade avskrivningar", "asset"),
+        ("6991", "Revisorskostnader", "expense"),
+        ("6310", "Försäkringspremier", "expense"),
+        ("5800", "Resekostnader", "expense"),
+        ("6110", "Konsultarvoden", "expense"),
+        ("5910", "Reklam och marknadsföring", "expense"),
+        ("6540", "Programvaror", "expense"),
+        ("6180", "Kontorsmaterial", "expense"),
+        ("2710", "Avräkning för skatter", "liability"),
+        ("2730", "Avräkning för arbetsgivaravgifter", "liability"),
+        ("2650", "Moms att betala", "liability"),
+        ("1510", "Kundfordringar", "asset"),
+        ("2610", "Utgående moms 25%", "vat_out"),
+        ("2620", "Utgående moms 12%", "vat_out"),
+        ("2630", "Utgående moms 6%", "vat_out"),
+        ("2640", "Ingående moms", "vat_in"),
+        ("2081", "Aktieägartillskott", "equity"),
+    ]
+    
+    print("📊 Checking required accounts...")
+    created = 0
+    for code, name, acc_type in required_accounts:
+        # Check if account exists
+        resp = requests.get(f"{API_URL}/api/v1/accounts/{code}", headers=HEADERS)
+        if resp.status_code == 404:
+            # Create account
+            resp = requests.post(
+                f"{API_URL}/api/v1/accounts",
+                headers=HEADERS,
+                json={"code": code, "name": name, "account_type": acc_type}
+            )
+            if resp.status_code == 201:
+                created += 1
+                print(f"  ✓ Created account {code}: {name}")
+            else:
+                print(f"  ⚠ Failed to create {code}: {resp.text}")
+    
+    if created == 0:
+        print("  ✅ All required accounts exist")
+    else:
+        print(f"  ✅ Created {created} new accounts")
+
+
 def wait_for_api(timeout: int = 60) -> bool:
     """Wait for API to be ready."""
     print("⏳ Waiting for API to be ready...")
@@ -152,6 +208,9 @@ def generate_demo_vouchers():
     print("🎯 GENERATING DEMO VOUCHERS")
     print("="*60)
     
+    # Ensure accounts exist
+    ensure_accounts_exist()
+    
     # First ensure fiscal year exists
     print("\n📅 Checking fiscal year...")
     fy_id = get_or_create_fiscal_year()
@@ -160,10 +219,18 @@ def generate_demo_vouchers():
         print("❌ Could not get or create fiscal year. Aborting.")
         return 0
     
-    # Get period IDs
+    # Get period IDs and check which are locked
     periods = {}
+    locked_periods = set()
     for month in range(1, 13):
-        periods[month] = get_period_id(fy_id, month)
+        period_id = get_period_id(fy_id, month)
+        periods[month] = period_id
+        if period_id:
+            # Check if period is locked
+            resp = requests.get(f"{API_URL}/api/v1/periods/{period_id}", headers=HEADERS)
+            if resp.status_code == 200 and resp.json().get("locked"):
+                locked_periods.add(month)
+                print(f"  ℹ️  Period {month:02d}/2026 is locked - will skip")
     
     if not any(periods.values()):
         print(f"❌ No periods found for fiscal year {fy_id}. Cannot create vouchers.")
@@ -175,7 +242,7 @@ def generate_demo_vouchers():
     print("\n📅 JANUARY - Company Setup")
     
     # 1. Owner's capital contribution
-    if periods[1]:
+    if periods[1] and 1 not in locked_periods:
         create_voucher(
             "Aktieägartillskott - Startkapital",
             date(2026, 1, 15),
@@ -188,7 +255,7 @@ def generate_demo_vouchers():
         vouchers_created += 1
     
     # 2. Office equipment purchase
-    if periods[1]:
+    if periods[1] and 1 not in locked_periods:
         create_voucher(
             "Inköp dator och kontorsutrustning",
             date(2026, 1, 20),
@@ -205,7 +272,7 @@ def generate_demo_vouchers():
     print("\n📅 FEBRUARY - Operations")
     
     # 3. Office rent
-    if periods[2]:
+    if periods[2] and 2 not in locked_periods:
         create_voucher(
             "Hyra kontor februari",
             date(2026, 2, 1),
@@ -219,7 +286,7 @@ def generate_demo_vouchers():
         vouchers_created += 1
     
     # 4. First consulting sale
-    if periods[2]:
+    if periods[2] and 2 not in locked_periods:
         create_voucher(
             "Försäljning konsulttjänster - TechStart AB",
             date(2026, 2, 15),
@@ -233,7 +300,7 @@ def generate_demo_vouchers():
         vouchers_created += 1
     
     # 5. Phone and internet
-    if periods[2]:
+    if periods[2] and 2 not in locked_periods:
         create_voucher(
             "Telefon och internet",
             date(2026, 2, 25),
@@ -250,7 +317,7 @@ def generate_demo_vouchers():
     print("\n📅 MARCH - Sales & Expenses")
     
     # 6. Another consulting project
-    if periods[3]:
+    if periods[3] and 3 not in locked_periods:
         create_voucher(
             "Försäljning - Webbapplikation Nordic Cloud",
             date(2026, 3, 10),
@@ -264,7 +331,7 @@ def generate_demo_vouchers():
         vouchers_created += 1
     
     # 7. Received payment from TechStart
-    if periods[3]:
+    if periods[3] and 3 not in locked_periods:
         create_voucher(
             "Inbetalning från TechStart AB",
             date(2026, 3, 20),
@@ -277,7 +344,7 @@ def generate_demo_vouchers():
         vouchers_created += 1
     
     # 8. Accounting software subscription
-    if periods[3]:
+    if periods[3] and 3 not in locked_periods:
         create_voucher(
             "Programvaror - Bokföringssystem",
             date(2026, 3, 25),
@@ -294,7 +361,7 @@ def generate_demo_vouchers():
     print("\n📅 APRIL - Salary & Growth")
     
     # 9. Salary payment
-    if periods[4]:
+    if periods[4] and 4 not in locked_periods:
         create_voucher(
             "Lön april - Stefan Wikner",
             date(2026, 4, 25),
@@ -309,7 +376,7 @@ def generate_demo_vouchers():
         vouchers_created += 1
     
     # 10. Sale with 12% VAT (food-related service)
-    if periods[4]:
+    if periods[4] and 4 not in locked_periods:
         create_voucher(
             "Försäljning - Matkassar system (12% moms)",
             date(2026, 4, 12),
@@ -323,7 +390,7 @@ def generate_demo_vouchers():
         vouchers_created += 1
     
     # 11. Marketing expenses
-    if periods[4]:
+    if periods[4] and 4 not in locked_periods:
         create_voucher(
             "Marknadsföring - Google Ads",
             date(2026, 4, 15),
@@ -340,7 +407,7 @@ def generate_demo_vouchers():
     print("\n📅 MAY - Travel & Professional Development")
     
     # 12. Conference travel
-    if periods[5]:
+    if periods[5] and 5 not in locked_periods:
         create_voucher(
             "Konferensresa - PyCon Stockholm",
             date(2026, 5, 10),
@@ -355,7 +422,7 @@ def generate_demo_vouchers():
         vouchers_created += 1
     
     # 13. Large consulting project
-    if periods[5]:
+    if periods[5] and 5 not in locked_periods:
         create_voucher(
             "Försäljning - Systemintegration Enterprise AB",
             date(2026, 5, 20),
@@ -372,7 +439,7 @@ def generate_demo_vouchers():
     print("\n📅 JUNE - VAT Reporting")
     
     # 14. VAT payment to Skatteverket
-    if periods[6]:
+    if periods[6] and 6 not in locked_periods:
         create_voucher(
             "Momsinbetalning Q2 till Skatteverket",
             date(2026, 6, 12),
@@ -385,7 +452,7 @@ def generate_demo_vouchers():
         vouchers_created += 1
     
     # 15. Office supplies
-    if periods[6]:
+    if periods[6] and 6 not in locked_periods:
         create_voucher(
             "Kontorsmaterial",
             date(2026, 6, 18),
@@ -402,7 +469,7 @@ def generate_demo_vouchers():
     print("\n📅 SEPTEMBER - Continued Operations")
     
     # 16. Insurance payment
-    if periods[9]:
+    if periods[9] and 9 not in locked_periods:
         create_voucher(
             "Försäkringar - Företagsförsäkring",
             date(2026, 9, 1),
@@ -415,7 +482,7 @@ def generate_demo_vouchers():
         vouchers_created += 1
     
     # 17. Rent again
-    if periods[9]:
+    if periods[9] and 9 not in locked_periods:
         create_voucher(
             "Hyra kontor september",
             date(2026, 9, 1),
@@ -429,7 +496,7 @@ def generate_demo_vouchers():
         vouchers_created += 1
     
     # 18. Payment received from Nordic Cloud
-    if periods[9]:
+    if periods[9] and 9 not in locked_periods:
         create_voucher(
             "Inbetalning från Nordic Cloud",
             date(2026, 9, 15),
@@ -445,7 +512,7 @@ def generate_demo_vouchers():
     print("\n📅 NOVEMBER - Preparing for Year-end")
     
     # 19. Accountant fees
-    if periods[11]:
+    if periods[11] and 11 not in locked_periods:
         create_voucher(
             "Revisorskostnader - Årsbokslut",
             date(2026, 11, 15),
@@ -459,7 +526,7 @@ def generate_demo_vouchers():
         vouchers_created += 1
     
     # 20. Final quarterly VAT
-    if periods[11]:
+    if periods[11] and 11 not in locked_periods:
         create_voucher(
             "Momsinbetalning Q4 till Skatteverket",
             date(2026, 11, 12),
@@ -475,7 +542,7 @@ def generate_demo_vouchers():
     print("\n📅 DECEMBER - Year-end")
     
     # 21. Depreciation
-    if periods[12]:
+    if periods[12] and 12 not in locked_periods:
         create_voucher(
             "Årets avskrivningar - Inventarier",
             date(2026, 12, 31),
@@ -488,7 +555,7 @@ def generate_demo_vouchers():
         vouchers_created += 1
     
     # 22. Owner's withdrawal
-    if periods[12]:
+    if periods[12] and 12 not in locked_periods:
         create_voucher(
             "Eget uttag - Stefan Wikner",
             date(2026, 12, 28),
