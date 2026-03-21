@@ -39,16 +39,36 @@ def wait_for_api(timeout: int = 60) -> bool:
     return False
 
 
+def find_existing_fiscal_year() -> Optional[str]:
+    """Try to find existing fiscal year by checking common IDs."""
+    for fy_id in ["fy-2026", "fy2026", "1", "2026"]:
+        resp = requests.get(f"{API_URL}/api/v1/fiscal-years/{fy_id}", headers=HEADERS)
+        if resp.status_code == 200:
+            return fy_id
+    return None
+
+
 def get_or_create_fiscal_year() -> str:
     """Get or create fiscal year 2026."""
-    # Check existing periods
-    resp = requests.get(f"{API_URL}/api/v1/periods", headers=HEADERS)
-    if resp.status_code == 200 and resp.json().get("periods"):
-        periods = resp.json()["periods"]
-        print(f"✅ Found {len(periods)} existing periods")
-        return periods[0]["fiscal_year_id"]
+    # Try to find existing fiscal year first
+    existing_fy = find_existing_fiscal_year()
+    if existing_fy:
+        # Check if periods exist for this fiscal year
+        resp = requests.get(
+            f"{API_URL}/api/v1/periods",
+            headers=HEADERS,
+            params={"fiscal_year_id": existing_fy}
+        )
+        if resp.status_code == 200:
+            periods = resp.json().get("periods", [])
+            if periods:
+                print(f"✅ Found {len(periods)} existing periods")
+                return existing_fy
+            else:
+                print(f"ℹ️ Fiscal year exists but no periods found")
+                return existing_fy
     
-    # Create fiscal year via API (uses query params)
+    # Try to create fiscal year via API
     print("📅 Creating fiscal year 2026...")
     resp = requests.post(
         f"{API_URL}/api/v1/fiscal-years",
@@ -62,14 +82,26 @@ def get_or_create_fiscal_year() -> str:
         data = resp.json()
         print(f"  ✓ Created fiscal year: {data.get('id', 'unknown')}")
         return data.get("id", "fy-2026")
+    elif resp.status_code == 500 and "UNIQUE constraint failed" in resp.text:
+        # Already exists, find it
+        existing_fy = find_existing_fiscal_year()
+        if existing_fy:
+            print(f"  ✓ Found existing fiscal year: {existing_fy}")
+            return existing_fy
+        print("  ⚠️ Could not find existing fiscal year, assuming fy-2026")
+        return "fy-2026"
     else:
         print(f"  ⚠ Failed to create fiscal year: {resp.status_code} - {resp.text}")
         return ""
 
 
-def get_period_id(month: int) -> Optional[str]:
+def get_period_id(fiscal_year_id: str, month: int) -> Optional[str]:
     """Get period ID for a specific month."""
-    resp = requests.get(f"{API_URL}/api/v1/periods", headers=HEADERS)
+    resp = requests.get(
+        f"{API_URL}/api/v1/periods",
+        headers=HEADERS,
+        params={"fiscal_year_id": fiscal_year_id}
+    )
     if resp.status_code == 200:
         for period in resp.json().get("periods", []):
             if period.get("year") == 2026 and period.get("month") == month:
@@ -113,15 +145,19 @@ def generate_demo_vouchers():
     
     # First ensure fiscal year exists
     print("\n📅 Checking fiscal year...")
-    get_or_create_fiscal_year()
+    fy_id = get_or_create_fiscal_year()
+    
+    if not fy_id:
+        print("❌ Could not get or create fiscal year. Aborting.")
+        return 0
     
     # Get period IDs
     periods = {}
     for month in range(1, 13):
-        periods[month] = get_period_id(month)
+        periods[month] = get_period_id(fy_id, month)
     
     if not any(periods.values()):
-        print("❌ No periods found. Cannot create vouchers.")
+        print(f"❌ No periods found for fiscal year {fy_id}. Cannot create vouchers.")
         return 0
     
     vouchers_created = 0
