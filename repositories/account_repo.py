@@ -18,14 +18,15 @@ class AccountRepository:
         account_type: str,
         vat_code: Optional[str] = None,
         sru_code: Optional[str] = None,
+        active: bool = True,
     ) -> Account:
         """Create new account."""
         sql = """
-        INSERT INTO accounts (code, name, account_type, vat_code, sru_code, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO accounts (code, name, account_type, vat_code, sru_code, active, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """
         now = datetime.now()
-        db.execute(sql, (code, name, account_type, vat_code, sru_code, now, now))
+        db.execute(sql, (code, name, account_type, vat_code, sru_code, int(active), now, now))
         db.commit()
         
         return Account(
@@ -34,6 +35,7 @@ class AccountRepository:
             account_type=AccountType(account_type),
             vat_code=vat_code,
             sru_code=sru_code,
+            active=active,
             created_at=now
         )
     
