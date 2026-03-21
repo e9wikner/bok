@@ -1,14 +1,25 @@
-"""Database connection and initialization."""
+"""Database connection and initialization.
+
+Thread-safe SQLite database manager using thread-local connections.
+Each thread gets its own connection, which is required for SQLite
+with FastAPI/uvicorn (which may use multiple threads).
+"""
 
 import sqlite3
 import os
+import threading
 from pathlib import Path
 from typing import Optional
+from contextlib import contextmanager
 from config import settings
 
 
 class Database:
-    """SQLite database manager."""
+    """Thread-safe SQLite database manager.
+    
+    Uses thread-local storage so each thread gets its own connection.
+    This is required because SQLite connections cannot be shared across threads.
+    """
     
     def __init__(self, db_path: str = None):
         if db_path is None:
@@ -16,55 +27,85 @@ class Database:
         self.db_path = db_path
         # Ensure directory exists
         os.makedirs(os.path.dirname(os.path.abspath(self.db_path)), exist_ok=True)
-        self.connection: Optional[sqlite3.Connection] = None
+        self._local = threading.local()
+    
+    def _get_connection(self) -> sqlite3.Connection:
+        """Get thread-local database connection."""
+        conn = getattr(self._local, 'connection', None)
+        if conn is None:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA foreign_keys = ON")
+            conn.execute("PRAGMA journal_mode = WAL")  # Better concurrent read performance
+            self._local.connection = conn
+        return conn
     
     def connect(self) -> sqlite3.Connection:
-        """Connect to database."""
-        self.connection = sqlite3.connect(self.db_path)
-        self.connection.row_factory = sqlite3.Row
-        # Enable foreign keys
-        self.connection.execute("PRAGMA foreign_keys = ON")
-        return self.connection
+        """Connect to database (returns thread-local connection)."""
+        return self._get_connection()
     
     def disconnect(self) -> None:
-        """Disconnect from database."""
-        if self.connection:
-            self.connection.close()
-            self.connection = None
+        """Disconnect current thread's connection."""
+        conn = getattr(self._local, 'connection', None)
+        if conn is not None:
+            conn.close()
+            self._local.connection = None
     
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         """Execute SQL query."""
-        if not self.connection:
-            self.connect()
-        return self.connection.execute(sql, params)
+        return self._get_connection().execute(sql, params)
     
     def executemany(self, sql: str, params_list: list) -> sqlite3.Cursor:
-        """Execute multiple SQL queries."""
-        if not self.connection:
-            self.connect()
-        return self.connection.executemany(sql, params_list)
+        """Execute SQL for multiple parameter sets."""
+        return self._get_connection().executemany(sql, params_list)
     
     def commit(self) -> None:
-        """Commit transaction."""
-        if self.connection:
-            self.connection.commit()
+        """Commit current thread's transaction."""
+        conn = getattr(self._local, 'connection', None)
+        if conn is not None:
+            conn.commit()
     
     def rollback(self) -> None:
-        """Rollback transaction."""
-        if self.connection:
-            self.connection.rollback()
+        """Rollback current thread's transaction."""
+        conn = getattr(self._local, 'connection', None)
+        if conn is not None:
+            conn.rollback()
+    
+    @contextmanager
+    def transaction(self):
+        """Context manager for database transactions.
+        
+        Usage:
+            with db.transaction():
+                db.execute("INSERT ...")
+                db.execute("INSERT ...")
+            # auto-commits on success, rolls back on exception
+        """
+        conn = self._get_connection()
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
     
     def init_db(self) -> None:
         """Initialize database schema from migration files."""
-        self.connect()
+        conn = self._get_connection()
+        
+        # Create schema_version table if not exists
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS schema_version (
+                version INTEGER PRIMARY KEY,
+                applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
         
         # Get current schema version
-        try:
-            cursor = self.connection.execute("SELECT MAX(version) as v FROM schema_version")
-            row = cursor.fetchone()
-            current_version = row["v"] if row["v"] else 0
-        except:
-            current_version = 0
+        cursor = conn.execute("SELECT MAX(version) as v FROM schema_version")
+        row = cursor.fetchone()
+        current_version = row["v"] if row["v"] else 0
         
         # Apply migrations
         migrations_dir = Path(__file__).parent / "migrations"
@@ -82,9 +123,9 @@ class Database:
                 # Split by semicolon and execute each statement
                 statements = [s.strip() for s in sql_script.split(";") if s.strip()]
                 for statement in statements:
-                    self.connection.execute(statement)
+                    conn.execute(statement)
                 
-                self.commit()
+                conn.commit()
         
         print(f"✓ Database initialized: {self.db_path}")
 
