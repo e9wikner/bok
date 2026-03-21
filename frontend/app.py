@@ -146,7 +146,8 @@ if page == "🏠 Dashboard":
             recent = sorted(vouchers, key=lambda x: x.get("created_at", ""), reverse=True)[:5]
             for v in recent:
                 status_icon = "✅" if v.get("status") == "posted" else "📝"
-                st.markdown(f"{status_icon} **{v.get('series')}{v.get('number')}** - {v.get('description', 'N/A')}")
+                ver_nr = f"{v.get('series')}{v.get('number', 0):06d}"
+                st.markdown(f"{status_icon} **{ver_nr}** - {v.get('description', 'N/A')}")
                 st.caption(f"{v.get('date')} | {format_currency(sum(r.get('debit', 0) for r in v.get('rows', [])))}")
         else:
             st.info("Inga verifikationer")
@@ -270,7 +271,8 @@ elif page == "📝 Verifikationer":
         
         # List vouchers
         for v in filtered:
-            with st.expander(f"{v.get('series')}{v.get('number')} - {v.get('description', 'N/A')} ({v.get('date')})"):
+            ver_nr = f"{v.get('series')}{v.get('number', 0):06d}"
+            with st.expander(f"{ver_nr} - {v.get('description', 'N/A')} ({v.get('date')})"):
                 col1, col2, col3 = st.columns([1, 1, 1])
                 with col1:
                     status_color = "🟢" if v.get("status") == "posted" else "🟡"
@@ -319,14 +321,13 @@ elif page == "📝 Verifikationer":
     st.subheader("➕ Skapa ny verifikation")
     
     periods = get_periods()
-    if periods:
+    open_periods = [p for p in periods if not p.get("locked")]
+    if open_periods:
         with st.form("new_voucher"):
             series = st.selectbox("Serie", ["A", "B"])
             voucher_date = st.date_input("Datum", date.today())
-            period = st.selectbox("Period", 
-                [(p.get("id"), f"{p.get('year')}-{p.get('month'):02d}") for p in periods if not p.get("locked")],
-                format_func=lambda x: x[1]
-            )
+            period_options = [(p.get("id"), f"{p.get('year')}-{p.get('month'):02d}") for p in open_periods]
+            period = st.selectbox("Period", period_options, format_func=lambda x: x[1])
             description = st.text_input("Beskrivning")
             
             st.write("**Rader**")
