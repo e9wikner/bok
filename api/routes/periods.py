@@ -86,6 +86,8 @@ async def get_fiscal_year(
                 detail="Fiscal year not found"
             )
         return _fiscal_year_to_response(fy)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -127,6 +129,8 @@ async def get_period(
                 detail="Period not found"
             )
         return _period_to_response(period)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

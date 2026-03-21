@@ -367,7 +367,7 @@ class InvoiceService:
         from services.ledger import LedgerService
         ledger = LedgerService()
         
-        # Reverse original booking
+        # Reverse original booking (credit note reduces receivables and revenue)
         voucher = ledger.create_voucher(
             series="B",
             date=credit.credit_date,
@@ -375,23 +375,23 @@ class InvoiceService:
             description=f"Credit note {credit.credit_note_number} - {credit.reason}",
             rows_data=[
                 {
-                    "account": "1510",  # Kundfordringar
-                    "debit": credit.amount_inc_vat,
+                    "account": "3011",  # Revenue reversal (debit reduces revenue)
+                    "debit": credit.amount_ex_vat,
                     "credit": 0,
-                    "description": f"Credit - Invoice {invoice.invoice_number}"
-                },
-                {
-                    "account": "3011",  # Revenue
-                    "debit": 0,
-                    "credit": credit.amount_ex_vat,
                     "description": "Revenue reversal"
                 },
                 {
-                    "account": "2610",  # VAT
-                    "debit": 0,
-                    "credit": credit.vat_amount,
+                    "account": "2610",  # VAT reversal (debit reduces VAT liability)
+                    "debit": credit.vat_amount,
+                    "credit": 0,
                     "description": "VAT reversal"
-                }
+                },
+                {
+                    "account": "1510",  # Reduce receivables (credit)
+                    "debit": 0,
+                    "credit": credit.amount_inc_vat,
+                    "description": f"Credit - Invoice {invoice.invoice_number}"
+                },
             ],
             created_by=actor
         )

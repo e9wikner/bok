@@ -1,6 +1,7 @@
 """API routes for vouchers."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import status as http_status
 from datetime import datetime
 from typing import List
 
@@ -17,7 +18,7 @@ from services.ledger import LedgerService
 router = APIRouter(prefix="/api/v1/vouchers", tags=["vouchers"])
 
 
-@router.post("", response_model=VoucherResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=VoucherResponse, status_code=http_status.HTTP_201_CREATED)
 async def create_voucher(
     request: CreateVoucherRequest,
     ledger: LedgerService = Depends(get_ledger_service),
@@ -64,7 +65,7 @@ async def create_voucher(
     
     except ValidationError as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=http_status.HTTP_400_BAD_REQUEST,
             detail={
                 "error": e.message,
                 "code": e.code,
@@ -73,7 +74,7 @@ async def create_voucher(
         )
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
         )
 
@@ -88,13 +89,15 @@ async def get_voucher(
         voucher = ledger.vouchers.get(voucher_id)
         if not voucher:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
+                status_code=http_status.HTTP_404_NOT_FOUND,
                 detail="Voucher not found"
             )
         return _voucher_to_response(voucher)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
         )
 
@@ -117,7 +120,7 @@ async def post_voucher(
     
     except ValidationError as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=http_status.HTTP_400_BAD_REQUEST,
             detail={
                 "error": e.message,
                 "code": e.code,
@@ -126,7 +129,7 @@ async def post_voucher(
         )
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
         )
 
@@ -134,25 +137,26 @@ async def post_voucher(
 @router.get("", response_model=dict)
 async def list_vouchers(
     period_id: str,
-    status: str = "posted",
+    voucher_status: str = Query("posted", alias="status", description="Filter: draft, posted, or all"),
     ledger: LedgerService = Depends(get_ledger_service),
 ):
     """
     List vouchers for a period.
     
-    Filter by status: "draft", "posted", or omit for all.
+    Filter by status: "draft", "posted", or "all".
     """
     try:
-        vouchers = ledger.vouchers.list_for_period(period_id, status=status if status != "all" else None)
+        status_filter = voucher_status if voucher_status != "all" else None
+        vouchers = ledger.vouchers.list_for_period(period_id, status=status_filter)
         return {
             "period_id": period_id,
-            "status_filter": status,
+            "status_filter": voucher_status,
             "total": len(vouchers),
             "vouchers": [_voucher_to_response(v) for v in vouchers]
         }
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
         )
 

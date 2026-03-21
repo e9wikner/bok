@@ -47,6 +47,8 @@ async def get_account(
                 detail=f"Account {code} not found"
             )
         return _account_to_response(account)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

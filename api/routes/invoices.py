@@ -1,30 +1,40 @@
 """API routes for invoices (Fas 2)."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from datetime import date
 from typing import List, Optional
 
-from api.schemas import (
-    VoucherResponse,
-)
-from api.deps import get_ledger_service, get_current_actor
+from api.deps import get_current_actor
 from domain.validation import ValidationError
 from domain.invoice_validation import ValidationError as InvoiceValidationError
-from services.ledger import LedgerService
 from services.invoice import InvoiceService
 
 router = APIRouter(prefix="/api/v1/invoices", tags=["invoices"])
 
 
+class InvoiceRowRequest(BaseModel):
+    """Request model for invoice row."""
+    description: str
+    quantity: int = Field(..., gt=0)
+    unit_price: int = Field(..., ge=0, description="Unit price in öre")
+    vat_code: str = Field(..., pattern="^(MP1|MP2|MP3|MF)$")
+
+
+class CreateInvoiceRequest(BaseModel):
+    """Request model for creating an invoice."""
+    customer_name: str = Field(..., min_length=1)
+    invoice_date: date
+    due_date: date
+    description: Optional[str] = None
+    customer_org_number: Optional[str] = None
+    customer_email: Optional[str] = None
+    rows: List[InvoiceRowRequest] = Field(..., min_length=1)
+
+
 @router.post("", response_model=dict, status_code=status.HTTP_201_CREATED)
 async def create_invoice(
-    customer_name: str,
-    invoice_date: date,
-    due_date: date,
-    description: Optional[str] = None,
-    customer_org_number: Optional[str] = None,
-    customer_email: Optional[str] = None,
-    rows: List[dict] = None,
+    request: CreateInvoiceRequest,
     actor: str = Depends(get_current_actor),
 ):
     """
@@ -47,17 +57,16 @@ async def create_invoice(
     try:
         service = InvoiceService()
         
-        if not rows:
-            rows = []
+        rows_data = [r.model_dump() for r in request.rows]
         
         invoice = service.create_invoice(
-            customer_name=customer_name,
-            invoice_date=invoice_date,
-            due_date=due_date,
-            rows_data=rows,
-            customer_org_number=customer_org_number,
-            customer_email=customer_email,
-            description=description,
+            customer_name=request.customer_name,
+            invoice_date=request.invoice_date,
+            due_date=request.due_date,
+            rows_data=rows_data,
+            customer_org_number=request.customer_org_number,
+            customer_email=request.customer_email,
+            description=request.description,
             created_by=actor
         )
         
@@ -136,6 +145,8 @@ async def get_invoice(invoice_id: str):
             "voucher_id": invoice.voucher_id
         }
     
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -172,10 +183,15 @@ async def send_invoice(
         )
 
 
+class BookInvoiceRequest(BaseModel):
+    """Request model for booking an invoice."""
+    period_id: str
+
+
 @router.post("/{invoice_id}/book", response_model=dict)
 async def book_invoice(
     invoice_id: str,
-    period_id: str,
+    request: BookInvoiceRequest,
     actor: str = Depends(get_current_actor),
 ):
     """
@@ -187,7 +203,7 @@ async def book_invoice(
     """
     try:
         service = InvoiceService()
-        voucher_id = service.create_booking_for_invoice(invoice_id, period_id, actor=actor)
+        voucher_id = service.create_booking_for_invoice(invoice_id, request.period_id, actor=actor)
         
         return {
             "invoice_id": invoice_id,
@@ -207,15 +223,20 @@ async def book_invoice(
         )
 
 
+class RegisterPaymentRequest(BaseModel):
+    """Request model for registering a payment."""
+    amount: int = Field(..., gt=0, description="Payment amount in öre")
+    payment_date: date
+    payment_method: str
+    reference: Optional[str] = None
+    notes: Optional[str] = None
+    period_id: Optional[str] = None
+
+
 @router.post("/{invoice_id}/payment", response_model=dict)
 async def register_payment(
     invoice_id: str,
-    amount: int,
-    payment_date: date,
-    payment_method: str,
-    reference: Optional[str] = None,
-    notes: Optional[str] = None,
-    period_id: Optional[str] = None,
+    request: RegisterPaymentRequest,
     actor: str = Depends(get_current_actor),
 ):
     """
@@ -227,12 +248,12 @@ async def register_payment(
         service = InvoiceService()
         payment = service.register_payment(
             invoice_id=invoice_id,
-            amount=amount,
-            payment_date=payment_date,
-            payment_method=payment_method,
-            reference=reference,
-            notes=notes,
-            period_id=period_id,
+            amount=request.amount,
+            payment_date=request.payment_date,
+            payment_method=request.payment_method,
+            reference=request.reference,
+            notes=request.notes,
+            period_id=request.period_id,
             actor=actor
         )
         
@@ -241,9 +262,9 @@ async def register_payment(
         return {
             "payment_id": payment.id,
             "invoice_id": invoice_id,
-            "amount": amount,
-            "payment_date": payment_date,
-            "method": payment_method,
+            "amount": request.amount,
+            "payment_date": request.payment_date,
+            "method": request.payment_method,
             "invoice_status": invoice.status,
             "remaining_amount": invoice.remaining_amount(),
             "voucher_id": payment.voucher_id
@@ -261,13 +282,18 @@ async def register_payment(
         )
 
 
+class CreateCreditNoteRequest(BaseModel):
+    """Request model for creating a credit note."""
+    amount_ex_vat: int = Field(..., gt=0, description="Credit amount ex VAT in öre")
+    reason: str = Field(..., min_length=1)
+    credit_date: date
+    period_id: Optional[str] = None
+
+
 @router.post("/{invoice_id}/credit-note", response_model=dict)
 async def create_credit_note(
     invoice_id: str,
-    amount_ex_vat: int,
-    reason: str,
-    credit_date: date,
-    period_id: Optional[str] = None,
+    request: CreateCreditNoteRequest,
     actor: str = Depends(get_current_actor),
 ):
     """
@@ -279,10 +305,10 @@ async def create_credit_note(
         service = InvoiceService()
         credit = service.create_credit_note(
             invoice_id=invoice_id,
-            amount_ex_vat=amount_ex_vat,
-            reason=reason,
-            credit_date=credit_date,
-            period_id=period_id,
+            amount_ex_vat=request.amount_ex_vat,
+            reason=request.reason,
+            credit_date=request.credit_date,
+            period_id=request.period_id,
             actor=actor
         )
         
@@ -290,11 +316,11 @@ async def create_credit_note(
             "credit_note_id": credit.id,
             "credit_note_number": credit.credit_note_number,
             "invoice_id": invoice_id,
-            "reason": reason,
-            "amount_ex_vat": amount_ex_vat,
+            "reason": request.reason,
+            "amount_ex_vat": request.amount_ex_vat,
             "vat_amount": credit.vat_amount,
             "amount_inc_vat": credit.amount_inc_vat,
-            "credit_date": credit_date,
+            "credit_date": request.credit_date,
             "voucher_id": credit.voucher_id
         }
     
