@@ -1,18 +1,20 @@
 """
-Demo data generator that uses the API to populate the bookkeeping system.
+Demo data generator - skapar 3 års realistisk bokföringsdata via API.
 
-This container runs once to create realistic accounting data for demonstration.
+Simulerar ett konsultföretag "TechVision AB":
+- 2024: Startår, investeringar, lån, ~500k omsättning
+- 2025: Tillväxtår, expansion, ~800k omsättning  
+- 2026: Stabiliseringsår, ~600k omsättning
 """
 
 import os
 import sys
 import time
-import random
-from datetime import date, datetime, timedelta
+from datetime import date
 from typing import Optional
 import requests
 
-# Configuration
+# Konfiguration
 API_URL = os.getenv("API_URL", "http://bokfoering-api:8000")
 API_KEY = os.getenv("API_KEY", "dev-key-change-in-production")
 HEADERS = {
@@ -22,44 +24,66 @@ HEADERS = {
 
 
 def ensure_accounts_exist():
-    """Create missing accounts that demo data needs."""
+    """Skapa konton som demodatan behöver."""
     required_accounts = [
-        ("1930", "Företagskonto / checkräkningskonto", "asset"),
-        ("5410", "Inventarier", "asset"),
-        ("2440", "Leverantörsskulder", "liability"),
-        ("3041", "Försäljning tjänster 25% moms", "revenue"),
-        ("3042", "Försäljning tjänster 12% moms", "revenue"),
-        ("6210", "Telefon och post", "expense"),
-        ("5010", "Lokalhyra", "expense"),
-        ("7010", "Lön tjänstemän", "expense"),
-        ("2013", "Eget uttag", "equity"),
-        ("7830", "Avskrivningar inventarier", "expense"),
-        ("1220", "Ackumulerade avskrivningar", "asset"),
-        ("6991", "Revisorskostnader", "expense"),
-        ("6310", "Försäkringspremier", "expense"),
-        ("5800", "Resekostnader", "expense"),
-        ("6110", "Konsultarvoden", "expense"),
-        ("5910", "Reklam och marknadsföring", "expense"),
-        ("6540", "Programvaror", "expense"),
-        ("6180", "Kontorsmaterial", "expense"),
-        ("2710", "Avräkning för skatter", "liability"),
-        ("2730", "Avräkning för arbetsgivaravgifter", "liability"),
-        ("2650", "Moms att betala", "liability"),
+        # Tillgångar (1xxx)
+        ("1220", "Ackumulerade avskrivningar inventarier", "asset"),
+        ("1230", "Installationer", "asset"),
+        ("1250", "Datorer och IT-utrustning", "asset"),
         ("1510", "Kundfordringar", "asset"),
+        ("1580", "Fordringar hos anställda", "asset"),
+        ("1910", "Kassa", "asset"),
+        ("1930", "Företagskonto / checkräkningskonto", "asset"),
+        ("1940", "Sparkonto", "asset"),
+        ("5410", "Inventarier", "asset"),
+        # Skulder (2xxx)
+        ("2081", "Aktieägartillskott", "equity"),
+        ("2013", "Eget uttag", "equity"),
+        ("2091", "Balanserad vinst/förlust", "equity"),
+        ("2350", "Banklån", "liability"),
+        ("2440", "Leverantörsskulder", "liability"),
         ("2610", "Utgående moms 25%", "vat_out"),
         ("2620", "Utgående moms 12%", "vat_out"),
         ("2630", "Utgående moms 6%", "vat_out"),
         ("2640", "Ingående moms", "vat_in"),
-        ("2081", "Aktieägartillskott", "equity"),
+        ("2650", "Moms att betala", "liability"),
+        ("2710", "Avräkning för skatter", "liability"),
+        ("2730", "Avräkning för arbetsgivaravgifter", "liability"),
+        # Intäkter (3xxx)
+        ("3011", "Försäljning konsulttjänster", "revenue"),
+        ("3041", "Försäljning tjänster 25% moms", "revenue"),
+        ("3042", "Försäljning tjänster 12% moms", "revenue"),
+        ("3050", "Försäljning utbildning", "revenue"),
+        ("3510", "Fakturerade resekostnader", "revenue"),
+        ("3740", "Öres- och kronavrundning", "revenue"),
+        ("3900", "Övriga rörelseintäkter", "revenue"),
+        # Kostnader (4xxx-7xxx)
+        ("4010", "Inköp material", "expense"),
+        ("5010", "Lokalhyra", "expense"),
+        ("5090", "Övriga lokalkostnader", "expense"),
+        ("5410", "Inventarier", "expense"),
+        ("5800", "Resekostnader", "expense"),
+        ("5910", "Reklam och marknadsföring", "expense"),
+        ("6110", "Konsultarvoden", "expense"),
+        ("6180", "Kontorsmaterial", "expense"),
+        ("6210", "Telefon och post", "expense"),
+        ("6310", "Försäkringspremier", "expense"),
+        ("6540", "Programvaror och licenser", "expense"),
+        ("6570", "Bankkostnader", "expense"),
+        ("6991", "Revisorskostnader", "expense"),
+        ("7010", "Lön tjänstemän", "expense"),
+        ("7210", "Lön övrig personal", "expense"),
+        ("7510", "Sociala avgifter", "expense"),
+        ("7830", "Avskrivningar inventarier", "expense"),
+        ("8310", "Ränteintäkter", "revenue"),
+        ("8410", "Räntekostnader", "expense"),
     ]
     
-    print("📊 Checking required accounts...")
+    print("📊 Kontrollerar konton...")
     created = 0
     for code, name, acc_type in required_accounts:
-        # Check if account exists
         resp = requests.get(f"{API_URL}/api/v1/accounts/{code}", headers=HEADERS)
         if resp.status_code == 404:
-            # Create account
             resp = requests.post(
                 f"{API_URL}/api/v1/accounts",
                 headers=HEADERS,
@@ -67,101 +91,70 @@ def ensure_accounts_exist():
             )
             if resp.status_code == 201:
                 created += 1
-                print(f"  ✓ Created account {code}: {name}")
             else:
-                print(f"  ⚠ Failed to create {code}: {resp.text}")
+                print(f"  ⚠ Kunde inte skapa {code}: {resp.text}")
     
-    if created == 0:
-        print("  ✅ All required accounts exist")
-    else:
-        print(f"  ✅ Created {created} new accounts")
+    print(f"  ✅ {created} nya konton skapade" if created else "  ✅ Alla konton finns redan")
 
 
 def wait_for_api(timeout: int = 60) -> bool:
-    """Wait for API to be ready."""
-    print("⏳ Waiting for API to be ready...")
+    """Vänta på att API:et är redo."""
+    print("⏳ Väntar på API...")
     start = time.time()
     while time.time() - start < timeout:
         try:
             resp = requests.get(f"{API_URL}/health", timeout=2)
             if resp.status_code == 200:
-                print("✅ API is ready!")
+                print("✅ API redo!")
                 return True
         except:
             pass
         time.sleep(2)
-        print("  ...still waiting")
     print("❌ API timeout")
     return False
 
 
-def find_existing_fiscal_year() -> Optional[str]:
-    """Try to find existing fiscal year by listing all."""
-    # First try listing all fiscal years
+def find_existing_fiscal_year(year: int) -> Optional[str]:
+    """Hitta befintligt räkenskapsår."""
     resp = requests.get(f"{API_URL}/api/v1/fiscal-years", headers=HEADERS)
     if resp.status_code == 200:
-        fiscal_years = resp.json().get("fiscal_years", [])
-        if fiscal_years:
-            # Return the first one (most recent)
-            return fiscal_years[0].get("id")
-    
-    # Fallback: try common IDs
-    for fy_id in ["fy-2026", "fy2026", "1", "2026"]:
-        resp = requests.get(f"{API_URL}/api/v1/fiscal-years/{fy_id}", headers=HEADERS)
-        if resp.status_code == 200:
-            return fy_id
+        for fy in resp.json().get("fiscal_years", []):
+            start = fy.get("start_date", "")
+            if start.startswith(str(year)):
+                return fy.get("id")
     return None
 
 
-def get_or_create_fiscal_year() -> str:
-    """Get or create fiscal year 2026."""
-    # Try to find existing fiscal year first
-    existing_fy = find_existing_fiscal_year()
-    if existing_fy:
-        # Check if periods exist for this fiscal year
-        resp = requests.get(
-            f"{API_URL}/api/v1/periods",
-            headers=HEADERS,
-            params={"fiscal_year_id": existing_fy}
-        )
-        if resp.status_code == 200:
-            periods = resp.json().get("periods", [])
-            if periods:
-                print(f"✅ Found {len(periods)} existing periods")
-                return existing_fy
-            else:
-                print(f"ℹ️ Fiscal year exists but no periods found")
-                return existing_fy
+def get_or_create_fiscal_year(year: int) -> str:
+    """Hämta eller skapa räkenskapsår."""
+    existing = find_existing_fiscal_year(year)
+    if existing:
+        print(f"  ✓ Räkenskapsår {year} finns: {existing}")
+        return existing
     
-    # Try to create fiscal year via API
-    print("📅 Creating fiscal year 2026...")
+    print(f"📅 Skapar räkenskapsår {year}...")
     resp = requests.post(
         f"{API_URL}/api/v1/fiscal-years",
         headers=HEADERS,
         params={
-            "start_date": "2026-01-01",
-            "end_date": "2026-12-31"
+            "start_date": f"{year}-01-01",
+            "end_date": f"{year}-12-31"
         }
     )
     if resp.status_code == 201:
-        data = resp.json()
-        print(f"  ✓ Created fiscal year: {data.get('id', 'unknown')}")
-        return data.get("id", "fy-2026")
-    elif resp.status_code == 500 and "UNIQUE constraint failed" in resp.text:
-        # Already exists, find it
-        existing_fy = find_existing_fiscal_year()
-        if existing_fy:
-            print(f"  ✓ Found existing fiscal year: {existing_fy}")
-            return existing_fy
-        print("  ⚠️ Could not find existing fiscal year, assuming fy-2026")
-        return "fy-2026"
+        fy_id = resp.json().get("id", f"fy-{year}")
+        print(f"  ✓ Skapat: {fy_id}")
+        return fy_id
+    elif resp.status_code == 500 and "UNIQUE" in resp.text:
+        existing = find_existing_fiscal_year(year)
+        return existing or f"fy-{year}"
     else:
-        print(f"  ⚠ Failed to create fiscal year: {resp.status_code} - {resp.text}")
+        print(f"  ⚠ Fel: {resp.status_code} - {resp.text}")
         return ""
 
 
-def get_period_id(fiscal_year_id: str, month: int) -> Optional[str]:
-    """Get period ID for a specific month."""
+def get_period_id(fiscal_year_id: str, year: int, month: int) -> Optional[str]:
+    """Hämta period-ID för en specifik månad."""
     resp = requests.get(
         f"{API_URL}/api/v1/periods",
         headers=HEADERS,
@@ -169,13 +162,20 @@ def get_period_id(fiscal_year_id: str, month: int) -> Optional[str]:
     )
     if resp.status_code == 200:
         for period in resp.json().get("periods", []):
-            if period.get("year") == 2026 and period.get("month") == month:
-                return period.get("id")
+            if period.get("year") == year and period.get("month") == month:
+                if not period.get("locked"):
+                    return period.get("id")
+                else:
+                    print(f"    ℹ️ Period {year}-{month:02d} är låst, hoppar över")
+                    return None
     return None
 
 
-def create_voucher(description: str, voucher_date: date, period_id: str, rows: list, series: str = "A"):
-    """Create a voucher via API."""
+def create_voucher(description, voucher_date, period_id, rows, series="A"):
+    """Skapa en verifikation via API."""
+    if not period_id:
+        return None
+    
     data = {
         "series": series,
         "date": voucher_date.isoformat(),
@@ -185,424 +185,548 @@ def create_voucher(description: str, voucher_date: date, period_id: str, rows: l
         "auto_post": True
     }
     
-    resp = requests.post(
-        f"{API_URL}/api/v1/vouchers",
-        headers=HEADERS,
-        json=data
-    )
+    resp = requests.post(f"{API_URL}/api/v1/vouchers", headers=HEADERS, json=data)
     
     if resp.status_code == 201:
         voucher = resp.json()
         total = sum(r.get("debit", 0) for r in rows)
-        print(f"  ✓ {voucher['series']}{voucher['number']}: {description} ({total/100:,.0f} kr)")
+        print(f"    ✓ {voucher['series']}{voucher['number']}: {description} ({total/100:,.0f} kr)")
         return voucher
     else:
-        print(f"  ❌ Failed: {description} - {resp.text}")
+        print(f"    ❌ Fel: {description} - {resp.text[:100]}")
         return None
 
 
-def generate_demo_vouchers():
-    """Generate 20 realistic vouchers for a small consulting company."""
-    
+def generate_year_2024(fy_id):
+    """2024: Startår - grundande, investeringar, lån, ~500k omsättning."""
     print("\n" + "="*60)
-    print("🎯 GENERATING DEMO VOUCHERS")
+    print("📅 2024 — STARTÅR: Grundande & Investeringar")
     print("="*60)
     
-    # Ensure accounts exist
-    ensure_accounts_exist()
+    count = 0
     
-    # First ensure fiscal year exists
-    print("\n📅 Checking fiscal year...")
-    fy_id = get_or_create_fiscal_year()
+    def pid(month):
+        return get_period_id(fy_id, 2024, month)
     
-    if not fy_id:
-        print("❌ Could not get or create fiscal year. Aborting.")
-        return 0
+    # Januari: Grundande
+    p = pid(1)
+    if p:
+        create_voucher("Aktiekapital vid bolagsbildning", date(2024, 1, 5), p,
+            [{"account": "1930", "debit": 5000000, "credit": 0, "description": "Insättning aktiekapital"},
+             {"account": "2081", "debit": 0, "credit": 5000000, "description": "Aktiekapital"}])
+        count += 1
+        
+        create_voucher("Banklån för startinvesteringar", date(2024, 1, 10), p,
+            [{"account": "1930", "debit": 30000000, "credit": 0, "description": "Låneutbetalning"},
+             {"account": "2350", "debit": 0, "credit": 30000000, "description": "Banklån"}])
+        count += 1
+        
+        create_voucher("Inköp kontorsutrustning och möbler", date(2024, 1, 15), p,
+            [{"account": "1250", "debit": 8000000, "credit": 0, "description": "Datorer, skärmar, möbler"},
+             {"account": "2640", "debit": 2000000, "credit": 0, "description": "Ingående moms 25%"},
+             {"account": "1930", "debit": 0, "credit": 10000000, "description": "Bankutbetalning"}])
+        count += 1
     
-    # Get period IDs and check which are locked
-    periods = {}
-    locked_periods = set()
+    # Februari: Första hyran + försäkring
+    p = pid(2)
+    if p:
+        create_voucher("Hyra kontor februari", date(2024, 2, 1), p,
+            [{"account": "5010", "debit": 1500000, "credit": 0, "description": "Lokalhyra"},
+             {"account": "2640", "debit": 375000, "credit": 0, "description": "Ingående moms"},
+             {"account": "1930", "debit": 0, "credit": 1875000, "description": "Bankutbetalning"}])
+        count += 1
+        
+        create_voucher("Företagsförsäkring helår", date(2024, 2, 5), p,
+            [{"account": "6310", "debit": 1200000, "credit": 0, "description": "Årsförsäkring"},
+             {"account": "1930", "debit": 0, "credit": 1200000, "description": "Bankutbetalning"}])
+        count += 1
+    
+    # Mars-Juni: Första kunderna, ~200k intäkter
+    for month, customer, amount in [
+        (3, "Startup Nordic AB", 6000000),
+        (4, "DataDriven Solutions", 8000000),
+        (5, "GreenTech Innovation", 5000000),
+        (6, "LogistikPartner AB", 7000000),
+    ]:
+        p = pid(month)
+        if p:
+            vat = int(amount * 0.25)
+            create_voucher(f"Konsulttjänster — {customer}", date(2024, month, 15), p,
+                [{"account": "1510", "debit": amount + vat, "credit": 0, "description": f"Kundfordran {customer}"},
+                 {"account": "3041", "debit": 0, "credit": amount, "description": "Försäljning tjänster 25%"},
+                 {"account": "2610", "debit": 0, "credit": vat, "description": "Utgående moms 25%"}])
+            count += 1
+    
+    # Hyra mars-dec
+    for month in range(3, 13):
+        p = pid(month)
+        if p:
+            create_voucher(f"Hyra kontor {month:02d}/2024", date(2024, month, 1), p,
+                [{"account": "5010", "debit": 1500000, "credit": 0, "description": "Lokalhyra"},
+                 {"account": "2640", "debit": 375000, "credit": 0, "description": "Ingående moms"},
+                 {"account": "1930", "debit": 0, "credit": 1875000, "description": "Bankutbetalning"}])
+            count += 1
+    
+    # Juli-Dec: Mer försäljning, ~240k
+    for month, customer, amount in [
+        (7, "MedTech Sverige AB", 10000000),
+        (8, "E-handel Pro", 6000000),
+        (9, "FinansData Nordic", 8000000),
+        (10, "Byggkonsult AB", 4000000),
+        (11, "RetailTech Solutions", 9000000),
+        (12, "YearEnd Corp", 7000000),
+    ]:
+        p = pid(month)
+        if p:
+            vat = int(amount * 0.25)
+            create_voucher(f"Konsulttjänster — {customer}", date(2024, month, 15), p,
+                [{"account": "1510", "debit": amount + vat, "credit": 0, "description": f"Kundfordran {customer}"},
+                 {"account": "3041", "debit": 0, "credit": amount, "description": "Försäljning tjänster 25%"},
+                 {"account": "2610", "debit": 0, "credit": vat, "description": "Utgående moms 25%"}])
+            count += 1
+    
+    # Inbetalningar från kunder (med viss fördröjning)
+    for month, amount in [(4, 7500000), (5, 10000000), (7, 6250000), (8, 8750000),
+                          (9, 12500000), (10, 7500000), (11, 10000000), (12, 11250000)]:
+        p = pid(month)
+        if p:
+            create_voucher(f"Inbetalning kunder {month:02d}/2024", date(2024, month, 25), p,
+                [{"account": "1930", "debit": amount, "credit": 0, "description": "Kundinbetalningar"},
+                 {"account": "1510", "debit": 0, "credit": amount, "description": "Kundfordringar"}])
+            count += 1
+    
+    # Löner kvartalsvis (liten personal)
+    for month in [3, 6, 9, 12]:
+        p = pid(month)
+        if p:
+            create_voucher(f"Lönekostnader Q{month//3}/2024", date(2024, month, 25), p,
+                [{"account": "7010", "debit": 4500000, "credit": 0, "description": "Lön grundare"},
+                 {"account": "7510", "debit": 1400000, "credit": 0, "description": "Sociala avgifter"},
+                 {"account": "2710", "debit": 0, "credit": 1350000, "description": "Skatt"},
+                 {"account": "2730", "debit": 0, "credit": 1400000, "description": "Arbetsgivaravgifter"},
+                 {"account": "1930", "debit": 0, "credit": 3150000, "description": "Nettolön"}])
+            count += 1
+    
+    # Programvaror & telefon
+    for month in [1, 4, 7, 10]:
+        p = pid(month)
+        if p:
+            create_voucher(f"Programvaror och licenser Q{(month-1)//3+1}", date(2024, month, 10), p,
+                [{"account": "6540", "debit": 250000, "credit": 0, "description": "SaaS-licenser"},
+                 {"account": "2640", "debit": 62500, "credit": 0, "description": "Ingående moms"},
+                 {"account": "1930", "debit": 0, "credit": 312500, "description": "Bankutbetalning"}])
+            count += 1
+    
+    # Ränta på lån
+    for month in [6, 12]:
+        p = pid(month)
+        if p:
+            create_voucher(f"Ränta banklån H{month//6}/2024", date(2024, month, 30), p,
+                [{"account": "8410", "debit": 450000, "credit": 0, "description": "Räntekostnad"},
+                 {"account": "1930", "debit": 0, "credit": 450000, "description": "Bankutbetalning"}])
+            count += 1
+    
+    # Avskrivningar december
+    p = pid(12)
+    if p:
+        create_voucher("Årets avskrivningar inventarier 2024", date(2024, 12, 31), p,
+            [{"account": "7830", "debit": 1600000, "credit": 0, "description": "Avskrivning 20%"},
+             {"account": "1220", "debit": 0, "credit": 1600000, "description": "Ack avskrivningar"}])
+        count += 1
+    
+    return count
+
+
+def generate_year_2025(fy_id):
+    """2025: Tillväxtår - expansion, anställning, ~800k omsättning."""
+    print("\n" + "="*60)
+    print("📅 2025 — TILLVÄXTÅR: Expansion & Rekrytering")
+    print("="*60)
+    
+    count = 0
+    
+    def pid(month):
+        return get_period_id(fy_id, 2025, month)
+    
+    # Januari: Ny anställd, mer utrustning
+    p = pid(1)
+    if p:
+        create_voucher("Inköp utrustning till nyanställd", date(2025, 1, 10), p,
+            [{"account": "1250", "debit": 4000000, "credit": 0, "description": "Dator + tillbehör"},
+             {"account": "2640", "debit": 1000000, "credit": 0, "description": "Ingående moms"},
+             {"account": "1930", "debit": 0, "credit": 5000000, "description": "Bankutbetalning"}])
+        count += 1
+    
+    # Hyra varje månad (större kontor)
     for month in range(1, 13):
-        period_id = get_period_id(fy_id, month)
-        periods[month] = period_id
-        if period_id:
-            # Check if period is locked
-            resp = requests.get(f"{API_URL}/api/v1/periods/{period_id}", headers=HEADERS)
-            if resp.status_code == 200 and resp.json().get("locked"):
-                locked_periods.add(month)
-                print(f"  ℹ️  Period {month:02d}/2026 is locked - will skip")
+        p = pid(month)
+        if p:
+            create_voucher(f"Hyra kontor {month:02d}/2025", date(2025, month, 1), p,
+                [{"account": "5010", "debit": 2000000, "credit": 0, "description": "Lokalhyra (större kontor)"},
+                 {"account": "2640", "debit": 500000, "credit": 0, "description": "Ingående moms"},
+                 {"account": "1930", "debit": 0, "credit": 2500000, "description": "Bankutbetalning"}])
+            count += 1
     
-    if not any(periods.values()):
-        print(f"❌ No periods found for fiscal year {fy_id}. Cannot create vouchers.")
-        return 0
+    # Större försäljningsprojekt varje månad
+    monthly_sales = [
+        (1, "Enterprise Solutions AB", 6000000),
+        (2, "Nordic AI Labs", 8000000),
+        (3, "SmartCity Stockholm", 10000000),
+        (4, "CloudMigrate Nordic", 7500000),
+        (5, "HealthTech Pro", 9000000),
+        (6, "AutomationHub AB", 6500000),
+        (7, "DataVault Solutions", 8500000),
+        (8, "SecureNet Nordic", 5500000),
+        (9, "PropTech Sverige", 7000000),
+        (10, "EdTech Innovation", 6000000),
+        (11, "GreenEnergy Tech", 8000000),
+        (12, "WinterProject AB", 7000000),
+    ]
     
-    vouchers_created = 0
+    for month, customer, amount in monthly_sales:
+        p = pid(month)
+        if p:
+            vat = int(amount * 0.25)
+            create_voucher(f"Konsulttjänster — {customer}", date(2025, month, 12), p,
+                [{"account": "1510", "debit": amount + vat, "credit": 0, "description": f"Kundfordran {customer}"},
+                 {"account": "3041", "debit": 0, "credit": amount, "description": "Försäljning tjänster 25%"},
+                 {"account": "2610", "debit": 0, "credit": vat, "description": "Utgående moms 25%"}])
+            count += 1
     
-    # === JANUARY - Company Setup ===
-    print("\n📅 JANUARY - Company Setup")
+    # Extra utbildningsförsäljning (12% moms)
+    for month in [3, 6, 9]:
+        p = pid(month)
+        if p:
+            amount = 3000000
+            vat = int(amount * 0.12)
+            create_voucher(f"Utbildningstjänster Q{(month-1)//3+1}/2025", date(2025, month, 20), p,
+                [{"account": "1510", "debit": amount + vat, "credit": 0, "description": "Utbildning"},
+                 {"account": "3050", "debit": 0, "credit": amount, "description": "Försäljning utbildning"},
+                 {"account": "2620", "debit": 0, "credit": vat, "description": "Utgående moms 12%"}])
+            count += 1
     
-    # 1. Owner's capital contribution
-    if periods[1] and 1 not in locked_periods:
-        create_voucher(
-            "Aktieägartillskott - Startkapital",
-            date(2026, 1, 15),
-            periods[1],
-            [
-                {"account": "1930", "debit": 20000000, "credit": 0, "description": "Insättning företagskonto"},
-                {"account": "2081", "debit": 0, "credit": 20000000, "description": "Aktieägartillskott"},
-            ]
-        )
-        vouchers_created += 1
+    # Kundinbetalningar (löpande)
+    for month in range(2, 13):
+        p = pid(month)
+        if p:
+            amount = monthly_sales[month-2][2] + int(monthly_sales[month-2][2] * 0.25)
+            create_voucher(f"Inbetalning kunder {month:02d}/2025", date(2025, month, 28), p,
+                [{"account": "1930", "debit": amount, "credit": 0, "description": "Kundinbetalningar"},
+                 {"account": "1510", "debit": 0, "credit": amount, "description": "Kundfordringar"}])
+            count += 1
     
-    # 2. Office equipment purchase
-    if periods[1] and 1 not in locked_periods:
-        create_voucher(
-            "Inköp dator och kontorsutrustning",
-            date(2026, 1, 20),
-            periods[1],
-            [
-                {"account": "5410", "debit": 2500000, "credit": 0, "description": "Dator och skärmar"},
-                {"account": "2640", "debit": 625000, "credit": 0, "description": "Ingående moms 25%"},
-                {"account": "2440", "debit": 0, "credit": 3125000, "description": "Leverantörsskuld - Elgiganten"},
-            ]
-        )
-        vouchers_created += 1
+    # Löner varje månad (2 anställda nu)
+    for month in range(1, 13):
+        p = pid(month)
+        if p:
+            create_voucher(f"Löner {month:02d}/2025", date(2025, month, 25), p,
+                [{"account": "7010", "debit": 7000000, "credit": 0, "description": "Löner 2 anställda"},
+                 {"account": "7510", "debit": 2200000, "credit": 0, "description": "Sociala avgifter"},
+                 {"account": "2710", "debit": 0, "credit": 2100000, "description": "Skatt"},
+                 {"account": "2730", "debit": 0, "credit": 2200000, "description": "Arbetsgivaravgifter"},
+                 {"account": "1930", "debit": 0, "credit": 4900000, "description": "Nettolöner"}])
+            count += 1
     
-    # === FEBRUARY - Operations Begin ===
-    print("\n📅 FEBRUARY - Operations")
+    # Marknadsföring (ökad satsning)
+    for month in [2, 5, 8, 11]:
+        p = pid(month)
+        if p:
+            create_voucher(f"Marknadsföring Q{(month-1)//3+1}/2025", date(2025, month, 15), p,
+                [{"account": "5910", "debit": 800000, "credit": 0, "description": "Digital marknadsföring"},
+                 {"account": "2640", "debit": 200000, "credit": 0, "description": "Ingående moms"},
+                 {"account": "1930", "debit": 0, "credit": 1000000, "description": "Bankutbetalning"}])
+            count += 1
     
-    # 3. Office rent
-    if periods[2] and 2 not in locked_periods:
-        create_voucher(
-            "Hyra kontor februari",
-            date(2026, 2, 1),
-            periods[2],
-            [
-                {"account": "5010", "debit": 1200000, "credit": 0, "description": "Lokalhyra"},
-                {"account": "2640", "debit": 300000, "credit": 0, "description": "Ingående moms 25%"},
-                {"account": "1930", "debit": 0, "credit": 1500000, "description": "Bankutbetalning"},
-            ]
-        )
-        vouchers_created += 1
+    # Programvaror (fler licenser)
+    for month in [1, 4, 7, 10]:
+        p = pid(month)
+        if p:
+            create_voucher(f"Programvaror Q{(month-1)//3+1}/2025", date(2025, month, 5), p,
+                [{"account": "6540", "debit": 400000, "credit": 0, "description": "SaaS, GitHub, Azure"},
+                 {"account": "2640", "debit": 100000, "credit": 0, "description": "Ingående moms"},
+                 {"account": "1930", "debit": 0, "credit": 500000, "description": "Bankutbetalning"}])
+            count += 1
     
-    # 4. First consulting sale
-    if periods[2] and 2 not in locked_periods:
-        create_voucher(
-            "Försäljning konsulttjänster - TechStart AB",
-            date(2026, 2, 15),
-            periods[2],
-            [
-                {"account": "1510", "debit": 12500000, "credit": 0, "description": "Kundfordran - TechStart AB"},
-                {"account": "3041", "debit": 0, "credit": 10000000, "description": "Försäljning tjänster 25%"},
-                {"account": "2610", "debit": 0, "credit": 2500000, "description": "Utgående moms 25%"},
-            ]
-        )
-        vouchers_created += 1
+    # Resor & konferenser
+    for month in [3, 9]:
+        p = pid(month)
+        if p:
+            create_voucher(f"Konferens & resor {month:02d}/2025", date(2025, month, 18), p,
+                [{"account": "5800", "debit": 1200000, "credit": 0, "description": "Resor och boende"},
+                 {"account": "6110", "debit": 500000, "credit": 0, "description": "Konferensavgift"},
+                 {"account": "2640", "debit": 425000, "credit": 0, "description": "Ingående moms"},
+                 {"account": "1930", "debit": 0, "credit": 2125000, "description": "Bankutbetalning"}])
+            count += 1
     
-    # 5. Phone and internet
-    if periods[2] and 2 not in locked_periods:
-        create_voucher(
-            "Telefon och internet",
-            date(2026, 2, 25),
-            periods[2],
-            [
-                {"account": "6210", "debit": 60000, "credit": 0, "description": "Telefon"},
-                {"account": "2640", "debit": 15000, "credit": 0, "description": "Ingående moms"},
-                {"account": "1930", "debit": 0, "credit": 75000, "description": "Bankutbetalning"},
-            ]
-        )
-        vouchers_created += 1
+    # Amortering och ränta
+    for month in [6, 12]:
+        p = pid(month)
+        if p:
+            create_voucher(f"Amortering + ränta banklån H{month//6}/2025", date(2025, month, 30), p,
+                [{"account": "2350", "debit": 2500000, "credit": 0, "description": "Amortering"},
+                 {"account": "8410", "debit": 375000, "credit": 0, "description": "Ränta"},
+                 {"account": "1930", "debit": 0, "credit": 2875000, "description": "Bankutbetalning"}])
+            count += 1
     
-    # === MARCH - More Sales ===
-    print("\n📅 MARCH - Sales & Expenses")
+    # Försäkring
+    p = pid(1)
+    if p:
+        create_voucher("Företagsförsäkring 2025", date(2025, 1, 15), p,
+            [{"account": "6310", "debit": 1500000, "credit": 0, "description": "Årsförsäkring"},
+             {"account": "1930", "debit": 0, "credit": 1500000, "description": "Bankutbetalning"}])
+        count += 1
     
-    # 6. Another consulting project
-    if periods[3] and 3 not in locked_periods:
-        create_voucher(
-            "Försäljning - Webbapplikation Nordic Cloud",
-            date(2026, 3, 10),
-            periods[3],
-            [
-                {"account": "1510", "debit": 18750000, "credit": 0, "description": "Kundfordran - Nordic Cloud"},
-                {"account": "3041", "debit": 0, "credit": 15000000, "description": "Försäljning tjänster 25%"},
-                {"account": "2610", "debit": 0, "credit": 3750000, "description": "Utgående moms 25%"},
-            ]
-        )
-        vouchers_created += 1
+    # Revisor
+    p = pid(3)
+    if p:
+        create_voucher("Revisorskostnader bokslut 2024", date(2025, 3, 15), p,
+            [{"account": "6991", "debit": 2000000, "credit": 0, "description": "Revision"},
+             {"account": "2640", "debit": 500000, "credit": 0, "description": "Ingående moms"},
+             {"account": "1930", "debit": 0, "credit": 2500000, "description": "Bankutbetalning"}])
+        count += 1
     
-    # 7. Received payment from TechStart
-    if periods[3] and 3 not in locked_periods:
-        create_voucher(
-            "Inbetalning från TechStart AB",
-            date(2026, 3, 20),
-            periods[3],
-            [
-                {"account": "1930", "debit": 12500000, "credit": 0, "description": "Inbetalning kund"},
-                {"account": "1510", "debit": 0, "credit": 12500000, "description": "Kundfordran TechStart"},
-            ]
-        )
-        vouchers_created += 1
+    # Avskrivningar
+    p = pid(12)
+    if p:
+        create_voucher("Årets avskrivningar 2025", date(2025, 12, 31), p,
+            [{"account": "7830", "debit": 2400000, "credit": 0, "description": "Avskrivningar 20%"},
+             {"account": "1220", "debit": 0, "credit": 2400000, "description": "Ack avskrivningar"}])
+        count += 1
     
-    # 8. Accounting software subscription
-    if periods[3] and 3 not in locked_periods:
-        create_voucher(
-            "Programvaror - Bokföringssystem",
-            date(2026, 3, 25),
-            periods[3],
-            [
-                {"account": "6540", "debit": 50000, "credit": 0, "description": "Programvaror"},
-                {"account": "2640", "debit": 12500, "credit": 0, "description": "Ingående moms"},
-                {"account": "1930", "debit": 0, "credit": 62500, "description": "Bankutbetalning"},
-            ]
-        )
-        vouchers_created += 1
-    
-    # === APRIL - Salary & More Sales ===
-    print("\n📅 APRIL - Salary & Growth")
-    
-    # 9. Salary payment
-    if periods[4] and 4 not in locked_periods:
-        create_voucher(
-            "Lön april - Stefan Wikner",
-            date(2026, 4, 25),
-            periods[4],
-            [
-                {"account": "7010", "debit": 5000000, "credit": 0, "description": "Lön tjänstemän"},
-                {"account": "2710", "debit": 0, "credit": 1500000, "description": "Avräkning skatter"},
-                {"account": "2730", "debit": 0, "credit": 1400000, "description": "Arbetsgivaravgifter"},
-                {"account": "1930", "debit": 0, "credit": 2100000, "description": "Nettolön utbetald"},
-            ]
-        )
-        vouchers_created += 1
-    
-    # 10. Sale with 12% VAT (food-related service)
-    if periods[4] and 4 not in locked_periods:
-        create_voucher(
-            "Försäljning - Matkassar system (12% moms)",
-            date(2026, 4, 12),
-            periods[4],
-            [
-                {"account": "1510", "debit": 1120000, "credit": 0, "description": "Kundfordran - FoodTech AB"},
-                {"account": "3042", "debit": 0, "credit": 1000000, "description": "Försäljning tjänster 12%"},
-                {"account": "2620", "debit": 0, "credit": 120000, "description": "Utgående moms 12%"},
-            ]
-        )
-        vouchers_created += 1
-    
-    # 11. Marketing expenses
-    if periods[4] and 4 not in locked_periods:
-        create_voucher(
-            "Marknadsföring - Google Ads",
-            date(2026, 4, 15),
-            periods[4],
-            [
-                {"account": "5910", "debit": 400000, "credit": 0, "description": "Reklam och marknadsföring"},
-                {"account": "2640", "debit": 100000, "credit": 0, "description": "Ingående moms 25%"},
-                {"account": "1930", "debit": 0, "credit": 500000, "description": "Bankutbetalning"},
-            ]
-        )
-        vouchers_created += 1
-    
-    # === MAY - Travel & Conferences ===
-    print("\n📅 MAY - Travel & Professional Development")
-    
-    # 12. Conference travel
-    if periods[5] and 5 not in locked_periods:
-        create_voucher(
-            "Konferensresa - PyCon Stockholm",
-            date(2026, 5, 10),
-            periods[5],
-            [
-                {"account": "5800", "debit": 800000, "credit": 0, "description": "Resekostnader"},
-                {"account": "6110", "debit": 400000, "credit": 0, "description": "Konferensavgift"},
-                {"account": "2640", "debit": 300000, "credit": 0, "description": "Ingående moms"},
-                {"account": "1930", "debit": 0, "credit": 1500000, "description": "Bankutbetalning"},
-            ]
-        )
-        vouchers_created += 1
-    
-    # 13. Large consulting project
-    if periods[5] and 5 not in locked_periods:
-        create_voucher(
-            "Försäljning - Systemintegration Enterprise AB",
-            date(2026, 5, 20),
-            periods[5],
-            [
-                {"account": "1510", "debit": 37500000, "credit": 0, "description": "Kundfordran - Enterprise AB"},
-                {"account": "3041", "debit": 0, "credit": 30000000, "description": "Försäljning tjänster 25%"},
-                {"account": "2610", "debit": 0, "credit": 7500000, "description": "Utgående moms 25%"},
-            ]
-        )
-        vouchers_created += 1
-    
-    # === JUNE - Mid-year VAT Reporting ===
-    print("\n📅 JUNE - VAT Reporting")
-    
-    # 14. VAT payment to Skatteverket
-    if periods[6] and 6 not in locked_periods:
-        create_voucher(
-            "Momsinbetalning Q2 till Skatteverket",
-            date(2026, 6, 12),
-            periods[6],
-            [
-                {"account": "2650", "debit": 9230000, "credit": 0, "description": "Moms att betala"},
-                {"account": "1930", "debit": 0, "credit": 9230000, "description": "Bankutbetalning Skatteverket"},
-            ]
-        )
-        vouchers_created += 1
-    
-    # 15. Office supplies
-    if periods[6] and 6 not in locked_periods:
-        create_voucher(
-            "Kontorsmaterial",
-            date(2026, 6, 18),
-            periods[6],
-            [
-                {"account": "6180", "debit": 20000, "credit": 0, "description": "Kontorsmaterial"},
-                {"account": "2640", "debit": 5000, "credit": 0, "description": "Ingående moms"},
-                {"account": "1930", "debit": 0, "credit": 25000, "description": "Kontantutbetalning"},
-            ]
-        )
-        vouchers_created += 1
-    
-    # === SEPTEMBER - More Activity ===
-    print("\n📅 SEPTEMBER - Continued Operations")
-    
-    # 16. Insurance payment
-    if periods[9] and 9 not in locked_periods:
-        create_voucher(
-            "Försäkringar - Företagsförsäkring",
-            date(2026, 9, 1),
-            periods[9],
-            [
-                {"account": "6310", "debit": 600000, "credit": 0, "description": "Försäkringspremier"},
-                {"account": "1930", "debit": 0, "credit": 600000, "description": "Bankutbetalning"},
-            ]
-        )
-        vouchers_created += 1
-    
-    # 17. Rent again
-    if periods[9] and 9 not in locked_periods:
-        create_voucher(
-            "Hyra kontor september",
-            date(2026, 9, 1),
-            periods[9],
-            [
-                {"account": "5010", "debit": 1200000, "credit": 0, "description": "Lokalhyra"},
-                {"account": "2640", "debit": 300000, "credit": 0, "description": "Ingående moms"},
-                {"account": "1930", "debit": 0, "credit": 1500000, "description": "Bankutbetalning"},
-            ]
-        )
-        vouchers_created += 1
-    
-    # 18. Payment received from Nordic Cloud
-    if periods[9] and 9 not in locked_periods:
-        create_voucher(
-            "Inbetalning från Nordic Cloud",
-            date(2026, 9, 15),
-            periods[9],
-            [
-                {"account": "1930", "debit": 18750000, "credit": 0, "description": "Inbetalning kund"},
-                {"account": "1510", "debit": 0, "credit": 18750000, "description": "Kundfordran Nordic Cloud"},
-            ]
-        )
-        vouchers_created += 1
-    
-    # === NOVEMBER - Year-end Preparations ===
-    print("\n📅 NOVEMBER - Preparing for Year-end")
-    
-    # 19. Accountant fees
-    if periods[11] and 11 not in locked_periods:
-        create_voucher(
-            "Revisorskostnader - Årsbokslut",
-            date(2026, 11, 15),
-            periods[11],
-            [
-                {"account": "6991", "debit": 1500000, "credit": 0, "description": "Revisorskostnader"},
-                {"account": "2640", "debit": 375000, "credit": 0, "description": "Ingående moms"},
-                {"account": "1930", "debit": 0, "credit": 1875000, "description": "Bankutbetalning"},
-            ]
-        )
-        vouchers_created += 1
-    
-    # 20. Final quarterly VAT
-    if periods[11] and 11 not in locked_periods:
-        create_voucher(
-            "Momsinbetalning Q4 till Skatteverket",
-            date(2026, 11, 12),
-            periods[11],
-            [
-                {"account": "2650", "debit": 4500000, "credit": 0, "description": "Moms att betala Q4"},
-                {"account": "1930", "debit": 0, "credit": 4500000, "description": "Bankutbetalning Skatteverket"},
-            ]
-        )
-        vouchers_created += 1
-    
-    # === DECEMBER - Year-end ===
-    print("\n📅 DECEMBER - Year-end")
-    
-    # 21. Depreciation
-    if periods[12] and 12 not in locked_periods:
-        create_voucher(
-            "Årets avskrivningar - Inventarier",
-            date(2026, 12, 31),
-            periods[12],
-            [
-                {"account": "7830", "debit": 500000, "credit": 0, "description": "Avskrivningar inventarier"},
-                {"account": "1220", "debit": 0, "credit": 500000, "description": "Ack avskrivningar"},
-            ]
-        )
-        vouchers_created += 1
-    
-    # 22. Owner's withdrawal
-    if periods[12] and 12 not in locked_periods:
-        create_voucher(
-            "Eget uttag - Stefan Wikner",
-            date(2026, 12, 28),
-            periods[12],
-            [
-                {"account": "2013", "debit": 2000000, "credit": 0, "description": "Eget uttag"},
-                {"account": "1930", "debit": 0, "credit": 2000000, "description": "Bankutbetalning"},
-            ]
-        )
-        vouchers_created += 1
-    
-    # Summary
+    return count
+
+
+def generate_year_2026(fy_id):
+    """2026: Stabiliseringsår - löpande drift, ~600k omsättning."""
     print("\n" + "="*60)
-    print("✅ DEMO DATA GENERATION COMPLETE")
-    print("="*60)
-    print(f"\n📊 Created {vouchers_created} vouchers")
-    print(f"📅 Period: January - December 2026")
-    print(f"\n💰 Key transactions:")
-    print(f"   • Revenue: ~600,000 kr")
-    print(f"   • Expenses: ~200,000 kr")
-    print(f"   • VAT reported: ~180,000 kr")
-    print("\n🌐 View in frontend: http://localhost:8501")
+    print("📅 2026 — STABILISERINGSÅR: Löpande drift")
     print("="*60)
     
-    return vouchers_created
+    count = 0
+    
+    def pid(month):
+        return get_period_id(fy_id, 2026, month)
+    
+    # Aktieägartillskott
+    p = pid(1)
+    if p:
+        create_voucher("Aktieägartillskott - Startkapital", date(2026, 1, 15), p,
+            [{"account": "1930", "debit": 20000000, "credit": 0, "description": "Insättning företagskonto"},
+             {"account": "2081", "debit": 0, "credit": 20000000, "description": "Aktieägartillskott"}])
+        count += 1
+    
+    # Kontorsutrustning
+    p = pid(1)
+    if p:
+        create_voucher("Inköp dator och kontorsutrustning", date(2026, 1, 20), p,
+            [{"account": "1250", "debit": 2500000, "credit": 0, "description": "Dator och skärmar"},
+             {"account": "2640", "debit": 625000, "credit": 0, "description": "Ingående moms 25%"},
+             {"account": "2440", "debit": 0, "credit": 3125000, "description": "Leverantörsskuld"}])
+        count += 1
+    
+    # Hyra varje månad
+    for month in range(1, 13):
+        p = pid(month)
+        if p:
+            create_voucher(f"Hyra kontor {month:02d}/2026", date(2026, month, 1), p,
+                [{"account": "5010", "debit": 1800000, "credit": 0, "description": "Lokalhyra"},
+                 {"account": "2640", "debit": 450000, "credit": 0, "description": "Ingående moms"},
+                 {"account": "1930", "debit": 0, "credit": 2250000, "description": "Bankutbetalning"}])
+            count += 1
+    
+    # Försäljning per månad
+    monthly_sales = [
+        (2, "TechStart AB", 10000000),
+        (3, "Nordic Cloud", 15000000),
+        (4, "FoodTech AB", 1000000),  # 12% moms
+        (5, "Enterprise AB", 30000000),
+        (6, "DataInsight Nordic", 5000000),
+        (9, "PropTech 2.0 AB", 8000000),
+        (10, "LogistikTech AB", 6000000),
+        (11, "RetailCloud AB", 10000000),
+    ]
+    
+    for month, customer, amount in monthly_sales:
+        p = pid(month)
+        if p:
+            if customer == "FoodTech AB":
+                vat = int(amount * 0.12)
+                vat_account = "2620"
+                sales_account = "3042"
+            else:
+                vat = int(amount * 0.25)
+                vat_account = "2610"
+                sales_account = "3041"
+            
+            create_voucher(f"Konsulttjänster — {customer}", date(2026, month, 15), p,
+                [{"account": "1510", "debit": amount + vat, "credit": 0, "description": f"Kundfordran {customer}"},
+                 {"account": sales_account, "debit": 0, "credit": amount, "description": "Försäljning"},
+                 {"account": vat_account, "debit": 0, "credit": vat, "description": "Utgående moms"}])
+            count += 1
+    
+    # Inbetalningar
+    for month, amount in [(3, 12500000), (5, 18750000), (6, 1120000),
+                          (7, 37500000), (8, 6250000), (10, 10000000), (11, 7500000)]:
+        p = pid(month)
+        if p:
+            create_voucher(f"Inbetalning kunder {month:02d}/2026", date(2026, month, 25), p,
+                [{"account": "1930", "debit": amount, "credit": 0, "description": "Kundinbetalningar"},
+                 {"account": "1510", "debit": 0, "credit": amount, "description": "Kundfordringar"}])
+            count += 1
+    
+    # Löner (2 anställda, reducerat jfr 2025)
+    for month in range(1, 13):
+        p = pid(month)
+        if p:
+            create_voucher(f"Löner {month:02d}/2026", date(2026, month, 25), p,
+                [{"account": "7010", "debit": 5000000, "credit": 0, "description": "Löner"},
+                 {"account": "7510", "debit": 1600000, "credit": 0, "description": "Sociala avgifter"},
+                 {"account": "2710", "debit": 0, "credit": 1500000, "description": "Skatt"},
+                 {"account": "2730", "debit": 0, "credit": 1600000, "description": "Arbetsgivaravgifter"},
+                 {"account": "1930", "debit": 0, "credit": 3500000, "description": "Nettolöner"}])
+            count += 1
+    
+    # Telefon och internet kvartalsvis
+    for month in [2, 5, 8, 11]:
+        p = pid(month)
+        if p:
+            create_voucher(f"Telefon och internet Q{(month-1)//3+1}", date(2026, month, 20), p,
+                [{"account": "6210", "debit": 60000, "credit": 0, "description": "Telefon"},
+                 {"account": "2640", "debit": 15000, "credit": 0, "description": "Ingående moms"},
+                 {"account": "1930", "debit": 0, "credit": 75000, "description": "Bankutbetalning"}])
+            count += 1
+    
+    # Programvaror
+    for month in [3, 8]:
+        p = pid(month)
+        if p:
+            create_voucher("Programvaror — Bokföringssystem + verktyg", date(2026, month, 25), p,
+                [{"account": "6540", "debit": 300000, "credit": 0, "description": "Programvaror"},
+                 {"account": "2640", "debit": 75000, "credit": 0, "description": "Ingående moms"},
+                 {"account": "1930", "debit": 0, "credit": 375000, "description": "Bankutbetalning"}])
+            count += 1
+    
+    # Marknadsföring
+    p = pid(4)
+    if p:
+        create_voucher("Marknadsföring — Google Ads + LinkedIn", date(2026, 4, 15), p,
+            [{"account": "5910", "debit": 400000, "credit": 0, "description": "Digital marknadsföring"},
+             {"account": "2640", "debit": 100000, "credit": 0, "description": "Ingående moms"},
+             {"account": "1930", "debit": 0, "credit": 500000, "description": "Bankutbetalning"}])
+        count += 1
+    
+    # Konferensresa
+    p = pid(5)
+    if p:
+        create_voucher("Konferensresa — PyCon Stockholm", date(2026, 5, 10), p,
+            [{"account": "5800", "debit": 800000, "credit": 0, "description": "Resekostnader"},
+             {"account": "6110", "debit": 400000, "credit": 0, "description": "Konferensavgift"},
+             {"account": "2640", "debit": 300000, "credit": 0, "description": "Ingående moms"},
+             {"account": "1930", "debit": 0, "credit": 1500000, "description": "Bankutbetalning"}])
+        count += 1
+    
+    # Momsinbetalningar
+    for month, amount in [(6, 9230000), (11, 4500000)]:
+        p = pid(month)
+        if p:
+            create_voucher(f"Momsinbetalning Skatteverket {month:02d}/2026", date(2026, month, 12), p,
+                [{"account": "2650", "debit": amount, "credit": 0, "description": "Moms att betala"},
+                 {"account": "1930", "debit": 0, "credit": amount, "description": "Bankutbetalning"}])
+            count += 1
+    
+    # Kontorsmaterial
+    p = pid(6)
+    if p:
+        create_voucher("Kontorsmaterial", date(2026, 6, 18), p,
+            [{"account": "6180", "debit": 20000, "credit": 0, "description": "Kontorsmaterial"},
+             {"account": "2640", "debit": 5000, "credit": 0, "description": "Ingående moms"},
+             {"account": "1930", "debit": 0, "credit": 25000, "description": "Bankutbetalning"}])
+        count += 1
+    
+    # Försäkring
+    p = pid(9)
+    if p:
+        create_voucher("Företagsförsäkring 2026", date(2026, 9, 1), p,
+            [{"account": "6310", "debit": 600000, "credit": 0, "description": "Försäkringspremier"},
+             {"account": "1930", "debit": 0, "credit": 600000, "description": "Bankutbetalning"}])
+        count += 1
+    
+    # Amortering + ränta
+    for month in [6, 12]:
+        p = pid(month)
+        if p:
+            create_voucher(f"Amortering + ränta banklån H{month//6}/2026", date(2026, month, 30), p,
+                [{"account": "2350", "debit": 2500000, "credit": 0, "description": "Amortering"},
+                 {"account": "8410", "debit": 300000, "credit": 0, "description": "Ränta"},
+                 {"account": "1930", "debit": 0, "credit": 2800000, "description": "Bankutbetalning"}])
+            count += 1
+    
+    # Revisorskostnader
+    p = pid(11)
+    if p:
+        create_voucher("Revisorskostnader — Årsbokslut", date(2026, 11, 15), p,
+            [{"account": "6991", "debit": 1500000, "credit": 0, "description": "Revisorskostnader"},
+             {"account": "2640", "debit": 375000, "credit": 0, "description": "Ingående moms"},
+             {"account": "1930", "debit": 0, "credit": 1875000, "description": "Bankutbetalning"}])
+        count += 1
+    
+    # Avskrivningar
+    p = pid(12)
+    if p:
+        create_voucher("Årets avskrivningar 2026", date(2026, 12, 31), p,
+            [{"account": "7830", "debit": 1300000, "credit": 0, "description": "Avskrivningar inventarier"},
+             {"account": "1220", "debit": 0, "credit": 1300000, "description": "Ack avskrivningar"}])
+        count += 1
+    
+    # Eget uttag
+    p = pid(12)
+    if p:
+        create_voucher("Eget uttag — Stefan Wikner", date(2026, 12, 28), p,
+            [{"account": "2013", "debit": 2000000, "credit": 0, "description": "Eget uttag"},
+             {"account": "1930", "debit": 0, "credit": 2000000, "description": "Bankutbetalning"}])
+        count += 1
+    
+    return count
 
 
 def main():
-    """Main entry point."""
+    """Huvudfunktion."""
     print("="*60)
-    print("🚀 DEMO DATA GENERATOR")
+    print("🚀 DEMODATAGENERATOR — TechVision AB")
+    print("   3 års bokföringsdata (2024-2026)")
     print("="*60)
-    print(f"API URL: {API_URL}")
+    print(f"API: {API_URL}")
     
-    # Wait for API
     if not wait_for_api():
         sys.exit(1)
     
-    # Generate data
-    count = generate_demo_vouchers()
+    ensure_accounts_exist()
     
-    if count > 0:
-        print("\n✨ Success! Refresh your browser to see the data.")
-        sys.exit(0)
-    else:
-        print("\n⚠️ No vouchers created.")
-        sys.exit(1)
+    total = 0
+    
+    # Skapa räkenskapsår och generera data
+    for year, generator in [(2024, generate_year_2024), (2025, generate_year_2025), (2026, generate_year_2026)]:
+        fy_id = get_or_create_fiscal_year(year)
+        if fy_id:
+            count = generator(fy_id)
+            total += count
+            print(f"\n  📊 {year}: {count} verifikationer skapade")
+        else:
+            print(f"\n  ❌ Kunde inte skapa räkenskapsår {year}")
+    
+    print("\n" + "="*60)
+    print("✅ DEMODATAGENERERING KLAR")
+    print("="*60)
+    print(f"\n📊 Totalt: {total} verifikationer")
+    print(f"📅 Period: 2024-2026 (3 räkenskapsår)")
+    print(f"\n💰 TechVision AB — Företagsutveckling:")
+    print(f"   2024: Startår — ~500k omsättning, investeringar, lån")
+    print(f"   2025: Tillväxt — ~800k omsättning, 2 anställda")
+    print(f"   2026: Stabilisering — ~600k omsättning")
+    print(f"\n🌐 Visa i frontend: http://localhost:8501")
+    print("="*60)
+    
+    sys.exit(0 if total > 0 else 1)
 
 
 if __name__ == "__main__":
