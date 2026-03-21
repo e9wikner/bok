@@ -18,5 +18,20 @@ services:
       timeout: 5s
       retries: 5
 
+  frontend:
+    build: .
+    container_name: bokfoering-frontend
+    ports:
+      - "8501:8501"
+    volumes:
+      - bokfoering-data:/app/data
+    environment:
+      - API_URL=http://bokfoering-api:8000
+      - API_KEY=dev-key-change-in-production
+    command: streamlit run frontend/app.py --server.address 0.0.0.0 --server.port 8501
+    restart: unless-stopped
+    depends_on:
+      - bokfoering-api
+
 volumes:
   bokfoering-data:

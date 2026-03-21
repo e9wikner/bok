@@ -19,6 +19,10 @@ httpx==0.25.1
 # Form data support (required by FastAPI)
 python-multipart>=0.0.6
 
+# Frontend
+streamlit>=1.28.0
+pandas>=2.0.0
+
 # Optional: Production Features
 # For PostgreSQL support: psycopg2-binary==2.9.9
 # For PDF export: reportlab==4.0.7
