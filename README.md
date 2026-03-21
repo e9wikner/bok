@@ -2,11 +2,12 @@
 
 Egenbyggt bokföringssystem med REST API för svenska aktiebolag. Uppfyller alla krav enligt Bokföringslagen (BFL) och BFNAR 2013:2.
 
-**Status:** 🎉 **ALL PHASES COMPLETE**
+**Status:** 🎉 **ALL PHASES COMPLETE + SIE4 EXPORT**
 - ✅ **Fas 1** – Grundbokföring (Complete)
 - ✅ **Fas 2** – Fakturering & Moms (Complete)
 - ✅ **Fas 3** – Rapporter & K2 (Complete)
 - ✅ **Fas 4** – Agent Integration (Complete)
+- ✅ **SIE4** – Import & Export (Complete)
 
 ## Stack
 
@@ -50,6 +51,18 @@ Egenbyggt bokföringssystem med REST API för svenska aktiebolag. Uppfyller alla
 - Rate limiting per API key
 - Connectivity testing endpoints
 
+### ✅ SIE4 Import & Export
+- **SIE4 Import:** Import bokföringsdata från andra system
+  - Stöd för Windows-1252 och ISO-8859-1 encoding
+  - Automatisk kontoskapning vid import
+  - Validering av SIE4-format innan import
+- **SIE4 Export:** Exportera till SIE4-format för andra bokföringsprogram
+  - Alla obligatoriska SIE4-sektioner: #FLAGGA, #FORMAT, #GEN, #PROGRAM, #SIETYP, #FNAMN, #FORGN, #ADRESS, #RAR, #KPTYP, #KONTO, #SRU, #IB, #UB, #RES, #PSALDO, #VER, #TRANS
+  - Automatisk beräkning av IB (ingående balans), UB (utgående balans), RES (resultat) och PSALDO (periodsaldon)
+  - Windows-1252 encoding med CRLF radbrytningar
+  - Filnedladdning eller JSON-svar
+  - Export → Import roundtrip verifierad
+
 ## Project Structure
 
 ```
@@ -69,7 +82,9 @@ bokfoering-api/
 ├── services/
 │   ├── ledger.py                # Fas 1: Core accounting
 │   ├── invoice.py               # Fas 2: Invoicing
-│   └── k2_report.py             # Fas 3: K2 report generation
+│   ├── k2_report.py             # Fas 3: K2 report generation
+│   ├── sie4_import.py           # SIE4: Parser & import
+│   └── sie4_export.py           # SIE4: Filgenerering & export
 ├── api/
 │   ├── routes/
 │   │   ├── vouchers.py          # Fas 1: Voucher endpoints
@@ -78,7 +93,9 @@ bokfoering-api/
 │   │   ├── reports.py           # Trial balance, ledger, audit
 │   │   ├── invoices.py          # Fas 2: Invoice endpoints
 │   │   ├── k2_reports.py        # Fas 3: K2 report endpoints
-│   │   └── agent.py             # Fas 4: Agent integration
+│   │   ├── agent.py             # Fas 4: Agent integration
+│   │   ├── import_sie4.py       # SIE4: Import endpoints
+│   │   └── export_sie4.py       # SIE4: Export endpoints
 │   ├── schemas.py               # Pydantic models
 │   ├── deps.py                  # Dependency injection
 │   └── main.py                  # FastAPI app

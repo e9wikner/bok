@@ -28,7 +28,7 @@ async def export_sie4(
     format: str = Query(
         "PC8",
         description="Format: PC8 (Windows-1252) eller ASCII",
-        regex="^(PC8|ASCII)$",
+        pattern="^(PC8|ASCII)$",
     ),
     download: bool = Query(
         True, description="True = returnera som filnedladdning, False = returnera som JSON"
@@ -118,7 +118,7 @@ async def export_sie4_post(
     ),
     company_name: Optional[str] = Query(None),
     org_number: Optional[str] = Query(None),
-    format: str = Query("PC8", regex="^(PC8|ASCII)$"),
+    format: str = Query("PC8", pattern="^(PC8|ASCII)$"),
     actor: str = Depends(get_current_actor),
 ):
     """
