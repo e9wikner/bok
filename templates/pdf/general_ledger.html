@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="header">
+  <div class="logo-area">
+    {% if company.logo_url %}
+    <img src="{{ company.logo_url }}" alt="{{ company.name }}">
+    {% else %}
+    <div class="company-name">{{ company.name }}</div>
+    {% endif %}
+  </div>
+  <div class="doc-info">
+    <div class="doc-title">HUVUDBOK</div>
+    <div>{{ company.org_number | default("") }}</div>
+  </div>
+</div>
+
+<div class="report-period">
+  Konto: {{ account_code }} – {{ account_name }}<br>
+  Period: {{ period }}
+  {% if generated_at %}<br>Genererad: {{ generated_at }}{% endif %}
+</div>
+
+<table class="data-table">
+  <thead>
+    <tr>
+      <th style="width:12%">Datum</th>
+      <th style="width:10%">Ver.nr</th>
+      <th style="width:30%">Beskrivning</th>
+      <th class="right" style="width:16%">Debet</th>
+      <th class="right" style="width:16%">Kredit</th>
+      <th class="right" style="width:16%">Saldo</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr>
+      <td>{{ row.date }}</td>
+      <td>{{ row.voucher_series }}{{ row.voucher_number }}</td>
+      <td>{{ row.description }}</td>
+      <td class="right">{{ row.debit | format_sek }}</td>
+      <td class="right">{{ row.credit | format_sek }}</td>
+      <td class="right">{{ row.balance | format_sek }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+  <tfoot>
+    <tr>
+      <td colspan="3"><strong>Utgående saldo</strong></td>
+      <td></td>
+      <td></td>
+      <td class="right"><strong>{{ ending_balance | format_sek }}</strong></td>
+    </tr>
+  </tfoot>
+</table>
+
+<div class="footer">
+  {{ company.name }}
+  {% if company.org_number %} · Org.nr: {{ company.org_number }}{% endif %}
+</div>
+{% endblock %}

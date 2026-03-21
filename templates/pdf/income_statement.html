@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="header">
+  <div class="logo-area">
+    {% if company.logo_url %}
+    <img src="{{ company.logo_url }}" alt="{{ company.name }}">
+    {% else %}
+    <div class="company-name">{{ company.name }}</div>
+    {% endif %}
+  </div>
+  <div class="doc-info">
+    <div class="doc-title">RESULTATRÄKNING</div>
+    <div>{{ company.org_number | default("") }}</div>
+  </div>
+</div>
+
+<div class="report-period">
+  Period: {{ period_start }} – {{ period_end }}
+  {% if generated_at %}<br>Genererad: {{ generated_at }}{% endif %}
+</div>
+
+<table class="data-table">
+  <thead>
+    <tr>
+      <th style="width:15%">Konto</th>
+      <th style="width:45%">Benämning</th>
+      <th class="right" style="width:20%">Period</th>
+      {% if compare_period %}
+      <th class="right" style="width:20%">Jämförelseperiod</th>
+      {% endif %}
+    </tr>
+  </thead>
+  <tbody>
+    <!-- Rörelseintäkter -->
+    <tr class="group-header">
+      <td colspan="{{ 4 if compare_period else 3 }}">Rörelseintäkter</td>
+    </tr>
+    {% for row in revenue_rows %}
+    <tr class="indent-1">
+      <td>{{ row.account_code }}</td>
+      <td>{{ row.account_name }}</td>
+      <td class="right">{{ row.amount | format_sek }}</td>
+      {% if compare_period %}
+      <td class="right">{{ row.compare_amount | format_sek }}</td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+    <tr class="group-total">
+      <td></td>
+      <td>Summa rörelseintäkter</td>
+      <td class="right">{{ total_revenue | format_sek }}</td>
+      {% if compare_period %}
+      <td class="right">{{ total_revenue_compare | format_sek }}</td>
+      {% endif %}
+    </tr>
+
+    <!-- Rörelsekostnader -->
+    <tr class="group-header">
+      <td colspan="{{ 4 if compare_period else 3 }}">Rörelsekostnader</td>
+    </tr>
+    {% for row in expense_rows %}
+    <tr class="indent-1">
+      <td>{{ row.account_code }}</td>
+      <td>{{ row.account_name }}</td>
+      <td class="right">{{ row.amount | format_sek }}</td>
+      {% if compare_period %}
+      <td class="right">{{ row.compare_amount | format_sek }}</td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+    <tr class="group-total">
+      <td></td>
+      <td>Summa rörelsekostnader</td>
+      <td class="right">{{ total_expenses | format_sek }}</td>
+      {% if compare_period %}
+      <td class="right">{{ total_expenses_compare | format_sek }}</td>
+      {% endif %}
+    </tr>
+
+    <!-- Rörelseresultat -->
+    <tr class="grand-total">
+      <td></td>
+      <td>Rörelseresultat</td>
+      <td class="right">{{ operating_result | format_sek }}</td>
+      {% if compare_period %}
+      <td class="right">{{ operating_result_compare | format_sek }}</td>
+      {% endif %}
+    </tr>
+
+    {% if financial_income_rows or financial_expense_rows %}
+    <!-- Finansiella poster -->
+    <tr class="group-header">
+      <td colspan="{{ 4 if compare_period else 3 }}">Finansiella poster</td>
+    </tr>
+    {% for row in financial_income_rows %}
+    <tr class="indent-1">
+      <td>{{ row.account_code }}</td>
+      <td>{{ row.account_name }}</td>
+      <td class="right">{{ row.amount | format_sek }}</td>
+      {% if compare_period %}
+      <td class="right">{{ row.compare_amount | format_sek }}</td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+    {% for row in financial_expense_rows %}
+    <tr class="indent-1">
+      <td>{{ row.account_code }}</td>
+      <td>{{ row.account_name }}</td>
+      <td class="right">{{ row.amount | format_sek }}</td>
+      {% if compare_period %}
+      <td class="right">{{ row.compare_amount | format_sek }}</td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+    {% endif %}
+
+    <!-- Resultat efter finansiella poster -->
+    <tr class="grand-total">
+      <td></td>
+      <td>Resultat efter finansiella poster</td>
+      <td class="right">{{ result_after_financial | format_sek }}</td>
+      {% if compare_period %}
+      <td class="right">{{ result_after_financial_compare | format_sek }}</td>
+      {% endif %}
+    </tr>
+
+    <!-- Årets resultat -->
+    <tr class="grand-total" style="background:#2c5aa0;color:white;">
+      <td></td>
+      <td>Årets resultat</td>
+      <td class="right">{{ net_result | format_sek }}</td>
+      {% if compare_period %}
+      <td class="right">{{ net_result_compare | format_sek }}</td>
+      {% endif %}
+    </tr>
+  </tbody>
+</table>
+
+<div class="footer">
+  {{ company.name }}
+  {% if company.org_number %} · Org.nr: {{ company.org_number }}{% endif %}
+</div>
+{% endblock %}

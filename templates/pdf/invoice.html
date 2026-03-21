@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="header">
+  <div class="logo-area">
+    {% if company.logo_url %}
+    <img src="{{ company.logo_url }}" alt="{{ company.name }}">
+    {% else %}
+    <div class="company-name">{{ company.name }}</div>
+    {% endif %}
+  </div>
+  <div class="doc-info">
+    <div class="doc-title">FAKTURA</div>
+    <div>Nr: {{ invoice.invoice_number }}</div>
+  </div>
+</div>
+
+<table class="meta-table">
+<tr>
+  <td style="width:50%">
+    <table class="meta-table">
+      <tr><td class="label">Kund:</td><td>{{ invoice.customer_name }}</td></tr>
+      {% if invoice.customer_org_number %}
+      <tr><td class="label">Org.nummer:</td><td>{{ invoice.customer_org_number }}</td></tr>
+      {% endif %}
+      {% if invoice.customer_address %}
+      <tr><td class="label">Adress:</td><td>{{ invoice.customer_address }}</td></tr>
+      {% endif %}
+    </table>
+  </td>
+  <td style="width:50%">
+    <table class="meta-table">
+      <tr><td class="label">Fakturadatum:</td><td>{{ invoice.invoice_date }}</td></tr>
+      <tr><td class="label">Förfallodatum:</td><td>{{ invoice.due_date }}</td></tr>
+      <tr><td class="label">Betalningsvillkor:</td><td>{{ invoice.payment_terms | default("30 dagar netto") }}</td></tr>
+      <tr><td class="label">Vår referens:</td><td>{{ invoice.our_reference | default(company.contact_person | default("")) }}</td></tr>
+    </table>
+  </td>
+</tr>
+</table>
+
+{% if invoice.description %}
+<p><strong>Beskrivning:</strong> {{ invoice.description }}</p>
+{% endif %}
+
+<table class="data-table">
+  <thead>
+    <tr>
+      <th style="width:40%">Beskrivning</th>
+      <th class="right" style="width:10%">Antal</th>
+      <th class="right" style="width:15%">À-pris</th>
+      <th class="right" style="width:10%">Moms</th>
+      <th class="right" style="width:12%">Belopp ex moms</th>
+      <th class="right" style="width:13%">Belopp inkl moms</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in invoice.rows %}
+    <tr>
+      <td>{{ row.description }}</td>
+      <td class="right">{{ row.quantity }}</td>
+      <td class="right">{{ row.unit_price | format_sek }}</td>
+      <td class="right">{{ row.vat_code | vat_label }}</td>
+      <td class="right">{{ row.amount_ex_vat | format_sek }}</td>
+      <td class="right">{{ row.amount_inc_vat | format_sek }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<div class="clearfix">
+  <div class="totals-box">
+    <table>
+      <tr>
+        <td class="label">Summa ex moms</td>
+        <td class="amount">{{ invoice.amount_ex_vat | format_sek }}</td>
+      </tr>
+      {% for vat_code, vat_amount in vat_summary.items() %}
+      <tr>
+        <td class="label">Moms {{ vat_code | vat_label }}</td>
+        <td class="amount">{{ vat_amount | format_sek }}</td>
+      </tr>
+      {% endfor %}
+      <tr class="total-row">
+        <td>Att betala</td>
+        <td class="amount">{{ invoice.amount_inc_vat | format_sek }}</td>
+      </tr>
+    </table>
+  </div>
+</div>
+
+<div class="payment-info">
+  <h3>Betalningsinformation</h3>
+  {% if company.bankgiro %}
+  <p><strong>Bankgiro:</strong> {{ company.bankgiro }}</p>
+  {% endif %}
+  {% if company.plusgiro %}
+  <p><strong>Plusgiro:</strong> {{ company.plusgiro }}</p>
+  {% endif %}
+  {% if company.swish %}
+  <p><strong>Swish:</strong> {{ company.swish }}</p>
+  {% endif %}
+  {% if company.iban %}
+  <p><strong>IBAN:</strong> {{ company.iban }}</p>
+  <p><strong>BIC/SWIFT:</strong> {{ company.bic | default("") }}</p>
+  {% endif %}
+  <p><strong>OCR/Referens:</strong> {{ invoice.invoice_number }}</p>
+</div>
+
+{% if qr_code_data %}
+<div class="qr-code">
+  <img src="data:image/png;base64,{{ qr_code_data }}" alt="QR-kod för betalning">
+  <p style="font-size:8pt;color:#888;">Skanna för att betala via Swish</p>
+</div>
+{% endif %}
+
+<div class="footer">
+  {{ company.name }}
+  {% if company.org_number %} · Org.nr: {{ company.org_number }}{% endif %}
+  {% if company.vat_number %} · Momsreg.nr: {{ company.vat_number }}{% endif %}
+  {% if company.address %}<br>{{ company.address }}{% endif %}
+  {% if company.phone %} · Tel: {{ company.phone }}{% endif %}
+  {% if company.email %} · {{ company.email }}{% endif %}
+  {% if company.website %} · {{ company.website }}{% endif %}
+  {% if company.f_skatt %}<br>Godkänd för F-skatt{% endif %}
+</div>
+{% endblock %}

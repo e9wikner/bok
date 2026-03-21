@@ -8,6 +8,8 @@ Egenbyggt bokföringssystem med REST API för svenska aktiebolag. Uppfyller alla
 - ✅ **Fas 3** – Rapporter & K2 (Complete)
 - ✅ **Fas 4** – Agent Integration (Complete)
 - ✅ **SIE4** – Import & Export (Complete)
+- ✅ **PDF Export** – Fakturor & Rapporter (Complete)
+- ✅ **Anomalidetektering** – Felprevention (Complete)
 - 🚀 **Fas 5** – Bank Integration, Auto-Kategorisering, BFL Compliance, Momsdeklaration
 
 ## Stack
@@ -64,6 +66,68 @@ Egenbyggt bokföringssystem med REST API för svenska aktiebolag. Uppfyller alla
   - Filnedladdning eller JSON-svar
   - Export → Import roundtrip verifierad
 
+### ✅ PDF Export (Fakturor & Rapporter)
+Professionell PDF-export för alla företagsdokument med svenska termer och format:
+
+**Fakturor:**
+- Professionell layout med företagslogga och info
+- Svenska termer (Fakturadatum, Förfallodatum, Summa, etc.)
+- QR-kod för Swish-betalning
+- Momsspecifikation per momskod (MP1 25%, MP2 12%, MP3 6%, MF 0%)
+- Betalningsinstruktioner (Swish, bankgiro, plusgiro, IBAN)
+- Footer med organisationsnummer, momsregistreringsnummer, F-skatt
+
+**Rapporter:**
+- Resultaträkning (P&L) – PDF
+- Balansräkning – PDF
+- K2-årsredovisning – PDF
+- Råbalans (Trial Balance) – PDF
+- Huvudbok per konto – PDF
+- Alla med logotyp, datum, period
+
+**Teknik:**
+- Jinja2 template engine med professionella HTML-mallar
+- WeasyPrint för HTML→PDF rendering
+- HTML-fallback för utveckling (kräver inte WeasyPrint)
+- Konfigurerbar företagsinformation via API-parametrar
+
+**API-endpoints:**
+- `GET /api/v1/export/pdf/invoice/{id}` – Faktura-PDF
+- `GET /api/v1/export/pdf/trial-balance/{period_id}` – Råbalans-PDF
+- `GET /api/v1/export/pdf/general-ledger/{account_code}?period_id=...` – Huvudbok-PDF
+- `GET /api/v1/export/pdf/income-statement/{period_id}` – Resultaträkning-PDF
+- `GET /api/v1/export/pdf/balance-sheet/{period_id}` – Balansräkning-PDF
+- `GET /api/v1/export/pdf/k2-report/{fiscal_year_id}` – K2-årsredovisning-PDF
+- `GET /api/v1/export/pdf/.../html` – HTML-fallback för alla ovan
+
+### ✅ Anomalidetektering (Förhindra Fel)
+Automatisk upptäckt av misstänkta transaktioner och bokförningsfel innan de går igenom:
+
+**Detekterade avvikelser:**
+- `unusual_amount` – Ovanliga belopp på konto (statistisk avvikelse)
+- `wrong_vat_code` – Felaktiga momskoder (t.ex. moms på personalkonton)
+- `missing_counter_entry` – Verifikationer utan motbokning
+- `duplicate_entry` – Dubblettbokningar (samma belopp/datum/konton)
+- `frequent_small_transactions` – Många småtransaktioner från samma motpart
+- `unusual_balance_change` – Ovanliga saldoförändringar (trendanalys)
+- `missing_attachment` – Saknade bilagor (BFL-krav)
+- `abnormal_voucher_count` – Onormalt antal verifikationer per period
+- `weekend_transaction` – Transaktioner på helger (datumfel)
+
+**Funktioner:**
+- Regelbaserad motor + ML-ready arkitektur
+- Anomaly score per transaktion/verifikation (0.0–1.0)
+- Konfigurerbara tröskelvärden per företag
+- Svenska bokföringsmönster (säsonger, stora utgifter)
+- Dashboard-widget endpoint för snabböverblick
+
+**API-endpoints:**
+- `GET /api/v1/anomalies` – Lista alla anomalier
+- `GET /api/v1/anomalies/summary` – Sammanfattning för dashboard
+- `GET /api/v1/anomalies/voucher/{voucher_id}` – Kontrollera enskild verifikation
+- `GET /api/v1/anomalies/types` – Lista alla anomalityper
+- `PUT /api/v1/anomalies/thresholds` – Uppdatera tröskelvärden
+
 ## Project Structure
 
 ```
@@ -85,7 +149,18 @@ bokfoering-api/
 │   ├── invoice.py               # Fas 2: Invoicing
 │   ├── k2_report.py             # Fas 3: K2 report generation
 │   ├── sie4_import.py           # SIE4: Parser & import
-│   └── sie4_export.py           # SIE4: Filgenerering & export
+│   ├── sie4_export.py           # SIE4: Filgenerering & export
+│   ├── pdf_export.py            # PDF: Fakturor & rapporter
+│   └── anomaly_detection.py     # Anomalidetektering
+├── templates/
+│   └── pdf/                     # Jinja2-mallar för PDF
+│       ├── base.html            # Grundmall med header/footer
+│       ├── invoice.html         # Fakturamall
+│       ├── income_statement.html
+│       ├── balance_sheet.html
+│       ├── trial_balance.html
+│       ├── general_ledger.html
+│       └── k2_report.html
 ├── api/
 │   ├── routes/
 │   │   ├── vouchers.py          # Fas 1: Voucher endpoints
@@ -96,7 +171,12 @@ bokfoering-api/
 │   │   ├── k2_reports.py        # Fas 3: K2 report endpoints
 │   │   ├── agent.py             # Fas 4: Agent integration
 │   │   ├── import_sie4.py       # SIE4: Import endpoints
-│   │   └── export_sie4.py       # SIE4: Export endpoints
+│   │   ├── export_sie4.py       # SIE4: Export endpoints
+│   │   ├── export_pdf.py        # PDF: Fakturor & rapporter
+│   │   ├── anomalies.py         # Anomalidetektering
+│   │   ├── bank.py              # Bankintegration
+│   │   ├── compliance.py        # BFL compliance
+│   │   └── vat.py               # Momsdeklaration
 │   ├── schemas.py               # Pydantic models
 │   ├── deps.py                  # Dependency injection
 │   └── main.py                  # FastAPI app

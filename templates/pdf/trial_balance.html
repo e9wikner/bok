@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="header">
+  <div class="logo-area">
+    {% if company.logo_url %}
+    <img src="{{ company.logo_url }}" alt="{{ company.name }}">
+    {% else %}
+    <div class="company-name">{{ company.name }}</div>
+    {% endif %}
+  </div>
+  <div class="doc-info">
+    <div class="doc-title">RÅBALANS</div>
+    <div>{{ company.org_number | default("") }}</div>
+  </div>
+</div>
+
+<div class="report-period">
+  Period: {{ period }}
+  {% if generated_at %}<br>Genererad: {{ generated_at }}{% endif %}
+</div>
+
+<table class="data-table">
+  <thead>
+    <tr>
+      <th style="width:12%">Konto</th>
+      <th style="width:38%">Benämning</th>
+      <th class="right" style="width:17%">Debet</th>
+      <th class="right" style="width:17%">Kredit</th>
+      <th class="right" style="width:16%">Saldo</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr>
+      <td>{{ row.account_code }}</td>
+      <td>{{ row.account_name }}</td>
+      <td class="right">{{ row.debit | format_sek }}</td>
+      <td class="right">{{ row.credit | format_sek }}</td>
+      <td class="right">{{ row.balance | format_sek }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+  <tfoot>
+    <tr>
+      <td></td>
+      <td><strong>SUMMA</strong></td>
+      <td class="right">{{ total_debit | format_sek }}</td>
+      <td class="right">{{ total_credit | format_sek }}</td>
+      <td class="right">{{ (total_debit - total_credit) | format_sek }}</td>
+    </tr>
+  </tfoot>
+</table>
+
+<div class="footer">
+  {{ company.name }}
+  {% if company.org_number %} · Org.nr: {{ company.org_number }}{% endif %}
+</div>
+{% endblock %}

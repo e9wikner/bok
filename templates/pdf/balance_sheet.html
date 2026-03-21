@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="header">
+  <div class="logo-area">
+    {% if company.logo_url %}
+    <img src="{{ company.logo_url }}" alt="{{ company.name }}">
+    {% else %}
+    <div class="company-name">{{ company.name }}</div>
+    {% endif %}
+  </div>
+  <div class="doc-info">
+    <div class="doc-title">BALANSRÄKNING</div>
+    <div>{{ company.org_number | default("") }}</div>
+  </div>
+</div>
+
+<div class="report-period">
+  Per {{ balance_date }}
+  {% if generated_at %}<br>Genererad: {{ generated_at }}{% endif %}
+</div>
+
+<div class="section-title">TILLGÅNGAR</div>
+
+<table class="data-table">
+  <thead>
+    <tr>
+      <th style="width:15%">Konto</th>
+      <th style="width:45%">Benämning</th>
+      <th class="right" style="width:20%">Belopp</th>
+      {% if compare_period %}
+      <th class="right" style="width:20%">Föregående år</th>
+      {% endif %}
+    </tr>
+  </thead>
+  <tbody>
+    <!-- Anläggningstillgångar -->
+    {% if fixed_asset_rows %}
+    <tr class="group-header">
+      <td colspan="{{ 4 if compare_period else 3 }}">Anläggningstillgångar</td>
+    </tr>
+    {% for row in fixed_asset_rows %}
+    <tr class="indent-1">
+      <td>{{ row.account_code }}</td>
+      <td>{{ row.account_name }}</td>
+      <td class="right">{{ row.amount | format_sek }}</td>
+      {% if compare_period %}
+      <td class="right">{{ row.compare_amount | format_sek }}</td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+    <tr class="group-total">
+      <td></td>
+      <td>Summa anläggningstillgångar</td>
+      <td class="right">{{ total_fixed_assets | format_sek }}</td>
+      {% if compare_period %}
+      <td class="right">{{ total_fixed_assets_compare | format_sek }}</td>
+      {% endif %}
+    </tr>
+    {% endif %}
+
+    <!-- Omsättningstillgångar -->
+    <tr class="group-header">
+      <td colspan="{{ 4 if compare_period else 3 }}">Omsättningstillgångar</td>
+    </tr>
+    {% for row in current_asset_rows %}
+    <tr class="indent-1">
+      <td>{{ row.account_code }}</td>
+      <td>{{ row.account_name }}</td>
+      <td class="right">{{ row.amount | format_sek }}</td>
+      {% if compare_period %}
+      <td class="right">{{ row.compare_amount | format_sek }}</td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+    <tr class="group-total">
+      <td></td>
+      <td>Summa omsättningstillgångar</td>
+      <td class="right">{{ total_current_assets | format_sek }}</td>
+      {% if compare_period %}
+      <td class="right">{{ total_current_assets_compare | format_sek }}</td>
+      {% endif %}
+    </tr>
+
+    <tr class="grand-total">
+      <td></td>
+      <td>SUMMA TILLGÅNGAR</td>
+      <td class="right">{{ total_assets | format_sek }}</td>
+      {% if compare_period %}
+      <td class="right">{{ total_assets_compare | format_sek }}</td>
+      {% endif %}
+    </tr>
+  </tbody>
+</table>
+
+<div class="section-title">EGET KAPITAL OCH SKULDER</div>
+
+<table class="data-table">
+  <thead>
+    <tr>
+      <th style="width:15%">Konto</th>
+      <th style="width:45%">Benämning</th>
+      <th class="right" style="width:20%">Belopp</th>
+      {% if compare_period %}
+      <th class="right" style="width:20%">Föregående år</th>
+      {% endif %}
+    </tr>
+  </thead>
+  <tbody>
+    <!-- Eget kapital -->
+    <tr class="group-header">
+      <td colspan="{{ 4 if compare_period else 3 }}">Eget kapital</td>
+    </tr>
+    {% for row in equity_rows %}
+    <tr class="indent-1">
+      <td>{{ row.account_code }}</td>
+      <td>{{ row.account_name }}</td>
+      <td class="right">{{ row.amount | format_sek }}</td>
+      {% if compare_period %}
+      <td class="right">{{ row.compare_amount | format_sek }}</td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+    <tr class="group-total">
+      <td></td>
+      <td>Summa eget kapital</td>
+      <td class="right">{{ total_equity | format_sek }}</td>
+      {% if compare_period %}
+      <td class="right">{{ total_equity_compare | format_sek }}</td>
+      {% endif %}
+    </tr>
+
+    <!-- Skulder -->
+    <tr class="group-header">
+      <td colspan="{{ 4 if compare_period else 3 }}">Skulder</td>
+    </tr>
+    {% for row in liability_rows %}
+    <tr class="indent-1">
+      <td>{{ row.account_code }}</td>
+      <td>{{ row.account_name }}</td>
+      <td class="right">{{ row.amount | format_sek }}</td>
+      {% if compare_period %}
+      <td class="right">{{ row.compare_amount | format_sek }}</td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+    <tr class="group-total">
+      <td></td>
+      <td>Summa skulder</td>
+      <td class="right">{{ total_liabilities | format_sek }}</td>
+      {% if compare_period %}
+      <td class="right">{{ total_liabilities_compare | format_sek }}</td>
+      {% endif %}
+    </tr>
+
+    <tr class="grand-total">
+      <td></td>
+      <td>SUMMA EGET KAPITAL OCH SKULDER</td>
+      <td class="right">{{ total_equity_and_liabilities | format_sek }}</td>
+      {% if compare_period %}
+      <td class="right">{{ total_equity_and_liabilities_compare | format_sek }}</td>
+      {% endif %}
+    </tr>
+  </tbody>
+</table>
+
+<div class="footer">
+  {{ company.name }}
+  {% if company.org_number %} · Org.nr: {{ company.org_number }}{% endif %}
+</div>
+{% endblock %}

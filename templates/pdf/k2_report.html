@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="header">
+  <div class="logo-area">
+    {% if company.logo_url %}
+    <img src="{{ company.logo_url }}" alt="{{ company.name }}">
+    {% else %}
+    <div class="company-name">{{ company.name }}</div>
+    {% endif %}
+  </div>
+  <div class="doc-info">
+    <div class="doc-title">ÅRSREDOVISNING (K2)</div>
+    <div>{{ company.org_number | default("") }}</div>
+  </div>
+</div>
+
+<div class="report-period">
+  Räkenskapsår: {{ fiscal_year_start }} – {{ fiscal_year_end }}
+  {% if generated_at %}<br>Genererad: {{ generated_at }}{% endif %}
+</div>
+
+<!-- Förvaltningsberättelse -->
+<div class="section-title">Förvaltningsberättelse</div>
+<p><strong>Företag:</strong> {{ company.name }}</p>
+{% if company.org_number %}
+<p><strong>Organisationsnummer:</strong> {{ company.org_number }}</p>
+{% endif %}
+{% if managing_director %}
+<p><strong>Styrelse/VD:</strong> {{ managing_director }}</p>
+{% endif %}
+{% if significant_events %}
+<p><strong>Väsentliga händelser:</strong> {{ significant_events }}</p>
+{% endif %}
+{% if average_employees is not none %}
+<p><strong>Medelantal anställda:</strong> {{ average_employees }}</p>
+{% endif %}
+
+<!-- Resultaträkning -->
+<div class="section-title">Resultaträkning</div>
+<table class="data-table">
+  <thead>
+    <tr>
+      <th style="width:60%">Post</th>
+      <th class="right" style="width:20%">{{ fiscal_year_label }}</th>
+      {% if compare_year %}
+      <th class="right" style="width:20%">{{ compare_year_label }}</th>
+      {% endif %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for section in income_statement_sections %}
+    <tr class="group-header">
+      <td colspan="{{ 3 if compare_year else 2 }}">{{ section.title }}</td>
+    </tr>
+    {% for row in section.rows %}
+    <tr class="indent-1">
+      <td>{{ row.label }}</td>
+      <td class="right">{{ row.amount | format_sek }}</td>
+      {% if compare_year %}
+      <td class="right">{{ row.compare_amount | format_sek }}</td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+    {% if section.total is defined %}
+    <tr class="group-total">
+      <td>{{ section.total_label }}</td>
+      <td class="right">{{ section.total | format_sek }}</td>
+      {% if compare_year %}
+      <td class="right">{{ section.total_compare | format_sek }}</td>
+      {% endif %}
+    </tr>
+    {% endif %}
+    {% endfor %}
+    <tr class="grand-total" style="background:#2c5aa0;color:white;">
+      <td>Årets resultat</td>
+      <td class="right">{{ net_result | format_sek }}</td>
+      {% if compare_year %}
+      <td class="right">{{ net_result_compare | format_sek }}</td>
+      {% endif %}
+    </tr>
+  </tbody>
+</table>
+
+<!-- Balansräkning -->
+<div class="section-title">Balansräkning</div>
+<table class="data-table">
+  <thead>
+    <tr>
+      <th style="width:60%">Post</th>
+      <th class="right" style="width:20%">{{ fiscal_year_label }}</th>
+      {% if compare_year %}
+      <th class="right" style="width:20%">{{ compare_year_label }}</th>
+      {% endif %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for section in balance_sheet_sections %}
+    <tr class="group-header">
+      <td colspan="{{ 3 if compare_year else 2 }}">{{ section.title }}</td>
+    </tr>
+    {% for row in section.rows %}
+    <tr class="indent-1">
+      <td>{{ row.label }}</td>
+      <td class="right">{{ row.amount | format_sek }}</td>
+      {% if compare_year %}
+      <td class="right">{{ row.compare_amount | format_sek }}</td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+    {% if section.total is defined %}
+    <tr class="group-total">
+      <td>{{ section.total_label }}</td>
+      <td class="right">{{ section.total | format_sek }}</td>
+      {% if compare_year %}
+      <td class="right">{{ section.total_compare | format_sek }}</td>
+      {% endif %}
+    </tr>
+    {% endif %}
+    {% endfor %}
+  </tbody>
+</table>
+
+<!-- Noter -->
+{% if notes %}
+<div class="section-title">Noter</div>
+{% for note in notes %}
+<p><strong>Not {{ loop.index }}:</strong> {{ note }}</p>
+{% endfor %}
+{% endif %}
+
+<div class="footer">
+  {{ company.name }}
+  {% if company.org_number %} · Org.nr: {{ company.org_number }}{% endif %}
+  · Årsredovisningen är upprättad enligt K2-regelverket (BFNAR 2016:10)
+</div>
+{% endblock %}

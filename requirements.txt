@@ -23,7 +23,12 @@ python-multipart>=0.0.6
 streamlit>=1.28.0
 pandas>=2.0.0
 
+# PDF Export
+weasyprint>=68.0
+jinja2>=3.1.0
+qrcode>=7.4
+pillow>=10.0
+
 # Optional: Production Features
 # For PostgreSQL support: psycopg2-binary==2.9.9
-# For PDF export: reportlab==4.0.7
 # For advanced validation: email-validator==2.1.0
