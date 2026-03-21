@@ -271,27 +271,49 @@ class SIE4Parser:
         }
     
     def _parse_transaction(self, line: str) -> Optional[SIEVoucherRow]:
-        """Parse transaction row (#TRANS)."""
-        parts = self._parse_array(line)
+        """Parse transaction row (#TRANS).
+        
+        SIE4-format: #TRANS konto objektlista belopp datum text kvantitet sign
+        Objektlistan är {} för tom, eller {dimension värde} för kostnadsbärare.
+        """
+        # Hantera objektlistan {} speciellt - ta bort den innan parsing
+        # Regex: ersätt {} eller {innehåll} med ett platshållarvärde
+        import re
+        # Hitta och ta bort objektlistan (andra fältet efter konto)
+        cleaned = re.sub(r'\{[^}]*\}', '__OBJ__', line, count=1)
+        parts = self._parse_array(cleaned)
+        
         if len(parts) < 2:
             return None
         
         account = self._parse_string(parts[0])
         
+        # Hitta beloppet - det är fältet efter objektlistan
+        amount_idx = 1
+        if parts[amount_idx] == '__OBJ__':
+            amount_idx = 2
+        
+        if amount_idx >= len(parts):
+            return None
+        
         try:
             # SIE uses negative for credit, positive for debit
-            amount = self._parse_amount(parts[1])
+            amount = self._parse_amount(parts[amount_idx])
         except:
             return None
         
+        # Beskrivning är fält 4 (efter datum) relativt objektlistan
         description = None
-        if len(parts) > 5:
-            description = parts[5]
+        desc_idx = amount_idx + 2  # belopp + datum + text
+        if desc_idx < len(parts) and parts[desc_idx] != '__OBJ__':
+            description = parts[desc_idx]
         
+        # Kvantitet
         quantity = None
-        if len(parts) > 3 and parts[3]:
+        qty_idx = amount_idx + 3
+        if qty_idx < len(parts) and parts[qty_idx] != '__OBJ__':
             try:
-                quantity = Decimal(self._parse_string(parts[3]).replace(',', '.'))
+                quantity = Decimal(self._parse_string(parts[qty_idx]).replace(',', '.'))
             except:
                 pass
         
