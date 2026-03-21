@@ -48,38 +48,23 @@ def get_or_create_fiscal_year() -> str:
         print(f"✅ Found {len(periods)} existing periods")
         return periods[0]["fiscal_year_id"]
     
-    # Create fiscal year
+    # Create fiscal year via API (uses query params)
     print("📅 Creating fiscal year 2026...")
-    fy_data = {
-        "start_date": "2026-01-01",
-        "end_date": "2026-12-31"
-    }
-    
-    # Create periods for each month
-    for month in range(1, 13):
-        start = date(2026, month, 1)
-        if month == 12:
-            end = date(2026, 12, 31)
-        else:
-            end = date(2026, month + 1, 1) - timedelta(days=1)
-        
-        period_data = {
-            "year": 2026,
-            "month": month,
-            "start_date": start.isoformat(),
-            "end_date": end.isoformat()
+    resp = requests.post(
+        f"{API_URL}/api/v1/fiscal-years",
+        headers=HEADERS,
+        params={
+            "start_date": "2026-01-01",
+            "end_date": "2026-12-31"
         }
-        resp = requests.post(
-            f"{API_URL}/api/v1/periods",
-            headers=HEADERS,
-            json=period_data
-        )
-        if resp.status_code == 201:
-            print(f"  ✓ Created period {month:02d}/2026")
-        else:
-            print(f"  ⚠ Failed to create period {month}: {resp.text}")
-    
-    return "fy-2026"  # Will be auto-generated
+    )
+    if resp.status_code == 201:
+        data = resp.json()
+        print(f"  ✓ Created fiscal year: {data.get('id', 'unknown')}")
+        return data.get("id", "fy-2026")
+    else:
+        print(f"  ⚠ Failed to create fiscal year: {resp.status_code} - {resp.text}")
+        return ""
 
 
 def get_period_id(month: int) -> Optional[str]:
@@ -126,14 +111,18 @@ def generate_demo_vouchers():
     print("🎯 GENERATING DEMO VOUCHERS")
     print("="*60)
     
+    # First ensure fiscal year exists
+    print("\n📅 Checking fiscal year...")
+    get_or_create_fiscal_year()
+    
     # Get period IDs
     periods = {}
     for month in range(1, 13):
         periods[month] = get_period_id(month)
     
     if not any(periods.values()):
-        print("❌ No periods found. Run fiscal year setup first.")
-        return
+        print("❌ No periods found. Cannot create vouchers.")
+        return 0
     
     vouchers_created = 0
     
