@@ -48,7 +48,7 @@ else:
 
 page = st.sidebar.radio(
     "Navigering",
-    ["🏠 Dashboard", "📒 Kontoplan", "📝 Verifikationer", "📄 Fakturor", "📈 Rapporter", "🎯 Demo Data"]
+    ["🏠 Dashboard", "📒 Kontoplan", "📝 Verifikationer", "📄 Fakturor", "📖 Huvudbok", "📈 Rapporter", "🎯 Demo Data"]
 )
 
 # Helper functions
@@ -61,7 +61,7 @@ def get_accounts():
 
 def get_vouchers():
     try:
-        resp = requests.get(f"{API_URL}/api/v1/vouchers", headers=HEADERS)
+        resp = requests.get(f"{API_URL}/api/v1/vouchers", params={"status": "all"}, headers=HEADERS)
         return resp.json().get("vouchers", []) if resp.status_code == 200 else []
     except:
         return []
@@ -69,7 +69,8 @@ def get_vouchers():
 def get_invoices():
     try:
         resp = requests.get(f"{API_URL}/api/v1/invoices", headers=HEADERS)
-        return resp.json() if resp.status_code == 200 else []
+        data = resp.json() if resp.status_code == 200 else {}
+        return data.get("invoices", []) if isinstance(data, dict) else data
     except:
         return []
 
@@ -80,9 +81,28 @@ def get_periods():
     except:
         return []
 
+def get_fiscal_years():
+    try:
+        resp = requests.get(f"{API_URL}/api/v1/fiscal-years", headers=HEADERS)
+        data = resp.json() if resp.status_code == 200 else {}
+        return data.get("fiscal_years", []) if isinstance(data, dict) else []
+    except:
+        return []
+
 def get_trial_balance(period_id):
     try:
-        resp = requests.get(f"{API_URL}/api/v1/reports/trial-balance/{period_id}", headers=HEADERS)
+        resp = requests.get(f"{API_URL}/api/v1/reports/trial-balance", params={"period_id": period_id}, headers=HEADERS)
+        return resp.json() if resp.status_code == 200 else None
+    except:
+        return None
+
+def get_account_ledger(account_code, period_id):
+    try:
+        resp = requests.get(
+            f"{API_URL}/api/v1/reports/account/{account_code}",
+            params={"period_id": period_id},
+            headers=HEADERS
+        )
         return resp.json() if resp.status_code == 200 else None
     except:
         return None
@@ -546,6 +566,121 @@ elif page == "📄 Fakturor":
             except Exception as e:
                 st.error(f"Fel: {e}")
 
+# ==================== HUVUDBOK ====================
+elif page == "📖 Huvudbok":
+    st.title("📖 Huvudbok (General Ledger)")
+    
+    accounts = get_accounts()
+    periods = get_periods()
+    
+    if not accounts:
+        st.info("Inga konton hittades. Kör demo-data generering först.")
+    elif not periods:
+        st.info("Inga perioder hittades. Skapa ett räkenskapsår först.")
+    else:
+        # Period selector
+        period_options = [(p.get("id"), f"{p.get('year')}-{p.get('month'):02d}") for p in periods]
+        selected_period = st.selectbox("Välj period", period_options, format_func=lambda x: x[1])
+        
+        if selected_period:
+            period_id = selected_period[0]
+            
+            # Get trial balance for overview
+            tb = get_trial_balance(period_id)
+            
+            # Overview: accounts with balances
+            st.subheader("💰 Kontosaldon")
+            
+            if tb and tb.get("rows"):
+                tb_rows = tb.get("rows", [])
+                
+                # Build lookup: account_code -> account info
+                account_lookup = {a.get("code"): a for a in accounts}
+                
+                overview_data = []
+                for r in tb_rows:
+                    code = r.get("account_code", "")
+                    acc_info = account_lookup.get(code, {})
+                    balance = r.get("balance", 0)
+                    overview_data.append({
+                        "Konto": code,
+                        "Namn": acc_info.get("name", ""),
+                        "Typ": acc_info.get("account_type", ""),
+                        "Debet": format_currency(r.get("debit", 0)),
+                        "Kredit": format_currency(r.get("credit", 0)),
+                        "Saldo": format_currency(balance),
+                        "_balance_raw": balance,
+                    })
+                
+                df_overview = pd.DataFrame(overview_data)
+                
+                # Show summary by account type
+                col1, col2, col3, col4 = st.columns(4)
+                type_sums = {}
+                for row in overview_data:
+                    t = row["Typ"]
+                    type_sums[t] = type_sums.get(t, 0) + row["_balance_raw"]
+                
+                type_labels = {
+                    "asset": ("🏦 Tillgångar", col1),
+                    "liability": ("💳 Skulder", col2),
+                    "revenue": ("📈 Intäkter", col3),
+                    "expense": ("📉 Kostnader", col4),
+                }
+                for t, (label, col) in type_labels.items():
+                    with col:
+                        st.metric(label, format_currency(type_sums.get(t, 0)))
+                
+                st.markdown("---")
+                
+                # Filter
+                type_filter = st.selectbox("Filtrera kontotyp", ["Alla", "asset", "liability", "equity", "revenue", "expense"])
+                
+                display_df = df_overview.drop(columns=["_balance_raw"])
+                if type_filter != "Alla":
+                    display_df = display_df[display_df["Typ"] == type_filter]
+                
+                st.dataframe(display_df, use_container_width=True, hide_index=True)
+            else:
+                st.info("Ingen bokförd data för vald period.")
+            
+            # Detailed account ledger
+            st.markdown("---")
+            st.subheader("📋 Kontoutdrag")
+            
+            # Group accounts by type for easier selection
+            account_options = [(a.get("code"), f"{a.get('code')} - {a.get('name')}") for a in accounts]
+            selected_account = st.selectbox(
+                "Välj konto för detaljvy",
+                account_options,
+                format_func=lambda x: x[1]
+            )
+            
+            if selected_account:
+                ledger_data = get_account_ledger(selected_account[0], period_id)
+                
+                if ledger_data and ledger_data.get("rows"):
+                    st.write(f"**Konto:** {ledger_data.get('account_code')} - {ledger_data.get('account_name')}")
+                    
+                    ledger_rows = []
+                    for r in ledger_data.get("rows", []):
+                        ledger_rows.append({
+                            "Datum": r.get("date"),
+                            "Ver.nr": f"{r.get('voucher_series', '')}{r.get('voucher_number', '')}",
+                            "Beskrivning": r.get("description", ""),
+                            "Debet": format_currency(r.get("debit", 0)) if r.get("debit") else "",
+                            "Kredit": format_currency(r.get("credit", 0)) if r.get("credit") else "",
+                            "Saldo": format_currency(r.get("balance", 0)),
+                        })
+                    
+                    df_ledger = pd.DataFrame(ledger_rows)
+                    st.dataframe(df_ledger, use_container_width=True, hide_index=True)
+                    
+                    ending = ledger_data.get("ending_balance", 0)
+                    st.success(f"**Slutsaldo:** {format_currency(ending)}")
+                else:
+                    st.info("Inga transaktioner på detta konto för vald period.")
+
 # ==================== RAPPORTER ====================
 elif page == "📈 Rapporter":
     st.title("📈 Rapporter")
@@ -562,7 +697,7 @@ elif page == "📈 Rapporter":
             period_id = selected_period[0]
             
             # Trial balance
-            st.subheader("📊 Saldobalans")
+            st.subheader("📊 Saldobalans (Råbalans)")
             tb = get_trial_balance(period_id)
             
             if tb and tb.get("rows"):
@@ -576,46 +711,44 @@ elif page == "📈 Rapporter":
                     for r in tb.get("rows", [])
                 ])
                 st.dataframe(df, use_container_width=True, hide_index=True)
-                st.caption(f"Summa Debet: {format_currency(tb.get('total_debit', 0))} | Summa Kredit: {format_currency(tb.get('total_credit', 0))}")
+                
+                total_debit = tb.get("total_debit", 0)
+                total_credit = tb.get("total_credit", 0)
+                balanced = "✅ Balanserad" if total_debit == total_credit else "⚠️ Obalanserad"
+                st.caption(f"Summa Debet: {format_currency(total_debit)} | Summa Kredit: {format_currency(total_credit)} | {balanced}")
             else:
                 st.info("Ingen data för vald period")
             
-            # Account ledger selector
+            # Resultaträkning (enkel)
             st.markdown("---")
-            st.subheader("📖 Huvudbok")
+            st.subheader("📊 Resultaträkning (förenklad)")
             
-            accounts = get_accounts()
-            if accounts:
-                account_options = [(a.get("code"), f"{a.get('code')} - {a.get('name')}") for a in accounts]
-                selected_account = st.selectbox("Välj konto", account_options, format_func=lambda x: x[1])
+            if tb and tb.get("rows"):
+                accounts = get_accounts()
+                account_lookup = {a.get("code"): a for a in accounts}
                 
-                if selected_account:
-                    try:
-                        resp = requests.get(
-                            f"{API_URL}/api/v1/reports/account-ledger/{selected_account[0]}",
-                            params={"period_id": period_id},
-                            headers=HEADERS
-                        )
-                        if resp.status_code == 200:
-                            ledger = resp.json()
-                            if ledger.get("rows"):
-                                df = pd.DataFrame([
-                                    {
-                                        "Datum": r.get("date"),
-                                        "Ver": f"{r.get('voucher_series')}{r.get('voucher_number')}",
-                                        "Beskrivning": r.get("description"),
-                                        "Debet": format_currency(r.get("debit", 0)) if r.get("debit") else "",
-                                        "Kredit": format_currency(r.get("credit", 0)) if r.get("credit") else "",
-                                        "Saldo": format_currency(r.get("balance", 0))
-                                    }
-                                    for r in ledger.get("rows", [])
-                                ])
-                                st.dataframe(df, use_container_width=True, hide_index=True)
-                                st.caption(f"Slutsaldo: {format_currency(ledger.get('ending_balance', 0))}")
-                            else:
-                                st.info("Inga transaktioner på kontot")
-                    except Exception as e:
-                        st.error(f"Fel: {e}")
+                revenue_total = 0
+                expense_total = 0
+                
+                for r in tb.get("rows", []):
+                    code = r.get("account_code", "")
+                    acc = account_lookup.get(code, {})
+                    balance = r.get("balance", 0)
+                    
+                    if acc.get("account_type") == "revenue":
+                        revenue_total += abs(balance)  # Revenue has credit balance (negative)
+                    elif acc.get("account_type") == "expense":
+                        expense_total += balance
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Intäkter", format_currency(revenue_total))
+                with col2:
+                    st.metric("Kostnader", format_currency(expense_total))
+                with col3:
+                    result = revenue_total - expense_total
+                    st.metric("Resultat", format_currency(result), 
+                             delta=f"{'Vinst' if result >= 0 else 'Förlust'}")
     else:
         st.info("Skapa räkenskapsperioder först")
 

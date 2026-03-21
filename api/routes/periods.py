@@ -115,12 +115,15 @@ async def get_fiscal_year(
 
 @router.get("/periods", response_model=dict)
 async def list_periods(
-    fiscal_year_id: str,
+    fiscal_year_id: str = None,
     ledger: LedgerService = Depends(get_ledger_service),
 ):
-    """List all periods in a fiscal year."""
+    """List periods, optionally filtered by fiscal year. If no fiscal_year_id, returns all periods."""
     try:
-        periods = ledger.periods.list_periods(fiscal_year_id)
+        if fiscal_year_id:
+            periods = ledger.periods.list_periods(fiscal_year_id)
+        else:
+            periods = ledger.periods.list_all_periods()
         return {
             "fiscal_year_id": fiscal_year_id,
             "total": len(periods),

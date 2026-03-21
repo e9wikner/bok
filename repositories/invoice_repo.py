@@ -146,6 +146,26 @@ class InvoiceRepository:
         )
     
     @staticmethod
+    def list_all(status: Optional[str] = None) -> List[Invoice]:
+        """List all invoices, optionally filtered by status."""
+        sql = "SELECT id FROM invoices"
+        params = []
+        
+        if status:
+            sql += " WHERE status = ?"
+            params.append(status)
+        
+        sql += " ORDER BY invoice_date DESC, invoice_number DESC"
+        
+        cursor = db.execute(sql, tuple(params))
+        invoices = []
+        for row in cursor.fetchall():
+            invoice = InvoiceRepository.get(row["id"])
+            if invoice:
+                invoices.append(invoice)
+        return invoices
+    
+    @staticmethod
     def list_for_customer(customer_name: str) -> List[Invoice]:
         """List all invoices for a customer."""
         sql = "SELECT id FROM invoices WHERE customer_name = ? ORDER BY invoice_date DESC"

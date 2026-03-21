@@ -139,6 +139,26 @@ class VoucherRepository:
         return vouchers
     
     @staticmethod
+    def list_all(status: Optional[str] = None) -> List[Voucher]:
+        """List all vouchers across all periods."""
+        sql = "SELECT id FROM vouchers"
+        params = []
+        
+        if status:
+            sql += " WHERE status = ?"
+            params.append(status)
+        
+        sql += " ORDER BY date DESC, series, number"
+        
+        cursor = db.execute(sql, tuple(params))
+        vouchers = []
+        for row in cursor.fetchall():
+            voucher = VoucherRepository.get(row["id"])
+            if voucher:
+                vouchers.append(voucher)
+        return vouchers
+    
+    @staticmethod
     def get_next_number(series: str) -> int:
         """Get next sequential voucher number for series."""
         sql = "SELECT MAX(number) as max_num FROM vouchers WHERE series = ?"

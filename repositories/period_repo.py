@@ -192,6 +192,30 @@ class PeriodRepository:
         return periods
     
     @staticmethod
+    def list_all_periods() -> List[Period]:
+        """List all periods across all fiscal years."""
+        sql = "SELECT * FROM periods ORDER BY year, month"
+        cursor = db.execute(sql)
+        periods = []
+        for row in cursor.fetchall():
+            locked_at = row["locked_at"]
+            if locked_at:
+                locked_at = datetime.fromisoformat(locked_at)
+            
+            periods.append(Period(
+                id=row["id"],
+                fiscal_year_id=row["fiscal_year_id"],
+                year=row["year"],
+                month=row["month"],
+                start_date=datetime.fromisoformat(row["start_date"]).date(),
+                end_date=datetime.fromisoformat(row["end_date"]).date(),
+                locked=bool(row["locked"]),
+                locked_at=locked_at,
+                created_at=datetime.fromisoformat(row["created_at"])
+            ))
+        return periods
+    
+    @staticmethod
     def lock_period(period_id: str) -> bool:
         """Lock period (irreversible - BFL varaktighet requirement)."""
         sql = "UPDATE periods SET locked = 1, locked_at = ? WHERE id = ?"

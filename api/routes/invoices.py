@@ -99,6 +99,56 @@ async def create_invoice(
         )
 
 
+@router.get("", response_model=dict)
+async def list_invoices(
+    status_filter: str = None,
+):
+    """List all invoices, optionally filtered by status."""
+    try:
+        service = InvoiceService()
+        invoices = service.invoices.list_all(status=status_filter)
+        
+        return {
+            "total": len(invoices),
+            "invoices": [
+                {
+                    "id": inv.id,
+                    "invoice_number": inv.invoice_number,
+                    "customer_name": inv.customer_name,
+                    "customer_email": inv.customer_email,
+                    "invoice_date": inv.invoice_date,
+                    "due_date": inv.due_date,
+                    "amount_ex_vat": inv.amount_ex_vat,
+                    "vat_amount": inv.vat_amount,
+                    "amount_inc_vat": inv.amount_inc_vat,
+                    "paid_amount": inv.paid_amount,
+                    "remaining_amount": inv.remaining_amount(),
+                    "status": inv.status,
+                    "is_overdue": inv.is_overdue(),
+                    "rows": [
+                        {
+                            "description": r.description,
+                            "quantity": r.quantity,
+                            "unit_price": r.unit_price,
+                            "vat_code": r.vat_code,
+                            "amount_ex_vat": r.amount_ex_vat,
+                            "vat_amount": r.vat_amount,
+                            "amount_inc_vat": r.amount_inc_vat
+                        }
+                        for r in inv.rows
+                    ],
+                    "created_at": inv.created_at
+                }
+                for inv in invoices
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
 @router.get("/{invoice_id}", response_model=dict)
 async def get_invoice(invoice_id: str):
     """Get invoice by ID."""

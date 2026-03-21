@@ -136,18 +136,24 @@ async def post_voucher(
 
 @router.get("", response_model=dict)
 async def list_vouchers(
-    period_id: str,
-    voucher_status: str = Query("posted", alias="status", description="Filter: draft, posted, or all"),
+    period_id: str = Query(None, description="Filter by period ID (optional)"),
+    voucher_status: str = Query("all", alias="status", description="Filter: draft, posted, or all"),
     ledger: LedgerService = Depends(get_ledger_service),
 ):
     """
-    List vouchers for a period.
+    List vouchers, optionally filtered by period.
     
     Filter by status: "draft", "posted", or "all".
+    If period_id is omitted, returns vouchers from all periods.
     """
     try:
         status_filter = voucher_status if voucher_status != "all" else None
-        vouchers = ledger.vouchers.list_for_period(period_id, status=status_filter)
+        
+        if period_id:
+            vouchers = ledger.vouchers.list_for_period(period_id, status=status_filter)
+        else:
+            vouchers = ledger.vouchers.list_all(status=status_filter)
+        
         return {
             "period_id": period_id,
             "status_filter": voucher_status,
