@@ -66,13 +66,41 @@ class CategorizationService:
         """Categorize a single bank transaction.
         
         Tries rules in priority order, returns first match with confidence.
+        First checks learned rules from user corrections, then falls back to standard rules.
         """
-        rules = self._get_active_rules()
         is_expense = transaction.amount < 0
         description = (transaction.description or "").lower()
         counterpart = (transaction.counterpart_name or "").lower()
         amount = abs(transaction.amount)
 
+        # 1. Check learned rules first (highest confidence)
+        from services.learning import LearningService
+        learning_service = LearningService()
+        learned_result = learning_service.apply_learning(
+            transaction_description=transaction.description or "",
+            counterparty=transaction.counterpart_name,
+            amount=amount,
+        )
+
+        if learned_result:
+            learned_account, confidence, rule_id = learned_result
+            # Get account name
+            account_row = db.execute(
+                "SELECT name FROM accounts WHERE code = ?",
+                (learned_account,)
+            ).fetchone()
+
+            return CategorizationResult(
+                account_code=learned_account,
+                account_name=account_row["name"] if account_row else None,
+                description=transaction.description or "",
+                confidence=confidence,
+                rule_id=rule_id,
+                rule_type="learned",
+            )
+
+        # 2. Fall back to standard categorization rules
+        rules = self._get_active_rules()
         best_match: Optional[CategorizationResult] = None
         best_priority = 999999
 

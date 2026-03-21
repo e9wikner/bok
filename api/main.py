@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 
 # Import routers
-from api.routes import vouchers, accounts, periods, reports, invoices, k2_reports, agent, import_sie4, export_sie4, export_pdf, anomalies, bank, compliance, vat
+from api.routes import vouchers, accounts, periods, reports, invoices, k2_reports, agent, import_sie4, export_sie4, export_pdf, anomalies, bank, compliance, vat, learning
 
 # Create app
 app = FastAPI(
@@ -63,6 +63,9 @@ app.include_router(compliance.router)
 
 # Fas 5: VAT Declarations
 app.include_router(vat.router)
+
+# AI Learning & Corrections
+app.include_router(learning.router)
 
 
 @app.get("/health", tags=["health"])
