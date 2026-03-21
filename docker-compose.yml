@@ -33,5 +33,19 @@ services:
     depends_on:
       - bokfoering-api
 
+  demo-runner:
+    build: .
+    container_name: bokfoering-demo
+    volumes:
+      - bokfoering-data:/app/data
+    environment:
+      - API_URL=http://bokfoering-api:8000
+      - API_KEY=dev-key-change-in-production
+      - PYTHONUNBUFFERED=1
+    command: python scripts/demo_runner.py
+    depends_on:
+      - bokfoering-api
+    restart: "no"  # Run once and exit
+
 volumes:
   bokfoering-data:
