@@ -822,7 +822,7 @@ elif page == "🎯 Demo Data":
     st.subheader("🔗 API Info")
     
     try:
-        resp = requests.get(f"{API_URL}/api/v1/agent/openapi", headers=HEADERS)
+        resp = requests.get(f"{API_URL}/api/v1/agent/spec/openapi", headers=HEADERS)
         if resp.status_code == 200:
             spec = resp.json()
             st.write(f"**Titel:** {spec.get('info', {}).get('title')}")
