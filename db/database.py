@@ -1,6 +1,7 @@
 """Database connection and initialization."""
 
 import sqlite3
+import os
 from pathlib import Path
 from typing import Optional
 from config import settings
@@ -9,8 +10,12 @@ from config import settings
 class Database:
     """SQLite database manager."""
     
-    def __init__(self, db_path: str = "bokfoering.db"):
+    def __init__(self, db_path: str = None):
+        if db_path is None:
+            db_path = settings.database_url.replace("sqlite:///", "")
         self.db_path = db_path
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(os.path.abspath(self.db_path)), exist_ok=True)
         self.connection: Optional[sqlite3.Connection] = None
     
     def connect(self) -> sqlite3.Connection:

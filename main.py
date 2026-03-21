@@ -1,16 +1,18 @@
 """Application entrypoint."""
 
 import sys
+import os
 import argparse
 import uvicorn
 from db.database import db
 from repositories.account_repo import AccountRepository
 from datetime import date
+from config import settings
 
 
 def init_db():
     """Initialize database and load BAS 2026 default accounts."""
-    print("🔧 Initializing database...")
+    print(f"🔧 Initializing database ({settings.database_url})...")
     db.init_db()
     
     # Load default BAS 2026 accounts (subset for demo)

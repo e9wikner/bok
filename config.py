@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     """Application settings."""
     
     # Database
-    database_url: str = "sqlite:///./bokfoering.db"
+    database_url: str = "sqlite:////tmp/bokfoering.db"
     database_check_same_thread: bool = False  # SQLite only
     
     # API
