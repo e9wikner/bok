@@ -72,14 +72,18 @@ def _load_default_accounts():
             print(f"  ✓ {code} - {name}")
 
 
-def run_server(host: str = "127.0.0.1", port: int = 8000):
+def run_server(host: str = "0.0.0.0", port: int = 8000):
     """Run FastAPI server."""
     print(f"🚀 Starting server on {host}:{port}...")
+    # Disable auto-reload in Docker (causes Pydantic recursion errors)
+    use_reload = os.getenv("DISABLE_RELOAD", "false").lower() != "true"
+    
     uvicorn.run(
         "api.main:app",
         host=host,
         port=port,
-        reload=True
+        reload=False,  # Disable to avoid Pydantic schema generation recursion
+        log_level="info"
     )
 
 

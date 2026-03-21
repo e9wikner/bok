@@ -1,6 +1,6 @@
 """Pydantic schemas for API requests/responses."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import date, datetime
 from typing import Optional, List
 from decimal import Decimal
