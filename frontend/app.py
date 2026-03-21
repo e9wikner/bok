@@ -3,6 +3,7 @@
 Run with: streamlit run frontend/app.py
 """
 
+import os
 import streamlit as st
 import requests
 import pandas as pd
@@ -17,9 +18,12 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# API configuration
-API_URL = st.sidebar.text_input("API URL", "http://localhost:8000")
-API_KEY = st.sidebar.text_input("API Key", "dev-key-change-in-production", type="password")
+# API configuration - read from environment or use defaults
+DEFAULT_API_URL = os.getenv("API_URL", "http://localhost:8000")
+DEFAULT_API_KEY = os.getenv("API_KEY", "dev-key-change-in-production")
+
+API_URL = st.sidebar.text_input("API URL", DEFAULT_API_URL)
+API_KEY = st.sidebar.text_input("API Key", DEFAULT_API_KEY, type="password")
 
 HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 
