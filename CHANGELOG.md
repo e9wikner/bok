@@ -2,6 +2,45 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2026-03-21
+
+### Added (SIE4 Export)
+
+**SIE4 Export Service (services/sie4_export.py):**
+- Fullständig SIE4-filgenerering med alla obligatoriska sektioner
+- Stöd för: #FLAGGA, #FORMAT, #GEN, #PROGRAM, #SIETYP, #FNAMN, #FORGN,
+  #ADRESS, #RAR, #KPTYP, #KONTO, #SRU, #IB, #UB, #RES, #PSALDO, #VER, #TRANS
+- Automatisk beräkning av:
+  - IB (ingående balans) från föregående räkenskapsår
+  - UB (utgående balans) för balanskonton
+  - RES (resultat) för resultatkonton
+  - PSALDO (periodsaldon) per konto per period
+- Windows-1252 encoding med CRLF radbrytningar (SIE4-standard)
+
+**API-endpoints (api/routes/export_sie4.py):**
+- `GET /api/v1/export/sie4` - Export som filnedladdning eller JSON
+- `POST /api/v1/export/sie4` - Export som filnedladdning
+- Parametrar: fiscal_year_id, company_name, org_number, format (PC8/ASCII)
+
+**SIE4 Parser-fix:**
+- Fixat hantering av objektlista {} i #TRANS-rader
+- Korrekt parsing av SIE4-filer med tomma objektlistor
+
+**Tester:**
+- tests/test_sie4_export.py: Enhetstester för alla SIE4-sektioner
+- tests/test_sie4_integration.py: Integrationstester med databas
+- Export → Import roundtrip-verifiering
+- API-endpoint-tester för GET/POST
+
+**Databas:**
+- Migration 004: company_info-tabell för företagsinformation
+- Extra index för optimerad periodsaldoberäkning
+
+**Dokumentation:**
+- Uppdaterad README.md med SIE4-funktionalitet
+- Uppdaterad API.md med SIE4 import/export-dokumentation
+- curl-exempel och responsbeskrivningar
+
 ## [0.2.0] - 2026-03-21
 
 ### Added (Fas 2: Fakturering & Moms)
