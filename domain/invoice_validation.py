@@ -2,7 +2,7 @@
 
 from typing import List, Optional
 from datetime import date
-from domain.invoice_models import Invoice, InvoiceRow, Payment
+from domain.invoice_models import Invoice, InvoiceRow, Payment, InvoiceStatus
 from domain.validation import ValidationError
 
 
@@ -41,7 +41,7 @@ class InvoiceValidator:
     @staticmethod
     def validate_can_send(invoice: Invoice) -> None:
         """Check if invoice can be sent."""
-        if invoice.status != "draft":
+        if invoice.status != InvoiceStatus.DRAFT:
             raise ValidationError(
                 code="invoice_already_sent",
                 message="Cannot send non-draft invoice",
@@ -65,7 +65,7 @@ class InvoiceValidator:
     @staticmethod
     def validate_can_pay(invoice: Invoice, payment_amount: int) -> None:
         """Check if payment can be registered."""
-        if invoice.status == "cancelled":
+        if invoice.status == InvoiceStatus.CANCELLED:
             raise ValidationError(
                 code="invoice_cancelled",
                 message="Cannot pay cancelled invoice",
@@ -96,7 +96,7 @@ class InvoiceValidator:
     @staticmethod
     def validate_can_create_credit_note(invoice: Invoice, amount: int) -> None:
         """Check if credit note can be created."""
-        if invoice.status == "draft":
+        if invoice.status == InvoiceStatus.DRAFT:
             raise ValidationError(
                 code="invoice_not_sent",
                 message="Cannot credit unsent invoice",

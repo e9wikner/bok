@@ -212,8 +212,3 @@ class VoucherRepository:
         db.execute("DELETE FROM voucher_rows WHERE voucher_id = ?", (voucher_id,))
         db.commit()
         return True
-
-
-class Optional:
-    """Type hint helper."""
-    pass

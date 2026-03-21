@@ -3,10 +3,10 @@
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Optional, List
-from decimal import Decimal
+from enum import Enum
 
 
-class InvoiceStatus(str):
+class InvoiceStatus(str, Enum):
     """Invoice lifecycle status."""
     DRAFT = "draft"
     SENT = "sent"
