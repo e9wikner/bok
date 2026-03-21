@@ -54,6 +54,16 @@ class VoucherResponse(BaseModel):
 
 # Account Schemas
 
+class CreateAccountRequest(BaseModel):
+    """Request to create a new account."""
+    code: str = Field(..., description="Account code (e.g., '1930')")
+    name: str = Field(..., description="Account name")
+    account_type: str = Field(..., description="Account type (asset, liability, equity, revenue, expense)")
+    vat_code: Optional[str] = Field(None, description="VAT code if applicable")
+    sru_code: Optional[str] = Field(None, description="SRU code for tax reporting")
+    active: bool = Field(True, description="Whether account is active")
+
+
 class AccountResponse(BaseModel):
     """Response model for account."""
     code: str

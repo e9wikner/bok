@@ -3,11 +3,40 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List
 
-from api.schemas import AccountResponse, AccountListResponse
+from api.schemas import AccountResponse, AccountListResponse, CreateAccountRequest
 from api.deps import get_ledger_service
 from services.ledger import LedgerService
+from domain.validation import ValidationError
 
 router = APIRouter(prefix="/api/v1/accounts", tags=["accounts"])
+
+
+@router.post("", response_model=AccountResponse, status_code=status.HTTP_201_CREATED)
+async def create_account(
+    request: CreateAccountRequest,
+    ledger: LedgerService = Depends(get_ledger_service),
+):
+    """Create a new account (typically for extending BAS 2026)."""
+    try:
+        account = ledger.accounts.create(
+            code=request.code,
+            name=request.name,
+            account_type=request.account_type,
+            vat_code=request.vat_code,
+            sru_code=request.sru_code,
+            active=request.active,
+        )
+        return _account_to_response(account)
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": e.message, "code": e.code, "details": e.details}
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
 
 
 @router.get("", response_model=AccountListResponse)
