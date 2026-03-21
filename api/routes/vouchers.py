@@ -14,6 +14,7 @@ from api.schemas import (
 from api.deps import get_ledger_service, get_current_actor
 from domain.validation import ValidationError
 from services.ledger import LedgerService
+from repositories.audit_repo import AuditRepository
 
 router = APIRouter(prefix="/api/v1/vouchers", tags=["vouchers"])
 
@@ -160,6 +161,50 @@ async def list_vouchers(
             "total": len(vouchers),
             "vouchers": [_voucher_to_response(v) for v in vouchers]
         }
+    except Exception as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.get("/{voucher_id}/audit", response_model=dict)
+async def get_voucher_audit(
+    voucher_id: str,
+    ledger: LedgerService = Depends(get_ledger_service),
+):
+    """
+    Get audit trail (ändringshistorik) for a voucher.
+    
+    Returns all changes made to a voucher, including who changed it,
+    when, and what was changed (before/after values).
+    """
+    try:
+        voucher = ledger.vouchers.get(voucher_id)
+        if not voucher:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail="Voucher not found"
+            )
+        
+        entries = AuditRepository.get_history("voucher", voucher_id)
+        
+        return {
+            "voucher_id": voucher_id,
+            "total": len(entries),
+            "entries": [
+                {
+                    "id": e.id,
+                    "action": e.action.value,
+                    "actor": e.actor,
+                    "timestamp": e.timestamp.isoformat(),
+                    "payload": e.payload,
+                }
+                for e in entries
+            ]
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
