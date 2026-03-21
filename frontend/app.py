@@ -493,7 +493,7 @@ elif page == "📄 Fakturor":
                         if st.form_submit_button("Registrera betalning"):
                             try:
                                 resp = requests.post(
-                                    f"{API_URL}/api/v1/invoices/{inv.get('id')}/payments",
+                                    f"{API_URL}/api/v1/invoices/{inv.get('id')}/payment",
                                     headers={**HEADERS, "Content-Type": "application/json"},
                                     json={
                                         "amount": pay_amount,
