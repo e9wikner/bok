@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 
 # Import routers
-from api.routes import vouchers, accounts, periods, reports, invoices, k2_reports, agent
+from api.routes import vouchers, accounts, periods, reports, invoices, k2_reports, agent, import_sie4
 
 # Create app
 app = FastAPI(
@@ -44,6 +44,9 @@ app.include_router(k2_reports.router)
 
 # Fas 4: Agent Integration
 app.include_router(agent.router)
+
+# Import/Export
+app.include_router(import_sie4.router)
 
 
 @app.get("/health", tags=["health"])
