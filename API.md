@@ -16,7 +16,8 @@ Default API Key (dev): `dev-key-change-in-production`
 4. [Vouchers (Verifikationer)](#vouchers)
 5. [Reports (Rapporter)](#reports)
 6. [Invoices (Fakturor)](#invoices-fas-2)
-7. [Error Handling](#error-handling)
+7. [SIE4 Import & Export](#sie4-import--export)
+8. [Error Handling](#error-handling)
 
 ---
 
@@ -629,6 +630,102 @@ curl http://localhost:8000/api/v1/reports/trial-balance \
   -H "Authorization: Bearer dev-key-change-in-production" \
   "?period_id=..."
 ```
+
+---
+
+---
+
+## SIE4 Import & Export
+
+### Import SIE4
+
+```http
+POST /api/v1/import/sie4
+Content-Type: multipart/form-data
+```
+
+Upload a SIE4 file to import accounting data.
+
+**Parameters:**
+- `file` (required): SIE4 file (.si, .sie, .txt)
+- `fiscal_year_id` (optional): Target fiscal year ID
+
+**Response:**
+```json
+{
+  "success": true,
+  "imported": {
+    "accounts": 9,
+    "vouchers": 3,
+    "periods_created": 0
+  },
+  "errors": []
+}
+```
+
+### Validate SIE4
+
+```http
+POST /api/v1/import/sie4/validate
+Content-Type: multipart/form-data
+```
+
+Validate a SIE4 file without importing.
+
+### Export SIE4
+
+```http
+GET /api/v1/export/sie4?fiscal_year_id=...
+```
+
+Export accounting data to SIE4 format.
+
+**Parameters:**
+- `fiscal_year_id` (required): Fiscal year to export
+- `company_name` (optional): Company name for the export
+- `org_number` (optional): Organization number
+- `format` (optional): `PC8` (default, Windows-1252) or `ASCII`
+- `download` (optional): `true` (default) for file download, `false` for JSON
+
+**Example (file download):**
+```bash
+curl -o export.si "http://localhost:8000/api/v1/export/sie4?fiscal_year_id=fy-2026&company_name=Demo+AB" \
+  -H "Authorization: Bearer dev-key-change-in-production"
+```
+
+**Example (JSON response):**
+```bash
+curl "http://localhost:8000/api/v1/export/sie4?fiscal_year_id=fy-2026&download=false" \
+  -H "Authorization: Bearer dev-key-change-in-production"
+```
+
+**Response (JSON):**
+```json
+{
+  "content": "#FLAGGA 0\r\n#FORMAT PC8\r\n...",
+  "format": "SIE4",
+  "encoding": "windows-1252",
+  "warnings": []
+}
+```
+
+**SIE4-sektioner som genereras:**
+- `#FLAGGA 0` - Alltid 0 för export
+- `#FORMAT PC8` - Windows-1252 encoding
+- `#GEN` - Genereringsdatum och program
+- `#PROGRAM` - Programnamn och version
+- `#SIETYP 4` - SIE version 4
+- `#FNAMN` - Företagsnamn
+- `#FORGN` - Organisationsnummer
+- `#RAR` - Räkenskapsår (start/slut)
+- `#KPTYP` - Kontoplanstyp (EUBAS97)
+- `#KONTO` - Alla konton
+- `#SRU` - SRU-koder för skattedeklaration
+- `#IB` - Ingående balanser
+- `#UB` - Utgående balanser
+- `#RES` - Resultat per konto
+- `#PSALDO` - Periodsaldon
+- `#VER` / `#TRANS` - Verifikationer med transaktionsrader
 
 ---
 
