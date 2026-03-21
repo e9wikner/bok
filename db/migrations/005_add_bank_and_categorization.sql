@@ -114,7 +114,7 @@ INSERT OR IGNORE INTO categorization_rules (id, rule_type, priority, match_descr
 ('rule-drivmedel', 'keyword', 20, 'circle k|ingo|okq8|preem|st1|shell', 1, '5611', 'MP1', 'Drivmedel', 'system'),
 ('rule-representation', 'keyword', 20, 'restaurang|lunch|middag|fika', 1, '6071', 'MP1', 'Representation', 'system'),
 ('rule-programvara', 'keyword', 20, 'google|microsoft|adobe|github|slack|zoom|spotify', 1, '6540', 'MP1', 'Programvara och licenser', 'system'),
-('rule-bank', 'keyword', 10, 'bankavgift|kontoavgift|kortavgift', 1, '6570', 'MF', 'Bankavgifter', 'system'),
+('rule-bank', 'keyword', 5, 'bankavgift|kontoavgift|kortavgift', 1, '6570', 'MF', 'Bankavgifter', 'system'),
 ('rule-skatteverket', 'keyword', 5, 'skatteverket', 1, '2510', NULL, 'Skatteinbetalning', 'system'),
 ('rule-lon', 'keyword', 5, 'lön|löne', 1, '7010', NULL, 'Löneutbetalning', 'system'),
 ('rule-arbetsgivaravg', 'keyword', 5, 'arbetsgivaravgift', 1, '7510', NULL, 'Arbetsgivaravgifter', 'system'),
