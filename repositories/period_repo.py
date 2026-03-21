@@ -82,6 +82,30 @@ class PeriodRepository:
             locked_at=locked_at,
             created_at=datetime.fromisoformat(row["created_at"])
         )
+
+    @staticmethod
+    def list_fiscal_years() -> List[FiscalYear]:
+        """List all fiscal years."""
+        sql = "SELECT * FROM fiscal_years ORDER BY start_date DESC"
+        cursor = db.execute(sql)
+        rows = cursor.fetchall()
+        
+        fiscal_years = []
+        for row in rows:
+            locked_at = row["locked_at"]
+            if locked_at:
+                locked_at = datetime.fromisoformat(locked_at)
+            
+            fiscal_years.append(FiscalYear(
+                id=row["id"],
+                start_date=datetime.fromisoformat(row["start_date"]).date(),
+                end_date=datetime.fromisoformat(row["end_date"]).date(),
+                locked=bool(row["locked"]),
+                locked_at=locked_at,
+                created_at=datetime.fromisoformat(row["created_at"])
+            ))
+        
+        return fiscal_years
     
     @staticmethod
     def get_period(period_id: str) -> Optional[Period]:

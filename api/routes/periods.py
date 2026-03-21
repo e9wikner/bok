@@ -72,6 +72,24 @@ async def create_fiscal_year(
         )
 
 
+@router.get("/fiscal-years", response_model=dict)
+async def list_fiscal_years(
+    ledger: LedgerService = Depends(get_ledger_service),
+):
+    """List all fiscal years."""
+    try:
+        fiscal_years = ledger.periods.list_fiscal_years()
+        return {
+            "total": len(fiscal_years),
+            "fiscal_years": [_fiscal_year_to_response(fy) for fy in fiscal_years]
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
 @router.get("/fiscal-years/{fy_id}", response_model=FiscalYearResponse)
 async def get_fiscal_year(
     fy_id: str,

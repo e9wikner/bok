@@ -40,7 +40,16 @@ def wait_for_api(timeout: int = 60) -> bool:
 
 
 def find_existing_fiscal_year() -> Optional[str]:
-    """Try to find existing fiscal year by checking common IDs."""
+    """Try to find existing fiscal year by listing all."""
+    # First try listing all fiscal years
+    resp = requests.get(f"{API_URL}/api/v1/fiscal-years", headers=HEADERS)
+    if resp.status_code == 200:
+        fiscal_years = resp.json().get("fiscal_years", [])
+        if fiscal_years:
+            # Return the first one (most recent)
+            return fiscal_years[0].get("id")
+    
+    # Fallback: try common IDs
     for fy_id in ["fy-2026", "fy2026", "1", "2026"]:
         resp = requests.get(f"{API_URL}/api/v1/fiscal-years/{fy_id}", headers=HEADERS)
         if resp.status_code == 200:
