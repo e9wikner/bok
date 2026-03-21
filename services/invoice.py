@@ -116,7 +116,7 @@ class InvoiceService:
         self.audit.log(
             entity_type="invoice",
             entity_id=invoice_id,
-            action="sent",
+            action=AuditAction.SENT.value,
             actor=actor,
             payload={
                 "customer_email": invoice.customer_email,

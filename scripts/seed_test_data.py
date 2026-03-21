@@ -18,6 +18,26 @@ def seed_test_company():
     
     ledger = LedgerService()
     
+    # Check if data already exists (idempotent seeding)
+    print("\n0️⃣  Checking if test data already exists...")
+    from repositories.period_repo import PeriodRepository
+    period_repo = PeriodRepository()
+    
+    # Try to find existing fiscal year for 2026
+    existing_fy = None
+    try:
+        from db.database import db
+        cursor = db.execute("SELECT id FROM fiscal_years WHERE start_date = '2026-01-01' AND end_date = '2026-12-31' LIMIT 1")
+        row = cursor.fetchone()
+        if row:
+            existing_fy = period_repo.get_fiscal_year(row["id"])
+    except:
+        pass
+    
+    if existing_fy:
+        print("   ✓ Test data already exists - skipping seed")
+        return
+    
     # Create fiscal year 2026
     print("\n1️⃣  Creating fiscal year 2026...")
     fy = ledger.periods.create_fiscal_year(
@@ -190,12 +210,17 @@ def seed_test_company():
     # Seed invoices (Fas 2)
     print("\n6️⃣  Creating sample invoices...")
     from services.invoice import InvoiceService
-    from repositories.period_repo import PeriodRepository
     
     invoice_service = InvoiceService()
     
+    # Check if invoices already exist
+    existing_invoices = invoice_service.invoices.list_for_customer("Acme Corp AB")
+    if existing_invoices:
+        print("   ✓ Test invoices already exist - skipping")
+        return
+    
     # Get an open period for invoicing (February, since March is locked)
-    feb_period = PeriodRepository.get_period(periods[2].id)
+    feb_period = periods[1]  # February (index 1)
     
     # Create invoice
     print("\n   📄 Invoice 1: Consulting services")
