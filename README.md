@@ -2,12 +2,13 @@
 
 Egenbyggt bokföringssystem med REST API för svenska aktiebolag. Uppfyller alla krav enligt Bokföringslagen (BFL) och BFNAR 2013:2.
 
-**Status:** 🎉 **ALL PHASES COMPLETE + SIE4 EXPORT**
+**Status:** 🎉 **ALL PHASES COMPLETE + FAS 5 IN PROGRESS**
 - ✅ **Fas 1** – Grundbokföring (Complete)
 - ✅ **Fas 2** – Fakturering & Moms (Complete)
 - ✅ **Fas 3** – Rapporter & K2 (Complete)
 - ✅ **Fas 4** – Agent Integration (Complete)
 - ✅ **SIE4** – Import & Export (Complete)
+- 🚀 **Fas 5** – Bank Integration, Auto-Kategorisering, BFL Compliance, Momsdeklaration
 
 ## Stack
 
@@ -167,3 +168,37 @@ python main.py
 - 4 VAT codes (MP1-MP3, MF)
 - Automatic calculation
 - VAT breakdown reporting
+
+## Fas 5: Bank Integration & AI-Automatisering
+
+### 🏦 Bank Integration
+- Bank connection management (manual + Open Banking ready)
+- Transaction import (JSON API + Swedish bank CSV)
+- Transaction deduplication (external_id based)
+- Sync status tracking
+
+### 🤖 Auto-Kategorisering
+- Rule-based engine with 18 pre-loaded Swedish business patterns
+- Keyword, regex, counterpart, and amount-range matching
+- **AI-learning:** System learns from user corrections
+- Auto-booking of high-confidence matches (≥90%)
+- Covers: telecom, rent, fuel, insurance, software, bank fees, Swish, etc.
+
+### ✅ BFL Compliance Checker
+- 8 automated compliance checks:
+  - Booking timeliness (BFL 5 kap 2§)
+  - Period closing deadlines
+  - Voucher sequence gaps (BFL 5 kap 6§)
+  - Trial balance accuracy
+  - VAT declaration deadlines
+  - Unbooked transaction backlogs
+  - Missing voucher attachments
+  - Unusually large transaction flagging
+- Issue lifecycle: open → acknowledged → resolved / false positive
+
+### 🧾 VAT Declarations (Momsdeklaration)
+- Monthly and quarterly VAT declaration generation
+- SKV 4700 format mapping (Ruta 05-49)
+- Automatic calculation from booked vouchers
+- Sales breakdown by VAT rate (25%, 12%, 6%, exempt)
+- Net VAT to pay/receive calculation
