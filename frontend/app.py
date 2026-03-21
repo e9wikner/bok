@@ -18,6 +18,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Cache-konfiguration
+CACHE_TTL = 300  # 5 minuter
+
 # Anpassat tema via CSS
 st.markdown("""
 <style>
