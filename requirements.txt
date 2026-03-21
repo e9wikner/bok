@@ -16,8 +16,10 @@ pytest==7.4.3
 pytest-asyncio==0.21.1
 httpx==0.25.1
 
+# Form data support (required by FastAPI)
+python-multipart>=0.0.6
+
 # Optional: Production Features
 # For PostgreSQL support: psycopg2-binary==2.9.9
 # For PDF export: reportlab==4.0.7
 # For advanced validation: email-validator==2.1.0
-# For CORS: python-multipart==0.0.6
