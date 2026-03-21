@@ -22,10 +22,10 @@ class Settings(BaseSettings):
     # Security
     debug: bool = os.getenv("DEBUG", "False").lower() == "true"
     
-    class Config:
-        """Pydantic config."""
-        env_file = ".env"
-        case_sensitive = False
+    model_config = {
+        "env_file": ".env",
+        "case_sensitive": False,
+    }
 
 
 settings = Settings()

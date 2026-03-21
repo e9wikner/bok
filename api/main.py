@@ -1,5 +1,8 @@
 """FastAPI application setup."""
 
+import sys
+sys.setrecursionlimit(3000)  # Increase for Pydantic v2 schema generation
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config import settings

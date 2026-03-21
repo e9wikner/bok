@@ -85,9 +85,9 @@ class Payment:
     amount: int  # In öre
     payment_date: date
     payment_method: str  # bank_transfer, card, cash, etc
-    reference: Optional[str]  # Invoice number, reference code, etc
-    voucher_id: Optional[str]  # Linked to accounting voucher
-    notes: Optional[str]
+    reference: Optional[str] = None  # Invoice number, reference code, etc
+    voucher_id: Optional[str] = None  # Linked to accounting voucher
+    notes: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
     created_by: str = "system"
 
@@ -103,6 +103,6 @@ class CreditNote:
     vat_amount: int  # In öre
     amount_inc_vat: int  # In öre
     credit_date: date
-    voucher_id: Optional[str]  # Linked to accounting voucher
+    voucher_id: Optional[str] = None  # Linked to accounting voucher
     created_at: datetime = field(default_factory=datetime.now)
     created_by: str = "system"
