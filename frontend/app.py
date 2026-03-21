@@ -54,6 +54,7 @@ API_KEY = st.sidebar.text_input("API-nyckel", DEFAULT_API_KEY, type="password")
 HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 
 # Kontrollera API-hälsa
+@st.cache_data(ttl=60)
 def check_health():
     try:
         resp = requests.get(f"{API_URL}/health", timeout=5)
@@ -81,16 +82,18 @@ page = st.sidebar.radio(
 )
 
 # Hjälpfunktioner
+@st.cache_data(ttl=CACHE_TTL)
 def get_accounts():
     try:
-        resp = requests.get(f"{API_URL}/api/v1/accounts", headers=HEADERS)
+        resp = requests.get(f"{API_URL}/api/v1/accounts", headers=HEADERS, timeout=30)
         return resp.json().get("accounts", []) if resp.status_code == 200 else []
     except:
         return []
 
+@st.cache_data(ttl=CACHE_TTL)
 def get_vouchers():
     try:
-        resp = requests.get(f"{API_URL}/api/v1/vouchers", params={"status": "all"}, headers=HEADERS)
+        resp = requests.get(f"{API_URL}/api/v1/vouchers", params={"status": "all"}, headers=HEADERS, timeout=30)
         return resp.json().get("vouchers", []) if resp.status_code == 200 else []
     except:
         return []
@@ -103,43 +106,43 @@ def get_invoices():
     except:
         return []
 
+@st.cache_data(ttl=CACHE_TTL)
 def get_periods():
     try:
-        resp = requests.get(f"{API_URL}/api/v1/periods", headers=HEADERS)
+        resp = requests.get(f"{API_URL}/api/v1/periods", headers=HEADERS, timeout=30)
         return resp.json().get("periods", []) if resp.status_code == 200 else []
     except:
         return []
 
+@st.cache_data(ttl=CACHE_TTL)
 def get_fiscal_years():
     try:
-        resp = requests.get(f"{API_URL}/api/v1/fiscal-years", headers=HEADERS)
+        resp = requests.get(f"{API_URL}/api/v1/fiscal-years", headers=HEADERS, timeout=30)
         data = resp.json() if resp.status_code == 200 else {}
         return data.get("fiscal_years", []) if isinstance(data, dict) else []
     except:
         return []
 
+@st.cache_data(ttl=CACHE_TTL)
 def get_trial_balance(period_id):
     try:
-        resp = requests.get(f"{API_URL}/api/v1/reports/trial-balance", params={"period_id": period_id}, headers=HEADERS)
+        resp = requests.get(f"{API_URL}/api/v1/reports/trial-balance", params={"period_id": period_id}, headers=HEADERS, timeout=30)
         return resp.json() if resp.status_code == 200 else None
     except:
         return None
 
+@st.cache_data(ttl=CACHE_TTL)
 def get_account_ledger(account_code, period_id):
     try:
-        resp = requests.get(
-            f"{API_URL}/api/v1/reports/account/{account_code}",
-            params={"period_id": period_id},
-            headers=HEADERS
-        )
+        resp = requests.get(f"{API_URL}/api/v1/reports/account/{account_code}", params={"period_id": period_id}, headers=HEADERS, timeout=30)
         return resp.json() if resp.status_code == 200 else None
     except:
         return None
 
 def get_voucher_audit(voucher_id):
-    """Hämta ändringshistorik för en verifikation."""
+    """Hämta ändringshistorik för en verifikation - ej cachad då den kan ändras ofta."""
     try:
-        resp = requests.get(f"{API_URL}/api/v1/vouchers/{voucher_id}/audit", headers=HEADERS)
+        resp = requests.get(f"{API_URL}/api/v1/vouchers/{voucher_id}/audit", headers=HEADERS, timeout=10)
         return resp.json() if resp.status_code == 200 else None
     except:
         return None
@@ -389,16 +392,18 @@ elif page == "📒 Kontoplan":
 elif page == "📝 Verifikationer":
     st.title("📝 Verifikationer")
     
-    vouchers = get_vouchers()
+    # Ladda verifikationer med spinner
+    with st.spinner("Laddar verifikationer..."):
+        vouchers = get_vouchers()
     
     if vouchers:
         # Filter
         col1, col2 = st.columns(2)
         with col1:
             status_options = {"Alla": "Alla", "draft": "Utkast", "posted": "Bokförda"}
-            status_filter = st.selectbox("Status", list(status_options.keys()), format_func=lambda x: status_options[x])
+            status_filter = st.selectbox("Status", list(status_options.keys()), format_func=lambda x: status_options[x], key="voucher_status_filter")
         with col2:
-            series_filter = st.selectbox("Serie", ["Alla"] + sorted(list(set(v.get("series") for v in vouchers))))
+            series_filter = st.selectbox("Serie", ["Alla"] + sorted(list(set(v.get("series") for v in vouchers))), key="voucher_series_filter")
         
         # Filtrera
         filtered = vouchers
@@ -407,64 +412,170 @@ elif page == "📝 Verifikationer":
         if series_filter != "Alla":
             filtered = [v for v in filtered if v.get("series") == series_filter]
         
-        st.caption(f"Visar {len(filtered)} av {len(vouchers)} verifikationer")
+        # Sortera efter datum (nyaste först)
+        filtered = sorted(filtered, key=lambda x: x.get("date", ""), reverse=True)
         
-        # Lista verifikationer
-        for v in filtered:
+        # Paginering
+        ITEMS_PER_PAGE = 15
+        total_items = len(filtered)
+        total_pages = (total_items + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
+        
+        # Init page state
+        if "voucher_page" not in st.session_state:
+            st.session_state.voucher_page = 0
+        
+        # Ensure valid page
+        if st.session_state.voucher_page >= total_pages:
+            st.session_state.voucher_page = max(0, total_pages - 1)
+        
+        current_page = st.session_state.voucher_page
+        start_idx = current_page * ITEMS_PER_PAGE
+        end_idx = min(start_idx + ITEMS_PER_PAGE, total_items)
+        page_items = filtered[start_idx:end_idx]
+        
+        # Visa pagineringsinfo och kontroller
+        col_info, col_prev, col_next, col_page = st.columns([4, 1, 1, 2])
+        with col_info:
+            st.caption(f"Visar {start_idx + 1}-{end_idx} av {total_items} verifikationer (Sida {current_page + 1} av {total_pages})")
+        with col_prev:
+            if st.button("⬅️ Föregående", disabled=current_page == 0, key="voucher_prev"):
+                st.session_state.voucher_page = current_page - 1
+                st.rerun()
+        with col_next:
+            if st.button("Nästa ➡️", disabled=current_page >= total_pages - 1, key="voucher_next"):
+                st.session_state.voucher_page = current_page + 1
+                st.rerun()
+        with col_page:
+            if total_pages > 1:
+                page_options = list(range(1, total_pages + 1))
+                selected_page = st.selectbox("Sida", page_options, index=current_page, key="voucher_page_select")
+                if selected_page - 1 != current_page:
+                    st.session_state.voucher_page = selected_page - 1
+                    st.rerun()
+        
+        # Kompakt tabellvy istället för expanders
+        st.markdown("---")
+        
+        # Förbered data för tabellen
+        table_data = []
+        for v in page_items:
             ver_nr = f"{v.get('series')}{v.get('number', 0):06d}"
-            status_text = translate_status(v.get("status"))
-            with st.expander(f"{ver_nr} — {v.get('description', 'Saknas')} ({v.get('date')}) [{status_text}]"):
+            status = v.get("status", "draft")
+            status_icon = "✅" if status == "posted" else "📝"
+            status_text = translate_status(status)
+            
+            total_debit = sum(r.get("debit", 0) for r in v.get("rows", []))
+            
+            table_data.append({
+                "id": v.get("id"),
+                "ver_nr": ver_nr,
+                "date": v.get("date", ""),
+                "description": v.get("description", "Saknas")[:40],
+                "amount": format_currency(total_debit),
+                "status": f"{status_icon} {status_text}",
+                "_status_raw": status,
+                "_voucher": v
+            })
+        
+        # Visa som dataframe med klickbar funktion
+        if table_data:
+            df = pd.DataFrame(table_data)
+            
+            # Visa tabell
+            display_df = df[["ver_nr", "date", "description", "amount", "status"]].copy()
+            display_df.columns = ["Ver.nr", "Datum", "Beskrivning", "Belopp", "Status"]
+            
+            st.dataframe(
+                display_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Ver.nr": st.column_config.TextColumn("Ver.nr", width="small"),
+                    "Datum": st.column_config.TextColumn("Datum", width="small"),
+                    "Beskrivning": st.column_config.TextColumn("Beskrivning", width="large"),
+                    "Belopp": st.column_config.TextColumn("Belopp", width="small"),
+                    "Status": st.column_config.TextColumn("Status", width="small"),
+                }
+            )
+            
+            # Detaljvy för vald verifikation
+            st.markdown("---")
+            st.subheader("📋 Detaljvy")
+            
+            # Välj verifikation från dropdown istället för expanders
+            voucher_options = [(row["id"], f"{row['ver_nr']} - {row['date']} - {row['description'][:30]}") for row in table_data]
+            if voucher_options:
+                selected_voucher_id = st.selectbox(
+                    "Välj verifikation för detaljer",
+                    options=[opt[0] for opt in voucher_options],
+                    format_func=lambda x: next((opt[1] for opt in voucher_options if opt[0] == x), x),
+                    key="voucher_detail_select"
+                )
                 
-                # Flikvy: Detaljer | Historik
-                tab_details, tab_audit = st.tabs(["📋 Detaljer", "📜 Ändringshistorik"])
+                # Hitta vald verifikation
+                selected_v = next((row["_voucher"] for row in table_data if row["id"] == selected_voucher_id), None)
                 
-                with tab_details:
-                    col1, col2, col3 = st.columns([1, 1, 1])
-                    with col1:
-                        status_color = "🟢" if v.get("status") == "posted" else "🟡"
-                        st.write(f"{status_color} **Status:** {status_text}")
-                    with col2:
-                        st.write(f"**Datum:** {v.get('date')}")
-                    with col3:
-                        st.write(f"**Period:** {v.get('period_id', 'Saknas')[:8]}...")
+                if selected_v:
+                    v = selected_v
+                    ver_nr = f"{v.get('series')}{v.get('number', 0):06d}"
+                    status_text = translate_status(v.get("status"))
                     
-                    # Kontorader
-                    rows_data = []
-                    for r in v.get("rows", []):
-                        rows_data.append({
-                            "Konto": r.get("account_code"),
-                            "Beskrivning": r.get("description", "-"),
-                            "Debet": format_currency(r.get("debit", 0)) if r.get("debit") else "",
-                            "Kredit": format_currency(r.get("credit", 0)) if r.get("credit") else ""
-                        })
+                    # Flikvy: Detaljer | Historik
+                    tab_details, tab_audit = st.tabs(["📋 Detaljer", "📜 Ändringshistorik"])
                     
-                    if rows_data:
-                        st.table(pd.DataFrame(rows_data))
+                    with tab_details:
+                        col1, col2, col3 = st.columns([1, 1, 1])
+                        with col1:
+                            status_color = "🟢" if v.get("status") == "posted" else "🟡"
+                            st.write(f"{status_color} **Status:** {status_text}")
+                        with col2:
+                            st.write(f"**Datum:** {v.get('date')}")
+                        with col3:
+                            st.write(f"**Period:** {v.get('period_id', 'Saknas')[:8]}...")
+                        
+                        st.write(f"**Beskrivning:** {v.get('description', 'Saknas')}")
+                        
+                        # Kontorader
+                        rows_data = []
+                        for r in v.get("rows", []):
+                            rows_data.append({
+                                "Konto": r.get("account_code"),
+                                "Beskrivning": r.get("description", "-"),
+                                "Debet": format_currency(r.get("debit", 0)) if r.get("debit") else "",
+                                "Kredit": format_currency(r.get("credit", 0)) if r.get("credit") else ""
+                            })
+                        
+                        if rows_data:
+                            st.table(pd.DataFrame(rows_data))
+                        
+                        total_debit = sum(r.get("debit", 0) for r in v.get("rows", []))
+                        total_credit = sum(r.get("credit", 0) for r in v.get("rows", []))
+                        balanced = "✅" if total_debit == total_credit else "⚠️ OBALANSERAD"
+                        st.caption(f"**Summa:** Debet {format_currency(total_debit)} | Kredit {format_currency(total_credit)} {balanced}")
+                        
+                        if v.get("status") == "draft":
+                            col_btn, _ = st.columns([1, 4])
+                            with col_btn:
+                                if st.button("✅ Bokför verifikation", key=f"post_{v.get('id')}"):
+                                    try:
+                                        resp = requests.post(
+                                            f"{API_URL}/api/v1/vouchers/{v.get('id')}/post",
+                                            headers=HEADERS
+                                        )
+                                        if resp.status_code == 200:
+                                            st.success("✅ Bokförd!")
+                                            # Clear cache för att visa uppdaterad status
+                                            st.cache_data.clear()
+                                            st.rerun()
+                                        else:
+                                            st.error(f"Fel vid bokföring: {resp.text}")
+                                    except Exception as e:
+                                        st.error(f"Anslutningsfel: {e}")
                     
-                    total_debit = sum(r.get("debit", 0) for r in v.get("rows", []))
-                    total_credit = sum(r.get("credit", 0) for r in v.get("rows", []))
-                    balanced = "✅" if total_debit == total_credit else "⚠️ OBALANSERAD"
-                    st.caption(f"**Summa:** Debet {format_currency(total_debit)} | Kredit {format_currency(total_credit)} {balanced}")
-                    
-                    if v.get("status") == "draft":
-                        if st.button("✅ Bokför", key=f"post_{v.get('id')}"):
-                            try:
-                                resp = requests.post(
-                                    f"{API_URL}/api/v1/vouchers/{v.get('id')}/post",
-                                    headers=HEADERS
-                                )
-                                if resp.status_code == 200:
-                                    st.success("✅ Bokförd!")
-                                    st.rerun()
-                                else:
-                                    st.error(f"Fel vid bokföring: {resp.text}")
-                            except Exception as e:
-                                st.error(f"Anslutningsfel: {e}")
-                
-                with tab_audit:
-                    st.markdown("### 📜 Ändringshistorik")
-                    st.markdown("Alla ändringar av denna verifikation loggas enligt BFL krav på spårbarhet.")
-                    render_audit_history(v.get("id"))
+                    with tab_audit:
+                        st.markdown("### 📜 Ändringshistorik")
+                        st.markdown("Alla ändringar av denna verifikation loggas enligt BFL krav på spårbarhet.")
+                        render_audit_history(v.get("id"))
     else:
         st.info("Inga verifikationer hittades")
     
@@ -1077,6 +1188,8 @@ elif page == "🎯 Demodata":
                     resp = requests.post(f"{API_URL}/api/v1/agent/seed", headers=HEADERS)
                     if resp.status_code in [200, 201]:
                         st.success("✅ Demodata genererad!")
+                        # Clear cache eftersom data har ändrats
+                        st.cache_data.clear()
                         st.balloons()
                     else:
                         st.warning("API seed-endpoint inte tillgänglig. Kör main.py --seed manuellt.")
@@ -1137,6 +1250,16 @@ elif page == "🎯 Demodata":
     except:
         st.info("API-information inte tillgänglig")
 
-# Sidfot
+# Sidfot med cache-kontroller
 st.sidebar.markdown("---")
+
+# Cache-rensning och uppdatering
+with st.sidebar.expander("⚙️ System"):
+    if st.button("🔄 Rensa cache"):
+        st.cache_data.clear()
+        st.success("✅ Cache rensad!")
+        st.rerun()
+    if st.button("🔄 Uppdatera data"):
+        st.rerun()
+
 st.sidebar.caption("© 2026 Bokföringssystem\nByggt med Streamlit + FastAPI")
