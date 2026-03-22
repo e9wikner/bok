@@ -15,32 +15,34 @@ const apiClient = axios.create({
 // Types
 export interface Voucher {
   id: string;
-  voucher_number: number;
-  voucher_series: string;
-  voucher_date: string;
+  number: number;
+  series: string;
+  date: string;
+  period_id: string;
   description: string;
   rows: VoucherRow[];
-  status: "draft" | "posted" | "booked";
+  status: "draft" | "posted";
   created_at: string;
-  ai_generated?: boolean;
-  corrected_by?: string;
+  created_by: string;
+  posted_at?: string;
+  correction_of?: string;
 }
 
 export interface VoucherRow {
+  id: string;
+  voucher_id: string;
   account_code: string;
-  account_name?: string;
-  debit?: number;
-  credit?: number;
-  vat_code?: string;
-  vat_rate?: number;
-  vat_amount?: number;
+  debit: number;
+  credit: number;
+  description?: string;
 }
 
 export interface Account {
   code: string;
   name: string;
-  type: string;
-  balance?: number;
+  account_type: string;
+  vat_code?: string;
+  active: boolean;
 }
 
 export interface LearningRule {

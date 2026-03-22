@@ -57,7 +57,7 @@ export default function DashboardPage() {
 
   const totalVouchers = vouchersData?.total || 0;
   const vouchers = vouchersData?.vouchers || [];
-  const aiGeneratedCount = vouchers.filter((v: any) => v.ai_generated).length;
+  const aiGeneratedCount = vouchers.filter((v: any) => v.created_by === "ai").length;
   const learningRulesCount = rulesData?.rules?.length || 0;
   const accountCount =
     accountsData?.accounts?.length || accountsData?.length || 0;
@@ -78,7 +78,7 @@ export default function DashboardPage() {
 
   // Monthly distribution mock (from voucher dates)
   const monthlyData = vouchers.reduce((acc: any, v: any) => {
-    const month = v.voucher_date?.substring(0, 7) || "Okänd";
+    const month = v.date?.substring(0, 7) || "Okänd";
     acc[month] = (acc[month] || 0) + 1;
     return acc;
   }, {});
@@ -321,12 +321,12 @@ export default function DashboardPage() {
                             href={`/vouchers/${v.id}`}
                             className="text-primary hover:underline"
                           >
-                            {v.voucher_series || "A"}
-                            {v.voucher_number}
+                            {v.series || "A"}
+                            {v.number}
                           </Link>
                         </td>
                         <td className="py-3 text-muted-foreground">
-                          {formatDate(v.voucher_date)}
+                          {formatDate(v.date)}
                         </td>
                         <td className="py-3 max-w-[200px] truncate">
                           {v.description}

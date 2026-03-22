@@ -43,7 +43,7 @@ export default function AccountsPage() {
     : accounts;
 
   const grouped = filtered.reduce((acc: any, a: any) => {
-    const type = a.type || "other";
+    const type = a.account_type || "other";
     if (!acc[type]) acc[type] = [];
     acc[type].push(a);
     return acc;

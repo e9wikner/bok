@@ -52,11 +52,10 @@ function IncomeStatementReport() {
 
   if (isLoading) return <ReportSkeleton />;
 
-  const revenues = data?.revenues || data?.revenue_accounts || [];
-  const expenses = data?.expenses || data?.expense_accounts || [];
-  const totalRevenue = data?.total_revenue || revenues.reduce((s: number, r: any) => s + (r.balance || r.amount || 0), 0);
-  const totalExpense = data?.total_expenses || expenses.reduce((s: number, e: any) => s + Math.abs(e.balance || e.amount || 0), 0);
-  const result = data?.net_income ?? totalRevenue - totalExpense;
+  const revenue = data?.revenue || 0;
+  const costs = data?.costs || 0;
+  const profit = data?.profit || 0;
+  const period = data?.period || "";
 
   return (
     <Card>
@@ -65,68 +64,35 @@ function IncomeStatementReport() {
           <TrendingUp className="h-5 w-5 text-primary" />
           Resultaträkning
         </CardTitle>
-        <CardDescription>Intäkter och kostnader</CardDescription>
+        <CardDescription>
+          {period ? `Period: ${period}` : "Intäkter och kostnader"}
+        </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="space-y-6">
-          {/* Revenue */}
-          <div>
-            <h3 className="font-semibold text-emerald-600 dark:text-emerald-400 mb-3 flex items-center gap-2">
-              <TrendingUp className="h-4 w-4" /> Intäkter
-            </h3>
-            {revenues.length > 0 ? (
-              <div className="space-y-1">
-                {revenues.map((r: any, i: number) => (
-                  <div key={i} className="flex justify-between py-1.5 px-2 hover:bg-muted/30 rounded">
-                    <span className="text-sm">
-                      <span className="font-mono text-muted-foreground mr-2">{r.account_code || r.code}</span>
-                      {r.account_name || r.name}
-                    </span>
-                    <span className="font-mono text-sm">{formatCurrency(Math.abs(r.balance || r.amount || 0))}</span>
-                  </div>
-                ))}
-                <div className="flex justify-between py-2 px-2 border-t font-semibold">
-                  <span>Summa intäkter</span>
-                  <span className="font-mono text-emerald-600">{formatCurrency(totalRevenue)}</span>
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">Inga intäkter</p>
-            )}
+        <div className="space-y-4">
+          <div className="flex justify-between py-3 px-4 bg-emerald-50 dark:bg-emerald-950/20 rounded-lg">
+            <span className="flex items-center gap-2 font-medium">
+              <TrendingUp className="h-4 w-4 text-emerald-600" /> Intäkter
+            </span>
+            <span className="font-mono font-semibold text-emerald-600">
+              {formatCurrency(revenue)}
+            </span>
           </div>
 
-          {/* Expenses */}
-          <div>
-            <h3 className="font-semibold text-red-600 dark:text-red-400 mb-3 flex items-center gap-2">
-              <TrendingDown className="h-4 w-4" /> Kostnader
-            </h3>
-            {expenses.length > 0 ? (
-              <div className="space-y-1">
-                {expenses.map((e: any, i: number) => (
-                  <div key={i} className="flex justify-between py-1.5 px-2 hover:bg-muted/30 rounded">
-                    <span className="text-sm">
-                      <span className="font-mono text-muted-foreground mr-2">{e.account_code || e.code}</span>
-                      {e.account_name || e.name}
-                    </span>
-                    <span className="font-mono text-sm">{formatCurrency(Math.abs(e.balance || e.amount || 0))}</span>
-                  </div>
-                ))}
-                <div className="flex justify-between py-2 px-2 border-t font-semibold">
-                  <span>Summa kostnader</span>
-                  <span className="font-mono text-red-600">{formatCurrency(totalExpense)}</span>
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">Inga kostnader</p>
-            )}
+          <div className="flex justify-between py-3 px-4 bg-red-50 dark:bg-red-950/20 rounded-lg">
+            <span className="flex items-center gap-2 font-medium">
+              <TrendingDown className="h-4 w-4 text-red-600" /> Kostnader
+            </span>
+            <span className="font-mono font-semibold text-red-600">
+              {formatCurrency(costs)}
+            </span>
           </div>
 
-          {/* Result */}
           <div className="border-t-2 pt-4">
             <div className="flex justify-between items-center">
               <span className="text-lg font-bold">Resultat</span>
-              <span className={`text-lg font-bold font-mono ${result >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                {formatCurrency(result)}
+              <span className={`text-lg font-bold font-mono ${profit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                {formatCurrency(profit)}
               </span>
             </div>
           </div>
@@ -141,12 +107,14 @@ function BalanceSheetReport() {
 
   if (isLoading) return <ReportSkeleton />;
 
-  const assets = data?.assets || [];
-  const liabilities = data?.liabilities || [];
-  const equity = data?.equity || [];
-  const totalAssets = data?.total_assets || assets.reduce((s: number, a: any) => s + (a.balance || 0), 0);
-  const totalLiabilities = data?.total_liabilities || liabilities.reduce((s: number, l: any) => s + Math.abs(l.balance || 0), 0);
-  const totalEquity = data?.total_equity || equity.reduce((s: number, e: any) => s + Math.abs(e.balance || 0), 0);
+  const currentAssets = data?.current_assets || 0;
+  const fixedAssets = data?.fixed_assets || 0;
+  const totalAssets = data?.total_assets || 0;
+  const currentLiabilities = data?.current_liabilities || 0;
+  const longTermLiabilities = data?.long_term_liabilities || 0;
+  const equityAmount = data?.equity || 0;
+  const totalLiabilities = data?.total_liabilities || 0;
+  const period = data?.period || "";
 
   return (
     <Card>
@@ -155,36 +123,55 @@ function BalanceSheetReport() {
           <Scale className="h-5 w-5 text-primary" />
           Balansräkning
         </CardTitle>
-        <CardDescription>Tillgångar, skulder och eget kapital</CardDescription>
+        <CardDescription>
+          {period ? `Period: ${period}` : "Tillgångar, skulder och eget kapital"}
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Assets */}
-          <div>
-            <h3 className="font-semibold text-blue-600 dark:text-blue-400 mb-3">Tillgångar</h3>
-            <AccountList accounts={assets} />
-            <div className="flex justify-between py-2 px-2 border-t font-semibold mt-2">
+          <div className="space-y-3">
+            <h3 className="font-semibold text-blue-600 dark:text-blue-400">Tillgångar</h3>
+            <div className="space-y-2">
+              <div className="flex justify-between py-2 px-3 bg-muted/30 rounded">
+                <span className="text-sm">Omsättningstillgångar</span>
+                <span className="font-mono text-sm">{formatCurrency(currentAssets)}</span>
+              </div>
+              <div className="flex justify-between py-2 px-3 bg-muted/30 rounded">
+                <span className="text-sm">Anläggningstillgångar</span>
+                <span className="font-mono text-sm">{formatCurrency(fixedAssets)}</span>
+              </div>
+            </div>
+            <div className="flex justify-between py-2 px-3 border-t font-semibold">
               <span>Summa tillgångar</span>
-              <span className="font-mono">{formatCurrency(totalAssets)}</span>
+              <span className="font-mono text-blue-600">{formatCurrency(totalAssets)}</span>
             </div>
           </div>
 
           {/* Liabilities + Equity */}
           <div className="space-y-6">
-            <div>
-              <h3 className="font-semibold text-red-600 dark:text-red-400 mb-3">Skulder</h3>
-              <AccountList accounts={liabilities} />
-              <div className="flex justify-between py-2 px-2 border-t font-semibold mt-2">
+            <div className="space-y-3">
+              <h3 className="font-semibold text-red-600 dark:text-red-400">Skulder</h3>
+              <div className="space-y-2">
+                <div className="flex justify-between py-2 px-3 bg-muted/30 rounded">
+                  <span className="text-sm">Kortfristiga skulder</span>
+                  <span className="font-mono text-sm">{formatCurrency(currentLiabilities)}</span>
+                </div>
+                <div className="flex justify-between py-2 px-3 bg-muted/30 rounded">
+                  <span className="text-sm">Långfristiga skulder</span>
+                  <span className="font-mono text-sm">{formatCurrency(longTermLiabilities)}</span>
+                </div>
+              </div>
+              <div className="flex justify-between py-2 px-3 border-t font-semibold">
                 <span>Summa skulder</span>
-                <span className="font-mono">{formatCurrency(totalLiabilities)}</span>
+                <span className="font-mono text-red-600">{formatCurrency(totalLiabilities)}</span>
               </div>
             </div>
-            <div>
-              <h3 className="font-semibold text-purple-600 dark:text-purple-400 mb-3">Eget kapital</h3>
-              <AccountList accounts={equity} />
-              <div className="flex justify-between py-2 px-2 border-t font-semibold mt-2">
+            <div className="space-y-3">
+              <h3 className="font-semibold text-purple-600 dark:text-purple-400">Eget kapital</h3>
+              <div className="flex justify-between py-2 px-3 border-t font-semibold">
                 <span>Summa EK</span>
-                <span className="font-mono">{formatCurrency(totalEquity)}</span>
+                <span className="font-mono text-purple-600">{formatCurrency(equityAmount)}</span>
               </div>
             </div>
           </div>
@@ -199,7 +186,11 @@ function TrialBalanceReport() {
 
   if (isLoading) return <ReportSkeleton />;
 
-  const accounts = data?.accounts || data?.rows || data || [];
+  const accounts = data?.accounts || [];
+  const totalDebit = data?.total_debit || 0;
+  const totalCredit = data?.total_credit || 0;
+  const balanced = data?.balanced ?? true;
+  const period = data?.period || "";
 
   return (
     <Card>
@@ -207,8 +198,13 @@ function TrialBalanceReport() {
         <CardTitle className="flex items-center gap-2">
           <FileSpreadsheet className="h-5 w-5 text-primary" />
           Huvudbok
+          {!balanced && (
+            <Badge variant="destructive" className="ml-2">Obalanserad</Badge>
+          )}
         </CardTitle>
-        <CardDescription>Saldon per konto</CardDescription>
+        <CardDescription>
+          {period ? `Period: ${period} - ` : ""}Saldon per konto
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {Array.isArray(accounts) && accounts.length > 0 ? (
@@ -220,20 +216,25 @@ function TrialBalanceReport() {
                   <th className="text-left p-3 font-medium text-muted-foreground">Namn</th>
                   <th className="text-right p-3 font-medium text-muted-foreground">Debet</th>
                   <th className="text-right p-3 font-medium text-muted-foreground">Kredit</th>
-                  <th className="text-right p-3 font-medium text-muted-foreground">Saldo</th>
                 </tr>
               </thead>
               <tbody>
                 {accounts.map((a: any, i: number) => (
                   <tr key={i} className="border-b last:border-0 hover:bg-muted/30">
-                    <td className="p-3 font-mono font-medium">{a.account_code || a.code}</td>
-                    <td className="p-3">{a.account_name || a.name}</td>
-                    <td className="p-3 text-right font-mono">{a.total_debit != null ? formatCurrency(a.total_debit) : "-"}</td>
-                    <td className="p-3 text-right font-mono">{a.total_credit != null ? formatCurrency(a.total_credit) : "-"}</td>
-                    <td className="p-3 text-right font-mono font-medium">{formatCurrency(a.balance || a.saldo || 0)}</td>
+                    <td className="p-3 font-mono font-medium">{a.code}</td>
+                    <td className="p-3">{a.name}</td>
+                    <td className="p-3 text-right font-mono">{a.debit ? formatCurrency(a.debit) : "-"}</td>
+                    <td className="p-3 text-right font-mono">{a.credit ? formatCurrency(a.credit) : "-"}</td>
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr className="border-t-2 font-bold">
+                  <td className="p-3" colSpan={2}>Summa</td>
+                  <td className="p-3 text-right font-mono">{formatCurrency(totalDebit)}</td>
+                  <td className="p-3 text-right font-mono">{formatCurrency(totalCredit)}</td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         ) : (

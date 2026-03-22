@@ -43,7 +43,7 @@ export default function VouchersPage() {
     ? vouchers.filter(
         (v: any) =>
           v.description?.toLowerCase().includes(search.toLowerCase()) ||
-          String(v.voucher_number).includes(search)
+          String(v.number).includes(search)
       )
     : vouchers;
 
@@ -143,16 +143,16 @@ export default function VouchersPage() {
                             className="font-medium text-primary hover:underline flex items-center gap-2"
                           >
                             <FileText className="h-4 w-4" />
-                            {v.voucher_series || "A"}
-                            {v.voucher_number}
+                            {v.series || "A"}
+                            {v.number}
                           </Link>
                         </td>
                         <td className="p-4 text-muted-foreground">
-                          {formatDate(v.voucher_date)}
+                          {formatDate(v.date)}
                         </td>
                         <td className="p-4 max-w-[300px] truncate">
                           {v.description}
-                          {v.ai_generated && (
+                          {v.created_by === "ai" && (
                             <Badge variant="secondary" className="ml-2 text-xs">
                               AI
                             </Badge>

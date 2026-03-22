@@ -65,8 +65,8 @@ export default function VoucherDetailPage() {
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl lg:text-3xl font-bold tracking-tight">
-              Verifikation {voucher.voucher_series || "A"}
-              {voucher.voucher_number}
+              Verifikation {voucher.series || "A"}
+              {voucher.number}
             </h1>
             <Badge
               variant={
@@ -86,7 +86,7 @@ export default function VoucherDetailPage() {
           </div>
           <p className="text-muted-foreground mt-1">{voucher.description}</p>
         </div>
-        {voucher.ai_generated && (
+        {voucher.created_by === "ai" && (
           <Badge variant="secondary" className="gap-1 w-fit">
             <Brain className="h-3 w-3" /> AI-genererad
           </Badge>
@@ -100,7 +100,7 @@ export default function VoucherDetailPage() {
             <Calendar className="h-5 w-5 text-muted-foreground" />
             <div>
               <p className="text-xs text-muted-foreground">Datum</p>
-              <p className="font-medium">{formatDate(voucher.voucher_date)}</p>
+              <p className="font-medium">{formatDate(voucher.date)}</p>
             </div>
           </CardContent>
         </Card>
@@ -110,8 +110,8 @@ export default function VoucherDetailPage() {
             <div>
               <p className="text-xs text-muted-foreground">Nummer</p>
               <p className="font-medium">
-                {voucher.voucher_series || "A"}
-                {voucher.voucher_number}
+                {voucher.series || "A"}
+                {voucher.number}
               </p>
             </div>
           </CardContent>
