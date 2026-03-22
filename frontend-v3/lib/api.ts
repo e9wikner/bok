@@ -130,20 +130,24 @@ export const api = {
   },
 
   // Reports
-  getIncomeStatement: async (periodId?: string) => {
-    const { data } = await apiClient.get("/api/v1/reports/income-statement", {
-      params: periodId ? { period_id: periodId } : {},
-    });
+  getIncomeStatement: async (year?: number, month?: number) => {
+    const params: any = {};
+    if (year) params.year = year;
+    if (month) params.month = month;
+    const { data } = await apiClient.get("/api/v1/reports/income-statement", { params });
     return data;
   },
-  getBalanceSheet: async (periodId?: string) => {
-    const { data } = await apiClient.get("/api/v1/reports/balance-sheet", {
-      params: periodId ? { period_id: periodId } : {},
-    });
+  getBalanceSheet: async (year?: number) => {
+    const params: any = {};
+    if (year) params.year = year;
+    const { data } = await apiClient.get("/api/v1/reports/balance-sheet", { params });
     return data;
   },
-  getTrialBalance: async () => {
-    const { data } = await apiClient.get("/api/v1/reports/trial-balance");
+  getTrialBalance: async (year?: number, period?: number) => {
+    const params: any = {};
+    if (year) params.year = year;
+    if (period) params.period = period;
+    const { data } = await apiClient.get("/api/v1/reports/trial-balance", { params });
     return data;
   },
 

@@ -51,27 +51,35 @@ export function useLearningStats() {
   });
 }
 
-export function useIncomeStatement(periodId?: string) {
+export function useIncomeStatement(year?: number, month?: number) {
   return useQuery({
-    queryKey: ["income-statement", periodId],
-    queryFn: () => api.getIncomeStatement(periodId),
+    queryKey: ["income-statement", year, month],
+    queryFn: () => api.getIncomeStatement(year, month),
     staleTime: 5 * 60 * 1000,
   });
 }
 
-export function useBalanceSheet(periodId?: string) {
+export function useBalanceSheet(year?: number) {
   return useQuery({
-    queryKey: ["balance-sheet", periodId],
-    queryFn: () => api.getBalanceSheet(periodId),
+    queryKey: ["balance-sheet", year],
+    queryFn: () => api.getBalanceSheet(year),
     staleTime: 5 * 60 * 1000,
   });
 }
 
-export function useTrialBalance() {
+export function useTrialBalance(year?: number, period?: number) {
   return useQuery({
-    queryKey: ["trial-balance"],
-    queryFn: () => api.getTrialBalance(),
+    queryKey: ["trial-balance", year, period],
+    queryFn: () => api.getTrialBalance(year, period),
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useFiscalYears() {
+  return useQuery({
+    queryKey: ["fiscal-years"],
+    queryFn: () => api.getFiscalYears(),
+    staleTime: 10 * 60 * 1000,
   });
 }
 

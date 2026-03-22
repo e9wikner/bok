@@ -5,14 +5,47 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { useIncomeStatement, useBalanceSheet, useTrialBalance } from "@/hooks/useData";
+import { useIncomeStatement, useBalanceSheet, useTrialBalance, useFiscalYears } from "@/hooks/useData";
 import { formatCurrency } from "@/lib/utils";
-import { BarChart3, TrendingUp, TrendingDown, Scale, FileSpreadsheet } from "lucide-react";
+import { TrendingUp, TrendingDown, Scale, FileSpreadsheet, Calendar } from "lucide-react";
 
 type ReportTab = "income" | "balance" | "trial";
 
+const MONTHS = [
+  { value: 0, label: "Hela året" },
+  { value: 1, label: "Januari" },
+  { value: 2, label: "Februari" },
+  { value: 3, label: "Mars" },
+  { value: 4, label: "April" },
+  { value: 5, label: "Maj" },
+  { value: 6, label: "Juni" },
+  { value: 7, label: "Juli" },
+  { value: 8, label: "Augusti" },
+  { value: 9, label: "September" },
+  { value: 10, label: "Oktober" },
+  { value: 11, label: "November" },
+  { value: 12, label: "December" },
+];
+
 export default function ReportsPage() {
   const [tab, setTab] = useState<ReportTab>("income");
+  const [year, setYear] = useState<number>(new Date().getFullYear());
+  const [month, setMonth] = useState<number>(0);
+  const { data: fyData } = useFiscalYears();
+
+  // Extract available years from fiscal years
+  const fiscalYears = fyData?.fiscal_years || [];
+  const availableYears: number[] = [];
+  for (const fy of fiscalYears) {
+    const startYear = new Date(fy.start_date).getFullYear();
+    const endYear = new Date(fy.end_date).getFullYear();
+    if (!availableYears.includes(startYear)) availableYears.push(startYear);
+    if (!availableYears.includes(endYear)) availableYears.push(endYear);
+  }
+  if (availableYears.length === 0) {
+    availableYears.push(new Date().getFullYear());
+  }
+  availableYears.sort((a, b) => b - a);
 
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-[1400px] mx-auto">
@@ -40,15 +73,58 @@ export default function ReportsPage() {
         ))}
       </div>
 
-      {tab === "income" && <IncomeStatementReport />}
-      {tab === "balance" && <BalanceSheetReport />}
-      {tab === "trial" && <TrialBalanceReport />}
+      {/* Year/Month selector */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium">Period:</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {availableYears.map((y) => (
+                <Button
+                  key={y}
+                  variant={year === y ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setYear(y)}
+                >
+                  {y}
+                </Button>
+              ))}
+            </div>
+            {tab !== "balance" && (
+              <div className="flex items-center gap-2">
+                <select
+                  value={month}
+                  onChange={(e) => setMonth(Number(e.target.value))}
+                  className="rounded-lg border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  {MONTHS.map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {tab === "income" && (
+        <IncomeStatementReport year={year} month={month || undefined} />
+      )}
+      {tab === "balance" && <BalanceSheetReport year={year} />}
+      {tab === "trial" && (
+        <TrialBalanceReport year={year} period={month || undefined} />
+      )}
     </div>
   );
 }
 
-function IncomeStatementReport() {
-  const { data, isLoading } = useIncomeStatement();
+function IncomeStatementReport({ year, month }: { year: number; month?: number }) {
+  const { data, isLoading } = useIncomeStatement(year, month);
 
   if (isLoading) return <ReportSkeleton />;
 
@@ -102,8 +178,8 @@ function IncomeStatementReport() {
   );
 }
 
-function BalanceSheetReport() {
-  const { data, isLoading } = useBalanceSheet();
+function BalanceSheetReport({ year }: { year: number }) {
+  const { data, isLoading } = useBalanceSheet(year);
 
   if (isLoading) return <ReportSkeleton />;
 
@@ -181,8 +257,8 @@ function BalanceSheetReport() {
   );
 }
 
-function TrialBalanceReport() {
-  const { data, isLoading } = useTrialBalance();
+function TrialBalanceReport({ year, period }: { year: number; period?: number }) {
+  const { data, isLoading } = useTrialBalance(year, period);
 
   if (isLoading) return <ReportSkeleton />;
 
@@ -190,7 +266,7 @@ function TrialBalanceReport() {
   const totalDebit = data?.total_debit || 0;
   const totalCredit = data?.total_credit || 0;
   const balanced = data?.balanced ?? true;
-  const period = data?.period || "";
+  const periodStr = data?.period || "";
 
   return (
     <Card>
@@ -203,7 +279,7 @@ function TrialBalanceReport() {
           )}
         </CardTitle>
         <CardDescription>
-          {period ? `Period: ${period} - ` : ""}Saldon per konto
+          {periodStr ? `Period: ${periodStr} - ` : ""}Saldon per konto
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -238,29 +314,10 @@ function TrialBalanceReport() {
             </table>
           </div>
         ) : (
-          <p className="text-muted-foreground text-center py-8">Ingen data tillgänglig</p>
+          <p className="text-muted-foreground text-center py-8">Ingen data tillgänglig för vald period</p>
         )}
       </CardContent>
     </Card>
-  );
-}
-
-function AccountList({ accounts }: { accounts: any[] }) {
-  if (!accounts || accounts.length === 0) {
-    return <p className="text-sm text-muted-foreground">Inga poster</p>;
-  }
-  return (
-    <div className="space-y-1">
-      {accounts.map((a: any, i: number) => (
-        <div key={i} className="flex justify-between py-1.5 px-2 hover:bg-muted/30 rounded text-sm">
-          <span>
-            <span className="font-mono text-muted-foreground mr-2">{a.account_code || a.code}</span>
-            {a.account_name || a.name}
-          </span>
-          <span className="font-mono">{formatCurrency(Math.abs(a.balance || 0))}</span>
-        </div>
-      ))}
-    </div>
   );
 }
 
