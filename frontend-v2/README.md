@@ -1,26 +1,25 @@
 # Bokföringssystem Frontend v2
 
-Modern Next.js-frontend för bokföringssystem med kopplad lista-detalj-vy och AI-lärande.
+Modern Next.js frontend för bokföringssystemet.
 
 ## Features
 
-✅ **Kopplad Lista-Detalj-vy** - Klicka på verifikation i lista → gå till detaljsida  
-✅ **AI-Lärande Integration** - Korrigera AI-bokförda verifikationer och låt AI lära sig  
-✅ **Modern Design** - Tailwind CSS, responsivt, clean UI  
-✅ **Caching** - React Query för 5 min cachning av data  
-✅ **Paginering** - 15 verifikationer per sida  
-✅ **Direktlänkar** - URL-baserad navigation
+- ✅ **Kopplad lista-detalj-vy**: Klicka på verifikation → detaljsida
+- ✅ **AI-lärande integration**: Korrigera AI-bokförda transaktioner + lär AI:n
+- ✅ **React Query caching**: 5 minuters cache för snabbare navigering
+- ✅ **Responsive design**: Tailwind CSS
+- ✅ **TypeScript**: Type-safe kod
 
-## Skärmar
+## Sidor
 
-- **Översikt** `/` - Dashboard med snabb åtkomst
-- **Verifikationer** `/vouchers` - Lista med paginering
-- **Verifikationsdetalj** `/vouchers/[id]` - Detaljer + korrigeringsformulär
-- **Konton** `/accounts` - Kontoplan
-- **AI-Lärande** `/learning` - Se inlärda regler
-- **Rapporter** `/reports` - Finansiella rapporter
+- `/` - Dashboard/Översikt
+- `/vouchers` - Verifikationslista (paginerad, 15 items/sida)
+- `/vouchers/[id]` - Verifikationsdetalj + korrigering
+- `/accounts` - Kontoplan
+- `/reports` - Rapporter (stub)
+- `/learning` - AI-lärande regler + statistik
 
-## Installation
+## Kom igång
 
 ```bash
 npm install
@@ -31,10 +30,21 @@ npm run dev
 
 ## API Integration
 
-Frontend förväntar API på `http://localhost:8000` med Bearer-token autentisering.
+Frontend använder dessa endpoints från backend:
 
-Miljövariabler:
 ```
+GET  /api/v1/vouchers                    # Lista verifikationer
+GET  /api/v1/vouchers/{id}               # Detalj
+PUT  /api/v1/vouchers/{id}               # Uppdatera
+POST /api/v1/learning/corrections        # Spara korrigering
+GET  /api/v1/learning/rules              # Hämta inlärda regler
+GET  /api/v1/accounts                    # Kontoplan
+GET  /health                             # Health check
+```
+
+## Miljövariabler
+
+```bash
 NEXT_PUBLIC_API_URL=http://localhost:8000
 NEXT_PUBLIC_API_KEY=dev-key-change-in-production
 ```
@@ -42,77 +52,42 @@ NEXT_PUBLIC_API_KEY=dev-key-change-in-production
 ## Arkitektur
 
 ```
-app/                    # Next.js 13+ App Router
-├── page.tsx           # Dashboard
-├── vouchers/
-│   ├── page.tsx       # Lista
-│   └── [id]/page.tsx  # Detalj + korrigering
-├── accounts/
-├── reports/
-└── learning/
+app/                    # Next.js App Router
+├── (dashboard)/        # Grouped routes med Header
+├── vouchers/           # Verifikations-sidor
+├── accounts/           # Kontoplan
+├── learning/           # AI-lärande
+└── reports/            # Rapporter
 
-components/
-├── Header.tsx         # Navigation
-└── VoucherList.tsx    # Tabell med paginering
+components/            # React-komponenter
+├── Header.tsx         # Top navigation
+└── VoucherList.tsx    # Verifikations-tabell
 
-hooks/
-└── useVouchers.ts     # React Query hooks
+hooks/                 # Custom React hooks
+├── useVouchers.ts     # API hooks med caching
+└── useLearning.ts     # Learning hooks
 
 lib/
-└── api.ts            # API-klient
-```
-
-## Kopplad Lista-Detalj Design
-
-1. **Lista** (`/vouchers`)
-   - Tabell med 15 verifikationer
-   - Klick på rad → navigera till `/vouchers/[id]`
-   - Paginering för att ladda fler
-
-2. **Detalj** (`/vouchers/[id]`)
-   - Visa alla bokföringsrader
-   - "Korrigera"-knapp för AI-bokförda verifikationer
-   - Checkbox: "Lär AI:n av detta"
-   - Spara korrigering → AI-backend tränas
-
-## AI-Lärande Flow
-
-```
-1. AI bokför transaktion X på konto 5410 (fel)
-2. Användare ser i lista → klickar för detalj
-3. Verifikationssida visar kontona
-4. Klickar "Korrigera" → inline-formulär
-5. Ändrar till 5610 (rätt konto)
-6. Kryssar "Lär AI:n"
-7. Spara → POST /api/v1/learning/corrections
-8. Backend sparar regel: "5410 → 5610 när typ=resa"
-9. Nästa gång använder AI 5610 automatiskt
+├── api.ts            # API-klient + typer
+└── utils.ts          # Hjälpfunktioner
 ```
 
 ## Styling
 
-Tailwind CSS med custom theme. Responsive design (mobile-first).
+- **Tailwind CSS** för utility-based styling
+- **Responsive design** med grid/flex
+- **Dark mode** ready (kan aktiveras senare)
 
-## Performance
+## State Management
 
-- React Query för caching (5 min TTL)
-- Paginering (15 items/sida)
-- Suspense boundaries för optimering
+- **React Query** för server state + caching
+- **React hooks** för lokal state
 
-## Kommande Features
+## Nästa steg
 
-- [ ] Dark mode
-- [ ] Real-time updates via WebSocket
-- [ ] Offline-läge (PWA)
+- [ ] Implementera rapporter (resultaträkning, balansräkning)
+- [ ] Lägg till dark mode
+- [ ] Implementera offline-läge (PWA)
 - [ ] Drag-and-drop filuppladdning
-- [ ] Globala sökfunktion
-- [ ] Mobile app version
-
-## Status
-
-✅ Grundstruktur  
-✅ Komponenter  
-✅ API-integration  
-✅ Kopplad navigation  
-⏳ Testing  
-⏳ Deployment  
+- [ ] Global sökfunktion
+- [ ] Keyboard shortcuts

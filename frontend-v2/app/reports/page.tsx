@@ -6,40 +6,25 @@ export default function ReportsPage() {
   return (
     <>
       <Header />
-      <div className="max-w-6xl mx-auto px-4 py-8">
+      <div className="max-w-7xl mx-auto px-4 py-8">
         <h2 className="text-3xl font-bold mb-6">Rapporter</h2>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-white p-6 rounded-lg shadow">
-            <h3 className="text-xl font-bold mb-4">📊 Resultaträkning</h3>
-            <p className="text-gray-600 mb-4">Intäkter minus kostnader för räkenskapsperioden</p>
-            <button className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-              Visa rapport
-            </button>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="bg-white rounded-lg shadow p-6 cursor-pointer hover:shadow-lg transition">
+            <h3 className="text-lg font-bold mb-2">📊 Resultaträkning</h3>
+            <p className="text-gray-600 text-sm">Visa intäkter och kostnader för vald period</p>
           </div>
-
-          <div className="bg-white p-6 rounded-lg shadow">
-            <h3 className="text-xl font-bold mb-4">💰 Balansräkning</h3>
-            <p className="text-gray-600 mb-4">Tillgångar, skulder och eget kapital</p>
-            <button className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-              Visa rapport
-            </button>
+          <div className="bg-white rounded-lg shadow p-6 cursor-pointer hover:shadow-lg transition">
+            <h3 className="text-lg font-bold mb-2">💰 Balansräkning</h3>
+            <p className="text-gray-600 text-sm">Visa tillgångar, skulder och eget kapital</p>
           </div>
-
-          <div className="bg-white p-6 rounded-lg shadow">
-            <h3 className="text-xl font-bold mb-4">📋 K2-rapport</h3>
-            <p className="text-gray-600 mb-4">Årsredovisning för Swedish Tax Agency</p>
-            <button className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-              Visa rapport
-            </button>
+          <div className="bg-white rounded-lg shadow p-6 cursor-pointer hover:shadow-lg transition">
+            <h3 className="text-lg font-bold mb-2">📈 Huvudbok</h3>
+            <p className="text-gray-600 text-sm">Detaljvy av alla transaktioner per konto</p>
           </div>
-
-          <div className="bg-white p-6 rounded-lg shadow">
-            <h3 className="text-xl font-bold mb-4">🔍 Råbalans</h3>
-            <p className="text-gray-600 mb-4">Trial balance före kontering</p>
-            <button className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-              Visa rapport
-            </button>
+          <div className="bg-white rounded-lg shadow p-6 cursor-pointer hover:shadow-lg transition">
+            <h3 className="text-lg font-bold mb-2">📑 Råbalans</h3>
+            <p className="text-gray-600 text-sm">Trial balance för alla konton</p>
           </div>
         </div>
       </div>

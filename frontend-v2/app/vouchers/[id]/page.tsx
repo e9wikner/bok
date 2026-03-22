@@ -1,83 +1,123 @@
 'use client'
 
 import { Header } from '@/components/Header'
-import { useVoucher } from '@/hooks/useVouchers'
+import { useVoucher, useAccounts } from '@/hooks/useVouchers'
+import Link from 'next/link'
 import { useState } from 'react'
 import { api } from '@/lib/api'
-import Link from 'next/link'
 
 export default function VoucherDetailPage({ params }: { params: { id: string } }) {
-  const { data: voucher, isLoading, error } = useVoucher(params.id)
+  const { data: voucherData, isLoading, error } = useVoucher(params.id)
+  const { data: accountsData } = useAccounts()
   const [isEditing, setIsEditing] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
   const [teachAI, setTeachAI] = useState(true)
-  const [reason, setReason] = useState('')
+  const [correctionReason, setCorrectionReason] = useState('')
+  const [editedRows, setEditedRows] = useState<any[]>([])
+
+  const voucher = voucherData?.voucher
+
+  if (isLoading) return (
+    <>
+      <Header />
+      <div className="max-w-7xl mx-auto px-4 py-8">Laddar verifikation...</div>
+    </>
+  )
+
+  if (error || !voucher) return (
+    <>
+      <Header />
+      <div className="max-w-7xl mx-auto px-4 py-8 text-red-600">Verifikation hittades inte</div>
+    </>
+  )
 
   const handleSaveCorrection = async () => {
-    setIsSaving(true)
     try {
       await api.recordCorrection(
         params.id,
-        { rows: voucher?.rows },
-        reason
+        { rows: editedRows },
+        correctionReason
       )
-      alert('✅ Korrigering sparad! AI:n har lärt sig av detta.')
+      alert('✅ Korrigering sparad! AI:n har lärt sig.')
       setIsEditing(false)
-      setReason('')
+      window.location.reload()
     } catch (err) {
-      alert('❌ Fel vid sparande av korrigering')
-    } finally {
-      setIsSaving(false)
+      alert('❌ Fel vid sparning av korrigering')
     }
   }
-
-  if (isLoading) return <div className="p-4">Laddar verifikation...</div>
-  if (error) return <div className="p-4 text-red-600">Fel vid hämtning av verifikation</div>
-  if (!voucher) return <div className="p-4">Verifikation hittades inte</div>
 
   return (
     <>
       <Header />
-      <div className="max-w-4xl mx-auto px-4 py-8">
+      <div className="max-w-7xl mx-auto px-4 py-8">
+        {/* Tillbaka-knapp */}
         <Link href="/vouchers" className="text-blue-600 hover:underline mb-4 inline-block">
           ← Tillbaka till lista
         </Link>
 
-        <div className="bg-white rounded-lg shadow p-6 space-y-6">
-          <div>
-            <h1 className="text-3xl font-bold">Verifikation #{voucher.voucher_number}</h1>
-            <p className="text-gray-600 mt-2">{voucher.voucher_date}</p>
+        <div className="bg-white rounded-lg shadow p-6">
+          {/* Verifikationshuvud */}
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold mb-2">Ver.nr {voucher.voucher_number}</h2>
+            <div className="grid grid-cols-3 gap-4 text-sm">
+              <div>
+                <span className="text-gray-600">Datum</span>
+                <p className="font-semibold">{voucher.voucher_date}</p>
+              </div>
+              <div>
+                <span className="text-gray-600">Status</span>
+                <p className="font-semibold">
+                  {voucher.status === 'posted' ? '✅ Bokförd' :
+                   voucher.status === 'booked' ? '📊 Rapporterad' :
+                   '📝 Utkast'}
+                </p>
+              </div>
+              <div>
+                <span className="text-gray-600">AI-genererad</span>
+                <p className="font-semibold">{voucher.ai_generated ? '🤖 Ja' : 'Nej'}</p>
+              </div>
+            </div>
+            <p className="mt-2 text-gray-700">{voucher.description}</p>
           </div>
 
-          <div className="border-t pt-4">
-            <h3 className="text-xl font-bold mb-4">Beskrivning</h3>
-            <p className="text-gray-700">{voucher.description}</p>
-            {voucher.ai_generated && (
-              <p className="text-orange-600 mt-2 text-sm">🤖 Denna verifikation skapades av AI</p>
-            )}
-          </div>
-
-          <div className="border-t pt-4">
-            <h3 className="text-xl font-bold mb-4">Bokföringsrader</h3>
+          {/* Verifikationsrader */}
+          <div className="mb-6">
+            <h3 className="text-lg font-bold mb-3">Bokföringsrader</h3>
             <table className="w-full border-collapse border border-gray-300">
               <thead className="bg-gray-100">
                 <tr>
                   <th className="border border-gray-300 px-4 py-2 text-left">Konto</th>
-                  <th className="border border-gray-300 px-4 py-2 text-left">Kontonamn</th>
                   <th className="border border-gray-300 px-4 py-2 text-right">Debet</th>
                   <th className="border border-gray-300 px-4 py-2 text-right">Kredit</th>
+                  <th className="border border-gray-300 px-4 py-2 text-left">Moms</th>
                 </tr>
               </thead>
               <tbody>
-                {voucher.rows.map((row: any, idx: number) => (
-                  <tr key={idx}>
-                    <td className="border border-gray-300 px-4 py-2">{row.account_code}</td>
-                    <td className="border border-gray-300 px-4 py-2">{row.account_name}</td>
-                    <td className="border border-gray-300 px-4 py-2 text-right">
-                      {row.debit ? row.debit.toLocaleString('sv-SE') : '-'}
+                {(isEditing ? editedRows : voucher.rows).map((row: any, idx: number) => (
+                  <tr key={idx} className="hover:bg-gray-50">
+                    <td className="border border-gray-300 px-4 py-2">
+                      {isEditing ? (
+                        <input
+                          type="text"
+                          value={row.account_code}
+                          onChange={(e) => {
+                            const newRows = [...editedRows]
+                            newRows[idx].account_code = e.target.value
+                            setEditedRows(newRows)
+                          }}
+                          className="w-full border px-2 py-1"
+                        />
+                      ) : (
+                        `${row.account_code} ${row.account_name ? '- ' + row.account_name : ''}`
+                      )}
                     </td>
                     <td className="border border-gray-300 px-4 py-2 text-right">
-                      {row.credit ? row.credit.toLocaleString('sv-SE') : '-'}
+                      {row.debit?.toLocaleString('sv-SE') || '-'} kr
+                    </td>
+                    <td className="border border-gray-300 px-4 py-2 text-right">
+                      {row.credit?.toLocaleString('sv-SE') || '-'} kr
+                    </td>
+                    <td className="border border-gray-300 px-4 py-2">
+                      {row.vat_code || '-'}
                     </td>
                   </tr>
                 ))}
@@ -85,61 +125,78 @@ export default function VoucherDetailPage({ params }: { params: { id: string } }
             </table>
           </div>
 
-          {/* Korrigeringsformulär */}
+          {/* Korrigeringsfunktionalitet */}
+          {voucher.ai_generated && !isEditing && (
+            <button
+              onClick={() => {
+                setIsEditing(true)
+                setEditedRows(JSON.parse(JSON.stringify(voucher.rows)))
+              }}
+              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+            >
+              ✏️ Korrigera
+            </button>
+          )}
+
+          {/* Redigeringsformulär */}
           {isEditing && (
-            <div className="border-t pt-4 bg-blue-50 p-4 rounded">
-              <h3 className="text-lg font-bold mb-4">Korrigera denna verifikation</h3>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-2">Anledning till korrigering</label>
-                  <textarea
-                    value={reason}
-                    onChange={(e) => setReason(e.target.value)}
-                    placeholder="Förklara vad som behöver korrigeras..."
-                    className="w-full border border-gray-300 rounded px-3 py-2"
-                    rows={3}
-                  />
-                </div>
+            <div className="bg-yellow-50 border border-yellow-200 rounded p-4 mt-4">
+              <h3 className="text-lg font-bold mb-4">Korrigera verifikation</h3>
 
-                <div className="flex items-center">
-                  <input
-                    type="checkbox"
-                    id="teach-ai"
-                    checked={teachAI}
-                    onChange={(e) => setTeachAI(e.target.checked)}
-                    className="rounded"
-                  />
-                  <label htmlFor="teach-ai" className="ml-2 text-sm">
-                    ✅ Lär AI:n av denna korrigering (förbättrar framtida bokföring)
-                  </label>
-                </div>
+              <div className="mb-4">
+                <label className="block text-sm font-semibold mb-2">Korrigeringsskäl (valfritt)</label>
+                <textarea
+                  value={correctionReason}
+                  onChange={(e) => setCorrectionReason(e.target.value)}
+                  placeholder="Förklara varför denna ändring behövdes..."
+                  className="w-full border border-gray-300 rounded p-2"
+                  rows={3}
+                />
+              </div>
 
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleSaveCorrection}
-                    disabled={isSaving}
-                    className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 disabled:opacity-50"
-                  >
-                    {isSaving ? 'Sparar...' : 'Spara korrigering'}
-                  </button>
-                  <button
-                    onClick={() => setIsEditing(false)}
-                    className="bg-gray-300 text-gray-900 px-4 py-2 rounded hover:bg-gray-400"
-                  >
-                    Avbryt
-                  </button>
-                </div>
+              <div className="mb-4 flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="teach-ai"
+                  checked={teachAI}
+                  onChange={(e) => setTeachAI(e.target.checked)}
+                  className="w-4 h-4"
+                />
+                <label htmlFor="teach-ai" className="text-sm">
+                  🤖 Lär AI:n av denna korrigering (förbättrar framtida bokföringar)
+                </label>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={handleSaveCorrection}
+                  className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+                >
+                  ✅ Spara korrigering
+                </button>
+                <button
+                  onClick={() => setIsEditing(false)}
+                  className="bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500"
+                >
+                  Avbryt
+                </button>
               </div>
             </div>
           )}
 
-          {!isEditing && voucher.status === 'posted' && (
-            <button
-              onClick={() => setIsEditing(true)}
-              className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700"
-            >
-              Korrigera
-            </button>
+          {/* Ändringshistorik */}
+          {voucher.audit_trail && voucher.audit_trail.length > 0 && (
+            <div className="mt-6">
+              <h3 className="text-lg font-bold mb-3">Ändringshistorik</h3>
+              <div className="space-y-2">
+                {voucher.audit_trail.map((entry: any, idx: number) => (
+                  <div key={idx} className="bg-gray-50 border-l-4 border-gray-400 px-4 py-2 text-sm">
+                    <strong>{entry.action}</strong> - {entry.created_by} ({entry.created_at})
+                    {entry.details && <p className="text-gray-600">{entry.details}</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
         </div>
       </div>
