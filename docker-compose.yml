@@ -24,11 +24,12 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://bokfoering-api:8000
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
       - NEXT_PUBLIC_API_KEY=dev-key-change-in-production
     restart: unless-stopped
     depends_on:
-      - bokfoering-api
+      bokfoering-api:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000"]
       interval: 10s
