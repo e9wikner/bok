@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 
 # Import routers
-from api.routes import vouchers, accounts, periods, reports, invoices, k2_reports, agent, import_sie4, export_sie4, export_pdf, anomalies, bank, compliance, vat, learning
+from api.routes import vouchers, accounts, periods, reports, invoices, k2_reports, agent, import_sie4, import_csv, export_sie4, export_pdf, anomalies, bank, compliance, vat, learning
 
 # Create app
 app = FastAPI(
@@ -47,6 +47,7 @@ app.include_router(agent.router)
 
 # Import/Export
 app.include_router(import_sie4.router)
+app.include_router(import_csv.router)
 app.include_router(export_sie4.router)
 
 # PDF Export
