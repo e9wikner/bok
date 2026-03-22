@@ -14,10 +14,18 @@ Egenbyggt bokföringssystem med REST API för svenska aktiebolag. Uppfyller alla
 
 ## Stack
 
+### Backend
 - **Language:** Python 3.10+
 - **Framework:** FastAPI
 - **Database:** SQLite + migrations
 - **Other:** Pydantic, SQLAlchemy, Alembic
+
+### Frontend
+- **Frontend v2:** Next.js 14 (React 18 + TypeScript)
+- **Styling:** Tailwind CSS
+- **State:** React Query + hooks
+- **Dark mode:** Native support
+- **Port:** 3000 (Docker) / 3000 (localhost)
 
 ## Key Features
 
@@ -128,6 +136,40 @@ Automatisk upptäckt av misstänkta transaktioner och bokförningsfel innan de g
 - `GET /api/v1/anomalies/types` – Lista alla anomalityper
 - `PUT /api/v1/anomalies/thresholds` – Uppdatera tröskelvärden
 
+### 🧠 AI Learning (Maskininlärning)
+Systemet lär sig automatiskt från användares korrigeringar för att förbättra framtida kategorisering:
+
+**Hur det fungerar:**
+1. Användare korrigerar en felaktig bokföring
+2. Systemet analyserar skillnaden mellan original och korrigering
+3. En learning rule skapas/uppdateras med mönster (keyword, regex, motpart, belopp)
+4. Framtida transaktioner med liknande mönster föreslås automatiskt
+5. Confidence ökar med varje lyckad användning
+
+**Regeltyper:**
+- `keyword` – Matcha nyckelord i beskrivning (t.ex. "resa" → 5610)
+- `regex` – Regex-mönster för avancerad matchning
+- `counterparty` – Matcha motpartsnamn (t.ex. "Telia" → 4020)
+- `amount_range` – Beloppsintervall (t.ex. 1000-5000 kr)
+- `composite` – Kombination av flera villkor (JSON)
+
+**Confidence & Golden Rules:**
+- Confidence: 0.0–1.0 (börjar på 0.5, ökar med lyckade användningar)
+- Golden: Manuellt bekräftad av redovisningskonsult (confidence = 1.0)
+- Threshold: Endast regler med confidence ≥ 0.8 används automatiskt
+
+**API-endpoints:**
+- `POST /api/v1/learning/corrections` – Spela in korrigering och lär av den
+- `GET /api/v1/learning/rules` – Lista alla inlärda regler
+- `GET /api/v1/learning/rules/{id}` – Hämta specifik regel
+- `PUT /api/v1/learning/rules/{id}/confirm` – Bekräfta regel (golden)
+- `DELETE /api/v1/learning/rules/{id}` – Inaktivera felaktig regel
+- `GET /api/v1/learning/stats` – Statistik om AI-lärande
+- `GET /api/v1/learning/suggest` – Föreslå konto baserat på inlärda regler
+
+**Integration:**
+LearningService är integrerat i CategorizationService och kontrolleras först vid auto-kategorisering, före standardregler.
+
 ## Project Structure
 
 ```
@@ -136,7 +178,10 @@ bokfoering-api/
 │   ├── migrations/
 │   │   ├── 001_initial_schema.sql       # Fas 1: Core tables
 │   │   ├── 002_add_invoices.sql         # Fas 2: Invoice tables
-│   │   └── 003_add_reports_and_k2.sql   # Fas 3 & 4: Reports + Agent
+│   │   ├── 003_add_reports_and_k2.sql   # Fas 3 & 4: Reports + Agent
+│   │   ├── 004_add_company_info.sql     # Company metadata
+│   │   ├── 005_add_bank_and_categorization.sql  # Bank integration
+│   │   └── 006_add_learning_rules.sql   # AI learning tables
 │   └── database.py
 ├── domain/
 │   ├── models.py                # Voucher, Account, Period
@@ -151,7 +196,12 @@ bokfoering-api/
 │   ├── sie4_import.py           # SIE4: Parser & import
 │   ├── sie4_export.py           # SIE4: Filgenerering & export
 │   ├── pdf_export.py            # PDF: Fakturor & rapporter
-│   └── anomaly_detection.py     # Anomalidetektering
+│   ├── anomaly_detection.py     # Anomalidetektering
+│   ├── categorization.py        # Auto-kategorisering
+│   ├── learning.py              # AI learning från korrigeringar
+│   ├── bank_integration.py      # Bankintegration
+│   ├── compliance.py            # BFL compliance
+│   └── vat_report.py            # Momsdeklaration
 ├── templates/
 │   └── pdf/                     # Jinja2-mallar för PDF
 │       ├── base.html            # Grundmall med header/footer
@@ -196,12 +246,14 @@ bokfoering-api/
 ### Docker (Recommended)
 ```bash
 docker-compose up --build
-# Server: http://localhost:8000
+# API Server: http://localhost:8000
 # API Docs: http://localhost:8000/docs
+# Frontend v2: http://localhost:3000 ✨ NEW
+# Streamlit (old): http://localhost:8501
 # Test data: TestCorp AB (auto-seeded)
 ```
 
-### Local Setup
+### Local Setup - Backend
 ```bash
 pip install -r requirements.txt
 python main.py --init-db --seed
@@ -209,13 +261,42 @@ python main.py
 # Then visit http://localhost:8000/docs
 ```
 
+### Local Setup - Frontend v2
+```bash
+cd frontend-v2
+npm install
+npm run dev
+# Then visit http://localhost:3000
+```
+
+### Environment Variables
+```bash
+# Backend
+export API_KEY=dev-key-change-in-production
+export DATABASE_URL=sqlite:///bokfoering.db
+
+# Frontend
+export NEXT_PUBLIC_API_URL=http://localhost:8000
+export NEXT_PUBLIC_API_KEY=dev-key-change-in-production
+```
+
 ## Documentation
 
+### Core
 - **[QUICKSTART.md](QUICKSTART.md)** - 2-minute setup guide
 - **[API.md](API.md)** - Complete endpoint reference with examples
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - System design & data flow
 - **[FAS3_FAS4.md](FAS3_FAS4.md)** - K2 reports & agent integration
 - **[DEMO.md](DEMO.md)** - Detailed feature demonstration
+- **[CHANGELOG.md](CHANGELOG.md)** - Version history
+
+### Frontend
+- **[frontend-v2/README.md](frontend-v2/README.md)** - ✨ NEW Frontend v2 guide
+  - Architecture & components
+  - Routes & pages
+  - AI-learning workflow
+  - Development guide
+  - Deployment instructions
 - **[STATUS.md](STATUS.md)** - Project status report
 - **[CHANGELOG.md](CHANGELOG.md)** - Version history
 
