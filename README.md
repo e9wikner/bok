@@ -297,6 +297,15 @@ export NEXT_PUBLIC_API_KEY=dev-key-change-in-production
   - AI-learning workflow
   - Development guide
   - Deployment instructions
+
+### Deployment
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** - 🚀 Complete deployment guide
+  - On-premise Docker deployment
+  - Hetzner Cloud deployment (Console, API, Terraform)
+  - SSL/TLS configuration with Let's Encrypt
+  - Monitoring & logging setup
+  - Backup strategy & automation
+  - Production docker-compose configuration
 - **[STATUS.md](STATUS.md)** - Project status report
 - **[CHANGELOG.md](CHANGELOG.md)** - Version history
 
