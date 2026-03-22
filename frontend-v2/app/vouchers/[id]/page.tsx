@@ -1,6 +1,7 @@
 'use client'
 
 import { Header } from '@/components/Header'
+import { CorrectionForm } from '@/components/CorrectionForm'
 import { useVoucher, useAccounts } from '@/hooks/useVouchers'
 import Link from 'next/link'
 import { useState } from 'react'
@@ -132,56 +133,23 @@ export default function VoucherDetailPage({ params }: { params: { id: string } }
                 setIsEditing(true)
                 setEditedRows(JSON.parse(JSON.stringify(voucher.rows)))
               }}
-              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 font-semibold"
             >
               ✏️ Korrigera
             </button>
           )}
 
-          {/* Redigeringsformulär */}
+          {/* Korrigeringsformulär - Extraherad komponent */}
           {isEditing && (
-            <div className="bg-yellow-50 border border-yellow-200 rounded p-4 mt-4">
-              <h3 className="text-lg font-bold mb-4">Korrigera verifikation</h3>
-
-              <div className="mb-4">
-                <label className="block text-sm font-semibold mb-2">Korrigeringsskäl (valfritt)</label>
-                <textarea
-                  value={correctionReason}
-                  onChange={(e) => setCorrectionReason(e.target.value)}
-                  placeholder="Förklara varför denna ändring behövdes..."
-                  className="w-full border border-gray-300 rounded p-2"
-                  rows={3}
-                />
-              </div>
-
-              <div className="mb-4 flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="teach-ai"
-                  checked={teachAI}
-                  onChange={(e) => setTeachAI(e.target.checked)}
-                  className="w-4 h-4"
-                />
-                <label htmlFor="teach-ai" className="text-sm">
-                  🤖 Lär AI:n av denna korrigering (förbättrar framtida bokföringar)
-                </label>
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={handleSaveCorrection}
-                  className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
-                >
-                  ✅ Spara korrigering
-                </button>
-                <button
-                  onClick={() => setIsEditing(false)}
-                  className="bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500"
-                >
-                  Avbryt
-                </button>
-              </div>
-            </div>
+            <CorrectionForm
+              voucherId={params.id}
+              originalRows={voucher.rows}
+              onSuccess={() => {
+                setIsEditing(false)
+                setTimeout(() => window.location.reload(), 500)
+              }}
+              onCancel={() => setIsEditing(false)}
+            />
           )}
 
           {/* Ändringshistorik */}
