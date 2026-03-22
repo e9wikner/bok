@@ -4,6 +4,8 @@ import { Header } from '@/components/Header'
 import { useState } from 'react'
 import { useIncomeStatement, useBalanceSheet, useTrialBalance } from '@/hooks/useReports'
 
+export const dynamic = 'force-dynamic'
+
 export default function ReportsPage() {
   const [activeReport, setActiveReport] = useState<'income' | 'balance' | 'trial' | null>(null)
   const [year, setYear] = useState(new Date().getFullYear())

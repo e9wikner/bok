@@ -7,6 +7,8 @@ import Link from 'next/link'
 import { useState } from 'react'
 import { api } from '@/lib/api'
 
+export const dynamic = 'force-dynamic'
+
 export default function VoucherDetailPage({ params }: { params: { id: string } }) {
   const { data: voucherData, isLoading, error } = useVoucher(params.id)
   const { data: accountsData } = useAccounts()

@@ -3,6 +3,8 @@
 import { Header } from '@/components/Header'
 import { useAccounts } from '@/hooks/useVouchers'
 
+export const dynamic = 'force-dynamic'
+
 export default function AccountsPage() {
   const { data, isLoading, error } = useAccounts()
   const accounts = data?.accounts || []

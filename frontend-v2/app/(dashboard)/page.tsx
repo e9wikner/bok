@@ -3,6 +3,9 @@
 import { Header } from '@/components/Header'
 import { useVouchers, useAccounts, useLearningRules } from '@/hooks/useVouchers'
 
+// Disable static generation for this page (uses API hooks)
+export const dynamic = 'force-dynamic'
+
 export default function DashboardPage() {
   const { data: vouchersData } = useVouchers()
   const { data: accountsData } = useAccounts()

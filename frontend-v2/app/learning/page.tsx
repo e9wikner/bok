@@ -3,6 +3,8 @@
 import { Header } from '@/components/Header'
 import { useLearningRules } from '@/hooks/useVouchers'
 
+export const dynamic = 'force-dynamic'
+
 export default function LearningPage() {
   const { data, isLoading, error } = useLearningRules()
   const rules = data?.rules || []

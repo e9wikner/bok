@@ -3,6 +3,8 @@
 import { Header } from '@/components/Header'
 import { VoucherList } from '@/components/VoucherList'
 
+export const dynamic = 'force-dynamic'
+
 export default function VouchersPage() {
   return (
     <>

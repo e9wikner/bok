@@ -4,6 +4,8 @@ import { Header } from '@/components/Header'
 import { FileUpload } from '@/components/FileUpload'
 import { useState } from 'react'
 
+export const dynamic = 'force-dynamic'
+
 export default function SettingsPage() {
   const [importSuccess, setImportSuccess] = useState(false)
 
