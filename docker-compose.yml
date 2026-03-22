@@ -18,6 +18,23 @@ services:
       timeout: 5s
       retries: 5
 
+  frontend-v2:
+    build: ./frontend-v2
+    container_name: bokfoering-frontend-v2
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://bokfoering-api:8000
+      - NEXT_PUBLIC_API_KEY=dev-key-change-in-production
+    restart: unless-stopped
+    depends_on:
+      - bokfoering-api
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   frontend:
     build: .
     container_name: bokfoering-frontend
