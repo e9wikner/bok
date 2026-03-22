@@ -98,15 +98,15 @@ CREATE TABLE IF NOT EXISTS vat_reports (
 );
 
 -- Indexes for common queries
-CREATE INDEX idx_invoices_customer ON invoices(customer_name);
-CREATE INDEX idx_invoices_date ON invoices(invoice_date);
-CREATE INDEX idx_invoices_status ON invoices(status);
-CREATE INDEX idx_invoices_due_date ON invoices(due_date);
-CREATE INDEX idx_invoice_rows_invoice ON invoice_rows(invoice_id);
-CREATE INDEX idx_payments_invoice ON payments(invoice_id);
-CREATE INDEX idx_payments_date ON payments(payment_date);
-CREATE INDEX idx_credit_notes_invoice ON credit_notes(invoice_id);
-CREATE INDEX idx_vat_reports_period ON vat_reports(period_id);
+CREATE INDEX IF NOT EXISTS idx_invoices_customer ON invoices(customer_name);
+CREATE INDEX IF NOT EXISTS idx_invoices_date ON invoices(invoice_date);
+CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status);
+CREATE INDEX IF NOT EXISTS idx_invoices_due_date ON invoices(due_date);
+CREATE INDEX IF NOT EXISTS idx_invoice_rows_invoice ON invoice_rows(invoice_id);
+CREATE INDEX IF NOT EXISTS idx_payments_invoice ON payments(invoice_id);
+CREATE INDEX IF NOT EXISTS idx_payments_date ON payments(payment_date);
+CREATE INDEX IF NOT EXISTS idx_credit_notes_invoice ON credit_notes(invoice_id);
+CREATE INDEX IF NOT EXISTS idx_vat_reports_period ON vat_reports(period_id);
 
 -- Update schema version
 INSERT INTO schema_version (version) VALUES (2);
