@@ -25,6 +25,7 @@ export function Header() {
           <Link href="/accounts" className={isActive('/accounts')}>Konton</Link>
           <Link href="/reports" className={isActive('/reports')}>Rapporter</Link>
           <Link href="/learning" className={isActive('/learning')}>AI-lärande</Link>
+          <Link href="/settings" className={isActive('/settings')}>⚙️</Link>
           
           {/* Dark mode toggle */}
           <button
