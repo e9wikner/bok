@@ -119,12 +119,17 @@ class Database:
                 print(f"  📝 Applying migration {version}: {migration_file.name}")
                 with open(migration_file, "r") as f:
                     sql_script = f.read()
-                
+
                 # Split by semicolon and execute each statement
                 statements = [s.strip() for s in sql_script.split(";") if s.strip()]
                 for statement in statements:
                     conn.execute(statement)
-                
+
+                # Record migration version
+                conn.execute(
+                    "INSERT INTO schema_version (version) VALUES (?)",
+                    (version,)
+                )
                 conn.commit()
         
         print(f"✓ Database initialized: {self.db_path}")

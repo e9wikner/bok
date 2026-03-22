@@ -2,7 +2,7 @@
 -- Skapar tabeller för att spåra inlärda regler från användarkorrigeringar
 
 -- Tabell för inlärda regler från korrigeringar
-CREATE TABLE learning_rules (
+CREATE TABLE IF NOT EXISTS learning_rules (
     id TEXT PRIMARY KEY,
     company_id TEXT,  -- För multi-company support i framtiden
     
@@ -37,14 +37,14 @@ CREATE TABLE learning_rules (
 );
 
 -- Index för snabb lookup
-CREATE INDEX idx_learning_rules_company ON learning_rules(company_id);
-CREATE INDEX idx_learning_rules_pattern ON learning_rules(pattern_type, pattern_value);
-CREATE INDEX idx_learning_rules_original ON learning_rules(original_account);
-CREATE INDEX idx_learning_rules_confidence ON learning_rules(confidence DESC);
-CREATE INDEX idx_learning_rules_active ON learning_rules(is_active, confidence DESC);
+CREATE INDEX IF NOT EXISTS idx_learning_rules_company ON learning_rules(company_id);
+CREATE INDEX IF NOT EXISTS idx_learning_rules_pattern ON learning_rules(pattern_type, pattern_value);
+CREATE INDEX IF NOT EXISTS idx_learning_rules_original ON learning_rules(original_account);
+CREATE INDEX IF NOT EXISTS idx_learning_rules_confidence ON learning_rules(confidence DESC);
+CREATE INDEX IF NOT EXISTS idx_learning_rules_active ON learning_rules(is_active, confidence DESC);
 
 -- Tabell för att spåra korrigeringar (audit trail för ML)
-CREATE TABLE correction_history (
+CREATE TABLE IF NOT EXISTS correction_history (
     id TEXT PRIMARY KEY,
     learning_rule_id TEXT,
     original_voucher_id TEXT NOT NULL,
@@ -67,5 +67,5 @@ CREATE TABLE correction_history (
     FOREIGN KEY (original_voucher_id) REFERENCES vouchers(id)
 );
 
-CREATE INDEX idx_correction_history_rule ON correction_history(learning_rule_id);
-CREATE INDEX idx_correction_history_voucher ON correction_history(original_voucher_id);
+CREATE INDEX IF NOT EXISTS idx_correction_history_rule ON correction_history(learning_rule_id);
+CREATE INDEX IF NOT EXISTS idx_correction_history_voucher ON correction_history(original_voucher_id);

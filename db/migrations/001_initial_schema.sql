@@ -106,16 +106,16 @@ CREATE TABLE IF NOT EXISTS attachments (
 );
 
 -- Indexes for common queries
-CREATE INDEX idx_vouchers_period ON vouchers(period_id);
-CREATE INDEX idx_vouchers_series_number ON vouchers(series, number);
-CREATE INDEX idx_vouchers_status ON vouchers(status);
-CREATE INDEX idx_vouchers_date ON vouchers(date);
-CREATE INDEX idx_voucher_rows_voucher ON voucher_rows(voucher_id);
-CREATE INDEX idx_voucher_rows_account ON voucher_rows(account_code);
-CREATE INDEX idx_audit_log_entity ON audit_log(entity_type, entity_id);
-CREATE INDEX idx_audit_log_timestamp ON audit_log(timestamp);
-CREATE INDEX idx_periods_fiscal_year ON periods(fiscal_year_id);
-CREATE INDEX idx_attachments_voucher ON attachments(voucher_id);
+CREATE INDEX IF NOT EXISTS idx_vouchers_period ON vouchers(period_id);
+CREATE INDEX IF NOT EXISTS idx_vouchers_series_number ON vouchers(series, number);
+CREATE INDEX IF NOT EXISTS idx_vouchers_status ON vouchers(status);
+CREATE INDEX IF NOT EXISTS idx_vouchers_date ON vouchers(date);
+CREATE INDEX IF NOT EXISTS idx_voucher_rows_voucher ON voucher_rows(voucher_id);
+CREATE INDEX IF NOT EXISTS idx_voucher_rows_account ON voucher_rows(account_code);
+CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON audit_log(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp ON audit_log(timestamp);
+CREATE INDEX IF NOT EXISTS idx_periods_fiscal_year ON periods(fiscal_year_id);
+CREATE INDEX IF NOT EXISTS idx_attachments_voucher ON attachments(voucher_id);
 
 -- Version tracking
 CREATE TABLE IF NOT EXISTS schema_version (

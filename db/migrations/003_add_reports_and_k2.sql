@@ -186,15 +186,15 @@ CREATE TABLE IF NOT EXISTS openapi_specs (
 );
 
 -- Indexes
-CREATE INDEX idx_annual_reports_fy ON annual_reports(fiscal_year_id);
-CREATE INDEX idx_annual_reports_status ON annual_reports(status);
-CREATE INDEX idx_income_statements_report ON income_statements(annual_report_id);
-CREATE INDEX idx_balance_sheets_report ON balance_sheets(annual_report_id);
-CREATE INDEX idx_cash_flows_report ON cash_flows(annual_report_id);
-CREATE INDEX idx_api_keys_active ON api_keys(active);
-CREATE INDEX idx_agent_operations_key ON agent_operations(api_key_id);
-CREATE INDEX idx_agent_operations_timestamp ON agent_operations(timestamp);
-CREATE INDEX idx_openapi_specs_endpoint ON openapi_specs(endpoint, method);
+CREATE INDEX IF NOT EXISTS idx_annual_reports_fy ON annual_reports(fiscal_year_id);
+CREATE INDEX IF NOT EXISTS idx_annual_reports_status ON annual_reports(status);
+CREATE INDEX IF NOT EXISTS idx_income_statements_report ON income_statements(annual_report_id);
+CREATE INDEX IF NOT EXISTS idx_balance_sheets_report ON balance_sheets(annual_report_id);
+CREATE INDEX IF NOT EXISTS idx_cash_flows_report ON cash_flows(annual_report_id);
+CREATE INDEX IF NOT EXISTS idx_api_keys_active ON api_keys(active);
+CREATE INDEX IF NOT EXISTS idx_agent_operations_key ON agent_operations(api_key_id);
+CREATE INDEX IF NOT EXISTS idx_agent_operations_timestamp ON agent_operations(timestamp);
+CREATE INDEX IF NOT EXISTS idx_openapi_specs_endpoint ON openapi_specs(endpoint, method);
 
 -- Update schema version
 INSERT INTO schema_version (version) VALUES (3);
