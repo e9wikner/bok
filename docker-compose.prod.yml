@@ -1,0 +1,208 @@
+# Production Docker Compose Configuration
+# For on-premise or cloud deployment
+
+services:
+  # Reverse Proxy with SSL (Traefik)
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=${LETSENCRYPT_EMAIL:-admin@localhost}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--log.level=INFO"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./letsencrypt:/letsencrypt
+    networks:
+      - bokfoering-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bokfoering-api
+    env_file:
+      - .env.production
+    volumes:
+      - bokfoering-data:/app/data
+      - ./backups:/app/backups
+      - ./logs:/app/logs
+    networks:
+      - bokfoering-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api.rule=Host(`${API_DOMAIN:-api.localhost}`)"
+      - "traefik.http.routers.api.entrypoints=websecure"
+      - "traefik.http.routers.api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.api.loadbalancer.server.port=8000"
+      - "traefik.http.routers.api.middlewares=api-stripprefix"
+      - "traefik.http.middlewares.api-stripprefix.stripprefix.prefixes=/api"
+    command: >
+      sh -c "python main.py --init-db && 
+             python main.py --host 0.0.0.0 --port 8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # Frontend v2 (Next.js)
+  frontend:
+    build:
+      context: ./frontend-v2
+      dockerfile: Dockerfile
+    container_name: bokfoering-frontend
+    env_file:
+      - .env.production
+    networks:
+      - bokfoering-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`${APP_DOMAIN:-app.localhost}`)"
+      - "traefik.http.routers.frontend.entrypoints=websecure"
+      - "traefik.http.routers.frontend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.frontend.loadbalancer.server.port=3000"
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  # Legacy Streamlit Frontend (optional)
+  frontend-legacy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bokfoering-frontend-legacy
+    env_file:
+      - .env.production
+    volumes:
+      - bokfoering-data:/app/data
+    networks:
+      - bokfoering-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.legacy.rule=Host(`${LEGACY_DOMAIN:-legacy.localhost}`)"
+      - "traefik.http.routers.legacy.entrypoints=websecure"
+      - "traefik.http.routers.legacy.tls.certresolver=letsencrypt"
+      - "traefik.http.services.legacy.loadbalancer.server.port=8501"
+    command: streamlit run frontend/app.py --server.address 0.0.0.0 --server.port 8501
+    restart: unless-stopped
+    profiles:
+      - legacy  # Only start with: docker compose --profile legacy up -d
+
+  # Database Backup Service
+  backup:
+    image: offen/docker-volume-backup:latest
+    container_name: backup
+    environment:
+      BACKUP_CRON_EXPRESSION: "0 2 * * *"  # Daily at 2 AM
+      BACKUP_RETENTION_DAYS: "30"
+      BACKUP_FILENAME: "backup-%Y-%m-%dT%H-%M-%S.tar.gz"
+      BACKUP_ARCHIVE: "/archive"
+      BACKUP_STOP_CONTAINER_LABEL: "bokfoering.stop-during-backup"
+      # Optional: S3-compatible storage
+      # AWS_S3_BUCKET_NAME: ${AWS_S3_BUCKET_NAME:-}
+      # AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      # AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      # AWS_S3_ENDPOINT: ${AWS_S3_ENDPOINT:-s3.amazonaws.com}
+      # AWS_S3_PATH: "backups/bokfoering"
+    volumes:
+      - bokfoering-data:/backup/data:ro
+      - ./backups:/archive
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - bokfoering-network
+    restart: unless-stopped
+    labels:
+      - "bokfoering.stop-during-backup=true"
+
+  # Log Aggregation (Optional)
+  # loki:
+  #   image: grafana/loki:latest
+  #   container_name: loki
+  #   ports:
+  #     - "3100:3100"
+  #   volumes:
+  #     - ./monitoring/loki-config.yml:/etc/loki/local-config.yaml
+  #     - loki-data:/loki
+  #   networks:
+  #     - bokfoering-network
+  #   restart: unless-stopped
+
+  # Monitoring (Optional)
+  # prometheus:
+  #   image: prom/prometheus:latest
+  #   container_name: prometheus
+  #   volumes:
+  #     - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+  #     - prometheus-data:/prometheus
+  #   ports:
+  #     - "9090:9090"
+  #   networks:
+  #     - bokfoering-network
+  #   restart: unless-stopped
+
+  # grafana:
+  #   image: grafana/grafana:latest
+  #   container_name: grafana
+  #   volumes:
+  #     - grafana-data:/var/lib/grafana
+  #     - ./monitoring/grafana-dashboards:/etc/grafana/provisioning/dashboards
+  #   environment:
+  #     GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+  #     GF_USERS_ALLOW_SIGN_UP: "false"
+  #   ports:
+  #     - "3001:3000"
+  #   networks:
+  #     - bokfoering-network
+  #   restart: unless-stopped
+
+networks:
+  bokfoering-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  bokfoering-data:
+    driver: local
+  # prometheus-data:
+  # grafana-data:
+  # loki-data:

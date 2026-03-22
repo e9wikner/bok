@@ -1,0 +1,19 @@
+# Hetzner Cloud API Token
+# Get from: https://console.hetzner.cloud/projects/[PROJECT_ID]/security/tokens
+hcloud_token = "your-hetzner-api-token-here"
+
+# Your SSH public key (output of: cat ~/.ssh/id_rsa.pub)
+ssh_public_key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC... your-email@example.com"
+
+# Domain name
+domain = "bokfoering.example.com"
+
+# Server configuration
+server_type = "cpx31"  # 4 vCPUs, 8 GB RAM, 160 GB NVMe
+location    = "fsn1"   # Falkenstein (Germany)
+
+# Alternative server types:
+# - cx21: 2 vCPUs, 4 GB RAM, 40 GB (€6.72/month) - Minimum
+# - cpx21: 2 vCPUs, 4 GB RAM, 80 GB NVMe (€8.22/month)
+# - cpx31: 4 vCPUs, 8 GB RAM, 160 GB NVMe (€14.76/month) - Recommended
+# - cpx41: 8 vCPUs, 16 GB RAM, 240 GB NVMe (€29.52/month) - High traffic
