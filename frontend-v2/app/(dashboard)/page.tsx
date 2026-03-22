@@ -20,24 +20,24 @@ export default function DashboardPage() {
 
         {/* KPI-kort */}
         <div className="grid grid-cols-3 gap-4 mb-8">
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-gray-600 text-sm font-semibold">Totala verifikationer</h3>
-            <p className="text-3xl font-bold text-blue-600">{totalVouchers}</p>
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+            <h3 className="text-gray-600 dark:text-gray-400 text-sm font-semibold">Totala verifikationer</h3>
+            <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">{totalVouchers}</p>
           </div>
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-gray-600 text-sm font-semibold">AI-bokförda</h3>
-            <p className="text-3xl font-bold text-purple-600">{aiGeneratedCount}</p>
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+            <h3 className="text-gray-600 dark:text-gray-400 text-sm font-semibold">AI-bokförda</h3>
+            <p className="text-3xl font-bold text-purple-600 dark:text-purple-400">{aiGeneratedCount}</p>
           </div>
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-gray-600 text-sm font-semibold">Inlärda regler</h3>
-            <p className="text-3xl font-bold text-green-600">{learningRulesCount}</p>
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+            <h3 className="text-gray-600 dark:text-gray-400 text-sm font-semibold">Inlärda regler</h3>
+            <p className="text-3xl font-bold text-green-600 dark:text-green-400">{learningRulesCount}</p>
           </div>
         </div>
 
         {/* Info */}
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-          <h3 className="text-lg font-bold mb-2">🚀 Välkommen till Bokföringssystem v2</h3>
-          <p className="text-gray-700">
+        <div className="bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-800 rounded-lg p-6">
+          <h3 className="text-lg font-bold mb-2 text-blue-900 dark:text-blue-100">🚀 Välkommen till Bokföringssystem v2</h3>
+          <p className="text-gray-700 dark:text-gray-300">
             Modern bokförings- och faktureringssystem byggt för AI-samarbete. 
             Förbätta dina bokföringsprocesser och låt AI:n lära sig från dina korrigeringar.
           </p>
