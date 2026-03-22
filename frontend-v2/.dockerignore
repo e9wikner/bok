@@ -6,3 +6,9 @@ README.md
 *.log
 .env.local
 .env.*.local
+.vercel
+.vscode
+.eslintrc*
+.prettierrc*
+*.test.ts
+__tests__
