@@ -38,27 +38,45 @@ export default function SettingsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center gap-3">
-            {health ? (
-              <>
-                <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              {health ? (
+                <>
+                  <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                  <div>
+                    <p className="font-medium">API-server online</p>
+                    <p className="text-sm text-muted-foreground">
+                      {process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <XCircle className="h-5 w-5 text-red-500" />
+                  <div>
+                    <p className="font-medium">Ingen anslutning</p>
+                    <p className="text-sm text-muted-foreground">
+                      Kontrollera att API-servern är igång
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+            {health && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-2 border-t">
                 <div>
-                  <p className="font-medium">API-server online</p>
-                  <p className="text-sm text-muted-foreground">
-                    {process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}
-                  </p>
+                  <p className="text-xs text-muted-foreground">Version</p>
+                  <p className="text-sm font-mono">{health.version || "-"}</p>
                 </div>
-              </>
-            ) : (
-              <>
-                <XCircle className="h-5 w-5 text-red-500" />
                 <div>
-                  <p className="font-medium">Ingen anslutning</p>
-                  <p className="text-sm text-muted-foreground">
-                    Kontrollera att API-servern är igång
-                  </p>
+                  <p className="text-xs text-muted-foreground">Commit</p>
+                  <p className="text-sm font-mono">{health.commit || "-"}</p>
                 </div>
-              </>
+                <div>
+                  <p className="text-xs text-muted-foreground">Service</p>
+                  <p className="text-sm font-mono">{health.service || "-"}</p>
+                </div>
+              </div>
             )}
           </div>
         </CardContent>
