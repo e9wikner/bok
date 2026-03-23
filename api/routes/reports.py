@@ -16,13 +16,13 @@ async def get_income_statement(
     month: Optional[int] = Query(None),
 ):
     """Get income statement (resultaträkning) for a specific period"""
-    vouchers = VoucherRepository.list_by_status("posted")
-    
+    vouchers = VoucherRepository.list_all(status="posted")
+
     # Filter by year/month if provided
     if year:
-        vouchers = [v for v in vouchers if v.voucher_date.year == year]
+        vouchers = [v for v in vouchers if v.date.year == year]
         if month:
-            vouchers = [v for v in vouchers if v.voucher_date.month == month]
+            vouchers = [v for v in vouchers if v.date.month == month]
     
     # Revenue accounts (3000-3999)
     revenue = 0
@@ -55,14 +55,14 @@ async def get_balance_sheet(
     as_of_date: Optional[str] = Query(None),
 ):
     """Get balance sheet (balansräkning)"""
-    vouchers = VoucherRepository.list_by_status("posted")
-    
+    vouchers = VoucherRepository.list_all(status="posted")
+
     # Filter by date
     if as_of_date:
-        cutoff = datetime.fromisoformat(as_of_date)
-        vouchers = [v for v in vouchers if v.voucher_date <= cutoff]
+        cutoff = datetime.fromisoformat(as_of_date).date()
+        vouchers = [v for v in vouchers if v.date <= cutoff]
     elif year:
-        vouchers = [v for v in vouchers if v.voucher_date.year == year]
+        vouchers = [v for v in vouchers if v.date.year == year]
     
     # Assets (1000-1999)
     current_assets = 0  # 1000-1499
@@ -112,20 +112,24 @@ async def get_trial_balance(
     period: Optional[int] = Query(None),
 ):
     """Get trial balance (råbalans) showing debit/credit for all accounts"""
-    vouchers = VoucherRepository.list_by_status("posted")
-    
+    vouchers = VoucherRepository.list_all(status="posted")
+
     if year:
-        vouchers = [v for v in vouchers if v.voucher_date.year == year]
+        vouchers = [v for v in vouchers if v.date.year == year]
         if period:
-            vouchers = [v for v in vouchers if v.voucher_date.month == period]
+            vouchers = [v for v in vouchers if v.date.month == period]
     
+    # Look up account names
+    all_accounts = AccountRepository.get_all_as_dict()
+
     accounts = {}  # account_code -> {debit, credit}
-    
+
     for voucher in vouchers:
         for row in voucher.rows:
             if row.account_code not in accounts:
-                accounts[row.account_code] = {"debit": 0, "credit": 0, "name": row.account_name or ""}
-            
+                acct = all_accounts.get(row.account_code)
+                accounts[row.account_code] = {"debit": 0, "credit": 0, "name": acct.name if acct else ""}
+
             accounts[row.account_code]["debit"] += row.debit or 0
             accounts[row.account_code]["credit"] += row.credit or 0
     
