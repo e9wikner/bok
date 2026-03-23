@@ -508,9 +508,9 @@ class SIE4Exporter:
         
         Format: Företagsnamn_ÅÅÅÅ.si
         """
-        # Rensa företagsnamn för filnamn
+        # Rensa företagsnamn för filnamn (ASCII only)
         safe_name = "".join(
-            c for c in company_name if c.isalnum() or c in (" ", "-", "_")
+            c for c in company_name if (c.isascii() and c.isalnum()) or c in (" ", "-", "_")
         ).strip()
         safe_name = safe_name.replace(" ", "_")
         year = fiscal_year.start_date.year
