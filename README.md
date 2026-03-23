@@ -261,9 +261,9 @@ python main.py
 # Then visit http://localhost:8000/docs
 ```
 
-### Local Setup - Frontend v2
+### Local Setup - Frontend
 ```bash
-cd frontend-v2
+cd frontend-v3
 npm install
 npm run dev
 # Then visit http://localhost:3000
@@ -291,7 +291,7 @@ export NEXT_PUBLIC_API_KEY=dev-key-change-in-production
 - **[CHANGELOG.md](CHANGELOG.md)** - Version history
 
 ### Frontend
-- **[frontend-v2/README.md](frontend-v2/README.md)** - ✨ NEW Frontend v2 guide
+- **[frontend-v3/README.md](frontend-v3/README.md)** - Frontend guide
   - Architecture & components
   - Routes & pages
   - AI-learning workflow

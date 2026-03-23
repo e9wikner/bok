@@ -138,7 +138,7 @@ services:
 
   # Frontend v2 (Next.js)
   frontend:
-    build: ./frontend-v2
+    build: ./frontend-v3
     container_name: bokfoering-frontend
     env_file:
       - .env.production

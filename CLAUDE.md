@@ -37,7 +37,7 @@ mypy .
 ### Frontend (Next.js 14)
 
 ```bash
-cd frontend-v2   # Primary frontend (port 3000)
+cd frontend-v3   # Frontend (port 3000)
 npm install
 npm run dev
 npm run build
@@ -47,7 +47,7 @@ npm run lint
 ### Docker
 
 ```bash
-docker-compose up --build   # Starts all services (API :8000, frontend-v2 :3000)
+docker-compose up --build   # Starts all services (API :8000, frontend :3000)
 ```
 
 ## Architecture
@@ -111,9 +111,9 @@ Payment registration creates a second voucher: debit 1010 (bank), credit 1510 (r
 
 ### Frontend
 
-`frontend-v2/` is the primary frontend (Next.js 14 App Router, React Query, Tailwind CSS, Radix UI). `frontend-v3/` is an alternative variant. `frontend/` is a legacy Streamlit UI.
+`frontend-v3/` is the frontend (Next.js 14 App Router, React Query, Tailwind CSS, Radix UI).
 
-API client is in `frontend-v2/lib/api.ts` (Axios). Server state is managed with `@tanstack/react-query`.
+API client is in `frontend-v3/lib/api.ts` (Axios). Server state is managed with `@tanstack/react-query`.
 
 ### Configuration
 

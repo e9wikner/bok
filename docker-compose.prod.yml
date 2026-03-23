@@ -77,7 +77,7 @@ services:
   # Frontend v2 (Next.js)
   frontend:
     build:
-      context: ./frontend-v2
+      context: ./frontend-v3
       dockerfile: Dockerfile
     container_name: bokfoering-frontend
     env_file:
@@ -102,29 +102,6 @@ services:
         reservations:
           cpus: '0.25'
           memory: 256M
-
-  # Legacy Streamlit Frontend (optional)
-  frontend-legacy:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: bokfoering-frontend-legacy
-    env_file:
-      - .env.production
-    volumes:
-      - bokfoering-data:/app/data
-    networks:
-      - bokfoering-network
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.legacy.rule=Host(`${LEGACY_DOMAIN:-legacy.localhost}`)"
-      - "traefik.http.routers.legacy.entrypoints=websecure"
-      - "traefik.http.routers.legacy.tls.certresolver=letsencrypt"
-      - "traefik.http.services.legacy.loadbalancer.server.port=8501"
-    command: streamlit run frontend/app.py --server.address 0.0.0.0 --server.port 8501
-    restart: unless-stopped
-    profiles:
-      - legacy  # Only start with: docker compose --profile legacy up -d
 
   # Database Backup Service
   backup:
