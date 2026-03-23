@@ -21,6 +21,7 @@ class VoucherRowResponse(BaseModel):
     id: str
     voucher_id: str
     account_code: str
+    account_name: Optional[str] = None
     debit: int
     credit: int
     description: Optional[str] = None

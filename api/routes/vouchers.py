@@ -15,6 +15,7 @@ from api.deps import get_ledger_service, get_current_actor
 from domain.validation import ValidationError
 from services.ledger import LedgerService
 from repositories.audit_repo import AuditRepository
+from repositories.account_repo import AccountRepository
 
 router = APIRouter(prefix="/api/v1/vouchers", tags=["vouchers"])
 
@@ -214,6 +215,9 @@ async def get_voucher_audit(
 
 def _voucher_to_response(voucher) -> VoucherResponse:
     """Convert domain Voucher to response."""
+    # Look up account names
+    account_names = AccountRepository.get_all_as_dict()
+    
     return VoucherResponse(
         id=voucher.id,
         series=voucher.series.value,
@@ -227,6 +231,7 @@ def _voucher_to_response(voucher) -> VoucherResponse:
                 id=row.id,
                 voucher_id=row.voucher_id,
                 account_code=row.account_code,
+                account_name=account_names[row.account_code].name if row.account_code in account_names else None,
                 debit=row.debit,
                 credit=row.credit,
                 description=row.description
