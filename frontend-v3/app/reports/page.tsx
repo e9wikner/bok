@@ -130,7 +130,11 @@ function IncomeStatementReport({ year, month }: { year: number; month?: number }
 
   const revenue = data?.revenue || 0;
   const costs = data?.costs || 0;
+  const financial = data?.financial || 0;
+  const operatingProfit = data?.operating_profit || 0;
   const profit = data?.profit || 0;
+  const revenueDetails = data?.revenue_details || [];
+  const costDetails = data?.cost_details || [];
   const period = data?.period || "";
 
   return (
@@ -164,7 +168,26 @@ function IncomeStatementReport({ year, month }: { year: number; month?: number }
             </span>
           </div>
 
-          <div className="border-t-2 pt-4">
+          {financial !== 0 && (
+            <div className="flex justify-between py-3 px-4 bg-amber-50 dark:bg-amber-950/20 rounded-lg">
+              <span className="flex items-center gap-2 font-medium">
+                💰 Finansiella poster
+              </span>
+              <span className="font-mono font-semibold text-amber-600">
+                {formatCurrency(financial)}
+              </span>
+            </div>
+          )}
+
+          <div className="border-t-2 pt-4 space-y-2">
+            {financial !== 0 && (
+              <div className="flex justify-between items-center text-muted-foreground">
+                <span className="font-medium">Rörelseresultat</span>
+                <span className={`font-mono ${operatingProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                  {formatCurrency(operatingProfit)}
+                </span>
+              </div>
+            )}
             <div className="flex justify-between items-center">
               <span className="text-lg font-bold">Resultat</span>
               <span className={`text-lg font-bold font-mono ${profit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
@@ -185,11 +208,14 @@ function BalanceSheetReport({ year }: { year: number }) {
 
   const currentAssets = data?.current_assets || 0;
   const fixedAssets = data?.fixed_assets || 0;
+  const receivables = data?.receivables || 0;
+  const bankAndCash = data?.bank_and_cash || 0;
   const totalAssets = data?.total_assets || 0;
   const currentLiabilities = data?.current_liabilities || 0;
   const longTermLiabilities = data?.long_term_liabilities || 0;
   const equityAmount = data?.equity || 0;
-  const totalLiabilities = data?.total_liabilities || 0;
+  const totalLiabilities = data?.total_equity_liabilities || data?.total_liabilities || 0;
+  const balanced = data?.balanced ?? true;
   const period = data?.period || "";
 
   return (
@@ -210,12 +236,20 @@ function BalanceSheetReport({ year }: { year: number }) {
             <h3 className="font-semibold text-blue-600 dark:text-blue-400">Tillgångar</h3>
             <div className="space-y-2">
               <div className="flex justify-between py-2 px-3 bg-muted/30 rounded">
-                <span className="text-sm">Omsättningstillgångar</span>
+                <span className="text-sm">Övriga omsättningstillgångar</span>
                 <span className="font-mono text-sm">{formatCurrency(currentAssets)}</span>
+              </div>
+              <div className="flex justify-between py-2 px-3 bg-muted/30 rounded">
+                <span className="text-sm">Kundfordringar</span>
+                <span className="font-mono text-sm">{formatCurrency(receivables)}</span>
               </div>
               <div className="flex justify-between py-2 px-3 bg-muted/30 rounded">
                 <span className="text-sm">Anläggningstillgångar</span>
                 <span className="font-mono text-sm">{formatCurrency(fixedAssets)}</span>
+              </div>
+              <div className="flex justify-between py-2 px-3 bg-muted/30 rounded">
+                <span className="text-sm">Kassa och bank</span>
+                <span className="font-mono text-sm">{formatCurrency(bankAndCash)}</span>
               </div>
             </div>
             <div className="flex justify-between py-2 px-3 border-t font-semibold">

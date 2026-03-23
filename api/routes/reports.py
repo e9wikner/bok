@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, date as date_type
 
 from repositories.voucher_repo import VoucherRepository
 from repositories.account_repo import AccountRepository
@@ -10,42 +10,105 @@ from repositories.account_repo import AccountRepository
 router = APIRouter(prefix="/api/v1/reports", tags=["reports"])
 
 
+def _parse_voucher_date(v) -> date_type:
+    """Safely extract a date object from a voucher's date field."""
+    d = v.date
+    if isinstance(d, str):
+        return date_type.fromisoformat(d)
+    if isinstance(d, datetime):
+        return d.date()
+    return d  # already a date
+
+
+def _ören_to_kr(amount: int) -> float:
+    """Convert ören to kronor."""
+    return round(amount / 100, 2)
+
+
 @router.get("/income-statement")
 async def get_income_statement(
     year: Optional[int] = Query(None),
     month: Optional[int] = Query(None),
 ):
-    """Get income statement (resultaträkning) for a specific period"""
+    """Get income statement (resultaträkning) for a specific period.
+    
+    Revenue (intäkter) = credit - debit on accounts 3000-3999
+    Costs (kostnader) = debit - credit on accounts 4000-7999
+    Profit = revenue - costs
+    
+    All amounts returned in ören (divide by 100 for kronor).
+    """
     vouchers = VoucherRepository.list_all(status="posted")
 
-    # Filter by year/month if provided
+    # Filter by year/month
     if year:
-        vouchers = [v for v in vouchers if v.date.year == year]
+        vouchers = [v for v in vouchers if _parse_voucher_date(v).year == year]
         if month:
-            vouchers = [v for v in vouchers if v.date.month == month]
+            vouchers = [v for v in vouchers if _parse_voucher_date(v).month == month]
     
-    # Revenue accounts (3000-3999)
-    revenue = 0
-    # Cost accounts (4000-4999, 5000-5999, 6000-6999)
-    costs = 0
+    revenue = 0      # Intäkter (3000-3999) - normally credited
+    costs = 0        # Kostnader (4000-7999) - normally debited
+    financial = 0    # Finansiella poster (8000-8999)
+    
+    revenue_details = {}  # Per-account breakdown
+    cost_details = {}
+    financial_details = {}
     
     for voucher in vouchers:
         for row in voucher.rows:
             account = int(row.account_code) if row.account_code.isdigit() else 0
-            amount = (row.debit or 0) - (row.credit or 0)
+            debit = row.debit or 0
+            credit = row.credit or 0
             
             if 3000 <= account <= 3999:
+                # Revenue: credit increases, debit decreases
+                amount = credit - debit
                 revenue += amount
-            elif 4000 <= account <= 6999:
+                key = row.account_code
+                revenue_details[key] = revenue_details.get(key, 0) + amount
+                
+            elif 4000 <= account <= 7999:
+                # Costs: debit increases, credit decreases
+                amount = debit - credit
                 costs += amount
+                key = row.account_code
+                cost_details[key] = cost_details.get(key, 0) + amount
+                
+            elif 8000 <= account <= 8999:
+                # Financial items
+                amount = debit - credit  # expenses positive, income negative
+                financial += amount
+                key = row.account_code
+                financial_details[key] = financial_details.get(key, 0) + amount
     
-    profit = revenue - costs
+    # Look up account names
+    all_accounts = AccountRepository.get_all_as_dict()
+    
+    def _format_details(details):
+        return [
+            {
+                "code": code,
+                "name": all_accounts[code].name if code in all_accounts else code,
+                "amount": amount,
+            }
+            for code, amount in sorted(details.items())
+            if amount != 0
+        ]
+    
+    operating_profit = revenue - costs
+    profit_before_tax = operating_profit - financial
     
     return {
         "revenue": revenue,
         "costs": costs,
-        "profit": profit,
+        "financial": financial,
+        "operating_profit": operating_profit,
+        "profit": profit_before_tax,
+        "revenue_details": _format_details(revenue_details),
+        "cost_details": _format_details(cost_details),
+        "financial_details": _format_details(financial_details),
         "period": f"{year}-{month:02d}" if year and month else str(year) if year else "all",
+        "voucher_count": len(vouchers),
     }
 
 
@@ -54,55 +117,95 @@ async def get_balance_sheet(
     year: Optional[int] = Query(None),
     as_of_date: Optional[str] = Query(None),
 ):
-    """Get balance sheet (balansräkning)"""
+    """Get balance sheet (balansräkning).
+    
+    Assets (tillgångar) = debit - credit on accounts 1000-1999
+    Liabilities (skulder) = credit - debit on accounts 2000-2999
+    Equity (eget kapital) = subset of 2000-2999
+    
+    All amounts in ören.
+    """
     vouchers = VoucherRepository.list_all(status="posted")
 
     # Filter by date
     if as_of_date:
-        cutoff = datetime.fromisoformat(as_of_date).date()
-        vouchers = [v for v in vouchers if v.date <= cutoff]
+        cutoff = date_type.fromisoformat(as_of_date)
+        vouchers = [v for v in vouchers if _parse_voucher_date(v) <= cutoff]
     elif year:
-        vouchers = [v for v in vouchers if v.date.year == year]
+        # Include all vouchers up to end of year
+        cutoff = date_type(year, 12, 31)
+        vouchers = [v for v in vouchers if _parse_voucher_date(v) <= cutoff]
     
-    # Assets (1000-1999)
-    current_assets = 0  # 1000-1499
-    fixed_assets = 0    # 1500-1999
+    # Asset categories
+    current_assets = 0    # 1000-1399 (Omsättningstillgångar exkl kundfordringar)
+    receivables = 0       # 1400-1599 (Kundfordringar)
+    fixed_assets = 0      # 1200-1299 (Anläggningstillgångar - inventarier)
+    bank_and_cash = 0     # 1900-1999 (Kassa och bank)
     
-    # Liabilities (2000-2999)
-    current_liabilities = 0  # 2000-2499
-    long_term_liabilities = 0  # 2500-2999
+    # Liability categories
+    equity = 0            # 2000-2099 (Eget kapital)
+    long_term_debt = 0    # 2300-2499 (Långfristiga skulder)
+    short_term_debt = 0   # 2600-2999 (Kortfristiga skulder inkl moms, skatt)
     
-    # Equity (2700-2799)
-    equity = 0
+    all_accounts = AccountRepository.get_all_as_dict()
+    account_balances = {}
     
     for voucher in vouchers:
         for row in voucher.rows:
             account = int(row.account_code) if row.account_code.isdigit() else 0
-            amount = (row.debit or 0) - (row.credit or 0)
+            debit = row.debit or 0
+            credit = row.credit or 0
             
-            if 1000 <= account <= 1499:
-                current_assets += amount
-            elif 1500 <= account <= 1999:
-                fixed_assets += amount
-            elif 2000 <= account <= 2499:
-                current_liabilities += amount
-            elif 2500 <= account <= 2699:
-                long_term_liabilities += amount
-            elif 2700 <= account <= 2799:
-                equity += amount
+            # Track all balances
+            if row.account_code not in account_balances:
+                acct = all_accounts.get(row.account_code)
+                account_balances[row.account_code] = {
+                    "name": acct.name if acct else row.account_code,
+                    "debit": 0, "credit": 0,
+                }
+            account_balances[row.account_code]["debit"] += debit
+            account_balances[row.account_code]["credit"] += credit
+            
+            # Assets (1xxx): debit increases, credit decreases
+            if 1000 <= account <= 1199:
+                current_assets += (debit - credit)
+            elif 1200 <= account <= 1299:
+                fixed_assets += (debit - credit)
+            elif 1400 <= account <= 1599:
+                receivables += (debit - credit)
+            elif 1900 <= account <= 1999:
+                bank_and_cash += (debit - credit)
+            elif 1300 <= account <= 1399:
+                current_assets += (debit - credit)
+            elif 1600 <= account <= 1899:
+                current_assets += (debit - credit)
+                
+            # Equity & Liabilities (2xxx): credit increases, debit decreases
+            elif 2000 <= account <= 2099:
+                equity += (credit - debit)
+            elif 2300 <= account <= 2499:
+                long_term_debt += (credit - debit)
+            elif 2100 <= account <= 2299:
+                equity += (credit - debit)  # Retained earnings etc
+            elif 2500 <= account <= 2999:
+                short_term_debt += (credit - debit)
     
-    total_assets = current_assets + fixed_assets
-    total_liabilities = current_liabilities + long_term_liabilities + equity
+    total_assets = current_assets + fixed_assets + receivables + bank_and_cash
+    total_equity_liabilities = equity + long_term_debt + short_term_debt
     
     return {
         "current_assets": current_assets,
         "fixed_assets": fixed_assets,
+        "receivables": receivables,
+        "bank_and_cash": bank_and_cash,
         "total_assets": total_assets,
-        "current_liabilities": current_liabilities,
-        "long_term_liabilities": long_term_liabilities,
         "equity": equity,
-        "total_liabilities": total_liabilities,
+        "long_term_liabilities": long_term_debt,
+        "current_liabilities": short_term_debt,
+        "total_equity_liabilities": total_equity_liabilities,
+        "balanced": abs(total_assets - total_equity_liabilities) < 100,  # Within 1 kr
         "period": as_of_date or str(year) if year else "all",
+        "voucher_count": len(vouchers),
     }
 
 
@@ -111,39 +214,38 @@ async def get_trial_balance(
     year: Optional[int] = Query(None),
     period: Optional[int] = Query(None),
 ):
-    """Get trial balance (råbalans) showing debit/credit for all accounts"""
+    """Get trial balance (råbalans) showing debit/credit for all accounts."""
     vouchers = VoucherRepository.list_all(status="posted")
 
     if year:
-        vouchers = [v for v in vouchers if v.date.year == year]
+        vouchers = [v for v in vouchers if _parse_voucher_date(v).year == year]
         if period:
-            vouchers = [v for v in vouchers if v.date.month == period]
+            vouchers = [v for v in vouchers if _parse_voucher_date(v).month == period]
     
-    # Look up account names
     all_accounts = AccountRepository.get_all_as_dict()
-
-    accounts = {}  # account_code -> {debit, credit}
+    accounts = {}
 
     for voucher in vouchers:
         for row in voucher.rows:
             if row.account_code not in accounts:
                 acct = all_accounts.get(row.account_code)
-                accounts[row.account_code] = {"debit": 0, "credit": 0, "name": acct.name if acct else ""}
-
+                accounts[row.account_code] = {
+                    "debit": 0, "credit": 0,
+                    "name": acct.name if acct else "",
+                }
             accounts[row.account_code]["debit"] += row.debit or 0
             accounts[row.account_code]["credit"] += row.credit or 0
     
-    # Calculate totals
     total_debit = sum(a["debit"] for a in accounts.values())
     total_credit = sum(a["credit"] for a in accounts.values())
     
-    # Format accounts list
     accounts_list = [
         {
             "code": code,
             "name": data["name"],
             "debit": data["debit"],
             "credit": data["credit"],
+            "balance": data["debit"] - data["credit"],
         }
         for code, data in sorted(accounts.items())
     ]
@@ -152,6 +254,7 @@ async def get_trial_balance(
         "accounts": accounts_list,
         "total_debit": total_debit,
         "total_credit": total_credit,
-        "balanced": abs(total_debit - total_credit) < 1,  # Allow 1 öre rounding
+        "balanced": abs(total_debit - total_credit) < 1,
         "period": f"{year}-{period:02d}" if year and period else str(year) if year else "all",
+        "voucher_count": len(vouchers),
     }
