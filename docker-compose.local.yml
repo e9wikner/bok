@@ -11,7 +11,7 @@ services:
 
   frontend:
     build:
-      context: ./frontend-v2
+      context: ./frontend-v3
       args:
         NEXT_PUBLIC_API_URL: http://${DEPLOY_HOST:?Set DEPLOY_HOST to the target hostname}:8000
     extra_hosts:
