@@ -366,12 +366,17 @@ class LearningRepository:
             "SELECT COUNT(*) as cnt FROM correction_history WHERE created_at > datetime('now', '-30 days')"
         ).fetchone()
         
+        total_corrections = db.execute(
+            "SELECT COUNT(*) as cnt FROM correction_history"
+        ).fetchone()
+        
         return {
             "total_rules": total["cnt"] if total else 0,
             "active_rules": active["cnt"] if active else 0,
             "golden_rules": golden["cnt"] if golden else 0,
             "avg_confidence": avg_confidence["avg"] if avg_confidence and avg_confidence["avg"] else 0.0,
             "recent_corrections": recent_corrections["cnt"] if recent_corrections else 0,
+            "total_corrections": total_corrections["cnt"] if total_corrections else 0,
         }
     
     @staticmethod

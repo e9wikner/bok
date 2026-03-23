@@ -131,7 +131,7 @@ async def record_correction(
         )
 
 
-@router.get("/rules", response_model=List[LearningRuleResponse])
+@router.get("/rules")
 async def list_rules(
     active_only: bool = Query(True, description="Only show active rules"),
     min_confidence: float = Query(0.0, ge=0.0, le=1.0, description="Minimum confidence threshold"),
@@ -147,7 +147,11 @@ async def list_rules(
             pattern_type=pattern_type,
             limit=limit,
         )
-        return [_rule_to_response(r) for r in rules]
+        rule_responses = [_rule_to_response(r) for r in rules]
+        return {
+            "total": len(rule_responses),
+            "rules": rule_responses,
+        }
     
     except Exception as e:
         raise HTTPException(
