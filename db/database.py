@@ -125,9 +125,9 @@ class Database:
                 for statement in statements:
                     conn.execute(statement)
 
-                # Record migration version
+                # Record migration version (migration file may have already inserted it)
                 conn.execute(
-                    "INSERT INTO schema_version (version) VALUES (?)",
+                    "INSERT OR IGNORE INTO schema_version (version) VALUES (?)",
                     (version,)
                 )
                 conn.commit()
