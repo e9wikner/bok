@@ -81,9 +81,13 @@ export interface InvoiceRow {
 
 export interface AnomalySummary {
   total_anomalies: number;
-  high_severity: number;
-  medium_severity: number;
-  low_severity: number;
+  critical_count: number;
+  warning_count: number;
+  info_count: number;
+  by_severity: Record<string, number>;
+  by_type: Record<string, number>;
+  avg_score: number;
+  top_anomalies: any[];
 }
 
 export interface ComplianceIssue {
@@ -190,13 +194,13 @@ export const api = {
     return data;
   },
   runComplianceCheck: async () => {
-    const { data } = await apiClient.get("/api/v1/compliance/check");
+    const { data } = await apiClient.post("/api/v1/compliance/check");
     return data;
   },
 
   // VAT
-  getVatReports: async () => {
-    const { data } = await apiClient.get("/api/v1/vat/reports");
+  getVatDeclarations: async () => {
+    const { data } = await apiClient.get("/api/v1/vat/declarations");
     return data;
   },
 

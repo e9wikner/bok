@@ -148,8 +148,8 @@ export default function DashboardPage() {
           loading={false}
           href="/reports"
           subtitle={
-            anomalyData?.high_severity
-              ? `${anomalyData.high_severity} allvarliga`
+            anomalyData?.critical_count
+              ? `${anomalyData.critical_count} allvarliga`
               : undefined
           }
         />
