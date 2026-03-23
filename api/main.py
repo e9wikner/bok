@@ -1,5 +1,6 @@
 """FastAPI application setup."""
 
+import os
 import sys
 sys.setrecursionlimit(3000)  # Increase for Pydantic v2 schema generation
 
@@ -71,11 +72,21 @@ app.include_router(learning.router)
 
 @app.get("/health", tags=["health"])
 async def health_check():
-    """Health check endpoint."""
+    """Health check endpoint with build info."""
+    import subprocess
+    try:
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL
+        ).decode().strip()
+    except Exception:
+        commit = os.environ.get("GIT_COMMIT", "unknown")
+    
     return {
         "status": "ok",
         "service": "bokfoering-api",
-        "version": settings.api_version
+        "version": settings.api_version,
+        "commit": commit,
     }
 
 
