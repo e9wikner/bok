@@ -339,3 +339,4 @@ def _rule_to_response(rule) -> LearningRuleResponse:
         last_used=rule.last_used,
         last_confirmed=rule.last_confirmed,
     )
+# Force container restart on next deploy
