@@ -1,0 +1,22 @@
+# Local test deployment — direct port access, no SSL
+# Set DEPLOY_HOST to match the target machine's hostname.
+# Usage: DEPLOY_HOST=myserver.local docker compose -f docker-compose.local.yml up -d --build
+
+services:
+  api:
+    build: .
+    container_name: bokfoering-api
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend-v2
+      args:
+        NEXT_PUBLIC_API_URL: http://${DEPLOY_HOST:?Set DEPLOY_HOST to the target hostname}:8000
+    extra_hosts:
+      - "${DEPLOY_HOST}:host-gateway"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
