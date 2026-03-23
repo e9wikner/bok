@@ -56,11 +56,24 @@ export const api = {
     const { data } = await apiClient.get('/api/v1/vouchers', {
       params: { status, limit, offset }
     })
+    // Mappa om API-fält till frontend-fält
+    if (data.vouchers) {
+      data.vouchers = data.vouchers.map((v: any) => ({
+        ...v,
+        voucher_number: v.number,
+        voucher_date: v.date,
+      }))
+    }
     return data
   },
 
   getVoucher: async (id: string) => {
     const { data } = await apiClient.get(`/api/v1/vouchers/${id}`)
+    // Mappa om API-fält till frontend-fält
+    if (data.voucher) {
+      data.voucher.voucher_number = data.voucher.number
+      data.voucher.voucher_date = data.voucher.date
+    }
     return data
   },
 
@@ -88,6 +101,13 @@ export const api = {
   // Konton
   getAccounts: async () => {
     const { data } = await apiClient.get('/api/v1/accounts')
+    // Mappa om API-fält till frontend-fält
+    if (data.accounts) {
+      data.accounts = data.accounts.map((a: any) => ({
+        ...a,
+        type: a.account_type,
+      }))
+    }
     return data
   },
 
