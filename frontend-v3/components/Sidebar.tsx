@@ -50,10 +50,10 @@ export function Sidebar() {
         </button>
       </div>
 
-      {/* Mobile bottom nav */}
+      {/* Mobile bottom nav — show key pages + settings */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-card border-t">
         <div className="flex items-center justify-around py-2">
-          {navItems.slice(0, 5).map((item) => {
+          {navItems.map((item) => {
             const isActive =
               item.href === "/"
                 ? pathname === "/"
@@ -63,29 +63,17 @@ export function Sidebar() {
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "flex flex-col items-center gap-1 px-3 py-1.5 rounded-lg text-xs transition-colors",
+                  "flex flex-col items-center gap-0.5 px-1.5 py-1.5 rounded-lg text-[10px] transition-colors min-w-0",
                   isActive
                     ? "text-primary"
                     : "text-muted-foreground hover:text-foreground"
                 )}
               >
                 <item.icon className="h-5 w-5" />
-                <span className="truncate max-w-[60px]">{item.label}</span>
+                <span className="truncate max-w-[56px]">{item.label}</span>
               </Link>
             );
           })}
-          <Link
-            href="/settings"
-            className={cn(
-              "flex flex-col items-center gap-1 px-3 py-1.5 rounded-lg text-xs transition-colors",
-              pathname.startsWith("/settings")
-                ? "text-primary"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <Settings className="h-5 w-5" />
-            <span>Mer</span>
-          </Link>
         </div>
       </nav>
 
