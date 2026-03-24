@@ -64,7 +64,8 @@ export interface Invoice {
   invoice_date: string;
   due_date: string;
   status: "draft" | "sent" | "paid" | "overdue" | "cancelled";
-  total_amount: number;
+  amount_inc_vat: number;
+  amount_ex_vat: number;
   vat_amount: number;
   rows: InvoiceRow[];
   created_at: string;

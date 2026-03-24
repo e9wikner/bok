@@ -20,9 +20,11 @@ export default function InvoicesPage() {
   const invoices = data?.invoices || data || [];
 
   // Summary stats
-  const totalAmount = invoices.reduce((s: number, i: any) => s + (i.total_amount || 0), 0);
+  const totalAmount = invoices.reduce((s: number, i: any) => s + (i.amount_inc_vat || i.total_amount || 0), 0);
   const paidCount = invoices.filter((i: any) => i.status === "paid").length;
-  const overdueCount = invoices.filter((i: any) => i.status === "overdue").length;
+  const overdueCount = invoices.filter((i: any) => i.status === "overdue" || i.is_overdue).length;
+  const totalPaid = invoices.reduce((s: number, i: any) => s + (i.paid_amount || 0), 0);
+  const totalRemaining = totalAmount - totalPaid;
 
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-[1400px] mx-auto">
@@ -55,6 +57,9 @@ export default function InvoicesPage() {
           <CardContent className="p-4">
             <p className="text-sm text-muted-foreground">Förfallna</p>
             <p className="text-2xl font-bold text-red-600 mt-1">{overdueCount}</p>
+            {totalRemaining > 0 && (
+              <p className="text-xs text-muted-foreground mt-1">Utestående: {formatCurrency(totalRemaining)}</p>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -82,11 +87,15 @@ export default function InvoicesPage() {
                     <th className="text-left p-4 font-medium text-muted-foreground">Förfallodatum</th>
                     <th className="text-left p-4 font-medium text-muted-foreground">Status</th>
                     <th className="text-right p-4 font-medium text-muted-foreground">Belopp</th>
+                    <th className="text-right p-4 font-medium text-muted-foreground">Betalt</th>
                   </tr>
                 </thead>
                 <tbody>
                   {invoices.map((inv: any) => {
-                    const config = STATUS_CONFIG[inv.status] || STATUS_CONFIG.draft;
+                    const effectiveStatus = inv.is_overdue && inv.status !== "paid" ? "overdue" : inv.status;
+                    const config = STATUS_CONFIG[effectiveStatus] || STATUS_CONFIG.draft;
+                    const amount = inv.amount_inc_vat || inv.total_amount || 0;
+                    const paid = inv.paid_amount || 0;
                     return (
                       <tr key={inv.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
                         <td className="p-4 font-medium">
@@ -102,7 +111,16 @@ export default function InvoicesPage() {
                           <Badge variant={config.variant}>{config.label}</Badge>
                         </td>
                         <td className="p-4 text-right font-mono font-medium">
-                          {formatCurrency(inv.total_amount || 0)}
+                          {formatCurrency(amount)}
+                        </td>
+                        <td className="p-4 text-right font-mono">
+                          {paid > 0 ? (
+                            <span className={paid >= amount ? "text-emerald-600" : "text-amber-600"}>
+                              {formatCurrency(paid)}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
                         </td>
                       </tr>
                     );
