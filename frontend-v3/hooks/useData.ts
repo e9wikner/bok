@@ -75,6 +75,15 @@ export function useTrialBalance(year?: number, period?: number) {
   });
 }
 
+export function useGeneralLedger(accountCode: string, year?: number, month?: number) {
+  return useQuery({
+    queryKey: ["general-ledger", accountCode, year, month],
+    queryFn: () => api.getGeneralLedger(accountCode, year, month),
+    staleTime: 5 * 60 * 1000,
+    enabled: !!accountCode,
+  });
+}
+
 export function useFiscalYears() {
   return useQuery({
     queryKey: ["fiscal-years"],

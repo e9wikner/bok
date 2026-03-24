@@ -155,6 +155,15 @@ export const api = {
     return data;
   },
 
+  // General ledger (huvudbok per konto)
+  getGeneralLedger: async (accountCode: string, year?: number, month?: number) => {
+    const params: any = {};
+    if (year) params.year = year;
+    if (month) params.month = month;
+    const { data } = await apiClient.get(`/api/v1/reports/general-ledger/${accountCode}`, { params });
+    return data;
+  },
+
   // Learning
   getLearningRules: async () => {
     const { data } = await apiClient.get("/api/v1/learning/rules");

@@ -5,11 +5,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { useIncomeStatement, useBalanceSheet, useTrialBalance, useFiscalYears } from "@/hooks/useData";
+import { useIncomeStatement, useBalanceSheet, useTrialBalance, useGeneralLedger, useFiscalYears, useAccounts } from "@/hooks/useData";
 import { formatCurrency } from "@/lib/utils";
-import { TrendingUp, TrendingDown, Scale, FileSpreadsheet, Calendar } from "lucide-react";
+import { TrendingUp, TrendingDown, Scale, FileSpreadsheet, BookOpen, Calendar } from "lucide-react";
 
-type ReportTab = "income" | "balance" | "trial";
+type ReportTab = "income" | "balance" | "trial" | "ledger";
 
 const MONTHS = [
   { value: 0, label: "Hela året" },
@@ -59,7 +59,8 @@ export default function ReportsPage() {
         {[
           { id: "income" as const, label: "Resultaträkning", icon: TrendingUp },
           { id: "balance" as const, label: "Balansräkning", icon: Scale },
-          { id: "trial" as const, label: "Huvudbok", icon: FileSpreadsheet },
+          { id: "ledger" as const, label: "Huvudbok", icon: BookOpen },
+          { id: "trial" as const, label: "Råbalans", icon: FileSpreadsheet },
         ].map((t) => (
           <Button
             key={t.id}
@@ -116,6 +117,9 @@ export default function ReportsPage() {
         <IncomeStatementReport year={year} month={month || undefined} />
       )}
       {tab === "balance" && <BalanceSheetReport year={year} />}
+      {tab === "ledger" && (
+        <GeneralLedgerReport year={year} month={month || undefined} />
+      )}
       {tab === "trial" && (
         <TrialBalanceReport year={year} period={month || undefined} />
       )}
@@ -307,7 +311,7 @@ function TrialBalanceReport({ year, period }: { year: number; period?: number })
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <FileSpreadsheet className="h-5 w-5 text-primary" />
-          Huvudbok
+          Råbalans
           {!balanced && (
             <Badge variant="destructive" className="ml-2">Obalanserad</Badge>
           )}
@@ -352,6 +356,122 @@ function TrialBalanceReport({ year, period }: { year: number; period?: number })
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function GeneralLedgerReport({ year, month }: { year: number; month?: number }) {
+  const [selectedAccount, setSelectedAccount] = useState<string>("");
+  const { data: accountsData } = useAccounts();
+  const { data, isLoading } = useGeneralLedger(selectedAccount, year, month);
+
+  const accounts = accountsData?.accounts || [];
+
+  return (
+    <div className="space-y-4">
+      {/* Account selector */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <div className="flex items-center gap-2">
+              <BookOpen className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium">Välj konto:</span>
+            </div>
+            <select
+              value={selectedAccount}
+              onChange={(e) => setSelectedAccount(e.target.value)}
+              className="rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring min-w-[300px]"
+            >
+              <option value="">-- Välj ett konto --</option>
+              {accounts.map((a: any) => (
+                <option key={a.code} value={a.code}>
+                  {a.code} — {a.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Ledger content */}
+      {!selectedAccount ? (
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground">
+            <BookOpen className="h-12 w-12 mx-auto mb-4 opacity-30" />
+            <p>Välj ett konto ovan för att visa huvudboken</p>
+          </CardContent>
+        </Card>
+      ) : isLoading ? (
+        <ReportSkeleton />
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <BookOpen className="h-5 w-5 text-primary" />
+              Huvudbok: {data?.account_code} — {data?.account_name}
+            </CardTitle>
+            <CardDescription>
+              {data?.transaction_count || 0} transaktioner
+              {data?.period && data.period !== "all" ? ` • Period: ${data.period}` : ""}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {data?.transactions && data.transactions.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/50">
+                      <th className="text-left p-3 font-medium text-muted-foreground">Datum</th>
+                      <th className="text-left p-3 font-medium text-muted-foreground">Ver.nr</th>
+                      <th className="text-left p-3 font-medium text-muted-foreground">Beskrivning</th>
+                      <th className="text-right p-3 font-medium text-muted-foreground">Debet</th>
+                      <th className="text-right p-3 font-medium text-muted-foreground">Kredit</th>
+                      <th className="text-right p-3 font-medium text-muted-foreground">Saldo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.transactions.map((tx: any, i: number) => (
+                      <tr key={i} className="border-b last:border-0 hover:bg-muted/30">
+                        <td className="p-3 text-muted-foreground">{tx.date}</td>
+                        <td className="p-3">
+                          <a
+                            href={`/vouchers/${tx.voucher_id}`}
+                            className="text-primary hover:underline font-medium"
+                          >
+                            {tx.voucher_number}
+                          </a>
+                        </td>
+                        <td className="p-3">{tx.description}</td>
+                        <td className="p-3 text-right font-mono">
+                          {tx.debit ? formatCurrency(tx.debit) : ""}
+                        </td>
+                        <td className="p-3 text-right font-mono">
+                          {tx.credit ? formatCurrency(tx.credit) : ""}
+                        </td>
+                        <td className="p-3 text-right font-mono font-medium">
+                          {formatCurrency(tx.balance)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 font-bold">
+                      <td className="p-3" colSpan={3}>Summa / Utgående saldo</td>
+                      <td className="p-3 text-right font-mono">{formatCurrency(data.total_debit || 0)}</td>
+                      <td className="p-3 text-right font-mono">{formatCurrency(data.total_credit || 0)}</td>
+                      <td className="p-3 text-right font-mono text-primary">{formatCurrency(data.closing_balance || 0)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-center py-8">
+                Inga transaktioner för detta konto i vald period
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+    </div>
   );
 }
 

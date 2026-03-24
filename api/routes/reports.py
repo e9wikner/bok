@@ -209,6 +209,67 @@ async def get_balance_sheet(
     }
 
 
+@router.get("/general-ledger/{account_code}")
+async def get_general_ledger(
+    account_code: str,
+    year: Optional[int] = Query(None),
+    month: Optional[int] = Query(None),
+):
+    """Get general ledger (huvudbok) for a specific account.
+    
+    Returns all transactions for the account with running balance.
+    """
+    vouchers = VoucherRepository.list_all(status="posted")
+    
+    if year:
+        vouchers = [v for v in vouchers if _parse_voucher_date(v).year == year]
+        if month:
+            vouchers = [v for v in vouchers if _parse_voucher_date(v).month == month]
+    
+    # Sort by date
+    vouchers.sort(key=lambda v: _parse_voucher_date(v))
+    
+    # Look up account info
+    all_accounts = AccountRepository.get_all_as_dict()
+    account = all_accounts.get(account_code)
+    account_name = account.name if account else account_code
+    
+    # Collect transactions for this account
+    transactions = []
+    running_balance = 0
+    
+    for voucher in vouchers:
+        for row in voucher.rows:
+            if row.account_code == account_code:
+                debit = row.debit or 0
+                credit = row.credit or 0
+                running_balance += (debit - credit)
+                
+                transactions.append({
+                    "date": _parse_voucher_date(voucher).isoformat(),
+                    "voucher_id": voucher.id,
+                    "voucher_number": f"{voucher.series.value}{voucher.number}",
+                    "description": row.description or voucher.description,
+                    "debit": debit,
+                    "credit": credit,
+                    "balance": running_balance,
+                })
+    
+    total_debit = sum(t["debit"] for t in transactions)
+    total_credit = sum(t["credit"] for t in transactions)
+    
+    return {
+        "account_code": account_code,
+        "account_name": account_name,
+        "transactions": transactions,
+        "total_debit": total_debit,
+        "total_credit": total_credit,
+        "closing_balance": running_balance,
+        "transaction_count": len(transactions),
+        "period": f"{year}-{month:02d}" if year and month else str(year) if year else "all",
+    }
+
+
 @router.get("/trial-balance")
 async def get_trial_balance(
     year: Optional[int] = Query(None),
