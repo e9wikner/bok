@@ -1,31 +1,23 @@
 #!/usr/bin/env bash
-# Deploy to local test server
-# Usage: ./deploy-local.sh [user@host]
-
+# Deploy app containers locally on the server
+# Run locally: cd /opt/docker/bok && ./deploy-local.sh
 set -euo pipefail
 
-REMOTE=${1:-dave@homeassistant.local}
-REMOTE_HOST=${REMOTE#*@}
-REMOTE_DIR=/opt/docker/bok
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_URL=https://github.com/e9wikner/bok.git
+DEPLOY_HOST=${DEPLOY_HOST:-$(hostname)}
 
-echo "==> Deploying to $REMOTE:$REMOTE_DIR"
+cd "$SCRIPT_DIR"
 
-ssh "$REMOTE" bash -s "$REMOTE_DIR" "$REPO_URL" "$REMOTE_HOST" << 'ENDSSH'
-set -euo pipefail
-REMOTE_DIR=$1
-REPO_URL=$2
-DEPLOY_HOST=$3
-
-if [ -d "$REMOTE_DIR/.git" ]; then
-  git -C "$REMOTE_DIR" pull --ff-only
-else
-  git clone "$REPO_URL" "$REMOTE_DIR"
+# Pull latest code if this is a git repo
+if [ -d .git ]; then
+    echo "==> Pulling latest code"
+    git pull --ff-only
 fi
 
-cd "$REMOTE_DIR"
+echo "==> Starting containers with DEPLOY_HOST=$DEPLOY_HOST"
 DEPLOY_HOST="$DEPLOY_HOST" docker compose -f docker-compose.local.yml up -d --build
 
+echo ""
 echo "API:      http://$DEPLOY_HOST:8000"
 echo "Frontend: http://$DEPLOY_HOST:3000"
-ENDSSH

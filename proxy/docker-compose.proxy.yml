@@ -1,0 +1,23 @@
+# Nginx reverse proxy with automatic SSL via certbot
+# Sits in front of the already-running app containers on ports 3000/8000
+
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-proxy
+    network_mode: host
+    volumes:
+      - ./nginx-active.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certbot/www:/var/www/certbot:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+    restart: unless-stopped
+
+  certbot:
+    image: certbot/certbot
+    container_name: certbot
+    volumes:
+      - ./certbot/www:/var/www/certbot
+      - ./certbot/conf:/etc/letsencrypt
+    entrypoint: ""
+    command: sh -c 'trap exit TERM; while :; do certbot renew --quiet; sleep 12h; done'
+    restart: unless-stopped
