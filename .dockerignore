@@ -21,3 +21,4 @@ bokfoering.db
 README.md
 .vscode
 .idea
+proxy/certbot/
