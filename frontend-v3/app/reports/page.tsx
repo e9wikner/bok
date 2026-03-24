@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useIncomeStatement, useBalanceSheet, useTrialBalance, useGeneralLedger, useFiscalYears, useAccounts } from "@/hooks/useData";
+import { api } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
-import { TrendingUp, TrendingDown, Scale, FileSpreadsheet, BookOpen, Calendar } from "lucide-react";
+import { TrendingUp, TrendingDown, Scale, FileSpreadsheet, BookOpen, Calendar, Download } from "lucide-react";
 
 type ReportTab = "income" | "balance" | "trial" | "ledger";
 
@@ -32,6 +33,73 @@ export default function ReportsPage() {
   const [year, setYear] = useState<number>(new Date().getFullYear());
   const [month, setMonth] = useState<number>(0);
   const { data: fyData } = useFiscalYears();
+  const [exporting, setExporting] = useState(false);
+
+  // PDF export helper
+  const handlePdfExport = async () => {
+    setExporting(true);
+    try {
+      // Find period_id for selected year/month
+      const periodsResp = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1/periods`,
+        { headers: { Authorization: `Bearer ${process.env.NEXT_PUBLIC_API_KEY || "dev-key-change-in-production"}` } }
+      );
+      const periodsData = await periodsResp.json();
+      const periods = periodsData?.periods || periodsData || [];
+      
+      // Find matching period
+      let periodId = periods[0]?.id;
+      if (month) {
+        const match = periods.find((p: any) => {
+          const start = new Date(p.start_date);
+          return start.getFullYear() === year && start.getMonth() + 1 === month;
+        });
+        if (match) periodId = match.id;
+      } else {
+        const match = periods.find((p: any) => new Date(p.start_date).getFullYear() === year);
+        if (match) periodId = match.id;
+      }
+
+      if (!periodId) {
+        alert("Ingen period hittad för vald period");
+        return;
+      }
+
+      const pdfEndpoint = tab === "income"
+        ? `/api/v1/export/pdf/income-statement/${periodId}`
+        : tab === "balance"
+        ? `/api/v1/export/pdf/balance-sheet/${periodId}`
+        : `/api/v1/export/pdf/trial-balance/${periodId}`;
+
+      // Try HTML endpoint first (always available), then PDF
+      const htmlEndpoint = pdfEndpoint.replace(/\/([^/]+)$/, "/$1/html");
+      
+      const resp = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}${pdfEndpoint}`,
+        { headers: { Authorization: `Bearer ${process.env.NEXT_PUBLIC_API_KEY || "dev-key-change-in-production"}` } }
+      );
+
+      if (resp.ok) {
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${tab}-${year}${month ? `-${String(month).padStart(2, "0")}` : ""}.pdf`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        // Fallback: open HTML version in new tab
+        window.open(
+          `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}${htmlEndpoint}`,
+          "_blank"
+        );
+      }
+    } catch {
+      alert("Kunde inte exportera PDF");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   // Extract available years from fiscal years
   const fiscalYears = fyData?.fiscal_years || [];
@@ -77,7 +145,7 @@ export default function ReportsPage() {
       {/* Year/Month selector */}
       <Card>
         <CardContent className="p-4">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 flex-wrap">
             <div className="flex items-center gap-2">
               <Calendar className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm font-medium">Period:</span>
@@ -109,6 +177,18 @@ export default function ReportsPage() {
                 </select>
               </div>
             )}
+            {tab !== "ledger" && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handlePdfExport}
+                disabled={exporting}
+                className="gap-2 ml-auto"
+              >
+                <Download className="h-4 w-4" />
+                {exporting ? "Exporterar..." : "Exportera PDF"}
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -137,9 +217,39 @@ function IncomeStatementReport({ year, month }: { year: number; month?: number }
   const financial = data?.financial || 0;
   const operatingProfit = data?.operating_profit || 0;
   const profit = data?.profit || 0;
-  const revenueDetails = data?.revenue_details || [];
-  const costDetails = data?.cost_details || [];
+  const revenueDetails: any[] = data?.revenue_details || [];
+  const costDetails: any[] = data?.cost_details || [];
+  const financialDetails: any[] = data?.financial_details || [];
   const period = data?.period || "";
+
+  // Group costs by K2 categories
+  const materialCosts = costDetails.filter((d: any) => d.code >= "4000" && d.code <= "4999");
+  const externalCosts = costDetails.filter((d: any) => d.code >= "5000" && d.code <= "6999");
+  const personnelCosts = costDetails.filter((d: any) => d.code >= "7000" && d.code <= "7699");
+  const depreciations = costDetails.filter((d: any) => d.code >= "7700" && d.code <= "7999");
+
+  const Section = ({ title, items, subtotal, bgClass, textClass }: {
+    title: string; items: any[]; subtotal: number; bgClass: string; textClass: string;
+  }) => (
+    <div>
+      <div className={`flex justify-between py-2 px-4 ${bgClass} rounded-t-lg font-medium`}>
+        <span className={textClass}>{title}</span>
+        <span className={`font-mono font-semibold ${textClass}`}>{formatCurrency(subtotal)}</span>
+      </div>
+      {items.length > 0 && (
+        <div className="border-x border-b rounded-b-lg divide-y">
+          {items.map((d: any) => (
+            <div key={d.code} className="flex justify-between py-1.5 px-4 text-sm">
+              <span className="text-muted-foreground">
+                <span className="font-mono mr-2">{d.code}</span>{d.name}
+              </span>
+              <span className="font-mono">{formatCurrency(d.amount)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <Card>
@@ -149,55 +259,60 @@ function IncomeStatementReport({ year, month }: { year: number; month?: number }
           Resultaträkning
         </CardTitle>
         <CardDescription>
-          {period ? `Period: ${period}` : "Intäkter och kostnader"}
+          {period ? `Period: ${period}` : "Kostnadsslagsindelad enligt K2"}
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="space-y-4">
-          <div className="flex justify-between py-3 px-4 bg-emerald-50 dark:bg-emerald-950/20 rounded-lg">
-            <span className="flex items-center gap-2 font-medium">
-              <TrendingUp className="h-4 w-4 text-emerald-600" /> Intäkter
-            </span>
-            <span className="font-mono font-semibold text-emerald-600">
-              {formatCurrency(revenue)}
-            </span>
-          </div>
+        <div className="space-y-3">
+          {/* Rörelseintäkter */}
+          <Section title="Rörelseintäkter" items={revenueDetails} subtotal={revenue}
+            bgClass="bg-emerald-50 dark:bg-emerald-950/20" textClass="text-emerald-700 dark:text-emerald-400" />
 
-          <div className="flex justify-between py-3 px-4 bg-red-50 dark:bg-red-950/20 rounded-lg">
-            <span className="flex items-center gap-2 font-medium">
-              <TrendingDown className="h-4 w-4 text-red-600" /> Kostnader
-            </span>
-            <span className="font-mono font-semibold text-red-600">
-              {formatCurrency(costs)}
-            </span>
-          </div>
-
-          {financial !== 0 && (
-            <div className="flex justify-between py-3 px-4 bg-amber-50 dark:bg-amber-950/20 rounded-lg">
-              <span className="flex items-center gap-2 font-medium">
-                💰 Finansiella poster
-              </span>
-              <span className="font-mono font-semibold text-amber-600">
-                {formatCurrency(financial)}
-              </span>
-            </div>
+          {/* Rörelsekostnader */}
+          {materialCosts.length > 0 && (
+            <Section title="Råvaror och förnödenheter" items={materialCosts}
+              subtotal={materialCosts.reduce((s: number, d: any) => s + d.amount, 0)}
+              bgClass="bg-red-50 dark:bg-red-950/20" textClass="text-red-700 dark:text-red-400" />
           )}
 
-          <div className="border-t-2 pt-4 space-y-2">
-            {financial !== 0 && (
-              <div className="flex justify-between items-center text-muted-foreground">
-                <span className="font-medium">Rörelseresultat</span>
-                <span className={`font-mono ${operatingProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                  {formatCurrency(operatingProfit)}
-                </span>
-              </div>
-            )}
-            <div className="flex justify-between items-center">
-              <span className="text-lg font-bold">Resultat</span>
-              <span className={`text-lg font-bold font-mono ${profit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                {formatCurrency(profit)}
-              </span>
-            </div>
+          {externalCosts.length > 0 && (
+            <Section title="Övriga externa kostnader" items={externalCosts}
+              subtotal={externalCosts.reduce((s: number, d: any) => s + d.amount, 0)}
+              bgClass="bg-red-50 dark:bg-red-950/20" textClass="text-red-700 dark:text-red-400" />
+          )}
+
+          {personnelCosts.length > 0 && (
+            <Section title="Personalkostnader" items={personnelCosts}
+              subtotal={personnelCosts.reduce((s: number, d: any) => s + d.amount, 0)}
+              bgClass="bg-red-50 dark:bg-red-950/20" textClass="text-red-700 dark:text-red-400" />
+          )}
+
+          {depreciations.length > 0 && (
+            <Section title="Avskrivningar" items={depreciations}
+              subtotal={depreciations.reduce((s: number, d: any) => s + d.amount, 0)}
+              bgClass="bg-red-50 dark:bg-red-950/20" textClass="text-red-700 dark:text-red-400" />
+          )}
+
+          {/* Rörelseresultat */}
+          <div className="flex justify-between py-3 px-4 border-t-2 border-b font-bold">
+            <span>Rörelseresultat</span>
+            <span className={`font-mono ${operatingProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+              {formatCurrency(operatingProfit)}
+            </span>
+          </div>
+
+          {/* Finansiella poster */}
+          {financialDetails.length > 0 && (
+            <Section title="Finansiella poster" items={financialDetails} subtotal={financial}
+              bgClass="bg-amber-50 dark:bg-amber-950/20" textClass="text-amber-700 dark:text-amber-400" />
+          )}
+
+          {/* Årets resultat */}
+          <div className="flex justify-between py-4 px-4 border-t-2 mt-2">
+            <span className="text-lg font-bold">Årets resultat</span>
+            <span className={`text-lg font-bold font-mono ${profit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+              {formatCurrency(profit)}
+            </span>
           </div>
         </div>
       </CardContent>
@@ -210,83 +325,111 @@ function BalanceSheetReport({ year }: { year: number }) {
 
   if (isLoading) return <ReportSkeleton />;
 
-  const currentAssets = data?.current_assets || 0;
-  const fixedAssets = data?.fixed_assets || 0;
-  const receivables = data?.receivables || 0;
-  const bankAndCash = data?.bank_and_cash || 0;
   const totalAssets = data?.total_assets || 0;
-  const currentLiabilities = data?.current_liabilities || 0;
-  const longTermLiabilities = data?.long_term_liabilities || 0;
-  const equityAmount = data?.equity || 0;
-  const totalLiabilities = data?.total_equity_liabilities || data?.total_liabilities || 0;
+  const totalEL = data?.total_equity_liabilities || 0;
   const balanced = data?.balanced ?? true;
   const period = data?.period || "";
+
+  // Account detail arrays from API
+  const fixedAssetsDetails: any[] = data?.fixed_assets_details || [];
+  const receivablesDetails: any[] = data?.receivables_details || [];
+  const bankDetails: any[] = data?.bank_and_cash_details || [];
+  const currentAssetsDetails: any[] = data?.current_assets_details || [];
+  const equityDetails: any[] = data?.equity_details || [];
+  const longTermDetails: any[] = data?.long_term_liabilities_details || [];
+  const currentLiabDetails: any[] = data?.current_liabilities_details || [];
+
+  const BSSection = ({ title, items, subtotal, colorClass }: {
+    title: string; items: any[]; subtotal: number; colorClass: string;
+  }) => (
+    <div className="mb-4">
+      <div className={`flex justify-between py-2 px-3 ${colorClass} rounded-t font-medium text-sm`}>
+        <span>{title}</span>
+        <span className="font-mono">{formatCurrency(subtotal)}</span>
+      </div>
+      {items.length > 0 && (
+        <div className="border-x border-b rounded-b divide-y">
+          {items.map((a: any) => (
+            <div key={a.code} className="flex justify-between py-1.5 px-3 text-sm">
+              <span className="text-muted-foreground">
+                <span className="font-mono mr-2">{a.code}</span>{a.name}
+              </span>
+              <span className="font-mono">{formatCurrency(a.balance)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Scale className="h-5 w-5 text-primary" />
-          Balansräkning
-        </CardTitle>
-        <CardDescription>
-          {period ? `Period: ${period}` : "Tillgångar, skulder och eget kapital"}
-        </CardDescription>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Scale className="h-5 w-5 text-primary" />
+              Balansräkning
+              {!balanced && <Badge variant="destructive" className="ml-2">Obalanserad</Badge>}
+            </CardTitle>
+            <CardDescription>
+              {period ? `Per ${period}-12-31` : "Tillgångar, skulder och eget kapital"} — K2-uppställning
+            </CardDescription>
+          </div>
+        </div>
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Assets */}
-          <div className="space-y-3">
-            <h3 className="font-semibold text-blue-600 dark:text-blue-400">Tillgångar</h3>
-            <div className="space-y-2">
-              <div className="flex justify-between py-2 px-3 bg-muted/30 rounded">
-                <span className="text-sm">Övriga omsättningstillgångar</span>
-                <span className="font-mono text-sm">{formatCurrency(currentAssets)}</span>
-              </div>
-              <div className="flex justify-between py-2 px-3 bg-muted/30 rounded">
-                <span className="text-sm">Kundfordringar</span>
-                <span className="font-mono text-sm">{formatCurrency(receivables)}</span>
-              </div>
-              <div className="flex justify-between py-2 px-3 bg-muted/30 rounded">
-                <span className="text-sm">Anläggningstillgångar</span>
-                <span className="font-mono text-sm">{formatCurrency(fixedAssets)}</span>
-              </div>
-              <div className="flex justify-between py-2 px-3 bg-muted/30 rounded">
-                <span className="text-sm">Kassa och bank</span>
-                <span className="font-mono text-sm">{formatCurrency(bankAndCash)}</span>
-              </div>
-            </div>
-            <div className="flex justify-between py-2 px-3 border-t font-semibold">
-              <span>Summa tillgångar</span>
-              <span className="font-mono text-blue-600">{formatCurrency(totalAssets)}</span>
+          {/* TILLGÅNGAR */}
+          <div>
+            <h3 className="font-bold text-blue-600 dark:text-blue-400 mb-3 text-lg">TILLGÅNGAR</h3>
+
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">A. Anläggningstillgångar</h4>
+            <BSSection title="Materiella anläggningstillgångar" items={fixedAssetsDetails}
+              subtotal={data?.fixed_assets || 0}
+              colorClass="bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400" />
+
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 mt-4">B. Omsättningstillgångar</h4>
+            {currentAssetsDetails.length > 0 && (
+              <BSSection title="Övriga omsättningstillgångar" items={currentAssetsDetails}
+                subtotal={data?.current_assets || 0}
+                colorClass="bg-blue-50/50 dark:bg-blue-950/10 text-blue-700 dark:text-blue-400" />
+            )}
+            <BSSection title="Kundfordringar" items={receivablesDetails}
+              subtotal={data?.receivables || 0}
+              colorClass="bg-blue-50/50 dark:bg-blue-950/10 text-blue-700 dark:text-blue-400" />
+            <BSSection title="Kassa och bank" items={bankDetails}
+              subtotal={data?.bank_and_cash || 0}
+              colorClass="bg-blue-50/50 dark:bg-blue-950/10 text-blue-700 dark:text-blue-400" />
+
+            <div className="flex justify-between py-3 px-3 border-t-2 font-bold text-blue-700 dark:text-blue-400">
+              <span>SUMMA TILLGÅNGAR</span>
+              <span className="font-mono">{formatCurrency(totalAssets)}</span>
             </div>
           </div>
 
-          {/* Liabilities + Equity */}
-          <div className="space-y-6">
-            <div className="space-y-3">
-              <h3 className="font-semibold text-red-600 dark:text-red-400">Skulder</h3>
-              <div className="space-y-2">
-                <div className="flex justify-between py-2 px-3 bg-muted/30 rounded">
-                  <span className="text-sm">Kortfristiga skulder</span>
-                  <span className="font-mono text-sm">{formatCurrency(currentLiabilities)}</span>
-                </div>
-                <div className="flex justify-between py-2 px-3 bg-muted/30 rounded">
-                  <span className="text-sm">Långfristiga skulder</span>
-                  <span className="font-mono text-sm">{formatCurrency(longTermLiabilities)}</span>
-                </div>
-              </div>
-              <div className="flex justify-between py-2 px-3 border-t font-semibold">
-                <span>Summa skulder</span>
-                <span className="font-mono text-red-600">{formatCurrency(totalLiabilities)}</span>
-              </div>
-            </div>
-            <div className="space-y-3">
-              <h3 className="font-semibold text-purple-600 dark:text-purple-400">Eget kapital</h3>
-              <div className="flex justify-between py-2 px-3 border-t font-semibold">
-                <span>Summa EK</span>
-                <span className="font-mono text-purple-600">{formatCurrency(equityAmount)}</span>
-              </div>
+          {/* EGET KAPITAL OCH SKULDER */}
+          <div>
+            <h3 className="font-bold text-purple-600 dark:text-purple-400 mb-3 text-lg">EGET KAPITAL OCH SKULDER</h3>
+
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">A. Eget kapital</h4>
+            <BSSection title="Bundet och fritt eget kapital" items={equityDetails}
+              subtotal={data?.equity || 0}
+              colorClass="bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400" />
+
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 mt-4">B. Långfristiga skulder</h4>
+            <BSSection title="Skulder till kreditinstitut" items={longTermDetails}
+              subtotal={data?.long_term_liabilities || 0}
+              colorClass="bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400" />
+
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 mt-4">C. Kortfristiga skulder</h4>
+            <BSSection title="Leverantörsskulder, moms m.m." items={currentLiabDetails}
+              subtotal={data?.current_liabilities || 0}
+              colorClass="bg-red-50/50 dark:bg-red-950/10 text-red-700 dark:text-red-400" />
+
+            <div className="flex justify-between py-3 px-3 border-t-2 font-bold text-purple-700 dark:text-purple-400">
+              <span>SUMMA EK OCH SKULDER</span>
+              <span className="font-mono">{formatCurrency(totalEL)}</span>
             </div>
           </div>
         </div>

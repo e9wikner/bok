@@ -193,6 +193,18 @@ async def get_balance_sheet(
     total_assets = current_assets + fixed_assets + receivables + bank_and_cash
     total_equity_liabilities = equity + long_term_debt + short_term_debt
     
+    # Build per-account details for each category
+    def _account_details(min_code: int, max_code: int, sign: int = 1):
+        """Return list of accounts with balances in a range. sign=1 for assets (debit-credit), sign=-1 for liabilities (credit-debit)."""
+        details = []
+        for code, bal in sorted(account_balances.items()):
+            acct_num = int(code) if code.isdigit() else 0
+            if min_code <= acct_num <= max_code:
+                balance = (bal["debit"] - bal["credit"]) * sign
+                if balance != 0:
+                    details.append({"code": code, "name": bal["name"], "balance": balance})
+        return details
+    
     return {
         "current_assets": current_assets,
         "fixed_assets": fixed_assets,
@@ -203,9 +215,17 @@ async def get_balance_sheet(
         "long_term_liabilities": long_term_debt,
         "current_liabilities": short_term_debt,
         "total_equity_liabilities": total_equity_liabilities,
-        "balanced": abs(total_assets - total_equity_liabilities) < 100,  # Within 1 kr
+        "balanced": abs(total_assets - total_equity_liabilities) < 100,
         "period": as_of_date or str(year) if year else "all",
         "voucher_count": len(vouchers),
+        # Per-account details
+        "fixed_assets_details": _account_details(1200, 1299),
+        "receivables_details": _account_details(1400, 1599),
+        "bank_and_cash_details": _account_details(1900, 1999),
+        "current_assets_details": _account_details(1000, 1199) + _account_details(1300, 1399) + _account_details(1600, 1899),
+        "equity_details": _account_details(2000, 2299, -1),
+        "long_term_liabilities_details": _account_details(2300, 2499, -1),
+        "current_liabilities_details": _account_details(2500, 2999, -1),
     }
 
 
