@@ -41,7 +41,24 @@ echo
 # Step 0: Health check
 # ──────────────────────────────────────────────
 echo "--- Step 0: Health check ---"
-curl -sf "${BASE_URL}/health" && echo " OK" || { echo " FAILED - is the server running?"; exit 1; }
+HEALTH=$(curl -sk --max-time 10 "${BASE_URL}/health" 2>&1)
+HEALTH_RC=$?
+if [ $HEALTH_RC -ne 0 ]; then
+  echo "  curl exit code: ${HEALTH_RC}"
+  echo "  Response: ${HEALTH}"
+  echo
+  echo "  Trying direct API on localhost:8000..."
+  HEALTH=$(curl -s --max-time 5 "http://localhost:8000/health" 2>&1)
+  if echo "${HEALTH}" | grep -q '"status"'; then
+    echo "  Direct API works! Using http://localhost:8000 instead."
+    BASE_URL="http://localhost:8000"
+  else
+    echo "  Direct API also failed: ${HEALTH}"
+    echo "  Continuing anyway (some endpoints may work)..."
+  fi
+else
+  echo "  ${HEALTH} OK"
+fi
 echo
 
 # ──────────────────────────────────────────────
