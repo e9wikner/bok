@@ -122,6 +122,27 @@ API client is in `frontend-v3/lib/api.ts` (Axios). Server state is managed with 
 - `API_KEY` — defaults to `dev-key-change-in-production`
 - `DEBUG` — boolean flag
 
+### Live Deployment
+
+A live instance is deployed at **https://q.stefanwikner.se** and auto-updates every 5 minutes (cron pulls from main and rebuilds containers).
+
+**Endpoints for verifying deployment status:**
+
+- `GET https://q.stefanwikner.se/health` — API health check, returns `{"status": "ok", "commit": "<sha>"}` (no auth required)
+- `GET https://q.stefanwikner.se/api/v1/accounts` — list accounts (requires `Authorization: Bearer <API_KEY>` header)
+- `https://q.stefanwikner.se` — frontend UI
+
+**Architecture on the server (`/opt/docker/bok`):**
+
+- App containers via `docker-compose.local.yml` — API on port 8000, frontend on port 3000
+- Nginx reverse proxy via `proxy/docker-compose.proxy.yml` — SSL termination, routes `/api/` and `/health` to API, everything else to frontend
+- SSL certificates managed by certbot container with automatic renewal
+
+**Deployment scripts (run locally on the server):**
+
+- `./deploy-local.sh` — pull latest code, rebuild and restart app containers
+- `./proxy/setup-proxy.sh` — set up or restart the nginx proxy with SSL
+
 ### CI/CD
 
 - **tests.yml** — pytest + black + isort + flake8 + mypy (all `continue-on-error: true`)
