@@ -4,11 +4,9 @@ This service implements ML-lite functionality that learns from user corrections
 to automatically suggest better account codes for future transactions.
 """
 
-import re
-import uuid
 import json
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 from domain.models import Voucher, LearningRule
 from repositories.learning_repo import LearningRepository

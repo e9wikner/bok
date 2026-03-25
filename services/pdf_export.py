@@ -7,9 +7,9 @@ Falls back gracefully if WeasyPrint is not available (requires system libraries)
 import io
 import os
 import base64
-from datetime import date, datetime
-from typing import Optional, Dict, List, Any
-from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Optional, Dict, Any
+from dataclasses import dataclass
 
 import qrcode
 from jinja2 import Environment, FileSystemLoader
@@ -18,11 +18,10 @@ from jinja2 import Environment, FileSystemLoader
 try:
     from weasyprint import HTML
     WEASYPRINT_AVAILABLE = True
-except (ImportError, OSError) as e:
+except (ImportError, OSError):
     WEASYPRINT_AVAILABLE = False
     HTML = None  # type: ignore
 
-from domain.invoice_models import Invoice
 from services.ledger import LedgerService
 from services.invoice import InvoiceService
 from services.k2_report import K2ReportService

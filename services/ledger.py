@@ -2,9 +2,8 @@
 
 from datetime import datetime, date
 from typing import List, Dict
-import uuid
 
-from domain.models import Voucher, VoucherRow, Period, Account
+from domain.models import Voucher, VoucherRow, Period
 from domain.types import VoucherStatus, VoucherSeries, AuditAction
 from domain.validation import (
     validate_complete_voucher,

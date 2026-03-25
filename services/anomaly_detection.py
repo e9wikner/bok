@@ -5,15 +5,14 @@ Focused on preventing common bookkeeping errors before they happen.
 """
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import datetime
 from typing import List, Dict, Optional, Tuple, Any
 from enum import Enum
 from collections import defaultdict
 import statistics
-import math
 
 from domain.models import Voucher, VoucherRow, Account
-from domain.types import VoucherStatus, AccountType
+from domain.types import VoucherStatus
 from repositories.voucher_repo import VoucherRepository
 from repositories.account_repo import AccountRepository
 from repositories.period_repo import PeriodRepository
@@ -345,7 +344,7 @@ class DuplicateEntryRule(AnomalyRule):
                         severity=AnomalySeverity.WARNING,
                         entity_type="voucher",
                         entity_id=v1.id,
-                        title=f"Möjlig dubblettbokning",
+                        title="Möjlig dubblettbokning",
                         description=(
                             f"Verifikation {v1.series.value}{v1.number} "
                             f"({v1.date}) liknar "
@@ -685,7 +684,6 @@ class AnomalyDetectionService:
         for rule in self.rules:
             # Filter by type if specified
             if rule_types:
-                rule_type_name = rule.__class__.__name__.replace("Rule", "")
                 # Simple check: skip if no matching type requested
                 # More precise: check against AnomalyType values
                 pass  # Run all rules for now, filter output

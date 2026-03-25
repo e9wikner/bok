@@ -11,7 +11,6 @@ For development: Supports manual CSV import and mock data
 """
 
 import uuid
-import re
 import json
 from datetime import date, datetime
 from typing import List, Dict, Optional, Tuple

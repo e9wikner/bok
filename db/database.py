@@ -9,7 +9,6 @@ import sqlite3
 import os
 import threading
 from pathlib import Path
-from typing import Optional
 from contextlib import contextmanager
 from config import settings
 

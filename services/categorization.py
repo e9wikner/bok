@@ -16,7 +16,7 @@ the system creates or updates a learned rule for future matching.
 import re
 import uuid
 from datetime import datetime
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional
 from dataclasses import dataclass
 
 from db.database import db
@@ -222,7 +222,7 @@ class CategorizationService:
                             self.bank_service.update_transaction_status(
                                 tx.id, status="booked", voucher_id=voucher_id
                             )
-                    except Exception as e:
+                    except Exception:
                         # Don't fail batch on single booking error
                         pass
 

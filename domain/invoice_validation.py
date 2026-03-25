@@ -1,8 +1,6 @@
 """Invoice business rule validation (Fas 2)."""
 
-from typing import List, Optional
-from datetime import date
-from domain.invoice_models import Invoice, InvoiceRow, Payment, InvoiceStatus
+from domain.invoice_models import Invoice, InvoiceStatus
 from domain.validation import ValidationError
 
 
@@ -127,21 +125,21 @@ class InvoiceValidator:
         if invoice.amount_ex_vat != total_ex_vat:
             raise ValidationError(
                 code="invalid_total",
-                message=f"Invoice total ex VAT mismatch",
+                message="Invoice total ex VAT mismatch",
                 details=f"expected {total_ex_vat}, got {invoice.amount_ex_vat}"
             )
-        
+
         if invoice.vat_amount != total_vat:
             raise ValidationError(
                 code="invalid_vat",
-                message=f"Invoice VAT mismatch",
+                message="Invoice VAT mismatch",
                 details=f"expected {total_vat}, got {invoice.vat_amount}"
             )
-        
+
         if invoice.amount_inc_vat != total_inc_vat:
             raise ValidationError(
                 code="invalid_total_inc_vat",
-                message=f"Invoice total inc VAT mismatch",
+                message="Invoice total inc VAT mismatch",
                 details=f"expected {total_inc_vat}, got {invoice.amount_inc_vat}"
             )
 

@@ -1,12 +1,11 @@
 """API routes for anomaly detection."""
 
 from fastapi import APIRouter, HTTPException, Query, status
-from typing import Optional, List
+from typing import Optional
 
 from services.anomaly_detection import (
     AnomalyDetectionService,
     AnomalyThresholds,
-    AnomalyType,
 )
 
 router = APIRouter(prefix="/api/v1/anomalies", tags=["anomalies"])

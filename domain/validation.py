@@ -1,8 +1,7 @@
 """Business rule validation."""
 
-from typing import List, Optional
-from domain.models import Voucher, Account, VoucherRow, Period, FiscalYear
-from domain.types import AccountType
+from typing import Optional
+from domain.models import Voucher, Period, FiscalYear
 
 
 class ValidationError(Exception):

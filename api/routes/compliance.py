@@ -1,7 +1,7 @@
 """API routes for BFL compliance checking."""
 
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 
 from services.compliance import ComplianceService
 
