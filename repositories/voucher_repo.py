@@ -1,6 +1,6 @@
 """Voucher repository - data access for vouchers."""
 
-from typing import Optional, List
+from typing import Optional, List, Dict
 from datetime import datetime, date
 import uuid
 from db.database import db
@@ -179,36 +179,44 @@ class VoucherRepository:
         original_voucher_id: str,
         series: str = "B",
         created_by: str = "system",
+        period_id_override: str = None,
     ) -> Voucher:
-        """Create correction voucher (B-series) for an original voucher."""
+        """Create correction voucher (B-series) for an original voucher.
+
+        If period_id_override is given, the correction is booked into that
+        period instead of the original's (needed when the original period
+        is locked).
+        """
         # Get original voucher
         original = VoucherRepository.get(original_voucher_id)
         if not original:
             raise ValueError("Original voucher not found")
-        
+
+        target_period_id = period_id_override or original.period_id
+
         # Create new B-series voucher referencing the original
         correction_id = str(uuid.uuid4())
         number = VoucherRepository.get_next_number(series)
-        
+
         sql = """
         INSERT INTO vouchers (id, series, number, date, period_id, description, status, correction_of, created_by, created_at)
         VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)
         """
         now = datetime.now()
         description = f"Correction of voucher {original.series}{original.number:06d}"
-        
+
         db.execute(sql, (
-            correction_id, series, number, original.date,
-            original.period_id, description, original_voucher_id, created_by, now
+            correction_id, series, number, now.date(),
+            target_period_id, description, original_voucher_id, created_by, now
         ))
         db.commit()
-        
+
         return Voucher(
             id=correction_id,
             series=VoucherSeries(series),
             number=number,
-            date=original.date,
-            period_id=original.period_id,
+            date=now.date(),
+            period_id=target_period_id,
             description=description,
             status=VoucherStatus.DRAFT,
             correction_of=original_voucher_id,
@@ -236,3 +244,45 @@ class VoucherRepository:
         db.execute("DELETE FROM voucher_rows WHERE voucher_id = ?", (voucher_id,))
         db.commit()
         return True
+
+    @staticmethod
+    def update_description(voucher_id: str, description: str, _commit: bool = True) -> None:
+        """Update voucher description."""
+        db.execute(
+            "UPDATE vouchers SET description = ? WHERE id = ?",
+            (description, voucher_id),
+        )
+        if _commit:
+            db.commit()
+
+    @staticmethod
+    def replace_rows(
+        voucher_id: str,
+        rows_data: List[Dict],
+        _commit: bool = True,
+    ) -> List[VoucherRow]:
+        """Replace all rows on a voucher (delete + re-insert)."""
+        db.execute("DELETE FROM voucher_rows WHERE voucher_id = ?", (voucher_id,))
+        new_rows = []
+        now = datetime.now()
+        for rd in rows_data:
+            row_id = str(uuid.uuid4())
+            db.execute(
+                """INSERT INTO voucher_rows
+                   (id, voucher_id, account_code, debit, credit, description, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (row_id, voucher_id, rd["account"], rd.get("debit", 0),
+                 rd.get("credit", 0), rd.get("description"), now),
+            )
+            new_rows.append(VoucherRow(
+                id=row_id,
+                voucher_id=voucher_id,
+                account_code=rd["account"],
+                debit=rd.get("debit", 0),
+                credit=rd.get("credit", 0),
+                description=rd.get("description"),
+                created_at=now,
+            ))
+        if _commit:
+            db.commit()
+        return new_rows

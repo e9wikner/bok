@@ -1,6 +1,8 @@
-# Local test deployment — direct port access, no SSL
-# Set DEPLOY_HOST to match the target machine's hostname.
-# Usage: DEPLOY_HOST=myserver.local docker compose -f docker-compose.local.yml up -d --build
+# Local deployment — used behind nginx reverse proxy with SSL.
+# The frontend uses relative URLs so nginx proxies /api/ to the backend.
+#
+# For direct access without proxy, override at build time:
+#   NEXT_PUBLIC_API_URL=http://myhost:8000 docker compose -f docker-compose.local.yml up -d --build
 
 services:
   api:
@@ -8,15 +10,21 @@ services:
     container_name: bokfoering-api
     ports:
       - "8000:8000"
+    environment:
+      DATABASE_URL: "sqlite:////app/data/bokfoering.db"
+    volumes:
+      - bokfoering-data:/app/data
 
   frontend:
     build:
       context: ./frontend-v3
       args:
-        NEXT_PUBLIC_API_URL: http://${DEPLOY_HOST:?Set DEPLOY_HOST to the target hostname}:8000
-    extra_hosts:
-      - "${DEPLOY_HOST}:host-gateway"
+        # Empty = relative URLs (works behind nginx proxy with /api/ routing)
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
     ports:
       - "3000:3000"
     depends_on:
       - api
+
+volumes:
+  bokfoering-data:

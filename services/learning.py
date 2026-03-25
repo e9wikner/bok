@@ -45,7 +45,10 @@ class LearningService:
         analysis = self.analyze_correction(original_voucher, corrected_voucher)
         
         if not analysis or analysis.get('change_type') is None:
-            raise ValueError("Could not identify changes between vouchers")
+            raise ValueError(
+                "No changes detected between original and corrected voucher. "
+                "Please modify at least one account code or amount."
+            )
         
         change_type = analysis['change_type']
         
@@ -137,7 +140,8 @@ class LearningService:
                         if orig_row.debit != corr_row.debit or orig_row.credit != corr_row.credit:
                             return {
                                 'change_type': 'amount',
-                                'account': orig_row.account_code,
+                                'original_account': orig_row.account_code,
+                                'corrected_account': orig_row.account_code,
                                 'original_amount': orig_row.debit or orig_row.credit,
                                 'corrected_amount': corr_row.debit or corr_row.credit,
                                 'pattern_detected': self._detect_pattern(original.description),
@@ -148,8 +152,13 @@ class LearningService:
         
         # Multiple changes
         if len(added_accounts) > 0 or len(removed_accounts) > 0:
+            # Pick the first added account as the "corrected" one for rule creation
+            corrected_acct = list(added_accounts)[0] if added_accounts else list(corrected_accounts)[0]
+            original_acct = list(removed_accounts)[0] if removed_accounts else list(original_accounts)[0]
             return {
                 'change_type': 'multiple',
+                'original_account': original_acct,
+                'corrected_account': corrected_acct,
                 'original_accounts': list(original_accounts),
                 'corrected_accounts': list(corrected_accounts),
                 'pattern_detected': self._detect_pattern(original.description),

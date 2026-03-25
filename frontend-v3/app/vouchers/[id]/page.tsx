@@ -1,8 +1,8 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Card,
@@ -15,7 +15,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useVoucher, useAccounts } from "@/hooks/useData";
-import { api } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
   ArrowLeft,
@@ -29,11 +28,14 @@ import {
   AlertTriangle,
   X,
   Save,
+  Paperclip,
+  Upload,
+  FileImage,
+  File,
+  Trash2,
 } from "lucide-react";
-
 export default function VoucherDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const router = useRouter();
   const queryClient = useQueryClient();
   const { data: voucher, isLoading } = useVoucher(id);
   const { data: accountsData } = useAccounts();
@@ -43,9 +45,25 @@ export default function VoucherDetailPage() {
   const { data: auditData } = useQuery({
     queryKey: ["voucher-audit", id],
     queryFn: async () => {
-      const { data } = await api.getHealth(); // dummy to get apiClient
       const resp = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1/vouchers/${id}/audit`,
+        `${process.env.NEXT_PUBLIC_API_URL || ""}/api/v1/vouchers/${id}/audit`,
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.NEXT_PUBLIC_API_KEY || "dev-key-change-in-production"}`,
+          },
+        }
+      );
+      return resp.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Attachments
+  const { data: attachmentsData, refetch: refetchAttachments } = useQuery({
+    queryKey: ["voucher-attachments", id],
+    queryFn: async () => {
+      const resp = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || ""}/api/v1/vouchers/${id}/attachments`,
         {
           headers: {
             Authorization: `Bearer ${process.env.NEXT_PUBLIC_API_KEY || "dev-key-change-in-production"}`,
@@ -67,6 +85,54 @@ export default function VoucherDetailPage() {
     ok: boolean;
     msg: string;
   } | null>(null);
+
+  // Upload state
+  const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+
+  const handleFileUpload = useCallback(
+    async (file: globalThis.File) => {
+      setUploading(true);
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL || ""}/api/v1/vouchers/${id}/attachments`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${process.env.NEXT_PUBLIC_API_KEY || "dev-key-change-in-production"}`,
+            },
+            body: formData,
+          }
+        );
+        refetchAttachments();
+      } catch {
+        alert("Kunde inte ladda upp filen");
+      } finally {
+        setUploading(false);
+      }
+    },
+    [id, refetchAttachments]
+  );
+
+  const handleDeleteAttachment = async (attachmentId: string) => {
+    if (!confirm("Ta bort denna bilaga?")) return;
+    try {
+      await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || ""}/api/v1/vouchers/${id}/attachments/${attachmentId}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${process.env.NEXT_PUBLIC_API_KEY || "dev-key-change-in-production"}`,
+          },
+        }
+      );
+      refetchAttachments();
+    } catch {
+      alert("Kunde inte ta bort bilagan");
+    }
+  };
 
   if (isLoading) {
     return (
@@ -102,6 +168,7 @@ export default function VoucherDetailPage() {
   );
   const isBalanced = Math.abs((totalDebit || 0) - (totalCredit || 0)) < 0.01;
   const auditEntries = auditData?.entries || [];
+  const attachmentsList = attachmentsData?.attachments || [];
 
   const startEditing = () => {
     setEditedRows(
@@ -109,7 +176,6 @@ export default function VoucherDetailPage() {
         account_code: r.account_code,
         debit: r.debit || 0,
         credit: r.credit || 0,
-        description: r.description || "",
       }))
     );
     setIsEditing(true);
@@ -133,14 +199,34 @@ export default function VoucherDetailPage() {
     setSaving(true);
     setSaveResult(null);
     try {
-      await api.recordCorrection(id, { rows: editedRows }, correctionReason);
+      await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || ""}/api/v1/vouchers/${id}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${process.env.NEXT_PUBLIC_API_KEY || "dev-key-change-in-production"}`,
+          },
+          body: JSON.stringify({
+            rows: editedRows.map((r: any) => ({
+              account: r.account_code || r.account,
+              debit: r.debit || 0,
+              credit: r.credit || 0,
+            })),
+            reason: correctionReason || undefined,
+            teach_ai: teachAI,
+          }),
+        }
+      ).then(async (res) => {
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.detail?.error || data.detail || "Okänt fel");
+        }
+      });
       setSaveResult({
         ok: true,
-        msg: teachAI
-          ? "Korrigering sparad! AI:n har lärt sig av ändringen."
-          : "Korrigering sparad.",
+        msg: "Korrigering sparad.",
       });
-      // Invalidate caches
       queryClient.invalidateQueries({ queryKey: ["voucher", id] });
       queryClient.invalidateQueries({ queryKey: ["voucher-audit", id] });
       queryClient.invalidateQueries({ queryKey: ["vouchers"] });
@@ -148,12 +234,15 @@ export default function VoucherDetailPage() {
     } catch (err: any) {
       setSaveResult({
         ok: false,
-        msg: err?.response?.data?.detail || "Kunde inte spara korrigeringen",
+        msg: err?.message || "Kunde inte spara korrigeringen",
       });
     } finally {
       setSaving(false);
     }
   };
+
+  const attachmentUrl = (attId: string) =>
+    `${process.env.NEXT_PUBLIC_API_URL || ""}/api/v1/vouchers/${id}/attachments/${attId}`;
 
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-[1000px] mx-auto">
@@ -197,7 +286,7 @@ export default function VoucherDetailPage() {
               <Brain className="h-3 w-3" /> AI-genererad
             </Badge>
           )}
-          {!isEditing && voucher.status === "posted" && (
+          {!isEditing && (
             <Button
               variant="outline"
               size="sm"
@@ -205,7 +294,7 @@ export default function VoucherDetailPage() {
               className="gap-2"
             >
               <Pencil className="h-4 w-4" />
-              Korrigera
+              {voucher.status === "draft" ? "Redigera" : "Korrigera"}
             </Button>
           )}
         </div>
@@ -288,7 +377,7 @@ export default function VoucherDetailPage() {
               </CardTitle>
               <CardDescription>
                 {isEditing
-                  ? "Ändra konto, belopp eller beskrivning och spara"
+                  ? "Ändra konto eller belopp och spara"
                   : "Debet och kredit per konto"}
               </CardDescription>
             </div>
@@ -308,7 +397,7 @@ export default function VoucherDetailPage() {
                     Konto
                   </th>
                   <th className="text-left p-3 font-medium text-muted-foreground">
-                    {isEditing ? "Beskrivning" : "Kontonamn"}
+                    Kontonamn
                   </th>
                   <th className="text-right p-3 font-medium text-muted-foreground">
                     Debet
@@ -322,7 +411,7 @@ export default function VoucherDetailPage() {
                 {isEditing
                   ? editedRows.map((row, i) => (
                       <tr key={i} className="border-b last:border-0">
-                        <td className="p-2">
+                        <td className="p-2" colSpan={2}>
                           <select
                             value={row.account_code}
                             onChange={(e) =>
@@ -336,17 +425,6 @@ export default function VoucherDetailPage() {
                               </option>
                             ))}
                           </select>
-                        </td>
-                        <td className="p-2">
-                          <input
-                            type="text"
-                            value={row.description}
-                            onChange={(e) =>
-                              updateRow(i, "description", e.target.value)
-                            }
-                            className="w-full rounded border bg-background px-2 py-1.5 text-sm"
-                            placeholder="Beskrivning"
-                          />
                         </td>
                         <td className="p-2">
                           <input
@@ -389,7 +467,7 @@ export default function VoucherDetailPage() {
                           {row.account_code}
                         </td>
                         <td className="p-3 text-muted-foreground">
-                          {row.account_name || row.description || "-"}
+                          {row.account_name || "-"}
                         </td>
                         <td className="p-3 text-right font-mono">
                           {row.debit ? formatCurrency(row.debit) : "-"}
@@ -465,6 +543,140 @@ export default function VoucherDetailPage() {
         </CardContent>
       </Card>
 
+      {/* Attachments */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Paperclip className="h-5 w-5 text-primary" />
+            Bilagor
+            {attachmentsList.length > 0 && (
+              <Badge variant="secondary" className="text-xs">
+                {attachmentsList.length}
+              </Badge>
+            )}
+          </CardTitle>
+          <CardDescription>
+            Underlag enligt BFL — kvitton, fakturor och andra dokument
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {/* Existing attachments */}
+          {attachmentsList.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+              {attachmentsList.map((att: any) => {
+                const isImage = att.mime_type?.startsWith("image/");
+                const isPdf = att.mime_type === "application/pdf";
+                const url = attachmentUrl(att.id);
+
+                return (
+                  <div
+                    key={att.id}
+                    className="border rounded-lg overflow-hidden group"
+                  >
+                    {isImage && (
+                      <a href={url} target="_blank" rel="noopener noreferrer">
+                        <img
+                          src={url}
+                          alt={att.filename}
+                          className="w-full h-48 object-contain bg-muted/30 hover:opacity-90 transition-opacity"
+                        />
+                      </a>
+                    )}
+                    {isPdf && (
+                      <a
+                        href={url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center justify-center h-48 bg-muted/30 hover:bg-muted/50 transition-colors"
+                      >
+                        <div className="text-center">
+                          <File className="h-12 w-12 mx-auto text-red-500 mb-2" />
+                          <span className="text-sm text-muted-foreground">Klicka för att öppna PDF</span>
+                        </div>
+                      </a>
+                    )}
+                    <div className="p-3 flex items-center justify-between">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {isImage ? (
+                          <FileImage className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                        ) : (
+                          <File className="h-4 w-4 text-red-500 flex-shrink-0" />
+                        )}
+                        <span className="text-sm truncate">{att.filename}</span>
+                        <span className="text-xs text-muted-foreground flex-shrink-0">
+                          {(att.size_bytes / 1024).toFixed(0)} KB
+                        </span>
+                      </div>
+                      {voucher.status === "draft" && (
+                        <button
+                          onClick={() => handleDeleteAttachment(att.id)}
+                          className="text-muted-foreground hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                          title="Ta bort"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Upload area */}
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              const file = e.dataTransfer.files[0];
+              if (file) handleFileUpload(file);
+            }}
+            className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+              dragOver
+                ? "border-primary bg-primary/5"
+                : "border-border hover:border-primary/50"
+            }`}
+          >
+            {uploading ? (
+              <div className="flex items-center justify-center gap-2">
+                <div className="h-4 w-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                <span className="text-sm">Laddar upp...</span>
+              </div>
+            ) : (
+              <>
+                <Upload className="h-6 w-6 mx-auto mb-2 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground mb-2">
+                  Dra och släpp en fil, eller
+                </p>
+                <label>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/gif,image/webp,application/pdf"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleFileUpload(file);
+                      e.target.value = "";
+                    }}
+                  />
+                  <span className="inline-flex items-center justify-center rounded-lg font-medium text-sm h-8 px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer">
+                    Välj fil
+                  </span>
+                </label>
+                <p className="text-xs text-muted-foreground mt-2">
+                  JPG, PNG, GIF, WebP eller PDF (max 10 MB)
+                </p>
+              </>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Audit trail / History */}
       <Card>
         <CardHeader>
@@ -527,12 +739,39 @@ export default function VoucherDetailPage() {
                       </span>
                     </div>
                     {entry.payload && (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {entry.payload.reason ||
-                          (entry.payload.rows_count
-                            ? `${entry.payload.rows_count} rader`
-                            : "")}
-                      </p>
+                      <div className="mt-1 space-y-1">
+                        <p className="text-xs text-muted-foreground">
+                          {entry.payload.reason ||
+                            (entry.payload.rows_count
+                              ? `${entry.payload.rows_count} rader`
+                              : "")}
+                        </p>
+                        {entry.payload.old_rows && entry.payload.new_rows && (
+                          <details className="text-xs">
+                            <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                              Visa ändringar
+                            </summary>
+                            <div className="mt-1 grid grid-cols-2 gap-2">
+                              <div>
+                                <p className="font-medium text-muted-foreground mb-0.5">Före:</p>
+                                {entry.payload.old_rows.map((r: any, j: number) => (
+                                  <p key={j} className="font-mono text-red-600 dark:text-red-400">
+                                    {r.account} D:{formatCurrency(r.debit)} K:{formatCurrency(r.credit)}
+                                  </p>
+                                ))}
+                              </div>
+                              <div>
+                                <p className="font-medium text-muted-foreground mb-0.5">Efter:</p>
+                                {entry.payload.new_rows.map((r: any, j: number) => (
+                                  <p key={j} className="font-mono text-emerald-600 dark:text-emerald-400">
+                                    {r.account} D:{formatCurrency(r.debit)} K:{formatCurrency(r.credit)}
+                                  </p>
+                                ))}
+                              </div>
+                            </div>
+                          </details>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>

@@ -7,6 +7,7 @@ from typing import List
 
 from api.schemas import (
     CreateVoucherRequest,
+    UpdateVoucherRequest,
     VoucherResponse,
     VoucherRowResponse,
     ErrorResponse,
@@ -133,6 +134,62 @@ async def post_voucher(
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
+        )
+
+
+@router.put("/{voucher_id}", response_model=VoucherResponse)
+async def update_voucher(
+    voucher_id: str,
+    request: UpdateVoucherRequest,
+    ledger: LedgerService = Depends(get_ledger_service),
+    actor: str = Depends(get_current_actor),
+):
+    """
+    Update voucher rows and/or description in-place.
+
+    Changes are recorded in the audit trail with before/after snapshots.
+    """
+    try:
+        rows_data = [r.dict() for r in request.rows]
+        voucher = ledger.update_voucher(
+            voucher_id=voucher_id,
+            rows_data=rows_data,
+            description=request.description,
+            reason=request.reason,
+            actor=actor,
+        )
+
+        # Optionally teach AI
+        if request.teach_ai:
+            try:
+                from services.learning import LearningService
+                learning = LearningService()
+                original = ledger.vouchers.get(voucher_id)
+                if original:
+                    learning.learn_from_correction(
+                        original_voucher=original,
+                        corrected_voucher=voucher,
+                        correction_reason=request.reason,
+                        corrected_by=actor,
+                    )
+            except Exception:
+                pass  # AI learning is best-effort
+
+        return _voucher_to_response(voucher)
+
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": e.message,
+                "code": e.code,
+                "details": e.details,
+            },
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
         )
 
 

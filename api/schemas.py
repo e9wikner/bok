@@ -37,6 +37,14 @@ class CreateVoucherRequest(BaseModel):
     auto_post: bool = Field(False, description="Automatically post after creation")
 
 
+class UpdateVoucherRequest(BaseModel):
+    """Request to update voucher rows in-place."""
+    description: Optional[str] = Field(None, description="Updated description")
+    rows: List[VoucherRowRequest] = Field(..., description="Updated accounting rows")
+    reason: Optional[str] = Field(None, description="Reason for the change")
+    teach_ai: bool = Field(False, description="Whether to teach AI from this change")
+
+
 class VoucherResponse(BaseModel):
     """Response model for voucher."""
     id: str

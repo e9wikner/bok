@@ -74,22 +74,13 @@ async def record_correction(
                     detail=f"Corrected voucher {request.corrected_voucher_id} not found"
                 )
         else:
-            # Create a correction voucher (B-series)
+            # Create a correction voucher (B-series) with the corrected rows
+            rows_data = [r.dict() for r in request.corrected_rows]
             corrected = ledger.create_correction(
                 original_voucher_id=original.id,
-                created_by=actor
+                correction_rows=rows_data,
+                actor=actor
             )
-            
-            # Add the corrected rows
-            rows_data = [r.dict() for r in request.corrected_rows]
-            for row_data in rows_data:
-                learning.vouchers.add_row(
-                    voucher_id=corrected.id,
-                    account_code=row_data['account'],
-                    debit=row_data.get('debit', 0),
-                    credit=row_data.get('credit', 0),
-                    description=row_data.get('description'),
-                )
         
         if request.teach_ai:
             # Learn from the correction
@@ -124,6 +115,11 @@ async def record_correction(
     
     except HTTPException:
         raise
+    except ValueError as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e)
+        )
     except Exception as e:
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,

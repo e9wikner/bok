@@ -41,7 +41,7 @@ export default function ReportsPage() {
     try {
       // Find period_id for selected year/month
       const periodsResp = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1/periods`,
+        `${process.env.NEXT_PUBLIC_API_URL || ""}/api/v1/periods`,
         { headers: { Authorization: `Bearer ${process.env.NEXT_PUBLIC_API_KEY || "dev-key-change-in-production"}` } }
       );
       const periodsData = await periodsResp.json();
@@ -75,7 +75,7 @@ export default function ReportsPage() {
       const htmlEndpoint = pdfEndpoint.replace(/\/([^/]+)$/, "/$1/html");
       
       const resp = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}${pdfEndpoint}`,
+        `${process.env.NEXT_PUBLIC_API_URL || ""}${pdfEndpoint}`,
         { headers: { Authorization: `Bearer ${process.env.NEXT_PUBLIC_API_KEY || "dev-key-change-in-production"}` } }
       );
 
@@ -90,7 +90,7 @@ export default function ReportsPage() {
       } else {
         // Fallback: open HTML version in new tab
         window.open(
-          `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}${htmlEndpoint}`,
+          `${process.env.NEXT_PUBLIC_API_URL || ""}${htmlEndpoint}`,
           "_blank"
         );
       }

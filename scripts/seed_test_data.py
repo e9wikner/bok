@@ -220,7 +220,7 @@ def seed_test_company():
         return
     
     # Get an open period for invoicing (February, since March is locked)
-    feb_period = periods[1]  # February (index 1)
+    feb_period = periods[2]  # February (month 2)
     
     # Create invoice
     print("\n   📄 Invoice 1: Consulting services")

@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 const API_KEY =
   process.env.NEXT_PUBLIC_API_KEY || "dev-key-change-in-production";
 
@@ -64,7 +64,8 @@ export interface Invoice {
   invoice_date: string;
   due_date: string;
   status: "draft" | "sent" | "paid" | "overdue" | "cancelled";
-  total_amount: number;
+  amount_inc_vat: number;
+  amount_ex_vat: number;
   vat_amount: number;
   rows: InvoiceRow[];
   created_at: string;
@@ -101,7 +102,7 @@ export interface ComplianceIssue {
 export const api = {
   // Health
   getHealth: async () => {
-    const { data } = await apiClient.get("/health");
+    const { data } = await apiClient.get("/api/v1/health");
     return data;
   },
 
@@ -175,12 +176,17 @@ export const api = {
   },
   recordCorrection: async (
     originalVoucherId: string,
-    correctedData: any,
+    correctedRows: any[],
     reason?: string
   ) => {
     const { data } = await apiClient.post("/api/v1/learning/corrections", {
       original_voucher_id: originalVoucherId,
-      corrected_data: correctedData,
+      corrected_rows: correctedRows.map((r: any) => ({
+        account: r.account_code || r.account,
+        debit: r.debit || 0,
+        credit: r.credit || 0,
+        description: r.description,
+      })),
       reason,
       teach_ai: true,
     });
