@@ -133,7 +133,7 @@ export default function VoucherDetailPage() {
     setSaving(true);
     setSaveResult(null);
     try {
-      await api.recordCorrection(id, { rows: editedRows }, correctionReason);
+      await api.recordCorrection(id, editedRows, correctionReason);
       setSaveResult({
         ok: true,
         msg: teachAI

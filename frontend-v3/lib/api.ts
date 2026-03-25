@@ -176,12 +176,17 @@ export const api = {
   },
   recordCorrection: async (
     originalVoucherId: string,
-    correctedData: any,
+    correctedRows: any[],
     reason?: string
   ) => {
     const { data } = await apiClient.post("/api/v1/learning/corrections", {
       original_voucher_id: originalVoucherId,
-      corrected_data: correctedData,
+      corrected_rows: correctedRows.map((r: any) => ({
+        account: r.account_code || r.account,
+        debit: r.debit || 0,
+        credit: r.credit || 0,
+        description: r.description,
+      })),
       reason,
       teach_ai: true,
     });
