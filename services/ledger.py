@@ -51,7 +51,7 @@ class LedgerService:
         all_accounts = self.accounts.get_all_as_dict()
         
         # Build in-memory voucher for validation BEFORE persisting
-        number = self.vouchers.get_next_number(series)
+        number = self.vouchers.get_next_number(series, period.fiscal_year_id)
         temp_voucher = Voucher(
             id="temp",
             series=VoucherSeries(series),
