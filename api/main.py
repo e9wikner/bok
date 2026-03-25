@@ -71,6 +71,7 @@ app.include_router(learning.router)
 
 
 @app.get("/health", tags=["health"])
+@app.get("/api/v1/health", tags=["health"])
 async def health_check():
     """Health check endpoint with build info."""
     import subprocess

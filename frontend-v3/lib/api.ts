@@ -102,7 +102,7 @@ export interface ComplianceIssue {
 export const api = {
   // Health
   getHealth: async () => {
-    const { data } = await apiClient.get("/health");
+    const { data } = await apiClient.get("/api/v1/health");
     return data;
   },
 
