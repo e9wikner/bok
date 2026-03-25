@@ -10,6 +10,10 @@ services:
     container_name: bokfoering-api
     ports:
       - "8000:8000"
+    environment:
+      DATABASE_URL: "sqlite:////app/data/bokfoering.db"
+    volumes:
+      - bokfoering-data:/app/data
 
   frontend:
     build:
@@ -21,3 +25,6 @@ services:
       - "3000:3000"
     depends_on:
       - api
+
+volumes:
+  bokfoering-data:
