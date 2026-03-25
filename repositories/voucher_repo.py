@@ -1,6 +1,6 @@
 """Voucher repository - data access for vouchers."""
 
-from typing import Optional, List
+from typing import Optional, List, Dict
 from datetime import datetime, date
 import uuid
 from db.database import db
@@ -244,3 +244,45 @@ class VoucherRepository:
         db.execute("DELETE FROM voucher_rows WHERE voucher_id = ?", (voucher_id,))
         db.commit()
         return True
+
+    @staticmethod
+    def update_description(voucher_id: str, description: str, _commit: bool = True) -> None:
+        """Update voucher description."""
+        db.execute(
+            "UPDATE vouchers SET description = ? WHERE id = ?",
+            (description, voucher_id),
+        )
+        if _commit:
+            db.commit()
+
+    @staticmethod
+    def replace_rows(
+        voucher_id: str,
+        rows_data: List[Dict],
+        _commit: bool = True,
+    ) -> List[VoucherRow]:
+        """Replace all rows on a voucher (delete + re-insert)."""
+        db.execute("DELETE FROM voucher_rows WHERE voucher_id = ?", (voucher_id,))
+        new_rows = []
+        now = datetime.now()
+        for rd in rows_data:
+            row_id = str(uuid.uuid4())
+            db.execute(
+                """INSERT INTO voucher_rows
+                   (id, voucher_id, account_code, debit, credit, description, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (row_id, voucher_id, rd["account"], rd.get("debit", 0),
+                 rd.get("credit", 0), rd.get("description"), now),
+            )
+            new_rows.append(VoucherRow(
+                id=row_id,
+                voucher_id=voucher_id,
+                account_code=rd["account"],
+                debit=rd.get("debit", 0),
+                credit=rd.get("credit", 0),
+                description=rd.get("description"),
+                created_at=now,
+            ))
+        if _commit:
+            db.commit()
+        return new_rows

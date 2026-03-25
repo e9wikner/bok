@@ -15,7 +15,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useVoucher, useAccounts } from "@/hooks/useData";
-import { api } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
   ArrowLeft,
@@ -200,12 +199,33 @@ export default function VoucherDetailPage() {
     setSaving(true);
     setSaveResult(null);
     try {
-      await api.recordCorrection(id, editedRows, correctionReason);
+      await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || ""}/api/v1/vouchers/${id}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${process.env.NEXT_PUBLIC_API_KEY || "dev-key-change-in-production"}`,
+          },
+          body: JSON.stringify({
+            rows: editedRows.map((r: any) => ({
+              account: r.account_code || r.account,
+              debit: r.debit || 0,
+              credit: r.credit || 0,
+            })),
+            reason: correctionReason || undefined,
+            teach_ai: teachAI,
+          }),
+        }
+      ).then(async (res) => {
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.detail?.error || data.detail || "Okänt fel");
+        }
+      });
       setSaveResult({
         ok: true,
-        msg: teachAI
-          ? "Korrigering sparad! AI:n har lärt sig av ändringen."
-          : "Korrigering sparad.",
+        msg: "Korrigering sparad.",
       });
       queryClient.invalidateQueries({ queryKey: ["voucher", id] });
       queryClient.invalidateQueries({ queryKey: ["voucher-audit", id] });
@@ -214,7 +234,7 @@ export default function VoucherDetailPage() {
     } catch (err: any) {
       setSaveResult({
         ok: false,
-        msg: err?.response?.data?.detail || "Kunde inte spara korrigeringen",
+        msg: err?.message || "Kunde inte spara korrigeringen",
       });
     } finally {
       setSaving(false);
@@ -266,7 +286,7 @@ export default function VoucherDetailPage() {
               <Brain className="h-3 w-3" /> AI-genererad
             </Badge>
           )}
-          {!isEditing && voucher.status === "posted" && (
+          {!isEditing && (
             <Button
               variant="outline"
               size="sm"
@@ -274,7 +294,7 @@ export default function VoucherDetailPage() {
               className="gap-2"
             >
               <Pencil className="h-4 w-4" />
-              Korrigera
+              {voucher.status === "draft" ? "Redigera" : "Korrigera"}
             </Button>
           )}
         </div>
@@ -719,12 +739,39 @@ export default function VoucherDetailPage() {
                       </span>
                     </div>
                     {entry.payload && (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {entry.payload.reason ||
-                          (entry.payload.rows_count
-                            ? `${entry.payload.rows_count} rader`
-                            : "")}
-                      </p>
+                      <div className="mt-1 space-y-1">
+                        <p className="text-xs text-muted-foreground">
+                          {entry.payload.reason ||
+                            (entry.payload.rows_count
+                              ? `${entry.payload.rows_count} rader`
+                              : "")}
+                        </p>
+                        {entry.payload.old_rows && entry.payload.new_rows && (
+                          <details className="text-xs">
+                            <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                              Visa ändringar
+                            </summary>
+                            <div className="mt-1 grid grid-cols-2 gap-2">
+                              <div>
+                                <p className="font-medium text-muted-foreground mb-0.5">Före:</p>
+                                {entry.payload.old_rows.map((r: any, j: number) => (
+                                  <p key={j} className="font-mono text-red-600 dark:text-red-400">
+                                    {r.account} D:{formatCurrency(r.debit)} K:{formatCurrency(r.credit)}
+                                  </p>
+                                ))}
+                              </div>
+                              <div>
+                                <p className="font-medium text-muted-foreground mb-0.5">Efter:</p>
+                                {entry.payload.new_rows.map((r: any, j: number) => (
+                                  <p key={j} className="font-mono text-emerald-600 dark:text-emerald-400">
+                                    {r.account} D:{formatCurrency(r.debit)} K:{formatCurrency(r.credit)}
+                                  </p>
+                                ))}
+                              </div>
+                            </div>
+                          </details>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
