@@ -46,7 +46,7 @@ export default function SettingsPage() {
                   <div>
                     <p className="font-medium">API-server online</p>
                     <p className="text-sm text-muted-foreground">
-                      {process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}
+                      {process.env.NEXT_PUBLIC_API_URL || window.location.origin}
                     </p>
                   </div>
                 </>

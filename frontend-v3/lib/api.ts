@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 const API_KEY =
   process.env.NEXT_PUBLIC_API_KEY || "dev-key-change-in-production";
 

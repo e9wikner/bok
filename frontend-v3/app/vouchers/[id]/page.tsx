@@ -45,7 +45,7 @@ export default function VoucherDetailPage() {
     queryFn: async () => {
       const { data } = await api.getHealth(); // dummy to get apiClient
       const resp = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1/vouchers/${id}/audit`,
+        `${process.env.NEXT_PUBLIC_API_URL || ""}/api/v1/vouchers/${id}/audit`,
         {
           headers: {
             Authorization: `Bearer ${process.env.NEXT_PUBLIC_API_KEY || "dev-key-change-in-production"}`,
