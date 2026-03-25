@@ -173,15 +173,26 @@ class LedgerService:
                 "original voucher must be in 'posted' status"
             )
         
+        # Find an unlocked period for the correction.
+        # If the original period is locked, use the latest unlocked period
+        # in the same fiscal year (BFL: corrections go in current period).
+        original_period = self.periods.get_period(original.period_id)
+        if original_period and original_period.locked:
+            unlocked = self._find_unlocked_period(original.period_id)
+            target_period_id = unlocked.id if unlocked else original.period_id
+        else:
+            target_period_id = original.period_id
+
         # Create B-series correction voucher
         correction = self.vouchers.create_correction(
             original_voucher_id=original.id,
             series="B",
-            created_by=actor
+            created_by=actor,
+            period_id_override=target_period_id,
         )
-        
+
         # Get period and accounts for validation
-        period = self.periods.get_period(original.period_id)
+        period = self.periods.get_period(target_period_id)
         all_accounts = self.accounts.get_all_as_dict()
         
         # Add correction rows (typically reversal + corrected entries)
@@ -213,6 +224,16 @@ class LedgerService:
         
         return correction
     
+    def _find_unlocked_period(self, original_period_id: str):
+        """Find the latest unlocked period in the same fiscal year."""
+        original_period = self.periods.get_period(original_period_id)
+        if not original_period:
+            return None
+        periods = self.periods.list_periods(original_period.fiscal_year_id)
+        # Return the latest unlocked period
+        unlocked = [p for p in periods if not p.locked]
+        return unlocked[-1] if unlocked else None
+
     def lock_period(self, period_id: str, actor: str = "system") -> Period:
         """Lock period (irreversible - BFL varaktighet requirement)."""
         period = self.periods.get_period(period_id)

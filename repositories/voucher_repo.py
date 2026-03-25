@@ -179,36 +179,44 @@ class VoucherRepository:
         original_voucher_id: str,
         series: str = "B",
         created_by: str = "system",
+        period_id_override: str = None,
     ) -> Voucher:
-        """Create correction voucher (B-series) for an original voucher."""
+        """Create correction voucher (B-series) for an original voucher.
+
+        If period_id_override is given, the correction is booked into that
+        period instead of the original's (needed when the original period
+        is locked).
+        """
         # Get original voucher
         original = VoucherRepository.get(original_voucher_id)
         if not original:
             raise ValueError("Original voucher not found")
-        
+
+        target_period_id = period_id_override or original.period_id
+
         # Create new B-series voucher referencing the original
         correction_id = str(uuid.uuid4())
         number = VoucherRepository.get_next_number(series)
-        
+
         sql = """
         INSERT INTO vouchers (id, series, number, date, period_id, description, status, correction_of, created_by, created_at)
         VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)
         """
         now = datetime.now()
         description = f"Correction of voucher {original.series}{original.number:06d}"
-        
+
         db.execute(sql, (
-            correction_id, series, number, original.date,
-            original.period_id, description, original_voucher_id, created_by, now
+            correction_id, series, number, now.date(),
+            target_period_id, description, original_voucher_id, created_by, now
         ))
         db.commit()
-        
+
         return Voucher(
             id=correction_id,
             series=VoucherSeries(series),
             number=number,
-            date=original.date,
-            period_id=original.period_id,
+            date=now.date(),
+            period_id=target_period_id,
             description=description,
             status=VoucherStatus.DRAFT,
             correction_of=original_voucher_id,
