@@ -2,15 +2,12 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status as http_status
-from datetime import datetime
-from typing import List
 
 from api.schemas import (
     CreateVoucherRequest,
     UpdateVoucherRequest,
     VoucherResponse,
     VoucherRowResponse,
-    ErrorResponse,
 )
 from api.deps import get_ledger_service, get_current_actor
 from domain.validation import ValidationError
@@ -49,8 +46,8 @@ async def create_voucher(
     ```
     """
     try:
-        rows_data = [r.dict() for r in request.rows]
-        
+        rows_data = [r.model_dump() for r in request.rows]
+
         voucher = ledger.create_voucher(
             series=request.series,
             date=request.date,
@@ -150,7 +147,11 @@ async def update_voucher(
     Changes are recorded in the audit trail with before/after snapshots.
     """
     try:
-        rows_data = [r.dict() for r in request.rows]
+        rows_data = [r.model_dump() for r in request.rows]
+
+        # Capture original before update for AI learning
+        original = ledger.vouchers.get(voucher_id) if request.teach_ai else None
+
         voucher = ledger.update_voucher(
             voucher_id=voucher_id,
             rows_data=rows_data,
@@ -164,7 +165,6 @@ async def update_voucher(
             try:
                 from services.learning import LearningService
                 learning = LearningService()
-                original = ledger.vouchers.get(voucher_id)
                 if original:
                     learning.learn_from_correction(
                         original_voucher=original,

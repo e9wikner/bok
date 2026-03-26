@@ -159,10 +159,18 @@ class VoucherRepository:
         return vouchers
     
     @staticmethod
-    def get_next_number(series: str) -> int:
-        """Get next sequential voucher number for series."""
-        sql = "SELECT MAX(number) as max_num FROM vouchers WHERE series = ?"
-        cursor = db.execute(sql, (series,))
+    def get_next_number(series: str, fiscal_year_id: str) -> int:
+        """Get next sequential voucher number for series within a fiscal year.
+
+        Voucher numbers restart from 1 each fiscal year (BFL requirement).
+        """
+        sql = """
+            SELECT MAX(v.number) as max_num
+            FROM vouchers v
+            JOIN periods p ON v.period_id = p.id
+            WHERE v.series = ? AND p.fiscal_year_id = ?
+        """
+        cursor = db.execute(sql, (series, fiscal_year_id))
         row = cursor.fetchone()
         return (row["max_num"] or 0) + 1
     
@@ -194,9 +202,15 @@ class VoucherRepository:
 
         target_period_id = period_id_override or original.period_id
 
+        # Look up the fiscal year for the target period to scope voucher numbering
+        period_row = db.execute(
+            "SELECT fiscal_year_id FROM periods WHERE id = ?", (target_period_id,)
+        ).fetchone()
+        fiscal_year_id = period_row["fiscal_year_id"] if period_row else ""
+
         # Create new B-series voucher referencing the original
         correction_id = str(uuid.uuid4())
-        number = VoucherRepository.get_next_number(series)
+        number = VoucherRepository.get_next_number(series, fiscal_year_id)
 
         sql = """
         INSERT INTO vouchers (id, series, number, date, period_id, description, status, correction_of, created_by, created_at)

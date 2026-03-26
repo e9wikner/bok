@@ -1,7 +1,6 @@
 """API routes for accounts."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from typing import List
 
 from api.schemas import AccountResponse, AccountListResponse, CreateAccountRequest
 from api.deps import get_ledger_service

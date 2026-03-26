@@ -1,9 +1,8 @@
 """API routes for K2 annual reports (Fas 3)."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from datetime import date
 
-from api.deps import get_ledger_service, get_current_actor
+from api.deps import get_current_actor
 from services.k2_report import K2ReportService
 from repositories.period_repo import PeriodRepository
 

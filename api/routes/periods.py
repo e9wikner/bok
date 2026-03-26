@@ -2,7 +2,6 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from datetime import date
-from typing import List
 
 from api.schemas import PeriodResponse, FiscalYearResponse
 from api.deps import get_ledger_service, get_current_actor

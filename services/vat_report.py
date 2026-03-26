@@ -16,7 +16,7 @@ SKV 4700 format mapping:
 """
 
 import uuid
-from datetime import date, datetime
+from datetime import datetime
 from typing import Dict, Optional, List
 from dataclasses import dataclass, field
 

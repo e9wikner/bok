@@ -50,7 +50,7 @@ async def import_sie4(
         
         # Import
         importer = SIE4Importer(
-            api_url=f"http://localhost:8000",  # Internal API call
+            api_url="http://localhost:8000",  # Internal API call
             api_key=settings.api_key
         )
         

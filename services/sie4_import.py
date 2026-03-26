@@ -9,7 +9,7 @@ Documentation: https://www.sie.se/sie4_format.pdf
 
 import re
 from datetime import date
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -133,7 +133,6 @@ class SIE4Parser:
                 elif line.startswith('#RAR '):
                     parts = line[5:].split()
                     if len(parts) >= 3:
-                        year_num = parts[0]
                         data.fiscal_year_start = self._parse_date(parts[1])
                         data.fiscal_year_end = self._parse_date(parts[2])
                 
@@ -278,7 +277,6 @@ class SIE4Parser:
         """
         # Hantera objektlistan {} speciellt - ta bort den innan parsing
         # Regex: ersätt {} eller {innehåll} med ett platshållarvärde
-        import re
         # Hitta och ta bort objektlistan (andra fältet efter konto)
         cleaned = re.sub(r'\{[^}]*\}', '__OBJ__', line, count=1)
         parts = self._parse_array(cleaned)

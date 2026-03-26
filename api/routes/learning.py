@@ -2,14 +2,13 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status as http_status
-from typing import List, Optional
+from typing import Optional
 
 from api.schemas import (
     CorrectionRequest,
     LearningRuleResponse,
     LearningStatsResponse,
     AccountSuggestionResponse,
-    ErrorResponse,
 )
 from api.deps import get_current_actor
 from services.learning import LearningService

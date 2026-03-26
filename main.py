@@ -1,12 +1,10 @@
 """Application entrypoint."""
 
 import sys
-import os
 import argparse
 import uvicorn
 from db.database import db
 from repositories.account_repo import AccountRepository
-from datetime import date
 from config import settings
 
 
@@ -76,8 +74,6 @@ def run_server(host: str = "0.0.0.0", port: int = 8000):
     """Run FastAPI server."""
     print(f"🚀 Starting server on {host}:{port}...")
     # Disable auto-reload in Docker (causes Pydantic recursion errors)
-    use_reload = os.getenv("DISABLE_RELOAD", "false").lower() != "true"
-    
     uvicorn.run(
         "api.main:app",
         host=host,

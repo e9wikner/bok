@@ -2,9 +2,8 @@
 
 from datetime import date, datetime
 from typing import List, Dict, Optional
-import uuid
 
-from domain.invoice_models import Invoice, InvoiceRow, Payment, CreditNote, InvoiceStatus
+from domain.invoice_models import Invoice, Payment, CreditNote
 from domain.invoice_validation import (
     InvoiceValidator,
     VATCalculator,
@@ -292,7 +291,7 @@ class InvoiceService:
                     "account": "1010",  # PlusGiro/Bank
                     "debit": payment.amount,
                     "credit": 0,
-                    "description": f"Payment received"
+                    "description": "Payment received"
                 },
                 {
                     "account": "1510",  # Kundfordringar

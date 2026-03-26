@@ -49,7 +49,7 @@ async def import_csv(file: UploadFile = File(...)):
                     counterparty=txn['counterparty'],
                 )
                 imported_count += 1
-            except Exception as e:
+            except Exception:
                 # Likely a duplicate
                 duplicates += 1
         

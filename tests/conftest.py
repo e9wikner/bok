@@ -7,7 +7,6 @@ from datetime import date
 from db.database import db
 from services.ledger import LedgerService
 from repositories.account_repo import AccountRepository
-from repositories.period_repo import PeriodRepository
 
 
 @pytest.fixture(scope="function")

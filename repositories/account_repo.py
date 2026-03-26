@@ -2,7 +2,6 @@
 
 from typing import Dict, Optional, List
 from datetime import datetime
-import uuid
 from db.database import db
 from domain.models import Account
 from domain.types import AccountType

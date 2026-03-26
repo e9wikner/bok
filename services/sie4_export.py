@@ -9,13 +9,12 @@ Stödjer alla obligatoriska sektioner: #FLAGGA, #FORMAT, #GEN, #PROGRAM,
 Filen kodas i Windows-1252 med \\r\\n radbrytningar (SIE4-standard).
 """
 
-from datetime import date, datetime
+from datetime import datetime
 from typing import List, Dict, Optional, Tuple
-from decimal import Decimal
 from collections import defaultdict
 
 from db.database import db
-from domain.models import Account, Voucher, VoucherRow, FiscalYear, Period
+from domain.models import Account, Voucher, FiscalYear, Period
 from domain.types import AccountType
 
 
@@ -364,7 +363,7 @@ class SIE4Exporter:
         lines.append(
             f'#PROGRAM "{self.PROGRAM_NAME}" "{self.PROGRAM_VERSION}"'
         )
-        lines.append(f"#SIETYP 4")
+        lines.append("#SIETYP 4")
 
         # Företagsinformation
         if data.company_name:

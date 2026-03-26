@@ -4,7 +4,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from typing import Optional
 
-from api.deps import get_current_actor
 from services.pdf_export import PDFExportService, CompanyInfo
 
 router = APIRouter(prefix="/api/v1/export/pdf", tags=["export-pdf"])

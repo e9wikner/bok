@@ -1,6 +1,6 @@
 """Reports endpoints (income statement, balance sheet, trial balance)"""
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 from typing import Optional
 from datetime import datetime, date as date_type
 

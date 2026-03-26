@@ -1,12 +1,11 @@
 """API routes for agent integration (Fas 4)."""
 
-from fastapi import APIRouter, Depends, HTTPException, status, Header
+from fastapi import APIRouter, Depends, HTTPException, status
 from typing import Optional
 import uuid
 import hashlib
 
 from api.deps import get_current_actor
-from repositories.audit_repo import AuditRepository
 
 router = APIRouter(prefix="/api/v1/agent", tags=["agent-integration"])
 
@@ -44,13 +43,13 @@ async def create_api_key(
         permissions = ["read", "write", "invoice"]
     
     key_id = str(uuid.uuid4())
-    # In production: generate actual key and hash it
     secret_key = f"sk_{uuid.uuid4().hex[:32]}"
     key_hash = hashlib.sha256(secret_key.encode()).hexdigest()
-    
+
     return {
         "key_id": key_id,
         "secret_key": secret_key,  # Only returned once!
+        "key_hash": key_hash,  # Store this for future verification
         "name": name,
         "description": description,
         "permissions": permissions,

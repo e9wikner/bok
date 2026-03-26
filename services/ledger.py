@@ -2,9 +2,8 @@
 
 from datetime import datetime, date
 from typing import List, Dict
-import uuid
 
-from domain.models import Voucher, VoucherRow, Period, Account
+from domain.models import Voucher, VoucherRow, Period
 from domain.types import VoucherStatus, VoucherSeries, AuditAction
 from domain.validation import (
     validate_complete_voucher,
@@ -52,7 +51,7 @@ class LedgerService:
         all_accounts = self.accounts.get_all_as_dict()
         
         # Build in-memory voucher for validation BEFORE persisting
-        number = self.vouchers.get_next_number(series)
+        number = self.vouchers.get_next_number(series, period.fiscal_year_id)
         temp_voucher = Voucher(
             id="temp",
             series=VoucherSeries(series),

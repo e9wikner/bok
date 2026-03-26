@@ -1,6 +1,6 @@
 """K2 Annual Report generation service (Fas 3)."""
 
-from datetime import date, datetime
+from datetime import datetime
 from typing import Dict, Optional, List
 import uuid
 
