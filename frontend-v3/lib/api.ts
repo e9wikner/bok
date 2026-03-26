@@ -2,7 +2,7 @@ import axios from "axios";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 const API_KEY =
-  process.env.NEXT_PUBLIC_API_KEY || "dev-key-change-in-production";
+  process.env.NEXT_PUBLIC_API_KEY || "";
 
 const apiClient = axios.create({
   baseURL: API_URL,
@@ -115,6 +115,34 @@ export const api = {
   },
   getVoucher: async (id: string) => {
     const { data } = await apiClient.get(`/api/v1/vouchers/${id}`);
+    return data;
+  },
+  getVoucherAudit: async (id: string) => {
+    const { data } = await apiClient.get(`/api/v1/vouchers/${id}/audit`);
+    return data;
+  },
+  getVoucherAttachments: async (id: string) => {
+    const { data } = await apiClient.get(`/api/v1/vouchers/${id}/attachments`);
+    return data;
+  },
+  uploadVoucherAttachment: async (id: string, file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const { data } = await apiClient.post(
+      `/api/v1/vouchers/${id}/attachments`,
+      formData,
+      { headers: { "Content-Type": "multipart/form-data" } }
+    );
+    return data;
+  },
+  deleteVoucherAttachment: async (voucherId: string, attachmentId: string) => {
+    const { data } = await apiClient.delete(
+      `/api/v1/vouchers/${voucherId}/attachments/${attachmentId}`
+    );
+    return data;
+  },
+  updateVoucher: async (id: string, payload: Record<string, unknown>) => {
+    const { data } = await apiClient.put(`/api/v1/vouchers/${id}`, payload);
     return data;
   },
 
@@ -247,6 +275,20 @@ export const api = {
   getFiscalYears: async () => {
     const { data } = await apiClient.get("/api/v1/fiscal-years");
     return data;
+  },
+
+  // Periods
+  getPeriods: async () => {
+    const { data } = await apiClient.get("/api/v1/periods");
+    return data;
+  },
+
+  // PDF export — returns a Blob
+  getPdfExport: async (endpoint: string): Promise<Blob> => {
+    const { data } = await apiClient.get(endpoint, {
+      responseType: "blob",
+    });
+    return data as Blob;
   },
 };
 
