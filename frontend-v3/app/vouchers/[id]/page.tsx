@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useVoucher, useAccounts } from "@/hooks/useData";
+import { api } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
   ArrowLeft,
@@ -44,34 +45,14 @@ export default function VoucherDetailPage() {
   // Audit trail
   const { data: auditData } = useQuery({
     queryKey: ["voucher-audit", id],
-    queryFn: async () => {
-      const resp = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || ""}/api/v1/vouchers/${id}/audit`,
-        {
-          headers: {
-            Authorization: `Bearer ${process.env.NEXT_PUBLIC_API_KEY || "dev-key-change-in-production"}`,
-          },
-        }
-      );
-      return resp.json();
-    },
+    queryFn: () => api.getVoucherAudit(id),
     staleTime: 5 * 60 * 1000,
   });
 
   // Attachments
   const { data: attachmentsData, refetch: refetchAttachments } = useQuery({
     queryKey: ["voucher-attachments", id],
-    queryFn: async () => {
-      const resp = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || ""}/api/v1/vouchers/${id}/attachments`,
-        {
-          headers: {
-            Authorization: `Bearer ${process.env.NEXT_PUBLIC_API_KEY || "dev-key-change-in-production"}`,
-          },
-        }
-      );
-      return resp.json();
-    },
+    queryFn: () => api.getVoucherAttachments(id),
     staleTime: 5 * 60 * 1000,
   });
 
@@ -94,18 +75,7 @@ export default function VoucherDetailPage() {
     async (file: globalThis.File) => {
       setUploading(true);
       try {
-        const formData = new FormData();
-        formData.append("file", file);
-        await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL || ""}/api/v1/vouchers/${id}/attachments`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${process.env.NEXT_PUBLIC_API_KEY || "dev-key-change-in-production"}`,
-            },
-            body: formData,
-          }
-        );
+        await api.uploadVoucherAttachment(id, file);
         refetchAttachments();
       } catch {
         alert("Kunde inte ladda upp filen");
@@ -119,15 +89,7 @@ export default function VoucherDetailPage() {
   const handleDeleteAttachment = async (attachmentId: string) => {
     if (!confirm("Ta bort denna bilaga?")) return;
     try {
-      await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || ""}/api/v1/vouchers/${id}/attachments/${attachmentId}`,
-        {
-          method: "DELETE",
-          headers: {
-            Authorization: `Bearer ${process.env.NEXT_PUBLIC_API_KEY || "dev-key-change-in-production"}`,
-          },
-        }
-      );
+      await api.deleteVoucherAttachment(id, attachmentId);
       refetchAttachments();
     } catch {
       alert("Kunde inte ta bort bilagan");
@@ -199,29 +161,14 @@ export default function VoucherDetailPage() {
     setSaving(true);
     setSaveResult(null);
     try {
-      await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || ""}/api/v1/vouchers/${id}`,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${process.env.NEXT_PUBLIC_API_KEY || "dev-key-change-in-production"}`,
-          },
-          body: JSON.stringify({
-            rows: editedRows.map((r: any) => ({
-              account: r.account_code || r.account,
-              debit: r.debit || 0,
-              credit: r.credit || 0,
-            })),
-            reason: correctionReason || undefined,
-            teach_ai: teachAI,
-          }),
-        }
-      ).then(async (res) => {
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.detail?.error || data.detail || "Okänt fel");
-        }
+      await api.updateVoucher(id, {
+        rows: editedRows.map((r: any) => ({
+          account: r.account_code || r.account,
+          debit: r.debit || 0,
+          credit: r.credit || 0,
+        })),
+        reason: correctionReason || undefined,
+        teach_ai: teachAI,
       });
       setSaveResult({
         ok: true,

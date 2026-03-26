@@ -40,11 +40,7 @@ export default function ReportsPage() {
     setExporting(true);
     try {
       // Find period_id for selected year/month
-      const periodsResp = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || ""}/api/v1/periods`,
-        { headers: { Authorization: `Bearer ${process.env.NEXT_PUBLIC_API_KEY || "dev-key-change-in-production"}` } }
-      );
-      const periodsData = await periodsResp.json();
+      const periodsData = await api.getPeriods();
       const periods = periodsData?.periods || periodsData || [];
       
       // Find matching period
@@ -74,20 +70,15 @@ export default function ReportsPage() {
       // Try HTML endpoint first (always available), then PDF
       const htmlEndpoint = pdfEndpoint.replace(/\/([^/]+)$/, "/$1/html");
       
-      const resp = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || ""}${pdfEndpoint}`,
-        { headers: { Authorization: `Bearer ${process.env.NEXT_PUBLIC_API_KEY || "dev-key-change-in-production"}` } }
-      );
-
-      if (resp.ok) {
-        const blob = await resp.blob();
+      try {
+        const blob = await api.getPdfExport(pdfEndpoint);
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
         a.download = `${tab}-${year}${month ? `-${String(month).padStart(2, "0")}` : ""}.pdf`;
         a.click();
         URL.revokeObjectURL(url);
-      } else {
+      } catch {
         // Fallback: open HTML version in new tab
         window.open(
           `${process.env.NEXT_PUBLIC_API_URL || ""}${htmlEndpoint}`,
