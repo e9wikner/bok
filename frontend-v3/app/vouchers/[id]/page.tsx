@@ -78,7 +78,7 @@ export default function VoucherDetailPage() {
         await api.uploadVoucherAttachment(id, file);
         refetchAttachments();
       } catch {
-        alert("Kunde inte ladda upp filen");
+        console.error("Kunde inte ladda upp filen");
       } finally {
         setUploading(false);
       }
@@ -92,7 +92,7 @@ export default function VoucherDetailPage() {
       await api.deleteVoucherAttachment(id, attachmentId);
       refetchAttachments();
     } catch {
-      alert("Kunde inte ta bort bilagan");
+      console.error("Kunde inte ta bort bilagan");
     }
   };
 
@@ -189,7 +189,7 @@ export default function VoucherDetailPage() {
   };
 
   const attachmentUrl = (attId: string) =>
-    `${process.env.NEXT_PUBLIC_API_URL || ""}/api/v1/vouchers/${id}/attachments/${attId}`;
+    api.getAttachmentUrl(id, attId);
 
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-[1000px] mx-auto">
