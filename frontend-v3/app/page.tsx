@@ -146,7 +146,7 @@ export default function DashboardPage() {
           icon={AlertTriangle}
           color="amber"
           loading={false}
-          href="/reports"
+          href="/anomalies"
           subtitle={
             anomalyData?.critical_count
               ? `${anomalyData.critical_count} allvarliga`
