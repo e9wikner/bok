@@ -198,8 +198,10 @@ export const api = {
     const { data } = await apiClient.get("/api/v1/anomalies/summary");
     return data;
   },
-  getAnomalies: async () => {
-    const { data } = await apiClient.get("/api/v1/anomalies");
+  getAnomalies: async (limit = 50) => {
+    const { data } = await apiClient.get("/api/v1/anomalies", {
+      params: { limit },
+    });
     return data;
   },
 
