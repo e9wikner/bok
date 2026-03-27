@@ -40,11 +40,11 @@ export function useAccounts() {
   });
 }
 
-export function useInvoices() {
+export function useInvoices(status?: string) {
   const { tenantId } = useTenant();
   return useQuery({
-    queryKey: ["invoices", tenantId],
-    queryFn: () => api.getInvoices(),
+    queryKey: ["invoices", tenantId, status],
+    queryFn: () => api.getInvoices(status),
     staleTime: 5 * 60 * 1000,
   });
 }
