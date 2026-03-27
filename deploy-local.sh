@@ -25,6 +25,10 @@ fi
 echo "==> Starting containers with DEPLOY_HOST=$DEPLOY_HOST"
 echo "    Multi-tenant mode enabled (hardcoded test keys)"
 
+# Stop any existing containers (from any compose file) to avoid name conflicts
+docker compose -f docker-compose.local.yml down --remove-orphans 2>/dev/null || true
+docker compose down --remove-orphans 2>/dev/null || true
+
 docker compose -f docker-compose.local.yml up -d --build
 
 echo ""
