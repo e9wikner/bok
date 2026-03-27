@@ -220,6 +220,10 @@ export const api = {
     });
     return data;
   },
+  triggerAnomalyScan: async () => {
+    const { data } = await apiClient.post("/api/v1/anomalies/scan");
+    return data;
+  },
 
   // Compliance
   getComplianceIssues: async () => {
