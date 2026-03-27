@@ -2,10 +2,12 @@
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useInvoices } from "@/hooks/useData";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { Receipt, Clock, CheckCircle2, AlertTriangle, Send } from "lucide-react";
+import { Receipt, Clock, CheckCircle2, AlertTriangle, Send, Plus } from "lucide-react";
+import Link from "next/link";
 
 const STATUS_CONFIG: Record<string, { label: string; variant: any; icon: any }> = {
   draft: { label: "Utkast", variant: "secondary", icon: Clock },
@@ -28,9 +30,17 @@ export default function InvoicesPage() {
 
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-[1400px] mx-auto">
-      <div>
-        <h1 className="text-2xl lg:text-3xl font-bold tracking-tight">Fakturor</h1>
-        <p className="text-muted-foreground mt-1">Hantera kundfakturor och betalningar</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl lg:text-3xl font-bold tracking-tight">Fakturor</h1>
+          <p className="text-muted-foreground mt-1">Hantera kundfakturor och betalningar</p>
+        </div>
+        <Link href="/invoices/new">
+          <Button>
+            <Plus className="h-4 w-4 mr-2" />
+            Ny faktura
+          </Button>
+        </Link>
       </div>
 
       {/* Summary cards */}

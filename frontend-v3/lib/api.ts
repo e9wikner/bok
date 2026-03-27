@@ -132,6 +132,23 @@ export const api = {
     const { data } = await apiClient.get(`/api/v1/invoices/${id}`);
     return data;
   },
+  createInvoice: async (payload: {
+    customer_name: string;
+    customer_org_number?: string;
+    customer_email?: string;
+    invoice_date: string;
+    due_date: string;
+    description?: string;
+    rows: {
+      description: string;
+      quantity: number;
+      unit_price: number;
+      vat_code: string;
+    }[];
+  }) => {
+    const { data } = await apiClient.post("/api/v1/invoices", payload);
+    return data;
+  },
 
   // Reports
   getIncomeStatement: async (year?: number, month?: number) => {
