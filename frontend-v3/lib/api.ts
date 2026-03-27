@@ -107,9 +107,9 @@ export const api = {
   },
 
   // Vouchers
-  getVouchers: async (status?: string, limit = 15, offset = 0) => {
+  getVouchers: async (status?: string, limit = 15, offset = 0, search?: string) => {
     const { data } = await apiClient.get("/api/v1/vouchers", {
-      params: { status, limit, offset },
+      params: { status, limit, offset, search: search || undefined },
     });
     return data;
   },

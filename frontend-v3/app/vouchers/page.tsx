@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -24,28 +24,40 @@ const statusOptions = [
   { value: "posted", label: "Bokförda" },
 ];
 
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debouncedValue;
+}
+
 export default function VouchersPage() {
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounce(search, 300);
+
+  // Reset to page 0 when search term changes
+  const prevSearch = useRef(debouncedSearch);
+  useEffect(() => {
+    if (prevSearch.current !== debouncedSearch) {
+      setPage(0);
+      prevSearch.current = debouncedSearch;
+    }
+  }, [debouncedSearch]);
 
   const { data, isLoading } = useVouchers(
     status || undefined,
     PAGE_SIZE,
-    page * PAGE_SIZE
+    page * PAGE_SIZE,
+    debouncedSearch || undefined
   );
 
   const vouchers = data?.vouchers || [];
   const total = data?.total || 0;
   const totalPages = Math.ceil(total / PAGE_SIZE);
-
-  const filtered = search
-    ? vouchers.filter(
-        (v: any) =>
-          v.description?.toLowerCase().includes(search.toLowerCase()) ||
-          String(v.number).includes(search)
-      )
-    : vouchers;
 
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-[1400px] mx-auto">
@@ -101,7 +113,7 @@ export default function VouchersPage() {
                 <Skeleton key={i} className="h-12 w-full" />
               ))}
             </div>
-          ) : filtered.length > 0 ? (
+          ) : vouchers.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -127,7 +139,7 @@ export default function VouchersPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((v: any) => {
+                  {vouchers.map((v: any) => {
                     const totalDebit = v.rows?.reduce(
                       (s: number, r: any) => s + (r.debit || 0),
                       0

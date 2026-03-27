@@ -197,6 +197,9 @@ async def update_voucher(
 async def list_vouchers(
     period_id: str = Query(None, description="Filter by period ID (optional)"),
     voucher_status: str = Query("all", alias="status", description="Filter: draft, posted, or all"),
+    search: str = Query(None, description="Search in description or voucher number"),
+    limit: int = Query(None, description="Max vouchers to return (pagination)"),
+    offset: int = Query(0, description="Number of vouchers to skip (pagination)"),
     ledger: LedgerService = Depends(get_ledger_service),
 ):
     """
@@ -204,19 +207,26 @@ async def list_vouchers(
     
     Filter by status: "draft", "posted", or "all".
     If period_id is omitted, returns vouchers from all periods.
+    Supports server-side search on description and voucher number.
     """
     try:
         status_filter = voucher_status if voucher_status != "all" else None
         
         if period_id:
             vouchers = ledger.vouchers.list_for_period(period_id, status=status_filter)
+            total = len(vouchers)
         else:
-            vouchers = ledger.vouchers.list_all(status=status_filter)
+            vouchers, total = ledger.vouchers.list_all(
+                status=status_filter,
+                search=search,
+                limit=limit,
+                offset=offset,
+            )
         
         return {
             "period_id": period_id,
             "status_filter": voucher_status,
-            "total": len(vouchers),
+            "total": total,
             "vouchers": [_voucher_to_response(v) for v in vouchers]
         }
     except Exception as e:
