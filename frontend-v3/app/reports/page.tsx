@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -34,32 +34,53 @@ export default function ReportsPage() {
   const [month, setMonth] = useState<number>(0);
   const { data: fyData } = useFiscalYears();
   const [exporting, setExporting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Auto-clear error after 5 seconds
+  useEffect(() => {
+    if (!errorMessage) return;
+    const timer = setTimeout(() => setErrorMessage(null), 5000);
+    return () => clearTimeout(timer);
+  }, [errorMessage]);
+
+  const showError = useCallback((msg: string) => {
+    console.error(msg);
+    setErrorMessage(msg);
+  }, []);
 
   // PDF export helper
   const handlePdfExport = async () => {
     setExporting(true);
+    setErrorMessage(null);
     try {
-      // Find period_id for selected year/month
       const periodsData = await api.getPeriods();
-      const periods = periodsData?.periods || periodsData || [];
-      
+      const periods: any[] = periodsData?.periods || periodsData || [];
+
+      if (periods.length === 0) {
+        showError("Inga perioder hittades. Kontrollera att räkenskapsår är konfigurerade.");
+        return;
+      }
+
       // Find matching period
-      let periodId = periods[0]?.id;
+      let matchedPeriod;
       if (month) {
-        const match = periods.find((p: any) => {
+        matchedPeriod = periods.find((p: any) => {
           const start = new Date(p.start_date);
           return start.getFullYear() === year && start.getMonth() + 1 === month;
         });
-        if (match) periodId = match.id;
       } else {
-        const match = periods.find((p: any) => new Date(p.start_date).getFullYear() === year);
-        if (match) periodId = match.id;
+        matchedPeriod = periods.find((p: any) => new Date(p.start_date).getFullYear() === year);
       }
 
-      if (!periodId) {
-        console.error("Ingen period hittad för vald period");
+      if (!matchedPeriod) {
+        const periodLabel = month
+          ? `${MONTHS.find((m) => m.value === month)?.label || month} ${year}`
+          : `${year}`;
+        showError(`Ingen period hittad för ${periodLabel}. Kontrollera att perioden finns.`);
         return;
       }
+
+      const periodId = matchedPeriod.id;
 
       const pdfEndpoint = tab === "income"
         ? `/api/v1/export/pdf/income-statement/${periodId}`
@@ -67,9 +88,9 @@ export default function ReportsPage() {
         ? `/api/v1/export/pdf/balance-sheet/${periodId}`
         : `/api/v1/export/pdf/trial-balance/${periodId}`;
 
-      // Try HTML endpoint first (always available), then PDF
+      // Try PDF endpoint first, fall back to HTML
       const htmlEndpoint = pdfEndpoint.replace(/\/([^/]+)$/, "/$1/html");
-      
+
       try {
         const blob = await api.getPdfExport(pdfEndpoint);
         const url = URL.createObjectURL(blob);
@@ -86,7 +107,7 @@ export default function ReportsPage() {
         );
       }
     } catch {
-      console.error("Kunde inte exportera PDF");
+      showError("Kunde inte exportera PDF. Försök igen senare.");
     } finally {
       setExporting(false);
     }
@@ -181,6 +202,9 @@ export default function ReportsPage() {
               </Button>
             )}
           </div>
+          {errorMessage && (
+            <p className="text-sm text-red-600 dark:text-red-400 mt-2 px-1">{errorMessage}</p>
+          )}
         </CardContent>
       </Card>
 

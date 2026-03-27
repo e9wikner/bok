@@ -340,13 +340,16 @@ class SIE4Parser:
 class SIE4Importer:
     """Import SIE4 data into the bookkeeping system."""
     
-    def __init__(self, api_url: str, api_key: str):
+    def __init__(self, api_url: str, api_key: str, tenant_id: Optional[str] = None):
         self.api_url = api_url
         self.api_key = api_key
+        self.tenant_id = tenant_id
         self.headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
+        if tenant_id:
+            self.headers["X-Tenant-Id"] = tenant_id
         self.parser = SIE4Parser()
         self.errors: List[str] = []
         self.imported: Dict[str, int] = {
