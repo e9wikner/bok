@@ -625,7 +625,7 @@ class AnomalyDetectionService:
     def _build_context(self, period_id: Optional[str] = None) -> Dict[str, Any]:
         """Build analysis context from repositories."""
         # Get all vouchers (or filtered by period)
-        all_vouchers = self.voucher_repo.list_all()
+        all_vouchers, _ = self.voucher_repo.list_all()
         if period_id:
             vouchers = [v for v in all_vouchers if v.period_id == period_id]
         else:

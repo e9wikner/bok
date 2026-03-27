@@ -139,24 +139,52 @@ class VoucherRepository:
         return vouchers
     
     @staticmethod
-    def list_all(status: Optional[str] = None) -> List[Voucher]:
-        """List all vouchers across all periods."""
-        sql = "SELECT id FROM vouchers"
-        params = []
-        
+    def list_all(
+        status: Optional[str] = None,
+        search: Optional[str] = None,
+        limit: Optional[int] = None,
+        offset: int = 0,
+    ) -> tuple[List[Voucher], int]:
+        """List all vouchers across all periods.
+
+        Returns (vouchers, total_count) to support pagination.
+        When *search* is given, filters on description (LIKE) or voucher number.
+        """
+        where_clauses = []
+        params: list = []
+
         if status:
-            sql += " WHERE status = ?"
+            where_clauses.append("status = ?")
             params.append(status)
-        
-        sql += " ORDER BY date DESC, series, number"
-        
-        cursor = db.execute(sql, tuple(params))
+
+        if search:
+            where_clauses.append(
+                "(description LIKE ? OR CAST(number AS TEXT) LIKE ?)"
+            )
+            like = f"%{search}%"
+            params.extend([like, like])
+
+        where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+
+        # Total count
+        count_sql = f"SELECT COUNT(*) as cnt FROM vouchers{where_sql}"
+        total = db.execute(count_sql, tuple(params)).fetchone()["cnt"]
+
+        # Fetch page
+        sql = f"SELECT id FROM vouchers{where_sql} ORDER BY date DESC, series, number"
+        page_params = list(params)
+
+        if limit is not None:
+            sql += " LIMIT ? OFFSET ?"
+            page_params.extend([limit, offset])
+
+        cursor = db.execute(sql, tuple(page_params))
         vouchers = []
         for row in cursor.fetchall():
             voucher = VoucherRepository.get(row["id"])
             if voucher:
                 vouchers.append(voucher)
-        return vouchers
+        return vouchers, total
     
     @staticmethod
     def get_next_number(series: str, fiscal_year_id: str) -> int:

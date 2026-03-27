@@ -38,7 +38,7 @@ async def get_income_statement(
     
     All amounts returned in ören (divide by 100 for kronor).
     """
-    vouchers = VoucherRepository.list_all(status="posted")
+    vouchers, _ = VoucherRepository.list_all(status="posted")
 
     # Filter by year/month
     if year:
@@ -125,7 +125,7 @@ async def get_balance_sheet(
     
     All amounts in ören.
     """
-    vouchers = VoucherRepository.list_all(status="posted")
+    vouchers, _ = VoucherRepository.list_all(status="posted")
 
     # Filter by date
     if as_of_date:
@@ -239,7 +239,7 @@ async def get_general_ledger(
     
     Returns all transactions for the account with running balance.
     """
-    vouchers = VoucherRepository.list_all(status="posted")
+    vouchers, _ = VoucherRepository.list_all(status="posted")
     
     if year:
         vouchers = [v for v in vouchers if _parse_voucher_date(v).year == year]
@@ -296,7 +296,7 @@ async def get_trial_balance(
     period: Optional[int] = Query(None),
 ):
     """Get trial balance (råbalans) showing debit/credit for all accounts."""
-    vouchers = VoucherRepository.list_all(status="posted")
+    vouchers, _ = VoucherRepository.list_all(status="posted")
 
     if year:
         vouchers = [v for v in vouchers if _parse_voucher_date(v).year == year]
