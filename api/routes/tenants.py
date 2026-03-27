@@ -28,9 +28,19 @@ class TenantPublicResponse(BaseModel):
 @router.get("/api/v1/tenants", response_model=List[TenantPublicResponse])
 async def list_tenants_public(api_key: str = Depends(verify_api_key)):
     """List available tenants (id + name only). Accessible with regular API key."""
-    registry = _get_registry()
-    tenants = registry.list_tenants()
-    return [TenantPublicResponse(**t) for t in tenants]
+    if settings.multi_tenant:
+        registry = _get_registry()
+        tenants = registry.list_tenants()
+        if tenants:
+            return [TenantPublicResponse(**t) for t in tenants]
+
+    # Single-tenant or no tenants registered: return current company from DB
+    company = _get_company_from_db()
+    return [TenantPublicResponse(
+        id=settings.default_tenant_id,
+        name=company["name"],
+        org_number=company.get("org_number"),
+    )]
 
 
 @router.get("/api/v1/tenants/current", response_model=TenantPublicResponse)
@@ -38,11 +48,45 @@ async def get_current_tenant_info(api_key: str = Depends(verify_api_key)):
     """Get info about the current tenant (from X-Tenant-Id header)."""
     from db.tenant_context import get_current_tenant
     tenant_id = get_current_tenant()
-    registry = _get_registry()
-    tenant = registry.get_tenant(tenant_id)
-    if not tenant:
-        return TenantPublicResponse(id=tenant_id, name=tenant_id)
-    return TenantPublicResponse(**tenant)
+
+    # Try tenant registry first (multi-tenant mode)
+    if settings.multi_tenant:
+        registry = _get_registry()
+        tenant = registry.get_tenant(tenant_id)
+        if tenant:
+            return TenantPublicResponse(**tenant)
+
+    # Fall back to company_info table in the current database
+    company = _get_company_from_db()
+    return TenantPublicResponse(
+        id=tenant_id,
+        name=company["name"],
+        org_number=company.get("org_number"),
+    )
+
+
+def _get_company_from_db() -> dict:
+    """Read company name and org number from the company_info table."""
+    from db.database import db
+    name = None
+    org_number = None
+    try:
+        row = db.execute(
+            "SELECT value FROM company_info WHERE key = 'name' LIMIT 1"
+        ).fetchone()
+        if row:
+            name = row["value"]
+    except Exception:
+        pass
+    try:
+        row = db.execute(
+            "SELECT value FROM company_info WHERE key = 'org_number' LIMIT 1"
+        ).fetchone()
+        if row:
+            org_number = row["value"]
+    except Exception:
+        pass
+    return {"name": name or "Mitt företag", "org_number": org_number}
 
 
 # --- Admin models (includes api_key) ---
