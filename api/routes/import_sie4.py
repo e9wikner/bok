@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from typing import Optional
 
-from api.deps import get_current_actor
+from api.deps import get_current_actor, verify_api_key
 from services.sie4_import import SIE4Importer, create_sample_sie4
 from config import settings
 
@@ -15,6 +15,7 @@ async def import_sie4(
     fiscal_year_id: Optional[str] = None,
     file: UploadFile = File(...),
     actor: str = Depends(get_current_actor),
+    api_key: str = Depends(verify_api_key),
 ):
     """
     Import accounting data from SIE4 format file.
@@ -48,10 +49,18 @@ async def import_sie4(
                 detail="Could not decode file - unsupported encoding"
             )
         
-        # Import
+        # Determine tenant context for internal API calls
+        tenant_id = None
+        if settings.multi_tenant:
+            from db.tenant_context import get_current_tenant
+            tenant_id = get_current_tenant()
+
+        # Import — pass the caller's api_key and tenant so internal
+        # sub-requests are authenticated for the correct tenant
         importer = SIE4Importer(
-            api_url="http://localhost:8000",  # Internal API call
-            api_key=settings.api_key
+            api_url="http://localhost:8000",
+            api_key=api_key,
+            tenant_id=tenant_id,
         )
         
         success = importer.import_content(text_content, fiscal_year_id)

@@ -109,10 +109,10 @@ export default function InvoicesPage() {
                     return (
                       <tr key={inv.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
                         <td className="p-4 font-medium">
-                          <div className="flex items-center gap-2">
+                          <Link href={`/invoices/${inv.id}`} className="flex items-center gap-2 text-primary hover:underline">
                             <Receipt className="h-4 w-4 text-muted-foreground" />
                             {inv.invoice_number || inv.id?.substring(0, 8)}
-                          </div>
+                          </Link>
                         </td>
                         <td className="p-4">{inv.customer_name}</td>
                         <td className="p-4 text-muted-foreground">{formatDate(inv.invoice_date)}</td>
