@@ -117,35 +117,6 @@ export const api = {
     const { data } = await apiClient.get(`/api/v1/vouchers/${id}`);
     return data;
   },
-  getVoucherAudit: async (id: string) => {
-    const { data } = await apiClient.get(`/api/v1/vouchers/${id}/audit`);
-    return data;
-  },
-  getVoucherAttachments: async (id: string) => {
-    const { data } = await apiClient.get(`/api/v1/vouchers/${id}/attachments`);
-    return data;
-  },
-  uploadVoucherAttachment: async (id: string, file: File) => {
-    const formData = new FormData();
-    formData.append("file", file);
-    const { data } = await apiClient.post(
-      `/api/v1/vouchers/${id}/attachments`,
-      formData,
-      { headers: { "Content-Type": "multipart/form-data" } }
-    );
-    return data;
-  },
-  deleteVoucherAttachment: async (voucherId: string, attachmentId: string) => {
-    const { data } = await apiClient.delete(
-      `/api/v1/vouchers/${voucherId}/attachments/${attachmentId}`
-    );
-    return data;
-  },
-  updateVoucher: async (id: string, payload: Record<string, unknown>) => {
-    const { data } = await apiClient.put(`/api/v1/vouchers/${id}`, payload);
-    return data;
-  },
-
   // Accounts
   getAccounts: async () => {
     const { data } = await apiClient.get("/api/v1/accounts");
