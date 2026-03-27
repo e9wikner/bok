@@ -57,7 +57,7 @@ export default function ReportsPage() {
       }
 
       if (!periodId) {
-        alert("Ingen period hittad för vald period");
+        console.error("Ingen period hittad för vald period");
         return;
       }
 
@@ -86,7 +86,7 @@ export default function ReportsPage() {
         );
       }
     } catch {
-      alert("Kunde inte exportera PDF");
+      console.error("Kunde inte exportera PDF");
     } finally {
       setExporting(false);
     }

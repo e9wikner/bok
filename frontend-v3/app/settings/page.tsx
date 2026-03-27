@@ -46,7 +46,7 @@ export default function SettingsPage() {
                   <div>
                     <p className="font-medium">API-server online</p>
                     <p className="text-sm text-muted-foreground">
-                      {process.env.NEXT_PUBLIC_API_URL || window.location.origin}
+                      {process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? window.location.origin : "")}
                     </p>
                   </div>
                 </>
@@ -121,7 +121,7 @@ export default function SettingsPage() {
                 a.click();
                 URL.revokeObjectURL(url);
               } catch {
-                alert("Kunde inte exportera data");
+                console.error("Kunde inte exportera data");
               }
             }}
             className="gap-2"
