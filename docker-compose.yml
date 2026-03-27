@@ -10,6 +10,9 @@ services:
       - DEBUG=False
       - BOKFOERING_API_KEY=dev-key-change-in-production
       - DATABASE_URL=sqlite:////app/data/bokfoering.db
+      - MULTI_TENANT=${MULTI_TENANT:-false}
+      - TENANT_DATA_DIR=/app/data/tenants
+      - ADMIN_API_KEY=${ADMIN_API_KEY:-}
     command: sh -c "python main.py --init-db --seed && python main.py --host 0.0.0.0 --port 8000"
     restart: unless-stopped
     healthcheck:

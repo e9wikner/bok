@@ -4,6 +4,7 @@ import pytest
 import tempfile
 import os
 from datetime import date
+from db.tenant_context import _current_tenant
 from db.database import db
 from services.ledger import LedgerService
 from repositories.account_repo import AccountRepository
@@ -11,22 +12,30 @@ from repositories.account_repo import AccountRepository
 
 @pytest.fixture(scope="function")
 def test_db():
-    """Create temporary test database."""
+    """Create temporary test database with tenant context."""
     # Create temp db file
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
-    
-    # Use temp db
-    db.db_path = path
-    db.connection = None
-    
-    # Initialize
-    db.init_db()
-    
+
+    # Set a test tenant in the context var
+    token = _current_tenant.set("test-tenant")
+
+    # Register the temp DB path with the tenant db manager
+    # so the proxy routes to it for "test-tenant"
+    from db.database import Database
+    manager = db._get_manager()
+    test_db_instance = Database(path)
+    manager._databases["test-tenant"] = test_db_instance
+
+    # Initialize schema
+    test_db_instance.init_db()
+
     yield db
-    
+
     # Cleanup
-    db.disconnect()
+    test_db_instance.disconnect()
+    manager._databases.pop("test-tenant", None)
+    _current_tenant.reset(token)
     if os.path.exists(path):
         os.remove(path)
 
@@ -35,17 +44,17 @@ def test_db():
 def ledger_service(test_db):
     """Create ledger service with test database."""
     service = LedgerService()
-    
+
     # Load default accounts
     default_accounts = [
         ("1510", "Kundfordringar", "asset"),
         ("3011", "Försäljning tjänster", "revenue"),
         ("2610", "Utgående moms", "vat_out"),
     ]
-    
+
     for code, name, acc_type in default_accounts:
         AccountRepository.create(code, name, acc_type)
-    
+
     return service
 
 

@@ -14,13 +14,23 @@ from db.database import db
 
 router = APIRouter(prefix="/api/v1/vouchers", tags=["attachments"])
 
-# Store attachments in a persistent directory
-ATTACHMENTS_DIR = Path(os.environ.get("ATTACHMENTS_DIR", "/app/data/attachments"))
+# Default attachments directory (overridden per-tenant in multi-tenant mode)
+_DEFAULT_ATTACHMENTS_DIR = Path(os.environ.get("ATTACHMENTS_DIR", "/app/data/attachments"))
 ALLOWED_MIME_TYPES = {
     "image/jpeg", "image/png", "image/gif", "image/webp",
     "application/pdf",
 }
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+
+def _get_attachments_dir() -> Path:
+    """Get the attachments directory, scoped to the current tenant in multi-tenant mode."""
+    from config import settings
+    if settings.multi_tenant:
+        from db.tenant_context import get_current_tenant
+        tenant_id = get_current_tenant()
+        return Path(settings.tenant_data_dir) / tenant_id / "attachments"
+    return _DEFAULT_ATTACHMENTS_DIR
 
 
 @router.post("/{voucher_id}/attachments", response_model=dict, status_code=http_status.HTTP_201_CREATED)
@@ -63,7 +73,7 @@ async def upload_attachment(
     attachment_id = str(uuid.uuid4())
     ext = Path(file.filename or "file").suffix or _ext_from_mime(content_type)
     stored_filename = f"{attachment_id}{ext}"
-    voucher_dir = ATTACHMENTS_DIR / voucher_id
+    voucher_dir = _get_attachments_dir() / voucher_id
     voucher_dir.mkdir(parents=True, exist_ok=True)
     stored_path = voucher_dir / stored_filename
 

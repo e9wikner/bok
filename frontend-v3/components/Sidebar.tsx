@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useDarkMode } from "@/hooks/useDarkMode";
 import { useState } from "react";
+import TenantSelector from "@/components/TenantSelector";
 
 const navItems = [
   { href: "/", label: "Översikt", icon: LayoutDashboard },
@@ -98,6 +99,9 @@ export function Sidebar() {
             </div>
           )}
         </div>
+
+        {/* Tenant selector (multi-tenant mode) */}
+        {!collapsed && <TenantSelector />}
 
         {/* Nav */}
         <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto scrollbar-thin">
