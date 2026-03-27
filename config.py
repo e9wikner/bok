@@ -23,7 +23,7 @@ class Settings(BaseSettings):
 
     # Authentication
     api_key: str = os.getenv("BOKFOERING_API_KEY", "dev-key-change-in-production")
-    admin_api_key: str = os.getenv("ADMIN_API_KEY", "")
+    admin_api_key: str = os.getenv("ADMIN_API_KEY", "test-admin-key")
 
     # Security
     debug: bool = os.getenv("DEBUG", "False").lower() == "true"

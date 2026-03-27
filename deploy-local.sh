@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # Deploy app containers locally on the server
-# Run locally: cd /opt/docker/bok && ./deploy-local.sh
+# Run: cd /opt/docker/bok && ./deploy-local.sh
 #
-# Multi-tenant mode:
-#   MULTI_TENANT=true ADMIN_API_KEY=secret ./deploy-local.sh
+# Multi-tenant mode is enabled by default with test keys.
+# Override with environment variables if needed:
+#   MULTI_TENANT=false ./deploy-local.sh
 #
 # Create a tenant after deploy:
-#   docker exec -e MULTI_TENANT=true -it bokfoering-api \
+#   docker exec -it bokfoering-api \
 #     python main.py --create-tenant acme "Acme AB" key-acme-123
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_URL=https://github.com/e9wikner/bok.git
 DEPLOY_HOST=${DEPLOY_HOST:-$(hostname)}
 
 cd "$SCRIPT_DIR"
@@ -23,21 +23,20 @@ if [ -d .git ]; then
 fi
 
 echo "==> Starting containers with DEPLOY_HOST=$DEPLOY_HOST"
-echo "    MULTI_TENANT=${MULTI_TENANT:-false}"
+echo "    Multi-tenant mode enabled (hardcoded test keys)"
 
-DEPLOY_HOST="$DEPLOY_HOST" \
-MULTI_TENANT="${MULTI_TENANT:-false}" \
-ADMIN_API_KEY="${ADMIN_API_KEY:-}" \
-  docker compose -f docker-compose.local.yml up -d --build
+docker compose -f docker-compose.local.yml up -d --build
 
 echo ""
 echo "API:      http://$DEPLOY_HOST:8000"
 echo "Frontend: http://$DEPLOY_HOST:3000"
-
-if [ "${MULTI_TENANT:-false}" = "true" ]; then
-    echo ""
-    echo "Multi-tenant mode enabled."
-    echo "Create a tenant:"
-    echo "  docker exec -e MULTI_TENANT=true -it bokfoering-api \\"
-    echo "    python main.py --create-tenant <id> <name> <api_key>"
-fi
+echo ""
+echo "Multi-tenant mode is ON."
+echo "Default tenant 'default' is auto-created on startup."
+echo ""
+echo "API key:   dev-key-change-in-production"
+echo "Admin key: test-admin-key"
+echo ""
+echo "Create additional tenants:"
+echo "  docker exec -it bokfoering-api \\"
+echo "    python main.py --create-tenant acme 'Acme AB' key-acme-123"
