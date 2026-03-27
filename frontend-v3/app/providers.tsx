@@ -2,6 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
+import { TenantContext, useTenantState } from "@/hooks/useTenant";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -16,7 +17,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
       })
   );
 
+  const tenantState = useTenantState();
+
   return (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    <QueryClientProvider client={queryClient}>
+      <TenantContext.Provider value={tenantState}>
+        {children}
+      </TenantContext.Provider>
+    </QueryClientProvider>
   );
 }

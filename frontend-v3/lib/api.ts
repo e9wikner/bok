@@ -12,6 +12,15 @@ const apiClient = axios.create({
   },
 });
 
+// Multi-tenant: inject X-Tenant-Id header from localStorage on every request
+apiClient.interceptors.request.use((config) => {
+  if (typeof window !== "undefined") {
+    const tenantId = localStorage.getItem("tenantId") || "default";
+    config.headers["X-Tenant-Id"] = tenantId;
+  }
+  return config;
+});
+
 // Types
 export interface Voucher {
   id: string;
@@ -324,6 +333,12 @@ export const api = {
   // Attachment URL helper (for <img> src and links)
   getAttachmentUrl: (voucherId: string, attachmentId: string) =>
     `${API_URL}/api/v1/vouchers/${voucherId}/attachments/${attachmentId}`,
+
+  // Multi-tenant admin
+  getTenants: async () => {
+    const { data } = await apiClient.get("/api/v1/admin/tenants");
+    return data;
+  },
 };
 
 export default apiClient;

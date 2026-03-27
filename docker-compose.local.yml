@@ -12,6 +12,9 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: "sqlite:////app/data/bokfoering.db"
+      MULTI_TENANT: "${MULTI_TENANT:-false}"
+      TENANT_DATA_DIR: "/app/data/tenants"
+      ADMIN_API_KEY: "${ADMIN_API_KEY:-}"
     volumes:
       - bokfoering-data:/app/data
 
