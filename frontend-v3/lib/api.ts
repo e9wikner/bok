@@ -334,9 +334,13 @@ export const api = {
   getAttachmentUrl: (voucherId: string, attachmentId: string) =>
     `${API_URL}/api/v1/vouchers/${voucherId}/attachments/${attachmentId}`,
 
-  // Multi-tenant admin
+  // Multi-tenant
   getTenants: async () => {
-    const { data } = await apiClient.get("/api/v1/admin/tenants");
+    const { data } = await apiClient.get("/api/v1/tenants");
+    return data;
+  },
+  getCurrentTenant: async () => {
+    const { data } = await apiClient.get("/api/v1/tenants/current");
     return data;
   },
 };

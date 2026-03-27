@@ -1,12 +1,51 @@
-"""Tenant management admin endpoints."""
+"""Tenant management endpoints.
 
-from fastapi import APIRouter, Header, HTTPException, status
+Admin endpoints (POST/DELETE) require ADMIN_API_KEY.
+Read-only endpoints (GET tenant list, current tenant) use regular API auth
+so the frontend can display the company selector.
+"""
+
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel
 from typing import Optional, List
 
 from config import settings
+from api.deps import verify_api_key
 
-router = APIRouter(prefix="/api/v1/admin/tenants", tags=["admin"])
+router = APIRouter(tags=["tenants"])
+
+
+# --- Public read-only models (no api_key exposed) ---
+
+class TenantPublicResponse(BaseModel):
+    id: str
+    name: str
+    org_number: Optional[str] = None
+
+
+# --- Read-only endpoints (regular API key auth) ---
+
+@router.get("/api/v1/tenants", response_model=List[TenantPublicResponse])
+async def list_tenants_public(api_key: str = Depends(verify_api_key)):
+    """List available tenants (id + name only). Accessible with regular API key."""
+    registry = _get_registry()
+    tenants = registry.list_tenants()
+    return [TenantPublicResponse(**t) for t in tenants]
+
+
+@router.get("/api/v1/tenants/current", response_model=TenantPublicResponse)
+async def get_current_tenant_info(api_key: str = Depends(verify_api_key)):
+    """Get info about the current tenant (from X-Tenant-Id header)."""
+    from db.tenant_context import get_current_tenant
+    tenant_id = get_current_tenant()
+    registry = _get_registry()
+    tenant = registry.get_tenant(tenant_id)
+    if not tenant:
+        return TenantPublicResponse(id=tenant_id, name=tenant_id)
+    return TenantPublicResponse(**tenant)
+
+
+# --- Admin models (includes api_key) ---
 
 
 class CreateTenantRequest(BaseModel):
@@ -56,7 +95,7 @@ def _get_registry():
     return TenantRegistry()
 
 
-@router.post("", response_model=TenantResponse, status_code=201)
+@router.post("/api/v1/admin/tenants", response_model=TenantResponse, status_code=201)
 async def create_tenant(
     request: CreateTenantRequest,
     admin_key: str = Header(None, alias="authorization"),
@@ -92,8 +131,8 @@ async def create_tenant(
     return TenantResponse(**tenant)
 
 
-@router.get("", response_model=List[TenantResponse])
-async def list_tenants(
+@router.get("/api/v1/admin/tenants", response_model=List[TenantResponse])
+async def list_tenants_admin(
     admin_key: str = Header(None, alias="authorization"),
 ):
     _verify_admin_key(admin_key)
@@ -102,8 +141,8 @@ async def list_tenants(
     return [TenantResponse(**t) for t in tenants]
 
 
-@router.get("/{tenant_id}", response_model=TenantResponse)
-async def get_tenant(
+@router.get("/api/v1/admin/tenants/{tenant_id}", response_model=TenantResponse)
+async def get_tenant_admin(
     tenant_id: str,
     admin_key: str = Header(None, alias="authorization"),
 ):
@@ -118,7 +157,7 @@ async def get_tenant(
     return TenantResponse(**tenant)
 
 
-@router.delete("/{tenant_id}", status_code=204)
+@router.delete("/api/v1/admin/tenants/{tenant_id}", status_code=204)
 async def deactivate_tenant(
     tenant_id: str,
     admin_key: str = Header(None, alias="authorization"),

@@ -77,9 +77,8 @@ app.include_router(learning.router)
 # Attachments
 app.include_router(attachments.router)
 
-# Tenant admin (multi-tenant mode)
-if settings.multi_tenant:
-    app.include_router(tenants.router)
+# Tenant management (public read endpoints always available; admin endpoints require ADMIN_API_KEY)
+app.include_router(tenants.router)
 
 
 @app.get("/health", tags=["health"])

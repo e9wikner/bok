@@ -28,8 +28,8 @@ class TenantMiddleware(BaseHTTPMiddleware):
             set_current_tenant(settings.default_tenant_id)
             return await call_next(request)
 
-        # Admin tenant endpoints handle their own context
-        if path.startswith("/api/v1/admin/tenants"):
+        # Tenant management endpoints handle their own context
+        if path.startswith("/api/v1/admin/tenants") or path == "/api/v1/tenants":
             set_current_tenant(settings.default_tenant_id)
             return await call_next(request)
 
