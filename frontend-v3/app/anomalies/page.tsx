@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 
 // ---- Types ----
 type Severity = "all" | "critical" | "warning" | "info";
@@ -244,6 +245,8 @@ function AnomalyRow({ anomaly }: { anomaly: any }) {
 export default function AnomaliesPage() {
   const [severity, setSeverity] = useState<Severity>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanResult, setScanResult] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const { data: summary, isLoading: summaryLoading } = useAnomalySummary();
@@ -269,9 +272,23 @@ export default function AnomaliesPage() {
   // Available types from actual data
   const availableTypes = Array.from(new Set(allAnomalies.map((a) => a.type))).sort();
 
-  const handleRefresh = () => {
-    queryClient.invalidateQueries({ queryKey: ["anomalies"] });
-    queryClient.invalidateQueries({ queryKey: ["anomaly-summary"] });
+  const handleRefresh = async () => {
+    setIsScanning(true);
+    setScanResult(null);
+    try {
+      const result = await api.triggerAnomalyScan();
+      setScanResult(`Analys klar: ${result.total} anomalier hittade`);
+      // Invalidate cache to refresh the UI with fresh data
+      queryClient.invalidateQueries({ queryKey: ["anomalies"] });
+      queryClient.invalidateQueries({ queryKey: ["anomaly-summary"] });
+      // Clear result message after 5 seconds
+      setTimeout(() => setScanResult(null), 5000);
+    } catch (error) {
+      setScanResult("Analysen misslyckades. Försök igen.");
+      setTimeout(() => setScanResult(null), 5000);
+    } finally {
+      setIsScanning(false);
+    }
   };
 
   return (
@@ -284,10 +301,15 @@ export default function AnomaliesPage() {
             Automatisk granskning av bokföringen – misstänkta fel och avvikelser
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={handleRefresh} className="gap-2 flex-shrink-0">
-          <RefreshCw className="h-4 w-4" />
-          <span className="hidden sm:inline">Kör om analys</span>
-        </Button>
+        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isScanning} className="gap-2">
+            <RefreshCw className={`h-4 w-4 ${isScanning ? "animate-spin" : ""}`} />
+            <span className="hidden sm:inline">{isScanning ? "Analyserar…" : "Kör om analys"}</span>
+          </Button>
+          {scanResult && (
+            <p className="text-xs text-muted-foreground animate-in fade-in">{scanResult}</p>
+          )}
+        </div>
       </div>
 
       {/* Summary KPIs */}

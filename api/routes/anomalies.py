@@ -110,6 +110,43 @@ async def check_voucher_anomalies(voucher_id: str):
         )
 
 
+@router.post("/scan", response_model=dict)
+async def trigger_anomaly_scan(
+    period_id: Optional[str] = Query(None, description="Filtrera på period-ID"),
+):
+    """
+    Kör en ny anomalianalys och returnerar en sammanfattning.
+    
+    Till skillnad från GET-endpointen som kan cacha resultat,
+    triggar denna endpoint alltid en fullständig omanalys.
+    """
+    try:
+        service = AnomalyDetectionService()
+        anomalies = service.analyze(period_id=period_id)
+        
+        from collections import defaultdict
+        by_type: dict[str, int] = defaultdict(int)
+        by_severity: dict[str, int] = defaultdict(int)
+        for a in anomalies:
+            by_type[a.anomaly_type.value] += 1
+            by_severity[a.severity.value] += 1
+        
+        return {
+            "total": len(anomalies),
+            "by_type": dict(by_type),
+            "by_severity": dict(by_severity),
+            "critical_count": by_severity.get("critical", 0),
+            "warning_count": by_severity.get("warning", 0),
+            "info_count": by_severity.get("info", 0),
+            "period_id": period_id,
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Anomalianalys misslyckades: {str(e)}",
+        )
+
+
 @router.get("/types", response_model=dict)
 async def list_anomaly_types():
     """
