@@ -12,6 +12,11 @@ except ImportError:
     get_current_tenant = None  # type: ignore[assignment]
 from config import settings
 
+try:
+    from db.tenant_context import get_current_tenant
+except ImportError:
+    get_current_tenant = None  # type: ignore[assignment]
+
 router = APIRouter(prefix="/api/v1/import", tags=["import"])
 
 
@@ -59,7 +64,7 @@ async def import_sie4(
         if settings.multi_tenant and get_current_tenant is not None:
             tenant_id = get_current_tenant()
 
-        # Import — pass the caller's api_key and tenant so internal
+        # Import — pass the caller's API key and tenant so internal
         # sub-requests are authenticated for the correct tenant
         importer = SIE4Importer(
             api_url=settings.api_url,
