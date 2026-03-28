@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
@@ -75,7 +75,7 @@ export default function InvoiceDetailPage() {
   });
 
   const bookMutation = useMutation({
-    mutationFn: () => api.bookInvoice(id, "default"),
+    mutationFn: () => api.bookInvoice(id, invoice?.period_id || "default"),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["invoice", id] });
       setActionMessage({ type: "success", text: "Fakturan har bokförts" });
@@ -110,6 +110,12 @@ export default function InvoiceDetailPage() {
       });
     },
   });
+
+  useEffect(() => {
+    if (!actionMessage) return;
+    const t = setTimeout(() => setActionMessage(null), 5000);
+    return () => clearTimeout(t);
+  }, [actionMessage]);
 
   if (isLoading) {
     return (

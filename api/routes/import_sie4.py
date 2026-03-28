@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from typing import Optional
 
 from api.deps import get_current_actor, verify_api_key
+from db.tenant_context import get_current_tenant
 from services.sie4_import import SIE4Importer, create_sample_sie4
 from config import settings
 
@@ -52,7 +53,6 @@ async def import_sie4(
         # Determine tenant context for internal API calls
         tenant_id = None
         if settings.multi_tenant:
-            from db.tenant_context import get_current_tenant
             tenant_id = get_current_tenant()
 
         # Import — pass the caller's api_key and tenant so internal
