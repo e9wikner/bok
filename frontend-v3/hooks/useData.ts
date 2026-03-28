@@ -107,7 +107,7 @@ export function useGeneralLedger(accountCode: string, year?: number, month?: num
 export function usePeriods(fiscalYearId?: string) {
   return useQuery({
     queryKey: ["periods", fiscalYearId],
-    queryFn: () => api.getPeriods(),
+    queryFn: () => api.getPeriods(fiscalYearId),
     staleTime: 10 * 60 * 1000,
   });
 }

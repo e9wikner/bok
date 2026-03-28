@@ -330,8 +330,9 @@ export const api = {
   },
 
   // Periods
-  getPeriods: async () => {
-    const { data } = await apiClient.get("/api/v1/periods");
+  getPeriods: async (fiscalYearId?: string) => {
+    const params = fiscalYearId ? { fiscal_year_id: fiscalYearId } : undefined;
+    const { data } = await apiClient.get("/api/v1/periods", { params });
     return data;
   },
 
