@@ -12,11 +12,6 @@ except ImportError:
     get_current_tenant = None  # type: ignore[assignment]
 from config import settings
 
-try:
-    from db.tenant_context import get_current_tenant
-except ImportError:
-    get_current_tenant = None  # type: ignore[assignment]
-
 router = APIRouter(prefix="/api/v1/import", tags=["import"])
 
 
