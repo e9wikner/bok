@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     api_key: str = os.getenv("BOKFOERING_API_KEY", "dev-key-change-in-production")
     admin_api_key: str = os.getenv("ADMIN_API_KEY", "test-admin-key")
 
+    # JWT
+    jwt_secret: str = os.getenv("JWT_SECRET", "dev-jwt-secret-change-in-production")
+    jwt_algorithm: str = "HS256"
+    jwt_expire_days: int = 7
+
     # Security
     debug: bool = os.getenv("DEBUG", "False").lower() == "true"
 

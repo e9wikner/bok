@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 
 # Import routers
-from api.routes import vouchers, accounts, periods, reports, invoices, k2_reports, agent, import_sie4, import_csv, export_sie4, export_pdf, anomalies, bank, compliance, vat, learning, attachments, tenants
+from api.routes import vouchers, accounts, periods, reports, invoices, k2_reports, agent, import_sie4, import_csv, export_sie4, export_pdf, anomalies, bank, compliance, vat, learning, attachments, tenants, auth
 
 # Create app
 app = FastAPI(
@@ -79,6 +79,9 @@ app.include_router(attachments.router)
 
 # Tenant management (public read endpoints always available; admin endpoints require ADMIN_API_KEY)
 app.include_router(tenants.router)
+
+# Auth (JWT-based user authentication — additive, does not replace API key auth)
+app.include_router(auth.router)
 
 
 @app.get("/health", tags=["health"])
