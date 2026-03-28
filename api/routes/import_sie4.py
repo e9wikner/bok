@@ -7,6 +7,11 @@ from api.deps import get_current_actor, verify_api_key
 from services.sie4_import import SIE4Importer, create_sample_sie4
 from config import settings
 
+try:
+    from db.tenant_context import get_current_tenant
+except ImportError:
+    get_current_tenant = None  # type: ignore[assignment]
+
 router = APIRouter(prefix="/api/v1/import", tags=["import"])
 
 
@@ -51,8 +56,7 @@ async def import_sie4(
         
         # Determine tenant context for internal API calls
         tenant_id = None
-        if settings.multi_tenant:
-            from db.tenant_context import get_current_tenant
+        if settings.multi_tenant and get_current_tenant is not None:
             tenant_id = get_current_tenant()
 
         # Import — pass the caller's API key and tenant so internal
