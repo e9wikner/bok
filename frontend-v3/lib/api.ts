@@ -316,9 +316,23 @@ export const api = {
     return data;
   },
 
+  // Create voucher
+  createVoucher: async (payload: {
+    series?: string;
+    date: string;
+    period_id: string;
+    description: string;
+    rows: { account: string; debit: number; credit: number; description?: string }[];
+    auto_post?: boolean;
+  }) => {
+    const { data } = await apiClient.post("/api/v1/vouchers", payload);
+    return data;
+  },
+
   // Periods
-  getPeriods: async () => {
-    const { data } = await apiClient.get("/api/v1/periods");
+  getPeriods: async (fiscalYearId?: string) => {
+    const params = fiscalYearId ? { fiscal_year_id: fiscalYearId } : undefined;
+    const { data } = await apiClient.get("/api/v1/periods", { params });
     return data;
   },
 
