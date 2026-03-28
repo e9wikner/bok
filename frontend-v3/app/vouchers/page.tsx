@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Filter,
   Search,
+  Plus,
 } from "lucide-react";
 
 const PAGE_SIZE = 15;
@@ -61,13 +62,21 @@ export default function VouchersPage() {
 
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-[1400px] mx-auto">
-      <div>
-        <h1 className="text-2xl lg:text-3xl font-bold tracking-tight">
-          Verifikationer
-        </h1>
-        <p className="text-muted-foreground mt-1">
-          Hantera och granska verifikationer
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl lg:text-3xl font-bold tracking-tight">
+            Verifikationer
+          </h1>
+          <p className="text-muted-foreground mt-1">
+            Hantera och granska verifikationer
+          </p>
+        </div>
+        <Link href="/vouchers/new">
+          <Button>
+            <Plus className="h-4 w-4 mr-2" />
+            Ny verifikation
+          </Button>
+        </Link>
       </div>
 
       {/* Filters */}

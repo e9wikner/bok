@@ -62,12 +62,18 @@ async def import_sie4(
         # Import — pass the caller's API key and tenant so internal
         # sub-requests are authenticated for the correct tenant
         importer = SIE4Importer(
-            api_url="http://localhost:8000",
+            api_url=settings.api_url,
             api_key=api_key,
             tenant_id=tenant_id,
         )
         
-        success = importer.import_content(text_content, fiscal_year_id)
+        # Run the synchronous importer in a thread pool to avoid blocking
+        # the async event loop (importer makes blocking HTTP sub-requests)
+        import asyncio
+        loop = asyncio.get_event_loop()
+        success = await loop.run_in_executor(
+            None, importer.import_content, text_content, fiscal_year_id
+        )
         
         return {
             "success": success,

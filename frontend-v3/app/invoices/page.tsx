@@ -1,13 +1,27 @@
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { useState } from "react";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useInvoices } from "@/hooks/useData";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { Receipt, Clock, CheckCircle2, AlertTriangle, Send, Plus } from "lucide-react";
+import {
+  Receipt,
+  Clock,
+  CheckCircle2,
+  AlertTriangle,
+  Send,
+  Plus,
+  ChevronLeft,
+  ChevronRight,
+  Filter,
+  Search,
+} from "lucide-react";
 import Link from "next/link";
+
+const PAGE_SIZE = 15;
 
 const STATUS_CONFIG: Record<string, { label: string; variant: any; icon: any }> = {
   draft: { label: "Utkast", variant: "secondary", icon: Clock },
@@ -17,16 +31,46 @@ const STATUS_CONFIG: Record<string, { label: string; variant: any; icon: any }> 
   cancelled: { label: "Makulerad", variant: "outline", icon: null },
 };
 
-export default function InvoicesPage() {
-  const { data, isLoading } = useInvoices();
-  const invoices = data?.invoices || data || [];
+const statusOptions = [
+  { value: "", label: "Alla" },
+  { value: "draft", label: "Utkast" },
+  { value: "sent", label: "Skickad" },
+  { value: "paid", label: "Betald" },
+  { value: "overdue", label: "Förfallen" },
+  { value: "cancelled", label: "Makulerad" },
+];
 
-  // Summary stats
-  const totalAmount = invoices.reduce((s: number, i: any) => s + (i.amount_inc_vat || i.total_amount || 0), 0);
-  const paidCount = invoices.filter((i: any) => i.status === "paid").length;
-  const overdueCount = invoices.filter((i: any) => i.status === "overdue" || i.is_overdue).length;
-  const totalPaid = invoices.reduce((s: number, i: any) => s + (i.paid_amount || 0), 0);
+export default function InvoicesPage() {
+  const [status, setStatus] = useState("");
+  const [page, setPage] = useState(0);
+  const [search, setSearch] = useState("");
+
+  const { data, isLoading } = useInvoices(status || undefined);
+  const allInvoices = data?.invoices || data || [];
+
+  // Client-side search filter
+  const filtered = search
+    ? allInvoices.filter(
+        (inv: any) =>
+          inv.customer_name?.toLowerCase().includes(search.toLowerCase()) ||
+          String(inv.invoice_number || "").toLowerCase().includes(search.toLowerCase())
+      )
+    : allInvoices;
+
+  // Pagination
+  const total = filtered.length;
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+  // Summary stats (for ALL invoices matching current filter, not just current page)
+  const totalAmount = filtered.reduce((s: number, i: any) => s + (i.amount_inc_vat || i.total_amount || 0), 0);
+  const paidCount = filtered.filter((i: any) => i.status === "paid").length;
+  const overdueCount = filtered.filter((i: any) => i.status === "overdue" || i.is_overdue).length;
+  const totalPaid = filtered.reduce((s: number, i: any) => s + (i.paid_amount || 0), 0);
   const totalRemaining = totalAmount - totalPaid;
+
+  // Page total (sum for visible page)
+  const pageTotal = paged.reduce((s: number, i: any) => s + (i.amount_inc_vat || i.total_amount || 0), 0);
 
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-[1400px] mx-auto">
@@ -54,7 +98,7 @@ export default function InvoicesPage() {
         <Card>
           <CardContent className="p-4">
             <p className="text-sm text-muted-foreground">Antal fakturor</p>
-            <p className="text-2xl font-bold mt-1">{invoices.length}</p>
+            <p className="text-2xl font-bold mt-1">{total}</p>
           </CardContent>
         </Card>
         <Card>
@@ -74,11 +118,45 @@ export default function InvoicesPage() {
         </Card>
       </div>
 
+      {/* Filters */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Sök på kundnamn eller fakturanummer..."
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(0);
+                }}
+                className="w-full pl-9 pr-4 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Filter className="h-4 w-4 text-muted-foreground" />
+              {statusOptions.map((opt) => (
+                <Button
+                  key={opt.value}
+                  variant={status === opt.value ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    setStatus(opt.value);
+                    setPage(0);
+                  }}
+                >
+                  {opt.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Invoice list */}
       <Card>
-        <CardHeader>
-          <CardTitle>Alla fakturor</CardTitle>
-        </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
             <div className="p-6 space-y-3">
@@ -86,7 +164,7 @@ export default function InvoicesPage() {
                 <Skeleton key={i} className="h-12 w-full" />
               ))}
             </div>
-          ) : invoices.length > 0 ? (
+          ) : paged.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -101,7 +179,7 @@ export default function InvoicesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {invoices.map((inv: any) => {
+                  {paged.map((inv: any) => {
                     const effectiveStatus = inv.is_overdue && inv.status !== "paid" ? "overdue" : inv.status;
                     const config = STATUS_CONFIG[effectiveStatus] || STATUS_CONFIG.draft;
                     const amount = inv.amount_inc_vat || inv.total_amount || 0;
@@ -136,16 +214,60 @@ export default function InvoicesPage() {
                     );
                   })}
                 </tbody>
+                {/* Footer with page total */}
+                <tfoot>
+                  <tr className="border-t bg-muted/50 font-medium">
+                    <td className="p-4" colSpan={5}>
+                      Summa (denna sida)
+                    </td>
+                    <td className="p-4 text-right font-mono">
+                      {formatCurrency(pageTotal)}
+                    </td>
+                    <td className="p-4" />
+                  </tr>
+                </tfoot>
               </table>
             </div>
           ) : (
             <div className="p-12 text-center text-muted-foreground">
               <Receipt className="h-12 w-12 mx-auto mb-4 opacity-30" />
-              <p>Inga fakturor ännu</p>
+              <p>Inga fakturor hittades</p>
             </div>
           )}
         </CardContent>
       </Card>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            Visar {page * PAGE_SIZE + 1}-{Math.min((page + 1) * PAGE_SIZE, total)} av {total}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={page === 0}
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Föregående
+            </Button>
+            <span className="text-sm px-2">
+              {page + 1} / {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+              disabled={page >= totalPages - 1}
+            >
+              Nästa
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

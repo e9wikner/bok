@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     api_version: str = "0.1.0"
     api_description: str = "REST API för bokföring enligt BFL och BFNAR 2013:2"
 
+    # Internal API URL (used by SIE4 importer for sub-requests)
+    api_url: str = os.getenv("API_URL", "http://localhost:8000")
+
     # Authentication
     api_key: str = os.getenv("BOKFOERING_API_KEY", "dev-key-change-in-production")
     admin_api_key: str = os.getenv("ADMIN_API_KEY", "test-admin-key")
