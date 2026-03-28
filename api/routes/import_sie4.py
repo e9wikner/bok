@@ -4,8 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from typing import Optional
 
 from api.deps import get_current_actor, verify_api_key
-from db.tenant_context import get_current_tenant
 from services.sie4_import import SIE4Importer, create_sample_sie4
+
+try:
+    from db.tenant_context import get_current_tenant
+except ImportError:
+    get_current_tenant = None  # type: ignore[assignment]
 from config import settings
 
 router = APIRouter(prefix="/api/v1/import", tags=["import"])
@@ -52,18 +56,24 @@ async def import_sie4(
         
         # Determine tenant context for internal API calls
         tenant_id = None
-        if settings.multi_tenant:
+        if settings.multi_tenant and get_current_tenant is not None:
             tenant_id = get_current_tenant()
 
         # Import — pass the caller's api_key and tenant so internal
         # sub-requests are authenticated for the correct tenant
         importer = SIE4Importer(
-            api_url="http://localhost:8000",
+            api_url=settings.api_url,
             api_key=api_key,
             tenant_id=tenant_id,
         )
         
-        success = importer.import_content(text_content, fiscal_year_id)
+        # Run the synchronous importer in a thread pool to avoid blocking
+        # the async event loop (importer makes blocking HTTP sub-requests)
+        import asyncio
+        loop = asyncio.get_event_loop()
+        success = await loop.run_in_executor(
+            None, importer.import_content, text_content, fiscal_year_id
+        )
         
         return {
             "success": success,
