@@ -160,6 +160,18 @@ export const api = {
     const { data } = await apiClient.post("/api/v1/invoices", payload);
     return data;
   },
+  sendInvoice: async (id: string) => {
+    const { data } = await apiClient.post(`/api/v1/invoices/${id}/send`);
+    return data;
+  },
+  bookInvoice: async (id: string, periodId: string) => {
+    const { data } = await apiClient.post(`/api/v1/invoices/${id}/book`, { period_id: periodId });
+    return data;
+  },
+  registerPayment: async (id: string, payload: { amount: number; payment_date: string; payment_method: string; reference?: string }) => {
+    const { data } = await apiClient.post(`/api/v1/invoices/${id}/payment`, payload);
+    return data;
+  },
 
   // Reports
   getIncomeStatement: async (year?: number, month?: number) => {

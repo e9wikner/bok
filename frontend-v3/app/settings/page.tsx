@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { useHealth } from "@/hooks/useData";
 import { api } from "@/lib/api";
+import { useDarkMode } from "@/hooks/useDarkMode";
 import {
   Upload,
   FileUp,
@@ -13,10 +14,14 @@ import {
   AlertTriangle,
   Download,
   Server,
+  Sun,
+  Moon,
+  Monitor,
 } from "lucide-react";
 
 export default function SettingsPage() {
   const { data: health } = useHealth();
+  const { isDark, toggle } = useDarkMode();
 
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-[1000px] mx-auto">
@@ -28,6 +33,49 @@ export default function SettingsPage() {
           Systemkonfiguration och dataimport
         </p>
       </div>
+
+      {/* Appearance / Dark mode */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Monitor className="h-5 w-5 text-primary" />
+            Utseende
+          </CardTitle>
+          <CardDescription>
+            Välj mellan ljust och mörkt läge
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => { if (isDark) toggle(); }}
+              className={`flex items-center gap-2 px-4 py-3 rounded-lg border-2 transition-colors ${
+                !isDark
+                  ? "border-primary bg-primary/5"
+                  : "border-border hover:border-primary/50"
+              }`}
+            >
+              <Sun className="h-5 w-5 text-amber-500" />
+              <div className="text-left">
+                <p className="text-sm font-medium">Ljust</p>
+              </div>
+            </button>
+            <button
+              onClick={() => { if (!isDark) toggle(); }}
+              className={`flex items-center gap-2 px-4 py-3 rounded-lg border-2 transition-colors ${
+                isDark
+                  ? "border-primary bg-primary/5"
+                  : "border-border hover:border-primary/50"
+              }`}
+            >
+              <Moon className="h-5 w-5 text-blue-500" />
+              <div className="text-left">
+                <p className="text-sm font-medium">Mörkt</p>
+              </div>
+            </button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* API Status */}
       <Card>

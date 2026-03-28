@@ -50,10 +50,10 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default function DashboardPage() {
-  const { data: vouchersData, isLoading: vLoading } = useVouchers();
-  const { data: accountsData, isLoading: aLoading } = useAccounts();
-  const { data: rulesData, isLoading: rLoading } = useLearningRules();
-  const { data: anomalyData } = useAnomalySummary();
+  const { data: vouchersData, isLoading: vLoading, isError: vError } = useVouchers();
+  const { data: accountsData, isLoading: aLoading, isError: aError } = useAccounts();
+  const { data: rulesData, isLoading: rLoading, isError: rError } = useLearningRules();
+  const { data: anomalyData, isError: anError } = useAnomalySummary();
   const { data: healthData } = useHealth();
   const { data: tenantData } = useCurrentTenant();
 
@@ -126,6 +126,7 @@ export default function DashboardPage() {
           icon={FileText}
           color="blue"
           loading={vLoading}
+          error={vError}
           href="/vouchers"
         />
         <KpiCard
@@ -134,6 +135,7 @@ export default function DashboardPage() {
           icon={BookOpen}
           color="emerald"
           loading={aLoading}
+          error={aError}
           href="/accounts"
         />
         <KpiCard
@@ -142,6 +144,7 @@ export default function DashboardPage() {
           icon={Brain}
           color="violet"
           loading={rLoading}
+          error={rError}
           href="/learning"
         />
         <KpiCard
@@ -150,6 +153,7 @@ export default function DashboardPage() {
           icon={AlertTriangle}
           color="amber"
           loading={false}
+          error={anError}
           href="/anomalies"
           subtitle={
             anomalyData?.critical_count
@@ -378,6 +382,7 @@ function KpiCard({
   icon: Icon,
   color,
   loading,
+  error,
   href,
   subtitle,
 }: {
@@ -386,6 +391,7 @@ function KpiCard({
   icon: any;
   color: string;
   loading: boolean;
+  error?: boolean;
   href: string;
   subtitle?: string;
 }) {
@@ -413,6 +419,8 @@ function KpiCard({
           </div>
           {loading ? (
             <Skeleton className="h-8 w-16 mb-1" />
+          ) : error ? (
+            <p className="text-sm text-red-500 dark:text-red-400 mt-1">Kunde inte hämta data</p>
           ) : (
             <p className="text-2xl lg:text-3xl font-bold">{value}</p>
           )}
