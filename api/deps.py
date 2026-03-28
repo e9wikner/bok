@@ -44,15 +44,15 @@ def verify_api_key(authorization: Optional[str] = Header(None)) -> str:
                     detail="Invalid API key",
                     headers={"WWW-Authenticate": "Bearer"},
                 )
+            # Legacy key — tenant context already set by middleware, leave it
         else:
-            # Verify the API key matches the tenant in the header
-            from db.tenant_context import get_current_tenant
-            current_tenant = get_current_tenant()
-            if current_tenant != settings.default_tenant_id and current_tenant != tenant["id"]:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="API key does not match the specified tenant",
-                )
+            # Key belongs to a specific tenant — trust the key, not the header.
+            # This fixes the case where internal sub-requests (e.g. from SIE4
+            # importer) may carry a stale or default X-Tenant-Id header while
+            # providing a valid tenant-specific API key. The key IS the
+            # credential; set the context to match it.
+            from db.tenant_context import set_current_tenant
+            set_current_tenant(tenant["id"])
     else:
         # Single-tenant mode: simple key check
         if api_key != settings.api_key:
