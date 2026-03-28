@@ -133,8 +133,10 @@ export const api = {
   },
 
   // Invoices
-  getInvoices: async () => {
-    const { data } = await apiClient.get("/api/v1/invoices");
+  getInvoices: async (status?: string) => {
+    const { data } = await apiClient.get("/api/v1/invoices", {
+      params: { status_filter: status },
+    });
     return data;
   },
   getInvoice: async (id: string) => {
