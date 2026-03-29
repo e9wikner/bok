@@ -107,6 +107,12 @@ async def login(body: LoginRequest):
     )
 
 
+@router.post("/logout")
+async def logout():
+    """Logout endpoint. JWT is stateless so just return 200 OK."""
+    return {"message": "Logged out successfully"}
+
+
 @router.get("/me", response_model=MeResponse)
 async def get_me(token: str = Depends(get_bearer_token)):
     """Return the currently authenticated user's profile and tenants."""
