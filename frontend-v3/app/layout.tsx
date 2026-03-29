@@ -3,6 +3,8 @@ import localFont from "next/font/local";
 import "./globals.css";
 import { Providers } from "./providers";
 import { Sidebar } from "@/components/Sidebar";
+import AuthGuard from "@/components/AuthGuard";
+import { PUBLIC_PATHS_FOR_LAYOUT } from "@/lib/auth-config";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -24,14 +26,20 @@ export default function RootLayout({
     <html lang="sv" suppressHydrationWarning>
       <body className={`${geistSans.variable} font-sans antialiased`}>
         <Providers>
-          <div className="flex min-h-screen">
-            <Sidebar />
-            <main className="flex-1 lg:min-h-screen">
-              <div className="pt-14 pb-20 lg:pt-0 lg:pb-0">{children}</div>
-            </main>
-          </div>
+          <AuthGuard>
+            <AppShell>{children}</AppShell>
+          </AuthGuard>
         </Providers>
       </body>
     </html>
   );
 }
+
+function AppShell({ children }: { children: React.ReactNode }) {
+  // Public pages (login/register) get rendered without the sidebar shell.
+  // We use a client component for the conditional logic.
+  return <AppShellClient>{children}</AppShellClient>;
+}
+
+// Client component so we can use usePathname
+import AppShellClient from "@/components/AppShellClient";
