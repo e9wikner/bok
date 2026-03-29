@@ -72,3 +72,53 @@
     @apply bg-border rounded-full;
   }
 }
+
+/* ─── Mobile-first responsive fixes (390px / small phones) ─────────── */
+@media (max-width: 430px) {
+  /* Prevent horizontal overflow on all pages */
+  body,
+  main,
+  #__next {
+    overflow-x: hidden;
+    max-width: 100vw;
+  }
+
+  /* All data tables scroll horizontally instead of overflowing */
+  table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+    width: 100%;
+  }
+
+  /* Cards/containers: remove excessive padding */
+  .card-content,
+  [class*="CardContent"] {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+
+  /* Page headings: smaller on tiny screens */
+  h1.page-title {
+    font-size: 1.25rem;
+  }
+
+  /* Stat cards in dashboard: single column */
+  .stats-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Invoice / voucher filter row: stack filters vertically */
+  .filter-row {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  /* Report tabs: allow horizontal scroll */
+  [role="tablist"] {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap;
+  }
+}

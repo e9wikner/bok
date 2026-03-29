@@ -17,10 +17,14 @@ import {
   Sun,
   Shield,
   AlertTriangle,
+  Building2,
+  LogOut,
 } from "lucide-react";
 import { useDarkMode } from "@/hooks/useDarkMode";
-import { useState } from "react";
+import { useAuth } from "@/hooks/useAuth";
+import { useState, useRef, useEffect } from "react";
 import TenantSelector from "@/components/TenantSelector";
+import TenantSelectorCompact from "@/components/TenantSelectorCompact";
 
 const navItems = [
   { href: "/", label: "Översikt", icon: LayoutDashboard },
@@ -36,11 +40,12 @@ const navItems = [
 export function Sidebar() {
   const pathname = usePathname();
   const { isDark, toggle } = useDarkMode();
+  const { logout, user } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
 
   return (
     <>
-      {/* Mobile overlay */}
+      {/* Mobile top-bar */}
       <div className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-card border-b px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center">
@@ -48,12 +53,16 @@ export function Sidebar() {
           </div>
           <span className="font-bold text-lg">AIBok</span>
         </div>
-        <button onClick={toggle} className="p-2 rounded-lg hover:bg-accent">
-          {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-        </button>
+        {/* TenantSelector visible in mobile top-bar */}
+        <div className="flex items-center gap-2">
+          <TenantSelectorCompact />
+          <button onClick={toggle} className="p-2 rounded-lg hover:bg-accent">
+            {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+          </button>
+        </div>
       </div>
 
-      {/* Mobile bottom nav — show key pages + settings */}
+      {/* Mobile bottom nav */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-card border-t">
         <div className="flex items-center justify-around py-2">
           {navItems.map((item) => {
@@ -100,8 +109,8 @@ export function Sidebar() {
           )}
         </div>
 
-        {/* Tenant selector (multi-tenant mode) */}
-        {!collapsed && <TenantSelector />}
+        {/* Tenant selector */}
+        {collapsed ? <TenantSelectorCollapsed /> : <TenantSelector />}
 
         {/* Nav */}
         <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto scrollbar-thin">
@@ -148,6 +157,20 @@ export function Sidebar() {
             {!collapsed && <span>{isDark ? "Ljust läge" : "Mörkt läge"}</span>}
           </button>
 
+          {user && (
+            <button
+              onClick={logout}
+              className={cn(
+                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-all w-full",
+                collapsed && "justify-center px-0"
+              )}
+              title="Logga ut"
+            >
+              <LogOut className="h-5 w-5 flex-shrink-0" />
+              {!collapsed && <span>Logga ut</span>}
+            </button>
+          )}
+
           <button
             onClick={() => setCollapsed((v) => !v)}
             className={cn(
@@ -165,5 +188,47 @@ export function Sidebar() {
         </div>
       </aside>
     </>
+  );
+}
+
+/** Collapsed desktop sidebar: show Building2 icon that opens a popover */
+function TenantSelectorCollapsed() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative flex justify-center py-3 border-b border-border">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="p-2 rounded-lg hover:bg-accent text-muted-foreground hover:text-accent-foreground transition-colors"
+        title="Välj företag"
+      >
+        <Building2 className="h-5 w-5" />
+      </button>
+
+      {open && (
+        <div className="absolute left-full top-0 ml-2 z-50 w-64 rounded-lg border border-border bg-card shadow-lg">
+          <div className="px-3 py-2 border-b">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              Välj företag
+            </p>
+          </div>
+          <div className="p-1">
+            <TenantSelector />
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
