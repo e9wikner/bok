@@ -66,7 +66,7 @@ export function useAuthState(): AuthContextType {
   }, []);
 
   const login = useCallback(async (username: string, password: string) => {
-    const res = await fetch(`${API_URL}/auth/login`, {
+    const res = await fetch(`${API_URL}/api/v1/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
@@ -103,7 +103,7 @@ export function useAuthState(): AuthContextType {
 }
 
 async function fetchMe(token: string): Promise<AuthUser> {
-  const res = await fetch(`${API_URL}/auth/me`, {
+  const res = await fetch(`${API_URL}/api/v1/auth/me`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new Error("Unauthorized");
