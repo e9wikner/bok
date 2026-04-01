@@ -36,7 +36,7 @@ export default function RootLayout({
 }
 
 function AppShell({ children }: { children: React.ReactNode }) {
-  // Public pages (login/register) get rendered without the sidebar shell.
+  // Public pages (login) get rendered without the sidebar shell.
   // We use a client component for the conditional logic.
   return <AppShellClient>{children}</AppShellClient>;
 }

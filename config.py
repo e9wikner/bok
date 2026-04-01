@@ -21,6 +21,8 @@ class Settings(BaseSettings):
 
     # Authentication
     api_key: str = os.getenv("BOKFOERING_API_KEY", "dev-key-change-in-production")
+    auth_username: str = os.getenv("AUTH_USERNAME", "admin")
+    auth_password: str = os.getenv("AUTH_PASSWORD", "admin")
 
     # JWT
     jwt_secret: str = os.getenv("JWT_SECRET", "dev-jwt-secret-change-in-production")

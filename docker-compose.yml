@@ -8,7 +8,9 @@ services:
       - bokfoering-data:/app/data
     environment:
       - DEBUG=False
-      - BOKFOERING_API_KEY=dev-key-change-in-production
+      - BOKFOERING_API_KEY=${BOKFOERING_API_KEY:-dev-key-change-in-production}
+      - AUTH_USERNAME=${AUTH_USERNAME:-admin}
+      - AUTH_PASSWORD=${AUTH_PASSWORD:-admin}
       - DATABASE_URL=sqlite:////app/data/bokfoering.db
     command: sh -c "python main.py --init-db --seed && python main.py --host 0.0.0.0 --port 8000"
     restart: unless-stopped

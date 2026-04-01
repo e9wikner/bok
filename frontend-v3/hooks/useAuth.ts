@@ -6,20 +6,17 @@ import {
   useState,
   useCallback,
   useEffect,
-  ReactNode,
 } from "react";
 
 export interface AuthUser {
-  id: string;
-  email: string;
-  full_name?: string;
+  username: string;
 }
 
 export interface AuthContextType {
   user: AuthUser | null;
   token: string | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<void>;
   logout: () => void;
   isAuthenticated: boolean;
 }
@@ -68,11 +65,11 @@ export function useAuthState(): AuthContextType {
     }
   }, []);
 
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (username: string, password: string) => {
     const res = await fetch(`${API_URL}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ username, password }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -111,22 +108,5 @@ async function fetchMe(token: string): Promise<AuthUser> {
   });
   if (!res.ok) throw new Error("Unauthorized");
   const data = await res.json();
-  return { id: data.id, email: data.email, full_name: data.full_name };
-}
-
-// Register helper (used on register page, no hook needed)
-export async function registerUser(
-  email: string,
-  password: string,
-  fullName?: string
-): Promise<void> {
-  const res = await fetch(`${API_URL}/auth/register`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password, full_name: fullName }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || "Registrering misslyckades");
-  }
+  return { username: data.username };
 }

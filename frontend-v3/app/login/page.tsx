@@ -2,12 +2,11 @@
 
 import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import Link from "next/link";
 import { Shield } from "lucide-react";
 
 export default function LoginPage() {
   const { login } = useAuth();
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -17,7 +16,7 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      await login(email, password);
+      await login(username, password);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Inloggning misslyckades");
     } finally {
@@ -46,18 +45,18 @@ export default function LoginPage() {
           )}
 
           <div className="space-y-1">
-            <label className="text-sm font-medium" htmlFor="email">
-              E-post
+            <label className="text-sm font-medium" htmlFor="username">
+              Användarnamn
             </label>
             <input
-              id="email"
-              type="email"
-              autoComplete="email"
+              id="username"
+              type="text"
+              autoComplete="username"
               required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-              placeholder="du@foretag.se"
+              placeholder="admin"
             />
           </div>
 
@@ -85,13 +84,6 @@ export default function LoginPage() {
             {loading ? "Loggar in…" : "Logga in"}
           </button>
         </form>
-
-        <p className="text-center text-sm text-muted-foreground">
-          Inget konto?{" "}
-          <Link href="/register" className="text-primary hover:underline font-medium">
-            Skapa konto
-          </Link>
-        </p>
       </div>
     </div>
   );

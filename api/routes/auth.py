@@ -1,9 +1,9 @@
-"""Auth routes — register, login, and /me."""
+"""Auth routes — login and /me."""
 
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 
 from services.auth import AuthService
 
@@ -14,27 +14,13 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 # Request / Response schemas
 # ------------------------------------------------------------------
 
-class RegisterRequest(BaseModel):
-    email: EmailStr
-    password: str
-    full_name: Optional[str] = None
-
-
 class LoginRequest(BaseModel):
-    email: EmailStr
+    username: str
     password: str
 
 
 class UserOut(BaseModel):
-    id: str
-    email: str
-    full_name: Optional[str] = None
-
-
-class RegisterResponse(BaseModel):
-    id: str
-    email: str
-    full_name: Optional[str] = None
+    username: str
 
 
 class LoginResponse(BaseModel):
@@ -44,9 +30,7 @@ class LoginResponse(BaseModel):
 
 
 class MeResponse(BaseModel):
-    id: str
-    email: str
-    full_name: Optional[str] = None
+    username: str
 
 
 # ------------------------------------------------------------------
@@ -75,24 +59,16 @@ def get_bearer_token(authorization: Optional[str] = Header(None)) -> str:
 # Endpoints
 # ------------------------------------------------------------------
 
-@router.post("/register", response_model=RegisterResponse, status_code=201)
-async def register(body: RegisterRequest):
-    """Register a new user account."""
-    svc = AuthService()
-    result = svc.register(body.email, body.password, body.full_name)
-    return result
-
-
 @router.post("/login", response_model=LoginResponse)
 async def login(body: LoginRequest):
     """Authenticate and receive a JWT access token."""
     svc = AuthService()
-    token = svc.login(body.email, body.password)
+    token = svc.login(body.username, body.password)
     me = svc.get_me(token)
     return LoginResponse(
         access_token=token,
         token_type="bearer",
-        user=UserOut(id=me["id"], email=me["email"], full_name=me.get("full_name")),
+        user=UserOut(username=me["username"]),
     )
 
 
@@ -106,5 +82,4 @@ async def logout():
 async def get_me(token: str = Depends(get_bearer_token)):
     """Return the currently authenticated user's profile."""
     svc = AuthService()
-    result = svc.get_me(token)
-    return result
+    return svc.get_me(token)
