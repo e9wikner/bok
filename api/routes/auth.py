@@ -31,32 +31,22 @@ class UserOut(BaseModel):
     full_name: Optional[str] = None
 
 
-class TenantOut(BaseModel):
-    id: str
-    role: str
-    name: Optional[str] = None
-    org_number: Optional[str] = None
-
-
 class RegisterResponse(BaseModel):
     id: str
     email: str
     full_name: Optional[str] = None
-    tenants: list[TenantOut]
 
 
 class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserOut
-    tenants: list[TenantOut]
 
 
 class MeResponse(BaseModel):
     id: str
     email: str
     full_name: Optional[str] = None
-    tenants: list[TenantOut]
 
 
 # ------------------------------------------------------------------
@@ -103,7 +93,6 @@ async def login(body: LoginRequest):
         access_token=token,
         token_type="bearer",
         user=UserOut(id=me["id"], email=me["email"], full_name=me.get("full_name")),
-        tenants=[TenantOut(**t) for t in me["tenants"]],
     )
 
 
@@ -115,7 +104,7 @@ async def logout():
 
 @router.get("/me", response_model=MeResponse)
 async def get_me(token: str = Depends(get_bearer_token)):
-    """Return the currently authenticated user's profile and tenants."""
+    """Return the currently authenticated user's profile."""
     svc = AuthService()
     result = svc.get_me(token)
     return result

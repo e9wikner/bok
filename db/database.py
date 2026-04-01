@@ -3,12 +3,6 @@
 Thread-safe SQLite database manager using thread-local connections.
 Each thread gets its own connection, which is required for SQLite
 with FastAPI/uvicorn (which may use multiple threads).
-
-Multi-tenant support: the module-level ``db`` object is a
-TenantAwareDatabaseProxy that transparently routes every call to the
-Database instance belonging to the current tenant (resolved via a
-contextvars.ContextVar). All existing code that does
-``from db.database import db`` continues to work without changes.
 """
 
 import sqlite3
@@ -140,70 +134,5 @@ class Database:
         print(f"✓ Database initialized: {self.db_path}")
 
 
-class TenantAwareDatabaseProxy:
-    """Proxy that delegates all Database methods to the tenant-specific
-    Database instance resolved from the current contextvars context.
-
-    All 21+ files that ``from db.database import db`` keep working
-    unchanged — they call db.execute() etc. and the proxy transparently
-    routes to the correct SQLite file.
-    """
-
-    def __init__(self):
-        self._manager = None  # Lazy init to avoid circular imports
-
-    def _get_manager(self):
-        if self._manager is None:
-            from db.tenant_db_manager import TenantDbManager
-            self._manager = TenantDbManager()
-        return self._manager
-
-    def _get_db(self) -> Database:
-        from db.tenant_context import get_current_tenant
-        tenant_id = get_current_tenant()
-        return self._get_manager().get_database(tenant_id)
-
-    def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
-        return self._get_db().execute(sql, params)
-
-    def executemany(self, sql: str, params_list: list) -> sqlite3.Cursor:
-        return self._get_db().executemany(sql, params_list)
-
-    def commit(self) -> None:
-        return self._get_db().commit()
-
-    def rollback(self) -> None:
-        return self._get_db().rollback()
-
-    def transaction(self):
-        return self._get_db().transaction()
-
-    def connect(self) -> sqlite3.Connection:
-        return self._get_db().connect()
-
-    def disconnect(self) -> None:
-        return self._get_db().disconnect()
-
-    def init_db(self) -> None:
-        return self._get_db().init_db()
-
-    @property
-    def db_path(self) -> str:
-        return self._get_db().db_path
-
-    @db_path.setter
-    def db_path(self, value: str) -> None:
-        self._get_db().db_path = value
-
-    @property
-    def connection(self):
-        """Backward compat for tests that set db.connection = None."""
-        return getattr(self._get_db()._local, 'connection', None)
-
-    @connection.setter
-    def connection(self, value):
-        self._get_db()._local.connection = value
-
-
-# Global database proxy — tenant-aware, backward compatible
-db = TenantAwareDatabaseProxy()
+# Global database instance
+db = Database()

@@ -77,39 +77,12 @@ class AuthService:
         row = cursor.fetchone()
         return dict(row) if row else None
 
-    def _get_user_tenants(self, user_id: str) -> list:
-        """Return list of tenant info dicts for the given user."""
-        cursor = db.execute(
-            """
-            SELECT ut.tenant_id, ut.role, ut.created_at
-            FROM user_tenants ut
-            WHERE ut.user_id = ?
-            """,
-            (user_id,),
-        )
-        rows = cursor.fetchall()
-        result = []
-        for row in rows:
-            tenant_info = {"id": row["tenant_id"], "role": row["role"]}
-            # Try to enrich with tenant registry info (multi-tenant mode)
-            try:
-                from db.tenant_registry import TenantRegistry
-                registry = TenantRegistry()
-                tenant = registry.get_tenant(row["tenant_id"])
-                if tenant:
-                    tenant_info["name"] = tenant.get("name", "")
-                    tenant_info["org_number"] = tenant.get("org_number", "")
-            except Exception:
-                pass
-            result.append(tenant_info)
-        return result
-
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
     def register(self, email: str, password: str, full_name: Optional[str] = None) -> dict:
-        """Register a new user and link them to the default tenant.
+        """Register a new user.
 
         Returns a user dict (without password_hash).
         Raises HTTP 409 if email already exists.
@@ -132,21 +105,11 @@ class AuthService:
                 """,
                 (user_id, email, password_hash, full_name),
             )
-            # Link user to default tenant with role "owner"
-            db.execute(
-                """
-                INSERT INTO user_tenants (user_id, tenant_id, role)
-                VALUES (?, ?, 'owner')
-                """,
-                (user_id, settings.default_tenant_id),
-            )
 
-        tenants = self._get_user_tenants(user_id)
         return {
             "id": user_id,
             "email": email,
             "full_name": full_name,
-            "tenants": tenants,
         }
 
     def login(self, email: str, password: str) -> str:
@@ -176,7 +139,7 @@ class AuthService:
         return self.create_jwt(user["id"], user["email"])
 
     def get_me(self, token: str) -> dict:
-        """Decode JWT and return user info + tenant list."""
+        """Decode JWT and return user info."""
         payload = self.verify_jwt(token)
         user_id = payload.get("sub")
         if not user_id:
@@ -192,10 +155,8 @@ class AuthService:
                 detail="User not found",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        tenants = self._get_user_tenants(user_id)
         return {
             "id": user["id"],
             "email": user["email"],
             "full_name": user.get("full_name"),
-            "tenants": tenants,
         }

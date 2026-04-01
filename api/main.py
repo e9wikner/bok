@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 
 # Import routers
-from api.routes import vouchers, accounts, periods, reports, invoices, k2_reports, agent, import_sie4, import_csv, export_sie4, export_pdf, anomalies, bank, compliance, vat, learning, attachments, tenants, auth
+from api.routes import vouchers, accounts, periods, reports, invoices, k2_reports, agent, import_sie4, import_csv, export_sie4, export_pdf, anomalies, bank, compliance, vat, learning, attachments, auth
 
 # Create app
 app = FastAPI(
@@ -29,11 +29,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Add tenant middleware (multi-tenant mode)
-if settings.multi_tenant:
-    from api.middleware.tenant import TenantMiddleware
-    app.add_middleware(TenantMiddleware)
 
 # Include routers (organized by phase)
 # Fas 1: Grundbokföring
@@ -77,9 +72,6 @@ app.include_router(learning.router)
 # Attachments
 app.include_router(attachments.router)
 
-# Tenant management (public read endpoints always available; admin endpoints require ADMIN_API_KEY)
-app.include_router(tenants.router)
-
 # Auth (JWT-based user authentication — additive, does not replace API key auth)
 app.include_router(auth.router)
 
@@ -96,7 +88,7 @@ async def health_check():
         ).decode().strip()
     except Exception:
         commit = os.environ.get("GIT_COMMIT", "unknown")
-    
+
     return {
         "status": "ok",
         "service": "bokfoering-api",

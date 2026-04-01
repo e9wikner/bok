@@ -14,7 +14,6 @@ from db.database import db
 
 router = APIRouter(prefix="/api/v1/vouchers", tags=["attachments"])
 
-# Default attachments directory (overridden per-tenant in multi-tenant mode)
 _DEFAULT_ATTACHMENTS_DIR = Path(os.environ.get("ATTACHMENTS_DIR", "/app/data/attachments"))
 ALLOWED_MIME_TYPES = {
     "image/jpeg", "image/png", "image/gif", "image/webp",
@@ -24,12 +23,7 @@ MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 
 def _get_attachments_dir() -> Path:
-    """Get the attachments directory, scoped to the current tenant in multi-tenant mode."""
-    from config import settings
-    if settings.multi_tenant:
-        from db.tenant_context import get_current_tenant
-        tenant_id = get_current_tenant()
-        return Path(settings.tenant_data_dir) / tenant_id / "attachments"
+    """Get the attachments directory."""
     return _DEFAULT_ATTACHMENTS_DIR
 
 

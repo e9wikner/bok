@@ -10,14 +10,6 @@ from config import settings
 
 def init_db():
     """Initialize database and load BAS 2026 default accounts."""
-    if settings.multi_tenant:
-        _init_multi_tenant()
-    else:
-        _init_single_tenant()
-
-
-def _init_single_tenant():
-    """Initialize a single default database (original behavior)."""
     print(f"🔧 Initializing database ({settings.database_url})...")
     db.init_db()
 
@@ -25,63 +17,6 @@ def _init_single_tenant():
     _load_default_accounts()
 
     print("✅ Database initialization complete!")
-
-
-def _init_multi_tenant():
-    """Initialize multi-tenant infrastructure and all registered tenant DBs."""
-    from db.tenant_registry import TenantRegistry
-    from db.tenant_context import set_current_tenant
-
-    print("🔧 Initializing multi-tenant infrastructure...")
-
-    # Initialize the master tenant registry
-    registry = TenantRegistry()
-    tenants = registry.list_tenants()
-
-    if not tenants:
-        # Auto-create the default tenant if no tenants exist
-        print(f"  📝 Creating default tenant '{settings.default_tenant_id}'...")
-        registry.create_tenant(
-            tenant_id=settings.default_tenant_id,
-            name="Default Company",
-            api_key=settings.api_key,
-        )
-        tenants = registry.list_tenants()
-
-    # Initialize each tenant's database
-    for tenant in tenants:
-        tid = tenant["id"]
-        print(f"\n🏢 Initializing tenant '{tid}' ({tenant['name']})...")
-        set_current_tenant(tid)
-        db.init_db()
-
-        print("  📊 Loading BAS 2026 Chart of Accounts...")
-        _load_default_accounts()
-
-    # Reset to default
-    set_current_tenant(settings.default_tenant_id)
-    print(f"\n✅ Multi-tenant initialization complete ({len(tenants)} tenant(s))!")
-
-
-def create_tenant(tenant_id: str, name: str, api_key: str):
-    """Create a new tenant via CLI."""
-    from db.tenant_registry import TenantRegistry
-    from db.tenant_context import set_current_tenant
-
-    registry = TenantRegistry()
-
-    if registry.tenant_exists(tenant_id):
-        print(f"❌ Tenant '{tenant_id}' already exists!")
-        sys.exit(1)
-
-    registry.create_tenant(tenant_id=tenant_id, name=name, api_key=api_key)
-    print(f"✅ Tenant '{tenant_id}' registered.")
-
-    # Initialize the tenant's database
-    set_current_tenant(tenant_id)
-    db.init_db()
-    _load_default_accounts()
-    print(f"✅ Database initialized for tenant '{tenant_id}'.")
 
 
 def _load_default_accounts():
@@ -137,8 +72,6 @@ def _load_default_accounts():
 def run_server(host: str = "0.0.0.0", port: int = 8000):
     """Run FastAPI server."""
     print(f"🚀 Starting server on {host}:{port}...")
-    if settings.multi_tenant:
-        print("🏢 Multi-tenant mode enabled")
     # Disable auto-reload in Docker (causes Pydantic recursion errors)
     uvicorn.run(
         "api.main:app",
@@ -173,21 +106,8 @@ def main():
         default=8000,
         help="Server port (default: 8000)"
     )
-    parser.add_argument(
-        "--create-tenant",
-        nargs=3,
-        metavar=("ID", "NAME", "API_KEY"),
-        help="Create a new tenant (multi-tenant mode only)"
-    )
 
     args = parser.parse_args()
-
-    if args.create_tenant:
-        if not settings.multi_tenant:
-            print("❌ --create-tenant requires MULTI_TENANT=true")
-            sys.exit(1)
-        create_tenant(*args.create_tenant)
-        sys.exit(0)
 
     if args.init_db:
         init_db()

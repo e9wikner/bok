@@ -11,11 +11,6 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:////tmp/bokfoering.db"
     database_check_same_thread: bool = False  # SQLite only
 
-    # Multi-tenancy
-    multi_tenant: bool = os.getenv("MULTI_TENANT", "False").lower() == "true"
-    tenant_data_dir: str = os.getenv("TENANT_DATA_DIR", "/app/data/tenants")
-    default_tenant_id: str = os.getenv("DEFAULT_TENANT_ID", "default")
-
     # API
     api_title: str = "Bokföringssystem API"
     api_version: str = "0.1.0"
@@ -26,7 +21,6 @@ class Settings(BaseSettings):
 
     # Authentication
     api_key: str = os.getenv("BOKFOERING_API_KEY", "dev-key-change-in-production")
-    admin_api_key: str = os.getenv("ADMIN_API_KEY", "test-admin-key")
 
     # JWT
     jwt_secret: str = os.getenv("JWT_SECRET", "dev-jwt-secret-change-in-production")

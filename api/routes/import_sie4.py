@@ -5,11 +5,6 @@ from typing import Optional
 
 from api.deps import get_current_actor, verify_api_key
 from services.sie4_import import SIE4Importer, create_sample_sie4
-
-try:
-    from db.tenant_context import get_current_tenant
-except ImportError:
-    get_current_tenant = None  # type: ignore[assignment]
 from config import settings
 
 router = APIRouter(prefix="/api/v1/import", tags=["import"])
@@ -54,17 +49,11 @@ async def import_sie4(
                 detail="Could not decode file - unsupported encoding"
             )
         
-        # Determine tenant context for internal API calls
-        tenant_id = None
-        if settings.multi_tenant and get_current_tenant is not None:
-            tenant_id = get_current_tenant()
-
-        # Import — pass the caller's API key and tenant so internal
-        # sub-requests are authenticated for the correct tenant
+        # Import — pass the caller's API key so internal
+        # sub-requests are authenticated
         importer = SIE4Importer(
             api_url=settings.api_url,
             api_key=api_key,
-            tenant_id=tenant_id,
         )
         
         # Run the synchronous importer in a thread pool to avoid blocking

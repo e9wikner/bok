@@ -4,38 +4,31 @@ import pytest
 import tempfile
 import os
 from datetime import date
-from db.tenant_context import _current_tenant
-from db.database import db
+from db.database import Database, db
 from services.ledger import LedgerService
 from repositories.account_repo import AccountRepository
 
 
 @pytest.fixture(scope="function")
 def test_db():
-    """Create temporary test database with tenant context."""
+    """Create temporary test database."""
     # Create temp db file
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
 
-    # Set a test tenant in the context var
-    token = _current_tenant.set("test-tenant")
-
-    # Register the temp DB path with the tenant db manager
-    # so the proxy routes to it for "test-tenant"
-    from db.database import Database
-    manager = db._get_manager()
-    test_db_instance = Database(path)
-    manager._databases["test-tenant"] = test_db_instance
+    # Swap the global db to use the temp path
+    original_path = db.db_path
+    db.db_path = path
+    db.disconnect()  # Drop any existing connection so it reconnects to new path
 
     # Initialize schema
-    test_db_instance.init_db()
+    db.init_db()
 
     yield db
 
     # Cleanup
-    test_db_instance.disconnect()
-    manager._databases.pop("test-tenant", None)
-    _current_tenant.reset(token)
+    db.disconnect()
+    db.db_path = original_path
     if os.path.exists(path):
         os.remove(path)
 

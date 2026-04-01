@@ -1,14 +1,6 @@
 #!/usr/bin/env bash
 # Deploy app containers locally on the server
 # Run: cd /opt/docker/bok && ./deploy-local.sh
-#
-# Multi-tenant mode is enabled by default with test keys.
-# Override with environment variables if needed:
-#   MULTI_TENANT=false ./deploy-local.sh
-#
-# Create a tenant after deploy:
-#   docker exec -it bokfoering-api \
-#     python main.py --create-tenant acme "Acme AB" key-acme-123
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

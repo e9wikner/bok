@@ -4,7 +4,6 @@ import pytest
 import tempfile
 import os
 from fastapi.testclient import TestClient
-from db.tenant_context import _current_tenant
 from db.database import db, Database
 
 
@@ -14,19 +13,17 @@ def auth_db():
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
 
-    token = _current_tenant.set("test-tenant")
+    # Swap the global db to use the temp path
+    original_path = db.db_path
+    db.db_path = path
+    db.disconnect()
 
-    from db.database import Database
-    manager = db._get_manager()
-    test_db_instance = Database(path)
-    manager._databases["test-tenant"] = test_db_instance
-    test_db_instance.init_db()
+    db.init_db()
 
     yield db
 
-    test_db_instance.disconnect()
-    manager._databases.pop("test-tenant", None)
-    _current_tenant.reset(token)
+    db.disconnect()
+    db.db_path = original_path
     if os.path.exists(path):
         os.remove(path)
 
@@ -143,7 +140,6 @@ class TestMe:
         assert resp.status_code == 200
         data = resp.json()
         assert data["email"] == "eve@example.com"
-        assert "tenants" in data
 
     def test_me_missing_token(self, client):
         resp = client.get("/auth/me")

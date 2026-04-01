@@ -134,35 +134,13 @@ update() {
     log_info "Update completed!"
 }
 
-# Backup function — handles both single-tenant and multi-tenant
+# Backup function
 backup() {
     log_info "Creating backup..."
 
     TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
-    # Load env to check multi-tenant mode
-    MULTI_TENANT="false"
-    if [ -f "$ENV_FILE" ]; then
-        MULTI_TENANT=$(grep -E '^MULTI_TENANT=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 || echo "false")
-    fi
-
-    if [ "$MULTI_TENANT" = "true" ]; then
-        log_info "Multi-tenant mode: backing up all tenant databases..."
-        BACKUP_DIR="backups/backup_mt_${TIMESTAMP}"
-        mkdir -p "$BACKUP_DIR"
-
-        # Copy entire tenants directory
-        docker cp bokfoering-api:/app/data/tenants "$BACKUP_DIR/tenants"
-
-        # Archive
-        BACKUP_FILE="backups/bokfoering_mt_backup_${TIMESTAMP}.tar.gz"
-        tar -czf "$BACKUP_FILE" -C "$BACKUP_DIR" tenants
-        rm -rf "$BACKUP_DIR"
-
-        log_info "Multi-tenant backup created: $BACKUP_FILE"
-    else
-        # Single-tenant backup (original behavior)
-        docker exec bokfoering-api python -c "
+    docker exec bokfoering-api python -c "
 import sqlite3
 conn = sqlite3.connect('/app/data/bokfoering.db')
 conn.execute('VACUUM')
@@ -227,37 +205,6 @@ restore() {
     log_info "Restore completed!"
 }
 
-# Create tenant (multi-tenant mode)
-create_tenant() {
-    if [ -z "${1:-}" ] || [ -z "${2:-}" ] || [ -z "${3:-}" ]; then
-        log_error "Usage: ./deploy.sh create-tenant <id> <name> <api_key>"
-        echo ""
-        echo "Example:"
-        echo "  ./deploy.sh create-tenant acme 'Acme AB' key-acme-123"
-        exit 1
-    fi
-
-    log_info "Creating tenant '$1' ($2)..."
-    docker exec -e MULTI_TENANT=true -it bokfoering-api \
-        python main.py --create-tenant "$1" "$2" "$3"
-    log_info "Tenant created! Use API key '$3' with X-Tenant-Id: $1"
-}
-
-# List tenants (multi-tenant mode)
-list_tenants() {
-    log_info "Listing tenants..."
-    docker exec -e MULTI_TENANT=true -it bokfoering-api python -c "
-from db.tenant_registry import TenantRegistry
-registry = TenantRegistry()
-tenants = registry.list_tenants(active_only=False)
-if not tenants:
-    print('  No tenants registered.')
-for t in tenants:
-    status = 'active' if t['is_active'] else 'inactive'
-    print(f'  {t[\"id\"]:20s} {t[\"name\"]:30s} [{status}]')
-"
-}
-
 # Show logs
 logs() {
     SERVICE=${1:-api}
@@ -294,12 +241,6 @@ case "${1:-deploy}" in
     restore)
         restore "${2:-}"
         ;;
-    create-tenant)
-        create_tenant "${2:-}" "${3:-}" "${4:-}"
-        ;;
-    list-tenants)
-        list_tenants
-        ;;
     logs)
         logs "${2:-}"
         ;;
@@ -318,10 +259,8 @@ case "${1:-deploy}" in
         echo "Commands:"
         echo "  deploy            - Deploy or redeploy all services (default)"
         echo "  update            - Pull latest code and update"
-        echo "  backup            - Create database backup (handles multi-tenant)"
+        echo "  backup            - Create database backup"
         echo "  restore <file>    - Restore from backup file"
-        echo "  create-tenant     - Create a new tenant (multi-tenant mode)"
-        echo "  list-tenants      - List all registered tenants"
         echo "  logs [svc]        - Show logs (svc: api, frontend, traefik)"
         echo "  status            - Show service status"
         echo "  stop              - Stop all services"
@@ -331,7 +270,6 @@ case "${1:-deploy}" in
         echo "  ./deploy.sh                                     # Deploy everything"
         echo "  ./deploy.sh backup                              # Create backup"
         echo "  ./deploy.sh restore backups/bokfoering_backup_20240101.tar.gz"
-        echo "  ./deploy.sh create-tenant acme 'Acme AB' key-acme-123"
         echo "  ./deploy.sh list-tenants"
         echo "  ./deploy.sh logs api                            # Show API logs"
         exit 1
