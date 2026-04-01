@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Deploy app containers locally on the server
 # Run: cd /opt/docker/bok && ./deploy-local.sh
+#
+# Set AUTH_USERNAME and AUTH_PASSWORD in .env or as environment variables
+# to configure login credentials.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -15,7 +18,6 @@ if [ -d .git ]; then
 fi
 
 echo "==> Starting containers with DEPLOY_HOST=$DEPLOY_HOST"
-echo "    Multi-tenant mode enabled (hardcoded test keys)"
 
 # Stop any existing containers (from any compose file) to avoid name conflicts
 docker compose -f docker-compose.local.yml down --remove-orphans 2>/dev/null || true
@@ -27,12 +29,4 @@ echo ""
 echo "API:      http://$DEPLOY_HOST:8000"
 echo "Frontend: http://$DEPLOY_HOST:3000"
 echo ""
-echo "Multi-tenant mode is ON."
-echo "Default tenant 'default' is auto-created on startup."
-echo ""
-echo "API key:   dev-key-change-in-production"
-echo "Admin key: test-admin-key"
-echo ""
-echo "Create additional tenants:"
-echo "  docker exec -it bokfoering-api \\"
-echo "    python main.py --create-tenant acme 'Acme AB' key-acme-123"
+echo "Login with AUTH_USERNAME / AUTH_PASSWORD (default: admin / admin)"

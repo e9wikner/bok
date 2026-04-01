@@ -183,14 +183,7 @@ restore() {
     # Stop services
     docker compose -f "$COMPOSE_FILE" stop api
 
-    if [[ "$BACKUP_FILE" == *_mt_* ]]; then
-        # Multi-tenant restore
-        log_info "Restoring multi-tenant backup..."
-        RESTORE_DIR=$(mktemp -d)
-        tar -xzf "$BACKUP_FILE" -C "$RESTORE_DIR"
-        docker cp "$RESTORE_DIR/tenants" bokfoering-api:/app/data/
-        rm -rf "$RESTORE_DIR"
-    elif [[ "$BACKUP_FILE" == *.tar.gz ]]; then
+    if [[ "$BACKUP_FILE" == *.tar.gz ]]; then
         tar -xzf "$BACKUP_FILE" -C backups/
         DB_FILE=$(tar -tzf "$BACKUP_FILE" | grep '\.db$' | head -1)
         docker cp "backups/$DB_FILE" bokfoering-api:/app/data/bokfoering.db
@@ -270,7 +263,6 @@ case "${1:-deploy}" in
         echo "  ./deploy.sh                                     # Deploy everything"
         echo "  ./deploy.sh backup                              # Create backup"
         echo "  ./deploy.sh restore backups/bokfoering_backup_20240101.tar.gz"
-        echo "  ./deploy.sh list-tenants"
         echo "  ./deploy.sh logs api                            # Show API logs"
         exit 1
         ;;
