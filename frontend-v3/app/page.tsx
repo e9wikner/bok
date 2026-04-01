@@ -15,7 +15,6 @@ import {
   useLearningRules,
   useAnomalySummary,
   useHealth,
-  useCurrentTenant,
 } from "@/hooks/useData";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
@@ -55,7 +54,6 @@ export default function DashboardPage() {
   const { data: rulesData, isLoading: rLoading, isError: rError } = useLearningRules();
   const { data: anomalyData, isError: anError } = useAnomalySummary();
   const { data: healthData } = useHealth();
-  const { data: tenantData } = useCurrentTenant();
 
   const totalVouchers = vouchersData?.total || 0;
   const vouchers = vouchersData?.vouchers || [];
@@ -100,9 +98,7 @@ export default function DashboardPage() {
             Översikt
           </h1>
           <p className="text-muted-foreground mt-1">
-            {tenantData?.name
-              ? `${tenantData.name}${tenantData.org_number ? ` (${tenantData.org_number})` : ""}`
-              : "Välkommen till ditt bokföringssystem"}
+            Välkommen till ditt bokföringssystem
           </p>
         </div>
         <div className="flex items-center gap-2">

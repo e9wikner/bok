@@ -17,14 +17,11 @@ import {
   Sun,
   Shield,
   AlertTriangle,
-  Building2,
   LogOut,
 } from "lucide-react";
 import { useDarkMode } from "@/hooks/useDarkMode";
 import { useAuth } from "@/hooks/useAuth";
-import { useState, useRef, useEffect } from "react";
-import TenantSelector from "@/components/TenantSelector";
-import TenantSelectorCompact from "@/components/TenantSelectorCompact";
+import { useState } from "react";
 
 const navItems = [
   { href: "/", label: "Översikt", icon: LayoutDashboard },
@@ -53,9 +50,7 @@ export function Sidebar() {
           </div>
           <span className="font-bold text-lg">AIBok</span>
         </div>
-        {/* TenantSelector visible in mobile top-bar */}
         <div className="flex items-center gap-2">
-          <TenantSelectorCompact />
           <button onClick={toggle} className="p-2 rounded-lg hover:bg-accent">
             {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
           </button>
@@ -108,9 +103,6 @@ export function Sidebar() {
             </div>
           )}
         </div>
-
-        {/* Tenant selector */}
-        {collapsed ? <TenantSelectorCollapsed /> : <TenantSelector />}
 
         {/* Nav */}
         <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto scrollbar-thin">
@@ -191,44 +183,3 @@ export function Sidebar() {
   );
 }
 
-/** Collapsed desktop sidebar: show Building2 icon that opens a popover */
-function TenantSelectorCollapsed() {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [open]);
-
-  return (
-    <div ref={ref} className="relative flex justify-center py-3 border-b border-border">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="p-2 rounded-lg hover:bg-accent text-muted-foreground hover:text-accent-foreground transition-colors"
-        title="Välj företag"
-      >
-        <Building2 className="h-5 w-5" />
-      </button>
-
-      {open && (
-        <div className="absolute left-full top-0 ml-2 z-50 w-64 rounded-lg border border-border bg-card shadow-lg">
-          <div className="px-3 py-2 border-b">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-              Välj företag
-            </p>
-          </div>
-          <div className="p-1">
-            <TenantSelector />
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}

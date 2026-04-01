@@ -15,16 +15,8 @@ export interface AuthUser {
   full_name?: string;
 }
 
-export interface AuthTenant {
-  id: string;
-  role: string;
-  name?: string;
-  org_number?: string;
-}
-
 export interface AuthContextType {
   user: AuthUser | null;
-  tenants: AuthTenant[];
   token: string | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
@@ -36,7 +28,6 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
 export const AuthContext = createContext<AuthContextType>({
   user: null,
-  tenants: [],
   token: null,
   loading: true,
   login: async () => {},
@@ -49,13 +40,12 @@ export function useAuth() {
 }
 
 export function useMe() {
-  const { user, tenants, loading } = useAuth();
-  return { user, tenants, loading };
+  const { user, loading } = useAuth();
+  return { user, loading };
 }
 
 export function useAuthState(): AuthContextType {
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [tenants, setTenants] = useState<AuthTenant[]>([]);
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -65,9 +55,8 @@ export function useAuthState(): AuthContextType {
     const stored = localStorage.getItem("auth_token");
     if (stored) {
       fetchMe(stored)
-        .then(({ user, tenants }) => {
-          setUser(user);
-          setTenants(tenants);
+        .then((fetchedUser) => {
+          setUser(fetchedUser);
           setToken(stored);
         })
         .catch(() => {
@@ -94,14 +83,12 @@ export function useAuthState(): AuthContextType {
     localStorage.setItem("auth_token", newToken);
     setToken(newToken);
     setUser(data.user);
-    setTenants(data.tenants ?? []);
   }, []);
 
   const logout = useCallback(() => {
     localStorage.removeItem("auth_token");
     setToken(null);
     setUser(null);
-    setTenants([]);
     // Navigate to login (soft redirect)
     if (typeof window !== "undefined") {
       window.location.href = "/login";
@@ -110,7 +97,6 @@ export function useAuthState(): AuthContextType {
 
   return {
     user,
-    tenants,
     token,
     loading,
     login,
@@ -119,18 +105,13 @@ export function useAuthState(): AuthContextType {
   };
 }
 
-async function fetchMe(
-  token: string
-): Promise<{ user: AuthUser; tenants: AuthTenant[] }> {
+async function fetchMe(token: string): Promise<AuthUser> {
   const res = await fetch(`${API_URL}/auth/me`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new Error("Unauthorized");
   const data = await res.json();
-  return {
-    user: { id: data.id, email: data.email, full_name: data.full_name },
-    tenants: data.tenants ?? [],
-  };
+  return { id: data.id, email: data.email, full_name: data.full_name };
 }
 
 // Register helper (used on register page, no hook needed)
