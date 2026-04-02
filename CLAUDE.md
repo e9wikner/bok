@@ -89,7 +89,6 @@ draft → (editable) → posted (immutable)
 | `SIE4ImportService` | `services/sie4_import.py` | SIE4 format parsing |
 | `SIE4ExportService` | `services/sie4_export.py` | SIE4 format generation |
 | `PDFExportService` | `services/pdf_export.py` | Jinja2/WeasyPrint PDF rendering |
-| `AnomalyDetectionService` | `services/anomaly_detection.py` | 9 types of fraud/error detection |
 | `CategorizationService` | `services/categorization.py` | Rule-based auto-booking |
 | `LearningService` | `services/learning.py` | Learn from user corrections |
 | `ComplianceService` | `services/compliance.py` | BFL regulatory checks |

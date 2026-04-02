@@ -16,7 +16,6 @@ import {
   Moon,
   Sun,
   Shield,
-  AlertTriangle,
   LogOut,
 } from "lucide-react";
 import { useDarkMode } from "@/hooks/useDarkMode";
@@ -29,7 +28,6 @@ const navItems = [
   { href: "/accounts", label: "Kontoplan", icon: BookOpen },
   { href: "/invoices", label: "Fakturor", icon: Receipt },
   { href: "/reports", label: "Rapporter", icon: BarChart3 },
-  { href: "/anomalies", label: "Anomalier", icon: AlertTriangle },
   { href: "/learning", label: "AI-lärande", icon: Brain },
   { href: "/settings", label: "Inställningar", icon: Settings },
 ];

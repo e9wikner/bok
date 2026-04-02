@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 
 # Import routers
-from api.routes import vouchers, accounts, periods, reports, invoices, k2_reports, agent, import_sie4, import_csv, export_sie4, export_pdf, anomalies, bank, compliance, vat, learning, attachments, auth
+from api.routes import vouchers, accounts, periods, reports, invoices, k2_reports, agent, import_sie4, import_csv, export_sie4, export_pdf, bank, compliance, vat, learning, attachments, auth
 
 # Create app
 app = FastAPI(
@@ -53,9 +53,6 @@ app.include_router(export_sie4.router)
 
 # PDF Export
 app.include_router(export_pdf.router)
-
-# Anomaly Detection
-app.include_router(anomalies.router)
 
 # Fas 5: Bank Integration & Auto-Categorization
 app.include_router(bank.router)

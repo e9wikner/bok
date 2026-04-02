@@ -80,17 +80,6 @@ export interface InvoiceRow {
   total: number;
 }
 
-export interface AnomalySummary {
-  total_anomalies: number;
-  critical_count: number;
-  warning_count: number;
-  info_count: number;
-  by_severity: Record<string, number>;
-  by_type: Record<string, number>;
-  avg_score: number;
-  top_anomalies: any[];
-}
-
 export interface ComplianceIssue {
   id: string;
   issue_type: string;
@@ -220,22 +209,6 @@ export const api = {
       reason,
       teach_ai: true,
     });
-    return data;
-  },
-
-  // Anomalies
-  getAnomalySummary: async () => {
-    const { data } = await apiClient.get("/api/v1/anomalies/summary");
-    return data;
-  },
-  getAnomalies: async (limit = 50) => {
-    const { data } = await apiClient.get("/api/v1/anomalies", {
-      params: { limit },
-    });
-    return data;
-  },
-  triggerAnomalyScan: async () => {
-    const { data } = await apiClient.post("/api/v1/anomalies/scan");
     return data;
   },
 

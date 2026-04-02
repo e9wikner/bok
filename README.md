@@ -108,34 +108,6 @@ Professionell PDF-export för alla företagsdokument med svenska termer och form
 - `GET /api/v1/export/pdf/k2-report/{fiscal_year_id}` – K2-årsredovisning-PDF
 - `GET /api/v1/export/pdf/.../html` – HTML-fallback för alla ovan
 
-### ✅ Anomalidetektering (Förhindra Fel)
-Automatisk upptäckt av misstänkta transaktioner och bokförningsfel innan de går igenom:
-
-**Detekterade avvikelser:**
-- `unusual_amount` – Ovanliga belopp på konto (statistisk avvikelse)
-- `wrong_vat_code` – Felaktiga momskoder (t.ex. moms på personalkonton)
-- `missing_counter_entry` – Verifikationer utan motbokning
-- `duplicate_entry` – Dubblettbokningar (samma belopp/datum/konton)
-- `frequent_small_transactions` – Många småtransaktioner från samma motpart
-- `unusual_balance_change` – Ovanliga saldoförändringar (trendanalys)
-- `missing_attachment` – Saknade bilagor (BFL-krav)
-- `abnormal_voucher_count` – Onormalt antal verifikationer per period
-- `weekend_transaction` – Transaktioner på helger (datumfel)
-
-**Funktioner:**
-- Regelbaserad motor + ML-ready arkitektur
-- Anomaly score per transaktion/verifikation (0.0–1.0)
-- Konfigurerbara tröskelvärden per företag
-- Svenska bokföringsmönster (säsonger, stora utgifter)
-- Dashboard-widget endpoint för snabböverblick
-
-**API-endpoints:**
-- `GET /api/v1/anomalies` – Lista alla anomalier
-- `GET /api/v1/anomalies/summary` – Sammanfattning för dashboard
-- `GET /api/v1/anomalies/voucher/{voucher_id}` – Kontrollera enskild verifikation
-- `GET /api/v1/anomalies/types` – Lista alla anomalityper
-- `PUT /api/v1/anomalies/thresholds` – Uppdatera tröskelvärden
-
 ### 🧠 AI Learning (Maskininlärning)
 Systemet lär sig automatiskt från användares korrigeringar för att förbättra framtida kategorisering:
 
@@ -196,7 +168,6 @@ bokfoering-api/
 │   ├── sie4_import.py           # SIE4: Parser & import
 │   ├── sie4_export.py           # SIE4: Filgenerering & export
 │   ├── pdf_export.py            # PDF: Fakturor & rapporter
-│   ├── anomaly_detection.py     # Anomalidetektering
 │   ├── categorization.py        # Auto-kategorisering
 │   ├── learning.py              # AI learning från korrigeringar
 │   ├── bank_integration.py      # Bankintegration
@@ -223,7 +194,6 @@ bokfoering-api/
 │   │   ├── import_sie4.py       # SIE4: Import endpoints
 │   │   ├── export_sie4.py       # SIE4: Export endpoints
 │   │   ├── export_pdf.py        # PDF: Fakturor & rapporter
-│   │   ├── anomalies.py         # Anomalidetektering
 │   │   ├── bank.py              # Bankintegration
 │   │   ├── compliance.py        # BFL compliance
 │   │   └── vat.py               # Momsdeklaration

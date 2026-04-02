@@ -100,22 +100,6 @@ export function useFiscalYears() {
   });
 }
 
-export function useAnomalySummary() {
-  return useQuery({
-    queryKey: ["anomaly-summary"],
-    queryFn: () => api.getAnomalySummary(),
-    staleTime: 5 * 60 * 1000,
-  });
-}
-
-export function useAnomalies(limit = 50) {
-  return useQuery({
-    queryKey: ["anomalies", limit],
-    queryFn: () => api.getAnomalies(limit),
-    staleTime: 5 * 60 * 1000,
-  });
-}
-
 export function useComplianceIssues() {
   return useQuery({
     queryKey: ["compliance-issues"],

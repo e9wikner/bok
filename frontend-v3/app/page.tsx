@@ -13,7 +13,6 @@ import {
   useVouchers,
   useAccounts,
   useLearningRules,
-  useAnomalySummary,
   useHealth,
 } from "@/hooks/useData";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -21,7 +20,6 @@ import {
   FileText,
   BookOpen,
   Brain,
-  AlertTriangle,
   TrendingUp,
   Activity,
   ArrowUpRight,
@@ -52,7 +50,6 @@ export default function DashboardPage() {
   const { data: vouchersData, isLoading: vLoading, isError: vError } = useVouchers();
   const { data: accountsData, isLoading: aLoading, isError: aError } = useAccounts();
   const { data: rulesData, isLoading: rLoading, isError: rError } = useLearningRules();
-  const { data: anomalyData, isError: anError } = useAnomalySummary();
   const { data: healthData } = useHealth();
 
   const totalVouchers = vouchersData?.total || 0;
@@ -115,7 +112,7 @@ export default function DashboardPage() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         <KpiCard
           title="Verifikationer"
           value={totalVouchers}
@@ -142,20 +139,6 @@ export default function DashboardPage() {
           loading={rLoading}
           error={rError}
           href="/learning"
-        />
-        <KpiCard
-          title="Anomalier"
-          value={anomalyData?.total_anomalies || 0}
-          icon={AlertTriangle}
-          color="amber"
-          loading={false}
-          error={anError}
-          href="/anomalies"
-          subtitle={
-            anomalyData?.critical_count
-              ? `${anomalyData.critical_count} allvarliga`
-              : undefined
-          }
         />
       </div>
 
