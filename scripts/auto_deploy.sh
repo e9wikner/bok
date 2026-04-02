@@ -4,7 +4,7 @@
 
 REPO_DIR="${HOME}/Development/bok"
 API_URL="http://localhost:8000"
-FRONTEND_URL="http://localhost:8501"
+FRONTEND_URL="http://localhost:3000"
 
 echo "🚀 Auto-deploy watcher started"
 echo "📁 Watching: ${REPO_DIR}"

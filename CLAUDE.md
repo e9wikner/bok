@@ -97,7 +97,7 @@ draft → (editable) → posted (immutable)
 ### Database
 
 - **SQLite** (dev) with WAL mode and thread-local connections (required for FastAPI/uvicorn thread safety)
-- Migrations are plain SQL files in `db/migrations/` numbered 001–006
+- Migrations are plain SQL files in `db/migrations/` numbered 001–008
 - Key tables: `vouchers`, `voucher_rows`, `periods`, `fiscal_years`, `accounts`, `invoices`, `payments`, `audit_log`
 
 ### Invoice Auto-Booking Flow
@@ -119,7 +119,9 @@ API client is in `frontend-v3/lib/api.ts` (Axios). Server state is managed with 
 
 `config.py` reads from environment variables:
 - `DATABASE_URL` — defaults to `sqlite:////tmp/bokfoering.db`
-- `API_KEY` — defaults to `dev-key-change-in-production`
+- `BOKFOERING_API_KEY` — defaults to `dev-key-change-in-production`
+- `AUTH_USERNAME` / `AUTH_PASSWORD` — basic auth credentials (defaults: `admin`/`admin`)
+- `JWT_SECRET` — JWT signing key
 - `DEBUG` — boolean flag
 
 ### Live Deployment

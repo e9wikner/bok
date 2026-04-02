@@ -17,7 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Create necessary directories
-RUN mkdir -p scripts data data/tenants
+RUN mkdir -p scripts data
 
 # Expose port
 EXPOSE 8000

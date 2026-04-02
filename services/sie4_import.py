@@ -340,7 +340,7 @@ class SIE4Parser:
 class SIE4Importer:
     """Import SIE4 data into the bookkeeping system."""
     
-    def __init__(self, api_url: str, api_key: str, tenant_id: Optional[str] = None):
+    def __init__(self, api_url: str, api_key: str):
         self.api_url = api_url
         self.api_key = api_key
         self.headers = {

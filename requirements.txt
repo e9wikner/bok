@@ -19,10 +19,6 @@ httpx==0.25.1
 # Form data support (required by FastAPI)
 python-multipart>=0.0.6
 
-# Frontend
-streamlit>=1.28.0
-pandas>=2.0.0
-
 # PDF Export
 weasyprint>=68.0
 jinja2>=3.1.0
@@ -31,8 +27,6 @@ pillow>=10.0
 
 # Auth
 PyJWT>=2.8.0
-passlib[bcrypt]>=1.7.4
-email-validator>=2.1.0
 
 # Optional: Production Features
 # For PostgreSQL support: psycopg2-binary==2.9.9
