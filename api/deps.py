@@ -3,11 +3,12 @@
 from fastapi import Depends, Header, HTTPException, status
 from typing import Optional
 from config import settings
+from services.auth import AuthService
 from services.ledger import LedgerService
 
 
 def verify_api_key(authorization: Optional[str] = Header(None)) -> str:
-    """Verify API key from Authorization header."""
+    """Verify API key or JWT token from Authorization header."""
     if not authorization:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -15,7 +16,7 @@ def verify_api_key(authorization: Optional[str] = Header(None)) -> str:
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Expect: "Bearer <api-key>"
+    # Expect: "Bearer <api-key-or-jwt>"
     parts = authorization.split()
     if len(parts) != 2 or parts[0].lower() != "bearer":
         raise HTTPException(
@@ -24,16 +25,24 @@ def verify_api_key(authorization: Optional[str] = Header(None)) -> str:
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    api_key = parts[1]
+    token = parts[1]
 
-    if api_key != settings.api_key:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid API key",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    # Accept static API key
+    if token == settings.api_key:
+        return token
 
-    return api_key
+    # Accept valid JWT token
+    try:
+        AuthService().verify_jwt(token)
+        return token
+    except HTTPException:
+        pass
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid API key or token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 def get_ledger_service() -> LedgerService:

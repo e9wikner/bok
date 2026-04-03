@@ -74,7 +74,7 @@ class SIE4Parser:
     """Parse SIE4 format files."""
     
     # SIE uses Windows-1252 or ISO-8859-1 encoding typically
-    ENCODINGS = ['windows-1252', 'iso-8859-1', 'utf-8']
+    ENCODINGS = ['cp437', 'windows-1252', 'iso-8859-1', 'utf-8']
     
     def __init__(self):
         self.errors: List[str] = []
