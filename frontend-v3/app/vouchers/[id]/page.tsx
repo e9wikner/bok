@@ -206,8 +206,7 @@ export default function VoucherDetailPage() {
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl lg:text-3xl font-bold tracking-tight">
-              Verifikation {voucher.series || "A"}
-              {voucher.number}
+              Verifikation {voucher.number}
             </h1>
             <Badge
               variant={
@@ -264,7 +263,6 @@ export default function VoucherDetailPage() {
             <div>
               <p className="text-xs text-muted-foreground">Nummer</p>
               <p className="font-medium">
-                {voucher.series || "A"}
                 {voucher.number}
               </p>
             </div>

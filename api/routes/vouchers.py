@@ -197,6 +197,7 @@ async def update_voucher(
 @router.get("", response_model=dict)
 async def list_vouchers(
     period_id: str = Query(None, description="Filter by period ID (optional)"),
+    fiscal_year_id: str = Query(None, description="Filter by fiscal year ID (optional)"),
     voucher_status: str = Query("all", alias="status", description="Filter: draft, posted, or all"),
     search: str = Query(None, description="Search in description or voucher number"),
     limit: int = Query(None, description="Max vouchers to return (pagination)"),
@@ -226,6 +227,7 @@ async def list_vouchers(
                 offset=offset,
                 sort_by=sort_by,
                 sort_order=sort_order,
+                fiscal_year_id=fiscal_year_id,
             )
         
         return {

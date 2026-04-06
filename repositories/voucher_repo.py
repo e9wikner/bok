@@ -149,6 +149,7 @@ class VoucherRepository:
         offset: int = 0,
         sort_by: Optional[str] = None,
         sort_order: str = "desc",
+        fiscal_year_id: Optional[str] = None,
     ) -> tuple[List[Voucher], int]:
         """List all vouchers across all periods.
 
@@ -161,6 +162,10 @@ class VoucherRepository:
         if status:
             where_clauses.append("status = ?")
             params.append(status)
+
+        if fiscal_year_id:
+            where_clauses.append("fiscal_year_id = ?")
+            params.append(fiscal_year_id)
 
         if search:
             where_clauses.append(

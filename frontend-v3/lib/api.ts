@@ -104,9 +104,9 @@ export const api = {
   },
 
   // Vouchers
-  getVouchers: async (status?: string, limit = 15, offset = 0, search?: string, sortBy?: string, sortOrder?: string) => {
+  getVouchers: async (status?: string, limit = 15, offset = 0, search?: string, sortBy?: string, sortOrder?: string, fiscalYearId?: string) => {
     const { data } = await apiClient.get("/api/v1/vouchers", {
-      params: { status, limit, offset, search: search || undefined, sort_by: sortBy || undefined, sort_order: sortOrder || undefined },
+      params: { status, limit, offset, search: search || undefined, sort_by: sortBy || undefined, sort_order: sortOrder || undefined, fiscal_year_id: fiscalYearId || undefined },
     });
     return data;
   },

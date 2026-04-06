@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useVouchers } from "@/hooks/useData";
+import { useVouchers, useFiscalYears } from "@/hooks/useData";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
   FileText,
@@ -43,7 +43,11 @@ export default function VouchersPage() {
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<string | undefined>(undefined);
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [fiscalYearId, setFiscalYearId] = useState<string | undefined>(undefined);
   const debouncedSearch = useDebounce(search, 300);
+
+  const { data: fiscalYearsData } = useFiscalYears();
+  const fiscalYears = fiscalYearsData?.fiscal_years || [];
 
   // Reset to page 0 when search term changes
   const prevSearch = useRef(debouncedSearch);
@@ -60,7 +64,8 @@ export default function VouchersPage() {
     page * PAGE_SIZE,
     debouncedSearch || undefined,
     sortBy,
-    sortOrder
+    sortOrder,
+    fiscalYearId
   );
 
   function toggleSort(column: string) {
@@ -120,6 +125,21 @@ export default function VouchersPage() {
               />
             </div>
             <div className="flex items-center gap-2">
+              <select
+                value={fiscalYearId || ""}
+                onChange={(e) => {
+                  setFiscalYearId(e.target.value || undefined);
+                  setPage(0);
+                }}
+                className="h-9 rounded-md border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="">Alla år</option>
+                {fiscalYears.map((fy: any) => (
+                  <option key={fy.id} value={fy.id}>
+                    {fy.start_date.slice(0, 4)}
+                  </option>
+                ))}
+              </select>
               <Filter className="h-4 w-4 text-muted-foreground" />
               {statusOptions.map((opt) => (
                 <Button
@@ -202,7 +222,6 @@ export default function VouchersPage() {
                             className="font-medium text-primary hover:underline flex items-center gap-2"
                           >
                             <FileText className="h-4 w-4" />
-                            {v.series || "A"}
                             {v.number}
                           </Link>
                         </td>
