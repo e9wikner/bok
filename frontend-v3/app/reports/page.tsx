@@ -521,8 +521,19 @@ function GeneralLedgerReport({ year, month }: { year: number; month?: number }) 
   const [selectedAccount, setSelectedAccount] = useState<string>("");
   const { data: accountsData } = useAccounts();
   const { data, isLoading } = useGeneralLedger(selectedAccount, year, month);
+  const { data: trialBalanceData } = useTrialBalance(year, month || undefined);
 
-  const accounts = accountsData?.accounts || [];
+  const allAccounts = accountsData?.accounts || [];
+  // Only show accounts that have transactions in the selected period
+  const activeAccountCodes = new Set((trialBalanceData?.accounts || []).map((a: any) => a.code));
+  const accounts = allAccounts.filter((a: any) => activeAccountCodes.has(a.code));
+
+  // Clear selected account if it has no transactions in the selected period
+  useEffect(() => {
+    if (selectedAccount && !activeAccountCodes.has(selectedAccount)) {
+      setSelectedAccount("");
+    }
+  }, [selectedAccount, activeAccountCodes]);
 
   return (
     <div className="space-y-4">
