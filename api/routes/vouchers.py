@@ -200,6 +200,8 @@ async def list_vouchers(
     search: str = Query(None, description="Search in description or voucher number"),
     limit: int = Query(None, description="Max vouchers to return (pagination)"),
     offset: int = Query(0, description="Number of vouchers to skip (pagination)"),
+    sort_by: str = Query(None, description="Sort by: date or number"),
+    sort_order: str = Query("desc", description="Sort direction: asc or desc"),
     ledger: LedgerService = Depends(get_ledger_service),
 ):
     """
@@ -221,6 +223,8 @@ async def list_vouchers(
                 search=search,
                 limit=limit,
                 offset=offset,
+                sort_by=sort_by,
+                sort_order=sort_order,
             )
         
         return {

@@ -144,6 +144,8 @@ class VoucherRepository:
         search: Optional[str] = None,
         limit: Optional[int] = None,
         offset: int = 0,
+        sort_by: Optional[str] = None,
+        sort_order: str = "desc",
     ) -> tuple[List[Voucher], int]:
         """List all vouchers across all periods.
 
@@ -170,8 +172,17 @@ class VoucherRepository:
         count_sql = f"SELECT COUNT(*) as cnt FROM vouchers{where_sql}"
         total = db.execute(count_sql, tuple(params)).fetchone()["cnt"]
 
+        # Sorting
+        allowed_sort = {"date", "number"}
+        sort_col = sort_by if sort_by in allowed_sort else "date"
+        sort_dir = "ASC" if sort_order == "asc" else "DESC"
+        if sort_col == "number":
+            order_clause = f"series {sort_dir}, number {sort_dir}"
+        else:
+            order_clause = f"date {sort_dir}, series, number"
+
         # Fetch page
-        sql = f"SELECT id FROM vouchers{where_sql} ORDER BY date DESC, series, number"
+        sql = f"SELECT id FROM vouchers{where_sql} ORDER BY {order_clause}"
         page_params = list(params)
 
         if limit is not None:

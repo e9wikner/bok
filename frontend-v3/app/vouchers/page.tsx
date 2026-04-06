@@ -15,6 +15,9 @@ import {
   Filter,
   Search,
   Plus,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
 } from "lucide-react";
 
 const PAGE_SIZE = 15;
@@ -38,6 +41,8 @@ export default function VouchersPage() {
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState<string | undefined>(undefined);
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const debouncedSearch = useDebounce(search, 300);
 
   // Reset to page 0 when search term changes
@@ -53,8 +58,29 @@ export default function VouchersPage() {
     status || undefined,
     PAGE_SIZE,
     page * PAGE_SIZE,
-    debouncedSearch || undefined
+    debouncedSearch || undefined,
+    sortBy,
+    sortOrder
   );
+
+  function toggleSort(column: string) {
+    if (sortBy === column) {
+      setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortBy(column);
+      setSortOrder("desc");
+    }
+    setPage(0);
+  }
+
+  function SortIcon({ column }: { column: string }) {
+    if (sortBy !== column) return <ArrowUpDown className="h-3 w-3 ml-1 opacity-40" />;
+    return sortOrder === "asc" ? (
+      <ArrowUp className="h-3 w-3 ml-1" />
+    ) : (
+      <ArrowDown className="h-3 w-3 ml-1" />
+    );
+  }
 
   const vouchers = data?.vouchers || [];
   const total = data?.total || 0;
@@ -127,11 +153,23 @@ export default function VouchersPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-muted/50">
-                    <th className="text-left p-4 font-medium text-muted-foreground">
-                      Nummer
+                    <th
+                      className="text-left p-4 font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors"
+                      onClick={() => toggleSort("number")}
+                    >
+                      <span className="inline-flex items-center">
+                        Nummer
+                        <SortIcon column="number" />
+                      </span>
                     </th>
-                    <th className="text-left p-4 font-medium text-muted-foreground">
-                      Datum
+                    <th
+                      className="text-left p-4 font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors"
+                      onClick={() => toggleSort("date")}
+                    >
+                      <span className="inline-flex items-center">
+                        Datum
+                        <SortIcon column="date" />
+                      </span>
                     </th>
                     <th className="text-left p-4 font-medium text-muted-foreground">
                       Beskrivning
