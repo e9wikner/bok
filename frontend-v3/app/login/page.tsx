@@ -32,7 +32,7 @@ export default function LoginPage() {
           <div className="h-12 w-12 rounded-xl bg-primary flex items-center justify-center">
             <Shield className="h-6 w-6 text-primary-foreground" />
           </div>
-          <h1 className="text-2xl font-bold">AIBok</h1>
+          <h1 className="text-2xl font-bold">BokAi</h1>
           <p className="text-sm text-muted-foreground">Logga in på ditt konto</p>
         </div>
 

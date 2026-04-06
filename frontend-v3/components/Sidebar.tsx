@@ -46,7 +46,7 @@ export function Sidebar() {
           <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center">
             <Shield className="h-4 w-4 text-primary-foreground" />
           </div>
-          <span className="font-bold text-lg">AIBok</span>
+          <span className="font-bold text-lg">BokAi</span>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={toggle} className="p-2 rounded-lg hover:bg-accent">
@@ -96,7 +96,7 @@ export function Sidebar() {
           </div>
           {!collapsed && (
             <div className="overflow-hidden">
-              <h1 className="font-bold text-lg leading-tight">AIBok</h1>
+              <h1 className="font-bold text-lg leading-tight">BokAi</h1>
               <p className="text-xs text-muted-foreground">Bokföringssystem</p>
             </div>
           )}

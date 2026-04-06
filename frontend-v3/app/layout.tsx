@@ -13,7 +13,7 @@ const geistSans = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "AIBok - Bokföringssystem",
+  title: "BokAi - Bokföringssystem",
   description: "Modernt bokföringssystem för svenska företag",
 };
 

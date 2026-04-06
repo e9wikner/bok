@@ -22,5 +22,5 @@ RUN mkdir -p scripts data
 # Expose port
 EXPOSE 8000
 
-# Initialize database with test data, then start server
-CMD ["sh", "-c", "python main.py --init-db --seed && python main.py --host 0.0.0.0 --port 8000"]
+# Initialize database schema (no default accounts or test data), then start server
+CMD ["sh", "-c", "python -c 'from db.database import db; db.init_db()' && python main.py --host 0.0.0.0 --port 8000"]
