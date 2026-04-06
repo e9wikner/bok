@@ -37,6 +37,25 @@ function useDebounce<T>(value: T, delay: number): T {
   return debouncedValue;
 }
 
+function getCurrentFiscalYearId(fiscalYears: any[]): string | undefined {
+  if (!fiscalYears || fiscalYears.length === 0) return undefined;
+
+  const today = new Date().toISOString().split("T")[0];
+
+  // Find the fiscal year that contains today's date
+  const current = fiscalYears.find((fy) => {
+    return today >= fy.start_date && today <= fy.end_date;
+  });
+
+  if (current) return current.id;
+
+  // Fallback: return the fiscal year with the latest start date
+  const sorted = [...fiscalYears].sort(
+    (a, b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime()
+  );
+  return sorted[0]?.id;
+}
+
 export default function VouchersPage() {
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(0);
@@ -48,6 +67,14 @@ export default function VouchersPage() {
 
   const { data: fiscalYearsData } = useFiscalYears();
   const fiscalYears = fiscalYearsData?.fiscal_years || [];
+
+  // Default to current fiscal year when data loads
+  useEffect(() => {
+    if (fiscalYearsData?.fiscal_years && fiscalYearsData.fiscal_years.length > 0 && !fiscalYearId) {
+      const currentId = getCurrentFiscalYearId(fiscalYearsData.fiscal_years);
+      setFiscalYearId(currentId);
+    }
+  }, [fiscalYearsData, fiscalYearId]);
 
   // Reset to page 0 when search term changes
   const prevSearch = useRef(debouncedSearch);
@@ -124,22 +151,30 @@ export default function VouchersPage() {
                 className="w-full pl-9 pr-4 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
-            <div className="flex items-center gap-2">
-              <select
-                value={fiscalYearId || ""}
-                onChange={(e) => {
-                  setFiscalYearId(e.target.value || undefined);
+            <div className="flex items-center gap-2 flex-wrap">
+              {fiscalYears.map((fy: any) => (
+                <Button
+                  key={fy.id}
+                  variant={fiscalYearId === fy.id ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    setFiscalYearId(fy.id);
+                    setPage(0);
+                  }}
+                >
+                  {fy.start_date.slice(0, 4)}
+                </Button>
+              ))}
+              <Button
+                variant={fiscalYearId === undefined ? "default" : "outline"}
+                size="sm"
+                onClick={() => {
+                  setFiscalYearId(undefined);
                   setPage(0);
                 }}
-                className="h-9 rounded-md border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               >
-                <option value="">Alla år</option>
-                {fiscalYears.map((fy: any) => (
-                  <option key={fy.id} value={fy.id}>
-                    {fy.start_date.slice(0, 4)}
-                  </option>
-                ))}
-              </select>
+                Alla år
+              </Button>
               <Filter className="h-4 w-4 text-muted-foreground" />
               {statusOptions.map((opt) => (
                 <Button
