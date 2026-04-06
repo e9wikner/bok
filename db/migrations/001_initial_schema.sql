@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS vouchers (
     number INTEGER NOT NULL,
     date DATE NOT NULL,
     period_id TEXT NOT NULL,
+    fiscal_year_id TEXT NOT NULL,
     description TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'draft',  -- draft, posted
     correction_of TEXT,  -- If this is a correction voucher, reference original voucher_id
@@ -59,8 +60,9 @@ CREATE TABLE IF NOT EXISTS vouchers (
     created_by TEXT NOT NULL DEFAULT 'system',
     posted_at TIMESTAMP,
     FOREIGN KEY(period_id) REFERENCES periods(id),
+    FOREIGN KEY(fiscal_year_id) REFERENCES fiscal_years(id),
     FOREIGN KEY(correction_of) REFERENCES vouchers(id),
-    UNIQUE(series, number),  -- Verifikationsnummer är sekvensiella per serie
+    UNIQUE(series, number, fiscal_year_id),
     CHECK(status IN ('draft', 'posted'))
 );
 

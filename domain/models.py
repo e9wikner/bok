@@ -93,6 +93,7 @@ class Voucher:
     period_id: str
     description: str
     status: VoucherStatus = VoucherStatus.DRAFT
+    fiscal_year_id: Optional[str] = None
     rows: List[VoucherRow] = field(default_factory=list)
     correction_of: Optional[str] = None  # Reference to original voucher if this is a correction
     created_at: datetime = field(default_factory=datetime.now)

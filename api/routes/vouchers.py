@@ -54,7 +54,8 @@ async def create_voucher(
             period_id=request.period_id,
             description=request.description,
             rows_data=rows_data,
-            created_by=actor
+            created_by=actor,
+            number=request.number,
         )
         
         # Auto-post if requested

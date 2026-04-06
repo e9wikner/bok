@@ -461,6 +461,7 @@ class SIE4Importer:
         
         voucher_data = {
             "series": voucher.series,
+            "number": voucher.number,
             "date": voucher.date.isoformat(),
             "period_id": period_id,
             "description": voucher.description,

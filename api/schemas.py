@@ -29,6 +29,7 @@ class VoucherRowResponse(BaseModel):
 class CreateVoucherRequest(BaseModel):
     """Request to create new voucher."""
     series: str = Field("A", description="Voucher series (A=normal, B=correction)")
+    number: Optional[int] = Field(None, description="Voucher number (auto-assigned if omitted)")
     date: DateType = Field(..., description="Voucher date")
     period_id: str = Field(..., description="Period ID")
     description: str = Field(..., description="Voucher description")

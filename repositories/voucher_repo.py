@@ -18,20 +18,21 @@ class VoucherRepository:
         date: date,
         period_id: str,
         description: str,
+        fiscal_year_id: str,
         created_by: str = "system",
         _commit: bool = True,
     ) -> Voucher:
         """Create new draft voucher."""
         voucher_id = str(uuid.uuid4())
         sql = """
-        INSERT INTO vouchers (id, series, number, date, period_id, description, status, created_by, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?)
+        INSERT INTO vouchers (id, series, number, date, period_id, fiscal_year_id, description, status, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)
         """
         now = datetime.now()
-        db.execute(sql, (voucher_id, series, number, date, period_id, description, created_by, now))
+        db.execute(sql, (voucher_id, series, number, date, period_id, fiscal_year_id, description, created_by, now))
         if _commit:
             db.commit()
-        
+
         return Voucher(
             id=voucher_id,
             series=VoucherSeries(series),
@@ -40,6 +41,7 @@ class VoucherRepository:
             period_id=period_id,
             description=description,
             status=VoucherStatus.DRAFT,
+            fiscal_year_id=fiscal_year_id,
             created_at=now,
             created_by=created_by
         )
@@ -111,6 +113,7 @@ class VoucherRepository:
             period_id=row["period_id"],
             description=row["description"],
             status=VoucherStatus(row["status"]),
+            fiscal_year_id=row["fiscal_year_id"] if "fiscal_year_id" in row.keys() else None,
             rows=rows,
             correction_of=row["correction_of"],
             created_at=datetime.fromisoformat(row["created_at"]),
@@ -204,10 +207,9 @@ class VoucherRepository:
         Voucher numbers restart from 1 each fiscal year (BFL requirement).
         """
         sql = """
-            SELECT MAX(v.number) as max_num
-            FROM vouchers v
-            JOIN periods p ON v.period_id = p.id
-            WHERE v.series = ? AND p.fiscal_year_id = ?
+            SELECT MAX(number) as max_num
+            FROM vouchers
+            WHERE series = ? AND fiscal_year_id = ?
         """
         cursor = db.execute(sql, (series, fiscal_year_id))
         row = cursor.fetchone()
@@ -252,15 +254,15 @@ class VoucherRepository:
         number = VoucherRepository.get_next_number(series, fiscal_year_id)
 
         sql = """
-        INSERT INTO vouchers (id, series, number, date, period_id, description, status, correction_of, created_by, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)
+        INSERT INTO vouchers (id, series, number, date, period_id, fiscal_year_id, description, status, correction_of, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)
         """
         now = datetime.now()
         description = f"Correction of voucher {original.series}{original.number:06d}"
 
         db.execute(sql, (
             correction_id, series, number, now.date(),
-            target_period_id, description, original_voucher_id, created_by, now
+            target_period_id, fiscal_year_id, description, original_voucher_id, created_by, now
         ))
         db.commit()
 
@@ -272,6 +274,7 @@ class VoucherRepository:
             period_id=target_period_id,
             description=description,
             status=VoucherStatus.DRAFT,
+            fiscal_year_id=fiscal_year_id,
             correction_of=original_voucher_id,
             created_at=now,
             created_by=created_by

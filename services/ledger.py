@@ -34,24 +34,29 @@ class LedgerService:
         description: str,
         rows_data: List[Dict],
         created_by: str = "system",
+        number: int | None = None,
     ) -> Voucher:
         """Create new draft voucher with rows.
-        
+
         Validates all business rules before persisting to ensure
         no invalid data is written to the database.
+
+        If *number* is provided it is used as-is (e.g. SIE4 import);
+        otherwise the next sequential number is auto-assigned.
         """
         # Get period to verify it's open
         period = self.periods.get_period(period_id)
         if not period:
             raise ValidationError("period_not_found", "Period not found", f"period_id={period_id}")
-        
+
         PeriodValidator.validate_period_closed(period)
-        
+
         # Get all accounts for validation
         all_accounts = self.accounts.get_all_as_dict()
-        
+
         # Build in-memory voucher for validation BEFORE persisting
-        number = self.vouchers.get_next_number(series, period.fiscal_year_id)
+        if number is None:
+            number = self.vouchers.get_next_number(series, period.fiscal_year_id)
         temp_voucher = Voucher(
             id="temp",
             series=VoucherSeries(series),
@@ -84,6 +89,7 @@ class LedgerService:
                 date=date,
                 period_id=period_id,
                 description=description,
+                fiscal_year_id=period.fiscal_year_id,
                 created_by=created_by,
                 _commit=False,
             )
