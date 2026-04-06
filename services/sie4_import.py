@@ -73,22 +73,28 @@ class SIEData:
 class SIE4Parser:
     """Parse SIE4 format files."""
     
-    # SIE uses Windows-1252 or ISO-8859-1 encoding typically
-    ENCODINGS = ['utf-8', 'windows-1252', 'cp437']
-    
     def __init__(self):
         self.errors: List[str] = []
-    
+
     def parse_file(self, filepath: str) -> SIEData:
         """Parse a SIE4 file from disk."""
-        for encoding in self.ENCODINGS:
+        with open(filepath, 'rb') as f:
+            raw = f.read()
+        encoding = self._detect_encoding(raw)
+        return self.parse_content(raw.decode(encoding))
+
+    @staticmethod
+    def _detect_encoding(raw: bytes) -> str:
+        """Detect SIE file encoding from #FORMAT header."""
+        if b"#FORMAT PC8" in raw or b"#FORMAT IBMPC" in raw:
+            return "cp437"
+        for enc in ["utf-8", "windows-1252"]:
             try:
-                with open(filepath, 'r', encoding=encoding) as f:
-                    content = f.read()
-                return self.parse_content(content)
+                raw.decode(enc)
+                return enc
             except UnicodeDecodeError:
                 continue
-        raise ValueError(f"Could not decode file with any encoding: {self.ENCODINGS}")
+        return "cp437"
     
     def parse_content(self, content: str) -> SIEData:
         """Parse SIE4 content from string."""

@@ -32,18 +32,25 @@ async def import_sie4(
         # Read file content
         content = await file.read()
         
-        # Try different encodings
-        encodings = ['utf-8', 'windows-1252', 'cp437']
-        text_content = None
-        
-        for encoding in encodings:
-            try:
-                text_content = content.decode(encoding)
-                break
-            except UnicodeDecodeError:
-                continue
-        
-        if text_content is None:
+        # Detect encoding from #FORMAT header in raw bytes
+        # #FORMAT PC8 = CP437, otherwise try UTF-8 first
+        if b"#FORMAT PC8" in content or b"#FORMAT IBMPC" in content:
+            encoding = "cp437"
+        else:
+            encoding = None
+            for enc in ["utf-8", "windows-1252"]:
+                try:
+                    content.decode(enc)
+                    encoding = enc
+                    break
+                except UnicodeDecodeError:
+                    continue
+            if encoding is None:
+                encoding = "cp437"
+
+        try:
+            text_content = content.decode(encoding)
+        except UnicodeDecodeError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Could not decode file - unsupported encoding"
@@ -105,17 +112,23 @@ async def validate_sie4(
     try:
         content = await file.read()
         
-        encodings = ['utf-8', 'windows-1252', 'cp437']
-        text_content = None
-        
-        for encoding in encodings:
-            try:
-                text_content = content.decode(encoding)
-                break
-            except UnicodeDecodeError:
-                continue
-        
-        if text_content is None:
+        if b"#FORMAT PC8" in content or b"#FORMAT IBMPC" in content:
+            encoding = "cp437"
+        else:
+            encoding = None
+            for enc in ["utf-8", "windows-1252"]:
+                try:
+                    content.decode(enc)
+                    encoding = enc
+                    break
+                except UnicodeDecodeError:
+                    continue
+            if encoding is None:
+                encoding = "cp437"
+
+        try:
+            text_content = content.decode(encoding)
+        except UnicodeDecodeError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Could not decode file"
