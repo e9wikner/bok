@@ -33,7 +33,7 @@ async def import_sie4(
         content = await file.read()
         
         # Try different encodings
-        encodings = ['cp437', 'windows-1252', 'iso-8859-1', 'utf-8']
+        encodings = ['utf-8', 'windows-1252', 'cp437']
         text_content = None
         
         for encoding in encodings:
@@ -105,7 +105,7 @@ async def validate_sie4(
     try:
         content = await file.read()
         
-        encodings = ['cp437', 'windows-1252', 'iso-8859-1', 'utf-8']
+        encodings = ['utf-8', 'windows-1252', 'cp437']
         text_content = None
         
         for encoding in encodings:
