@@ -12,7 +12,7 @@ services:
       - AUTH_USERNAME=${AUTH_USERNAME:-admin}
       - AUTH_PASSWORD=${AUTH_PASSWORD:-admin}
       - DATABASE_URL=sqlite:////app/data/bokfoering.db
-    command: sh -c "python main.py --init-db --seed && python main.py --host 0.0.0.0 --port 8000"
+    command: sh -c "python main.py --init-db && python main.py --host 0.0.0.0 --port 8000"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -38,20 +38,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
-  demo-runner:
-    build: .
-    container_name: bokfoering-demo
-    volumes:
-      - bokfoering-data:/app/data
-    environment:
-      - API_URL=http://bokfoering-api:8000
-      - API_KEY=dev-key-change-in-production
-      - PYTHONUNBUFFERED=1
-    command: python scripts/demo_runner.py
-    depends_on:
-      - bokfoering-api
-    restart: "no"  # Run once and exit
 
 volumes:
   bokfoering-data:
