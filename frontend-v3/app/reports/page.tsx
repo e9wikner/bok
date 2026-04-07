@@ -340,12 +340,10 @@ function BalanceSheetReport({ year }: { year: number }) {
 
   if (isLoading) return <ReportSkeleton />;
 
-  const totalAssets = data?.total_assets || 0;
-  const totalEL = data?.total_equity_liabilities || 0;
   const balanced = data?.balanced ?? true;
-  const period = data?.period || "";
+  const hasIB = data?.has_ib_vouchers ?? false;
 
-  // Account detail arrays from API
+  // Account detail arrays from API with 3 columns
   const fixedAssetsDetails: any[] = data?.fixed_assets_details || [];
   const receivablesDetails: any[] = data?.receivables_details || [];
   const bankDetails: any[] = data?.bank_and_cash_details || [];
@@ -354,26 +352,59 @@ function BalanceSheetReport({ year }: { year: number }) {
   const longTermDetails: any[] = data?.long_term_liabilities_details || [];
   const currentLiabDetails: any[] = data?.current_liabilities_details || [];
 
-  const BSSection = ({ title, items, subtotal, colorClass }: {
-    title: string; items: any[]; subtotal: number; colorClass: string;
-  }) => (
-    <div className="mb-4">
-      <div className={`flex justify-between py-2 px-3 ${colorClass} rounded-t font-medium text-sm`}>
-        <span>{title}</span>
-        <span className="font-mono">{formatCurrency(subtotal)}</span>
-      </div>
-      {items.length > 0 && (
-        <div className="border-x border-b rounded-b divide-y">
+  // 3-column table component for account details
+  const AccountTable3Col = ({ items, colorClass }: { items: any[]; colorClass: string }) => (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className={`${colorClass} text-xs`}>
+            <th className="text-left p-2 font-medium">Konto</th>
+            <th className="text-right p-2 font-medium w-24">IB</th>
+            <th className="text-right p-2 font-medium w-24">Förändring</th>
+            <th className="text-right p-2 font-medium w-24">UB</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y">
           {items.map((a: any) => (
-            <div key={a.code} className="flex justify-between py-1.5 px-3 text-sm">
-              <span className="text-muted-foreground">
-                <span className="font-mono mr-2">{a.code}</span>{a.name}
-              </span>
-              <span className="font-mono">{formatCurrency(a.balance)}</span>
-            </div>
+            <tr key={a.code} className="hover:bg-muted/30">
+              <td className="p-2">
+                <span className="text-muted-foreground">
+                  <span className="font-mono mr-2">{a.code}</span>{a.name}
+                </span>
+              </td>
+              <td className="p-2 text-right font-mono">{formatCurrency(a.opening_balance || 0)}</td>
+              <td className={`p-2 text-right font-mono ${(a.change || 0) > 0 ? 'text-emerald-600' : (a.change || 0) < 0 ? 'text-red-600' : ''}`}>
+                {formatCurrency(a.change || 0)}
+              </td>
+              <td className="p-2 text-right font-mono font-medium">{formatCurrency(a.closing_balance || 0)}</td>
+            </tr>
           ))}
-        </div>
-      )}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  // Summary row with 3 columns
+  const Summary3Col = ({ opening, change, closing, label, colorClass }: {
+    opening: number; change: number; closing: number; label: string; colorClass: string;
+  }) => (
+    <div className={`grid grid-cols-4 gap-2 py-2 px-3 ${colorClass} rounded font-medium text-sm`}>
+      <span>{label}</span>
+      <span className="font-mono text-right">{formatCurrency(opening)}</span>
+      <span className={`font-mono text-right ${change > 0 ? 'text-emerald-700' : change < 0 ? 'text-red-700' : ''}`}>
+        {formatCurrency(change)}
+      </span>
+      <span className="font-mono text-right">{formatCurrency(closing)}</span>
+    </div>
+  );
+
+  // Section header with 3 column labels
+  const SectionHeader3Col = ({ title, colorClass }: { title: string; colorClass: string }) => (
+    <div className={`grid grid-cols-4 gap-2 py-2 px-3 ${colorClass} rounded-t font-medium text-sm`}>
+      <span>{title}</span>
+      <span className="text-right text-xs opacity-80">Ingående balans</span>
+      <span className="text-right text-xs opacity-80">Förändring</span>
+      <span className="text-right text-xs opacity-80">Utgående balans</span>
     </div>
   );
 
@@ -386,9 +417,10 @@ function BalanceSheetReport({ year }: { year: number }) {
               <Scale className="h-5 w-5 text-primary" />
               Balansräkning
               {!balanced && <Badge variant="destructive" className="ml-2">Obalanserad</Badge>}
+              {!hasIB && <Badge variant="outline" className="ml-2">Saknar IB</Badge>}
             </CardTitle>
             <CardDescription>
-              {period ? `Per ${period}-12-31` : "Tillgångar, skulder och eget kapital"} — K2-uppställning
+              Balansräkning med ingående balans, förändring och utgående balans
             </CardDescription>
           </div>
         </div>
@@ -400,26 +432,41 @@ function BalanceSheetReport({ year }: { year: number }) {
             <h3 className="font-bold text-blue-600 dark:text-blue-400 mb-3 text-lg">TILLGÅNGAR</h3>
 
             <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">A. Anläggningstillgångar</h4>
-            <BSSection title="Materiella anläggningstillgångar" items={fixedAssetsDetails}
-              subtotal={data?.fixed_assets || 0}
-              colorClass="bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400" />
+            <SectionHeader3Col title="Materiella anläggningstillgångar" colorClass="bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400" />
+            <div className="border-x border-b rounded-b mb-4">
+              <AccountTable3Col items={fixedAssetsDetails} colorClass="bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400" />
+            </div>
+            <Summary3Col
+              opening={data?.opening_fixed_assets || 0}
+              change={data?.change_fixed_assets || 0}
+              closing={data?.closing_fixed_assets || 0}
+              label="Summa anläggningstillgångar"
+              colorClass="bg-blue-100 dark:bg-blue-950/30 text-blue-800 dark:text-blue-300 text-sm"
+            />
 
-            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 mt-4">B. Omsättningstillgångar</h4>
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 mt-6">B. Omsättningstillgångar</h4>
             {currentAssetsDetails.length > 0 && (
-              <BSSection title="Övriga omsättningstillgångar" items={currentAssetsDetails}
-                subtotal={data?.current_assets || 0}
-                colorClass="bg-blue-50/50 dark:bg-blue-950/10 text-blue-700 dark:text-blue-400" />
+              <>
+                <SectionHeader3Col title="Övriga omsättningstillgångar" colorClass="bg-blue-50/50 dark:bg-blue-950/10 text-blue-700 dark:text-blue-400" />
+                <div className="border-x border-b rounded-b mb-4">
+                  <AccountTable3Col items={currentAssetsDetails} colorClass="bg-blue-50/50 dark:bg-blue-950/10 text-blue-700 dark:text-blue-400" />
+                </div>
+              </>
             )}
-            <BSSection title="Kundfordringar" items={receivablesDetails}
-              subtotal={data?.receivables || 0}
-              colorClass="bg-blue-50/50 dark:bg-blue-950/10 text-blue-700 dark:text-blue-400" />
-            <BSSection title="Kassa och bank" items={bankDetails}
-              subtotal={data?.bank_and_cash || 0}
-              colorClass="bg-blue-50/50 dark:bg-blue-950/10 text-blue-700 dark:text-blue-400" />
+            <SectionHeader3Col title="Kundfordringar" colorClass="bg-blue-50/50 dark:bg-blue-950/10 text-blue-700 dark:text-blue-400" />
+            <div className="border-x border-b rounded-b mb-4">
+              <AccountTable3Col items={receivablesDetails} colorClass="bg-blue-50/50 dark:bg-blue-950/10 text-blue-700 dark:text-blue-400" />
+            </div>
+            <SectionHeader3Col title="Kassa och bank" colorClass="bg-blue-50/50 dark:bg-blue-950/10 text-blue-700 dark:text-blue-400" />
+            <div className="border-x border-b rounded-b mb-4">
+              <AccountTable3Col items={bankDetails} colorClass="bg-blue-50/50 dark:bg-blue-950/10 text-blue-700 dark:text-blue-400" />
+            </div>
 
-            <div className="flex justify-between py-3 px-3 border-t-2 font-bold text-blue-700 dark:text-blue-400">
+            <div className="grid grid-cols-4 gap-2 py-3 px-3 border-t-2 font-bold text-blue-700 dark:text-blue-400 mt-4">
               <span>SUMMA TILLGÅNGAR</span>
-              <span className="font-mono">{formatCurrency(totalAssets)}</span>
+              <span className="font-mono text-right">{formatCurrency(data?.opening_assets || 0)}</span>
+              <span className="font-mono text-right">{formatCurrency(data?.change_assets || 0)}</span>
+              <span className="font-mono text-right">{formatCurrency(data?.closing_assets || 0)}</span>
             </div>
           </div>
 
@@ -428,23 +475,49 @@ function BalanceSheetReport({ year }: { year: number }) {
             <h3 className="font-bold text-purple-600 dark:text-purple-400 mb-3 text-lg">EGET KAPITAL OCH SKULDER</h3>
 
             <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">A. Eget kapital</h4>
-            <BSSection title="Bundet och fritt eget kapital" items={equityDetails}
-              subtotal={data?.equity || 0}
-              colorClass="bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400" />
+            <SectionHeader3Col title="Bundet och fritt eget kapital" colorClass="bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400" />
+            <div className="border-x border-b rounded-b mb-4">
+              <AccountTable3Col items={equityDetails} colorClass="bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400" />
+            </div>
+            <Summary3Col
+              opening={data?.opening_equity || 0}
+              change={data?.change_equity || 0}
+              closing={data?.closing_equity || 0}
+              label="Summa eget kapital"
+              colorClass="bg-purple-100 dark:bg-purple-950/30 text-purple-800 dark:text-purple-300 text-sm"
+            />
 
-            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 mt-4">B. Långfristiga skulder</h4>
-            <BSSection title="Skulder till kreditinstitut" items={longTermDetails}
-              subtotal={data?.long_term_liabilities || 0}
-              colorClass="bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400" />
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 mt-6">B. Långfristiga skulder</h4>
+            <SectionHeader3Col title="Skulder till kreditinstitut" colorClass="bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400" />
+            <div className="border-x border-b rounded-b mb-4">
+              <AccountTable3Col items={longTermDetails} colorClass="bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400" />
+            </div>
+            <Summary3Col
+              opening={data?.opening_long_term_liabilities || 0}
+              change={data?.change_long_term_liabilities || 0}
+              closing={data?.closing_long_term_liabilities || 0}
+              label="Summa långfristiga skulder"
+              colorClass="bg-red-100 dark:bg-red-950/30 text-red-800 dark:text-red-300 text-sm"
+            />
 
-            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 mt-4">C. Kortfristiga skulder</h4>
-            <BSSection title="Leverantörsskulder, moms m.m." items={currentLiabDetails}
-              subtotal={data?.current_liabilities || 0}
-              colorClass="bg-red-50/50 dark:bg-red-950/10 text-red-700 dark:text-red-400" />
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 mt-6">C. Kortfristiga skulder</h4>
+            <SectionHeader3Col title="Leverantörsskulder, moms m.m." colorClass="bg-red-50/50 dark:bg-red-950/10 text-red-700 dark:text-red-400" />
+            <div className="border-x border-b rounded-b mb-4">
+              <AccountTable3Col items={currentLiabDetails} colorClass="bg-red-50/50 dark:bg-red-950/10 text-red-700 dark:text-red-400" />
+            </div>
+            <Summary3Col
+              opening={data?.opening_current_liabilities || 0}
+              change={data?.change_current_liabilities || 0}
+              closing={data?.closing_current_liabilities || 0}
+              label="Summa kortfristiga skulder"
+              colorClass="bg-red-100 dark:bg-red-950/30 text-red-800 dark:text-red-300 text-sm"
+            />
 
-            <div className="flex justify-between py-3 px-3 border-t-2 font-bold text-purple-700 dark:text-purple-400">
+            <div className="grid grid-cols-4 gap-2 py-3 px-3 border-t-2 font-bold text-purple-700 dark:text-purple-400 mt-4">
               <span>SUMMA EK OCH SKULDER</span>
-              <span className="font-mono">{formatCurrency(totalEL)}</span>
+              <span className="font-mono text-right">{formatCurrency(data?.opening_equity_liabilities || 0)}</span>
+              <span className="font-mono text-right">{formatCurrency(data?.change_equity_liabilities || 0)}</span>
+              <span className="font-mono text-right">{formatCurrency(data?.closing_equity_liabilities || 0)}</span>
             </div>
           </div>
         </div>

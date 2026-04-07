@@ -112,120 +112,226 @@ async def get_income_statement(
     }
 
 
+# New balance sheet function with 3 columns
+# This will be inserted into api/routes/reports.py
+
+
 @router.get("/balance-sheet")
 async def get_balance_sheet(
     year: Optional[int] = Query(None),
     as_of_date: Optional[str] = Query(None),
 ):
-    """Get balance sheet (balansräkning).
-    
+    """Get balance sheet (balansräkning) with 3 columns: IB, Förändring, UB.
+
     Assets (tillgångar) = debit - credit on accounts 1000-1999
     Liabilities (skulder) = credit - debit on accounts 2000-2999
     Equity (eget kapital) = subset of 2000-2999
-    
+
+    Returns data in 3 columns:
+    - opening_balance (IB): Balance at start of year
+    - change: Sum of year's transactions
+    - closing_balance (UB): IB + change
+
     All amounts in ören.
     """
     vouchers, _ = VoucherRepository.list_all(status="posted")
+    target_year = year
+    if as_of_date and not year:
+        target_year = date_type.fromisoformat(as_of_date).year
 
-    # Filter by date
-    if as_of_date:
-        cutoff = date_type.fromisoformat(as_of_date)
-        vouchers = [v for v in vouchers if _parse_voucher_date(v) <= cutoff]
-    elif year:
-        # Include all vouchers up to end of year
-        cutoff = date_type(year, 12, 31)
-        vouchers = [v for v in vouchers if _parse_voucher_date(v) <= cutoff]
-    
-    # Asset categories
-    current_assets = 0    # 1000-1399 (Omsättningstillgångar exkl kundfordringar)
-    receivables = 0       # 1400-1599 (Kundfordringar)
-    fixed_assets = 0      # 1200-1299 (Anläggningstillgångar - inventarier)
-    bank_and_cash = 0     # 1900-1999 (Kassa och bank)
-    
-    # Liability categories
-    equity = 0            # 2000-2099 (Eget kapital)
-    long_term_debt = 0    # 2300-2499 (Långfristiga skulder)
-    short_term_debt = 0   # 2600-2999 (Kortfristiga skulder inkl moms, skatt)
-    
-    all_accounts = AccountRepository.get_all_as_dict()
-    account_balances = {}
-    
+    # Separate IB vouchers from regular vouchers for the target year
+    ib_vouchers = []
+    regular_vouchers = []
+    prior_vouchers = []
+
     for voucher in vouchers:
+        voucher_date = _parse_voucher_date(voucher)
+        if voucher_date.year == target_year:
+            if voucher.series.value == "IB":
+                ib_vouchers.append(voucher)
+            else:
+                regular_vouchers.append(voucher)
+        elif voucher_date.year < target_year:
+            prior_vouchers.append(voucher)
+
+    all_accounts = AccountRepository.get_all_as_dict()
+
+    # Calculate opening balances from IB vouchers, or from prior year totals
+    opening_balances = {}
+    source_vouchers = ib_vouchers if ib_vouchers else prior_vouchers
+
+    for voucher in source_vouchers:
         for row in voucher.rows:
-            account = int(row.account_code) if row.account_code.isdigit() else 0
-            debit = row.debit or 0
-            credit = row.credit or 0
-            
-            # Track all balances
-            if row.account_code not in account_balances:
-                acct = all_accounts.get(row.account_code)
-                account_balances[row.account_code] = {
-                    "name": acct.name if acct else row.account_code,
-                    "debit": 0, "credit": 0,
-                }
-            account_balances[row.account_code]["debit"] += debit
-            account_balances[row.account_code]["credit"] += credit
-            
-            # Assets (1xxx): debit increases, credit decreases
-            if 1000 <= account <= 1199:
-                current_assets += (debit - credit)
-            elif 1200 <= account <= 1299:
-                fixed_assets += (debit - credit)
-            elif 1400 <= account <= 1599:
-                receivables += (debit - credit)
-            elif 1900 <= account <= 1999:
-                bank_and_cash += (debit - credit)
-            elif 1300 <= account <= 1399:
-                current_assets += (debit - credit)
-            elif 1600 <= account <= 1899:
-                current_assets += (debit - credit)
-                
-            # Equity & Liabilities (2xxx): credit increases, debit decreases
-            elif 2000 <= account <= 2099:
-                equity += (credit - debit)
-            elif 2300 <= account <= 2499:
-                long_term_debt += (credit - debit)
-            elif 2100 <= account <= 2299:
-                equity += (credit - debit)  # Retained earnings etc
-            elif 2500 <= account <= 2999:
-                short_term_debt += (credit - debit)
-    
-    total_assets = current_assets + fixed_assets + receivables + bank_and_cash
-    total_equity_liabilities = equity + long_term_debt + short_term_debt
-    
-    # Build per-account details for each category
-    def _account_details(min_code: int, max_code: int, sign: int = 1):
-        """Return list of accounts with balances in a range. sign=1 for assets (debit-credit), sign=-1 for liabilities (credit-debit)."""
+            code = row.account_code
+            if code not in opening_balances:
+                opening_balances[code] = {"debit": 0, "credit": 0}
+            opening_balances[code]["debit"] += row.debit or 0
+            opening_balances[code]["credit"] += row.credit or 0
+
+    # Calculate changes from regular vouchers
+    change_balances = {}
+    for voucher in regular_vouchers:
+        for row in voucher.rows:
+            code = row.account_code
+            if code not in change_balances:
+                change_balances[code] = {"debit": 0, "credit": 0}
+            change_balances[code]["debit"] += row.debit or 0
+            change_balances[code]["credit"] += row.credit or 0
+
+    # Helper functions
+    def _get_net(balances, code, is_liability=False):
+        """Get net balance for an account."""
+        if code not in balances:
+            return 0
+        bal = balances[code]
+        net = bal["debit"] - bal["credit"]
+        return -net if is_liability else net
+
+    def _calc_category(balances, ranges, is_liability=False):
+        """Calculate total for a category range."""
+        total = 0
+        for code, bal in balances.items():
+            try:
+                num = int(code)
+                for min_r, max_r in ranges:
+                    if min_r <= num <= max_r:
+                        net = bal["debit"] - bal["credit"]
+                        total += -net if is_liability else net
+                        break
+            except ValueError:
+                continue
+        return total
+
+    # Category ranges
+    asset_ranges = [
+        (1000, 1199),
+        (1200, 1299),
+        (1300, 1399),
+        (1400, 1599),
+        (1600, 1899),
+        (1900, 1999),
+    ]
+    liability_ranges = [(2000, 2299), (2300, 2499), (2500, 2999)]
+
+    # Calculate totals
+    opening_assets = _calc_category(opening_balances, asset_ranges, False)
+    opening_liabilities = _calc_category(opening_balances, liability_ranges, True)
+    change_assets = _calc_category(change_balances, asset_ranges, False)
+    change_liabilities = _calc_category(change_balances, liability_ranges, True)
+    closing_assets = opening_assets + change_assets
+    closing_liabilities = opening_liabilities + change_liabilities
+
+    # Build account details with 3 columns
+    all_codes = set(opening_balances.keys()) | set(change_balances.keys())
+
+    def _build_details(codes, ranges, is_liability=False):
+        """Build account details with opening, change, and closing balances."""
         details = []
-        for code, bal in sorted(account_balances.items()):
-            acct_num = int(code) if code.isdigit() else 0
-            if min_code <= acct_num <= max_code:
-                balance = (bal["debit"] - bal["credit"]) * sign
-                if balance != 0:
-                    details.append({"code": code, "name": bal["name"], "balance": balance})
+        for code in sorted(codes):
+            try:
+                num = int(code)
+                if not any(min_r <= num <= max_r for min_r, max_r in ranges):
+                    continue
+            except ValueError:
+                continue
+
+            opening = _get_net(opening_balances, code, is_liability)
+            change = _get_net(change_balances, code, is_liability)
+            closing = opening + change
+
+            if opening != 0 or change != 0 or closing != 0:
+                acct = all_accounts.get(code)
+                details.append(
+                    {
+                        "code": code,
+                        "name": acct.name if acct else code,
+                        "opening_balance": opening,
+                        "change": change,
+                        "closing_balance": closing,
+                    }
+                )
         return details
-    
+
+    # Calculate sub-categories for assets
+    opening_current_assets = _calc_category(
+        opening_balances, [(1000, 1199), (1300, 1399), (1600, 1899)], False
+    )
+    opening_receivables = _calc_category(opening_balances, [(1400, 1599)], False)
+    opening_fixed_assets = _calc_category(opening_balances, [(1200, 1299)], False)
+    opening_bank = _calc_category(opening_balances, [(1900, 1999)], False)
+
+    change_current_assets = _calc_category(
+        change_balances, [(1000, 1199), (1300, 1399), (1600, 1899)], False
+    )
+    change_receivables = _calc_category(change_balances, [(1400, 1599)], False)
+    change_fixed_assets = _calc_category(change_balances, [(1200, 1299)], False)
+    change_bank = _calc_category(change_balances, [(1900, 1999)], False)
+
+    # Calculate sub-categories for liabilities/equity
+    opening_equity = _calc_category(opening_balances, [(2000, 2299)], True)
+    opening_long_term = _calc_category(opening_balances, [(2300, 2499)], True)
+    opening_current_liab = _calc_category(opening_balances, [(2500, 2999)], True)
+
+    change_equity = _calc_category(change_balances, [(2000, 2299)], True)
+    change_long_term = _calc_category(change_balances, [(2300, 2499)], True)
+    change_current_liab = _calc_category(change_balances, [(2500, 2999)], True)
+
     return {
-        "current_assets": current_assets,
-        "fixed_assets": fixed_assets,
-        "receivables": receivables,
-        "bank_and_cash": bank_and_cash,
-        "total_assets": total_assets,
-        "equity": equity,
-        "long_term_liabilities": long_term_debt,
-        "current_liabilities": short_term_debt,
-        "total_equity_liabilities": total_equity_liabilities,
-        "balanced": abs(total_assets - total_equity_liabilities) < 100,
+        # Summary totals with 3 columns
+        "opening_assets": opening_assets,
+        "opening_equity_liabilities": opening_liabilities,
+        "change_assets": change_assets,
+        "change_equity_liabilities": change_liabilities,
+        "closing_assets": closing_assets,
+        "closing_equity_liabilities": closing_liabilities,
+        "balanced": abs(closing_assets - closing_liabilities) < 100,
         "period": as_of_date or str(year) if year else "all",
-        "voucher_count": len(vouchers),
-        # Per-account details
-        "fixed_assets_details": _account_details(1200, 1299),
-        "receivables_details": _account_details(1400, 1599),
-        "bank_and_cash_details": _account_details(1900, 1999),
-        "current_assets_details": _account_details(1000, 1199) + _account_details(1300, 1399) + _account_details(1600, 1899),
-        "equity_details": _account_details(2000, 2299, -1),
-        "long_term_liabilities_details": _account_details(2300, 2499, -1),
-        "current_liabilities_details": _account_details(2500, 2999, -1),
+        "has_ib_vouchers": len(ib_vouchers) > 0,
+        # Asset categories with 3 columns
+        "opening_current_assets": opening_current_assets,
+        "opening_receivables": opening_receivables,
+        "opening_fixed_assets": opening_fixed_assets,
+        "opening_bank_and_cash": opening_bank,
+        "change_current_assets": change_current_assets,
+        "change_receivables": change_receivables,
+        "change_fixed_assets": change_fixed_assets,
+        "change_bank_and_cash": change_bank,
+        "closing_current_assets": opening_current_assets + change_current_assets,
+        "closing_receivables": opening_receivables + change_receivables,
+        "closing_fixed_assets": opening_fixed_assets + change_fixed_assets,
+        "closing_bank_and_cash": opening_bank + change_bank,
+        # Liability/equity categories with 3 columns
+        "opening_equity": opening_equity,
+        "opening_long_term_liabilities": opening_long_term,
+        "opening_current_liabilities": opening_current_liab,
+        "change_equity": change_equity,
+        "change_long_term_liabilities": change_long_term,
+        "change_current_liabilities": change_current_liab,
+        "closing_equity": opening_equity + change_equity,
+        "closing_long_term_liabilities": opening_long_term + change_long_term,
+        "closing_current_liabilities": opening_current_liab + change_current_liab,
+        # Per-account details with 3 columns
+        "fixed_assets_details": _build_details(all_codes, [(1200, 1299)], False),
+        "receivables_details": _build_details(all_codes, [(1400, 1599)], False),
+        "bank_and_cash_details": _build_details(all_codes, [(1900, 1999)], False),
+        "current_assets_details": _build_details(
+            all_codes, [(1000, 1199), (1300, 1399), (1600, 1899)], False
+        ),
+        "equity_details": _build_details(all_codes, [(2000, 2299)], True),
+        "long_term_liabilities_details": _build_details(
+            all_codes, [(2300, 2499)], True
+        ),
+        "current_liabilities_details": _build_details(all_codes, [(2500, 2999)], True),
+        # Backward compatibility
+        "total_assets": closing_assets,
+        "total_equity_liabilities": closing_liabilities,
+        "current_assets": opening_current_assets + change_current_assets,
+        "fixed_assets": opening_fixed_assets + change_fixed_assets,
+        "receivables": opening_receivables + change_receivables,
+        "bank_and_cash": opening_bank + change_bank,
+        "equity": opening_equity + change_equity,
+        "long_term_liabilities": opening_long_term + change_long_term,
+        "current_liabilities": opening_current_liab + change_current_liab,
     }
 
 
