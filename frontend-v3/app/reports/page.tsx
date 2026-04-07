@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { useIncomeStatement, useBalanceSheet, useTrialBalance, useGeneralLedger, useFiscalYears, useAccounts } from "@/hooks/useData";
 import { api } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
-import { TrendingUp, TrendingDown, Scale, FileSpreadsheet, BookOpen, Calendar, Download } from "lucide-react";
+import { TrendingUp, TrendingDown, Scale, FileSpreadsheet, BookOpen, Calendar, Download, CheckCircle2, AlertCircle } from "lucide-react";
 
 type ReportTab = "income" | "balance" | "trial" | "ledger";
 
@@ -335,6 +335,93 @@ function IncomeStatementReport({ year, month }: { year: number; month?: number }
   );
 }
 
+// Balance Summary Cards component - SEPARATE FUNCTION
+function BalanceSummaryCards({
+  assets,
+  equity,
+  liabilities,
+  balanced,
+}: {
+  assets: number;
+  equity: number;
+  liabilities: number;
+  balanced: boolean;
+}) {
+  const totalLiabilitiesAndEquity = equity + liabilities;
+  const difference = assets - totalLiabilitiesAndEquity;
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-muted-foreground">Tillgångar</p>
+              <p className="text-2xl font-bold font-mono">{formatCurrency(assets)}</p>
+            </div>
+            <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
+              <Scale className="h-5 w-5 text-muted-foreground" />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-muted-foreground">Eget kapital</p>
+              <p className="text-2xl font-bold font-mono">{formatCurrency(equity)}</p>
+            </div>
+            <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
+              <TrendingUp className="h-5 w-5 text-muted-foreground" />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-muted-foreground">Skulder</p>
+              <p className="text-2xl font-bold font-mono">{formatCurrency(liabilities)}</p>
+            </div>
+            <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
+              <TrendingDown className="h-5 w-5 text-muted-foreground" />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className={balanced ? "border-green-200 dark:border-green-800" : "border-red-200 dark:border-red-800"}>
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-muted-foreground">Balansstatus</p>
+              <p className={`text-lg font-bold ${balanced ? "text-green-600" : "text-red-600"}`}>
+                {balanced ? "Balanserad" : "Obalanserad"}
+              </p>
+              {!balanced && (
+                <p className="text-xs text-muted-foreground">
+                  Diff: {formatCurrency(Math.abs(difference))}
+                </p>
+              )}
+            </div>
+            <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
+              {balanced ? (
+                <CheckCircle2 className="h-5 w-5 text-green-600" />
+              ) : (
+                <AlertCircle className="h-5 w-5 text-red-600" />
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function BalanceSheetReport({ year }: { year: number }) {
   const { data, isLoading } = useBalanceSheet(year);
 
@@ -343,7 +430,7 @@ function BalanceSheetReport({ year }: { year: number }) {
   const balanced = data?.balanced ?? true;
   const hasIB = data?.has_ib_vouchers ?? false;
 
-  // Account detail arrays from API with 3 columns
+  // Account detail arrays from API with 5 columns
   const fixedAssetsDetails: any[] = data?.fixed_assets_details || [];
   const receivablesDetails: any[] = data?.receivables_details || [];
   const bankDetails: any[] = data?.bank_and_cash_details || [];
@@ -352,13 +439,14 @@ function BalanceSheetReport({ year }: { year: number }) {
   const longTermDetails: any[] = data?.long_term_liabilities_details || [];
   const currentLiabDetails: any[] = data?.current_liabilities_details || [];
 
-  // 3-column table component for account details
-  const AccountTable3Col = ({ items, colorClass }: { items: any[]; colorClass: string }) => (
+  // 5-column table component for account details
+  const AccountTable5Col = ({ items }: { items: any[] }) => (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className={`${colorClass} text-xs`}>
-            <th className="text-left p-2 font-medium">Konto</th>
+          <tr className="bg-muted/50 text-xs">
+            <th className="text-left p-2 font-medium w-20">Konto</th>
+            <th className="text-left p-2 font-medium">Benämning</th>
             <th className="text-right p-2 font-medium w-24">IB</th>
             <th className="text-right p-2 font-medium w-24">Förändring</th>
             <th className="text-right p-2 font-medium w-24">UB</th>
@@ -367,11 +455,8 @@ function BalanceSheetReport({ year }: { year: number }) {
         <tbody className="divide-y">
           {items.map((a: any) => (
             <tr key={a.code} className="hover:bg-muted/30">
-              <td className="p-2">
-                <span className="text-muted-foreground">
-                  <span className="font-mono mr-2">{a.code}</span>{a.name}
-                </span>
-              </td>
+              <td className="p-2 font-mono text-muted-foreground">{a.code}</td>
+              <td className="p-2">{a.name}</td>
               <td className="p-2 text-right font-mono">{formatCurrency(a.opening_balance || 0)}</td>
               <td className={`p-2 text-right font-mono ${(a.change || 0) > 0 ? 'text-emerald-600' : (a.change || 0) < 0 ? 'text-red-600' : ''}`}>
                 {formatCurrency(a.change || 0)}
@@ -384,12 +469,12 @@ function BalanceSheetReport({ year }: { year: number }) {
     </div>
   );
 
-  // Summary row with 3 columns
-  const Summary3Col = ({ opening, change, closing, label, colorClass }: {
-    opening: number; change: number; closing: number; label: string; colorClass: string;
+  // Summary row with 5 columns
+  const Summary5Col = ({ opening, change, closing, label }: {
+    opening: number; change: number; closing: number; label: string;
   }) => (
-    <div className={`grid grid-cols-4 gap-2 py-2 px-3 ${colorClass} rounded font-medium text-sm`}>
-      <span>{label}</span>
+    <div className="grid grid-cols-5 gap-2 py-2 px-3 bg-muted/30 rounded font-medium text-sm">
+      <span className="col-span-2">{label}</span>
       <span className="font-mono text-right">{formatCurrency(opening)}</span>
       <span className={`font-mono text-right ${change > 0 ? 'text-emerald-700' : change < 0 ? 'text-red-700' : ''}`}>
         {formatCurrency(change)}
@@ -398,10 +483,10 @@ function BalanceSheetReport({ year }: { year: number }) {
     </div>
   );
 
-  // Section header with 3 column labels
-  const SectionHeader3Col = ({ title, colorClass }: { title: string; colorClass: string }) => (
-    <div className={`grid grid-cols-4 gap-2 py-2 px-3 ${colorClass} rounded-t font-medium text-sm`}>
-      <span>{title}</span>
+  // Section header with 5 column labels
+  const SectionHeader5Col = ({ title }: { title: string }) => (
+    <div className="grid grid-cols-5 gap-2 py-2 px-3 bg-muted/50 rounded-t font-medium text-sm">
+      <span className="col-span-2">{title}</span>
       <span className="text-right text-xs opacity-80">Ingående balans</span>
       <span className="text-right text-xs opacity-80">Förändring</span>
       <span className="text-right text-xs opacity-80">Utgående balans</span>
@@ -409,120 +494,148 @@ function BalanceSheetReport({ year }: { year: number }) {
   );
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <Scale className="h-5 w-5 text-primary" />
-              Balansräkning
-              {!balanced && <Badge variant="destructive" className="ml-2">Obalanserad</Badge>}
-              {!hasIB && <Badge variant="outline" className="ml-2">Saknar IB</Badge>}
-            </CardTitle>
-            <CardDescription>
-              Balansräkning med ingående balans, förändring och utgående balans
-            </CardDescription>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-1 gap-8">
-          {/* TILLGÅNGAR */}
-          <div>
-            <h3 className="font-bold text-blue-600 dark:text-blue-400 mb-3 text-lg">TILLGÅNGAR</h3>
+    <div className="space-y-6">
+      {/* Summary Cards */}
+      <BalanceSummaryCards
+        assets={data?.closing_assets || 0}
+        equity={data?.closing_equity || 0}
+        liabilities={(data?.closing_long_term_liabilities || 0) + (data?.closing_current_liabilities || 0)}
+        balanced={balanced}
+      />
 
-            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">A. Anläggningstillgångar</h4>
-            <SectionHeader3Col title="Materiella anläggningstillgångar" colorClass="bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400" />
-            <div className="border-x border-b rounded-b mb-4">
-              <AccountTable3Col items={fixedAssetsDetails} colorClass="bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400" />
+      {/* Main Report Card */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Scale className="h-5 w-5 text-primary" />
+                Balansräkning
+                {!balanced && <Badge variant="destructive" className="ml-2">Obalanserad</Badge>}
+                {!hasIB && <Badge variant="outline" className="ml-2">Saknar IB</Badge>}
+              </CardTitle>
+              <CardDescription>
+                Balansräkning med ingående balans, förändring och utgående balans
+              </CardDescription>
             </div>
-            <Summary3Col
-              opening={data?.opening_fixed_assets || 0}
-              change={data?.change_fixed_assets || 0}
-              closing={data?.closing_fixed_assets || 0}
-              label="Summa anläggningstillgångar"
-              colorClass="bg-blue-100 dark:bg-blue-950/30 text-blue-800 dark:text-blue-300 text-sm"
-            />
-
-            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 mt-6">B. Omsättningstillgångar</h4>
-            {currentAssetsDetails.length > 0 && (
-              <>
-                <SectionHeader3Col title="Övriga omsättningstillgångar" colorClass="bg-blue-50/50 dark:bg-blue-950/10 text-blue-700 dark:text-blue-400" />
-                <div className="border-x border-b rounded-b mb-4">
-                  <AccountTable3Col items={currentAssetsDetails} colorClass="bg-blue-50/50 dark:bg-blue-950/10 text-blue-700 dark:text-blue-400" />
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 gap-8">
+            {/* TILLGÅNGAR */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg">Tillgångar</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* A. Anläggningstillgångar */}
+                <div className="border-l-2 border-l-border pl-4">
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">A. Anläggningstillgångar</h4>
+                  <SectionHeader5Col title="Materiella anläggningstillgångar" />
+                  <div className="border-x border-b rounded-b mb-4">
+                    <AccountTable5Col items={fixedAssetsDetails} />
+                  </div>
+                  <Summary5Col
+                    opening={data?.opening_fixed_assets || 0}
+                    change={data?.change_fixed_assets || 0}
+                    closing={data?.closing_fixed_assets || 0}
+                    label="Summa anläggningstillgångar"
+                  />
                 </div>
-              </>
-            )}
-            <SectionHeader3Col title="Kundfordringar" colorClass="bg-blue-50/50 dark:bg-blue-950/10 text-blue-700 dark:text-blue-400" />
-            <div className="border-x border-b rounded-b mb-4">
-              <AccountTable3Col items={receivablesDetails} colorClass="bg-blue-50/50 dark:bg-blue-950/10 text-blue-700 dark:text-blue-400" />
-            </div>
-            <SectionHeader3Col title="Kassa och bank" colorClass="bg-blue-50/50 dark:bg-blue-950/10 text-blue-700 dark:text-blue-400" />
-            <div className="border-x border-b rounded-b mb-4">
-              <AccountTable3Col items={bankDetails} colorClass="bg-blue-50/50 dark:bg-blue-950/10 text-blue-700 dark:text-blue-400" />
-            </div>
 
-            <div className="grid grid-cols-4 gap-2 py-3 px-3 border-t-2 font-bold text-blue-700 dark:text-blue-400 mt-4">
-              <span>SUMMA TILLGÅNGAR</span>
-              <span className="font-mono text-right">{formatCurrency(data?.opening_assets || 0)}</span>
-              <span className="font-mono text-right">{formatCurrency(data?.change_assets || 0)}</span>
-              <span className="font-mono text-right">{formatCurrency(data?.closing_assets || 0)}</span>
-            </div>
+                {/* B. Omsättningstillgångar */}
+                <div className="border-l-2 border-l-border pl-4">
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">B. Omsättningstillgångar</h4>
+                  {currentAssetsDetails.length > 0 && (
+                    <>
+                      <SectionHeader5Col title="Övriga omsättningstillgångar" />
+                      <div className="border-x border-b rounded-b mb-4">
+                        <AccountTable5Col items={currentAssetsDetails} />
+                      </div>
+                    </>
+                  )}
+                  <SectionHeader5Col title="Kundfordringar" />
+                  <div className="border-x border-b rounded-b mb-4">
+                    <AccountTable5Col items={receivablesDetails} />
+                  </div>
+                  <SectionHeader5Col title="Kassa och bank" />
+                  <div className="border-x border-b rounded-b mb-4">
+                    <AccountTable5Col items={bankDetails} />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-5 gap-2 py-3 px-3 border-t-2 font-bold mt-4">
+                  <span className="col-span-2">SUMMA TILLGÅNGAR</span>
+                  <span className="font-mono text-right">{formatCurrency(data?.opening_assets || 0)}</span>
+                  <span className="font-mono text-right">{formatCurrency(data?.change_assets || 0)}</span>
+                  <span className="font-mono text-right">{formatCurrency(data?.closing_assets || 0)}</span>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* EGET KAPITAL OCH SKULDER */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg">Eget kapital och skulder</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* A. Eget kapital */}
+                <div className="border-l-2 border-l-border pl-4">
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">A. Eget kapital</h4>
+                  <SectionHeader5Col title="Bundet och fritt eget kapital" />
+                  <div className="border-x border-b rounded-b mb-4">
+                    <AccountTable5Col items={equityDetails} />
+                  </div>
+                  <Summary5Col
+                    opening={data?.opening_equity || 0}
+                    change={data?.change_equity || 0}
+                    closing={data?.closing_equity || 0}
+                    label="Summa eget kapital"
+                  />
+                </div>
+
+                {/* B. Långfristiga skulder */}
+                <div className="border-l-2 border-l-border pl-4">
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">B. Långfristiga skulder</h4>
+                  <SectionHeader5Col title="Skulder till kreditinstitut" />
+                  <div className="border-x border-b rounded-b mb-4">
+                    <AccountTable5Col items={longTermDetails} />
+                  </div>
+                  <Summary5Col
+                    opening={data?.opening_long_term_liabilities || 0}
+                    change={data?.change_long_term_liabilities || 0}
+                    closing={data?.closing_long_term_liabilities || 0}
+                    label="Summa långfristiga skulder"
+                  />
+                </div>
+
+                {/* C. Kortfristiga skulder */}
+                <div className="border-l-2 border-l-border pl-4">
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">C. Kortfristiga skulder</h4>
+                  <SectionHeader5Col title="Leverantörsskulder, moms m.m." />
+                  <div className="border-x border-b rounded-b mb-4">
+                    <AccountTable5Col items={currentLiabDetails} />
+                  </div>
+                  <Summary5Col
+                    opening={data?.opening_current_liabilities || 0}
+                    change={data?.change_current_liabilities || 0}
+                    closing={data?.closing_current_liabilities || 0}
+                    label="Summa kortfristiga skulder"
+                  />
+                </div>
+
+                <div className="grid grid-cols-5 gap-2 py-3 px-3 border-t-2 font-bold mt-4">
+                  <span className="col-span-2">SUMMA EK OCH SKULDER</span>
+                  <span className="font-mono text-right">{formatCurrency(data?.opening_equity_liabilities || 0)}</span>
+                  <span className="font-mono text-right">{formatCurrency(data?.change_equity_liabilities || 0)}</span>
+                  <span className="font-mono text-right">{formatCurrency(data?.closing_equity_liabilities || 0)}</span>
+                </div>
+              </CardContent>
+            </Card>
           </div>
-
-          {/* EGET KAPITAL OCH SKULDER */}
-          <div>
-            <h3 className="font-bold text-purple-600 dark:text-purple-400 mb-3 text-lg">EGET KAPITAL OCH SKULDER</h3>
-
-            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">A. Eget kapital</h4>
-            <SectionHeader3Col title="Bundet och fritt eget kapital" colorClass="bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400" />
-            <div className="border-x border-b rounded-b mb-4">
-              <AccountTable3Col items={equityDetails} colorClass="bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400" />
-            </div>
-            <Summary3Col
-              opening={data?.opening_equity || 0}
-              change={data?.change_equity || 0}
-              closing={data?.closing_equity || 0}
-              label="Summa eget kapital"
-              colorClass="bg-purple-100 dark:bg-purple-950/30 text-purple-800 dark:text-purple-300 text-sm"
-            />
-
-            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 mt-6">B. Långfristiga skulder</h4>
-            <SectionHeader3Col title="Skulder till kreditinstitut" colorClass="bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400" />
-            <div className="border-x border-b rounded-b mb-4">
-              <AccountTable3Col items={longTermDetails} colorClass="bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400" />
-            </div>
-            <Summary3Col
-              opening={data?.opening_long_term_liabilities || 0}
-              change={data?.change_long_term_liabilities || 0}
-              closing={data?.closing_long_term_liabilities || 0}
-              label="Summa långfristiga skulder"
-              colorClass="bg-red-100 dark:bg-red-950/30 text-red-800 dark:text-red-300 text-sm"
-            />
-
-            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 mt-6">C. Kortfristiga skulder</h4>
-            <SectionHeader3Col title="Leverantörsskulder, moms m.m." colorClass="bg-red-50/50 dark:bg-red-950/10 text-red-700 dark:text-red-400" />
-            <div className="border-x border-b rounded-b mb-4">
-              <AccountTable3Col items={currentLiabDetails} colorClass="bg-red-50/50 dark:bg-red-950/10 text-red-700 dark:text-red-400" />
-            </div>
-            <Summary3Col
-              opening={data?.opening_current_liabilities || 0}
-              change={data?.change_current_liabilities || 0}
-              closing={data?.closing_current_liabilities || 0}
-              label="Summa kortfristiga skulder"
-              colorClass="bg-red-100 dark:bg-red-950/30 text-red-800 dark:text-red-300 text-sm"
-            />
-
-            <div className="grid grid-cols-4 gap-2 py-3 px-3 border-t-2 font-bold text-purple-700 dark:text-purple-400 mt-4">
-              <span>SUMMA EK OCH SKULDER</span>
-              <span className="font-mono text-right">{formatCurrency(data?.opening_equity_liabilities || 0)}</span>
-              <span className="font-mono text-right">{formatCurrency(data?.change_equity_liabilities || 0)}</span>
-              <span className="font-mono text-right">{formatCurrency(data?.closing_equity_liabilities || 0)}</span>
-            </div>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
