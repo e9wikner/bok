@@ -5,31 +5,39 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { useAuditLog } from "@/hooks/useData";
 import { formatCurrency } from "@/lib/utils";
-import { ScrollText, User, Clock, Package, FileText, RefreshCw } from "lucide-react";
+import { ScrollText, RefreshCw, Search } from "lucide-react";
 
-const ENTITY_COLORS: Record<string, string> = {
-  voucher: "bg-blue-100 text-blue-800",
-  opening_balance: "bg-purple-100 text-purple-800",
-  fiscal_year: "bg-green-100 text-green-800",
-  account: "bg-yellow-100 text-yellow-800",
-  invoice: "bg-orange-100 text-orange-800",
+const ACTION_SHORT: Record<string, string> = {
+  created: "NY",
+  updated: "UPD",
+  posted: "BOK",
+  deleted: "DEL",
+  locked: "LÅS",
 };
 
 const ACTION_COLORS: Record<string, string> = {
-  created: "bg-emerald-100 text-emerald-800",
-  updated: "bg-amber-100 text-amber-800",
-  posted: "bg-blue-100 text-blue-800",
-  deleted: "bg-red-100 text-red-800",
-  locked: "bg-gray-100 text-gray-800",
+  created: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  updated: "bg-amber-50 text-amber-700 border-amber-200",
+  posted: "bg-blue-50 text-blue-700 border-blue-200",
+  deleted: "bg-red-50 text-red-700 border-red-200",
+  locked: "bg-gray-50 text-gray-700 border-gray-200",
+};
+
+const ENTITY_SHORT: Record<string, string> = {
+  voucher: "VER",
+  opening_balance: "IB",
+  fiscal_year: "ÅR",
+  account: "KONTO",
+  invoice: "FAKT",
 };
 
 export default function AuditLogPage() {
   const [filter, setFilter] = useState<string>("");
-  const { data, isLoading } = useAuditLog(100);
+  const { data, isLoading } = useAuditLog(200);
 
   if (isLoading) {
     return (
-      <div className="container mx-auto py-8 px-4">
+      <div className="container mx-auto py-6 px-4 max-w-5xl">
         <Card>
           <CardContent className="p-8 text-center">
             <RefreshCw className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
@@ -42,141 +50,160 @@ export default function AuditLogPage() {
 
   const entries = data?.entries || [];
 
-  // Filter entries
   const filteredEntries = entries.filter((entry: any) => {
     if (!filter) return true;
     const search = filter.toLowerCase();
     return (
       entry.entity_type?.toLowerCase().includes(search) ||
       entry.action?.toLowerCase().includes(search) ||
-      entry.actor?.toLowerCase().includes(search) ||
-      entry.entity_id?.toLowerCase().includes(search)
+      entry.actor?.toLowerCase().includes(search)
     );
   });
 
-  const formatPayload = (payload: any) => {
-    if (!payload) return null;
+  const formatPayload = (payload: any): string => {
+    if (!payload) return "";
     
-    const items = [];
+    const parts: string[] = [];
     
     if (payload.series && payload.number !== undefined) {
-      items.push(`${payload.series}${payload.number}`);
+      parts.push(`${payload.series}${payload.number}`);
     }
     if (payload.year) {
-      items.push(`År: ${payload.year}`);
+      parts.push(`${payload.year}`);
     }
     if (payload.accounts_count !== undefined) {
-      items.push(`Konton: ${payload.accounts_count}`);
+      parts.push(`${payload.accounts_count} konton`);
     }
     if (payload.rows_count !== undefined) {
-      items.push(`Rader: ${payload.rows_count}`);
+      parts.push(`${payload.rows_count} rader`);
     }
-    if (payload.fiscal_year_id) {
-      items.push(`Räkenskapsår: ${payload.fiscal_year_id.slice(0, 8)}...`);
-    }
-    if (payload.total_debit !== undefined) {
-      items.push(`Debet: ${formatCurrency(payload.total_debit)}`);
-    }
-    if (payload.total_credit !== undefined) {
-      items.push(`Kredit: ${formatCurrency(payload.total_credit)}`);
+    if (payload.total_debit !== undefined && payload.total_credit !== undefined) {
+      parts.push(formatCurrency(payload.total_debit));
     }
     
-    return items.length > 0 ? items.join(" • ") : JSON.stringify(payload).slice(0, 100);
+    return parts.join(" • ");
   };
 
-  const getEntityIcon = (entityType: string) => {
-    switch (entityType) {
-      case "voucher":
-        return <FileText className="h-4 w-4" />;
-      case "opening_balance":
-        return <Package className="h-4 w-4" />;
-      default:
-        return <ScrollText className="h-4 w-4" />;
-    }
+  const formatTime = (timestamp: string): string => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    
+    if (diffMins < 1) return "just nu";
+    if (diffMins < 60) return `${diffMins}m`;
+    if (diffHours < 24) return `${diffHours}t`;
+    if (diffDays < 7) return `${diffDays}d`;
+    
+    return date.toLocaleDateString("sv-SE", { 
+      month: "short", 
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   };
+
+  // Group entries by date
+  const groupedEntries = filteredEntries.reduce((groups: any, entry: any) => {
+    const date = new Date(entry.timestamp).toLocaleDateString("sv-SE", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+    if (!groups[date]) groups[date] = [];
+    groups[date].push(entry);
+    return groups;
+  }, {});
 
   return (
-    <div className="container mx-auto py-8 px-4">
-      <Card>
-        <CardHeader>
+    <div className="container mx-auto py-6 px-4 max-w-5xl">
+      <Card className="overflow-hidden">
+        <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="flex items-center gap-2 text-2xl">
-                <ScrollText className="h-6 w-6 text-primary" />
+              <CardTitle className="flex items-center gap-2 text-xl">
+                <ScrollText className="h-5 w-5 text-primary" />
                 Logg
               </CardTitle>
-              <CardDescription>
-                Händelselogg för systemet • {entries.length} poster
+              <CardDescription className="text-xs">
+                {entries.length} händelser
               </CardDescription>
             </div>
-            <div className="flex gap-2">
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
               <input
                 type="text"
-                placeholder="Sök i loggen..."
+                placeholder="Sök..."
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
-                className="px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                className="pl-7 pr-3 py-1.5 rounded-md border bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring w-48"
               />
             </div>
           </div>
         </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            {filteredEntries.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground">
-                <ScrollText className="h-12 w-12 mx-auto mb-4 opacity-30" />
-                <p>Inga loggposter hittades</p>
-              </div>
-            ) : (
-              filteredEntries.map((entry: any) => (
-                <div
-                  key={entry.id}
-                  className="flex items-start gap-4 p-4 rounded-lg border hover:bg-muted/30 transition-colors"
-                >
-                  <div className="mt-1">
-                    {getEntityIcon(entry.entity_type)}
+        <CardContent className="p-0">
+          {filteredEntries.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <ScrollText className="h-10 w-10 mx-auto mb-3 opacity-30" />
+              <p className="text-sm">Inga loggposter hittades</p>
+            </div>
+          ) : (
+            <div className="divide-y">
+              {Object.entries(groupedEntries).map(([date, dayEntries]: [string, any]) => (
+                <div key={date}>
+                  <div className="bg-muted/50 px-4 py-1.5 text-xs font-medium text-muted-foreground sticky top-0">
+                    {date}
                   </div>
-                  
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Badge className={ENTITY_COLORS[entry.entity_type] || "bg-gray-100"}>
-                        {entry.entity_type}
-                      </Badge>
-                      <Badge className={ACTION_COLORS[entry.action] || "bg-gray-100"}>
-                        {entry.action}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground font-mono">
-                        {entry.entity_id.slice(0, 12)}...
-                      </span>
-                    </div>
-                    
-                    {entry.payload && (
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        {formatPayload(entry.payload)}
-                      </p>
-                    )}
-                  </div>
-                  
-                  <div className="text-right text-xs text-muted-foreground space-y-1">
-                    <div className="flex items-center gap-1">
-                      <User className="h-3 w-3" />
-                      {entry.actor}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      {new Date(entry.timestamp).toLocaleString("sv-SE", {
-                        year: "numeric",
-                        month: "2-digit",
-                        day: "2-digit",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </div>
-                  </div>
+                  <table className="w-full text-sm">
+                    <tbody>
+                      {dayEntries.map((entry: any) => (
+                        <tr 
+                          key={entry.id} 
+                          className="hover:bg-muted/30 transition-colors border-b last:border-b-0"
+                        >
+                          <td className="py-1.5 pl-4 pr-2 w-16">
+                            <Badge 
+                              variant="outline" 
+                              className={`text-[10px] px-1 py-0 h-5 font-medium ${ACTION_COLORS[entry.action] || "bg-gray-50 text-gray-700"}`}
+                            >
+                              {ACTION_SHORT[entry.action] || entry.action.slice(0, 3).toUpperCase()}
+                            </Badge>
+                          </td>
+                          <td className="py-1.5 px-2 w-20">
+                            <span className="text-xs font-medium text-muted-foreground">
+                              {ENTITY_SHORT[entry.entity_type] || entry.entity_type.slice(0, 4).toUpperCase()}
+                            </span>
+                          </td>
+                          <td className="py-1.5 px-2 w-20">
+                            <span className="text-xs font-mono text-muted-foreground">
+                              {entry.entity_id.slice(0, 8)}
+                            </span>
+                          </td>
+                          <td className="py-1.5 px-2">
+                            <span className="text-xs text-muted-foreground truncate max-w-[200px] inline-block">
+                              {formatPayload(entry.payload)}
+                            </span>
+                          </td>
+                          <td className="py-1.5 px-2 text-right">
+                            <span className="text-xs text-muted-foreground">
+                              {entry.actor}
+                            </span>
+                          </td>
+                          <td className="py-1.5 pl-2 pr-4 text-right w-20">
+                            <span className="text-xs text-muted-foreground tabular-nums">
+                              {formatTime(entry.timestamp)}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              ))
-            )}
-          </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
