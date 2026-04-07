@@ -15,6 +15,7 @@
 </div>
 
 <div class="report-period">
+  Räkenskapsår {{ period_year }}<br>
   Per {{ balance_date }}
   {% if generated_at %}<br>Genererad: {{ generated_at }}{% endif %}
 </div>
@@ -24,11 +25,13 @@
 <table class="data-table">
   <thead>
     <tr>
-      <th style="width:15%">Konto</th>
-      <th style="width:45%">Benämning</th>
-      <th class="right" style="width:20%">Belopp</th>
+      <th style="width:12%">Konto</th>
+      <th style="width:28%">Benämning</th>
+      <th class="right" style="width:15%">IB</th>
+      <th class="right" style="width:15%">Förändring</th>
+      <th class="right" style="width:15%">UB</th>
       {% if compare_period %}
-      <th class="right" style="width:20%">Föregående år</th>
+      <th class="right" style="width:15%">Föregående år</th>
       {% endif %}
     </tr>
   </thead>
@@ -36,13 +39,15 @@
     <!-- Anläggningstillgångar -->
     {% if fixed_asset_rows %}
     <tr class="group-header">
-      <td colspan="{{ 4 if compare_period else 3 }}">Anläggningstillgångar</td>
+      <td colspan="{{ 6 if compare_period else 5 }}">Anläggningstillgångar</td>
     </tr>
     {% for row in fixed_asset_rows %}
     <tr class="indent-1">
       <td>{{ row.account_code }}</td>
       <td>{{ row.account_name }}</td>
-      <td class="right">{{ row.amount | format_sek }}</td>
+      <td class="right">{{ row.opening_balance | format_sek }}</td>
+      <td class="right">{{ row.change | format_sek }}</td>
+      <td class="right">{{ row.closing_balance | format_sek }}</td>
       {% if compare_period %}
       <td class="right">{{ row.compare_amount | format_sek }}</td>
       {% endif %}
@@ -51,7 +56,9 @@
     <tr class="group-total">
       <td></td>
       <td>Summa anläggningstillgångar</td>
-      <td class="right">{{ total_fixed_assets | format_sek }}</td>
+      <td class="right">{{ total_fixed_assets_opening | format_sek }}</td>
+      <td class="right">{{ total_fixed_assets_change | format_sek }}</td>
+      <td class="right">{{ total_fixed_assets_closing | format_sek }}</td>
       {% if compare_period %}
       <td class="right">{{ total_fixed_assets_compare | format_sek }}</td>
       {% endif %}
@@ -60,13 +67,15 @@
 
     <!-- Omsättningstillgångar -->
     <tr class="group-header">
-      <td colspan="{{ 4 if compare_period else 3 }}">Omsättningstillgångar</td>
+      <td colspan="{{ 6 if compare_period else 5 }}">Omsättningstillgångar</td>
     </tr>
     {% for row in current_asset_rows %}
     <tr class="indent-1">
       <td>{{ row.account_code }}</td>
       <td>{{ row.account_name }}</td>
-      <td class="right">{{ row.amount | format_sek }}</td>
+      <td class="right">{{ row.opening_balance | format_sek }}</td>
+      <td class="right">{{ row.change | format_sek }}</td>
+      <td class="right">{{ row.closing_balance | format_sek }}</td>
       {% if compare_period %}
       <td class="right">{{ row.compare_amount | format_sek }}</td>
       {% endif %}
@@ -75,7 +84,9 @@
     <tr class="group-total">
       <td></td>
       <td>Summa omsättningstillgångar</td>
-      <td class="right">{{ total_current_assets | format_sek }}</td>
+      <td class="right">{{ total_current_assets_opening | format_sek }}</td>
+      <td class="right">{{ total_current_assets_change | format_sek }}</td>
+      <td class="right">{{ total_current_assets_closing | format_sek }}</td>
       {% if compare_period %}
       <td class="right">{{ total_current_assets_compare | format_sek }}</td>
       {% endif %}
@@ -84,7 +95,9 @@
     <tr class="grand-total">
       <td></td>
       <td>SUMMA TILLGÅNGAR</td>
-      <td class="right">{{ total_assets | format_sek }}</td>
+      <td class="right">{{ total_assets_opening | format_sek }}</td>
+      <td class="right">{{ total_assets_change | format_sek }}</td>
+      <td class="right">{{ total_assets_closing | format_sek }}</td>
       {% if compare_period %}
       <td class="right">{{ total_assets_compare | format_sek }}</td>
       {% endif %}
@@ -97,24 +110,28 @@
 <table class="data-table">
   <thead>
     <tr>
-      <th style="width:15%">Konto</th>
-      <th style="width:45%">Benämning</th>
-      <th class="right" style="width:20%">Belopp</th>
+      <th style="width:12%">Konto</th>
+      <th style="width:28%">Benämning</th>
+      <th class="right" style="width:15%">IB</th>
+      <th class="right" style="width:15%">Förändring</th>
+      <th class="right" style="width:15%">UB</th>
       {% if compare_period %}
-      <th class="right" style="width:20%">Föregående år</th>
+      <th class="right" style="width:15%">Föregående år</th>
       {% endif %}
     </tr>
   </thead>
   <tbody>
     <!-- Eget kapital -->
     <tr class="group-header">
-      <td colspan="{{ 4 if compare_period else 3 }}">Eget kapital</td>
+      <td colspan="{{ 6 if compare_period else 5 }}">Eget kapital</td>
     </tr>
     {% for row in equity_rows %}
     <tr class="indent-1">
       <td>{{ row.account_code }}</td>
       <td>{{ row.account_name }}</td>
-      <td class="right">{{ row.amount | format_sek }}</td>
+      <td class="right">{{ row.opening_balance | format_sek }}</td>
+      <td class="right">{{ row.change | format_sek }}</td>
+      <td class="right">{{ row.closing_balance | format_sek }}</td>
       {% if compare_period %}
       <td class="right">{{ row.compare_amount | format_sek }}</td>
       {% endif %}
@@ -123,7 +140,9 @@
     <tr class="group-total">
       <td></td>
       <td>Summa eget kapital</td>
-      <td class="right">{{ total_equity | format_sek }}</td>
+      <td class="right">{{ total_equity_opening | format_sek }}</td>
+      <td class="right">{{ total_equity_change | format_sek }}</td>
+      <td class="right">{{ total_equity_closing | format_sek }}</td>
       {% if compare_period %}
       <td class="right">{{ total_equity_compare | format_sek }}</td>
       {% endif %}
@@ -131,13 +150,15 @@
 
     <!-- Skulder -->
     <tr class="group-header">
-      <td colspan="{{ 4 if compare_period else 3 }}">Skulder</td>
+      <td colspan="{{ 6 if compare_period else 5 }}">Skulder</td>
     </tr>
     {% for row in liability_rows %}
     <tr class="indent-1">
       <td>{{ row.account_code }}</td>
       <td>{{ row.account_name }}</td>
-      <td class="right">{{ row.amount | format_sek }}</td>
+      <td class="right">{{ row.opening_balance | format_sek }}</td>
+      <td class="right">{{ row.change | format_sek }}</td>
+      <td class="right">{{ row.closing_balance | format_sek }}</td>
       {% if compare_period %}
       <td class="right">{{ row.compare_amount | format_sek }}</td>
       {% endif %}
@@ -146,7 +167,9 @@
     <tr class="group-total">
       <td></td>
       <td>Summa skulder</td>
-      <td class="right">{{ total_liabilities | format_sek }}</td>
+      <td class="right">{{ total_liabilities_opening | format_sek }}</td>
+      <td class="right">{{ total_liabilities_change | format_sek }}</td>
+      <td class="right">{{ total_liabilities_closing | format_sek }}</td>
       {% if compare_period %}
       <td class="right">{{ total_liabilities_compare | format_sek }}</td>
       {% endif %}
@@ -155,13 +178,27 @@
     <tr class="grand-total">
       <td></td>
       <td>SUMMA EGET KAPITAL OCH SKULDER</td>
-      <td class="right">{{ total_equity_and_liabilities | format_sek }}</td>
+      <td class="right">{{ total_equity_and_liabilities_opening | format_sek }}</td>
+      <td class="right">{{ total_equity_and_liabilities_change | format_sek }}</td>
+      <td class="right">{{ total_equity_and_liabilities_closing | format_sek }}</td>
       {% if compare_period %}
       <td class="right">{{ total_equity_and_liabilities_compare | format_sek }}</td>
       {% endif %}
     </tr>
   </tbody>
 </table>
+
+{% if not has_ib_vouchers %}
+<div class="note" style="margin-top: 20px; font-style: italic; font-size: 9pt; color: #666;">
+  * IB (ingående balans) beräknad från föregående års transaktioner (inga IB-verifikat funna).
+</div>
+{% endif %}
+
+{% if not balanced %}
+<div class="warning" style="margin-top: 10px; font-weight: bold; color: #c00;">
+  OBS! Tillgångar och skulder/eget kapital stämmer inte överens (diff: {{ (total_assets_closing - total_equity_and_liabilities_closing) | format_sek }}).
+</div>
+{% endif %}
 
 <div class="footer">
   {{ company.name }}

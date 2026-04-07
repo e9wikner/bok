@@ -337,68 +337,187 @@ class PDFExportService:
     # ---- Balance Sheet (Balansräkning) PDF ----
     
     def export_balance_sheet(self, period_id: str) -> bytes:
-        """Generate balance sheet (balansräkning) PDF."""
+        """Generate balance sheet (balansräkning) PDF with 3 columns: IB, Förändring, UB."""
+        from repositories.voucher_repo import VoucherRepository
+        from repositories.account_repo import AccountRepository
+        
         period = self.period_repo.get_period(period_id)
         if not period:
             raise ValueError(f"Period {period_id} hittades inte")
         
-        balances = self.ledger.get_trial_balance(period_id)
-        all_accounts = self.ledger.accounts.get_all_as_dict()
+        target_year = period.year
         
-        fixed_asset_rows = []
-        current_asset_rows = []
-        equity_rows = []
-        liability_rows = []
+        # Get all vouchers
+        vouchers, _ = VoucherRepository.list_all(status="posted")
         
-        total_fixed = total_current = total_equity = total_liabilities = 0
+        # Separate IB vouchers from regular vouchers for the target year
+        ib_vouchers = []
+        regular_vouchers = []
+        prior_vouchers = []
         
-        for code in sorted(balances.keys()):
-            account = all_accounts.get(code)
-            if not account:
-                continue
+        for voucher in vouchers:
+            voucher_date = voucher.date
+            if isinstance(voucher_date, str):
+                from datetime import date as date_type
+                voucher_date = date_type.fromisoformat(voucher_date)
+            
+            if voucher_date.year == target_year:
+                if voucher.series.value == "IB":
+                    ib_vouchers.append(voucher)
+                else:
+                    regular_vouchers.append(voucher)
+            elif voucher_date.year < target_year:
+                prior_vouchers.append(voucher)
+        
+        all_accounts = AccountRepository.get_all_as_dict()
+        
+        # Calculate opening balances from IB vouchers, or from prior year totals
+        opening_balances = {}
+        source_vouchers = ib_vouchers if ib_vouchers else prior_vouchers
+        
+        for voucher in source_vouchers:
+            for row in voucher.rows:
+                code = row.account_code
+                if code not in opening_balances:
+                    opening_balances[code] = {"debit": 0, "credit": 0}
+                opening_balances[code]["debit"] += row.debit or 0
+                opening_balances[code]["credit"] += row.credit or 0
+        
+        # Calculate changes from regular vouchers
+        change_balances = {}
+        for voucher in regular_vouchers:
+            for row in voucher.rows:
+                code = row.account_code
+                if code not in change_balances:
+                    change_balances[code] = {"debit": 0, "credit": 0}
+                change_balances[code]["debit"] += row.debit or 0
+                change_balances[code]["credit"] += row.credit or 0
+        
+        # Helper functions
+        def _get_net(balances, code, is_liability=False):
+            """Get net balance for an account."""
+            if code not in balances:
+                return 0
             bal = balances[code]
-            
-            row_data = {
-                "account_code": code,
-                "account_name": account.name,
-            }
-            
-            # BAS classification
-            if code.startswith("1"):  # Tillgångar
-                debit_balance = bal["debit"] - bal["credit"]
-                row_data["amount"] = debit_balance
-                if code < "1300":  # Anläggningstillgångar (10xx-12xx)
-                    fixed_asset_rows.append(row_data)
-                    total_fixed += debit_balance
-                else:  # Omsättningstillgångar (13xx+)
-                    current_asset_rows.append(row_data)
-                    total_current += debit_balance
-            elif code.startswith("2"):  # Skulder & Eget kapital
-                credit_balance = bal["credit"] - bal["debit"]
-                row_data["amount"] = credit_balance
-                if code < "2100":  # Eget kapital (20xx)
-                    equity_rows.append(row_data)
-                    total_equity += credit_balance
-                else:  # Skulder (21xx+)
-                    liability_rows.append(row_data)
-                    total_liabilities += credit_balance
+            net = bal["debit"] - bal["credit"]
+            return -net if is_liability else net
         
-        total_assets = total_fixed + total_current
-        total_eq_liab = total_equity + total_liabilities
+        def _calc_category(balances, ranges, is_liability=False):
+            """Calculate total for a category range."""
+            total = 0
+            for code, bal in balances.items():
+                try:
+                    num = int(code)
+                    for min_r, max_r in ranges:
+                        if min_r <= num <= max_r:
+                            net = bal["debit"] - bal["credit"]
+                            total += -net if is_liability else net
+                            break
+                except ValueError:
+                    continue
+            return total
+        
+        # Category ranges
+        asset_ranges = [(1000, 1999)]
+        liability_ranges = [(2000, 2999)]
+        fixed_asset_ranges = [(1200, 1299)]
+        current_asset_ranges = [(1000, 1199), (1300, 1999)]
+        equity_ranges = [(2000, 2099)]
+        long_term_liability_ranges = [(2100, 2199)]
+        current_liability_ranges = [(2200, 2999)]
+        
+        # Build account rows with 3 columns
+        all_codes = set(opening_balances.keys()) | set(change_balances.keys())
+        
+        def _build_rows(codes, ranges, is_liability=False):
+            """Build account rows with opening, change, and closing balances."""
+            rows = []
+            for code in sorted(codes):
+                try:
+                    num = int(code)
+                    if not any(min_r <= num <= max_r for min_r, max_r in ranges):
+                        continue
+                except ValueError:
+                    continue
+                
+                opening = _get_net(opening_balances, code, is_liability)
+                change = _get_net(change_balances, code, is_liability)
+                closing = opening + change
+                
+                if opening != 0 or change != 0 or closing != 0:
+                    acct = all_accounts.get(code)
+                    rows.append({
+                        "account_code": code,
+                        "account_name": acct.name if acct else code,
+                        "opening_balance": opening,
+                        "change": change,
+                        "closing_balance": closing,
+                    })
+            return rows
+        
+        # Build category rows
+        fixed_asset_rows = _build_rows(all_codes, fixed_asset_ranges, False)
+        current_asset_rows = _build_rows(all_codes, current_asset_ranges, False)
+        equity_rows = _build_rows(all_codes, equity_ranges, True)
+        liability_rows = _build_rows(all_codes, long_term_liability_ranges + current_liability_ranges, True)
+        
+        # Calculate totals
+        total_fixed_opening = _calc_category(opening_balances, fixed_asset_ranges, False)
+        total_fixed_change = _calc_category(change_balances, fixed_asset_ranges, False)
+        total_fixed_closing = total_fixed_opening + total_fixed_change
+        
+        total_current_opening = _calc_category(opening_balances, current_asset_ranges, False)
+        total_current_change = _calc_category(change_balances, current_asset_ranges, False)
+        total_current_closing = total_current_opening + total_current_change
+        
+        total_assets_opening = total_fixed_opening + total_current_opening
+        total_assets_change = total_fixed_change + total_current_change
+        total_assets_closing = total_assets_opening + total_assets_change
+        
+        total_equity_opening = _calc_category(opening_balances, equity_ranges, True)
+        total_equity_change = _calc_category(change_balances, equity_ranges, True)
+        total_equity_closing = total_equity_opening + total_equity_change
+        
+        total_liab_opening = _calc_category(opening_balances, long_term_liability_ranges + current_liability_ranges, True)
+        total_liab_change = _calc_category(change_balances, long_term_liability_ranges + current_liability_ranges, True)
+        total_liab_closing = total_liab_opening + total_liab_change
+        
+        total_eq_liab_opening = total_equity_opening + total_liab_opening
+        total_eq_liab_change = total_equity_change + total_liab_change
+        total_eq_liab_closing = total_eq_liab_opening + total_eq_liab_change
         
         context = {
             "company": self.company,
             "balance_date": period.end_date.isoformat(),
+            "period_year": target_year,
+            # Asset rows
             "fixed_asset_rows": fixed_asset_rows,
             "current_asset_rows": current_asset_rows,
+            # Liability/equity rows
             "equity_rows": equity_rows,
             "liability_rows": liability_rows,
-            "total_fixed_assets": total_fixed,
-            "total_current_assets": total_current,
-            "total_assets": total_assets,
-            "total_equity": total_equity,
-            "total_liabilities": total_liabilities,
-            "total_equity_and_liabilities": total_eq_liab,
+            # Asset totals with 3 columns
+            "total_fixed_assets_opening": total_fixed_opening,
+            "total_fixed_assets_change": total_fixed_change,
+            "total_fixed_assets_closing": total_fixed_closing,
+            "total_current_assets_opening": total_current_opening,
+            "total_current_assets_change": total_current_change,
+            "total_current_assets_closing": total_current_closing,
+            "total_assets_opening": total_assets_opening,
+            "total_assets_change": total_assets_change,
+            "total_assets_closing": total_assets_closing,
+            # Liability/equity totals with 3 columns
+            "total_equity_opening": total_equity_opening,
+            "total_equity_change": total_equity_change,
+            "total_equity_closing": total_equity_closing,
+            "total_liabilities_opening": total_liab_opening,
+            "total_liabilities_change": total_liab_change,
+            "total_liabilities_closing": total_liab_closing,
+            "total_equity_and_liabilities_opening": total_eq_liab_opening,
+            "total_equity_and_liabilities_change": total_eq_liab_change,
+            "total_equity_and_liabilities_closing": total_eq_liab_closing,
+            "balanced": abs(total_assets_closing - total_eq_liab_closing) < 100,
+            "has_ib_vouchers": len(ib_vouchers) > 0,
             "compare_period": None,
             "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         }
