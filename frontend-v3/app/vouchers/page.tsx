@@ -92,7 +92,8 @@ export default function VouchersPage() {
     debouncedSearch || undefined,
     sortBy,
     sortOrder,
-    fiscalYearId
+    fiscalYearId,
+    "IB" // Exclude opening balance vouchers from regular list
   );
 
   function toggleSort(column: string) {

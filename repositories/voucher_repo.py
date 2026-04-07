@@ -10,7 +10,7 @@ from domain.types import VoucherStatus, VoucherSeries
 
 class VoucherRepository:
     """Manage vouchers (Verifikationer) - append-only storage."""
-    
+
     @staticmethod
     def create(
         series: str,
@@ -29,7 +29,20 @@ class VoucherRepository:
         VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)
         """
         now = datetime.now()
-        db.execute(sql, (voucher_id, series, number, date, period_id, fiscal_year_id, description, created_by, now))
+        db.execute(
+            sql,
+            (
+                voucher_id,
+                series,
+                number,
+                date,
+                period_id,
+                fiscal_year_id,
+                description,
+                created_by,
+                now,
+            ),
+        )
         if _commit:
             db.commit()
 
@@ -43,9 +56,9 @@ class VoucherRepository:
             status=VoucherStatus.DRAFT,
             fiscal_year_id=fiscal_year_id,
             created_at=now,
-            created_by=created_by
+            created_by=created_by,
         )
-    
+
     @staticmethod
     def add_row(
         voucher_id: str,
@@ -62,10 +75,12 @@ class VoucherRepository:
         VALUES (?, ?, ?, ?, ?, ?, ?)
         """
         now = datetime.now()
-        db.execute(sql, (row_id, voucher_id, account_code, debit, credit, description, now))
+        db.execute(
+            sql, (row_id, voucher_id, account_code, debit, credit, description, now)
+        )
         if _commit:
             db.commit()
-        
+
         return VoucherRow(
             id=row_id,
             voucher_id=voucher_id,
@@ -73,38 +88,40 @@ class VoucherRepository:
             debit=debit,
             credit=credit,
             description=description,
-            created_at=now
+            created_at=now,
         )
-    
+
     @staticmethod
     def get(voucher_id: str) -> Optional[Voucher]:
         """Get voucher by ID with all rows."""
         sql = "SELECT * FROM vouchers WHERE id = ? LIMIT 1"
         cursor = db.execute(sql, (voucher_id,))
         row = cursor.fetchone()
-        
+
         if not row:
             return None
-        
+
         # Get rows
         rows_sql = "SELECT * FROM voucher_rows WHERE voucher_id = ? ORDER BY created_at"
         rows_cursor = db.execute(rows_sql, (voucher_id,))
         rows = []
         for row_data in rows_cursor.fetchall():
-            rows.append(VoucherRow(
-                id=row_data["id"],
-                voucher_id=row_data["voucher_id"],
-                account_code=row_data["account_code"],
-                debit=row_data["debit"],
-                credit=row_data["credit"],
-                description=row_data["description"],
-                created_at=datetime.fromisoformat(row_data["created_at"])
-            ))
-        
+            rows.append(
+                VoucherRow(
+                    id=row_data["id"],
+                    voucher_id=row_data["voucher_id"],
+                    account_code=row_data["account_code"],
+                    debit=row_data["debit"],
+                    credit=row_data["credit"],
+                    description=row_data["description"],
+                    created_at=datetime.fromisoformat(row_data["created_at"]),
+                )
+            )
+
         posted_at = row["posted_at"]
         if posted_at:
             posted_at = datetime.fromisoformat(posted_at)
-        
+
         return Voucher(
             id=row["id"],
             series=VoucherSeries(row["series"]),
@@ -113,26 +130,28 @@ class VoucherRepository:
             period_id=row["period_id"],
             description=row["description"],
             status=VoucherStatus(row["status"]),
-            fiscal_year_id=row["fiscal_year_id"] if "fiscal_year_id" in row.keys() else None,
+            fiscal_year_id=row["fiscal_year_id"]
+            if "fiscal_year_id" in row.keys()
+            else None,
             rows=rows,
             correction_of=row["correction_of"],
             created_at=datetime.fromisoformat(row["created_at"]),
             created_by=row["created_by"],
-            posted_at=posted_at
+            posted_at=posted_at,
         )
-    
+
     @staticmethod
     def list_for_period(period_id: str, status: Optional[str] = None) -> List[Voucher]:
         """List vouchers for a period."""
         sql = "SELECT id FROM vouchers WHERE period_id = ?"
         params = [period_id]
-        
+
         if status:
             sql += " AND status = ?"
             params.append(status)
-        
+
         sql += " ORDER BY date, series, number"
-        
+
         cursor = db.execute(sql, tuple(params))
         vouchers = []
         for row in cursor.fetchall():
@@ -140,7 +159,7 @@ class VoucherRepository:
             if voucher:
                 vouchers.append(voucher)
         return vouchers
-    
+
     @staticmethod
     def list_all(
         status: Optional[str] = None,
@@ -150,6 +169,7 @@ class VoucherRepository:
         sort_by: Optional[str] = None,
         sort_order: str = "desc",
         fiscal_year_id: Optional[str] = None,
+        exclude_series: Optional[List[str]] = None,
     ) -> tuple[List[Voucher], int]:
         """List all vouchers across all periods.
 
@@ -167,10 +187,13 @@ class VoucherRepository:
             where_clauses.append("fiscal_year_id = ?")
             params.append(fiscal_year_id)
 
+        if exclude_series:
+            placeholders = ", ".join(["?"] * len(exclude_series))
+            where_clauses.append(f"series NOT IN ({placeholders})")
+            params.extend(exclude_series)
+
         if search:
-            where_clauses.append(
-                "(description LIKE ? OR CAST(number AS TEXT) LIKE ?)"
-            )
+            where_clauses.append("(description LIKE ? OR CAST(number AS TEXT) LIKE ?)")
             like = f"%{search}%"
             params.extend([like, like])
 
@@ -204,7 +227,7 @@ class VoucherRepository:
             if voucher:
                 vouchers.append(voucher)
         return vouchers, total
-    
+
     @staticmethod
     def get_next_number(series: str, fiscal_year_id: str) -> int:
         """Get next sequential voucher number for series within a fiscal year.
@@ -219,7 +242,7 @@ class VoucherRepository:
         cursor = db.execute(sql, (series, fiscal_year_id))
         row = cursor.fetchone()
         return (row["max_num"] or 0) + 1
-    
+
     @staticmethod
     def post(voucher_id: str) -> bool:
         """Post voucher (make immutable - BFL varaktighet requirement)."""
@@ -227,7 +250,7 @@ class VoucherRepository:
         db.execute(sql, (datetime.now(), voucher_id))
         db.commit()
         return True
-    
+
     @staticmethod
     def create_correction(
         original_voucher_id: str,
@@ -265,10 +288,21 @@ class VoucherRepository:
         now = datetime.now()
         description = f"Correction of voucher {original.series}{original.number:06d}"
 
-        db.execute(sql, (
-            correction_id, series, number, now.date(),
-            target_period_id, fiscal_year_id, description, original_voucher_id, created_by, now
-        ))
+        db.execute(
+            sql,
+            (
+                correction_id,
+                series,
+                number,
+                now.date(),
+                target_period_id,
+                fiscal_year_id,
+                description,
+                original_voucher_id,
+                created_by,
+                now,
+            ),
+        )
         db.commit()
 
         return Voucher(
@@ -282,23 +316,23 @@ class VoucherRepository:
             fiscal_year_id=fiscal_year_id,
             correction_of=original_voucher_id,
             created_at=now,
-            created_by=created_by
+            created_by=created_by,
         )
-    
+
     @staticmethod
     def delete_draft(voucher_id: str) -> bool:
         """Delete draft voucher (before posting)."""
         voucher = VoucherRepository.get(voucher_id)
         if not voucher or voucher.is_posted():
             raise ValueError("Can only delete draft vouchers")
-        
+
         # Delete rows
         db.execute("DELETE FROM voucher_rows WHERE voucher_id = ?", (voucher_id,))
         # Delete voucher
         db.execute("DELETE FROM vouchers WHERE id = ?", (voucher_id,))
         db.commit()
         return True
-    
+
     @staticmethod
     def clear_rows(voucher_id: str) -> bool:
         """Clear all rows from a draft voucher."""
@@ -307,7 +341,9 @@ class VoucherRepository:
         return True
 
     @staticmethod
-    def update_description(voucher_id: str, description: str, _commit: bool = True) -> None:
+    def update_description(
+        voucher_id: str, description: str, _commit: bool = True
+    ) -> None:
         """Update voucher description."""
         db.execute(
             "UPDATE vouchers SET description = ? WHERE id = ?",
@@ -332,18 +368,27 @@ class VoucherRepository:
                 """INSERT INTO voucher_rows
                    (id, voucher_id, account_code, debit, credit, description, created_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (row_id, voucher_id, rd["account"], rd.get("debit", 0),
-                 rd.get("credit", 0), rd.get("description"), now),
+                (
+                    row_id,
+                    voucher_id,
+                    rd["account"],
+                    rd.get("debit", 0),
+                    rd.get("credit", 0),
+                    rd.get("description"),
+                    now,
+                ),
             )
-            new_rows.append(VoucherRow(
-                id=row_id,
-                voucher_id=voucher_id,
-                account_code=rd["account"],
-                debit=rd.get("debit", 0),
-                credit=rd.get("credit", 0),
-                description=rd.get("description"),
-                created_at=now,
-            ))
+            new_rows.append(
+                VoucherRow(
+                    id=row_id,
+                    voucher_id=voucher_id,
+                    account_code=rd["account"],
+                    debit=rd.get("debit", 0),
+                    credit=rd.get("credit", 0),
+                    description=rd.get("description"),
+                    created_at=now,
+                )
+            )
         if _commit:
             db.commit()
         return new_rows

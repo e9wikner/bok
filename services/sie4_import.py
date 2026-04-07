@@ -544,8 +544,9 @@ class SIE4Importer:
     ) -> bool:
         """Import opening balances (IB) as a special opening balance voucher.
 
-        Creates a voucher on the first day of the fiscal year with rows
+        Creates or updates a voucher on the first day of the fiscal year with rows
         representing the opening balances from the SIE file.
+        Uses upsert logic - updates existing IB voucher if one exists.
         """
         import requests
 
@@ -588,26 +589,66 @@ class SIE4Importer:
         if not rows:
             return False
 
-        # Opening balance voucher uses series "A" and number 0
-        # (or find the next available number)
+        # Check if an IB voucher already exists for this fiscal year
+        year = data.fiscal_year_start.year
+        existing_ib = self._find_existing_ib_voucher(fiscal_year_id)
+
         voucher_data = {
-            "series": "A",
+            "series": "IB",
             "date": data.fiscal_year_start.isoformat(),
             "period_id": period_id,
-            "description": "Ingående balans (IB) från SIE4-import",
+            "description": f"Ingående balans {year}",
             "rows": rows,
             "auto_post": True,
         }
 
-        resp = requests.post(
-            f"{self.api_url}/api/v1/vouchers", headers=self.headers, json=voucher_data
-        )
+        if existing_ib:
+            # Update existing IB voucher
+            resp = requests.put(
+                f"{self.api_url}/api/v1/vouchers/{existing_ib['id']}",
+                headers=self.headers,
+                json=voucher_data,
+            )
+            action = "updated"
+        else:
+            # Create new IB voucher
+            resp = requests.post(
+                f"{self.api_url}/api/v1/vouchers",
+                headers=self.headers,
+                json=voucher_data,
+            )
+            action = "created"
 
-        if resp.status_code == 201:
+        if resp.status_code in (200, 201):
             return True
         else:
-            self.errors.append(f"Failed to create opening balance voucher: {resp.text}")
+            self.errors.append(
+                f"Failed to {action} opening balance voucher: {resp.text}"
+            )
             return False
+
+    def _find_existing_ib_voucher(
+        self, fiscal_year_id: Optional[str]
+    ) -> Optional[Dict]:
+        """Find existing IB voucher for a fiscal year."""
+        import requests
+
+        if not fiscal_year_id:
+            return None
+
+        # List all vouchers for the fiscal year and find IB series
+        resp = requests.get(
+            f"{self.api_url}/api/v1/vouchers",
+            headers=self.headers,
+            params={"fiscal_year_id": fiscal_year_id, "status": "all"},
+        )
+
+        if resp.status_code == 200:
+            vouchers = resp.json().get("vouchers", [])
+            for voucher in vouchers:
+                if voucher.get("series") == "IB":
+                    return voucher
+        return None
 
     def _get_or_create_period(
         self, voucher_date: date, fiscal_year_id: Optional[str] = None

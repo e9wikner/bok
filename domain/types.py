@@ -5,18 +5,22 @@ from enum import Enum
 
 class VoucherStatus(str, Enum):
     """Voucher lifecycle status."""
+
     DRAFT = "draft"
     POSTED = "posted"
 
 
 class VoucherSeries(str, Enum):
     """Voucher series (BFL §5 kap 6)."""
+
     A = "A"  # Normal vouchers
     B = "B"  # Correction vouchers
+    IB = "IB"  # Opening balance vouchers (ingående balans)
 
 
 class AccountType(str, Enum):
     """Account classification (BAS 2026)."""
+
     ASSET = "asset"  # Tillgångar (1000-1999)
     LIABILITY = "liability"  # Skulder (2000-2999)
     EQUITY = "equity"  # Eget kapital (2900-2999)
@@ -29,6 +33,7 @@ class AccountType(str, Enum):
 
 class AuditAction(str, Enum):
     """Audit trail actions."""
+
     CREATED = "created"
     UPDATED = "updated"
     POSTED = "posted"
@@ -42,5 +47,6 @@ class AuditAction(str, Enum):
 
 class PeriodLockStatus(str, Enum):
     """Period lock state."""
+
     OPEN = "open"
     LOCKED = "locked"

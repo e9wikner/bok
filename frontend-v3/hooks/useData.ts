@@ -3,10 +3,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
-export function useVouchers(status?: string, limit = 15, offset = 0, search?: string, sortBy?: string, sortOrder?: string, fiscalYearId?: string) {
+export function useVouchers(status?: string, limit = 15, offset = 0, search?: string, sortBy?: string, sortOrder?: string, fiscalYearId?: string, excludeSeries?: string) {
   return useQuery({
-    queryKey: ["vouchers", status, limit, offset, search, sortBy, sortOrder, fiscalYearId],
-    queryFn: () => api.getVouchers(status, limit, offset, search, sortBy, sortOrder, fiscalYearId),
+    queryKey: ["vouchers", status, limit, offset, search, sortBy, sortOrder, fiscalYearId, excludeSeries],
+    queryFn: () => api.getVouchers(status, limit, offset, search, sortBy, sortOrder, fiscalYearId, excludeSeries),
     staleTime: 5 * 60 * 1000,
   });
 }

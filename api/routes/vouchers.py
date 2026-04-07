@@ -18,7 +18,9 @@ from repositories.account_repo import AccountRepository
 router = APIRouter(prefix="/api/v1/vouchers", tags=["vouchers"])
 
 
-@router.post("", response_model=VoucherResponse, status_code=http_status.HTTP_201_CREATED)
+@router.post(
+    "", response_model=VoucherResponse, status_code=http_status.HTTP_201_CREATED
+)
 async def create_voucher(
     request: CreateVoucherRequest,
     ledger: LedgerService = Depends(get_ledger_service),
@@ -26,9 +28,9 @@ async def create_voucher(
 ):
     """
     Create new voucher (Verifikation).
-    
+
     All amounts must be in öre (1 kr = 100).
-    
+
     Example:
     ```json
     {
@@ -57,26 +59,21 @@ async def create_voucher(
             created_by=actor,
             number=request.number,
         )
-        
+
         # Auto-post if requested
         if request.auto_post:
             voucher = ledger.post_voucher(voucher.id, actor=actor)
-        
+
         return _voucher_to_response(voucher)
-    
+
     except ValidationError as e:
         raise HTTPException(
             status_code=http_status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": e.message,
-                "code": e.code,
-                "details": e.details
-            }
+            detail={"error": e.message, "code": e.code, "details": e.details},
         )
     except Exception as e:
         raise HTTPException(
-            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
 
 
@@ -90,16 +87,14 @@ async def get_voucher(
         voucher = ledger.vouchers.get(voucher_id)
         if not voucher:
             raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail="Voucher not found"
+                status_code=http_status.HTTP_404_NOT_FOUND, detail="Voucher not found"
             )
         return _voucher_to_response(voucher)
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
-            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
 
 
@@ -111,27 +106,22 @@ async def post_voucher(
 ):
     """
     Post voucher (make immutable - BFL varaktighet requirement).
-    
+
     Once posted, a voucher can only be corrected via a correction voucher (B-series),
     never edited directly.
     """
     try:
         voucher = ledger.post_voucher(voucher_id, actor=actor)
         return _voucher_to_response(voucher)
-    
+
     except ValidationError as e:
         raise HTTPException(
             status_code=http_status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": e.message,
-                "code": e.code,
-                "details": e.details
-            }
+            detail={"error": e.message, "code": e.code, "details": e.details},
         )
     except Exception as e:
         raise HTTPException(
-            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
 
 
@@ -165,6 +155,7 @@ async def update_voucher(
         if request.teach_ai:
             try:
                 from services.learning import LearningService
+
                 learning = LearningService()
                 if original:
                     learning.learn_from_correction(
@@ -197,27 +188,45 @@ async def update_voucher(
 @router.get("", response_model=dict)
 async def list_vouchers(
     period_id: str = Query(None, description="Filter by period ID (optional)"),
-    fiscal_year_id: str = Query(None, description="Filter by fiscal year ID (optional)"),
-    voucher_status: str = Query("all", alias="status", description="Filter: draft, posted, or all"),
+    fiscal_year_id: str = Query(
+        None, description="Filter by fiscal year ID (optional)"
+    ),
+    voucher_status: str = Query(
+        "all", alias="status", description="Filter: draft, posted, or all"
+    ),
     search: str = Query(None, description="Search in description or voucher number"),
     limit: int = Query(None, description="Max vouchers to return (pagination)"),
     offset: int = Query(0, description="Number of vouchers to skip (pagination)"),
     sort_by: str = Query(None, description="Sort by: date or number"),
     sort_order: str = Query("desc", description="Sort direction: asc or desc"),
+    exclude_series: str = Query(
+        None, description="Comma-separated list of series to exclude (e.g., 'IB')"
+    ),
     ledger: LedgerService = Depends(get_ledger_service),
 ):
     """
     List vouchers, optionally filtered by period.
-    
+
     Filter by status: "draft", "posted", or "all".
     If period_id is omitted, returns vouchers from all periods.
     Supports server-side search on description and voucher number.
+    Use exclude_series to hide special vouchers like opening balances (IB).
     """
     try:
         status_filter = voucher_status if voucher_status != "all" else None
-        
+
+        # Parse exclude_series
+        exclude_series_list = None
+        if exclude_series:
+            exclude_series_list = [s.strip() for s in exclude_series.split(",")]
+
         if period_id:
             vouchers = ledger.vouchers.list_for_period(period_id, status=status_filter)
+            # Filter out excluded series
+            if exclude_series_list:
+                vouchers = [
+                    v for v in vouchers if v.series.value not in exclude_series_list
+                ]
             total = len(vouchers)
         else:
             vouchers, total = ledger.vouchers.list_all(
@@ -228,18 +237,18 @@ async def list_vouchers(
                 sort_by=sort_by,
                 sort_order=sort_order,
                 fiscal_year_id=fiscal_year_id,
+                exclude_series=exclude_series_list,
             )
-        
+
         return {
             "period_id": period_id,
             "status_filter": voucher_status,
             "total": total,
-            "vouchers": [_voucher_to_response(v) for v in vouchers]
+            "vouchers": [_voucher_to_response(v) for v in vouchers],
         }
     except Exception as e:
         raise HTTPException(
-            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
 
 
@@ -250,7 +259,7 @@ async def get_voucher_audit(
 ):
     """
     Get audit trail (ändringshistorik) for a voucher.
-    
+
     Returns all changes made to a voucher, including who changed it,
     when, and what was changed (before/after values).
     """
@@ -258,12 +267,11 @@ async def get_voucher_audit(
         voucher = ledger.vouchers.get(voucher_id)
         if not voucher:
             raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail="Voucher not found"
+                status_code=http_status.HTTP_404_NOT_FOUND, detail="Voucher not found"
             )
-        
+
         entries = AuditRepository.get_history("voucher", voucher_id)
-        
+
         return {
             "voucher_id": voucher_id,
             "total": len(entries),
@@ -276,14 +284,13 @@ async def get_voucher_audit(
                     "payload": e.payload,
                 }
                 for e in entries
-            ]
+            ],
         }
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
-            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
 
 
@@ -291,7 +298,7 @@ def _voucher_to_response(voucher) -> VoucherResponse:
     """Convert domain Voucher to response."""
     # Look up account names
     account_names = AccountRepository.get_all_as_dict()
-    
+
     return VoucherResponse(
         id=voucher.id,
         series=voucher.series.value,
@@ -305,15 +312,17 @@ def _voucher_to_response(voucher) -> VoucherResponse:
                 id=row.id,
                 voucher_id=row.voucher_id,
                 account_code=row.account_code,
-                account_name=account_names[row.account_code].name if row.account_code in account_names else None,
+                account_name=account_names[row.account_code].name
+                if row.account_code in account_names
+                else None,
                 debit=row.debit,
                 credit=row.credit,
-                description=row.description
+                description=row.description,
             )
             for row in voucher.rows
         ],
         correction_of=voucher.correction_of,
         created_at=voucher.created_at,
         created_by=voucher.created_by,
-        posted_at=voucher.posted_at
+        posted_at=voucher.posted_at,
     )
