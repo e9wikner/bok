@@ -426,7 +426,7 @@ function BalanceSheetReport({ year }: { year: number }) {
         </div>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 gap-8">
           {/* TILLGÅNGAR */}
           <div>
             <h3 className="font-bold text-blue-600 dark:text-blue-400 mb-3 text-lg">TILLGÅNGAR</h3>
