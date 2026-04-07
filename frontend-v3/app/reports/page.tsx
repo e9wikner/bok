@@ -443,25 +443,32 @@ function BalanceSheetReport({ year }: { year: number }) {
   const AccountTable5Col = ({ items }: { items: any[] }) => (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
+        <colgroup>
+          <col className="w-16" />
+          <col />
+          <col className="w-36" />
+          <col className="w-32" />
+          <col className="w-36" />
+        </colgroup>
         <thead>
           <tr className="bg-muted/50 text-xs">
-            <th className="text-left p-2 font-medium w-20">Konto</th>
-            <th className="text-left p-2 font-medium">Benämning</th>
-            <th className="text-right p-2 font-medium w-24">IB</th>
-            <th className="text-right p-2 font-medium w-24">Förändring</th>
-            <th className="text-right p-2 font-medium w-24">UB</th>
+            <th className="text-left p-2 font-medium w-16">Konto</th>
+            <th className="text-left p-2 font-medium w-auto">Benämning</th>
+            <th className="text-right p-2 font-medium w-32">Ingående balans</th>
+            <th className="text-right p-2 font-medium w-28">Förändring</th>
+            <th className="text-right p-2 font-medium w-32">Utgående balans</th>
           </tr>
         </thead>
         <tbody className="divide-y">
-          {items.map((a: any) => (
+          {items.filter((a: any) => (a.opening_balance || 0) !== 0 || (a.closing_balance || 0) !== 0).map((a: any) => (
             <tr key={a.code} className="hover:bg-muted/30">
               <td className="p-2 font-mono text-muted-foreground">{a.code}</td>
               <td className="p-2">{a.name}</td>
-              <td className="p-2 text-right font-mono">{formatCurrency(a.opening_balance || 0)}</td>
-              <td className={`p-2 text-right font-mono ${(a.change || 0) > 0 ? 'text-emerald-600' : (a.change || 0) < 0 ? 'text-red-600' : ''}`}>
+              <td className="p-2 text-right font-mono tabular-nums">{formatCurrency(a.opening_balance || 0)}</td>
+              <td className={`p-2 text-right font-mono tabular-nums ${(a.change || 0) > 0 ? 'text-emerald-600' : (a.change || 0) < 0 ? 'text-red-600' : ''}`}>
                 {formatCurrency(a.change || 0)}
               </td>
-              <td className="p-2 text-right font-mono font-medium">{formatCurrency(a.closing_balance || 0)}</td>
+              <td className="p-2 text-right font-mono tabular-nums font-medium">{formatCurrency(a.closing_balance || 0)}</td>
             </tr>
           ))}
         </tbody>
@@ -469,29 +476,33 @@ function BalanceSheetReport({ year }: { year: number }) {
     </div>
   );
 
-  // Summary row with 5 columns
+  // Summary row with 5 columns - aligned with table using table structure
   const Summary5Col = ({ opening, change, closing, label }: {
     opening: number; change: number; closing: number; label: string;
   }) => (
-    <div className="grid grid-cols-5 gap-2 py-2 px-3 bg-muted/30 rounded font-medium text-sm">
-      <span className="col-span-2">{label}</span>
-      <span className="font-mono text-right">{formatCurrency(opening)}</span>
-      <span className={`font-mono text-right ${change > 0 ? 'text-emerald-700' : change < 0 ? 'text-red-700' : ''}`}>
-        {formatCurrency(change)}
-      </span>
-      <span className="font-mono text-right">{formatCurrency(closing)}</span>
-    </div>
+    <table className="w-full text-sm font-medium">
+      <colgroup>
+        <col className="w-16" />
+        <col />
+        <col className="w-36" />
+        <col className="w-32" />
+        <col className="w-36" />
+      </colgroup>
+      <tbody>
+        <tr className="bg-muted/30">
+          <td className="p-2"></td>
+          <td className="p-2">{label}</td>
+          <td className="p-2 font-mono tabular-nums text-right">{formatCurrency(opening)}</td>
+          <td className={`p-2 font-mono tabular-nums text-right ${change > 0 ? 'text-emerald-700' : change < 0 ? 'text-red-700' : ''}`}>
+            {formatCurrency(change)}
+          </td>
+          <td className="p-2 font-mono tabular-nums text-right">{formatCurrency(closing)}</td>
+        </tr>
+      </tbody>
+    </table>
   );
 
-  // Section header with 5 column labels
-  const SectionHeader5Col = ({ title }: { title: string }) => (
-    <div className="grid grid-cols-5 gap-2 py-2 px-3 bg-muted/50 rounded-t font-medium text-sm">
-      <span className="col-span-2">{title}</span>
-      <span className="text-right text-xs opacity-80">Ingående balans</span>
-      <span className="text-right text-xs opacity-80">Förändring</span>
-      <span className="text-right text-xs opacity-80">Utgående balans</span>
-    </div>
-  );
+
 
   return (
     <div className="space-y-6">
@@ -531,8 +542,7 @@ function BalanceSheetReport({ year }: { year: number }) {
                 {/* A. Anläggningstillgångar */}
                 <div className="border-l-2 border-l-border pl-4">
                   <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">A. Anläggningstillgångar</h4>
-                  <SectionHeader5Col title="Materiella anläggningstillgångar" />
-                  <div className="border-x border-b rounded-b mb-4">
+                  <div className="border rounded-lg overflow-hidden mb-4">
                     <AccountTable5Col items={fixedAssetsDetails} />
                   </div>
                   <Summary5Col
@@ -548,28 +558,37 @@ function BalanceSheetReport({ year }: { year: number }) {
                   <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">B. Omsättningstillgångar</h4>
                   {currentAssetsDetails.length > 0 && (
                     <>
-                      <SectionHeader5Col title="Övriga omsättningstillgångar" />
-                      <div className="border-x border-b rounded-b mb-4">
+                      <div className="border rounded-lg overflow-hidden mb-4">
                         <AccountTable5Col items={currentAssetsDetails} />
                       </div>
                     </>
                   )}
-                  <SectionHeader5Col title="Kundfordringar" />
-                  <div className="border-x border-b rounded-b mb-4">
+                  <div className="border rounded-lg overflow-hidden mb-4">
                     <AccountTable5Col items={receivablesDetails} />
                   </div>
-                  <SectionHeader5Col title="Kassa och bank" />
-                  <div className="border-x border-b rounded-b mb-4">
+                  <div className="border rounded-lg overflow-hidden mb-4">
                     <AccountTable5Col items={bankDetails} />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-5 gap-2 py-3 px-3 border-t-2 font-bold mt-4">
-                  <span className="col-span-2">SUMMA TILLGÅNGAR</span>
-                  <span className="font-mono text-right">{formatCurrency(data?.opening_assets || 0)}</span>
-                  <span className="font-mono text-right">{formatCurrency(data?.change_assets || 0)}</span>
-                  <span className="font-mono text-right">{formatCurrency(data?.closing_assets || 0)}</span>
-                </div>
+                <table className="w-full text-sm font-bold border-t-2 mt-4">
+                  <colgroup>
+                    <col className="w-16" />
+                    <col />
+                    <col className="w-36" />
+                    <col className="w-32" />
+                    <col className="w-36" />
+                  </colgroup>
+                  <tbody>
+                    <tr>
+                      <td className="p-2"></td>
+                      <td className="p-2">SUMMA TILLGÅNGAR</td>
+                      <td className="p-2 font-mono tabular-nums text-right">{formatCurrency(data?.opening_assets || 0)}</td>
+                      <td className="p-2 font-mono tabular-nums text-right">{formatCurrency(data?.change_assets || 0)}</td>
+                      <td className="p-2 font-mono tabular-nums text-right">{formatCurrency(data?.closing_assets || 0)}</td>
+                    </tr>
+                  </tbody>
+                </table>
               </CardContent>
             </Card>
 
@@ -582,8 +601,7 @@ function BalanceSheetReport({ year }: { year: number }) {
                 {/* A. Eget kapital */}
                 <div className="border-l-2 border-l-border pl-4">
                   <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">A. Eget kapital</h4>
-                  <SectionHeader5Col title="Bundet och fritt eget kapital" />
-                  <div className="border-x border-b rounded-b mb-4">
+                  <div className="border rounded-lg overflow-hidden mb-4">
                     <AccountTable5Col items={equityDetails} />
                   </div>
                   <Summary5Col
@@ -597,8 +615,7 @@ function BalanceSheetReport({ year }: { year: number }) {
                 {/* B. Långfristiga skulder */}
                 <div className="border-l-2 border-l-border pl-4">
                   <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">B. Långfristiga skulder</h4>
-                  <SectionHeader5Col title="Skulder till kreditinstitut" />
-                  <div className="border-x border-b rounded-b mb-4">
+                  <div className="border rounded-lg overflow-hidden mb-4">
                     <AccountTable5Col items={longTermDetails} />
                   </div>
                   <Summary5Col
@@ -612,8 +629,7 @@ function BalanceSheetReport({ year }: { year: number }) {
                 {/* C. Kortfristiga skulder */}
                 <div className="border-l-2 border-l-border pl-4">
                   <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">C. Kortfristiga skulder</h4>
-                  <SectionHeader5Col title="Leverantörsskulder, moms m.m." />
-                  <div className="border-x border-b rounded-b mb-4">
+                  <div className="border rounded-lg overflow-hidden mb-4">
                     <AccountTable5Col items={currentLiabDetails} />
                   </div>
                   <Summary5Col
@@ -624,12 +640,24 @@ function BalanceSheetReport({ year }: { year: number }) {
                   />
                 </div>
 
-                <div className="grid grid-cols-5 gap-2 py-3 px-3 border-t-2 font-bold mt-4">
-                  <span className="col-span-2">SUMMA EK OCH SKULDER</span>
-                  <span className="font-mono text-right">{formatCurrency(data?.opening_equity_liabilities || 0)}</span>
-                  <span className="font-mono text-right">{formatCurrency(data?.change_equity_liabilities || 0)}</span>
-                  <span className="font-mono text-right">{formatCurrency(data?.closing_equity_liabilities || 0)}</span>
-                </div>
+                <table className="w-full text-sm font-bold border-t-2 mt-4">
+                  <colgroup>
+                    <col className="w-16" />
+                    <col />
+                    <col className="w-36" />
+                    <col className="w-32" />
+                    <col className="w-36" />
+                  </colgroup>
+                  <tbody>
+                    <tr>
+                      <td className="p-2"></td>
+                      <td className="p-2">SUMMA EGET KAPITAL OCH SKULDER</td>
+                      <td className="p-2 font-mono tabular-nums text-right">{formatCurrency(data?.opening_equity_liabilities || 0)}</td>
+                      <td className="p-2 font-mono tabular-nums text-right">{formatCurrency(data?.change_equity_liabilities || 0)}</td>
+                      <td className="p-2 font-mono tabular-nums text-right">{formatCurrency(data?.closing_equity_liabilities || 0)}</td>
+                    </tr>
+                  </tbody>
+                </table>
               </CardContent>
             </Card>
           </div>
