@@ -334,6 +334,14 @@ export const api = {
   getAttachmentUrl: (voucherId: string, attachmentId: string) =>
     `${API_URL}/api/v1/vouchers/${voucherId}/attachments/${attachmentId}`,
 
+  // Audit Log
+  getAuditLog: async (limit = 100, entityType?: string, action?: string) => {
+    const { data } = await apiClient.get("/api/v1/audit/log", {
+      params: { limit, entity_type: entityType, action },
+    });
+    return data;
+  },
+
 };
 
 export default apiClient;

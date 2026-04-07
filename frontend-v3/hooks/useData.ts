@@ -116,3 +116,11 @@ export function useHealth() {
     retry: 1,
   });
 }
+
+export function useAuditLog(limit = 100, entityType?: string, action?: string) {
+  return useQuery({
+    queryKey: ["audit-log", limit, entityType, action],
+    queryFn: () => api.getAuditLog(limit, entityType, action),
+    staleTime: 30 * 1000,
+  });
+}

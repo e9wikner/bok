@@ -2,6 +2,7 @@
 
 import os
 import sys
+
 sys.setrecursionlimit(3000)  # Increase for Pydantic v2 schema generation
 
 from fastapi import FastAPI
@@ -9,7 +10,26 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 
 # Import routers
-from api.routes import vouchers, accounts, periods, reports, invoices, k2_reports, agent, import_sie4, import_csv, export_sie4, export_pdf, bank, compliance, vat, learning, attachments, auth
+from api.routes import (
+    vouchers,
+    accounts,
+    periods,
+    reports,
+    invoices,
+    k2_reports,
+    agent,
+    import_sie4,
+    import_csv,
+    export_sie4,
+    export_pdf,
+    bank,
+    compliance,
+    vat,
+    learning,
+    attachments,
+    auth,
+    audit,
+)
 
 # Create app
 app = FastAPI(
@@ -18,7 +38,7 @@ app = FastAPI(
     version=settings.api_version,
     docs_url="/docs",
     redoc_url="/redoc",
-    openapi_url="/openapi.json"
+    openapi_url="/openapi.json",
 )
 
 # Add CORS middleware
@@ -72,17 +92,24 @@ app.include_router(attachments.router)
 # Auth (JWT-based user authentication — additive, does not replace API key auth)
 app.include_router(auth.router)
 
+# Audit Log
+app.include_router(audit.router)
+
 
 @app.get("/health", tags=["health"])
 @app.get("/api/v1/health", tags=["health"])
 async def health_check():
     """Health check endpoint with build info."""
     import subprocess
+
     try:
-        commit = subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            stderr=subprocess.DEVNULL
-        ).decode().strip()
+        commit = (
+            subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL
+            )
+            .decode()
+            .strip()
+        )
     except Exception:
         commit = os.environ.get("GIT_COMMIT", "unknown")
 
@@ -101,5 +128,5 @@ async def root():
         "title": settings.api_title,
         "version": settings.api_version,
         "docs": "/docs",
-        "openapi": "/openapi.json"
+        "openapi": "/openapi.json",
     }

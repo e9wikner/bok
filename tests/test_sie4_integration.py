@@ -38,6 +38,7 @@ def client(test_db):
             AccountRepository.create(code, name, acc_type)
 
     from api.main import app
+
     return TestClient(app)
 
 
@@ -69,13 +70,15 @@ def fiscal_year_with_data(test_db):
     # Skapa perioder
     p1 = PeriodRepository.create_period(
         fiscal_year_id=fy.id,
-        year=2026, month=1,
+        year=2026,
+        month=1,
         start_date=date(2026, 1, 1),
         end_date=date(2026, 1, 31),
     )
     p2 = PeriodRepository.create_period(
         fiscal_year_id=fy.id,
-        year=2026, month=2,
+        year=2026,
+        month=2,
         start_date=date(2026, 2, 1),
         end_date=date(2026, 2, 28),
     )
@@ -83,8 +86,11 @@ def fiscal_year_with_data(test_db):
     # Skapa och bokför verifikationer
     # Ver A1: Startkapital (jan)
     v1 = VoucherRepository.create(
-        series="A", number=1, date=date(2026, 1, 15),
-        period_id=p1.id, description="Startkapital",
+        series="A",
+        number=1,
+        date=date(2026, 1, 15),
+        period_id=p1.id,
+        description="Startkapital",
         fiscal_year_id=fy.id,
     )
     VoucherRepository.add_row(v1.id, "1930", debit=20000000, credit=0)
@@ -93,8 +99,11 @@ def fiscal_year_with_data(test_db):
 
     # Ver A2: Hyra (feb)
     v2 = VoucherRepository.create(
-        series="A", number=2, date=date(2026, 2, 1),
-        period_id=p2.id, description="Lokalhyra feb",
+        series="A",
+        number=2,
+        date=date(2026, 2, 1),
+        period_id=p2.id,
+        description="Lokalhyra feb",
         fiscal_year_id=fy.id,
     )
     VoucherRepository.add_row(v2.id, "5010", debit=1000000, credit=0)
@@ -103,8 +112,11 @@ def fiscal_year_with_data(test_db):
 
     # Ver A3: Försäljning (feb)
     v3 = VoucherRepository.create(
-        series="A", number=3, date=date(2026, 2, 15),
-        period_id=p2.id, description="Försäljning tjänster",
+        series="A",
+        number=3,
+        date=date(2026, 2, 15),
+        period_id=p2.id,
+        description="Försäljning tjänster",
         fiscal_year_id=fy.id,
     )
     VoucherRepository.add_row(v3.id, "1930", debit=5000000, credit=0)
@@ -139,9 +151,9 @@ class TestSIE4ExportIntegration:
         assert '#KONTO 3010 "Försäljning tjänster"' in content
 
         # Verifiera verifikationer
-        assert '#VER A 1' in content
-        assert '#VER A 2' in content
-        assert '#VER A 3' in content
+        assert "#VER A 1" in content
+        assert "#VER A 2" in content
+        assert "#VER A 3" in content
         assert '"Startkapital"' in content
 
         # Verifiera UB (utgående balans)
@@ -177,7 +189,9 @@ class TestSIE4ExportIntegration:
         # Kontrollera att alla verifikationer balanserar
         for v in parsed.vouchers:
             total = sum(r.amount for r in v.rows)
-            assert total == 0, f"Verifikation {v.series}{v.number} balanserar inte: {total}"
+            assert total == 0, (
+                f"Verifikation {v.series}{v.number} balanserar inte: {total}"
+            )
 
     def test_export_bytes_encoding(self, fiscal_year_with_data):
         """Testa att export genererar korrekt Windows-1252 bytes."""
@@ -202,10 +216,158 @@ class TestSIE4ExportIntegration:
             exporter.export(fiscal_year_id="nonexistent")
 
 
+class TestSIE4ImportOpeningBalances:
+    """Testa SIE4-import av ingående balanser (IB)."""
+
+    def test_import_creates_ib_voucher_with_correct_series(self, client, auth_headers):
+        """Testa att IB-verifikation skapas med serie 'IB'."""
+        # Skapa räkenskapsår
+        fy = PeriodRepository.create_fiscal_year(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 12, 31),
+        )
+        period = PeriodRepository.create_period(
+            fiscal_year_id=fy.id,
+            year=2026,
+            month=1,
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 31),
+        )
+
+        # SIE4-fil med IB
+        sie4_content = """#FLAGGA 0
+#FORMAT PC8
+#PROGRAM "Test" 1.0
+#FNAMN "Test AB"
+#FORGN 5566778899
+#RAR 0 20260101 20261231
+#KONTO 1930 "Företagskonto"
+#KONTO 2081 "Aktieägartillskott"
+#IB 0 1930 100000
+#IB 0 2081 -100000
+"""
+
+        # Importera SIE4
+        resp = client.post(
+            "/api/v1/import/sie4",
+            headers=auth_headers,
+            json={"content": sie4_content, "fiscal_year_id": fy.id},
+        )
+        assert resp.status_code == 200
+
+        # Verifiera att IB-verifikation skapades med serie "IB"
+        vouchers_resp = client.get(
+            "/api/v1/vouchers",
+            headers=auth_headers,
+            params={"fiscal_year_id": fy.id},
+        )
+        assert vouchers_resp.status_code == 200
+        vouchers = vouchers_resp.json()["vouchers"]
+
+        ib_vouchers = [v for v in vouchers if v["series"] == "IB"]
+        assert len(ib_vouchers) == 1
+
+        ib = ib_vouchers[0]
+        assert ib["series"] == "IB"
+        assert "Ingående balans" in ib["description"]
+        assert "2026" in ib["description"]
+
+    def test_import_upserts_existing_ib_voucher(self, client, auth_headers):
+        """Testa att importera uppdaterar befintlig IB-verifikation (upsert)."""
+        # Skapa räkenskapsår
+        fy = PeriodRepository.create_fiscal_year(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 12, 31),
+        )
+        period = PeriodRepository.create_period(
+            fiscal_year_id=fy.id,
+            year=2026,
+            month=1,
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 31),
+        )
+
+        # Skapa konton
+        for code in ["1930", "2081"]:
+            if not AccountRepository.exists(code):
+                AccountRepository.create(code, f"Konto {code}", "asset")
+
+        # Första importen med IB
+        sie4_content_1 = """#FLAGGA 0
+#FORMAT PC8
+#PROGRAM "Test" 1.0
+#FNAMN "Test AB"
+#FORGN 5566778899
+#RAR 0 20260101 20261231
+#KONTO 1930 "Företagskonto"
+#KONTO 2081 "Aktieägartillskott"
+#IB 0 1930 100000
+#IB 0 2081 -100000
+"""
+        resp1 = client.post(
+            "/api/v1/import/sie4",
+            headers=auth_headers,
+            json={"content": sie4_content_1, "fiscal_year_id": fy.id},
+        )
+        assert resp1.status_code == 200
+
+        # Hämta första IB-verifikationen
+        vouchers_resp = client.get(
+            "/api/v1/vouchers",
+            headers=auth_headers,
+            params={"fiscal_year_id": fy.id},
+        )
+        first_ib_id = [
+            v for v in vouchers_resp.json()["vouchers"] if v["series"] == "IB"
+        ][0]["id"]
+
+        # Andra importen med uppdaterad IB
+        sie4_content_2 = """#FLAGGA 0
+#FORMAT PC8
+#PROGRAM "Test" 1.0
+#FNAMN "Test AB"
+#FORGN 5566778899
+#RAR 0 20260101 20261231
+#KONTO 1930 "Företagskonto"
+#KONTO 2081 "Aktieägartillskott"
+#IB 0 1930 150000
+#IB 0 2081 -150000
+"""
+        resp2 = client.post(
+            "/api/v1/import/sie4",
+            headers=auth_headers,
+            json={"content": sie4_content_2, "fiscal_year_id": fy.id},
+        )
+        assert resp2.status_code == 200
+
+        # Verifiera att det fortfarande bara finns en IB-verifikation
+        vouchers_resp = client.get(
+            "/api/v1/vouchers",
+            headers=auth_headers,
+            params={"fiscal_year_id": fy.id},
+        )
+        ib_vouchers = [
+            v for v in vouchers_resp.json()["vouchers"] if v["series"] == "IB"
+        ]
+        assert len(ib_vouchers) == 1
+
+        # Verifiera att beloppen uppdaterades
+        ib = ib_vouchers[0]
+        rows = ib["rows"]
+        assert len(rows) == 2
+
+        # Hitta raden för konto 1930 och verifiera beloppet
+        row_1930 = next((r for r in rows if r["account"] == "1930"), None)
+        assert row_1930 is not None
+        assert row_1930["debit"] == 150000
+
+
 class TestSIE4ExportAPI:
     """Testa API-endpoints för SIE4-export."""
 
-    def test_export_endpoint_get_json(self, client, auth_headers, fiscal_year_with_data):
+    def test_export_endpoint_get_json(
+        self, client, auth_headers, fiscal_year_with_data
+    ):
         """Testa GET /api/v1/export/sie4 med JSON-svar."""
         fy = fiscal_year_with_data
         resp = client.get(
@@ -224,7 +386,9 @@ class TestSIE4ExportAPI:
         assert "#FLAGGA 0" in data["content"]
         assert '#FNAMN "API Test AB"' in data["content"]
 
-    def test_export_endpoint_get_download(self, client, auth_headers, fiscal_year_with_data):
+    def test_export_endpoint_get_download(
+        self, client, auth_headers, fiscal_year_with_data
+    ):
         """Testa GET /api/v1/export/sie4 med filnedladdning."""
         fy = fiscal_year_with_data
         resp = client.get(
@@ -275,7 +439,8 @@ class TestSIE4ExportAPI:
         )
         period = PeriodRepository.create_period(
             fiscal_year_id=fy.id,
-            year=2026, month=3,
+            year=2026,
+            month=3,
             start_date=date(2026, 3, 1),
             end_date=date(2026, 3, 31),
         )
@@ -290,9 +455,24 @@ class TestSIE4ExportAPI:
                 "period_id": period.id,
                 "description": "Kundbetalning",
                 "rows": [
-                    {"account": "1930", "debit": 125000, "credit": 0, "description": "Inbetalning"},
-                    {"account": "3011", "debit": 0, "credit": 100000, "description": "Försäljning"},
-                    {"account": "2610", "debit": 0, "credit": 25000, "description": "Moms 25%"},
+                    {
+                        "account": "1930",
+                        "debit": 125000,
+                        "credit": 0,
+                        "description": "Inbetalning",
+                    },
+                    {
+                        "account": "3011",
+                        "debit": 0,
+                        "credit": 100000,
+                        "description": "Försäljning",
+                    },
+                    {
+                        "account": "2610",
+                        "debit": 0,
+                        "credit": 25000,
+                        "description": "Moms 25%",
+                    },
                 ],
             },
         )
