@@ -138,8 +138,10 @@ class SRUExportService:
         """
         Calculate closing balances for all accounts in fiscal year.
         
-        Returns {account_code: {id, name, balance, account_type}}.
-        Balance is in öre (positive = debit, negative = credit).
+        Returns {account_code: {name, balance, account_type}}.
+        Balance is in öre and normalized so positive = normal balance.
+        - Assets/Expenses: debit = positive
+        - Liabilities/Equity/Revenue: credit = positive
         """
         db = get_db()
         
@@ -150,11 +152,8 @@ class SRUExportService:
                 a.code,
                 a.name,
                 a.account_type,
-                COALESCE(SUM(CASE 
-                    WHEN vr.debit > 0 THEN vr.debit
-                    WHEN vr.credit > 0 THEN -vr.credit
-                    ELSE 0
-                END), 0) as balance
+                COALESCE(SUM(vr.debit), 0) as total_debit,
+                COALESCE(SUM(vr.credit), 0) as total_credit
             FROM accounts a
             LEFT JOIN voucher_rows vr ON a.code = vr.account_code
             LEFT JOIN vouchers v ON vr.voucher_id = v.id
@@ -168,10 +167,35 @@ class SRUExportService:
         
         accounts = {}
         for row in cursor.fetchall():
-            accounts[row["code"]] = {
-                "name": row["name"],
-                "balance": row["balance"],  # In öre
-                "account_type": row["account_type"],
+            code = row["code"]
+            name = row["name"]
+            account_type = row["account_type"]
+            total_debit = row["total_debit"]
+            total_credit = row["total_credit"]
+            
+            # Calculate net balance (debit - credit)
+            net_balance = total_debit - total_credit
+            
+            # For INK2 reporting, we need to determine sign based on account code ranges
+            # This is more reliable than account_type which may be incorrect
+            code_int = int(code) if code.isdigit() else 0
+            
+            # Accounts that should show positive for credit balance:
+            # 2000-2999: Liabilities and Equity (except some asset accounts in 20xx range)
+            # 3000-3999: Revenue
+            # For equity accounts (2080-2099, 7301, 7302), flip sign
+            if (2000 <= code_int <= 2999 and code_int not in (2080, 2081, 2091, 2099)) or \
+               (3000 <= code_int <= 3999):
+                normalized_balance = -net_balance
+            else:
+                normalized_balance = net_balance
+            
+            accounts[code] = {
+                "name": name,
+                "balance": normalized_balance,  # In öre, normalized
+                "account_type": account_type,
+                "debit": total_debit,
+                "credit": total_credit,
             }
         
         return accounts
@@ -232,6 +256,9 @@ class SRUExportService:
         for account_code, account_data in account_balances.items():
             sru_field = sru_mappings.get(account_code)
             if sru_field:
+                # Handle slash-separated fields (e.g., "7416/7520") - skip them
+                if '/' in sru_field:
+                    continue
                 if sru_field not in field_balances:
                     field_balances[sru_field] = []
                 field_balances[sru_field].append({
@@ -243,8 +270,16 @@ class SRUExportService:
         # Create SRU field values
         field_descriptions = self._get_field_descriptions()
         
+        # Fields that should have positive values for credit balance
+        credit_balance_fields = ['7301', '7302', '7321', '7350', '7365', '7368', '7369', '7370', '7550']
+        
         for sru_field, accounts in field_balances.items():
             total_balance = sum(a["balance"] for a in accounts)
+            
+            # Flip sign for fields that represent credit balance accounts
+            if sru_field in credit_balance_fields:
+                total_balance = -total_balance
+            
             # Convert from öre to SEK (round to nearest)
             value_sek = round(total_balance / 100)
             
