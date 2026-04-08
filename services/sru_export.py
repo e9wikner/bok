@@ -101,15 +101,14 @@ class SRUExportService:
         # First, get mappings from database (imported from SIE4)
         cursor = db.execute(
             """
-            SELECT a.code, m.sru_field
+            SELECT m.account_code, m.sru_field
             FROM account_sru_mappings m
-            JOIN accounts a ON m.account_id = a.id
             WHERE m.fiscal_year_id = ?
             """,
             (fiscal_year_id,)
         )
         
-        db_mappings = {row["code"]: row["sru_field"] for row in cursor.fetchall()}
+        db_mappings = {row["account_code"]: row["sru_field"] for row in cursor.fetchall()}
         
         if db_mappings:
             mappings.update(db_mappings)
@@ -148,7 +147,6 @@ class SRUExportService:
         cursor = db.execute(
             """
             SELECT 
-                a.id,
                 a.code,
                 a.name,
                 a.account_type,
@@ -158,11 +156,11 @@ class SRUExportService:
                     ELSE 0
                 END), 0) as balance
             FROM accounts a
-            LEFT JOIN voucher_rows vr ON a.id = vr.account_id
+            LEFT JOIN voucher_rows vr ON a.code = vr.account_code
             LEFT JOIN vouchers v ON vr.voucher_id = v.id
             LEFT JOIN periods p ON v.period_id = p.id
             WHERE p.fiscal_year_id = ? OR p.fiscal_year_id IS NULL
-            GROUP BY a.id, a.code, a.name, a.account_type
+            GROUP BY a.code, a.name, a.account_type
             ORDER BY a.code
             """,
             (fiscal_year_id,)
@@ -171,7 +169,6 @@ class SRUExportService:
         accounts = {}
         for row in cursor.fetchall():
             accounts[row["code"]] = {
-                "id": row["id"],
                 "name": row["name"],
                 "balance": row["balance"],  # In öre
                 "account_type": row["account_type"],
@@ -200,13 +197,26 @@ class SRUExportService:
         if not fiscal_year:
             raise ValueError(f"Fiscal year {fiscal_year_id} not found")
         
-        # Get company info
-        company = db.execute(
-            "SELECT * FROM company_info ORDER BY id LIMIT 1"
-        ).fetchone()
+        # Get company info (using key-value store)
+        company_data = {}
+        for key in ['org_number', 'name', 'address', 'postal_code', 'city', 'email', 'phone']:
+            row = db.execute(
+                "SELECT value FROM company_info WHERE key = ?",
+                (key,)
+            ).fetchone()
+            company_data[key] = row['value'] if row else ''
         
-        if not company:
-            raise ValueError("Company info not found")
+        if not company_data.get('name'):
+            # Use placeholder if no company info
+            company_data = {
+                'org_number': '0000000000',
+                'name': 'Test Company',
+                'address': '',
+                'postal_code': '',
+                'city': '',
+                'email': '',
+                'phone': ''
+            }
         
         # Get SRU mappings
         sru_mappings = self.get_sru_mappings(fiscal_year_id)
@@ -253,8 +263,8 @@ class SRUExportService:
         
         return SRUDeclaration(
             fiscal_year_id=fiscal_year_id,
-            company_org_number=company["org_number"].replace("-", ""),
-            company_name=company["name"],
+            company_org_number=company_data["org_number"].replace("-", ""),
+            company_name=company_data["name"],
             fiscal_year_start=fiscal_year["start_date"].replace("-", ""),
             fiscal_year_end=fiscal_year["end_date"].replace("-", ""),
             fields=fields,
