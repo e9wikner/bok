@@ -70,6 +70,9 @@ class SIEData:
     # Opening balances: {account_code: amount_in_öre}
     # Positive = debit, negative = credit (SIE convention)
     opening_balances: Dict[str, int] = None
+    # SRU mappings: {account_code: sru_field}
+    # Maps accounts to Swedish tax declaration (INK2) fields
+    sru_mappings: Dict[str, str] = None
 
     def __post_init__(self):
         if self.accounts is None:
@@ -78,6 +81,8 @@ class SIEData:
             self.vouchers = []
         if self.opening_balances is None:
             self.opening_balances = {}
+        if self.sru_mappings is None:
+            self.sru_mappings = {}
 
 
 class SIE4Parser:
@@ -165,6 +170,13 @@ class SIE4Parser:
                     account = self._parse_account(line[7:])
                     if account:
                         data.accounts.append(account)
+
+                # Parse SRU mapping (#SRU account_code sru_field)
+                # Maps accounts to Swedish tax declaration (INK2) fields
+                elif line.startswith("#SRU "):
+                    sru = self._parse_sru_mapping(line[5:])
+                    if sru:
+                        data.sru_mappings[sru["account"]] = sru["field"]
 
                 # Parse opening balance (IB - ingående balans)
                 # Format: #IB year account amount
@@ -269,6 +281,27 @@ class SIE4Parser:
             name=name,
             type="1",  # Default to asset
         )
+
+    def _parse_sru_mapping(self, line: str) -> Optional[Dict]:
+        """Parse SRU mapping line (#SRU).
+
+        Format: #SRU account_code sru_field
+        Example: #SRU 1920 7281 (account 1920 maps to SRU field 7281)
+        SRU fields are used for Swedish tax declaration (INK2).
+        """
+        parts = line.split()
+        if len(parts) < 2:
+            return None
+
+        try:
+            account = self._parse_string(parts[0])
+            sru_field = self._parse_string(parts[1])
+            return {
+                "account": account,
+                "field": sru_field,
+            }
+        except (ValueError, IndexError):
+            return None
 
     def _parse_opening_balance(self, line: str) -> Optional[Dict]:
         """Parse opening balance line (#IB).
@@ -407,6 +440,7 @@ class SIE4Importer:
             "accounts": 0,
             "vouchers": 0,
             "periods_created": 0,
+            "sru_mappings": 0,
         }
 
     def import_file(self, filepath: str, fiscal_year_id: Optional[str] = None) -> bool:
@@ -439,6 +473,10 @@ class SIE4Importer:
         for account in data.accounts:
             if self._import_account(account):
                 self.imported["accounts"] += 1
+
+        # Import SRU mappings if present and fiscal_year_id provided
+        if data.sru_mappings and fiscal_year_id:
+            self._import_sru_mappings(data.sru_mappings, fiscal_year_id)
 
         # Import opening balances as a special voucher
         if data.opening_balances:
@@ -481,6 +519,60 @@ class SIE4Importer:
         else:
             self.errors.append(f"Failed to create account {account.code}: {resp.text}")
             return False
+
+    def _import_sru_mappings(
+        self, sru_mappings: Dict[str, str], fiscal_year_id: str
+    ) -> bool:
+        """Import SRU mappings for accounts.
+
+        Maps accounts to Swedish tax declaration (INK2) fields.
+        Only imports if API endpoint is available.
+        """
+        import requests
+
+        success = True
+        imported_count = 0
+
+        for account_code, sru_field in sru_mappings.items():
+            # Find account ID by code
+            resp = requests.get(
+                f"{self.api_url}/api/v1/accounts/{account_code}",
+                headers=self.headers,
+            )
+
+            if resp.status_code != 200:
+                continue  # Skip if account doesn't exist
+
+            account_id = resp.json().get("id")
+            if not account_id:
+                continue
+
+            # Save SRU mapping
+            mapping_data = {
+                "account_id": account_id,
+                "fiscal_year_id": fiscal_year_id,
+                "sru_field": sru_field,
+            }
+
+            resp = requests.post(
+                f"{self.api_url}/api/v1/fiscal-years/{fiscal_year_id}/sru-mappings",
+                headers=self.headers,
+                json=mapping_data,
+            )
+
+            if resp.status_code in (201, 200):
+                imported_count += 1
+            elif resp.status_code == 404:
+                # API endpoint not available yet, skip silently
+                break
+            else:
+                # Log error but continue
+                pass
+
+        if imported_count > 0:
+            self.imported["sru_mappings"] = imported_count
+
+        return success
 
     def _import_voucher(
         self, voucher: SIEVoucher, fiscal_year_id: Optional[str] = None

@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { useIncomeStatement, useBalanceSheet, useTrialBalance, useGeneralLedger, useFiscalYears, useAccounts } from "@/hooks/useData";
 import { api } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
-import { TrendingUp, TrendingDown, Scale, FileSpreadsheet, BookOpen, Calendar, Download, CheckCircle2, AlertCircle } from "lucide-react";
+import { TrendingUp, TrendingDown, Scale, FileSpreadsheet, BookOpen, Calendar, Download, CheckCircle2, AlertCircle, FileText } from "lucide-react";
 
 type ReportTab = "income" | "balance" | "trial" | "ledger";
 
@@ -35,6 +35,7 @@ export default function ReportsPage() {
   const { data: fyData } = useFiscalYears();
   const [exporting, setExporting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [sruSuccess, setSruSuccess] = useState<string | null>(null);
 
   // Auto-clear error after 5 seconds
   useEffect(() => {
@@ -47,6 +48,45 @@ export default function ReportsPage() {
     console.error(msg);
     setErrorMessage(msg);
   }, []);
+
+  const [sruExporting, setSruExporting] = useState(false);
+
+  // SRU export helper
+  const handleSruExport = async () => {
+    setSruExporting(true);
+    setErrorMessage(null);
+    try {
+      // Get current fiscal year
+      const fiscalYear = fiscalYears.find((fy: any) => {
+        const startYear = new Date(fy.start_date).getFullYear();
+        return startYear === year;
+      });
+
+      if (!fiscalYear) {
+        showError(`Inget räkenskapsår hittat för ${year}.`);
+        return;
+      }
+
+      const response = await api.exportSRU(fiscalYear.id);
+      
+      // Download ZIP file
+      const blob = new Blob([response.data], { type: "application/zip" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const filename = response.headers["content-disposition"]?.split("filename=")[1]?.replace(/"/g, "") || `INK2_${year}_SRU.zip`;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      setSruSuccess("SRU-filer för inkomstdeklaration har laddats ner");
+      setTimeout(() => setSruSuccess(null), 3000);
+    } catch (err: any) {
+      showError(err?.response?.data?.detail || "Kunde inte exportera SRU-filer.");
+    } finally {
+      setSruExporting(false);
+    }
+  };
 
   // PDF export helper
   const handlePdfExport = async () => {
@@ -201,9 +241,24 @@ export default function ReportsPage() {
                 {exporting ? "Exporterar..." : "Exportera PDF"}
               </Button>
             )}
+            {(tab === "income" || tab === "balance") && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSruExport}
+                disabled={sruExporting}
+                className="gap-2"
+              >
+                <FileText className="h-4 w-4" />
+                {sruExporting ? "Exporterar..." : "Exportera SRU"}
+              </Button>
+            )}
           </div>
           {errorMessage && (
             <p className="text-sm text-red-600 dark:text-red-400 mt-2 px-1">{errorMessage}</p>
+          )}
+          {sruSuccess && (
+            <p className="text-sm text-green-600 dark:text-green-400 mt-2 px-1">{sruSuccess}</p>
           )}
         </CardContent>
       </Card>

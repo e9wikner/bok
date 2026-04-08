@@ -136,3 +136,17 @@ class Database:
 
 # Global database instance
 db = Database()
+
+
+def get_db():
+    """Get database connection for dependency injection.
+    
+    Usage:
+        from db.database import get_db
+        
+        @router.get("/items")
+        def list_items(db = Depends(get_db)):
+            cursor = db.execute("SELECT * FROM items")
+            return cursor.fetchall()
+    """
+    return db

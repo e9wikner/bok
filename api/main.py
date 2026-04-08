@@ -22,6 +22,7 @@ from api.routes import (
     import_csv,
     export_sie4,
     export_pdf,
+    export_sru,
     bank,
     compliance,
     vat,
@@ -29,6 +30,7 @@ from api.routes import (
     attachments,
     auth,
     audit,
+    sru_mappings,
 )
 
 # Create app
@@ -74,6 +76,9 @@ app.include_router(export_sie4.router)
 # PDF Export
 app.include_router(export_pdf.router)
 
+# SRU Export (INK2 Tax Declaration)
+app.include_router(export_sru.router)
+
 # Fas 5: Bank Integration & Auto-Categorization
 app.include_router(bank.router)
 
@@ -94,6 +99,9 @@ app.include_router(auth.router)
 
 # Audit Log
 app.include_router(audit.router)
+
+# SRU Mappings (INK2 Tax Declaration)
+app.include_router(sru_mappings.router)
 
 
 @app.get("/health", tags=["health"])
