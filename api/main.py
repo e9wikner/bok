@@ -22,6 +22,7 @@ from api.routes import (
     import_csv,
     export_sie4,
     export_pdf,
+    export_sru,
     bank,
     compliance,
     vat,
@@ -74,6 +75,9 @@ app.include_router(export_sie4.router)
 
 # PDF Export
 app.include_router(export_pdf.router)
+
+# SRU Export (INK2 Tax Declaration)
+app.include_router(export_sru.router)
 
 # Fas 5: Bank Integration & Auto-Categorization
 app.include_router(bank.router)
