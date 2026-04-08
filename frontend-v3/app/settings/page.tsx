@@ -17,7 +17,10 @@ import {
   Sun,
   Moon,
   Monitor,
+  FileText,
+  Settings2,
 } from "lucide-react";
+import Link from "next/link";
 
 export default function SettingsPage() {
   const { data: health } = useHealth();
@@ -126,6 +129,29 @@ export default function SettingsPage() {
                 </div>
               </div>
             )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Tax Declaration (SRU) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="h-5 w-5 text-primary" />
+            Deklaration (SRU)
+          </CardTitle>
+          <CardDescription>
+            Hantera SRU-mappningar för inkomstdeklaration
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap gap-3">
+            <Link href="/settings/sru-mappings">
+              <Button variant="outline" className="gap-2">
+                <Settings2 className="h-4 w-4" />
+                SRU-mappningar
+              </Button>
+            </Link>
           </div>
         </CardContent>
       </Card>

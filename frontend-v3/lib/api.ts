@@ -342,6 +342,43 @@ export const api = {
     return data;
   },
 
+  // SRU Mappings
+  getSRUMappings: async (fiscalYearId: string) => {
+    const { data } = await apiClient.get(`/api/v1/fiscal-years/${fiscalYearId}/sru-mappings`);
+    return data;
+  },
+
+  updateSRUMapping: async (fiscalYearId: string, accountId: string, sruField: string) => {
+    const { data } = await apiClient.post(`/api/v1/fiscal-years/${fiscalYearId}/sru-mappings`, {
+      account_id: accountId,
+      sru_field: sruField,
+    });
+    return data;
+  },
+
+  bulkUpdateSRUMappings: async (fiscalYearId: string, mappings: { account_id: string; sru_field: string }[]) => {
+    const { data } = await apiClient.post(`/api/v1/fiscal-years/${fiscalYearId}/sru-mappings/bulk`, mappings);
+    return data;
+  },
+
+  deleteSRUMapping: async (fiscalYearId: string, mappingId: string) => {
+    const { data } = await apiClient.delete(`/api/v1/fiscal-years/${fiscalYearId}/sru-mappings/${mappingId}`);
+    return data;
+  },
+
+  // SRU Export
+  exportSRU: async (fiscalYearId: string) => {
+    const response = await apiClient.get(`/api/v1/export/sru/${fiscalYearId}`, {
+      responseType: "blob",
+    });
+    return response;
+  },
+
+  previewSRU: async (fiscalYearId: string) => {
+    const { data } = await apiClient.get(`/api/v1/export/sru/${fiscalYearId}/preview`);
+    return data;
+  },
+
 };
 
 export default apiClient;
