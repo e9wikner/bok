@@ -50,7 +50,6 @@ export default function ReportsPage() {
   }, []);
 
   const [sruExporting, setSruExporting] = useState(false);
-  const [sruSuccess, setSruSuccess] = useState<string | null>(null);
 
   // SRU export helper
   const handleSruExport = async () => {
