@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api/v1/fiscal-years", tags=["sru-mappings"])
 
 class SRUMappingCreate(BaseModel):
     """Create or update SRU mapping."""
-    account_id: str
+    account_code: str
     sru_field: str
 
 
@@ -24,7 +24,6 @@ class SRUMappingResponse(BaseModel):
     """SRU mapping response."""
     id: str
     fiscal_year_id: str
-    account_id: str
     account_code: str
     account_name: str
     sru_field: str
@@ -53,16 +52,15 @@ async def list_sru_mappings(
         SELECT 
             m.id,
             m.fiscal_year_id,
-            m.account_id,
-            a.code as account_code,
+            m.account_code,
             a.name as account_name,
             m.sru_field,
             m.created_at,
             m.updated_at
         FROM account_sru_mappings m
-        JOIN accounts a ON m.account_id = a.id
+        JOIN accounts a ON m.account_code = a.code
         WHERE m.fiscal_year_id = ?
-        ORDER BY a.code
+        ORDER BY m.account_code
         """,
         (fiscal_year_id,)
     )
@@ -72,7 +70,6 @@ async def list_sru_mappings(
         mappings.append({
             "id": row["id"],
             "fiscal_year_id": row["fiscal_year_id"],
-            "account_id": row["account_id"],
             "account_code": row["account_code"],
             "account_name": row["account_name"],
             "sru_field": row["sru_field"],
@@ -103,8 +100,8 @@ async def create_sru_mapping(
     
     # Check if mapping already exists
     existing = db.execute(
-        "SELECT id FROM account_sru_mappings WHERE fiscal_year_id = ? AND account_id = ?",
-        (fiscal_year_id, mapping.account_id)
+        "SELECT id FROM account_sru_mappings WHERE fiscal_year_id = ? AND account_code = ?",
+        (fiscal_year_id, mapping.account_code)
     ).fetchone()
     
     now = datetime.now().isoformat()
@@ -123,7 +120,7 @@ async def create_sru_mapping(
         return {
             "id": existing["id"],
             "fiscal_year_id": fiscal_year_id,
-            "account_id": mapping.account_id,
+            "account_code": mapping.account_code,
             "sru_field": mapping.sru_field,
             "created_at": now,
             "updated_at": now,
@@ -133,16 +130,16 @@ async def create_sru_mapping(
         mapping_id = str(uuid.uuid4())
         db.execute(
             """
-            INSERT INTO account_sru_mappings (id, fiscal_year_id, account_id, sru_field, created_at, updated_at)
+            INSERT INTO account_sru_mappings (id, fiscal_year_id, account_code, sru_field, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (mapping_id, fiscal_year_id, mapping.account_id, mapping.sru_field, now, now)
+            (mapping_id, fiscal_year_id, mapping.account_code, mapping.sru_field, now, now)
         )
         db.commit()
         return {
             "id": mapping_id,
             "fiscal_year_id": fiscal_year_id,
-            "account_id": mapping.account_id,
+            "account_code": mapping.account_code,
             "sru_field": mapping.sru_field,
             "created_at": now,
             "updated_at": now,
@@ -193,15 +190,14 @@ async def get_accounts_by_sru_field(
     cursor = db.execute(
         """
         SELECT 
-            a.id,
             a.code,
             a.name,
             a.account_type,
             m.sru_field
         FROM account_sru_mappings m
-        JOIN accounts a ON m.account_id = a.id
+        JOIN accounts a ON m.account_code = a.code
         WHERE m.fiscal_year_id = ? AND m.sru_field = ?
-        ORDER BY a.code
+        ORDER BY m.account_code
         """,
         (fiscal_year_id, sru_field)
     )
@@ -209,7 +205,6 @@ async def get_accounts_by_sru_field(
     accounts = []
     for row in cursor.fetchall():
         accounts.append({
-            "id": row["id"],
             "code": row["code"],
             "name": row["name"],
             "account_type": row["account_type"],
@@ -249,8 +244,8 @@ async def bulk_create_sru_mappings(
         for mapping in mappings:
             # Check if mapping exists
             existing = db.execute(
-                "SELECT id FROM account_sru_mappings WHERE fiscal_year_id = ? AND account_id = ?",
-                (fiscal_year_id, mapping.account_id)
+                "SELECT id FROM account_sru_mappings WHERE fiscal_year_id = ? AND account_code = ?",
+                (fiscal_year_id, mapping.account_code)
             ).fetchone()
             
             if existing:
@@ -269,10 +264,10 @@ async def bulk_create_sru_mappings(
                 mapping_id = str(uuid.uuid4())
                 db.execute(
                     """
-                    INSERT INTO account_sru_mappings (id, fiscal_year_id, account_id, sru_field, created_at, updated_at)
+                    INSERT INTO account_sru_mappings (id, fiscal_year_id, account_code, sru_field, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?)
                     """,
-                    (mapping_id, fiscal_year_id, mapping.account_id, mapping.sru_field, now, now)
+                    (mapping_id, fiscal_year_id, mapping.account_code, mapping.sru_field, now, now)
                 )
                 created_count += 1
     
