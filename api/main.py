@@ -29,6 +29,7 @@ from api.routes import (
     attachments,
     auth,
     audit,
+    sru_mappings,
 )
 
 # Create app
@@ -94,6 +95,9 @@ app.include_router(auth.router)
 
 # Audit Log
 app.include_router(audit.router)
+
+# SRU Mappings (INK2 Tax Declaration)
+app.include_router(sru_mappings.router)
 
 
 @app.get("/health", tags=["health"])
