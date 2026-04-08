@@ -2,7 +2,7 @@
 
 Egenbyggt bokföringssystem med REST API för svenska aktiebolag. Uppfyller alla krav enligt Bokföringslagen (BFL) och BFNAR 2013:2.
 
-**License:** MIT License — Free to use, modify, and host for your own business. See [LICENSE](LICENSE) for details.
+**Licens:** MIT License — Fri att använda, modifiera och hosta för ditt eget företag. Se [LICENSE](LICENSE) för detaljer.
 
 ## 🚀 Quick Start
 
@@ -18,75 +18,75 @@ docker-compose up --build
 # Login: admin / admin
 ```
 
-**Status:** 🎉 **ALL PHASES COMPLETE + FAS 5 IN PROGRESS**
-- ✅ **Fas 1** – Grundbokföring (Complete)
-- ✅ **Fas 2** – Fakturering & Moms (Complete)
-- ✅ **Fas 3** – Rapporter & K2 (Complete)
-- ✅ **Fas 4** – Agent Integration (Complete)
-- ✅ **SIE4** – Import & Export (Complete)
-- ✅ **PDF Export** – Fakturor & Rapporter (Complete)
-- ✅ **Anomalidetektering** – Felprevention (Complete)
-- 🚀 **Fas 5** – Bank Integration, Auto-Kategorisering, BFL Compliance, Momsdeklaration
+**Status:** 🎉 **ALLA FASER KLARA + FAS 5 PÅGÅR**
+- ✅ **Fas 1** – Grundbokföring (Klar)
+- ✅ **Fas 2** – Fakturering & Moms (Klar)
+- ✅ **Fas 3** – Rapporter & K2 (Klar)
+- ✅ **Fas 4** – Agentintegration (Klar)
+- ✅ **SIE4** – Import & Export (Klar)
+- ✅ **PDF-export** – Fakturor & Rapporter (Klar)
+- ✅ **Anomalidetektering** – Felprevention (Klar)
+- 🚀 **Fas 5** – Bankintegration, Auto-kategorisering, BFL-compliance, Momsdeklaration
 
-## Stack
+## Teknikstack
 
 ### Backend
-- **Language:** Python 3.10+
-- **Framework:** FastAPI
-- **Database:** SQLite + migrations
-- **Other:** Pydantic, SQLAlchemy, Alembic
+- **Språk:** Python 3.10+
+- **Ramverk:** FastAPI
+- **Databas:** SQLite + migreringar
+- **Övrigt:** Pydantic, SQLAlchemy, Alembic
 
 ### Frontend
-- **Frontend v2:** Next.js 14 (React 18 + TypeScript)
+- **Frontend:** Next.js 14 (React 18 + TypeScript)
 - **Styling:** Tailwind CSS
 - **State:** React Query + hooks
-- **Dark mode:** Native support
+- **Mörkt läge:** Inbyggt stöd
 - **Port:** 3000 (Docker) / 3000 (localhost)
 
-## Key Features
+## Huvudfunktioner
 
-### ✅ Fas 1: Grundbokföring (Basic Accounting)
-- Append-only voucher storage (varaktighet - immutability requirement)
-- Period locking (irreversible per BFL)
-- Double-entry bookkeeping with automatic validation
-- Correction vouchers (B-series)
-- Trial balance & account ledger reports
-- Complete audit trail
+### ✅ Fas 1: Grundbokföring
+- Append-only lagring av verifikationer (varaktighet – oföränderlighetskrav)
+- Periodlåsning (oåterkallelig enligt BFL)
+- Dubbel bokföring med automatisk validering
+- Korrigeringsverifikationer (B-serie)
+- Råbalans- och huvudboksuttag
+- Komplett revisionsspår
 
-### ✅ Fas 2: Fakturering & Moms (Invoicing & VAT)
-- Customer invoice management (draft → sent → paid)
-- Automatic VAT calculation (MP1 25%, MP2 12%, MP3 6%, MF 0%)
-- Payment registration with multiple methods
-- Credit notes (kreditfakturor)
-- **Auto-booking:** Invoices automatically create accounting vouchers
-- Payment tracking & status updates
+### ✅ Fas 2: Fakturering & Moms
+- Kundfakturahantering (utkast → skickad → betald)
+- Automatisk momsberäkning (MP1 25%, MP2 12%, MP3 6%, MF 0%)
+- Betalningsregistrering med flera metoder
+- Kreditfakturor
+- **Autobokföring:** Fakturor skapar automatiskt bokföringsverifikationer
+- Betalningsbevakning och statusuppdateringar
 
-### ✅ Fas 3: Rapporter & K2 (Annual Reports)
-- **K2 Annual Report Generation** (Årsredovisning för små företag)
-- Auto-calculate Income Statement (Resultaträkning)
-- Auto-calculate Balance Sheet (Balansräkning)
-- Auto-calculate Cash Flow Statement
-- JSON export for authority submission
-- Report status tracking (draft → finalized → submitted)
+### ✅ Fas 3: Rapporter & K2
+- **K2-årsredovisningsgenerering** (för små företag)
+- Autoberäkning av resultaträkning
+- Autoberäkning av balansräkning
+- Autoberäkning av kassaflödesanalys
+- JSON-export för myndighetsinlämning
+- Rapportstatusbevakning (utkast → slutlig → inlämnad)
 
-### ✅ Fas 4: Agent Integration
-- **OpenAPI 3.1 specification** for agent integration
-- **Tool definitions** for Claude/agent use
-- API key management with granular permissions
-- Idempotent operation IDs (retry-safe for agents)
-- Agent operation logging & audit trail
-- Rate limiting per API key
-- Connectivity testing endpoints
+### ✅ Fas 4: Agentintegration
+- **OpenAPI 3.1-specifikation** för agentintegration
+- **Tool-definieringar** för Claude/agent-användning
+- API-nyckelhantering med detaljerade behörigheter
+- Idempotenta operations-ID (retry-säkra för agenter)
+- Agentoperationsloggning och revisionsspår
+- Hastighetsbegränsning per API-nyckel
+- Anslutningstestningsendpoints
 
 ### ✅ SIE4 Import & Export
-- **SIE4 Import:** Import bokföringsdata från andra system
-  - Stöd för Windows-1252 och ISO-8859-1 encoding
+- **SIE4 Import:** Importera bokföringsdata från andra system
+  - Stöd för Windows-1252 och ISO-8859-1 teckenkodning
   - Automatisk kontoskapning vid import
-  - Validering av SIE4-format innan import
+  - Validering av SIE4-format före import
 - **SIE4 Export:** Exportera till SIE4-format för andra bokföringsprogram
   - Alla obligatoriska SIE4-sektioner: #FLAGGA, #FORMAT, #GEN, #PROGRAM, #SIETYP, #FNAMN, #FORGN, #ADRESS, #RAR, #KPTYP, #KONTO, #SRU, #IB, #UB, #RES, #PSALDO, #VER, #TRANS
   - Automatisk beräkning av IB (ingående balans), UB (utgående balans), RES (resultat) och PSALDO (periodsaldon)
-  - Windows-1252 encoding med CRLF radbrytningar
+  - Windows-1252 teckenkodning med CRLF radbrytningar
   - Filnedladdning eller JSON-svar
   - Export → Import roundtrip verifierad
 
@@ -158,7 +158,7 @@ Systemet lär sig automatiskt från användares korrigeringar för att förbätt
 **Integration:**
 LearningService är integrerat i CategorizationService och kontrolleras först vid auto-kategorisering, före standardregler.
 
-## Project Structure
+## Projektstruktur
 
 ```
 bokfoering-api/
@@ -227,9 +227,9 @@ bokfoering-api/
 └── requirements.txt
 ```
 
-## Quick Start
+## Snabbstart
 
-### Docker (Recommended)
+### Docker (Rekommenderad)
 ```bash
 docker-compose up --build
 # API Server: http://localhost:8000
@@ -247,15 +247,15 @@ python main.py
 # Then visit http://localhost:8000/docs
 ```
 
-### Local Setup - Frontend
+### Lokal installation - Frontend
 ```bash
 cd frontend-v3
 npm install
 npm run dev
-# Then visit http://localhost:3000
+# Besök sedan http://localhost:3000
 ```
 
-### Environment Variables
+### Miljövariabler
 ```bash
 # Backend
 export API_KEY=dev-key-change-in-production
@@ -266,95 +266,90 @@ export NEXT_PUBLIC_API_URL=http://localhost:8000
 export NEXT_PUBLIC_API_KEY=dev-key-change-in-production
 ```
 
-## Documentation
+## Dokumentation
 
-### Core
-- **[QUICKSTART.md](QUICKSTART.md)** - 2-minute setup guide
-- **[API.md](API.md)** - Complete endpoint reference with examples
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System design & data flow
-- **[FAS3_FAS4.md](FAS3_FAS4.md)** - K2 reports & agent integration
-- **[DEMO.md](DEMO.md)** - Detailed feature demonstration
-- **[CHANGELOG.md](CHANGELOG.md)** - Version history
+### Kärndokumentation
+- **[API.md](API.md)** - Komplett endpoint-referens med exempel
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Systemdesign & dataflöde
+- **[FAS3_FAS4.md](FAS3_FAS4.md)** - K2-rapporter & agentintegration
 
 ### Frontend
-- **[frontend-v3/README.md](frontend-v3/README.md)** - Frontend guide
-  - Architecture & components
-  - Routes & pages
-  - AI-learning workflow
-  - Development guide
-  - Deployment instructions
+- **[frontend-v3/README.md](frontend-v3/README.md)** - Frontend-guide
+  - Arkitektur & komponenter
+  - Routes & sidor
+  - AI-inlärningsarbetsflöde
+  - Utvecklingsguide
+  - Deploymentsinstruktioner
 
 ### Deployment
-- **[DEPLOYMENT.md](DEPLOYMENT.md)** - 🚀 Complete deployment guide
-  - On-premise Docker deployment
-  - Hetzner Cloud deployment (Console, API, Terraform)
-  - SSL/TLS configuration with Let's Encrypt
-  - Monitoring & logging setup
-  - Backup strategy & automation
-  - Production docker-compose configuration
-- **[STATUS.md](STATUS.md)** - Project status report
-- **[CHANGELOG.md](CHANGELOG.md)** - Version history
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** - 🚀 Komplett deployment-guide
+  - Docker-deployment on-premise
+  - Hetzner Cloud-deployment (Console, API, Terraform)
+  - SSL/TLS-konfiguration med Let's Encrypt
+  - Monitorering & loggning
+  - Backup-strategi & automatisering
+  - Produktions-docker-compose-konfiguration
 
-## Regulatory Compliance
+## Reglering och Compliance
 
 ✅ **BFL (Bokföringslagen)**
-- Varaktighet: Posted vouchers immutable
-- Grundbokföring: Chronological journal
-- Huvudbokföring: Systematic ledger
-- Verifikationer: Numbered, fully detailed
-- Rättelser: Via correction vouchers only
-- Systemdokumentation: Auto-logged
+- Varaktighet: Bokförda verifikationer oföränderliga
+- Grundbokföring: Kronologisk journal
+- Huvudbokföring: Systematisk huvudbok
+- Verifikationer: Nummerade, fullständigt detaljerade
+- Rättelser: Endast via korrigeringsverifikationer
+- Systemdokumentation: Automatiskt loggad
 
 ✅ **BFNAR 2013:2**
-- Bokföring vägledning
+- Vägledning för bokföring
 - Systemdokumentation
-- Behandlingshistorik (audit trail)
+- Behandlingshistorik (revisionsspår)
 
 ✅ **BAS 2026**
-- Standard chart of accounts
-- Account type classification
-- VAT code mapping
+- Standard kontoplan
+- Kontotypklassificering
+- Momskodsmappning
 
 ✅ **K2 Årsredovisning**
-- Income statement generation
-- Balance sheet generation
-- Mandatory notes & disclosures
+- Generering av resultaträkning
+- Generering av balansräkning
+- Obligatoriska noter & upplysningar
 
 ✅ **Mervärdesskattelagen (VAT)**
-- 4 VAT codes (MP1-MP3, MF)
-- Automatic calculation
-- VAT breakdown reporting
+- 4 momskoder (MP1-MP3, MF)
+- Automatisk beräkning
+- Momsuppdelningsrapportering
 
-## Fas 5: Bank Integration & AI-Automatisering
+## Fas 5: Bankintegration & AI-Automatisering
 
-### 🏦 Bank Integration
-- Bank connection management (manual + Open Banking ready)
-- Transaction import (JSON API + Swedish bank CSV)
-- Transaction deduplication (external_id based)
-- Sync status tracking
+### 🏦 Bankintegration
+- Bankanslutningshantering (manuell + Open Banking redo)
+- Transaktionsimport (JSON API + Svensk bank CSV)
+- Transaktionsdeduplicering (baserat på external_id)
+- Synkroniseringsstatusbevakning
 
-### 🤖 Auto-Kategorisering
-- Rule-based engine with 18 pre-loaded Swedish business patterns
-- Keyword, regex, counterpart, and amount-range matching
-- **AI-learning:** System learns from user corrections
-- Auto-booking of high-confidence matches (≥90%)
-- Covers: telecom, rent, fuel, insurance, software, bank fees, Swish, etc.
+### 🤖 Auto-kategorisering
+- Regelbaserad motor med 18 förinlästa svenska affärsmönster
+- Matchning av nyckelord, regex, motpart och beloppsintervall
+- **AI-inlärning:** Systemet lär sig av användarkorrigeringar
+- Autobokföring av högtroende matchningar (≥90%)
+- Täcker: telekom, hyra, drivmedel, försäkring, programvara, bankavgifter, Swish, etc.
 
-### ✅ BFL Compliance Checker
-- 8 automated compliance checks:
-  - Booking timeliness (BFL 5 kap 2§)
-  - Period closing deadlines
-  - Voucher sequence gaps (BFL 5 kap 6§)
-  - Trial balance accuracy
-  - VAT declaration deadlines
-  - Unbooked transaction backlogs
-  - Missing voucher attachments
-  - Unusually large transaction flagging
-- Issue lifecycle: open → acknowledged → resolved / false positive
+### ✅ BFL Compliance-kontroll
+- 8 automatiserade compliance-kontroller:
+  - Bokföringstillfällighet (BFL 5 kap 2§)
+  - Periodavslutningsdeadlines
+  - Verifikationsnummerluckor (BFL 5 kap 6§)
+  - Råbalansnoggrannhet
+  - Momsdeklarationsdeadlines
+  - Obokförda transaktionsbackloggar
+  - Saknade verifikationsbilagor
+  - Flagging av ovanligt stora transaktioner
+- Ärendelifecykel: öppen → kvitterad → löst / falskt positiv
 
-### 🧾 VAT Declarations (Momsdeklaration)
-- Monthly and quarterly VAT declaration generation
-- SKV 4700 format mapping (Ruta 05-49)
-- Automatic calculation from booked vouchers
-- Sales breakdown by VAT rate (25%, 12%, 6%, exempt)
-- Net VAT to pay/receive calculation
+### 🧾 Momsdeklarationer
+- Generering av månadsvisa och kvartalsvisa momsdeklarationer
+- SKV 4700 formatmappning (Ruta 05-49)
+- Automatisk beräkning från bokförda verifikationer
+- Försäljningsuppdelning efter momssats (25%, 12%, 6%, undantagen)
+- Nettomoms att betala/få tillbaka beräkning
