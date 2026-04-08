@@ -4,6 +4,20 @@ Egenbyggt bokföringssystem med REST API för svenska aktiebolag. Uppfyller alla
 
 **License:** MIT License — Free to use, modify, and host for your own business. See [LICENSE](LICENSE) for details.
 
+## 🚀 Quick Start
+
+```bash
+# Clone and start
+git clone https://github.com/e9wikner/bok.git
+cd bok
+docker-compose up --build
+
+# Access
+# API: http://localhost:8000/docs
+# Frontend: http://localhost:3000
+# Login: admin / admin
+```
+
 **Status:** 🎉 **ALL PHASES COMPLETE + FAS 5 IN PROGRESS**
 - ✅ **Fas 1** – Grundbokföring (Complete)
 - ✅ **Fas 2** – Fakturering & Moms (Complete)
