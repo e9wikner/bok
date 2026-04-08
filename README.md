@@ -2,6 +2,8 @@
 
 Egenbyggt bokföringssystem med REST API för svenska aktiebolag. Uppfyller alla krav enligt Bokföringslagen (BFL) och BFNAR 2013:2.
 
+**License:** MIT License — Free to use, modify, and host for your own business. See [LICENSE](LICENSE) for details.
+
 **Status:** 🎉 **ALL PHASES COMPLETE + FAS 5 IN PROGRESS**
 - ✅ **Fas 1** – Grundbokföring (Complete)
 - ✅ **Fas 2** – Fakturering & Moms (Complete)
