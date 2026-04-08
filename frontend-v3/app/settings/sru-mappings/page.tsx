@@ -3,19 +3,14 @@
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { useToast } from "@/hooks/useToast";
 import { api } from "@/lib/api";
 import { 
   ArrowLeft, 
   Save, 
   FileText, 
   AlertTriangle,
-  CheckCircle2,
   Download,
   Eye,
   Loader2
@@ -74,7 +69,6 @@ const SRU_FIELDS = [
 ];
 
 export default function SRUMappingsPage() {
-  const { toast } = useToast();
   const [fiscalYears, setFiscalYears] = useState<FiscalYear[]>([]);
   const [selectedYear, setSelectedYear] = useState<string>("");
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -83,6 +77,8 @@ export default function SRUMappingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   // Load fiscal years on mount
   useEffect(() => {
@@ -99,41 +95,40 @@ export default function SRUMappingsPage() {
   const loadFiscalYears = async () => {
     try {
       const response = await api.getFiscalYears();
-      setFiscalYears(response.data || []);
-      if (response.data?.length > 0) {
-        setSelectedYear(response.data[0].id);
+      setFiscalYears(response.fiscal_years || []);
+      if (response.fiscal_years?.length > 0) {
+        setSelectedYear(response.fiscal_years[0].id);
       }
-    } catch (error) {
-      toast({
-        title: "Fel",
-        description: "Kunde inte ladda räkenskapsår",
-        variant: "destructive",
-      });
+    } catch (err) {
+      setError("Kunde inte ladda räkenskapsår");
     }
   };
 
   const loadAccountsAndMappings = async (fiscalYearId: string) => {
     setLoading(true);
+    setError(null);
     try {
       // Load accounts
       const accountsResponse = await api.getAccounts();
-      setAccounts(accountsResponse.data || []);
+      setAccounts(accountsResponse.accounts || []);
 
       // Load existing SRU mappings
-      const mappingsResponse = await api.getSRUMappings(fiscalYearId);
-      const mappingsData: Record<string, string> = {};
-      mappingsResponse.data?.forEach((m: SRUMapping) => {
-        mappingsData[m.account_id] = m.sru_field;
-      });
-      setMappings(mappingsData);
-      setOriginalMappings(mappingsData);
+      try {
+        const mappingsResponse = await api.getSRUMappings(fiscalYearId);
+        const mappingsData: Record<string, string> = {};
+        mappingsResponse.forEach((m: SRUMapping) => {
+          mappingsData[m.account_id] = m.sru_field;
+        });
+        setMappings(mappingsData);
+        setOriginalMappings(mappingsData);
+      } catch (err) {
+        // No mappings yet is OK
+        setMappings({});
+        setOriginalMappings({});
+      }
       setHasChanges(false);
-    } catch (error) {
-      toast({
-        title: "Fel",
-        description: "Kunde inte ladda konton eller mappningar",
-        variant: "destructive",
-      });
+    } catch (err) {
+      setError("Kunde inte ladda konton eller mappningar");
     } finally {
       setLoading(false);
     }
@@ -141,7 +136,7 @@ export default function SRUMappingsPage() {
 
   const handleMappingChange = (accountId: string, sruField: string) => {
     const newMappings = { ...mappings };
-    if (sruField === "__none__") {
+    if (sruField === "" || sruField === "__none__") {
       delete newMappings[accountId];
     } else {
       newMappings[accountId] = sruField;
@@ -154,6 +149,9 @@ export default function SRUMappingsPage() {
     if (!selectedYear) return;
     
     setSaving(true);
+    setError(null);
+    setSuccess(null);
+    
     try {
       // Prepare bulk update data
       const mappingsList = Object.entries(mappings).map(([accountId, sruField]) => ({
@@ -165,17 +163,12 @@ export default function SRUMappingsPage() {
       
       setOriginalMappings(mappings);
       setHasChanges(false);
+      setSuccess("SRU-mappningarna har sparats");
       
-      toast({
-        title: "Sparat",
-        description: "SRU-mappningarna har sparats",
-      });
-    } catch (error) {
-      toast({
-        title: "Fel",
-        description: "Kunde inte spara mappningarna",
-        variant: "destructive",
-      });
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err) {
+      setError("Kunde inte spara mappningarna");
     } finally {
       setSaving(false);
     }
@@ -184,6 +177,7 @@ export default function SRUMappingsPage() {
   const exportSRU = async () => {
     if (!selectedYear) return;
     
+    setError(null);
     try {
       const response = await api.exportSRU(selectedYear);
       
@@ -192,20 +186,16 @@ export default function SRUMappingsPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = response.headers["content-disposition"]?.split("filename=")[1]?.replace(/"/g, "") || "INK2_SRU.zip";
+      const contentDisposition = response.headers["content-disposition"];
+      const filename = contentDisposition?.split("filename=")[1]?.replace(/"/g, "") || "INK2_SRU.zip";
+      a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
       
-      toast({
-        title: "Exporterat",
-        description: "SRU-filer har laddats ner",
-      });
-    } catch (error: any) {
-      toast({
-        title: "Fel",
-        description: error.response?.data?.detail || "Export misslyckades",
-        variant: "destructive",
-      });
+      setSuccess("SRU-filer har laddats ner");
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || "Export misslyckades");
     }
   };
 
@@ -213,7 +203,8 @@ export default function SRUMappingsPage() {
     if (!selectedYear) return;
     
     // Open preview in new window/tab
-    window.open(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/export/sru/${selectedYear}/preview`, "_blank");
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "";
+    window.open(`${apiUrl}/api/v1/export/sru/${selectedYear}/preview`, "_blank");
   };
 
   if (loading && !fiscalYears.length) {
@@ -278,6 +269,22 @@ export default function SRUMappingsPage() {
         </div>
       </div>
 
+      {/* Error/Success Messages */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center gap-2">
+          <AlertTriangle className="h-5 w-5" />
+          {error}
+        </div>
+      )}
+      {success && (
+        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg flex items-center gap-2">
+          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+          </svg>
+          {success}
+        </div>
+      )}
+
       {/* Fiscal Year Selector */}
       <Card>
         <CardHeader>
@@ -287,18 +294,18 @@ export default function SRUMappingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Select value={selectedYear} onValueChange={setSelectedYear}>
-            <SelectTrigger className="w-full sm:w-[300px]">
-              <SelectValue placeholder="Välj räkenskapsår" />
-            </SelectTrigger>
-            <SelectContent>
-              {fiscalYears.map((year) => (
-                <SelectItem key={year.id} value={year.id}>
-                  {year.name} ({year.start_date} - {year.end_date})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <select
+            value={selectedYear}
+            onChange={(e) => setSelectedYear(e.target.value)}
+            className="w-full sm:w-[300px] rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="">Välj räkenskapsår</option>
+            {fiscalYears.map((year) => (
+              <option key={year.id} value={year.id}>
+                {year.name} ({year.start_date} - {year.end_date})
+              </option>
+            ))}
+          </select>
         </CardContent>
       </Card>
 
@@ -320,60 +327,58 @@ export default function SRUMappingsPage() {
             </div>
           ) : (
             <div className="border rounded-lg overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[100px]">Konto</TableHead>
-                    <TableHead>Namn</TableHead>
-                    <TableHead className="w-[200px]">SRU-fält</TableHead>
-                    <TableHead className="w-[300px]">Beskrivning</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {accounts.map((account) => {
-                    const currentMapping = mappings[account.id];
-                    const originalMapping = originalMappings[account.id];
-                    const isChanged = currentMapping !== originalMapping;
-                    
-                    return (
-                      <TableRow key={account.id} className={isChanged ? "bg-yellow-50/50" : ""}>
-                        <TableCell className="font-mono">{account.code}</TableCell>
-                        <TableCell>{account.name}</TableCell>
-                        <TableCell>
-                          <Select
-                            value={currentMapping || "__none__"}
-                            onValueChange={(value) => handleMappingChange(account.id, value)}
-                          >
-                            <SelectTrigger className="w-full">
-                              <SelectValue placeholder="Välj SRU-fält" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="__none__">Ingen mappning</SelectItem>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="px-4 py-3 text-left font-medium w-[100px]">Konto</th>
+                      <th className="px-4 py-3 text-left font-medium">Namn</th>
+                      <th className="px-4 py-3 text-left font-medium w-[200px]">SRU-fält</th>
+                      <th className="px-4 py-3 text-left font-medium w-[300px]">Beskrivning</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {accounts.map((account) => {
+                      const currentMapping = mappings[account.id];
+                      const originalMapping = originalMappings[account.id];
+                      const isChanged = currentMapping !== originalMapping;
+                      
+                      return (
+                        <tr key={account.id} className={isChanged ? "bg-yellow-50/50" : ""}>
+                          <td className="px-4 py-3 font-mono">{account.code}</td>
+                          <td className="px-4 py-3">{account.name}</td>
+                          <td className="px-4 py-3">
+                            <select
+                              value={currentMapping || ""}
+                              onChange={(e) => handleMappingChange(account.id, e.target.value)}
+                              className="w-full rounded border border-input bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                            >
+                              <option value="">Ingen mappning</option>
                               {SRU_FIELDS.map((field) => (
-                                <SelectItem key={field.code} value={field.code}>
+                                <option key={field.code} value={field.code}>
                                   {field.code} - {field.description}
-                                </SelectItem>
+                                </option>
                               ))}
-                            </SelectContent>
-                          </Select>
-                        </TableCell>
-                        <TableCell>
-                          {currentMapping && (
-                            <span className="text-sm text-muted-foreground">
-                              {SRU_FIELDS.find(f => f.code === currentMapping)?.description || "Okänt fält"}
-                            </span>
-                          )}
-                          {isChanged && (
-                            <Badge variant="outline" className="ml-2 text-yellow-600 border-yellow-600">
-                              Ändrad
-                            </Badge>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+                            </select>
+                          </td>
+                          <td className="px-4 py-3">
+                            {currentMapping && (
+                              <span className="text-muted-foreground">
+                                {SRU_FIELDS.find(f => f.code === currentMapping)?.description || "Okänt fält"}
+                              </span>
+                            )}
+                            {isChanged && (
+                              <Badge variant="outline" className="ml-2 text-yellow-600 border-yellow-600">
+                                Ändrad
+                              </Badge>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </CardContent>

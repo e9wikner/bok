@@ -9,7 +9,6 @@ import { useIncomeStatement, useBalanceSheet, useTrialBalance, useGeneralLedger,
 import { api } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { TrendingUp, TrendingDown, Scale, FileSpreadsheet, BookOpen, Calendar, Download, CheckCircle2, AlertCircle, FileText } from "lucide-react";
-import { useToast } from "@/hooks/useToast";
 
 type ReportTab = "income" | "balance" | "trial" | "ledger";
 
@@ -36,6 +35,7 @@ export default function ReportsPage() {
   const { data: fyData } = useFiscalYears();
   const [exporting, setExporting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [sruSuccess, setSruSuccess] = useState<string | null>(null);
 
   // Auto-clear error after 5 seconds
   useEffect(() => {
@@ -49,8 +49,8 @@ export default function ReportsPage() {
     setErrorMessage(msg);
   }, []);
 
-  const { toast } = useToast();
   const [sruExporting, setSruExporting] = useState(false);
+  const [sruSuccess, setSruSuccess] = useState<string | null>(null);
 
   // SRU export helper
   const handleSruExport = async () => {
@@ -80,10 +80,8 @@ export default function ReportsPage() {
       a.click();
       URL.revokeObjectURL(url);
 
-      toast({
-        title: "Exporterat",
-        description: "SRU-filer för inkomstdeklaration har laddats ner",
-      });
+      setSruSuccess("SRU-filer för inkomstdeklaration har laddats ner");
+      setTimeout(() => setSruSuccess(null), 3000);
     } catch (err: any) {
       showError(err?.response?.data?.detail || "Kunde inte exportera SRU-filer.");
     } finally {
@@ -259,6 +257,9 @@ export default function ReportsPage() {
           </div>
           {errorMessage && (
             <p className="text-sm text-red-600 dark:text-red-400 mt-2 px-1">{errorMessage}</p>
+          )}
+          {sruSuccess && (
+            <p className="text-sm text-green-600 dark:text-green-400 mt-2 px-1">{sruSuccess}</p>
           )}
         </CardContent>
       </Card>
