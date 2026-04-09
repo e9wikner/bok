@@ -742,6 +742,7 @@ class SIE4Importer:
     ) -> Optional[str]:
         """Get or create period for a specific date."""
         import requests
+        from calendar import monthrange
 
         # Find existing period
         year = voucher_date.year
@@ -776,7 +777,29 @@ class SIE4Importer:
                 if period["year"] == year and period["month"] == month:
                     return period["id"]
 
-        return None
+        # Period doesn't exist - create it
+        _, last_day = monthrange(year, month)
+        period_start = date(year, month, 1)
+        period_end = date(year, month, last_day)
+
+        resp = requests.post(
+            f"{self.api_url}/api/v1/periods",
+            headers=self.headers,
+            params={
+                "fiscal_year_id": fiscal_year_id,
+                "year": year,
+                "month": month,
+                "start_date": period_start.isoformat(),
+                "end_date": period_end.isoformat(),
+            },
+        )
+
+        if resp.status_code == 201:
+            self.imported["periods_created"] += 1
+            return resp.json()["id"]
+        else:
+            self.errors.append(f"Failed to create period for {year}-{month:02d}: {resp.text}")
+            return None
 
     def _map_account_type(self, sie_type: str) -> str:
         """Map SIE account type to internal type."""

@@ -271,7 +271,12 @@ class SRUExportService:
         field_descriptions = self._get_field_descriptions()
         
         # Fields that should have positive values for credit balance
-        credit_balance_fields = ['7301', '7302', '7321', '7350', '7365', '7368', '7369', '7370', '7550']
+        # These are liability/equity type fields where credit is the normal balance
+        credit_balance_fields = ['7301', '7302', '7321', '7350', '7365', '7370', '7550']
+        
+        # Fields that need sign flipped (reported as positive even when balance is negative)
+        # Based on comparison with reference file from Skatteverket
+        flip_sign_fields = ['7369', '7417']
         
         for sru_field, accounts in field_balances.items():
             total_balance = sum(a["balance"] for a in accounts)
