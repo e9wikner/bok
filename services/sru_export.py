@@ -276,7 +276,8 @@ class SRUExportService:
         
         # Fields that need sign flipped (reported as positive even when balance is negative)
         # Based on comparison with reference file from Skatteverket
-        flip_sign_fields = ['7369', '7417']
+        flip_sign_fields = ['7417']
+        absolute_fields = ['7369']
         
         for sru_field, accounts in field_balances.items():
             total_balance = sum(a["balance"] for a in accounts)
@@ -284,6 +285,14 @@ class SRUExportService:
             # Flip sign for fields that represent credit balance accounts
             if sru_field in credit_balance_fields:
                 total_balance = -total_balance
+            
+            # Flip sign for fields that need inversion per Skatteverket format
+            if sru_field in flip_sign_fields:
+                total_balance = -total_balance
+            
+            # Use absolute value for fields that should always be positive
+            if sru_field in absolute_fields:
+                total_balance = abs(total_balance)
             
             # Convert from öre to SEK (round to nearest)
             value_sek = round(total_balance / 100)
@@ -379,6 +388,20 @@ class SRUExportService:
         )
         
         # Resultaträkning - beräknade fält
+        # DISABLED: Beräknade fält skapar konflikt med kontobaserade fält
+        # Fält 7368 (Leverantörsskulder) och 7410 (Nettoomsättning) används för konton
+        # Använd endast kontobaserade värden från SIE4-mappningar
+        
+                # Skillnad mellan tillgångar och skulder/EK (7670) - ska vara 0
+        skillnad = tillgangar - ek_skulder
+        fields["7670"] = SRUFieldValue(
+            field_number="7670",
+            description="Skillnad mellan tillgångar och skulder/EK",
+            value=skillnad,
+            source_accounts=["7450", "7550"],
+        )
+        
+        # Resultaträkning - beräknade fält
         intakter = fields.get("7410", SRUFieldValue("7410", "", 0, [])).value
         ovriga_intakter = fields.get("7413", SRUFieldValue("7413", "", 0, [])).value
         material = fields.get("7511", SRUFieldValue("7511", "", 0, [])).value
@@ -388,45 +411,7 @@ class SRUExportService:
         ovriga_kostnader = fields.get("7520", SRUFieldValue("7520", "", 0, [])).value
         finansiella_intakter = fields.get("7528", SRUFieldValue("7528", "", 0, [])).value
         
-        # Rörelseresultat (approximation)
-        rorelseresultat = intakter + ovriga_intakter - material - externa - personal - avskrivningar - ovriga_kostnader
-        if rorelseresultat != 0:
-            fields["7368"] = SRUFieldValue(
-                field_number="7368",
-                description="Rörelseresultat",
-                value=rorelseresultat,
-                source_accounts=["7410", "7413", "7511", "7513", "7514", "7515", "7520"],
-            )
-        
-        # Resultat efter finansiella poster
-        resultat_efter_finansiella = rorelseresultat + finansiella_intakter
-        if resultat_efter_finansiella != 0:
-            fields["7410"] = SRUFieldValue(
-                field_number="7410",
-                description="Resultat efter finansiella poster",
-                value=resultat_efter_finansiella,
-                source_accounts=["7368", "7528"],
-            )
-        
-        # Skatt på årets resultat (22% om vinst)
-        if resultat_efter_finansiella > 0:
-            skatt = round(resultat_efter_finansiella * 0.22)
-            fields["7513"] = SRUFieldValue(
-                field_number="7513",
-                description="Skatt på årets resultat",
-                value=skatt,
-                source_accounts=["7410"],
-            )
-            
-            # Årets resultat
-            arets_resultat = resultat_efter_finansiella - skatt
-            fields["7514"] = SRUFieldValue(
-                field_number="7514",
-                description="Årets resultat",
-                value=arets_resultat,
-                source_accounts=["7410", "7513"],
-            )
-    
+        # DISABLED: Beräknad rörelseresultat - använd kontobaserat värde
     def _validate_balance_sheet(self, fields: Dict[str, SRUFieldValue]):
         """Validate that balance sheet balances (assets = liabilities + equity)."""
         tillgangar = fields.get("7450", SRUFieldValue("7450", "", 0, [])).value
