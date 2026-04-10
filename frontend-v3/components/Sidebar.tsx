@@ -18,6 +18,7 @@ import {
   Shield,
   LogOut,
   ScrollText,
+  FileCheck,
 } from "lucide-react";
 import { useDarkMode } from "@/hooks/useDarkMode";
 import { useAuth } from "@/hooks/useAuth";
@@ -29,6 +30,7 @@ const navItems = [
   { href: "/accounts", label: "Kontoplan", icon: BookOpen },
   { href: "/invoices", label: "Fakturor", icon: Receipt },
   { href: "/reports", label: "Rapporter", icon: BarChart3 },
+  { href: "/bokslut", label: "Bokslut", icon: FileCheck },
   { href: "/learning", label: "AI-lärande", icon: Brain },
   { href: "/audit", label: "Logg", icon: ScrollText },
   { href: "/settings", label: "Inställningar", icon: Settings },
