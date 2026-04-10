@@ -9,7 +9,7 @@ import { api } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { useFiscalYears } from "@/hooks/useData";
 import { Download, FileText, AlertCircle, CheckCircle2, Calendar, Building2 } from "lucide-react";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
 
 interface SRUField {
   field_number: string;
@@ -141,19 +141,20 @@ export default function Ink2Page() {
         </div>
         <div className="flex items-center gap-2">
           {fiscalYears && (
-            <Select value={selectedYear} onValueChange={setSelectedYear}>
-              <SelectTrigger className="w-[180px]">
-                <Calendar className="h-4 w-4 mr-2" />
-                <SelectValue placeholder="Välj räkenskapsår" />
-              </SelectTrigger>
-              <SelectContent>
+            <div className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-muted-foreground" />
+              <select
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(e.target.value)}
+                className="h-10 w-[180px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              >
                 {fiscalYears.map((fy: any) => (
-                  <SelectItem key={fy.id} value={fy.id}>
+                  <option key={fy.id} value={fy.id}>
                     {new Date(fy.start_date).getFullYear()}
-                  </SelectItem>
+                  </option>
                 ))}
-              </SelectContent>
-            </Select>
+              </select>
+            </div>
           )}
           <Button 
             onClick={handleExport} 
