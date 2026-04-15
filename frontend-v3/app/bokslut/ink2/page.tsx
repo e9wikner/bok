@@ -18,11 +18,20 @@ interface SRUField {
 
 interface SRUData {
   fiscal_year_id: string;
-  org_number: string;
-  company_name: string;
-  start_date: string;
-  end_date: string;
-  fields: Record<string, SRUField>;
+  company: {
+    name: string;
+    org_number: string;
+  };
+  fiscal_year: {
+    start: string;
+    end: string;
+  };
+  fields: SRUField[];
+  validation?: {
+    errors: string[];
+    warnings: string[];
+    is_valid: boolean;
+  };
 }
 
 type TabType = "ink2" | "ink2r" | "ink2s";
@@ -132,7 +141,7 @@ export default function Ink2Page() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      const year = sruData?.start_date ? new Date(sruData.start_date).getFullYear() : "INK2";
+      const year = sruData?.fiscal_year?.start ? sruData.fiscal_year.start.substring(0, 4) : "INK2";
       a.download = `INK2_${year}_SRU.zip`;
       a.click();
       URL.revokeObjectURL(url);
@@ -145,8 +154,10 @@ export default function Ink2Page() {
     }
   };
 
+  // Convert array to map for easy lookup
   const getFieldValue = (fieldNumber: string): number => {
-    return sruData?.fields?.[fieldNumber]?.value ?? 0;
+    const field = sruData?.fields?.find(f => f.field_number === fieldNumber);
+    return field?.value ?? 0;
   };
 
   const formatField = (value: number): string => {
@@ -158,13 +169,13 @@ export default function Ink2Page() {
     const value = getFieldValue(fieldNum);
     const hasValue = value !== 0;
     return (
-      <tr key={fieldNum} className={`${hasValue ? "bg-white" : "bg-muted/30"} ${isBold ? "font-semibold border-t-2 border-gray-300" : "border-b border-gray-100"} hover:bg-blue-50/50`}>
-        <td className="px-4 py-2 w-24 font-mono text-sm text-gray-600">{fieldNum}</td>
-        <td className="px-4 py-2 text-sm text-gray-800">
-          {FIELD_DESCRIPTIONS[fieldNum] || sruData?.fields?.[fieldNum]?.description || "-"}
+      <tr key={fieldNum} className={`${hasValue ? "bg-background" : "bg-muted/30"} ${isBold ? "font-semibold border-t-2 border-border" : "border-b border-border/50"} hover:bg-accent/50`}>
+        <td className="px-4 py-2 w-24 font-mono text-sm text-muted-foreground">{fieldNum}</td>
+        <td className="px-4 py-2 text-sm text-foreground">
+          {FIELD_DESCRIPTIONS[fieldNum] || sruData?.fields?.find(f => f.field_number === fieldNum)?.description || "-"}
         </td>
         <td className="px-4 py-2 w-40 text-right">
-          <span className={`font-mono text-sm ${isBold ? "font-bold" : ""} ${value < 0 ? "text-red-600" : "text-gray-900"}`}>
+          <span className={`font-mono text-sm ${isBold ? "font-bold" : ""} ${value < 0 ? "text-red-500" : "text-foreground"}`}>
             {formatField(value)}
           </span>
         </td>
@@ -178,7 +189,7 @@ export default function Ink2Page() {
     
     return (
       <div className="mb-6">
-        <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-3 px-2 py-1 bg-gray-100 rounded">
+        <h3 className="text-sm font-bold text-foreground uppercase tracking-wide mb-3 px-2 py-1 bg-muted rounded">
           {title}
         </h3>
         <table className="w-full">
@@ -188,6 +199,12 @@ export default function Ink2Page() {
         </table>
       </div>
     );
+  };
+
+  // Format date from YYYYMMDD to YYYY-MM-DD
+  const formatDate = (dateStr: string): string => {
+    if (!dateStr || dateStr.length !== 8) return dateStr;
+    return `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
   };
 
   return (
@@ -202,12 +219,12 @@ export default function Ink2Page() {
         </div>
         <div className="flex items-center gap-3">
           {fiscalYears.length > 0 && (
-            <div className="flex items-center gap-2 bg-white border rounded-lg px-3 py-2 shadow-sm">
-              <Calendar className="h-4 w-4 text-gray-400" />
+            <div className="flex items-center gap-2 bg-background border rounded-lg px-3 py-2 shadow-sm">
+              <Calendar className="h-4 w-4 text-muted-foreground" />
               <select
                 value={selectedYear}
                 onChange={(e) => setSelectedYear(e.target.value)}
-                className="bg-transparent text-sm font-medium focus:outline-none"
+                className="bg-transparent text-sm font-medium focus:outline-none text-foreground"
               >
                 {fiscalYears.map((fy: any) => (
                   <option key={fy.id} value={fy.id}>
@@ -218,10 +235,10 @@ export default function Ink2Page() {
             </div>
           )}
           {fiscalYears.length === 0 && !fiscalYearsData && (
-            <div className="text-sm text-gray-500">Laddar räkenskapsår...</div>
+            <div className="text-sm text-muted-foreground">Laddar räkenskapsår...</div>
           )}
           {fiscalYears.length === 0 && fiscalYearsData && (
-            <div className="text-sm text-amber-600">Inga räkenskapsår hittades</div>
+            <div className="text-sm text-amber-500">Inga räkenskapsår hittades</div>
           )}
           <Button 
             onClick={handleExport} 
@@ -236,30 +253,30 @@ export default function Ink2Page() {
 
       {/* Company Info Card */}
       {sruData && (
-        <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
+        <Card className="bg-gradient-to-r from-primary/10 to-primary/5 border-primary/20">
           <CardContent className="p-4">
             <div className="flex flex-wrap items-center gap-6 text-sm">
               <div className="flex items-center gap-2">
-                <Building2 className="h-5 w-5 text-blue-600" />
+                <Building2 className="h-5 w-5 text-primary" />
                 <div>
-                  <span className="text-gray-500 text-xs block">Företag</span>
-                  <span className="font-semibold text-gray-900">{sruData.company_name || "Företagsnamn saknas"}</span>
+                  <span className="text-muted-foreground text-xs block">Företag</span>
+                  <span className="font-semibold text-foreground">{sruData.company?.name || "Företagsnamn saknas"}</span>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-blue-600" />
+                <FileText className="h-5 w-5 text-primary" />
                 <div>
-                  <span className="text-gray-500 text-xs block">Organisationsnummer</span>
-                  <span className="font-mono text-gray-900">{sruData.org_number || "-"}</span>
+                  <span className="text-muted-foreground text-xs block">Organisationsnummer</span>
+                  <span className="font-mono text-foreground">{sruData.company?.org_number || "-"}</span>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Calendar className="h-5 w-5 text-blue-600" />
+                <Calendar className="h-5 w-5 text-primary" />
                 <div>
-                  <span className="text-gray-500 text-xs block">Räkenskapsår</span>
-                  <span className="text-gray-900">
-                    {sruData.start_date && sruData.end_date 
-                      ? `${sruData.start_date} – ${sruData.end_date}`
+                  <span className="text-muted-foreground text-xs block">Räkenskapsår</span>
+                  <span className="text-foreground">
+                    {sruData.fiscal_year?.start && sruData.fiscal_year?.end 
+                      ? `${formatDate(sruData.fiscal_year.start)} – ${formatDate(sruData.fiscal_year.end)}`
                       : "-"
                     }
                   </span>
@@ -272,20 +289,32 @@ export default function Ink2Page() {
 
       {/* Alerts */}
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center gap-2">
+        <div className="bg-destructive/10 border border-destructive/20 text-destructive px-4 py-3 rounded-lg flex items-center gap-2">
           <AlertCircle className="h-5 w-5" />
           {error}
         </div>
       )}
       {success && (
-        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg flex items-center gap-2">
+        <div className="bg-green-500/10 border border-green-500/20 text-green-600 px-4 py-3 rounded-lg flex items-center gap-2">
           <CheckCircle2 className="h-5 w-5" />
           {success}
         </div>
       )}
 
+      {/* Validation Warnings */}
+      {sruData?.validation?.warnings && sruData.validation.warnings.length > 0 && (
+        <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-4">
+          <h4 className="font-semibold text-amber-600 mb-2">⚠️ Varningar</h4>
+          <ul className="text-sm text-amber-700 space-y-1">
+            {sruData.validation.warnings.map((warning, idx) => (
+              <li key={idx}>{warning}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Tab Navigation */}
-      <div className="border-b border-gray-200">
+      <div className="border-b border-border">
         <nav className="flex space-x-1" aria-label="Tabs">
           {TABS.map((tab) => {
             const Icon = tab.icon;
@@ -295,13 +324,13 @@ export default function Ink2Page() {
                 onClick={() => setActiveTab(tab.id)}
                 className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === tab.id
-                    ? "border-blue-600 text-blue-600 bg-blue-50/50"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                    ? "border-primary text-primary bg-primary/5"
+                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
                 }`}
               >
                 <Icon className="h-4 w-4" />
                 <span>{tab.label}</span>
-                <span className="hidden sm:inline text-xs text-gray-400">({tab.description})</span>
+                <span className="hidden sm:inline text-xs text-muted-foreground">({tab.description})</span>
               </button>
             );
           })}
@@ -322,31 +351,31 @@ export default function Ink2Page() {
       {/* INK2 Tab - Huvudblankett */}
       {!loading && activeTab === "ink2" && sruData && (
         <div className="space-y-6">
-          <Card className="border-2 border-gray-300 shadow-lg">
-            <CardHeader className="bg-gray-100 border-b border-gray-300">
-              <CardTitle className="text-lg font-bold text-gray-800">INK2 – Huvudblankett</CardTitle>
+          <Card className="border-2 border-border shadow-lg">
+            <CardHeader className="bg-muted border-b border-border">
+              <CardTitle className="text-lg font-bold text-foreground">INK2 – Huvudblankett</CardTitle>
               <CardDescription>Obligatoriska uppgifter för inkomstdeklaration</CardDescription>
             </CardHeader>
             <CardContent className="p-6">
               {/* Räkenskapsår */}
               <div className="mb-6">
-                <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-3 px-2 py-1 bg-gray-100 rounded">
+                <h3 className="text-sm font-bold text-foreground uppercase tracking-wide mb-3 px-2 py-1 bg-muted rounded">
                   Räkenskapsår
                 </h3>
                 <table className="w-full">
                   <tbody>
-                    <tr className="border-b border-gray-100">
-                      <td className="px-4 py-3 w-24 font-mono text-sm text-gray-600">7011</td>
-                      <td className="px-4 py-3 text-sm text-gray-800">Räkenskapsår – första dag</td>
-                      <td className="px-4 py-3 w-40 text-right font-mono text-sm">
-                        {sruData.start_date || "-"}
+                    <tr className="border-b border-border/50">
+                      <td className="px-4 py-3 w-24 font-mono text-sm text-muted-foreground">7011</td>
+                      <td className="px-4 py-3 text-sm text-foreground">Räkenskapsår – första dag</td>
+                      <td className="px-4 py-3 w-40 text-right font-mono text-sm text-foreground">
+                        {formatDate(sruData.fiscal_year?.start) || "-"}
                       </td>
                     </tr>
-                    <tr className="border-b border-gray-100">
-                      <td className="px-4 py-3 w-24 font-mono text-sm text-gray-600">7012</td>
-                      <td className="px-4 py-3 text-sm text-gray-800">Räkenskapsår – sista dag</td>
-                      <td className="px-4 py-3 w-40 text-right font-mono text-sm">
-                        {sruData.end_date || "-"}
+                    <tr className="border-b border-border/50">
+                      <td className="px-4 py-3 w-24 font-mono text-sm text-muted-foreground">7012</td>
+                      <td className="px-4 py-3 text-sm text-foreground">Räkenskapsår – sista dag</td>
+                      <td className="px-4 py-3 w-40 text-right font-mono text-sm text-foreground">
+                        {formatDate(sruData.fiscal_year?.end) || "-"}
                       </td>
                     </tr>
                   </tbody>
@@ -355,7 +384,7 @@ export default function Ink2Page() {
 
               {/* Resultat */}
               <div className="mb-6">
-                <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-3 px-2 py-1 bg-gray-100 rounded">
+                <h3 className="text-sm font-bold text-foreground uppercase tracking-wide mb-3 px-2 py-1 bg-muted rounded">
                   Resultat
                 </h3>
                 <table className="w-full">
@@ -363,10 +392,10 @@ export default function Ink2Page() {
                     {getFieldValue("7410") !== 0 && renderFieldRow("7410")}
                     {renderFieldRow("7450", true)}
                     {getFieldValue("7513") !== 0 && (
-                      <tr className="border-b border-gray-100">
-                        <td className="px-4 py-2 w-24 font-mono text-sm text-gray-600">7513</td>
-                        <td className="px-4 py-2 text-sm text-gray-800">Skatt på årets resultat</td>
-                        <td className="px-4 py-2 w-40 text-right font-mono text-sm text-red-600">
+                      <tr className="border-b border-border/50">
+                        <td className="px-4 py-2 w-24 font-mono text-sm text-muted-foreground">7513</td>
+                        <td className="px-4 py-2 text-sm text-foreground">Skatt på årets resultat</td>
+                        <td className="px-4 py-2 w-40 text-right font-mono text-sm text-red-500">
                           -{formatField(getFieldValue("7513"))}
                         </td>
                       </tr>
@@ -378,15 +407,15 @@ export default function Ink2Page() {
 
               {/* Balanskontroll */}
               {getFieldValue("7670") !== 0 && (
-                <div className="mt-6 p-4 bg-yellow-50 border border-yellow-300 rounded-lg">
+                <div className="mt-6 p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg">
                   <div className="flex items-start gap-3">
-                    <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5" />
+                    <AlertCircle className="h-5 w-5 text-amber-500 mt-0.5" />
                     <div>
-                      <h4 className="font-semibold text-yellow-800">⚠️ Balanskontroll</h4>
-                      <p className="text-sm text-yellow-700 mt-1">
+                      <h4 className="font-semibold text-amber-600">⚠️ Balanskontroll</h4>
+                      <p className="text-sm text-amber-700 mt-1">
                         Skillnad mellan tillgångar och skulder/EK: {formatField(getFieldValue("7670"))}
                       </p>
-                      <p className="text-xs text-yellow-600 mt-1">
+                      <p className="text-xs text-amber-600 mt-1">
                         Denna skillnad bör vara 0. Kontrollera att alla verifikationer är korrekt bokförda.
                       </p>
                     </div>
@@ -401,9 +430,9 @@ export default function Ink2Page() {
       {/* INK2R Tab - Räkenskapsschema */}
       {!loading && activeTab === "ink2r" && sruData && (
         <div className="space-y-6">
-          <Card className="border-2 border-gray-300 shadow-lg">
-            <CardHeader className="bg-gray-100 border-b border-gray-300">
-              <CardTitle className="text-lg font-bold text-gray-800">INK2R – Räkenskapsschema</CardTitle>
+          <Card className="border-2 border-border shadow-lg">
+            <CardHeader className="bg-muted border-b border-border">
+              <CardTitle className="text-lg font-bold text-foreground">INK2R – Räkenskapsschema</CardTitle>
               <CardDescription>Balansräkning och resultaträkning</CardDescription>
             </CardHeader>
             <CardContent className="p-6">
@@ -411,10 +440,10 @@ export default function Ink2Page() {
                 {/* Vänster kolumn - Tillgångar */}
                 <div>
                   {renderFieldGroup("Tillgångar", INK2R_FIELDS["Tillgångar"])}
-                  <div className="mt-6 p-3 bg-blue-50 rounded-lg">
+                  <div className="mt-6 p-3 bg-primary/10 rounded-lg">
                     <div className="flex justify-between items-center">
-                      <span className="font-bold text-gray-800">Summa tillgångar</span>
-                      <span className="font-mono font-bold text-lg">{formatField(getFieldValue("7450"))}</span>
+                      <span className="font-bold text-foreground">Summa tillgångar</span>
+                      <span className="font-mono font-bold text-lg text-foreground">{formatField(getFieldValue("7450"))}</span>
                     </div>
                   </div>
                 </div>
@@ -423,18 +452,18 @@ export default function Ink2Page() {
                 <div>
                   {renderFieldGroup("Eget kapital", INK2R_FIELDS["Eget kapital"])}
                   {renderFieldGroup("Skulder", INK2R_FIELDS["Skulder"])}
-                  <div className="mt-6 p-3 bg-green-50 rounded-lg">
+                  <div className="mt-6 p-3 bg-primary/10 rounded-lg">
                     <div className="flex justify-between items-center">
-                      <span className="font-bold text-gray-800">Summa EK och skulder</span>
-                      <span className="font-mono font-bold text-lg">{formatField(getFieldValue("7550"))}</span>
+                      <span className="font-bold text-foreground">Summa EK och skulder</span>
+                      <span className="font-mono font-bold text-lg text-foreground">{formatField(getFieldValue("7550"))}</span>
                     </div>
                   </div>
                 </div>
               </div>
 
               {/* Resultaträkning */}
-              <div className="mt-8 pt-8 border-t-2 border-gray-200">
-                <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-4 px-2 py-1 bg-gray-100 rounded">
+              <div className="mt-8 pt-8 border-t-2 border-border">
+                <h3 className="text-sm font-bold text-foreground uppercase tracking-wide mb-4 px-2 py-1 bg-muted rounded">
                   Resultaträkning
                 </h3>
                 <div className="grid md:grid-cols-2 gap-8">
@@ -454,17 +483,17 @@ export default function Ink2Page() {
       {/* INK2S Tab - Skattemässiga justeringar */}
       {!loading && activeTab === "ink2s" && (
         <div className="space-y-6">
-          <Card className="border-2 border-gray-300 shadow-lg">
-            <CardHeader className="bg-gray-100 border-b border-gray-300">
-              <CardTitle className="text-lg font-bold text-gray-800">INK2S – Skattemässiga justeringar</CardTitle>
+          <Card className="border-2 border-border shadow-lg">
+            <CardHeader className="bg-muted border-b border-border">
+              <CardTitle className="text-lg font-bold text-foreground">INK2S – Skattemässiga justeringar</CardTitle>
               <CardDescription>Justeringar mellan bokfört och skattemässigt resultat</CardDescription>
             </CardHeader>
             <CardContent className="p-6">
-              <div className="text-center py-12 text-gray-500">
-                <Calculator className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+              <div className="text-center py-12 text-muted-foreground">
+                <Calculator className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />
                 <p className="text-lg font-medium">Skattemässiga justeringar</p>
                 <p className="text-sm mt-2 max-w-md mx-auto">
-                  Denna del av blankettens visas här när skattemässiga justeringar är implementerade.
+                  Denna del av blanketten visas här när skattemässiga justeringar är implementerade.
                   Till exempel avskrivningsdifferenser, ej avdragsgilla kostnader, m.m.
                 </p>
               </div>
