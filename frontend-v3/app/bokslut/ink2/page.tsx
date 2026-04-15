@@ -91,10 +91,15 @@ export default function Ink2Page() {
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const { data: fiscalYears } = useFiscalYears();
+  const { data: fiscalYearsData } = useFiscalYears();
+  
+  // Handle both { fiscal_years: [...] } and [...] response formats
+  const fiscalYears = Array.isArray(fiscalYearsData) 
+    ? fiscalYearsData 
+    : fiscalYearsData?.fiscal_years || [];
 
   useEffect(() => {
-    if (fiscalYears?.length && !selectedYear) {
+    if (fiscalYears.length > 0 && !selectedYear) {
       setSelectedYear(fiscalYears[0].id);
     }
   }, [fiscalYears, selectedYear]);
@@ -196,7 +201,7 @@ export default function Ink2Page() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {fiscalYears && (
+          {fiscalYears.length > 0 && (
             <div className="flex items-center gap-2 bg-white border rounded-lg px-3 py-2 shadow-sm">
               <Calendar className="h-4 w-4 text-gray-400" />
               <select
@@ -211,6 +216,12 @@ export default function Ink2Page() {
                 ))}
               </select>
             </div>
+          )}
+          {fiscalYears.length === 0 && !fiscalYearsData && (
+            <div className="text-sm text-gray-500">Laddar räkenskapsår...</div>
+          )}
+          {fiscalYears.length === 0 && fiscalYearsData && (
+            <div className="text-sm text-amber-600">Inga räkenskapsår hittades</div>
           )}
           <Button 
             onClick={handleExport} 
