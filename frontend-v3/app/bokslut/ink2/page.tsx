@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { useFiscalYears } from "@/hooks/useData";
-import { Download, FileText, AlertCircle, CheckCircle2, Calendar, Building2, FileSpreadsheet, Calculator } from "lucide-react";
+import { Download, FileText, AlertCircle, CheckCircle2, Calendar, Building2, FileSpreadsheet, Calculator, Map } from "lucide-react";
 
 interface SRUField {
   field_number: string;
@@ -34,7 +34,7 @@ interface SRUData {
   };
 }
 
-type TabType = "ink2" | "ink2r" | "ink2s";
+type TabType = "ink2" | "ink2r" | "ink2s" | "mappings";
 
 // Fält grupperingar per blankett
 const INK2_FIELDS = {
@@ -90,6 +90,7 @@ const TABS = [
   { id: "ink2" as TabType, label: "INK2", icon: FileText, description: "Huvudblankett" },
   { id: "ink2r" as TabType, label: "INK2R", icon: FileSpreadsheet, description: "Räkenskapsschema" },
   { id: "ink2s" as TabType, label: "INK2S", icon: Calculator, description: "Skattemässiga justeringar" },
+  { id: "mappings" as TabType, label: "Mappningar", icon: Map, description: "Konto-mappningar" },
 ];
 
 export default function Ink2Page() {
@@ -100,6 +101,7 @@ export default function Ink2Page() {
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [mappings, setMappings] = useState<Record<string, string>>({});
   const { data: fiscalYearsData } = useFiscalYears();
   
   // Handle both { fiscal_years: [...] } and [...] response formats
@@ -122,8 +124,19 @@ export default function Ink2Page() {
     setLoading(true);
     setError(null);
     try {
-      const response = await api.previewSRU(fiscalYearId);
-      setSruData(response);
+      const [sruResponse, mappingsResponse] = await Promise.all([
+        api.previewSRU(fiscalYearId),
+        api.getSRUMappings(fiscalYearId),
+      ]);
+      setSruData(sruResponse);
+      // Convert array of mappings to Record<account_code, sru_field>
+      const mappingsRecord: Record<string, string> = {};
+      if (Array.isArray(mappingsResponse)) {
+        mappingsResponse.forEach((m: any) => {
+          mappingsRecord[m.account_code] = m.sru_field;
+        });
+      }
+      setMappings(mappingsRecord);
     } catch (err: any) {
       setError(err?.response?.data?.detail || "Kunde inte ladda INK2-data");
     } finally {
@@ -496,6 +509,136 @@ export default function Ink2Page() {
                   Denna del av blanketten visas här när skattemässiga justeringar är implementerade.
                   Till exempel avskrivningsdifferenser, ej avdragsgilla kostnader, m.m.
                 </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Mappings Tab - Konto-mappningar */}
+      {!loading && activeTab === "mappings" && sruData && (
+        <div className="space-y-6">
+          <Card className="border-2 border-border shadow-lg">
+            <CardHeader className="bg-muted border-b border-border">
+              <CardTitle className="text-lg font-bold text-foreground">SRU-mappningar</CardTitle>
+              <CardDescription>Konton mappade till INK2-fält</CardDescription>
+            </CardHeader>
+            <CardContent className="p-6">
+              <div className="grid md:grid-cols-2 gap-6">
+                {/* Balansräkning - Tillgångar */}
+                <div>
+                  <h3 className="text-sm font-bold text-foreground uppercase tracking-wide mb-3 px-2 py-1 bg-muted rounded">
+                    Tillgångar (1xxx)
+                  </h3>
+                  <div className="space-y-2 max-h-96 overflow-y-auto">
+                    {Object.entries(mappings)
+                      .filter(([account]) => account >= '1000' && account < '2000')
+                      .sort(([a], [b]) => a.localeCompare(b))
+                      .map(([account, field]) => (
+                        <div key={account} className="flex justify-between items-center px-3 py-2 bg-background rounded border border-border/50">
+                          <div className="flex items-center gap-3">
+                            <span className="font-mono text-sm text-muted-foreground">{account}</span>
+                            <span className="text-sm text-foreground">
+                              {sruData.fields.find(f => f.source_accounts?.includes(account))?.source_accounts?.includes(account) 
+                                ? sruData.fields.find(f => f.source_accounts?.includes(account))?.field_number 
+                                : ''}
+                            </span>
+                          </div>
+                          <span className="font-mono text-sm font-medium text-primary">{field}</span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+
+                {/* Balansräkning - EK och Skulder */}
+                <div>
+                  <h3 className="text-sm font-bold text-foreground uppercase tracking-wide mb-3 px-2 py-1 bg-muted rounded">
+                    Eget kapital och skulder (2xxx)
+                  </h3>
+                  <div className="space-y-2 max-h-96 overflow-y-auto">
+                    {Object.entries(mappings)
+                      .filter(([account]) => account >= '2000' && account < '3000')
+                      .sort(([a], [b]) => a.localeCompare(b))
+                      .map(([account, field]) => (
+                        <div key={account} className="flex justify-between items-center px-3 py-2 bg-background rounded border border-border/50">
+                          <div className="flex items-center gap-3">
+                            <span className="font-mono text-sm text-muted-foreground">{account}</span>
+                          </div>
+                          <span className="font-mono text-sm font-medium text-primary">{field}</span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+
+                {/* Resultaträkning - Intäkter */}
+                <div>
+                  <h3 className="text-sm font-bold text-foreground uppercase tracking-wide mb-3 px-2 py-1 bg-muted rounded">
+                    Intäkter (3xxx)
+                  </h3>
+                  <div className="space-y-2 max-h-96 overflow-y-auto">
+                    {Object.entries(mappings)
+                      .filter(([account]) => account >= '3000' && account < '4000')
+                      .sort(([a], [b]) => a.localeCompare(b))
+                      .map(([account, field]) => (
+                        <div key={account} className="flex justify-between items-center px-3 py-2 bg-background rounded border border-border/50">
+                          <div className="flex items-center gap-3">
+                            <span className="font-mono text-sm text-muted-foreground">{account}</span>
+                          </div>
+                          <span className="font-mono text-sm font-medium text-primary">{field}</span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+
+                {/* Resultaträkning - Kostnader */}
+                <div>
+                  <h3 className="text-sm font-bold text-foreground uppercase tracking-wide mb-3 px-2 py-1 bg-muted rounded">
+                    Kostnader (4xxx-8xxx)
+                  </h3>
+                  <div className="space-y-2 max-h-96 overflow-y-auto">
+                    {Object.entries(mappings)
+                      .filter(([account]) => (account >= '4000' && account < '9000'))
+                      .sort(([a], [b]) => a.localeCompare(b))
+                      .map(([account, field]) => (
+                        <div key={account} className="flex justify-between items-center px-3 py-2 bg-background rounded border border-border/50">
+                          <div className="flex items-center gap-3">
+                            <span className="font-mono text-sm text-muted-foreground">{account}</span>
+                          </div>
+                          <span className="font-mono text-sm font-medium text-primary">{field}</span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Summary stats */}
+              <div className="mt-6 pt-6 border-t border-border">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                  <div className="p-3 bg-muted rounded-lg">
+                    <div className="text-2xl font-bold text-foreground">
+                      {Object.keys(mappings).filter(a => a >= '1000' && a < '2000').length}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Tillgångskonton</div>
+                  </div>
+                  <div className="p-3 bg-muted rounded-lg">
+                    <div className="text-2xl font-bold text-foreground">
+                      {Object.keys(mappings).filter(a => a >= '2000' && a < '3000').length}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Skuldkonton</div>
+                  </div>
+                  <div className="p-3 bg-muted rounded-lg">
+                    <div className="text-2xl font-bold text-foreground">
+                      {Object.keys(mappings).filter(a => a >= '3000' && a < '9000').length}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Resultatkonton</div>
+                  </div>
+                  <div className="p-3 bg-muted rounded-lg">
+                    <div className="text-2xl font-bold text-primary">
+                      {Object.keys(mappings).length}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Totalt mappade</div>
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>
