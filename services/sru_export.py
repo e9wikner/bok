@@ -332,9 +332,9 @@ class SRUExportService:
                 source_accounts=["7416", "7417", "7522"],
             )
         
-        # Summa omsättningstillgångar (räkna samman 7251, 7261, 7263, 7271, 7281)
+        # Summa omsättningstillgångar (räkna samman 7235, 7251, 7261, 7263, 7271, 7281)
         omsattning = sum(
-            fields[f].value for f in ["7251", "7261", "7263", "7271", "7281"]
+            fields[f].value for f in ["7235", "7251", "7261", "7263", "7271", "7281"]
             if f in fields
         )
         
@@ -345,7 +345,7 @@ class SRUExportService:
                 field_number="7450",
                 description="Summa tillgångar",
                 value=tillgangar,
-                source_accounts=["7420", "7251", "7261", "7263", "7271", "7281"],
+                source_accounts=["7420", "7235", "7251", "7261", "7263", "7271", "7281"],
             )
         
         # Summa eget kapital (7301 + 7302)
