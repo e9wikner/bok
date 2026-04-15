@@ -294,13 +294,11 @@ class SRUExportService:
             if sru_field in absolute_fields:
                 total_balance = abs(total_balance)
             
-            # Convert from öre to SEK (round to nearest)
-            value_sek = round(total_balance / 100)
-            
+            # Keep values in öre (frontend will convert to SEK)
             fields[sru_field] = SRUFieldValue(
                 field_number=sru_field,
                 description=field_descriptions.get(sru_field, "Okänd fältkod"),
-                value=value_sek,
+                value=total_balance,
                 source_accounts=[a["code"] for a in accounts],
             )
         
