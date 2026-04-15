@@ -22,13 +22,13 @@ class SRUMappingCreate(BaseModel):
 
 class SRUMappingResponse(BaseModel):
     """SRU mapping response."""
-    id: str
+    id: Optional[str] = None
     fiscal_year_id: str
     account_code: str
     account_name: str
     sru_field: str
-    created_at: str
-    updated_at: str
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
     class Config:
         from_attributes = True
