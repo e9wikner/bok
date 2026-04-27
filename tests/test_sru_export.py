@@ -135,6 +135,38 @@ class TestSRUExportService:
             assert isinstance(accounts, list)
             assert all(isinstance(a, int) for a in accounts)
 
+    def test_credit_balance_fields_are_exported_as_positive_values(self, service):
+        """Test that credit-normal SRU fields are sign-flipped for export."""
+        assert service._to_sru_value("7301", -100000) == 1000
+        assert service._to_sru_value("7410", -250000) == 2500
+
+    def test_expense_fields_are_exported_as_positive_values(self, service):
+        """Test that cost fields are emitted as absolute values."""
+        assert service._to_sru_value("7513", 100000) == 1000
+        assert service._to_sru_value("7513", -100000) == 1000
+
+    def test_derived_fields_do_not_overwrite_base_sru_fields(self, service):
+        """Test that derived calculations preserve mapped SRU field values."""
+        from services.sru_export import SRUFieldValue
+
+        fields = {
+            "7368": SRUFieldValue("7368", "Leverantörsskulder", 12000, ["2440"]),
+            "7410": SRUFieldValue("7410", "Nettoomsättning", 100000, ["3010"]),
+            "7513": SRUFieldValue("7513", "Övriga externa kostnader", 20000, ["6540"]),
+            "7514": SRUFieldValue("7514", "Personalkostnader", 30000, ["7010"]),
+        }
+
+        service._calculate_derived_fields(fields)
+
+        assert fields["7368"].description == "Leverantörsskulder"
+        assert fields["7368"].value == 12000
+        assert fields["7410"].description == "Nettoomsättning"
+        assert fields["7410"].value == 100000
+        assert fields["7513"].description == "Övriga externa kostnader"
+        assert fields["7513"].value == 20000
+        assert fields["7514"].description == "Personalkostnader"
+        assert fields["7514"].value == 30000
+
 
 class TestSIE4ParserSRU:
     """Test SRU parsing from SIE4 files."""

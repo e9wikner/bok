@@ -7,7 +7,6 @@ Generates INFO.SRU and BLANKETTER.SRU files for electronic tax filing.
 import io
 import zipfile
 from datetime import datetime
-from decimal import Decimal
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 
@@ -48,6 +47,30 @@ DEFAULT_SRU_MAPPINGS = {
     "7520": list(range(8000, 8200)),  # Övriga rörelsekostnader
     "7525": list(range(8200, 8400)),  # Resultat från övriga värdepapper
     "7528": list(range(8400, 8500)),  # Övriga finansiella intäkter
+}
+
+
+CREDIT_BALANCE_FIELDS = {
+    "7301",  # Eget kapital
+    "7302",  # Balanserat resultat/årets resultat
+    "7321",  # Obeskattade reserver
+    "7350",  # Avsättningar
+    "7365",  # Långfristiga skulder
+    "7368",  # Leverantörsskulder
+    "7369",  # Skatteskulder
+    "7370",  # Övriga kortfristiga skulder
+    "7410",  # Nettoomsättning
+    "7413",  # Övriga rörelseintäkter
+    "7525",  # Resultat från övriga värdepapper
+    "7528",  # Övriga finansiella intäkter
+}
+
+ALWAYS_POSITIVE_FIELDS = {
+    "7511",  # Material och varor
+    "7513",  # Övriga externa kostnader
+    "7514",  # Personalkostnader
+    "7515",  # Av- och nedskrivningar
+    "7520",  # Övriga rörelsekostnader
 }
 
 
@@ -153,6 +176,7 @@ class SRUExportService:
                 a.name,
                 a.account_type,
                 COALESCE(SUM(CASE 
+                    WHEN p.id IS NULL THEN 0
                     WHEN vr.debit > 0 THEN vr.debit
                     WHEN vr.credit > 0 THEN -vr.credit
                     ELSE 0
@@ -160,8 +184,7 @@ class SRUExportService:
             FROM accounts a
             LEFT JOIN voucher_rows vr ON a.id = vr.account_id
             LEFT JOIN vouchers v ON vr.voucher_id = v.id
-            LEFT JOIN periods p ON v.period_id = p.id
-            WHERE p.fiscal_year_id = ? OR p.fiscal_year_id IS NULL
+            LEFT JOIN periods p ON v.period_id = p.id AND p.fiscal_year_id = ?
             GROUP BY a.id, a.code, a.name, a.account_type
             ORDER BY a.code
             """,
@@ -235,8 +258,7 @@ class SRUExportService:
         
         for sru_field, accounts in field_balances.items():
             total_balance = sum(a["balance"] for a in accounts)
-            # Convert from öre to SEK (round to nearest)
-            value_sek = round(total_balance / 100)
+            value_sek = self._to_sru_value(sru_field, total_balance)
             
             fields[sru_field] = SRUFieldValue(
                 field_number=sru_field,
@@ -259,6 +281,15 @@ class SRUExportService:
             fiscal_year_end=fiscal_year["end_date"].replace("-", ""),
             fields=fields,
         )
+
+    def _to_sru_value(self, sru_field: str, balance_ore: int) -> int:
+        """Convert internal debit-positive öre balance to SRU SEK value."""
+        value_sek = round(balance_ore / 100)
+        if sru_field in CREDIT_BALANCE_FIELDS:
+            value_sek = -value_sek
+        if sru_field in ALWAYS_POSITIVE_FIELDS:
+            value_sek = abs(value_sek)
+        return value_sek
     
     def _calculate_derived_fields(self, fields: Dict[str, SRUFieldValue]):
         """Calculate derived/summary fields from base fields."""
@@ -328,55 +359,6 @@ class SRUExportService:
             source_accounts=["7450", "7550"],
         )
         
-        # Resultaträkning - beräknade fält
-        intakter = fields.get("7410", SRUFieldValue("7410", "", 0, [])).value
-        ovriga_intakter = fields.get("7413", SRUFieldValue("7413", "", 0, [])).value
-        material = fields.get("7511", SRUFieldValue("7511", "", 0, [])).value
-        externa = fields.get("7513", SRUFieldValue("7513", "", 0, [])).value
-        personal = fields.get("7514", SRUFieldValue("7514", "", 0, [])).value
-        avskrivningar = fields.get("7515", SRUFieldValue("7515", "", 0, [])).value
-        ovriga_kostnader = fields.get("7520", SRUFieldValue("7520", "", 0, [])).value
-        finansiella_intakter = fields.get("7528", SRUFieldValue("7528", "", 0, [])).value
-        
-        # Rörelseresultat (approximation)
-        rorelseresultat = intakter + ovriga_intakter - material - externa - personal - avskrivningar - ovriga_kostnader
-        if rorelseresultat != 0:
-            fields["7368"] = SRUFieldValue(
-                field_number="7368",
-                description="Rörelseresultat",
-                value=rorelseresultat,
-                source_accounts=["7410", "7413", "7511", "7513", "7514", "7515", "7520"],
-            )
-        
-        # Resultat efter finansiella poster
-        resultat_efter_finansiella = rorelseresultat + finansiella_intakter
-        if resultat_efter_finansiella != 0:
-            fields["7410"] = SRUFieldValue(
-                field_number="7410",
-                description="Resultat efter finansiella poster",
-                value=resultat_efter_finansiella,
-                source_accounts=["7368", "7528"],
-            )
-        
-        # Skatt på årets resultat (22% om vinst)
-        if resultat_efter_finansiella > 0:
-            skatt = round(resultat_efter_finansiella * 0.22)
-            fields["7513"] = SRUFieldValue(
-                field_number="7513",
-                description="Skatt på årets resultat",
-                value=skatt,
-                source_accounts=["7410"],
-            )
-            
-            # Årets resultat
-            arets_resultat = resultat_efter_finansiella - skatt
-            fields["7514"] = SRUFieldValue(
-                field_number="7514",
-                description="Årets resultat",
-                value=arets_resultat,
-                source_accounts=["7410", "7513"],
-            )
-    
     def _validate_balance_sheet(self, fields: Dict[str, SRUFieldValue]):
         """Validate that balance sheet balances (assets = liabilities + equity)."""
         tillgangar = fields.get("7450", SRUFieldValue("7450", "", 0, [])).value
@@ -429,8 +411,6 @@ class SRUExportService:
             "7515": "Av- och nedskrivningar",
             "7520": "Övriga rörelsekostnader",
             "7528": "Övriga finansiella intäkter",
-            "7368": "Rörelseresultat",
-            "7514_duplicate": "Årets resultat",
         }
     
     def generate_info_sru(self, declaration: SRUDeclaration) -> str:
