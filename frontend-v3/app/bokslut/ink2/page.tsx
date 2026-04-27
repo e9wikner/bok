@@ -37,12 +37,6 @@ interface SRUData {
 type TabType = "ink2" | "ink2r" | "ink2s" | "mappings";
 
 // Fält grupperingar per blankett
-const INK2_FIELDS = {
-  "Räkenskapsår": ["7011", "7012"],
-  "Resultat": ["7410", "7450", "7513", "7514"],
-  "Övrigt": ["7670"]
-};
-
 const INK2R_FIELDS = {
   "Tillgångar": ["7251", "7252", "7261", "7263", "7281", "7284", "7285", "7286"],
   "Eget kapital": ["7301", "7302"],
@@ -50,6 +44,45 @@ const INK2R_FIELDS = {
   "Intäkter": ["7410", "7413", "7416", "7417", "7420", "7528"],
   "Kostnader": ["7511", "7513", "7514", "7515", "7520", "7522"]
 };
+
+const INK2S_ADJUSTMENTS = [
+  {
+    label: "Ej avdragsgilla kostnader",
+    value: 0,
+    effect: "add" as const,
+    description: "Till exempel representation, böter och andra kostnader som inte får dras av skattemässigt.",
+  },
+  {
+    label: "Skattefria intäkter",
+    value: 0,
+    effect: "subtract" as const,
+    description: "Intäkter som ingår i bokföringen men inte ska beskattas.",
+  },
+  {
+    label: "Schablonintäkt periodiseringsfond",
+    value: 0,
+    effect: "add" as const,
+    description: "Schablonintäkt på kvarvarande periodiseringsfonder.",
+  },
+  {
+    label: "Avsättning till periodiseringsfond",
+    value: 0,
+    effect: "subtract" as const,
+    description: "Årets skattemässiga avdrag för ny avsättning.",
+  },
+  {
+    label: "Återföring av periodiseringsfond",
+    value: 0,
+    effect: "add" as const,
+    description: "Återförda avsättningar som påverkar årets skattemässiga resultat.",
+  },
+  {
+    label: "Underskott från tidigare år",
+    value: 0,
+    effect: "subtract" as const,
+    description: "Inrullat underskott som kan minska årets beskattningsbara resultat.",
+  },
+];
 
 const FIELD_DESCRIPTIONS: Record<string, string> = {
   "7011": "Räkenskapsår – första dag",
@@ -178,6 +211,29 @@ export default function Ink2Page() {
     return formatCurrency(value);
   };
 
+  const formatInk2sAmount = (value: number): string => {
+    return value === 0 ? "0 kr" : formatCurrency(value);
+  };
+
+  const sumFields = (fields: string[]): number => {
+    return fields.reduce((sum, field) => sum + getFieldValue(field), 0);
+  };
+
+  const revenueFields = ["7410", "7413", "7528"];
+  const expenseFields = ["7511", "7513", "7514", "7515", "7520"];
+
+  const accountingResult = (): number => {
+    return sumFields(revenueFields) - sumFields(expenseFields);
+  };
+
+  const taxableResult = (): number => {
+    return INK2S_ADJUSTMENTS.reduce((result, adjustment) => {
+      return adjustment.effect === "add"
+        ? result + adjustment.value
+        : result - adjustment.value;
+    }, accountingResult());
+  };
+
   const renderFieldRow = (fieldNum: string, isBold = false) => {
     const value = getFieldValue(fieldNum);
     const hasValue = value !== 0;
@@ -185,7 +241,7 @@ export default function Ink2Page() {
       <tr key={fieldNum} className={`${hasValue ? "bg-background" : "bg-muted/30"} ${isBold ? "font-semibold border-t-2 border-border" : "border-b border-border/50"} hover:bg-accent/50`}>
         <td className="px-4 py-2 w-24 font-mono text-sm text-muted-foreground">{fieldNum}</td>
         <td className="px-4 py-2 text-sm text-foreground">
-          {FIELD_DESCRIPTIONS[fieldNum] || sruData?.fields?.find(f => f.field_number === fieldNum)?.description || "-"}
+          {sruData?.fields?.find(f => f.field_number === fieldNum)?.description || FIELD_DESCRIPTIONS[fieldNum] || "-"}
         </td>
         <td className="px-4 py-2 w-40 text-right">
           <span className={`font-mono text-sm ${isBold ? "font-bold" : ""} ${value < 0 ? "text-red-500" : "text-foreground"}`}>
@@ -494,7 +550,7 @@ export default function Ink2Page() {
       )}
 
       {/* INK2S Tab - Skattemässiga justeringar */}
-      {!loading && activeTab === "ink2s" && (
+      {!loading && activeTab === "ink2s" && sruData && (
         <div className="space-y-6">
           <Card className="border-2 border-border shadow-lg">
             <CardHeader className="bg-muted border-b border-border">
@@ -502,13 +558,71 @@ export default function Ink2Page() {
               <CardDescription>Justeringar mellan bokfört och skattemässigt resultat</CardDescription>
             </CardHeader>
             <CardContent className="p-6">
-              <div className="text-center py-12 text-muted-foreground">
-                <Calculator className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />
-                <p className="text-lg font-medium">Skattemässiga justeringar</p>
-                <p className="text-sm mt-2 max-w-md mx-auto">
-                  Denna del av blanketten visas här när skattemässiga justeringar är implementerade.
-                  Till exempel avskrivningsdifferenser, ej avdragsgilla kostnader, m.m.
-                </p>
+              <div className="mb-6 p-4 bg-primary/10 border border-primary/20 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <Calculator className="h-5 w-5 text-primary mt-0.5" />
+                  <div>
+                    <h3 className="font-semibold text-foreground">Beräknad skattemässig översikt</h3>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Sammanställningen utgår från SRU-previewen för räkenskapsåret. Manuella skattemässiga justeringar är inte registrerade för året, därför visas de som 0 kr tills de läggs in i bokslutsunderlaget.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <tbody>
+                    <tr className="border-b border-border/50 bg-background">
+                      <td className="px-4 py-3 text-sm font-semibold text-foreground">Bokfört resultat före skattemässiga justeringar</td>
+                      <td className="px-4 py-3 w-40 text-right font-mono text-sm font-semibold text-foreground">
+                        {formatInk2sAmount(accountingResult())}
+                      </td>
+                    </tr>
+                    {INK2S_ADJUSTMENTS.map((adjustment) => {
+                      const signedValue = adjustment.effect === "add" ? adjustment.value : -adjustment.value;
+                      return (
+                        <tr key={adjustment.label} className="border-b border-border/50 hover:bg-accent/50">
+                          <td className="px-4 py-3">
+                            <div className="text-sm text-foreground">{adjustment.label}</div>
+                            <div className="text-xs text-muted-foreground mt-0.5">{adjustment.description}</div>
+                          </td>
+                          <td className="px-4 py-3 w-40 text-right font-mono text-sm text-foreground">
+                            {signedValue > 0 ? "+" : signedValue < 0 ? "-" : ""}
+                            {formatInk2sAmount(Math.abs(signedValue))}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    <tr className="border-t-2 border-border bg-primary/10">
+                      <td className="px-4 py-3 text-sm font-bold text-foreground">Skattemässigt resultat före skatt</td>
+                      <td className={`px-4 py-3 w-40 text-right font-mono text-sm font-bold ${taxableResult() < 0 ? "text-red-500" : "text-foreground"}`}>
+                        {formatInk2sAmount(taxableResult())}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="mt-6 grid gap-4 md:grid-cols-3">
+                <div className="p-4 bg-muted rounded-lg">
+                  <div className="text-xs text-muted-foreground uppercase tracking-wide">Intäkter enligt INK2R</div>
+                  <div className="mt-1 font-mono text-lg font-semibold text-foreground">
+                    {formatInk2sAmount(sumFields(revenueFields))}
+                  </div>
+                </div>
+                <div className="p-4 bg-muted rounded-lg">
+                  <div className="text-xs text-muted-foreground uppercase tracking-wide">Kostnader enligt INK2R</div>
+                  <div className="mt-1 font-mono text-lg font-semibold text-foreground">
+                    {formatInk2sAmount(sumFields(expenseFields))}
+                  </div>
+                </div>
+                <div className="p-4 bg-muted rounded-lg">
+                  <div className="text-xs text-muted-foreground uppercase tracking-wide">Nettojusteringar</div>
+                  <div className="mt-1 font-mono text-lg font-semibold text-foreground">
+                    {formatInk2sAmount(taxableResult() - accountingResult())}
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>
