@@ -33,12 +33,16 @@ async def export_sru(
             )
         
         # Return ZIP file
+        # Sanitize warnings for HTTP headers (latin-1 encoding only)
+        safe_warnings = "; ".join(warnings).replace('≠', '!=') if warnings else "none"
+        safe_filename = filename.encode('ascii', 'ignore').decode('ascii')
+        
         return Response(
             content=zip_bytes,
             media_type="application/zip",
             headers={
-                "Content-Disposition": f'attachment; filename="{filename}"',
-                "X-Export-Warnings": "; ".join(warnings) if warnings else "none",
+                "Content-Disposition": f'attachment; filename="{safe_filename}"',
+                "X-Export-Warnings": safe_warnings,
             }
         )
         

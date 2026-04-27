@@ -545,8 +545,7 @@ class SIE4Importer:
 
             # Save SRU mapping
             mapping_data = {
-                "account_id": account_code,
-                "fiscal_year_id": fiscal_year_id,
+                "account_code": account_code,
                 "sru_field": sru_field,
             }
 

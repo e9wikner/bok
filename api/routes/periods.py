@@ -112,6 +112,36 @@ async def get_fiscal_year(
         )
 
 
+@router.post("/periods", response_model=PeriodResponse, status_code=status.HTTP_201_CREATED)
+async def create_period(
+    fiscal_year_id: str,
+    year: int,
+    month: int,
+    start_date: date,
+    end_date: date,
+    ledger: LedgerService = Depends(get_ledger_service),
+):
+    """
+    Create a single period for a fiscal year.
+    
+    Used by SIE4 import when importing vouchers for months that don't have periods yet.
+    """
+    try:
+        period = ledger.periods.create_period(
+            fiscal_year_id=fiscal_year_id,
+            year=year,
+            month=month,
+            start_date=start_date,
+            end_date=end_date
+        )
+        return _period_to_response(period)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
 @router.get("/periods", response_model=dict)
 async def list_periods(
     fiscal_year_id: str = None,
