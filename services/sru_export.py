@@ -223,9 +223,7 @@ class SRUExportService:
             raise ValueError(f"Fiscal year {fiscal_year_id} not found")
         
         # Get company info
-        company = db.execute(
-            "SELECT * FROM company_info ORDER BY id LIMIT 1"
-        ).fetchone()
+        company = self._get_company_info(db)
         
         if not company:
             raise ValueError("Company info not found")
@@ -280,6 +278,29 @@ class SRUExportService:
             fiscal_year_end=fiscal_year["end_date"].replace("-", ""),
             fields=fields,
         )
+
+    def _get_company_info(self, db) -> Optional[Dict[str, str]]:
+        """Get company info from the key/value table, with legacy row fallback."""
+        rows = db.execute("SELECT key, value FROM company_info").fetchall()
+        if rows:
+            values = {row["key"]: row["value"] for row in rows}
+            return {
+                "org_number": values.get("org_number", ""),
+                "name": values.get("name", ""),
+            }
+
+        try:
+            row = db.execute("SELECT * FROM company_info ORDER BY id LIMIT 1").fetchone()
+        except Exception:
+            return None
+
+        if not row:
+            return None
+
+        return {
+            "org_number": row["org_number"],
+            "name": row["name"],
+        }
 
     def _to_sru_value(self, sru_field: str, balance_ore: int) -> int:
         """Convert internal debit-positive öre balance to SRU SEK value."""
@@ -441,8 +462,18 @@ class SRUExportService:
         """
         lines = []
         timestamp = datetime.now().strftime("%Y%m%d %H%M%S")
+
+        # INK2 - Huvudblankett
+        lines.extend([
+            "#BLANKETT INK2-2025P4",
+            f"#IDENTITET {declaration.company_org_number} {timestamp}",
+            "#SYSTEMINFO BOKAI 1.0",
+            f"#UPPGIFT 7011 {declaration.company_org_number}",
+            f"#UPPGIFT 7012 {self._format_fiscal_year_period(declaration)}",
+        ])
+        lines.append("#BLANKETTSLUT")
         
-        # INK2R - Huvudblankett (Resultaträkning)
+        # INK2R - Räkenskapsschema
         lines.extend([
             "#BLANKETT INK2R-2025P4",
             f"#IDENTITET {declaration.company_org_number} {timestamp}",
@@ -480,6 +511,13 @@ class SRUExportService:
         lines.append("#FIL_SLUT")
         
         return "\r\n".join(lines) + "\r\n"
+
+    def _format_fiscal_year_period(self, declaration: SRUDeclaration) -> str:
+        """Format fiscal year period for the INK2 main form."""
+        return (
+            f"{declaration.fiscal_year_start[:6]}-"
+            f"{declaration.fiscal_year_end[4:8]}"
+        )
     
     def export_sru_zip(
         self, fiscal_year_id: str

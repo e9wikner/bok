@@ -90,8 +90,14 @@ class TestSRUExportService:
 
         content = service.generate_blanketter_sru(declaration)
 
+        assert "#BLANKETT INK2-2025P4" in content
         assert "#BLANKETT INK2R-2025P4" in content
+        assert "#BLANKETT INK2S-2025P4" in content
+        assert content.index("#BLANKETT INK2-2025P4") < content.index("#BLANKETT INK2R-2025P4")
+        assert content.index("#BLANKETT INK2R-2025P4") < content.index("#BLANKETT INK2S-2025P4")
         assert "#IDENTITET 5568194731" in content
+        assert "#UPPGIFT 7011 5568194731" in content  # Main form org number
+        assert "#UPPGIFT 7012 202501-1231" in content  # Main form fiscal year
         assert "#UPPGIFT 7011 20250101" in content  # Fiscal year start
         assert "#UPPGIFT 7012 20251231" in content  # Fiscal year end
         assert "#UPPGIFT 7410 100000" in content
@@ -125,6 +131,23 @@ class TestSRUExportService:
         assert len(zip_bytes) > 0
         assert filename.endswith(".zip")
         assert "Test_AB" in filename or "TestAB" in filename
+
+    def test_get_company_info_from_key_value_table(self, service, mock_db):
+        """Test company info is read from the actual key/value table schema."""
+        rows = []
+        for key, value in [("org_number", "556819-4731"), ("name", "Test AB")]:
+            row = Mock()
+            row.__getitem__ = lambda self, k, key=key, value=value: {
+                "key": key,
+                "value": value,
+            }[k]
+            rows.append(row)
+
+        mock_db.execute.return_value.fetchall.return_value = rows
+
+        company = service._get_company_info(mock_db)
+
+        assert company == {"org_number": "556819-4731", "name": "Test AB"}
 
     def test_default_sru_mappings_structure(self):
         """Test that default mappings have correct structure."""
