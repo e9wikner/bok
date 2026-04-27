@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import { 
@@ -134,7 +133,7 @@ export default function SRUMappingsPage() {
       if (response.fiscal_years?.length > 0) {
         setSelectedYear(response.fiscal_years[0].id);
       }
-    } catch (err) {
+    } catch {
       setError("Kunde inte ladda räkenskapsår");
     }
   };
@@ -156,13 +155,13 @@ export default function SRUMappingsPage() {
         });
         setMappings(mappingsData);
         setOriginalMappings(mappingsData);
-      } catch (err) {
+      } catch {
         // No mappings yet is OK
         setMappings({});
         setOriginalMappings({});
       }
       setHasChanges(false);
-    } catch (err) {
+    } catch {
       setError("Kunde inte ladda konton eller mappningar");
     } finally {
       setLoading(false);
@@ -202,7 +201,7 @@ export default function SRUMappingsPage() {
       
       // Clear success message after 3 seconds
       setTimeout(() => setSuccess(null), 3000);
-    } catch (err) {
+    } catch {
       setError("Kunde inte spara mappningarna");
     } finally {
       setSaving(false);

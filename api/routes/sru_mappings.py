@@ -54,14 +54,14 @@ async def list_sru_mappings(
         SELECT 
             m.id,
             m.fiscal_year_id,
-            m.account_id,
+            m.account_code as account_id,
             a.code as account_code,
             a.name as account_name,
             m.sru_field,
             m.created_at,
             m.updated_at
         FROM account_sru_mappings m
-        JOIN accounts a ON m.account_id = a.code
+        JOIN accounts a ON m.account_code = a.code
         WHERE m.fiscal_year_id = ?
         ORDER BY a.code
         """,
@@ -114,7 +114,7 @@ async def create_sru_mapping(
     
     # Check if mapping already exists
     existing = db.execute(
-        "SELECT id FROM account_sru_mappings WHERE fiscal_year_id = ? AND account_id = ?",
+        "SELECT id FROM account_sru_mappings WHERE fiscal_year_id = ? AND account_code = ?",
         (fiscal_year_id, mapping.account_id)
     ).fetchone()
     
@@ -144,7 +144,7 @@ async def create_sru_mapping(
         mapping_id = str(uuid.uuid4())
         db.execute(
             """
-            INSERT INTO account_sru_mappings (id, fiscal_year_id, account_id, sru_field, created_at, updated_at)
+            INSERT INTO account_sru_mappings (id, fiscal_year_id, account_code, sru_field, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
             (mapping_id, fiscal_year_id, mapping.account_id, mapping.sru_field, now, now)
@@ -210,7 +210,7 @@ async def get_accounts_by_sru_field(
             a.account_type,
             m.sru_field
         FROM account_sru_mappings m
-        JOIN accounts a ON m.account_id = a.code
+        JOIN accounts a ON m.account_code = a.code
         WHERE m.fiscal_year_id = ? AND m.sru_field = ?
         ORDER BY a.code
         """,
@@ -263,7 +263,7 @@ async def bulk_create_sru_mappings(
             db.execute(
                 f"""
                 DELETE FROM account_sru_mappings
-                WHERE fiscal_year_id = ? AND account_id NOT IN ({placeholders})
+                WHERE fiscal_year_id = ? AND account_code NOT IN ({placeholders})
                 """,
                 (fiscal_year_id, *incoming_account_codes)
             )
@@ -286,7 +286,7 @@ async def bulk_create_sru_mappings(
 
             # Check if mapping exists
             existing = db.execute(
-                "SELECT id FROM account_sru_mappings WHERE fiscal_year_id = ? AND account_id = ?",
+                "SELECT id FROM account_sru_mappings WHERE fiscal_year_id = ? AND account_code = ?",
                 (fiscal_year_id, mapping.account_id)
             ).fetchone()
             
@@ -306,7 +306,7 @@ async def bulk_create_sru_mappings(
                 mapping_id = str(uuid.uuid4())
                 db.execute(
                     """
-                    INSERT INTO account_sru_mappings (id, fiscal_year_id, account_id, sru_field, created_at, updated_at)
+                    INSERT INTO account_sru_mappings (id, fiscal_year_id, account_code, sru_field, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     (mapping_id, fiscal_year_id, mapping.account_id, mapping.sru_field, now, now)

@@ -126,7 +126,7 @@ class SRUExportService:
             """
             SELECT a.code, m.sru_field
             FROM account_sru_mappings m
-            JOIN accounts a ON m.account_id = a.code
+            JOIN accounts a ON m.account_code = a.code
             WHERE m.fiscal_year_id = ?
             """,
             (fiscal_year_id,)
@@ -171,7 +171,6 @@ class SRUExportService:
         cursor = db.execute(
             """
             SELECT 
-                a.id,
                 a.code,
                 a.name,
                 a.account_type,
@@ -182,10 +181,10 @@ class SRUExportService:
                     ELSE 0
                 END), 0) as balance
             FROM accounts a
-            LEFT JOIN voucher_rows vr ON a.id = vr.account_id
+            LEFT JOIN voucher_rows vr ON a.code = vr.account_code
             LEFT JOIN vouchers v ON vr.voucher_id = v.id
             LEFT JOIN periods p ON v.period_id = p.id AND p.fiscal_year_id = ?
-            GROUP BY a.id, a.code, a.name, a.account_type
+            GROUP BY a.code, a.name, a.account_type
             ORDER BY a.code
             """,
             (fiscal_year_id,)
@@ -194,7 +193,7 @@ class SRUExportService:
         accounts = {}
         for row in cursor.fetchall():
             accounts[row["code"]] = {
-                "id": row["id"],
+                "id": row["code"],
                 "name": row["name"],
                 "balance": row["balance"],  # In öre
                 "account_type": row["account_type"],
