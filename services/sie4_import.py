@@ -543,13 +543,9 @@ class SIE4Importer:
             if resp.status_code != 200:
                 continue  # Skip if account doesn't exist
 
-            account_id = resp.json().get("id")
-            if not account_id:
-                continue
-
             # Save SRU mapping
             mapping_data = {
-                "account_id": account_id,
+                "account_id": account_code,
                 "fiscal_year_id": fiscal_year_id,
                 "sru_field": sru_field,
             }

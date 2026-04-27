@@ -18,7 +18,6 @@ import {
 import Link from "next/link";
 
 interface Account {
-  id: string;
   code: string;
   name: string;
   account_type: string;
@@ -117,7 +116,7 @@ export default function SRUMappingsPage() {
         const mappingsResponse = await api.getSRUMappings(fiscalYearId);
         const mappingsData: Record<string, string> = {};
         mappingsResponse.forEach((m: SRUMapping) => {
-          mappingsData[m.account_id] = m.sru_field;
+          mappingsData[m.account_code] = m.sru_field;
         });
         setMappings(mappingsData);
         setOriginalMappings(mappingsData);
@@ -134,12 +133,12 @@ export default function SRUMappingsPage() {
     }
   };
 
-  const handleMappingChange = (accountId: string, sruField: string) => {
+  const handleMappingChange = (accountCode: string, sruField: string) => {
     const newMappings = { ...mappings };
     if (sruField === "" || sruField === "__none__") {
-      delete newMappings[accountId];
+      delete newMappings[accountCode];
     } else {
-      newMappings[accountId] = sruField;
+      newMappings[accountCode] = sruField;
     }
     setMappings(newMappings);
     setHasChanges(JSON.stringify(newMappings) !== JSON.stringify(originalMappings));
@@ -154,8 +153,8 @@ export default function SRUMappingsPage() {
     
     try {
       // Prepare bulk update data
-      const mappingsList = Object.entries(mappings).map(([accountId, sruField]) => ({
-        account_id: accountId,
+      const mappingsList = Object.entries(mappings).map(([accountCode, sruField]) => ({
+        account_id: accountCode,
         sru_field: sruField,
       }));
 
@@ -339,18 +338,18 @@ export default function SRUMappingsPage() {
                   </thead>
                   <tbody className="divide-y">
                     {accounts.map((account) => {
-                      const currentMapping = mappings[account.id];
-                      const originalMapping = originalMappings[account.id];
+                      const currentMapping = mappings[account.code];
+                      const originalMapping = originalMappings[account.code];
                       const isChanged = currentMapping !== originalMapping;
                       
                       return (
-                        <tr key={account.id} className={isChanged ? "bg-yellow-50/50" : ""}>
+                        <tr key={account.code} className={isChanged ? "bg-yellow-50/50" : ""}>
                           <td className="px-4 py-3 font-mono">{account.code}</td>
                           <td className="px-4 py-3">{account.name}</td>
                           <td className="px-4 py-3">
                             <select
                               value={currentMapping || ""}
-                              onChange={(e) => handleMappingChange(account.id, e.target.value)}
+                              onChange={(e) => handleMappingChange(account.code, e.target.value)}
                               className="w-full rounded border border-input bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                             >
                               <option value="">Ingen mappning</option>

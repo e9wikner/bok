@@ -85,6 +85,64 @@ def test_get_account_not_found(client, auth_headers):
     assert resp.status_code == 404
 
 
+def test_sru_mappings_use_account_codes(client, auth_headers, test_db):
+    """Test SRU mappings are saved and returned by account code."""
+    fy = PeriodRepository.create_fiscal_year(
+        start_date=date(2027, 1, 1),
+        end_date=date(2027, 12, 31),
+    )
+
+    resp = client.post(
+        f"/api/v1/fiscal-years/{fy.id}/sru-mappings/bulk",
+        headers=auth_headers,
+        json=[
+            {"account_id": "1510", "sru_field": "7261"},
+            {"account_id": "3011", "sru_field": "7410"},
+        ],
+    )
+    assert resp.status_code == 201
+
+    resp = client.get(
+        f"/api/v1/fiscal-years/{fy.id}/sru-mappings",
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    mappings = {row["account_code"]: row["sru_field"] for row in resp.json()}
+    assert mappings == {"1510": "7261", "3011": "7410"}
+
+
+def test_sru_bulk_update_removes_deleted_mappings(client, auth_headers, test_db):
+    """Test omitted mappings are removed during bulk save."""
+    fy = PeriodRepository.create_fiscal_year(
+        start_date=date(2028, 1, 1),
+        end_date=date(2028, 12, 31),
+    )
+
+    client.post(
+        f"/api/v1/fiscal-years/{fy.id}/sru-mappings/bulk",
+        headers=auth_headers,
+        json=[
+            {"account_id": "1510", "sru_field": "7261"},
+            {"account_id": "3011", "sru_field": "7410"},
+        ],
+    )
+    resp = client.post(
+        f"/api/v1/fiscal-years/{fy.id}/sru-mappings/bulk",
+        headers=auth_headers,
+        json=[
+            {"account_id": "1510", "sru_field": "7261"},
+        ],
+    )
+    assert resp.status_code == 201
+
+    resp = client.get(
+        f"/api/v1/fiscal-years/{fy.id}/sru-mappings",
+        headers=auth_headers,
+    )
+    mappings = {row["account_code"]: row["sru_field"] for row in resp.json()}
+    assert mappings == {"1510": "7261"}
+
+
 def test_create_voucher(client, auth_headers, period_id):
     """Test creating a voucher via API."""
     resp = client.post(

@@ -126,7 +126,7 @@ class SRUExportService:
             """
             SELECT a.code, m.sru_field
             FROM account_sru_mappings m
-            JOIN accounts a ON m.account_id = a.id
+            JOIN accounts a ON m.account_id = a.code
             WHERE m.fiscal_year_id = ?
             """,
             (fiscal_year_id,)

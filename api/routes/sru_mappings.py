@@ -16,6 +16,7 @@ router = APIRouter(prefix="/api/v1/fiscal-years", tags=["sru-mappings"])
 
 class SRUMappingCreate(BaseModel):
     """Create or update SRU mapping."""
+    # Historical name kept for API compatibility; value is the account code (e.g. "1920").
     account_id: str
     sru_field: str
 
@@ -60,7 +61,7 @@ async def list_sru_mappings(
             m.created_at,
             m.updated_at
         FROM account_sru_mappings m
-        JOIN accounts a ON m.account_id = a.id
+        JOIN accounts a ON m.account_id = a.code
         WHERE m.fiscal_year_id = ?
         ORDER BY a.code
         """,
@@ -100,6 +101,16 @@ async def create_sru_mapping(
     from datetime import datetime
     
     db = get_db()
+
+    account = db.execute(
+        "SELECT code FROM accounts WHERE code = ?",
+        (mapping.account_id,)
+    ).fetchone()
+    if not account:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Account not found"
+        )
     
     # Check if mapping already exists
     existing = db.execute(
@@ -199,7 +210,7 @@ async def get_accounts_by_sru_field(
             a.account_type,
             m.sru_field
         FROM account_sru_mappings m
-        JOIN accounts a ON m.account_id = a.id
+        JOIN accounts a ON m.account_id = a.code
         WHERE m.fiscal_year_id = ? AND m.sru_field = ?
         ORDER BY a.code
         """,
@@ -244,9 +255,35 @@ async def bulk_create_sru_mappings(
     now = datetime.now().isoformat()
     created_count = 0
     updated_count = 0
+    incoming_account_codes = [mapping.account_id for mapping in mappings]
     
     with db.transaction():
+        if incoming_account_codes:
+            placeholders = ",".join("?" for _ in incoming_account_codes)
+            db.execute(
+                f"""
+                DELETE FROM account_sru_mappings
+                WHERE fiscal_year_id = ? AND account_id NOT IN ({placeholders})
+                """,
+                (fiscal_year_id, *incoming_account_codes)
+            )
+        else:
+            db.execute(
+                "DELETE FROM account_sru_mappings WHERE fiscal_year_id = ?",
+                (fiscal_year_id,)
+            )
+
         for mapping in mappings:
+            account = db.execute(
+                "SELECT code FROM accounts WHERE code = ?",
+                (mapping.account_id,)
+            ).fetchone()
+            if not account:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Account {mapping.account_id} not found"
+                )
+
             # Check if mapping exists
             existing = db.execute(
                 "SELECT id FROM account_sru_mappings WHERE fiscal_year_id = ? AND account_id = ?",
