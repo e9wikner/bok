@@ -13,7 +13,9 @@ import {
   AlertTriangle,
   Download,
   Eye,
-  Loader2
+  Loader2,
+  Info,
+  ExternalLink
 } from "lucide-react";
 import Link from "next/link";
 
@@ -43,29 +45,63 @@ interface SRUMapping {
 
 // Common SRU fields with descriptions
 const SRU_FIELDS = [
-  { code: "7251", description: "Varulager" },
-  { code: "7261", description: "Kundfordringar" },
-  { code: "7263", description: "Övriga fordringar" },
-  { code: "7271", description: "Förutbetalda kostnader" },
-  { code: "7281", description: "Likvida medel" },
-  { code: "7301", description: "Eget kapital" },
-  { code: "7302", description: "Resultat" },
-  { code: "7321", description: "Obeskattade reserver" },
-  { code: "7350", description: "Avsättningar" },
-  { code: "7365", description: "Långfristiga skulder" },
-  { code: "7368", description: "Leverantörsskulder" },
-  { code: "7369", description: "Skatteskulder" },
-  { code: "7370", description: "Övriga kortfristiga skulder" },
-  { code: "7410", description: "Nettoomsättning" },
-  { code: "7413", description: "Övriga rörelseintäkter" },
-  { code: "7511", description: "Material och varor" },
-  { code: "7513", description: "Övriga externa kostnader" },
-  { code: "7514", description: "Personalkostnader" },
-  { code: "7515", description: "Av- och nedskrivningar" },
-  { code: "7416", description: "Immateriella anläggningstillgångar" },
-  { code: "7417", description: "Materiella anläggningstillgångar" },
-  { code: "7522", description: "Finansiella anläggningstillgångar" },
+  { code: "7251", description: "Varulager", bas: "1400-1499" },
+  { code: "7261", description: "Kundfordringar", bas: "1500-1599" },
+  { code: "7263", description: "Övriga fordringar", bas: "1600-1699" },
+  { code: "7271", description: "Förutbetalda kostnader", bas: "1700-1799" },
+  { code: "7281", description: "Likvida medel", bas: "1900-1999" },
+  { code: "7301", description: "Eget kapital", bas: "2000-2089" },
+  { code: "7302", description: "Balanserat resultat och årets resultat", bas: "2091, 2099" },
+  { code: "7321", description: "Obeskattade reserver", bas: "2100-2199" },
+  { code: "7350", description: "Avsättningar", bas: "2200-2299" },
+  { code: "7365", description: "Långfristiga skulder", bas: "2300-2399" },
+  { code: "7368", description: "Leverantörsskulder", bas: "2400-2499" },
+  { code: "7369", description: "Skatteskulder", bas: "2500-2599" },
+  { code: "7370", description: "Övriga kortfristiga skulder", bas: "2600-2999" },
+  { code: "7410", description: "Nettoomsättning", bas: "3000-3799" },
+  { code: "7413", description: "Övriga rörelseintäkter", bas: "3900-3999" },
+  { code: "7511", description: "Material och varor", bas: "4000-4999" },
+  { code: "7513", description: "Övriga externa kostnader", bas: "5000-6999" },
+  { code: "7514", description: "Personalkostnader", bas: "7000-7699" },
+  { code: "7515", description: "Av- och nedskrivningar", bas: "7800-7999" },
+  { code: "7525", description: "Resultat från övriga värdepapper", bas: "8200-8399" },
+  { code: "7528", description: "Övriga finansiella intäkter", bas: "8400-8499" },
+  { code: "7416", description: "Immateriella anläggningstillgångar", bas: "1000-1099" },
+  { code: "7417", description: "Materiella anläggningstillgångar", bas: "1100-1299" },
+  { code: "7522", description: "Finansiella anläggningstillgångar", bas: "1300-1399" },
 ];
+
+const findRecommendedField = (accountCode: string) => {
+  const code = Number(accountCode);
+  if (Number.isNaN(code)) return null;
+  if (code >= 1000 && code < 1100) return "7416";
+  if (code >= 1100 && code < 1300) return "7417";
+  if (code >= 1300 && code < 1400) return "7522";
+  if (code >= 1400 && code < 1500) return "7251";
+  if (code >= 1500 && code < 1600) return "7261";
+  if (code >= 1600 && code < 1700) return "7263";
+  if (code >= 1700 && code < 1800) return "7271";
+  if (code >= 1900 && code < 2000) return "7281";
+  if (code >= 2000 && code < 2100) return code === 2091 || code === 2099 ? "7302" : "7301";
+  if (code >= 2100 && code < 2200) return "7321";
+  if (code >= 2200 && code < 2300) return "7350";
+  if (code >= 2300 && code < 2400) return "7365";
+  if (code >= 2400 && code < 2500) return "7368";
+  if (code >= 2500 && code < 2600) return "7369";
+  if (code >= 2600 && code < 3000) return "7370";
+  if (code >= 3000 && code < 3800) return "7410";
+  if (code >= 3900 && code < 4000) return "7413";
+  if (code >= 4000 && code < 5000) return "7511";
+  if (code >= 5000 && code < 7000) return "7513";
+  if (code >= 7000 && code < 7700) return "7514";
+  if (code >= 7800 && code < 8000) return "7515";
+  if (code >= 8200 && code < 8400) return "7525";
+  if (code >= 8400 && code < 8500) return "7528";
+  return null;
+};
+
+const getFieldDescription = (fieldCode?: string | null) =>
+  SRU_FIELDS.find((field) => field.code === fieldCode)?.description;
 
 export default function SRUMappingsPage() {
   const [fiscalYears, setFiscalYears] = useState<FiscalYear[]>([]);
@@ -284,6 +320,29 @@ export default function SRUMappingsPage() {
         </div>
       )}
 
+      <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-4 text-blue-950">
+        <div className="flex items-start gap-3">
+          <Info className="h-5 w-5 mt-0.5 shrink-0" />
+          <div className="space-y-2">
+            <p className="text-sm font-medium">SRU = Skatteverkets Rapporterings-Utbyte</p>
+            <p className="text-sm text-blue-900">
+              Systemet använder BAS-standardmappning automatiskt vid export. Sätt bara manuella
+              mappningar här när ett konto ska avvika från BAS-rekommendationen eller när SIE4-importen
+              har gett en särskild #SRU-kod.
+            </p>
+            <a
+              href="https://edeklarera.se/sru-filer/sru-koder"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-sm font-medium underline underline-offset-4"
+            >
+              SRU-koder och fältbeskrivningar
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          </div>
+        </div>
+      </div>
+
       {/* Fiscal Year Selector */}
       <Card>
         <CardHeader>
@@ -333,6 +392,7 @@ export default function SRUMappingsPage() {
                       <th className="px-4 py-3 text-left font-medium w-[100px]">Konto</th>
                       <th className="px-4 py-3 text-left font-medium">Namn</th>
                       <th className="px-4 py-3 text-left font-medium w-[200px]">SRU-fält</th>
+                      <th className="px-4 py-3 text-left font-medium w-[220px]">BAS-rekommendation</th>
                       <th className="px-4 py-3 text-left font-medium w-[300px]">Beskrivning</th>
                     </tr>
                   </thead>
@@ -340,7 +400,11 @@ export default function SRUMappingsPage() {
                     {accounts.map((account) => {
                       const currentMapping = mappings[account.code];
                       const originalMapping = originalMappings[account.code];
+                      const recommendedField = findRecommendedField(account.code);
+                      const recommendedDescription = getFieldDescription(recommendedField);
+                      const selectedDescription = getFieldDescription(currentMapping);
                       const isChanged = currentMapping !== originalMapping;
+                      const usesRecommendation = currentMapping === recommendedField;
                       
                       return (
                         <tr key={account.code} className={isChanged ? "bg-yellow-50/50" : ""}>
@@ -355,16 +419,35 @@ export default function SRUMappingsPage() {
                               <option value="">Ingen mappning</option>
                               {SRU_FIELDS.map((field) => (
                                 <option key={field.code} value={field.code}>
-                                  {field.code} - {field.description}
+                                  {field.code} - {field.description} ({field.bas})
                                 </option>
                               ))}
                             </select>
                           </td>
+                          <td className="px-4 py-3 text-muted-foreground">
+                            {recommendedField && recommendedDescription ? (
+                              <span title={`BAS ${SRU_FIELDS.find(f => f.code === recommendedField)?.bas}`}>
+                                {recommendedField} - {recommendedDescription}
+                              </span>
+                            ) : (
+                              <span>Ingen standardmappning</span>
+                            )}
+                          </td>
                           <td className="px-4 py-3">
                             {currentMapping && (
                               <span className="text-muted-foreground">
-                                {SRU_FIELDS.find(f => f.code === currentMapping)?.description || "Okänt fält"}
+                                {selectedDescription || "Okänt fält"}
                               </span>
+                            )}
+                            {!currentMapping && recommendedField && (
+                              <span className="text-muted-foreground">
+                                Standard används vid export om ingen manuell mappning sparas
+                              </span>
+                            )}
+                            {usesRecommendation && (
+                              <Badge variant="outline" className="ml-2 text-green-700 border-green-700">
+                                BAS
+                              </Badge>
                             )}
                             {isChanged && (
                               <Badge variant="outline" className="ml-2 text-yellow-600 border-yellow-600">
