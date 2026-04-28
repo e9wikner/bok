@@ -16,9 +16,10 @@ from db.database import get_db
 # Default BAS2026 account to SRU field mappings (fallback when no SIE4 SRU data)
 DEFAULT_SRU_MAPPINGS = {
     # Anläggningstillgångar (Balance Sheet - Assets)
-    "7416": list(range(1000, 1100)),  # Immateriella anläggningstillgångar
-    "7417": list(range(1100, 1300)),  # Materiella anläggningstillgångar
-    "7522": list(range(1300, 1400)),  # Finansiella anläggningstillgångar
+    "7201": list(range(1000, 1100)),  # Immateriella anläggningstillgångar
+    "7214": list(range(1100, 1200)),  # Byggnader och mark
+    "7215": list(range(1200, 1300)),  # Maskiner och inventarier
+    "7233": list(range(1300, 1400)),  # Övriga långfristiga värdepappersinnehav
     
     # Omsättningstillgångar
     "7241": list(range(1400, 1500)),  # Varulager
@@ -45,9 +46,11 @@ DEFAULT_SRU_MAPPINGS = {
     "7513": list(range(5000, 7000)),  # Övriga externa kostnader
     "7514": list(range(7000, 7700)),  # Personalkostnader
     "7515": list(range(7800, 8000)),  # Avskrivningar
-    "7520": list(range(8000, 8200)),  # Övriga rörelsekostnader
-    "7525": list(range(8200, 8400)),  # Resultat från övriga värdepapper
-    "7528": list(range(8400, 8500)),  # Övriga finansiella intäkter
+    "7517": list(range(8000, 8200)),  # Övriga rörelsekostnader
+    "7416/7520": list(range(8200, 8300)),  # Resultat från övriga finansiella anläggningstillgångar
+    "7417": list(range(8300, 8400)),  # Ränteintäkter
+    "7522": list(range(8400, 8500)),  # Räntekostnader
+    "7528": [8910, 8911, 8912, 8913, 8914, 8915, 8916, 8917, 8918, 8919],  # Skatt på årets resultat
 }
 
 
@@ -408,73 +411,50 @@ class SRUExportService:
     
     def _calculate_derived_fields(self, fields: Dict[str, SRUFieldValue]):
         """Calculate derived/summary fields from base fields."""
-        # Summa anläggningstillgångar (7420)
-        anlaggning = sum(
-            fields[f].value for f in ["7416", "7417", "7522"]
-            if f in fields
+        income_fields = ["7410", "7411", "7412", "7413", "7414", "7415", "7423", "7416", "7417", "7419", "7420", "7421", "7422"]
+        expense_fields = ["7510", "7511", "7512", "7513", "7514", "7515", "7516", "7517", "7518", "7519", "7530", "7520", "7521", "7522", "7524", "7525", "7526", "7527", "7528"]
+
+        result = sum(fields[f].value for f in income_fields if f in fields) - sum(
+            fields[f].value for f in expense_fields if f in fields
         )
-        if anlaggning != 0 and "7420" not in fields:
-            fields["7420"] = SRUFieldValue(
-                field_number="7420",
-                description="Summa anläggningstillgångar",
-                value=anlaggning,
-                source_accounts=["7416", "7417", "7522"],
-            )
-        
-        # Summa omsättningstillgångar (räkna samman lager, fordringar och likvida medel)
-        omsattning = sum(
-            fields[f].value for f in ["7241", "7251", "7261", "7263", "7271", "7281"]
-            if f in fields
-        )
-        
-        # Summa tillgångar (7450)
-        tillgangar = anlaggning + omsattning
-        if tillgangar != 0 and "7450" not in fields:
+        if result > 0 and "7450" not in fields:
             fields["7450"] = SRUFieldValue(
                 field_number="7450",
-                description="Summa tillgångar",
-                value=tillgangar,
-                source_accounts=["7420", "7241", "7251", "7261", "7263", "7271", "7281"],
+                description="Årets resultat, vinst",
+                value=result,
+                source_accounts=[f for f in income_fields + expense_fields if f in fields],
+                source_account_values=self._derived_source_account_values(fields, income_fields, expense_fields),
             )
-        
-        # Summa eget kapital (7301 + 7302)
-        eget_kapital = sum(
-            fields[f].value for f in ["7301", "7302"]
-            if f in fields
-        )
-        
-        # Summa obeskattade reserver (7321)
-        obeskattade = fields.get("7321", SRUFieldValue("7321", "", 0, [])).value
-        
-        # Summa avsättningar (7350)
-        avsattningar = fields.get("7350", SRUFieldValue("7350", "", 0, [])).value
-        
-        # Summa skulder (7365 + 7368 + 7369 + 7370)
-        skulder = sum(
-            fields[f].value for f in ["7365", "7368", "7369", "7370"]
-            if f in fields
-        )
-        
-        # Summa eget kapital och skulder (7550), used for validation only
-        # unless the source mapping explicitly supplied field 7550.
-        ek_skulder = eget_kapital + obeskattade + avsattningar + skulder
-        if ek_skulder != 0 and "7550" in fields:
+        elif result < 0 and "7550" not in fields:
             fields["7550"] = SRUFieldValue(
                 field_number="7550",
-                description="Summa eget kapital och skulder",
-                value=ek_skulder,
-                source_accounts=["7301", "7302", "7321", "7350", "7365", "7368", "7369", "7370"],
+                description="Årets resultat, förlust",
+                value=abs(result),
+                source_accounts=[f for f in income_fields + expense_fields if f in fields],
+                source_account_values=self._derived_source_account_values(fields, income_fields, expense_fields),
             )
-        
-        if "7450" in fields and "7550" in fields:
-            # Skillnad mellan tillgångar och skulder/EK - ska vara 0.
-            skillnad = fields["7450"].value - fields["7550"].value
-            fields["7670"] = SRUFieldValue(
-                field_number="7670",
-                description="Skillnad mellan tillgångar och skulder/EK",
-                value=skillnad,
-                source_accounts=["7450", "7550"],
-            )
+
+    def _derived_source_account_values(
+        self,
+        fields: Dict[str, SRUFieldValue],
+        positive_fields: List[str],
+        negative_fields: List[str],
+    ) -> List[Dict[str, int | str]]:
+        """Carry account-level contributors into derived result fields."""
+        values: List[Dict[str, int | str]] = []
+        for field_number in positive_fields:
+            field = fields.get(field_number)
+            for account in field.source_account_values or [] if field else []:
+                values.append(account)
+        for field_number in negative_fields:
+            field = fields.get(field_number)
+            for account in field.source_account_values or [] if field else []:
+                values.append({
+                    "account": account["account"],
+                    "name": account.get("name", ""),
+                    "value": -int(account["value"]),
+                })
+        return values
 
     def _calculate_ink2s_fields(self, fields: Dict[str, SRUFieldValue]):
         """Calculate INK2S tax adjustment fields from mapped INK2R fields."""
@@ -579,17 +559,16 @@ class SRUExportService:
         """Get human-readable descriptions for SRU fields."""
         return {
             # Balansräkning - Tillgångar
-            "7416": "Immateriella anläggningstillgångar",
-            "7417": "Materiella anläggningstillgångar",
-            "7522": "Finansiella anläggningstillgångar",
-            "7420": "Summa anläggningstillgångar",
+            "7201": "Koncessioner, patent, licenser, varumärken, hyresrätter, goodwill och liknande rättigheter",
+            "7214": "Byggnader och mark",
+            "7215": "Maskiner, inventarier och övriga materiella anläggningstillgångar",
+            "7233": "Ägarintresse i övriga företag och andra långfristiga värdepappersinnehav",
             "7241": "Råvaror och förnödenheter",
             "7251": "Kundfordringar",
             "7261": "Övriga fordringar",
             "7263": "Förutbetalda kostnader och upplupna intäkter",
             "7271": "Övriga kortfristiga placeringar",
             "7281": "Likvida medel",
-            "7450": "Summa tillgångar",
             
             # Balansräkning - Eget kapital och skulder
             "7301": "Eget kapital",
@@ -600,20 +579,22 @@ class SRUExportService:
             "7368": "Leverantörsskulder",
             "7369": "Skatteskulder",
             "7370": "Övriga kortfristiga skulder",
-            "7550": "Summa eget kapital och skulder",
-            "7670": "Skillnad mellan tillgångar och skulder/EK",
+            "7550": "Årets resultat, förlust",
             
             # Resultaträkning
             "7410": "Nettoomsättning",
             "7413": "Övriga rörelseintäkter",
+            "7416": "Resultat från övriga finansiella anläggningstillgångar",
+            "7417": "Övriga ränteintäkter och liknande resultatposter",
             "7511": "Material och varor",
             "7513": "Övriga externa kostnader",
             "7514": "Personalkostnader",
             "7515": "Av- och nedskrivningar",
-            "7520": "Övriga rörelsekostnader",
+            "7517": "Övriga rörelsekostnader",
+            "7520": "Resultat från övriga finansiella anläggningstillgångar",
             "7522": "Räntekostnader och liknande resultatposter",
-            "7525": "Resultat från övriga värdepapper",
-            "7528": "Övriga finansiella intäkter",
+            "7528": "Skatt på årets resultat",
+            "7450": "Årets resultat, vinst",
 
             # INK2S - Skattemässiga justeringar
             "7650": "Årets resultat, vinst",

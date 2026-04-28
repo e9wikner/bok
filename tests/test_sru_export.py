@@ -208,7 +208,7 @@ class TestSRUExportService:
         # All keys should be strings
         for field, accounts in DEFAULT_SRU_MAPPINGS.items():
             assert isinstance(field, str)
-            assert len(field) == 4  # 4-digit field codes
+            assert all(len(part) == 4 for part in field.split("/"))  # 4-digit field codes, optionally as alternatives
             assert isinstance(accounts, list)
             assert all(isinstance(a, int) for a in accounts)
 
