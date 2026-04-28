@@ -61,8 +61,10 @@ CREDIT_BALANCE_FIELDS = {
     "7370",  # Övriga kortfristiga skulder
     "7410",  # Nettoomsättning
     "7413",  # Övriga rörelseintäkter
+    "7416",  # Skattefria intäkter/justeringsintäkter
+    "7417",  # Finansiella intäkter i iOrdning-SRU
+    "7420",  # Bokslutsdispositioner/intäktsjusteringar
     "7525",  # Resultat från övriga värdepapper
-    "7528",  # Övriga finansiella intäkter
 }
 
 ALWAYS_POSITIVE_FIELDS = {
@@ -71,7 +73,12 @@ ALWAYS_POSITIVE_FIELDS = {
     "7514",  # Personalkostnader
     "7515",  # Av- och nedskrivningar
     "7520",  # Övriga rörelsekostnader
+    "7522",  # Räntekostnader och liknande resultatposter
+    "7528",  # Skatt på årets resultat i importerad iOrdning-SRU
 }
+
+INK2S_DERIVED_FIELDS = {"7650", "7651", "7653", "7754", "7654", "7670"}
+INK2R_ZERO_EXPORT_FIELDS = {"7321", "7370"}
 
 
 @dataclass
@@ -92,6 +99,12 @@ class SRUDeclaration:
     fiscal_year_start: str  # YYYYMMDD
     fiscal_year_end: str    # YYYYMMDD
     fields: Dict[str, SRUFieldValue]
+    contact_name: Optional[str] = None
+    address: Optional[str] = None
+    postnr: Optional[str] = None
+    postort: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
     
     def get_field(self, field_number: str) -> Optional[SRUFieldValue]:
         """Get value for a specific field."""
@@ -139,8 +152,11 @@ class SRUExportService:
             self.warnings.append(
                 f"Using {len(db_mappings)} SRU mappings from imported SIE4 file"
             )
-        
-        # Fill gaps with default BAS2026 mappings
+            return mappings
+
+        # Fill with default BAS2026 mappings only when there is no imported
+        # SIE4 mapping. Imported SRU data is form-software specific and must be
+        # treated as authoritative to avoid exporting accounts iOrdning left out.
         default_count = 0
         for sru_field, account_ranges in DEFAULT_SRU_MAPPINGS.items():
             for account_num in account_ranges:
@@ -237,11 +253,14 @@ class SRUExportService:
         # Calculate SRU fields
         fields = {}
         
-        # Group accounts by SRU field and sum balances
+        # Group accounts by resolved SRU field and sum balances. Imported SIE
+        # files may contain alternatives such as "7416/7520"; pick the field
+        # that makes the converted SRU value positive for the account balance.
         field_balances: Dict[str, List[Dict]] = {}
         for account_code, account_data in account_balances.items():
             sru_field = sru_mappings.get(account_code)
             if sru_field:
+                sru_field = self._resolve_sru_field(sru_field, account_data["balance"])
                 if sru_field not in field_balances:
                     field_balances[sru_field] = []
                 field_balances[sru_field].append({
@@ -266,6 +285,7 @@ class SRUExportService:
         
         # Calculate derived fields
         self._calculate_derived_fields(fields)
+        self._calculate_ink2s_fields(fields)
         
         # Validate balance sheet
         self._validate_balance_sheet(fields)
@@ -277,6 +297,12 @@ class SRUExportService:
             fiscal_year_start=fiscal_year["start_date"].replace("-", ""),
             fiscal_year_end=fiscal_year["end_date"].replace("-", ""),
             fields=fields,
+            contact_name=company.get("contact_name"),
+            address=company.get("address"),
+            postnr=company.get("postnr"),
+            postort=company.get("postort"),
+            email=company.get("email"),
+            phone=company.get("phone"),
         )
 
     def _get_company_info(self, db) -> Optional[Dict[str, str]]:
@@ -288,6 +314,12 @@ class SRUExportService:
                 return {
                     "org_number": values.get("org_number") or "0000000000",
                     "name": values.get("name") or "Test Company",
+                    "contact_name": values.get("contact_name"),
+                    "address": values.get("address"),
+                    "postnr": values.get("postnr"),
+                    "postort": values.get("postort"),
+                    "email": values.get("email"),
+                    "phone": values.get("phone"),
                 }
         except Exception:
             pass
@@ -313,12 +345,21 @@ class SRUExportService:
 
     def _to_sru_value(self, sru_field: str, balance_ore: int) -> int:
         """Convert internal debit-positive öre balance to SRU SEK value."""
-        value_sek = round(balance_ore / 100)
+        value_sek = int(balance_ore / 100)
         if sru_field in CREDIT_BALANCE_FIELDS:
             value_sek = -value_sek
         if sru_field in ALWAYS_POSITIVE_FIELDS:
             value_sek = abs(value_sek)
         return value_sek
+
+    def _resolve_sru_field(self, sru_field: str, balance_ore: int) -> str:
+        """Resolve imported slash alternatives like 7416/7520 for one account."""
+        if "/" not in sru_field:
+            return sru_field
+
+        first, second = [part.strip() for part in sru_field.split("/", 1)]
+        first_value = self._to_sru_value(first, balance_ore)
+        return first if first_value >= 0 else second
     
     def _calculate_derived_fields(self, fields: Dict[str, SRUFieldValue]):
         """Calculate derived/summary fields from base fields."""
@@ -327,7 +368,7 @@ class SRUExportService:
             fields[f].value for f in ["7416", "7417", "7522"]
             if f in fields
         )
-        if anlaggning != 0:
+        if anlaggning != 0 and "7420" not in fields:
             fields["7420"] = SRUFieldValue(
                 field_number="7420",
                 description="Summa anläggningstillgångar",
@@ -343,7 +384,7 @@ class SRUExportService:
         
         # Summa tillgångar (7450)
         tillgangar = anlaggning + omsattning
-        if tillgangar != 0:
+        if tillgangar != 0 and "7450" not in fields:
             fields["7450"] = SRUFieldValue(
                 field_number="7450",
                 description="Summa tillgångar",
@@ -369,9 +410,10 @@ class SRUExportService:
             if f in fields
         )
         
-        # Summa eget kapital och skulder (7550)
+        # Summa eget kapital och skulder (7550), used for validation only
+        # unless the source mapping explicitly supplied field 7550.
         ek_skulder = eget_kapital + obeskattade + avsattningar + skulder
-        if ek_skulder != 0:
+        if ek_skulder != 0 and "7550" in fields:
             fields["7550"] = SRUFieldValue(
                 field_number="7550",
                 description="Summa eget kapital och skulder",
@@ -379,17 +421,59 @@ class SRUExportService:
                 source_accounts=["7301", "7302", "7321", "7350", "7365", "7368", "7369", "7370"],
             )
         
-        # Skillnad mellan tillgångar och skulder/EK (7670) - ska vara 0
-        skillnad = tillgangar - ek_skulder
-        fields["7670"] = SRUFieldValue(
-            field_number="7670",
-            description="Skillnad mellan tillgångar och skulder/EK",
-            value=skillnad,
-            source_accounts=["7450", "7550"],
+        if "7450" in fields and "7550" in fields:
+            # Skillnad mellan tillgångar och skulder/EK - ska vara 0.
+            skillnad = fields["7450"].value - fields["7550"].value
+            fields["7670"] = SRUFieldValue(
+                field_number="7670",
+                description="Skillnad mellan tillgångar och skulder/EK",
+                value=skillnad,
+                source_accounts=["7450", "7550"],
+            )
+
+    def _calculate_ink2s_fields(self, fields: Dict[str, SRUFieldValue]):
+        """Calculate INK2S tax adjustment fields from mapped INK2R fields."""
+        descriptions = self._get_field_descriptions()
+
+        def add(field_number: str, value: int, source_accounts: List[str]):
+            if value != 0:
+                fields[field_number] = SRUFieldValue(
+                    field_number=field_number,
+                    description=descriptions.get(field_number, "Okänd fältkod"),
+                    value=value,
+                    source_accounts=source_accounts,
+                )
+
+        accounting_profit = fields.get("7450")
+        tax_expense = fields.get("7528")
+        non_deductible_interest = fields.get("7522")
+        tax_exempt_income = sum(
+            fields[f].value for f in ["7416", "7417"]
+            if f in fields
         )
+        periodiseringsfond_base = fields.get("7420")
+        standard_income = round(periodiseringsfond_base.value * 0.0196) if periodiseringsfond_base else 0
+
+        add("7650", accounting_profit.value if accounting_profit else 0, ["7450"])
+        add("7651", tax_expense.value if tax_expense else 0, ["7528"])
+        add("7653", non_deductible_interest.value if non_deductible_interest else 0, ["7522"])
+        add("7754", tax_exempt_income, ["7416", "7417"])
+        add("7654", standard_income, ["7420"])
+
+        taxable_result = (
+            (accounting_profit.value if accounting_profit else 0)
+            + (tax_expense.value if tax_expense else 0)
+            + (non_deductible_interest.value if non_deductible_interest else 0)
+            - tax_exempt_income
+            + standard_income
+        )
+        add("7670", taxable_result, ["7650", "7651", "7653", "7754", "7654"])
         
     def _validate_balance_sheet(self, fields: Dict[str, SRUFieldValue]):
         """Validate that balance sheet balances (assets = liabilities + equity)."""
+        if "7450" not in fields or "7550" not in fields:
+            return
+
         tillgangar = fields.get("7450", SRUFieldValue("7450", "", 0, [])).value
         ek_skulder = fields.get("7550", SRUFieldValue("7550", "", 0, [])).value
         skillnad = fields.get("7670", SRUFieldValue("7670", "", 0, [])).value
@@ -439,7 +523,17 @@ class SRUExportService:
             "7514": "Personalkostnader",
             "7515": "Av- och nedskrivningar",
             "7520": "Övriga rörelsekostnader",
+            "7522": "Räntekostnader och liknande resultatposter",
+            "7525": "Resultat från övriga värdepapper",
             "7528": "Övriga finansiella intäkter",
+
+            # INK2S - Skattemässiga justeringar
+            "7650": "Årets resultat, vinst",
+            "7651": "Skatt på årets resultat",
+            "7653": "Andra bokförda kostnader som inte ska dras av",
+            "7754": "Andra bokförda intäkter som inte ska tas upp",
+            "7654": "Schablonintäkt på kvarvarande periodiseringsfonder",
+            "7670": "Överskott av näringsverksamhet",
         }
     
     def generate_info_sru(self, declaration: SRUDeclaration) -> str:
@@ -448,6 +542,10 @@ class SRUExportService:
         
         This file contains metadata about the declaration.
         """
+        def optional_attr(name: str) -> Optional[str]:
+            value = getattr(declaration, name, None)
+            return value if isinstance(value, str) and value else None
+
         lines = [
             "#DATABESKRIVNING_START",
             "#PRODUKT SRU",
@@ -457,9 +555,18 @@ class SRUExportService:
             "#DATABESKRIVNING_SLUT",
             "#MEDIELEV_START",
             f"#ORGNR {declaration.company_org_number}",
-            f"#NAMN {declaration.company_name}",
-            "#MEDIELEV_SLUT",
+            f"#NAMN {optional_attr('contact_name') or declaration.company_name}",
         ]
+
+        optional_lines = [
+            ("#ADRESS", optional_attr("address")),
+            ("#POSTNR", optional_attr("postnr")),
+            ("#POSTORT", optional_attr("postort")),
+            ("#EMAIL", optional_attr("email")),
+            ("#TELEFON", optional_attr("phone")),
+        ]
+        lines.extend(f"{prefix} {value}" for prefix, value in optional_lines if value)
+        lines.append("#MEDIELEV_SLUT")
         
         return "\r\n".join(lines) + "\r\n"
     
@@ -472,16 +579,6 @@ class SRUExportService:
         lines = []
         timestamp = datetime.now().strftime("%Y%m%d %H%M%S")
 
-        # INK2 - Huvudblankett
-        lines.extend([
-            "#BLANKETT INK2-2025P4",
-            f"#IDENTITET {declaration.company_org_number} {timestamp}",
-            "#SYSTEMINFO BOKAI 1.0",
-            f"#UPPGIFT 7011 {declaration.company_org_number}",
-            f"#UPPGIFT 7012 {self._format_fiscal_year_period(declaration)}",
-        ])
-        lines.append("#BLANKETTSLUT")
-        
         # INK2R - Räkenskapsschema
         lines.extend([
             "#BLANKETT INK2R-2025P4",
@@ -495,8 +592,10 @@ class SRUExportService:
         
         # Add all field values (sorted by field number)
         for field_number in sorted(declaration.fields.keys()):
+            if field_number in INK2S_DERIVED_FIELDS:
+                continue
             field = declaration.fields[field_number]
-            if field.value != 0:  # Only include non-zero values
+            if field.value != 0 or field_number in INK2R_ZERO_EXPORT_FIELDS:
                 lines.append(f"#UPPGIFT {field_number} {field.value}")
         
         lines.append("#BLANKETTSLUT")
@@ -509,12 +608,20 @@ class SRUExportService:
         ])
         
         # Add balance sheet fields to INK2S
-        balance_fields = ["7650", "7651", "7653", "7754", "7654", "7670"]
-        for field_number in balance_fields:
+        for field_number in ["7011", "7012"]:
+            lines.append(
+                f"#UPPGIFT {field_number} "
+                f"{declaration.fiscal_year_start if field_number == '7011' else declaration.fiscal_year_end}"
+            )
+
+        for field_number in ["7650", "7651", "7653", "7754", "7654", "7670"]:
             if field_number in declaration.fields:
                 field = declaration.fields[field_number]
                 if field.value != 0:
                     lines.append(f"#UPPGIFT {field_number} {field.value}")
+
+        lines.append("#UPPGIFT 8041 X")
+        lines.append("#UPPGIFT 8045 X")
         
         lines.append("#BLANKETTSLUT")
         lines.append("#FIL_SLUT")

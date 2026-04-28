@@ -85,23 +85,29 @@ class TestSRUExportService:
             fields={
                 "7410": SRUFieldValue("7410", "Nettoomsättning", 100000, ["3010"]),
                 "7513": SRUFieldValue("7513", "Kostnader", 50000, ["5000", "6000"]),
+                "7650": SRUFieldValue("7650", "Årets resultat", 25000, ["7450"]),
+                "7321": SRUFieldValue("7321", "Periodiseringsfonder", 0, ["2121"]),
             }
         )
 
         content = service.generate_blanketter_sru(declaration)
+        ink2r_part = content.split("#BLANKETT INK2R-2025P4", 1)[1].split("#BLANKETTSLUT", 1)[0]
+        ink2s_part = content.split("#BLANKETT INK2S-2025P4", 1)[1].split("#BLANKETTSLUT", 1)[0]
 
-        assert "#BLANKETT INK2-2025P4" in content
+        assert "#BLANKETT INK2-2025P4" not in content
         assert "#BLANKETT INK2R-2025P4" in content
         assert "#BLANKETT INK2S-2025P4" in content
-        assert content.index("#BLANKETT INK2-2025P4") < content.index("#BLANKETT INK2R-2025P4")
         assert content.index("#BLANKETT INK2R-2025P4") < content.index("#BLANKETT INK2S-2025P4")
         assert "#IDENTITET 5568194731" in content
-        assert "#UPPGIFT 7011 5568194731" in content  # Main form org number
-        assert "#UPPGIFT 7012 202501-1231" in content  # Main form fiscal year
         assert "#UPPGIFT 7011 20250101" in content  # Fiscal year start
         assert "#UPPGIFT 7012 20251231" in content  # Fiscal year end
         assert "#UPPGIFT 7410 100000" in content
         assert "#UPPGIFT 7513 50000" in content
+        assert "#UPPGIFT 7321 0" in ink2r_part
+        assert "#UPPGIFT 7650 25000" not in ink2r_part
+        assert "#UPPGIFT 7650 25000" in ink2s_part
+        assert "#UPPGIFT 8041 X" in ink2s_part
+        assert "#UPPGIFT 8045 X" in ink2s_part
         assert "#BLANKETTSLUT" in content
         assert "#FIL_SLUT" in content
         assert "\r\n" in content  # CRLF line endings
@@ -147,7 +153,8 @@ class TestSRUExportService:
 
         company = service._get_company_info(mock_db)
 
-        assert company == {"org_number": "556819-4731", "name": "Test AB"}
+        assert company["org_number"] == "556819-4731"
+        assert company["name"] == "Test AB"
 
     def test_default_sru_mappings_structure(self):
         """Test that default mappings have correct structure."""
@@ -162,17 +169,27 @@ class TestSRUExportService:
         """Test that credit-normal SRU fields are sign-flipped for export."""
         assert service._to_sru_value("7301", -100000) == 1000
         assert service._to_sru_value("7410", -250000) == 2500
+        assert service._to_sru_value("7410", -113931946) == 1139319
 
     def test_expense_fields_are_exported_as_positive_values(self, service):
         """Test that cost fields are emitted as absolute values."""
         assert service._to_sru_value("7513", 100000) == 1000
         assert service._to_sru_value("7513", -100000) == 1000
+        assert service._to_sru_value("7513", 13174174) == 131741
+        assert service._to_sru_value("7528", 11497500) == 114975
+
+    def test_resolve_slash_sru_mapping_uses_positive_export_side(self, service):
+        """Test that imported iOrdning slash mappings resolve to real SRU fields."""
+        assert service._resolve_sru_field("7416/7520", -12000000) == "7416"
+        assert service._resolve_sru_field("7450/7550", 56123202) == "7450"
 
     def test_derived_fields_do_not_overwrite_base_sru_fields(self, service):
         """Test that derived calculations preserve mapped SRU field values."""
         from services.sru_export import SRUFieldValue
 
         fields = {
+            "7420": SRUFieldValue("7420", "Periodiseringsfond", 190000, ["8819"]),
+            "7450": SRUFieldValue("7450", "Årets resultat", 561232, ["8999"]),
             "7368": SRUFieldValue("7368", "Leverantörsskulder", 12000, ["2440"]),
             "7410": SRUFieldValue("7410", "Nettoomsättning", 100000, ["3010"]),
             "7513": SRUFieldValue("7513", "Övriga externa kostnader", 20000, ["6540"]),
@@ -181,6 +198,8 @@ class TestSRUExportService:
 
         service._calculate_derived_fields(fields)
 
+        assert fields["7420"].value == 190000
+        assert fields["7450"].value == 561232
         assert fields["7368"].description == "Leverantörsskulder"
         assert fields["7368"].value == 12000
         assert fields["7410"].description == "Nettoomsättning"
@@ -189,6 +208,28 @@ class TestSRUExportService:
         assert fields["7513"].value == 20000
         assert fields["7514"].description == "Personalkostnader"
         assert fields["7514"].value == 30000
+
+    def test_ink2s_fields_are_derived_from_iordning_sru_values(self, service):
+        """Test INK2S tax adjustments match the iOrdning 2025 reference logic."""
+        from services.sru_export import SRUFieldValue
+
+        fields = {
+            "7450": SRUFieldValue("7450", "Årets resultat", 561232, ["8999"]),
+            "7528": SRUFieldValue("7528", "Skatt på årets resultat", 114975, ["8910"]),
+            "7522": SRUFieldValue("7522", "Andra ej avdragsgilla kostnader", 270, ["8423"]),
+            "7416": SRUFieldValue("7416", "Skattefria intäkter", 120000, ["8226"]),
+            "7417": SRUFieldValue("7417", "Skattefria intäkter", 2069, ["8310", "8314"]),
+            "7420": SRUFieldValue("7420", "Periodiseringsfond", 190000, ["8819"]),
+        }
+
+        service._calculate_ink2s_fields(fields)
+
+        assert fields["7650"].value == 561232
+        assert fields["7651"].value == 114975
+        assert fields["7653"].value == 270
+        assert fields["7754"].value == 122069
+        assert fields["7654"].value == 3724
+        assert fields["7670"].value == 558132
 
 
 class TestSIE4ParserSRU:
@@ -229,6 +270,29 @@ class TestSIE4ParserSRU:
         assert data.sru_mappings["1920"] == "7281"
         assert "3010" in data.sru_mappings
         assert data.sru_mappings["3010"] == "7410"
+
+    def test_parse_content_extracts_orgnr_and_adress(self):
+        """Test iOrdning-style company metadata tags."""
+        from services.sie4_import import SIE4Parser
+
+        content = """#FLAGGA 0
+#FORMAT PC8
+#FNAMN "Stefan Wikner Consulting AB"
+#ORGNR 556819-4731
+#ADRESS "Stefan Wikner Consulting AB" "Planäsvägen 7" "41749 Göteborg" 070-2233674
+#SIETYP 4
+"""
+
+        parser = SIE4Parser()
+        data = parser.parse_content(content)
+
+        assert data.company.name == "Stefan Wikner Consulting AB"
+        assert data.company.org_number == "556819-4731"
+        assert data.company.contact_name == "Stefan Wikner Consulting AB"
+        assert data.company.address == "Planäsvägen 7"
+        assert data.company.postnr == "41749"
+        assert data.company.postort == "Göteborg"
+        assert data.company.phone == "070-2233674"
 
 
 class TestSRUFieldDescriptions:

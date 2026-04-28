@@ -52,7 +52,10 @@ class SIECompany:
 
     org_number: Optional[str] = None
     name: Optional[str] = None
+    contact_name: Optional[str] = None
     address: Optional[str] = None
+    postnr: Optional[str] = None
+    postort: Optional[str] = None
     phone: Optional[str] = None
 
 
@@ -130,16 +133,24 @@ class SIE4Parser:
                         data.company = SIECompany()
                     data.company.name = self._parse_string(line[7:])
 
-                elif line.startswith("#FORGN "):
+                elif line.startswith("#FORGN ") or line.startswith("#ORGNR "):
                     if not data.company:
                         data.company = SIECompany()
-                    data.company.org_number = self._parse_org_number(line[7:])
+                    data.company.org_number = self._parse_org_number(line.split(" ", 1)[1])
 
-                elif line.startswith("#FADRESS "):
+                elif line.startswith("#FADRESS ") or line.startswith("#ADRESS "):
                     if not data.company:
                         data.company = SIECompany()
-                    parts = self._parse_array(line[8:])
-                    data.company.address = ", ".join(parts[:3])
+                    parts = self._parse_array(line.split(" ", 1)[1])
+                    if len(parts) > 0:
+                        data.company.contact_name = parts[0]
+                    if len(parts) > 1:
+                        data.company.address = parts[1]
+                    if len(parts) > 2:
+                        postal = parts[2].split(" ", 1)
+                        data.company.postnr = postal[0]
+                        if len(postal) > 1:
+                            data.company.postort = postal[1]
                     if len(parts) > 3:
                         data.company.phone = parts[3]
 
@@ -469,6 +480,9 @@ class SIE4Importer:
 
         success = True
 
+        if data.company:
+            self._import_company_info(data.company)
+
         # Import accounts
         for account in data.accounts:
             if self._import_account(account):
@@ -489,6 +503,40 @@ class SIE4Importer:
                 self.imported["vouchers"] += 1
 
         return success
+
+    def _import_company_info(self, company: SIECompany) -> bool:
+        """Import company metadata from the SIE file into the local DB."""
+        from db.database import get_db
+
+        values = {
+            "name": company.name,
+            "org_number": company.org_number,
+            "contact_name": company.contact_name,
+            "address": company.address,
+            "postnr": company.postnr,
+            "postort": company.postort,
+            "phone": company.phone,
+        }
+        try:
+            db = get_db()
+            for key, value in values.items():
+                if not value:
+                    continue
+                db.execute(
+                    """
+                    INSERT INTO company_info (key, value, updated_at)
+                    VALUES (?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(key) DO UPDATE SET
+                        value = excluded.value,
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (key, value),
+                )
+            db.commit()
+            return True
+        except Exception as e:
+            self.errors.append(f"Failed to import company info: {str(e)}")
+            return False
 
     def _import_account(self, account: SIEAccount) -> bool:
         """Import a single account via API."""

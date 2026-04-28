@@ -222,22 +222,22 @@ const INK2S_SECTIONS: DeclarationSection[] = [
   {
     title: "Årets resultat",
     rows: [
-      { code: "4.1", label: "Årets resultat, vinst", value: ({ accountingResult }) => Math.max(accountingResult, 0), sign: "+" },
+      { code: "4.1", label: "Årets resultat, vinst", sru: "7650", sign: "+" },
       { code: "4.2", label: "Årets resultat, förlust", value: ({ accountingResult }) => Math.min(accountingResult, 0), sign: "-" },
     ],
   },
   {
     title: "Bokförda kostnader och intäkter",
     rows: [
-      { code: "4.3a", label: "Bokförda kostnader som inte ska dras av: skatt på årets resultat", sign: "+" },
+      { code: "4.3a", label: "Bokförda kostnader som inte ska dras av: skatt på årets resultat", sru: "7651", sign: "+" },
       { code: "4.3b", label: "Bokförda kostnader som inte ska dras av: nedskrivning av finansiella tillgångar", sign: "+" },
-      { code: "4.3c", label: "Bokförda kostnader som inte ska dras av: andra bokförda kostnader", sign: "+" },
+      { code: "4.3c", label: "Bokförda kostnader som inte ska dras av: andra bokförda kostnader", sru: "7653", sign: "+" },
       { code: "4.4a", label: "Kostnader som ska dras av men som inte ingår i det redovisade resultatet: lämnade koncernbidrag", sign: "-" },
       { code: "4.4b", label: "Kostnader som ska dras av men som inte ingår i det redovisade resultatet: andra ej bokförda kostnader", sign: "-" },
       { code: "4.5a", label: "Bokförda intäkter som inte ska tas upp: ackordsvinster", sign: "-" },
       { code: "4.5b", label: "Bokförda intäkter som inte ska tas upp: utdelning", sign: "-" },
-      { code: "4.5c", label: "Bokförda intäkter som inte ska tas upp: andra bokförda intäkter", sign: "-" },
-      { code: "4.6a", label: "Intäkter som ska tas upp men som inte ingår i det redovisade resultatet: schablonintäkt på kvarvarande periodiseringsfonder", sign: "+" },
+      { code: "4.5c", label: "Bokförda intäkter som inte ska tas upp: andra bokförda intäkter", sru: "7754", sign: "-" },
+      { code: "4.6a", label: "Intäkter som ska tas upp men som inte ingår i det redovisade resultatet: schablonintäkt på kvarvarande periodiseringsfonder", sru: "7654", sign: "+" },
       { code: "4.6b", label: "Intäkter som ska tas upp men som inte ingår i det redovisade resultatet: schablonintäkt på investeringsfonder", sign: "+" },
       { code: "4.6c", label: "Intäkter som ska tas upp men som inte ingår i det redovisade resultatet: mottagna koncernbidrag", sign: "+" },
       { code: "4.6d", label: "Intäkter som ska tas upp men som inte ingår i det redovisade resultatet: intäkt negativ justerad anskaffningsutgift", sign: "+" },
@@ -264,7 +264,7 @@ const INK2S_SECTIONS: DeclarationSection[] = [
       { code: "4.13", label: "Andra skattemässiga justeringar av resultatet", sign: "+" },
       { code: "4.14a", label: "Underskott: outnyttjat underskott från föregående år", sign: "-" },
       { code: "4.14b", label: "Underskott: reduktion av underskott med hänsyn till exempelvis ägarförändring eller ackord", sign: "+" },
-      { code: "4.15", label: "Överskott (flyttas till p. 1.1)", value: ({ taxableResult }) => Math.max(taxableResult, 0), sign: "(+) =" },
+      { code: "4.15", label: "Överskott (flyttas till p. 1.1)", sru: "7670", sign: "(+) =" },
       { code: "4.16", label: "Underskott (flyttas till p. 1.2)", value: ({ taxableResult }) => Math.min(taxableResult, 0), sign: "(-) =" },
     ],
   },
@@ -363,8 +363,9 @@ export default function Ink2Page() {
   };
 
   const sumFields = (fields: string[]): number => fields.reduce((sum, field) => sum + getFieldValue(field), 0);
-  const accountingResult = sumFields(["7410", "7413", "7528"]) - sumFields(["7511", "7513", "7514", "7515", "7520"]);
-  const taxableResult = accountingResult;
+  const computedAccountingResult = sumFields(["7410", "7413", "7528"]) - sumFields(["7511", "7513", "7514", "7515", "7520"]);
+  const accountingResult = getFieldValue("7650") || computedAccountingResult;
+  const taxableResult = getFieldValue("7670") || accountingResult;
   const reportContext: ReportContext = { getFieldValue, accountingResult, taxableResult };
 
   const formatAmount = (value?: number): string => {

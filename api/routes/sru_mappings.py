@@ -139,9 +139,9 @@ async def create_sru_mapping(
             """
             UPDATE account_sru_mappings 
             SET sru_field = ?, updated_at = ?
-            WHERE id = ?
+            WHERE fiscal_year_id = ? AND account_code = ?
             """,
-            (mapping.sru_field, now, existing["id"])
+            (mapping.sru_field, now, fiscal_year_id, account_code)
         )
         db.commit()
         return {
@@ -310,9 +310,9 @@ async def bulk_create_sru_mappings(
                     """
                     UPDATE account_sru_mappings 
                     SET sru_field = ?, updated_at = ?
-                    WHERE id = ?
+                    WHERE fiscal_year_id = ? AND account_code = ?
                     """,
-                    (mapping.sru_field, now, existing["id"])
+                    (mapping.sru_field, now, fiscal_year_id, account_code)
                 )
                 updated_count += 1
             else:
