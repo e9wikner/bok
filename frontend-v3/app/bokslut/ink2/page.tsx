@@ -390,14 +390,6 @@ export default function Ink2Page() {
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[640px]">
-          <thead>
-            <tr className="border-b border-border/70 text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="w-24 px-4 py-2">Fält</th>
-              <th className="px-4 py-2">Benämning enligt Skatteverkets blankett</th>
-              <th className="w-20 px-4 py-2 text-center">Tecken</th>
-              <th className="w-36 px-4 py-2 text-right">Belopp</th>
-            </tr>
-          </thead>
           <tbody>
             {section.rows.map((row, index) => {
               const value = rowValue(row);
