@@ -21,10 +21,11 @@ DEFAULT_SRU_MAPPINGS = {
     "7522": list(range(1300, 1400)),  # Finansiella anläggningstillgångar
     
     # Omsättningstillgångar
-    "7251": list(range(1400, 1500)),  # Varulager
-    "7261": list(range(1500, 1600)),  # Kundfordringar
-    "7263": list(range(1600, 1700)),  # Övriga fordringar
-    "7271": list(range(1700, 1800)),  # Förutbetalda kostnader
+    "7241": list(range(1400, 1500)),  # Varulager
+    "7251": list(range(1500, 1600)),  # Kundfordringar
+    "7261": list(range(1600, 1700)),  # Övriga fordringar
+    "7263": list(range(1700, 1800)),  # Förutbetalda kostnader
+    "7271": list(range(1800, 1900)),  # Övriga kortfristiga placeringar
     "7281": list(range(1900, 2000)),  # Likvida medel
     
     # Eget kapital och skulder
@@ -183,8 +184,28 @@ class SRUExportService:
         Balance is in öre (positive = debit, negative = credit).
         """
         db = get_db()
+        fiscal_year = db.execute(
+            "SELECT start_date, end_date FROM fiscal_years WHERE id = ?",
+            (fiscal_year_id,),
+        ).fetchone()
+        if not fiscal_year:
+            raise ValueError(f"Fiscal year {fiscal_year_id} not found")
+
+        has_opening_balance = (
+            db.execute(
+                """
+                SELECT COUNT(*) as count
+                FROM vouchers
+                WHERE fiscal_year_id = ? AND series = 'IB' AND status = 'posted'
+                """,
+                (fiscal_year_id,),
+            ).fetchone()["count"]
+            > 0
+        )
         
-        # Get all accounts with their voucher row totals
+        # Balance-sheet accounts need closing balance (UB). If there is no IB
+        # voucher for the year, carry forward prior posted vouchers as opening.
+        # Income-statement accounts must only use the selected fiscal year.
         cursor = db.execute(
             """
             SELECT 
@@ -192,19 +213,32 @@ class SRUExportService:
                 a.name,
                 a.account_type,
                 COALESCE(SUM(CASE 
-                    WHEN p.id IS NULL THEN 0
-                    WHEN vr.debit > 0 THEN vr.debit
-                    WHEN vr.credit > 0 THEN -vr.credit
+                    WHEN v.id IS NULL THEN 0
+                    WHEN CAST(a.code AS INTEGER) BETWEEN 1000 AND 2999 THEN
+                        CASE
+                            WHEN ? = 1 AND v.fiscal_year_id = ? THEN
+                                CASE WHEN vr.debit > 0 THEN vr.debit WHEN vr.credit > 0 THEN -vr.credit ELSE 0 END
+                            WHEN ? = 0 AND v.date <= ? THEN
+                                CASE WHEN vr.debit > 0 THEN vr.debit WHEN vr.credit > 0 THEN -vr.credit ELSE 0 END
+                            ELSE 0
+                        END
+                    WHEN v.fiscal_year_id = ? THEN
+                        CASE WHEN vr.debit > 0 THEN vr.debit WHEN vr.credit > 0 THEN -vr.credit ELSE 0 END
                     ELSE 0
                 END), 0) as balance
             FROM accounts a
             LEFT JOIN voucher_rows vr ON a.code = vr.account_code
-            LEFT JOIN vouchers v ON vr.voucher_id = v.id
-            LEFT JOIN periods p ON v.period_id = p.id AND p.fiscal_year_id = ?
+            LEFT JOIN vouchers v ON vr.voucher_id = v.id AND v.status = 'posted'
             GROUP BY a.code, a.name, a.account_type
             ORDER BY a.code
             """,
-            (fiscal_year_id,)
+            (
+                1 if has_opening_balance else 0,
+                fiscal_year_id,
+                1 if has_opening_balance else 0,
+                fiscal_year["end_date"],
+                fiscal_year_id,
+            )
         )
         
         accounts = {}
@@ -387,9 +421,9 @@ class SRUExportService:
                 source_accounts=["7416", "7417", "7522"],
             )
         
-        # Summa omsättningstillgångar (räkna samman 7251, 7261, 7263, 7271, 7281)
+        # Summa omsättningstillgångar (räkna samman lager, fordringar och likvida medel)
         omsattning = sum(
-            fields[f].value for f in ["7251", "7261", "7263", "7271", "7281"]
+            fields[f].value for f in ["7241", "7251", "7261", "7263", "7271", "7281"]
             if f in fields
         )
         
@@ -400,7 +434,7 @@ class SRUExportService:
                 field_number="7450",
                 description="Summa tillgångar",
                 value=tillgangar,
-                source_accounts=["7420", "7251", "7261", "7263", "7271", "7281"],
+                source_accounts=["7420", "7241", "7251", "7261", "7263", "7271", "7281"],
             )
         
         # Summa eget kapital (7301 + 7302)
@@ -549,10 +583,11 @@ class SRUExportService:
             "7417": "Materiella anläggningstillgångar",
             "7522": "Finansiella anläggningstillgångar",
             "7420": "Summa anläggningstillgångar",
-            "7251": "Varulager",
-            "7261": "Kundfordringar",
-            "7263": "Övriga fordringar",
-            "7271": "Förutbetalda kostnader",
+            "7241": "Råvaror och förnödenheter",
+            "7251": "Kundfordringar",
+            "7261": "Övriga fordringar",
+            "7263": "Förutbetalda kostnader och upplupna intäkter",
+            "7271": "Övriga kortfristiga placeringar",
             "7281": "Likvida medel",
             "7450": "Summa tillgångar",
             

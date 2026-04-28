@@ -1,6 +1,7 @@
 """Tests for SRU export functionality."""
 
 import pytest
+import sqlite3
 from datetime import date
 from decimal import Decimal
 from unittest.mock import Mock, patch, MagicMock
@@ -41,6 +42,8 @@ class TestSRUExportService:
         # Check specific mappings
         assert mappings["1920"] == "7281"  # Bankkonto -> Likvida medel
         assert mappings["3010"] == "7410"  # Försäljning -> Nettoomsättning
+        assert mappings["1500"] == "7251"  # Kundfordringar -> Kundfordringar
+        assert mappings["1630"] == "7261"  # Skattekonto -> Övriga fordringar
 
     def test_get_sru_mappings_prefers_db_over_defaults(self, service, mock_db):
         """Test that DB mappings override defaults."""
@@ -56,6 +59,47 @@ class TestSRUExportService:
 
         # DB mapping should take precedence
         assert mappings["1920"] == "9999"
+
+    def test_calculate_account_balances_carries_forward_opening_for_balance_accounts(self):
+        """Balance accounts use closing balance, while result accounts stay in fiscal year."""
+        db = sqlite3.connect(":memory:")
+        db.row_factory = sqlite3.Row
+        db.executescript(
+            """
+            CREATE TABLE fiscal_years (id TEXT PRIMARY KEY, start_date DATE, end_date DATE);
+            CREATE TABLE accounts (code TEXT PRIMARY KEY, name TEXT, account_type TEXT);
+            CREATE TABLE vouchers (
+                id TEXT PRIMARY KEY,
+                series TEXT,
+                date DATE,
+                fiscal_year_id TEXT,
+                status TEXT
+            );
+            CREATE TABLE voucher_rows (
+                voucher_id TEXT,
+                account_code TEXT,
+                debit INTEGER,
+                credit INTEGER
+            );
+            INSERT INTO fiscal_years VALUES ('fy-2026', '2026-01-01', '2026-12-31');
+            INSERT INTO accounts VALUES ('1500', 'Kundfordringar', 'asset');
+            INSERT INTO accounts VALUES ('3010', 'Försäljning', 'income');
+            INSERT INTO vouchers VALUES ('prior', 'A', '2025-12-31', 'fy-2025', 'posted');
+            INSERT INTO vouchers VALUES ('sent', 'A', '2026-02-05', 'fy-2026', 'posted');
+            INSERT INTO vouchers VALUES ('paid', 'A', '2026-03-01', 'fy-2026', 'posted');
+            INSERT INTO voucher_rows VALUES ('prior', '1500', 32000000, 0);
+            INSERT INTO voucher_rows VALUES ('sent', '1500', 9200000, 0);
+            INSERT INTO voucher_rows VALUES ('paid', '1500', 0, 4800000);
+            INSERT INTO voucher_rows VALUES ('prior', '3010', 0, 10000000);
+            INSERT INTO voucher_rows VALUES ('sent', '3010', 0, 9200000);
+            """
+        )
+
+        with patch("services.sru_export.get_db", return_value=db):
+            balances = SRUExportService().calculate_account_balances("fy-2026")
+
+        assert balances["1500"]["balance"] == 36400000
+        assert balances["3010"]["balance"] == -9200000
 
     def test_generate_info_sru(self, service):
         """Test INFO.SRU file generation."""
@@ -128,7 +172,10 @@ class TestSRUExportService:
             "name": "Test AB",
         }[key]
 
-        mock_db.execute.return_value.fetchone.side_effect = [mock_fy, mock_company]
+        mock_ib_count = Mock()
+        mock_ib_count.__getitem__ = lambda self, key: {"count": 0}[key]
+
+        mock_db.execute.return_value.fetchone.side_effect = [mock_fy, mock_company, mock_fy, mock_ib_count]
         mock_db.execute.return_value.fetchall.return_value = []
 
         zip_bytes, filename, errors, warnings = service.export_sru_zip("fy-123")
