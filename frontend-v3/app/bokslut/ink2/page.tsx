@@ -45,7 +45,7 @@ type TabType = "ink2" | "ink2r" | "ink2s" | "mappings";
 interface DeclarationRow {
   code: string;
   label: string;
-  sru?: string;
+  sru?: string | string[];
   value?: (ctx: ReportContext) => number;
   sign?: "+" | "-" | "(+) =" | "(-) =";
   note?: string;
@@ -118,36 +118,36 @@ const INK2R_SECTIONS: DeclarationSection[] = [
   {
     title: "Tillgångar / Anläggningstillgångar",
     rows: [
-      { code: "2.1", label: "Koncessioner, patent, licenser, varumärken, hyresrätter, goodwill och liknande rättigheter", sru: "7416" },
-      { code: "2.2", label: "Förskott avseende immateriella anläggningstillgångar" },
-      { code: "2.3", label: "Byggnader och mark", sru: "7417" },
-      { code: "2.4", label: "Maskiner, inventarier och övriga materiella anläggningstillgångar" },
-      { code: "2.5", label: "Förbättringsutgifter på annans fastighet" },
-      { code: "2.6", label: "Pågående nyanläggningar och förskott avseende materiella anläggningstillgångar" },
-      { code: "2.7", label: "Andelar i koncernföretag", sru: "7522" },
-      { code: "2.8", label: "Andelar i intresseföretag" },
-      { code: "2.9", label: "Fordringar hos koncern- och intresseföretag" },
-      { code: "2.10", label: "Andra långfristiga värdepappersinnehav" },
-      { code: "2.11", label: "Lån till delägare eller närstående" },
-      { code: "2.12", label: "Andra långfristiga fordringar" },
+      { code: "2.1", label: "Koncessioner, patent, licenser, varumärken, hyresrätter, goodwill och liknande rättigheter", sru: "7201" },
+      { code: "2.2", label: "Förskott avseende immateriella anläggningstillgångar", sru: "7202" },
+      { code: "2.3", label: "Byggnader och mark", sru: "7214" },
+      { code: "2.4", label: "Maskiner, inventarier och övriga materiella anläggningstillgångar", sru: "7215" },
+      { code: "2.5", label: "Förbättringsutgifter på annans fastighet", sru: "7216" },
+      { code: "2.6", label: "Pågående nyanläggningar och förskott avseende materiella anläggningstillgångar", sru: "7217" },
+      { code: "2.7", label: "Andelar i koncernföretag", sru: "7230" },
+      { code: "2.8", label: "Andelar i intresseföretag och gemensamt styrda företag", sru: "7231" },
+      { code: "2.9", label: "Ägarintresse i övriga företag och andra långfristiga värdepappersinnehav", sru: "7233" },
+      { code: "2.10", label: "Fordringar hos koncern-, intresse- och gemensamt styrda företag", sru: "7232" },
+      { code: "2.11", label: "Lån till delägare eller närstående", sru: "7234" },
+      { code: "2.12", label: "Fordringar hos övriga företag som det finns ett ägarintresse i och andra långfristiga fordringar", sru: "7235" },
     ],
   },
   {
     title: "Omsättningstillgångar",
     rows: [
-      { code: "2.13", label: "Råvaror och förnödenheter", sru: "7251" },
-      { code: "2.14", label: "Varor under tillverkning" },
-      { code: "2.15", label: "Färdiga varor och handelsvaror" },
-      { code: "2.16", label: "Övriga lagertillgångar" },
-      { code: "2.17", label: "Pågående arbeten för annans räkning" },
-      { code: "2.18", label: "Förskott till leverantörer" },
-      { code: "2.19", label: "Kundfordringar", sru: "7261" },
-      { code: "2.20", label: "Fordringar hos koncern- och intresseföretag" },
-      { code: "2.21", label: "Övriga fordringar", sru: "7263" },
-      { code: "2.22", label: "Upparbetad men ej fakturerad intäkt" },
-      { code: "2.23", label: "Förutbetalda kostnader och upplupna intäkter", sru: "7271" },
-      { code: "2.24", label: "Andelar i koncernföretag" },
-      { code: "2.25", label: "Övriga kortfristiga placeringar" },
+      { code: "2.13", label: "Råvaror och förnödenheter", sru: "7241" },
+      { code: "2.14", label: "Varor under tillverkning", sru: "7242" },
+      { code: "2.15", label: "Färdiga varor och handelsvaror", sru: "7243" },
+      { code: "2.16", label: "Övriga lagertillgångar", sru: "7244" },
+      { code: "2.17", label: "Pågående arbeten för annans räkning", sru: "7245" },
+      { code: "2.18", label: "Förskott till leverantörer", sru: "7246" },
+      { code: "2.19", label: "Kundfordringar", sru: "7251" },
+      { code: "2.20", label: "Fordringar hos koncern-, intresse- och gemensamt styrda företag", sru: "7252" },
+      { code: "2.21", label: "Fordringar hos övriga företag som det finns ett ägarintresse i och övriga fordringar", sru: "7261" },
+      { code: "2.22", label: "Upparbetad men ej fakturerad intäkt", sru: "7262" },
+      { code: "2.23", label: "Förutbetalda kostnader och upplupna intäkter", sru: "7263" },
+      { code: "2.24", label: "Andelar i koncernföretag", sru: "7270" },
+      { code: "2.25", label: "Övriga kortfristiga placeringar", sru: "7271" },
       { code: "2.26", label: "Kassa, bank och redovisningsmedel", sru: "7281" },
     ],
   },
@@ -162,65 +162,64 @@ const INK2R_SECTIONS: DeclarationSection[] = [
     title: "Obeskattade reserver och avsättningar",
     rows: [
       { code: "2.29", label: "Periodiseringsfonder", sru: "7321" },
-      { code: "2.30", label: "Ackumulerade överavskrivningar" },
-      { code: "2.31", label: "Övriga obeskattade reserver" },
-      { code: "2.32", label: "Avsättning för pensioner och liknande förpliktelser enligt lag (1967:531) om tryggande av pensionsutfästelse m.m.", sru: "7350" },
-      { code: "2.33", label: "Övriga avsättningar för pensioner och liknande förpliktelser" },
-      { code: "2.34", label: "Övriga avsättningar" },
+      { code: "2.30", label: "Ackumulerade överavskrivningar", sru: "7322" },
+      { code: "2.31", label: "Övriga obeskattade reserver", sru: "7323" },
+      { code: "2.32", label: "Avsättningar för pensioner och liknande förpliktelser enligt lagen (1967:531) om tryggande av pensionsutfästelser m.m.", sru: "7331" },
+      { code: "2.33", label: "Övriga avsättningar för pensioner och liknande förpliktelser", sru: "7332" },
+      { code: "2.34", label: "Övriga avsättningar", sru: "7333" },
     ],
   },
   {
     title: "Skulder",
     rows: [
-      { code: "2.35", label: "Obligationslån", sru: "7365" },
-      { code: "2.36", label: "Checkräkningskredit" },
-      { code: "2.37", label: "Övriga skulder till kreditinstitut" },
-      { code: "2.38", label: "Skulder till koncern- och intresseföretag" },
-      { code: "2.39", label: "Övriga skulder" },
-      { code: "2.40", label: "Checkräkningskredit" },
-      { code: "2.41", label: "Övriga skulder till kreditinstitut" },
-      { code: "2.42", label: "Förskott från kunder" },
-      { code: "2.43", label: "Pågående arbeten för annans räkning" },
-      { code: "2.44", label: "Fakturerad men ej upparbetad intäkt" },
-      { code: "2.45", label: "Leverantörsskulder", sru: "7368" },
-      { code: "2.46", label: "Växelskulder" },
-      { code: "2.47", label: "Skulder till koncern- och intresseföretag" },
-      { code: "2.48", label: "Skatteskulder", sru: "7369" },
-      { code: "2.49", label: "Övriga skulder", sru: "7370" },
-      { code: "2.50", label: "Upplupna kostnader och förutbetalda intäkter" },
+      { code: "2.35", label: "Obligationslån", sru: "7350" },
+      { code: "2.36", label: "Checkräkningskredit", sru: "7351" },
+      { code: "2.37", label: "Övriga skulder till kreditinstitut", sru: "7352" },
+      { code: "2.38", label: "Skulder till koncern-, intresse- och gemensamt styrda företag", sru: "7353" },
+      { code: "2.39", label: "Skulder till övriga företag som det finns ett ägarintresse i och övriga skulder", sru: "7354" },
+      { code: "2.40", label: "Checkräkningskredit", sru: "7360" },
+      { code: "2.41", label: "Övriga skulder till kreditinstitut", sru: "7361" },
+      { code: "2.42", label: "Förskott från kunder", sru: "7362" },
+      { code: "2.43", label: "Pågående arbeten för annans räkning", sru: "7363" },
+      { code: "2.44", label: "Fakturerad men ej upparbetad intäkt", sru: "7364" },
+      { code: "2.45", label: "Leverantörsskulder", sru: "7365" },
+      { code: "2.46", label: "Växelskulder", sru: "7366" },
+      { code: "2.47", label: "Skulder till koncern-, intresse- och gemensamt styrda företag", sru: "7367" },
+      { code: "2.48", label: "Skulder till övriga företag som det finns ett ägarintresse i och övriga skulder", sru: "7369" },
+      { code: "2.49", label: "Skatteskulder", sru: "7368" },
+      { code: "2.50", label: "Upplupna kostnader och förutbetalda intäkter", sru: "7370" },
     ],
   },
   {
     title: "Resultaträkning",
     rows: [
       { code: "3.1", label: "Nettoomsättning", sru: "7410", sign: "+" },
-      { code: "3.2", label: "Förändring av lager av produkter i arbete, färdiga varor och pågående arbete för annans räkning", sru: "7413", sign: "+" },
-      { code: "3.3", label: "Aktiverat arbete för egen räkning", sign: "+" },
-      { code: "3.4", label: "Övriga rörelseintäkter", sign: "+" },
+      { code: "3.2", label: "Förändring av lager av produkter i arbete, färdiga varor och pågående arbete för annans räkning", sru: ["7411", "7510"], sign: "+" },
+      { code: "3.3", label: "Aktiverat arbete för egen räkning", sru: "7412", sign: "+" },
+      { code: "3.4", label: "Övriga rörelseintäkter", sru: "7413", sign: "+" },
       { code: "3.5", label: "Råvaror och förnödenheter", sru: "7511", sign: "-" },
-      { code: "3.6", label: "Handelsvaror", sign: "-" },
+      { code: "3.6", label: "Handelsvaror", sru: "7512", sign: "-" },
       { code: "3.7", label: "Övriga externa kostnader", sru: "7513", sign: "-" },
       { code: "3.8", label: "Personalkostnader", sru: "7514", sign: "-" },
       { code: "3.9", label: "Av- och nedskrivningar av materiella och immateriella anläggningstillgångar", sru: "7515", sign: "-" },
-      { code: "3.10", label: "Nedskrivningar av omsättningstillgångar utöver normala nedskrivningar", sign: "-" },
-      { code: "3.11", label: "Övriga rörelsekostnader", sru: "7520", sign: "-" },
-      { code: "3.12", label: "Resultat från andelar i koncernföretag", sign: "+" },
-      { code: "3.13", label: "Resultat från andelar i intresseföretag", sign: "+" },
-      { code: "3.14", label: "Resultat från övriga finansiella anläggningstillgångar", sru: "7525", sign: "+" },
-      { code: "3.15", label: "Övriga ränteintäkter och liknande resultatposter", sru: "7528", sign: "+" },
-      { code: "3.16", label: "Nedskrivningar av finansiella anläggningstillgångar och kortfristiga placeringar", sign: "-" },
-      { code: "3.17", label: "Räntekostnader och liknande resultatposter", sign: "-" },
-      { code: "3.18", label: "Extraordinära intäkter", sign: "+" },
-      { code: "3.19", label: "Extraordinära kostnader", sign: "-" },
-      { code: "3.20", label: "Lämnade koncernbidrag", sign: "-" },
-      { code: "3.21", label: "Mottagna koncernbidrag", sign: "+" },
-      { code: "3.22", label: "Återföring av periodiseringsfond", sign: "+" },
-      { code: "3.23", label: "Avsättning till periodiseringsfond", sign: "-" },
-      { code: "3.24", label: "Förändring av överavskrivningar", sign: "+" },
-      { code: "3.25", label: "Övriga bokslutsdispositioner", sign: "+" },
-      { code: "3.26", label: "Skatt på årets resultat", sign: "-" },
-      { code: "3.27", label: "Årets resultat, vinst (flyttas till p. 4.1)", value: ({ accountingResult }) => Math.max(accountingResult, 0), sign: "(+) =" },
-      { code: "3.28", label: "Årets resultat, förlust (flyttas till p. 4.2)", value: ({ accountingResult }) => Math.min(accountingResult, 0), sign: "(-) =" },
+      { code: "3.10", label: "Nedskrivningar av omsättningstillgångar utöver normala nedskrivningar", sru: "7516", sign: "-" },
+      { code: "3.11", label: "Övriga rörelsekostnader", sru: "7517", sign: "-" },
+      { code: "3.12", label: "Resultat från andelar i koncernföretag", sru: ["7414", "7518"], sign: "+" },
+      { code: "3.13", label: "Resultat från andelar i intresseföretag och gemensamt styrda företag", sru: ["7415", "7519"], sign: "+" },
+      { code: "3.14", label: "Resultat från övriga företag som det finns ett ägarintresse i", sru: ["7423", "7530"], sign: "+" },
+      { code: "3.15", label: "Resultat från övriga finansiella anläggningstillgångar", sru: ["7416", "7520"], sign: "+" },
+      { code: "3.16", label: "Övriga ränteintäkter och liknande resultatposter", sru: "7417", sign: "+" },
+      { code: "3.17", label: "Nedskrivningar av finansiella anläggningstillgångar och kortfristiga placeringar", sru: "7521", sign: "-" },
+      { code: "3.18", label: "Räntekostnader och liknande resultatposter", sru: "7522", sign: "-" },
+      { code: "3.19", label: "Lämnade koncernbidrag", sru: "7524", sign: "-" },
+      { code: "3.20", label: "Mottagna koncernbidrag", sru: "7419", sign: "+" },
+      { code: "3.21", label: "Återföring av periodiseringsfond", sru: "7420", sign: "+" },
+      { code: "3.22", label: "Avsättning till periodiseringsfond", sru: "7525", sign: "-" },
+      { code: "3.23", label: "Förändring av överavskrivningar", sru: ["7421", "7526"], sign: "+" },
+      { code: "3.24", label: "Övriga bokslutsdispositioner", sru: ["7422", "7527"], sign: "+" },
+      { code: "3.25", label: "Skatt på årets resultat", sru: "7528", sign: "-" },
+      { code: "3.26", label: "Årets resultat, vinst (flyttas till p. 4.1)", sru: "7450", sign: "(+) =" },
+      { code: "3.27", label: "Årets resultat, förlust (flyttas till p. 4.2)", sru: "7550", sign: "(-) =" },
     ],
   },
 ];
@@ -374,9 +373,17 @@ export default function Ink2Page() {
     return sruData?.fields?.find(f => f.field_number === fieldNumber);
   };
 
+  const rowFieldNumbers = (row: DeclarationRow): string[] => {
+    if (!row.sru) return [];
+    return Array.isArray(row.sru) ? row.sru : [row.sru];
+  };
+
   const sumFields = (fields: string[]): number => fields.reduce((sum, field) => sum + getFieldValue(field), 0);
-  const computedAccountingResult = sumFields(["7410", "7413", "7528"]) - sumFields(["7511", "7513", "7514", "7515", "7520"]);
-  const accountingResult = getFieldValue("7650") || computedAccountingResult;
+  const ink2rAccountingResult = getFieldValue("7450") - getFieldValue("7550");
+  const computedAccountingResult =
+    sumFields(["7410", "7411", "7412", "7413", "7414", "7415", "7423", "7416", "7417", "7419", "7420", "7421", "7422"]) -
+    sumFields(["7510", "7511", "7512", "7513", "7514", "7515", "7516", "7517", "7518", "7519", "7530", "7520", "7521", "7522", "7524", "7525", "7526", "7527", "7528"]);
+  const accountingResult = getFieldValue("7650") || ink2rAccountingResult || computedAccountingResult;
   const taxableResult = getFieldValue("7670") || accountingResult;
   const reportContext: ReportContext = { getFieldValue, accountingResult, taxableResult };
 
@@ -388,16 +395,16 @@ export default function Ink2Page() {
 
   const rowValue = (row: DeclarationRow): number | undefined => {
     if (row.value) return row.value(reportContext);
-    if (row.sru) return getFieldValue(row.sru);
+    const fields = rowFieldNumbers(row);
+    if (fields.length) return sumFields(fields);
     return undefined;
   };
 
   const rowSourceAccounts = (row: DeclarationRow): SourceAccountValue[] => {
-    const field = getField(row.sru);
-    if (field?.source_account_values?.length) {
-      return field.source_account_values.filter((account) => account.value !== 0);
-    }
-    return [];
+    return rowFieldNumbers(row).flatMap((fieldNumber) => {
+      const field = getField(fieldNumber);
+      return field?.source_account_values?.filter((account) => account.value !== 0) ?? [];
+    });
   };
 
   const formatDate = (dateStr: string): string => {
@@ -619,7 +626,7 @@ export default function Ink2Page() {
           <Card>
             <CardHeader>
               <CardTitle>INK2R - Räkenskapsschema</CardTitle>
-              <CardDescription>Balansräkning och resultaträkning med Skatteverkets fältnummer 2.1-3.28.</CardDescription>
+              <CardDescription>Balansräkning och resultaträkning med Skatteverkets fältnummer 2.1-3.27.</CardDescription>
             </CardHeader>
           </Card>
           {renderDeclarationSections(INK2R_SECTIONS)}
