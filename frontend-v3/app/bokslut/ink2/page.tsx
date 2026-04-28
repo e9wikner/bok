@@ -368,12 +368,12 @@ export default function Ink2Page() {
       );
     }
     return (
-      <tr key={key} className={`border-x border-b border-black ${row.tall ? "h-[44px]" : "h-[32px]"}`}>
-        <td className={`px-1 align-middle text-[12px] leading-[1.05] ${row.indent ? "pl-7" : ""}`}>
+      <tr key={key} className={`border-x border-b border-black ${row.tall ? "h-[38px]" : "h-[28px]"}`}>
+        <td className={`px-1 align-middle text-[10px] leading-[0.98] ${row.indent ? "pl-7" : ""}`}>
           <span className="font-bold">{row.code}</span>{row.code ? " " : ""}{row.label}
         </td>
-        <td className="w-7 border-l border-black text-center text-[13px] align-middle">{row.sign || ""}</td>
-        <td className="w-[128px] border-l border-black px-2 text-right align-middle font-mono text-[13px]">
+        <td className="w-6 border-l border-black text-center text-[11px] align-middle">{row.sign || ""}</td>
+        <td className="w-[112px] border-l border-black px-2 text-right align-middle font-mono text-[11px]">
           {formatFormValue(rowValue(row))}
         </td>
       </tr>
@@ -488,7 +488,7 @@ export default function Ink2Page() {
         <div className="mt-7 h-16 rounded-[2px] border border-black px-1 text-[12px]">Datum då blanketten fylls i</div>
       </div>
 
-      <div className="absolute left-[58px] top-[360px] w-[335px]">
+      <div className="absolute left-[58px] top-[352px] w-[335px]">
         <h2 className="mb-1 text-[21px] font-bold">Underlag för inkomstskatt</h2>
         {renderFormTable(INK2_MAIN_ROWS.slice(0, 2).map(row => {
           if (row.code === "1.1") return { ...row, value: taxableResult > 0 ? taxableResult : 0 };
@@ -500,7 +500,7 @@ export default function Ink2Page() {
         {renderFormTable(PROPERTY_FEE_ROWS)}
       </div>
 
-      <div className="absolute left-[405px] top-[360px] w-[346px]">
+      <div className="absolute left-[405px] top-[352px] w-[346px]">
         <h2 className="mb-1 text-[21px] font-bold">Underlag för särskild löneskatt</h2>
         {renderFormTable(PAYROLL_TAX_ROWS)}
         <h2 className="mb-1 mt-4 text-[21px] font-bold">Underlag för avkastningsskatt</h2>

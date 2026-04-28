@@ -90,6 +90,9 @@
 .ink2-form-table td {
   display: table-cell !important;
   white-space: normal !important;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  vertical-align: middle;
 }
 
 /* ─── Mobile-first responsive fixes (390px / small phones) ─────────── */
