@@ -436,42 +436,6 @@ Authorization: Bearer dev-key-change-in-production
 
 ## Reports
 
-### Trial Balance (Råbalans)
-
-```http
-GET /api/v1/reports/trial-balance?year=2026&period=3
-Authorization: Bearer dev-key-change-in-production
-```
-
-**Parameters:**
-- `year` (integer, optional) - Fiscal year
-- `period` (integer, optional) - Period/month number
-
-**Response:**
-```json
-{
-  "period_id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
-  "period": "2026-03",
-  "as_of": "2026-03-31",
-  "rows": [
-    {
-      "account_code": "1510",
-      "debit": 12500000,
-      "credit": 0,
-      "balance": 12500000
-    },
-    {
-      "account_code": "3011",
-      "debit": 0,
-      "credit": 10000000,
-      "balance": -10000000
-    }
-  ],
-  "total_debit": 12500000,
-  "total_credit": 12500000
-}
-```
-
 ### General Ledger
 
 ```http
@@ -884,15 +848,6 @@ curl "http://localhost:8000/api/v1/export/sie4?fiscal_year_id=fy-2026&download=f
 ## PDF Export
 
 All PDF export endpoints accept optional company branding query parameters: `company_name`, `org_number`, `vat_number`, `address`, `phone`, `email`, `website`, `bankgiro`, `plusgiro`, `swish`, `iban`, `bic`, `logo_url`.
-
-### Trial Balance PDF
-
-```http
-GET /api/v1/export/pdf/trial-balance/{period_id}
-Authorization: Bearer dev-key-change-in-production
-```
-
-HTML variant: `GET /api/v1/export/pdf/trial-balance/{period_id}/html`
 
 ### Balance Sheet PDF
 
@@ -1533,16 +1488,6 @@ curl -X POST http://localhost:8000/api/v1/invoices/inv-001/payment \
     "period_id": "..."
   }'
 ```
-
-### 5. View Trial Balance
-
-```bash
-curl http://localhost:8000/api/v1/reports/trial-balance \
-  -H "Authorization: Bearer dev-key-change-in-production" \
-  "?year=2026&period=3"
-```
-
----
 
 ## Interactive API Docs
 

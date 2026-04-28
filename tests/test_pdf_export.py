@@ -21,15 +21,6 @@ def test_pdf_export_invoice_endpoint_exists(client):
         assert response.status_code in [200, 404]
 
 
-def test_pdf_export_trial_balance_endpoint_exists(client):
-    """Test that trial balance PDF export endpoint exists."""
-    with patch("services.pdf_export.PDFExportService.export_trial_balance") as mock_export:
-        mock_export.return_value = b"fake pdf content"
-        response = client.get("/api/v1/export/pdf/trial-balance/test-period")
-        # Should succeed or return 404 if period not found
-        assert response.status_code in [200, 404]
-
-
 def test_pdf_export_income_statement_endpoint_exists(client):
     """Test that income statement PDF export endpoint exists."""
     with patch("services.pdf_export.PDFExportService.export_income_statement") as mock_export:

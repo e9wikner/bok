@@ -85,30 +85,6 @@ async def export_invoice_pdf(
         )
 
 
-# ---- Trial Balance PDF ----
-
-@router.get("/trial-balance/{period_id}")
-async def export_trial_balance_pdf(
-    period_id: str,
-    pdf_service: PDFExportService = Depends(_get_pdf_service),
-):
-    """
-    Exportera råbalans som PDF.
-    
-    Visar alla konton med debet/kredit/saldo för given period.
-    """
-    try:
-        pdf_bytes = pdf_service.export_trial_balance(period_id)
-        return _pdf_response(pdf_bytes, f"rabalans_{period_id}.pdf")
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Kunde inte generera råbalans-PDF: {str(e)}",
-        )
-
-
 # ---- General Ledger PDF ----
 
 @router.get("/general-ledger/{account_code}")
@@ -250,22 +226,4 @@ async def export_invoice_html(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Kunde inte generera faktura-HTML: {str(e)}",
-        )
-
-
-@router.get("/trial-balance/{period_id}/html")
-async def export_trial_balance_html(
-    period_id: str,
-    pdf_service: PDFExportService = Depends(_get_pdf_service),
-):
-    """Exportera råbalans som HTML (fallback när PDF inte fungerar)."""
-    try:
-        html_str = pdf_service.export_trial_balance_html(period_id)
-        return _html_response(html_str, f"rabalans_{period_id}.html")
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Kunde inte generera råbalans-HTML: {str(e)}",
         )

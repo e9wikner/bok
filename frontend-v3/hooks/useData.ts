@@ -67,14 +67,6 @@ export function useBalanceSheet(year?: number) {
   });
 }
 
-export function useTrialBalance(year?: number, period?: number) {
-  return useQuery({
-    queryKey: ["trial-balance", year, period],
-    queryFn: () => api.getTrialBalance(year, period),
-    staleTime: 5 * 60 * 1000,
-  });
-}
-
 export function useGeneralLedger(accountCode: string, year?: number, month?: number) {
   return useQuery({
     queryKey: ["general-ledger", accountCode, year, month],

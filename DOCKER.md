@@ -56,21 +56,9 @@ When the container starts, it automatically:
    - Invoice 2: 200,000 kr consulting services
    - Travel expenses: 3,000 kr
 ✅ **Locks March period** (immutable - demonstrates varaktighet)
-✅ **Trial balance calculated** (all accounts balanced)
+✅ **Reports available** (income statement, balance sheet, account ledger)
 
 ## Example API Calls
-
-### Get Trial Balance (March 2026)
-
-```bash
-# First, list periods to get the March period_id
-curl -H "Authorization: Bearer dev-key-change-in-production" \
-  http://localhost:8000/api/v1/periods?fiscal_year_id=<fy_id>
-
-# Then get trial balance
-curl -H "Authorization: Bearer dev-key-change-in-production" \
-  "http://localhost:8000/api/v1/reports/trial-balance?period_id=<period_id>"
-```
 
 ### Get Account Ledger (Customer Receivables)
 

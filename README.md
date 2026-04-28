@@ -50,7 +50,7 @@ docker-compose up --build
 - Periodlåsning (oåterkallelig enligt BFL)
 - Dubbel bokföring med automatisk validering
 - Korrigeringsverifikationer (B-serie)
-- Råbalans- och huvudboksuttag
+- Huvudboksuttag
 - Komplett revisionsspår
 
 ### ✅ Fas 2: Fakturering & Moms
@@ -105,7 +105,6 @@ Professionell PDF-export för alla företagsdokument med svenska termer och form
 - Resultaträkning (P&L) – PDF
 - Balansräkning – PDF
 - K2-årsredovisning – PDF
-- Råbalans (Trial Balance) – PDF
 - Huvudbok per konto – PDF
 - Alla med logotyp, datum, period
 
@@ -117,7 +116,6 @@ Professionell PDF-export för alla företagsdokument med svenska termer och form
 
 **API-endpoints:**
 - `GET /api/v1/export/pdf/invoice/{id}` – Faktura-PDF
-- `GET /api/v1/export/pdf/trial-balance/{period_id}` – Råbalans-PDF
 - `GET /api/v1/export/pdf/general-ledger/{account_code}?period_id=...` – Huvudbok-PDF
 - `GET /api/v1/export/pdf/income-statement/{period_id}` – Resultaträkning-PDF
 - `GET /api/v1/export/pdf/balance-sheet/{period_id}` – Balansräkning-PDF

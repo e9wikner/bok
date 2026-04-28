@@ -37,6 +37,21 @@ class SRUMappingResponse(BaseModel):
         from_attributes = True
 
 
+def _default_sru_mapping_for_account(account_code: str) -> Optional[str]:
+    """Return the default SRU field for an account according to the app's fallback mapping."""
+    from services.sru_export import DEFAULT_SRU_MAPPINGS
+
+    try:
+        account_number = int(account_code)
+    except ValueError:
+        return None
+
+    for sru_field, account_numbers in DEFAULT_SRU_MAPPINGS.items():
+        if account_number in account_numbers:
+            return sru_field
+    return None
+
+
 def _mapping_account_code(mapping: SRUMappingCreate) -> str:
     """Return account code from either legacy or current request field."""
     account_code = mapping.account_code or mapping.account_id
@@ -93,6 +108,42 @@ async def list_sru_mappings(
             "updated_at": row["updated_at"],
         })
     
+    return mappings
+
+
+@router.get("/{fiscal_year_id}/sru-mappings/default", response_model=List[SRUMappingResponse])
+async def list_default_sru_mappings(
+    fiscal_year_id: str,
+    actor: str = Depends(get_current_actor),
+    api_key: str = Depends(verify_api_key),
+):
+    """List default SRU mappings for all accounts, without reading saved overrides."""
+    db = get_db()
+
+    cursor = db.execute(
+        """
+        SELECT code, name
+        FROM accounts
+        ORDER BY code
+        """
+    )
+
+    mappings = []
+    for row in cursor.fetchall():
+        sru_field = _default_sru_mapping_for_account(row["code"])
+        if not sru_field:
+            continue
+        mappings.append({
+            "id": None,
+            "fiscal_year_id": fiscal_year_id,
+            "account_id": row["code"],
+            "account_code": row["code"],
+            "account_name": row["name"],
+            "sru_field": sru_field,
+            "created_at": None,
+            "updated_at": None,
+        })
+
     return mappings
 
 

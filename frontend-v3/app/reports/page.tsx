@@ -5,12 +5,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { useIncomeStatement, useBalanceSheet, useTrialBalance, useGeneralLedger, useFiscalYears, useAccounts } from "@/hooks/useData";
+import { useIncomeStatement, useBalanceSheet, useGeneralLedger, useFiscalYears, useAccounts } from "@/hooks/useData";
 import { api } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
-import { TrendingUp, TrendingDown, Scale, FileSpreadsheet, BookOpen, Calendar, Download, CheckCircle2, AlertCircle, FileText } from "lucide-react";
+import { TrendingUp, TrendingDown, Scale, BookOpen, Calendar, Download, CheckCircle2, AlertCircle, FileText } from "lucide-react";
 
-type ReportTab = "income" | "balance" | "trial" | "ledger";
+type ReportTab = "income" | "balance" | "ledger";
 
 const MONTHS = [
   { value: 0, label: "Hela året" },
@@ -124,9 +124,7 @@ export default function ReportsPage() {
 
       const pdfEndpoint = tab === "income"
         ? `/api/v1/export/pdf/income-statement/${periodId}`
-        : tab === "balance"
-        ? `/api/v1/export/pdf/balance-sheet/${periodId}`
-        : `/api/v1/export/pdf/trial-balance/${periodId}`;
+        : `/api/v1/export/pdf/balance-sheet/${periodId}`;
 
       // Try PDF endpoint first, fall back to HTML
       const htmlEndpoint = pdfEndpoint.replace(/\/([^/]+)$/, "/$1/html");
@@ -180,7 +178,6 @@ export default function ReportsPage() {
           { id: "income" as const, label: "Resultaträkning", icon: TrendingUp },
           { id: "balance" as const, label: "Balansräkning", icon: Scale },
           { id: "ledger" as const, label: "Huvudbok", icon: BookOpen },
-          { id: "trial" as const, label: "Råbalans", icon: FileSpreadsheet },
         ].map((t) => (
           <Button
             key={t.id}
@@ -269,9 +266,6 @@ export default function ReportsPage() {
       {tab === "balance" && <BalanceSheetReport year={year} />}
       {tab === "ledger" && (
         <GeneralLedgerReport year={year} month={month || undefined} />
-      )}
-      {tab === "trial" && (
-        <TrialBalanceReport year={year} period={month || undefined} />
       )}
     </div>
   );
@@ -722,87 +716,13 @@ function BalanceSheetReport({ year }: { year: number }) {
   );
 }
 
-function TrialBalanceReport({ year, period }: { year: number; period?: number }) {
-  const { data, isLoading } = useTrialBalance(year, period);
-
-  if (isLoading) return <ReportSkeleton />;
-
-  const accounts = data?.accounts || [];
-  const totalDebit = data?.total_debit || 0;
-  const totalCredit = data?.total_credit || 0;
-  const balanced = data?.balanced ?? true;
-  const periodStr = data?.period || "";
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <FileSpreadsheet className="h-5 w-5 text-primary" />
-          Råbalans
-          {!balanced && (
-            <Badge variant="destructive" className="ml-2">Obalanserad</Badge>
-          )}
-        </CardTitle>
-        <CardDescription>
-          {periodStr ? `Period: ${periodStr} - ` : ""}Saldon per konto
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {Array.isArray(accounts) && accounts.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50">
-                  <th className="text-left p-3 font-medium text-muted-foreground">Konto</th>
-                  <th className="text-left p-3 font-medium text-muted-foreground">Namn</th>
-                  <th className="text-right p-3 font-medium text-muted-foreground">Debet</th>
-                  <th className="text-right p-3 font-medium text-muted-foreground">Kredit</th>
-                </tr>
-              </thead>
-              <tbody>
-                {accounts.map((a: any, i: number) => (
-                  <tr key={i} className="border-b last:border-0 hover:bg-muted/30">
-                    <td className="p-3 font-mono font-medium">{a.code}</td>
-                    <td className="p-3">{a.name}</td>
-                    <td className="p-3 text-right font-mono">{a.debit ? formatCurrency(a.debit) : "-"}</td>
-                    <td className="p-3 text-right font-mono">{a.credit ? formatCurrency(a.credit) : "-"}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 font-bold">
-                  <td className="p-3" colSpan={2}>Summa</td>
-                  <td className="p-3 text-right font-mono">{formatCurrency(totalDebit)}</td>
-                  <td className="p-3 text-right font-mono">{formatCurrency(totalCredit)}</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        ) : (
-          <p className="text-muted-foreground text-center py-8">Ingen data tillgänglig för vald period</p>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
 function GeneralLedgerReport({ year, month }: { year: number; month?: number }) {
   const [selectedAccount, setSelectedAccount] = useState<string>("");
   const { data: accountsData } = useAccounts();
   const { data, isLoading } = useGeneralLedger(selectedAccount, year, month);
-  const { data: trialBalanceData } = useTrialBalance(year, month || undefined);
 
   const allAccounts = accountsData?.accounts || [];
-  // Only show accounts that have transactions in the selected period
-  const activeAccountCodes = new Set((trialBalanceData?.accounts || []).map((a: any) => a.code));
-  const accounts = allAccounts.filter((a: any) => activeAccountCodes.has(a.code));
-
-  // Clear selected account if it has no transactions in the selected period
-  useEffect(() => {
-    if (selectedAccount && !activeAccountCodes.has(selectedAccount)) {
-      setSelectedAccount("");
-    }
-  }, [selectedAccount, activeAccountCodes]);
+  const accounts = allAccounts;
 
   return (
     <div className="space-y-4">

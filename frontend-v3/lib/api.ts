@@ -186,14 +186,6 @@ export const api = {
     const { data } = await apiClient.get("/api/v1/reports/balance-sheet", { params });
     return data;
   },
-  getTrialBalance: async (year?: number, period?: number) => {
-    const params: any = {};
-    if (year) params.year = year;
-    if (period) params.period = period;
-    const { data } = await apiClient.get("/api/v1/reports/trial-balance", { params });
-    return data;
-  },
-
   // General ledger (huvudbok per konto)
   getGeneralLedger: async (accountCode: string, year?: number, month?: number) => {
     const params: any = {};
@@ -366,6 +358,11 @@ export const api = {
   // SRU Mappings
   getSRUMappings: async (fiscalYearId: string) => {
     const { data } = await apiClient.get(`/api/v1/fiscal-years/${fiscalYearId}/sru-mappings`);
+    return data;
+  },
+
+  getDefaultSRUMappings: async (fiscalYearId: string) => {
+    const { data } = await apiClient.get(`/api/v1/fiscal-years/${fiscalYearId}/sru-mappings/default`);
     return data;
   },
 
