@@ -446,13 +446,55 @@ class SRUExportService:
         """Calculate INK2S tax adjustment fields from mapped INK2R fields."""
         descriptions = self._get_field_descriptions()
 
-        def add(field_number: str, value: int, source_accounts: List[str]):
+        def source_account_values(source_fields: List[str], signs: Optional[Dict[str, int]] = None, override_value: Optional[int] = None) -> List[Dict[str, int | str]]:
+            values: List[Dict[str, int | str]] = []
+            signs = signs or {}
+            source_values: List[Tuple[str, Dict[str, int | str]]] = []
+            for source_field in source_fields:
+                field = fields.get(source_field)
+                if field:
+                    source_values.extend((source_field, account_value) for account_value in field.source_account_values or [])
+
+            if override_value is not None and source_values:
+                total = sum(abs(int(account["value"])) for _, account in source_values)
+                if total == 0:
+                    return values
+                allocated = 0
+                for index, (source_field, account) in enumerate(source_values):
+                    sign = signs.get(source_field, 1)
+                    if index == len(source_values) - 1:
+                        amount = override_value - allocated
+                    else:
+                        amount = round(override_value * abs(int(account["value"])) / total)
+                        allocated += amount
+                    if amount != 0:
+                        values.append({
+                            "account": account["account"],
+                            "name": account.get("name", ""),
+                            "value": amount * sign,
+                        })
+                return values
+
+            for source_field in source_fields:
+                sign = signs.get(source_field, 1)
+                for _, account in [item for item in source_values if item[0] == source_field]:
+                    amount = int(account["value"]) * sign
+                    if amount != 0:
+                        values.append({
+                            "account": account["account"],
+                            "name": account.get("name", ""),
+                            "value": amount,
+                        })
+            return values
+
+        def add(field_number: str, value: int, source_accounts: List[str], signs: Optional[Dict[str, int]] = None, override_source_value: Optional[int] = None):
             if value != 0:
                 fields[field_number] = SRUFieldValue(
                     field_number=field_number,
                     description=descriptions.get(field_number, "Okänd fältkod"),
                     value=value,
                     source_accounts=source_accounts,
+                    source_account_values=source_account_values(source_accounts, signs, override_source_value),
                 )
 
         accounting_profit = fields.get("7450")
@@ -469,7 +511,7 @@ class SRUExportService:
         add("7651", tax_expense.value if tax_expense else 0, ["7528"])
         add("7653", non_deductible_interest.value if non_deductible_interest else 0, ["7522"])
         add("7754", tax_exempt_income, ["7416", "7417"])
-        add("7654", standard_income, ["7420"])
+        add("7654", standard_income, ["7420"], override_source_value=standard_income)
 
         taxable_result = (
             (accounting_profit.value if accounting_profit else 0)
@@ -478,7 +520,7 @@ class SRUExportService:
             - tax_exempt_income
             + standard_income
         )
-        add("7670", taxable_result, ["7650", "7651", "7653", "7754", "7654"])
+        add("7670", taxable_result, ["7650", "7651", "7653", "7754", "7654"], {"7754": -1})
         
     def _validate_balance_sheet(self, fields: Dict[str, SRUFieldValue]):
         """Validate that balance sheet balances (assets = liabilities + equity)."""

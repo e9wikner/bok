@@ -214,12 +214,12 @@ class TestSRUExportService:
         from services.sru_export import SRUFieldValue
 
         fields = {
-            "7450": SRUFieldValue("7450", "Årets resultat", 561232, ["8999"]),
-            "7528": SRUFieldValue("7528", "Skatt på årets resultat", 114975, ["8910"]),
-            "7522": SRUFieldValue("7522", "Andra ej avdragsgilla kostnader", 270, ["8423"]),
-            "7416": SRUFieldValue("7416", "Skattefria intäkter", 120000, ["8226"]),
-            "7417": SRUFieldValue("7417", "Skattefria intäkter", 2069, ["8310", "8314"]),
-            "7420": SRUFieldValue("7420", "Periodiseringsfond", 190000, ["8819"]),
+            "7450": SRUFieldValue("7450", "Årets resultat", 561232, ["8999"], [{"account": "8999", "name": "Årets resultat", "value": 561232}]),
+            "7528": SRUFieldValue("7528", "Skatt på årets resultat", 114975, ["8910"], [{"account": "8910", "name": "Skatt på årets resultat", "value": 114975}]),
+            "7522": SRUFieldValue("7522", "Andra ej avdragsgilla kostnader", 270, ["8423"], [{"account": "8423", "name": "Räntekostnader", "value": 270}]),
+            "7416": SRUFieldValue("7416", "Skattefria intäkter", 120000, ["8226"], [{"account": "8226", "name": "Resultat värdepapper", "value": 120000}]),
+            "7417": SRUFieldValue("7417", "Skattefria intäkter", 2069, ["8310", "8314"], [{"account": "8310", "name": "Ränteintäkter", "value": 2000}, {"account": "8314", "name": "Skattefri ränta", "value": 69}]),
+            "7420": SRUFieldValue("7420", "Periodiseringsfond", 190000, ["8819"], [{"account": "8819", "name": "Återföring periodiseringsfond", "value": 190000}]),
         }
 
         service._calculate_ink2s_fields(fields)
@@ -230,6 +230,14 @@ class TestSRUExportService:
         assert fields["7754"].value == 122069
         assert fields["7654"].value == 3724
         assert fields["7670"].value == 558132
+        assert fields["7651"].source_account_values == [{"account": "8910", "name": "Skatt på årets resultat", "value": 114975}]
+        assert fields["7754"].source_account_values == [
+            {"account": "8226", "name": "Resultat värdepapper", "value": 120000},
+            {"account": "8310", "name": "Ränteintäkter", "value": 2000},
+            {"account": "8314", "name": "Skattefri ränta", "value": 69},
+        ]
+        assert fields["7654"].source_account_values == [{"account": "8819", "name": "Återföring periodiseringsfond", "value": 3724}]
+        assert {"account": "8226", "name": "Resultat värdepapper", "value": -120000} in fields["7670"].source_account_values
 
 
 class TestSIE4ParserSRU:
