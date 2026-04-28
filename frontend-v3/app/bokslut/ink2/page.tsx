@@ -47,6 +47,10 @@ type FormRow = {
   indent?: boolean;
 };
 
+const FORM_PAGE_WIDTH = 794;
+const FORM_PAGE_HEIGHT = 1123;
+const FORM_PAGE_MARGIN = 32;
+
 const TABS = [
   { id: "ink2" as TabType, label: "INK2", icon: FileText, description: "Huvudblankett" },
   { id: "ink2r" as TabType, label: "INK2R", icon: FileSpreadsheet, description: "Räkenskapsschema" },
@@ -245,6 +249,7 @@ export default function Ink2Page() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [mappings, setMappings] = useState<Record<string, string>>({});
+  const [pageScale, setPageScale] = useState(1);
   const { data: fiscalYearsData } = useFiscalYears();
   
   const fiscalYears = Array.isArray(fiscalYearsData) 
@@ -261,6 +266,17 @@ export default function Ink2Page() {
     if (!selectedYear) return;
     loadSruData(selectedYear);
   }, [selectedYear]);
+
+  useEffect(() => {
+    const updatePageScale = () => {
+      const availableWidth = Math.max(320, window.innerWidth - FORM_PAGE_MARGIN);
+      setPageScale(Math.min(1, availableWidth / FORM_PAGE_WIDTH));
+    };
+
+    updatePageScale();
+    window.addEventListener("resize", updatePageScale);
+    return () => window.removeEventListener("resize", updatePageScale);
+  }, []);
 
   const loadSruData = async (fiscalYearId: string) => {
     setLoading(true);
@@ -365,7 +381,7 @@ export default function Ink2Page() {
   };
 
   const renderFormTable = (rows: FormRow[]) => (
-    <table className="w-full table-fixed border-t border-black">
+    <table className="ink2-form-table w-full table-fixed border-t border-black">
       <tbody>{rows.map((row, index) => renderFormRow(row, `${row.code}-${row.label}-${index}`))}</tbody>
     </table>
   );
@@ -414,22 +430,38 @@ export default function Ink2Page() {
   );
 
   const PageFrame = ({ children, sideCode, barcode }: { children: ReactNode; sideCode: string; barcode: string }) => (
-    <div className="relative mx-auto min-h-[1123px] w-[794px] bg-white px-[58px] py-[42px] text-black shadow-xl ring-1 ring-black/10 print:shadow-none">
-      <div className="absolute bottom-24 left-8 flex origin-bottom-left -rotate-90 items-center gap-8 text-[14px]">
-        <span>SKV</span><span>2002</span><span>23</span><span>{sideCode}</span><span>W 12-12</span>
-      </div>
-      {children}
-      <div className="absolute bottom-10 right-12">
-        <Barcode label={barcode} />
+    <div
+      className="mx-auto"
+      style={{
+        width: FORM_PAGE_WIDTH * pageScale,
+        height: FORM_PAGE_HEIGHT * pageScale,
+      }}
+    >
+      <div
+        className="relative origin-top-left bg-white px-[58px] py-[42px] text-black shadow-xl ring-1 ring-black/10 print:shadow-none"
+        style={{
+          width: FORM_PAGE_WIDTH,
+          minHeight: FORM_PAGE_HEIGHT,
+          transform: `scale(${pageScale})`,
+        }}
+      >
+        <div className="absolute bottom-24 left-8 flex origin-bottom-left -rotate-90 items-center gap-8 text-[14px]">
+          <span>SKV</span><span>2002</span><span>23</span><span>{sideCode}</span><span>W 12-12</span>
+        </div>
+        {children}
+        <div className="absolute bottom-10 right-12">
+          <Barcode label={barcode} />
+        </div>
       </div>
     </div>
   );
 
   const renderInk2Page = () => (
     <PageFrame sideCode="01" barcode="INK2M-1-23-2013P3">
-      <div className="grid grid-cols-[1fr_1.02fr] gap-10">
-        <div><SkatteverketBrand /></div>
-        <div>
+      <div className="absolute left-[58px] top-[42px] w-[335px]">
+        <SkatteverketBrand />
+      </div>
+      <div className="absolute left-[405px] top-[42px] w-[346px]">
           <div className="text-[29px] font-bold leading-[0.9]">Inkomstdeklaration 2</div>
           <div className="flex items-start justify-between">
             <div className="text-[20px] font-bold leading-tight">Aktiebolag, ekonomisk förening m.fl.</div>
@@ -446,35 +478,35 @@ export default function Ink2Page() {
           </div>
           <div className="text-[12px]">Namn (firma) adress</div>
           <div className="font-mono text-[13px]">{sruData?.company?.name}</div>
-        </div>
       </div>
 
-      <div className="mt-14 grid grid-cols-[1fr_1.03fr] gap-3">
-        <div>
-          <div className="mb-24 text-[15px] leading-tight">
-            <div>Skatteverket</div>
-            <div className="mt-2 text-[18px]">0771-567 567</div>
-            <p className="mt-7">Information om hur man fyller i blanketten finns i broschyren Skatteregler för aktie- och handelsbolag, SKV 294.</p>
-            <p className="mt-1">Ange belopp i hela krontal.</p>
-            <div className="mt-7 h-16 rounded-[2px] border border-black px-1 text-[12px]">Datum då blanketten fylls i</div>
-          </div>
-          <h2 className="mb-1 text-[21px] font-bold">Underlag för inkomstskatt</h2>
-          {renderFormTable(INK2_MAIN_ROWS.map(row => {
-            if (row.code === "1.1") return { ...row, value: taxableResult > 0 ? taxableResult : 0 };
-            if (row.code === "1.2") return { ...row, value: taxableResult < 0 ? taxableResult : 0 };
-            return row;
-          }))}
-          <h2 className="mb-1 mt-6 text-[21px] font-bold">Underlag för fastighetsavgift</h2>
-          {renderFormTable(PROPERTY_FEE_ROWS)}
-        </div>
-        <div className="pt-[278px]">
-          <h2 className="mb-1 text-[21px] font-bold">Underlag för särskild löneskatt</h2>
-          {renderFormTable(PAYROLL_TAX_ROWS)}
-          <h2 className="mb-1 mt-4 text-[21px] font-bold">Underlag för avkastningsskatt</h2>
-          {renderFormTable(YIELD_TAX_ROWS)}
-          <h2 className="mb-1 mt-4 text-[21px] font-bold">Underlag för fastighetsskatt</h2>
-          {renderFormTable(PROPERTY_TAX_ROWS)}
-        </div>
+      <div className="absolute left-[58px] top-[160px] w-[335px] text-[15px] leading-tight">
+        <div>Skatteverket</div>
+        <div className="mt-2 text-[18px]">0771-567 567</div>
+        <p className="mt-7">Information om hur man fyller i blanketten finns i broschyren Skatteregler för aktie- och handelsbolag, SKV 294.</p>
+        <p className="mt-1">Ange belopp i hela krontal.</p>
+        <div className="mt-7 h-16 rounded-[2px] border border-black px-1 text-[12px]">Datum då blanketten fylls i</div>
+      </div>
+
+      <div className="absolute left-[58px] top-[360px] w-[335px]">
+        <h2 className="mb-1 text-[21px] font-bold">Underlag för inkomstskatt</h2>
+        {renderFormTable(INK2_MAIN_ROWS.slice(0, 2).map(row => {
+          if (row.code === "1.1") return { ...row, value: taxableResult > 0 ? taxableResult : 0 };
+          if (row.code === "1.2") return { ...row, value: taxableResult < 0 ? taxableResult : 0 };
+          return row;
+        }))}
+        <div className="mt-8">{renderFormTable(INK2_MAIN_ROWS.slice(2))}</div>
+        <h2 className="mb-1 mt-5 text-[21px] font-bold">Underlag för fastighetsavgift</h2>
+        {renderFormTable(PROPERTY_FEE_ROWS)}
+      </div>
+
+      <div className="absolute left-[405px] top-[360px] w-[346px]">
+        <h2 className="mb-1 text-[21px] font-bold">Underlag för särskild löneskatt</h2>
+        {renderFormTable(PAYROLL_TAX_ROWS)}
+        <h2 className="mb-1 mt-4 text-[21px] font-bold">Underlag för avkastningsskatt</h2>
+        {renderFormTable(YIELD_TAX_ROWS)}
+        <h2 className="mb-1 mt-4 text-[21px] font-bold">Underlag för fastighetsskatt</h2>
+        {renderFormTable(PROPERTY_TAX_ROWS)}
       </div>
 
       <div className="absolute bottom-28 left-[58px] right-[312px]">

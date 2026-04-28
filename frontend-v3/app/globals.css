@@ -73,6 +73,25 @@
   }
 }
 
+.ink2-form-table {
+  display: table !important;
+  overflow: visible !important;
+  white-space: normal !important;
+}
+
+.ink2-form-table tbody {
+  display: table-row-group !important;
+}
+
+.ink2-form-table tr {
+  display: table-row !important;
+}
+
+.ink2-form-table td {
+  display: table-cell !important;
+  white-space: normal !important;
+}
+
 /* ─── Mobile-first responsive fixes (390px / small phones) ─────────── */
 @media (max-width: 430px) {
   /* Prevent horizontal overflow on all pages */
