@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertCircle, Building2, Calculator, Calendar, CheckCircle2, Download, FileSpreadsheet, FileText, Map } from "lucide-react";
+import { AlertCircle, Building2, Calculator, Calendar, CheckCircle2, Download, FileSpreadsheet, FileText } from "lucide-react";
 import { api } from "@/lib/api";
 import { useFiscalYears } from "@/hooks/useData";
 import { Button } from "@/components/ui/button";
@@ -40,7 +40,7 @@ interface SRUData {
   };
 }
 
-type TabType = "ink2" | "ink2r" | "ink2s" | "mappings";
+type TabType = "ink2" | "ink2r" | "ink2s";
 
 interface DeclarationRow {
   code: string;
@@ -66,7 +66,6 @@ const TABS = [
   { id: "ink2" as TabType, label: "INK2", icon: FileText, description: "Huvudblankett" },
   { id: "ink2r" as TabType, label: "INK2R", icon: FileSpreadsheet, description: "Räkenskapsschema" },
   { id: "ink2s" as TabType, label: "INK2S", icon: Calculator, description: "Skattemässiga justeringar" },
-  { id: "mappings" as TabType, label: "Mappningar", icon: Map, description: "Konto-mappningar" },
 ];
 
 const INK2_SECTIONS: DeclarationSection[] = [
@@ -301,7 +300,6 @@ export default function Ink2Page() {
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [mappings, setMappings] = useState<Record<string, string>>({});
   const { data: fiscalYearsData } = useFiscalYears();
   
   const fiscalYears = Array.isArray(fiscalYearsData) ? fiscalYearsData : fiscalYearsData?.fiscal_years || [];
@@ -321,18 +319,8 @@ export default function Ink2Page() {
     setLoading(true);
     setError(null);
     try {
-      const [sruResponse, mappingsResponse] = await Promise.all([
-        api.previewSRU(fiscalYearId),
-        api.getSRUMappings(fiscalYearId),
-      ]);
+      const sruResponse = await api.previewSRU(fiscalYearId);
       setSruData(sruResponse);
-      const mappingsRecord: Record<string, string> = {};
-      if (Array.isArray(mappingsResponse)) {
-        mappingsResponse.forEach((m: any) => {
-          mappingsRecord[m.account_code] = m.sru_field;
-        });
-      }
-      setMappings(mappingsRecord);
     } catch (err: any) {
       setError(err?.response?.data?.detail || "Kunde inte ladda INK2-data");
     } finally {
@@ -647,43 +635,6 @@ export default function Ink2Page() {
         </div>
       )}
 
-      {!loading && activeTab === "mappings" && sruData && (
-        <div className="space-y-6">
-          <Card className="border-2 border-border shadow-lg">
-            <CardHeader className="border-b border-border bg-muted">
-              <CardTitle className="text-lg font-bold text-foreground">SRU-mappningar</CardTitle>
-              <CardDescription>Konton mappade till INK2-fält</CardDescription>
-            </CardHeader>
-            <CardContent className="p-6">
-              <div className="grid gap-6 md:grid-cols-2">
-                {[
-                  { title: "Tillgångar (1xxx)", filter: ([account]: [string, string]) => account >= "1000" && account < "2000" },
-                  { title: "Eget kapital och skulder (2xxx)", filter: ([account]: [string, string]) => account >= "2000" && account < "3000" },
-                  { title: "Intäkter (3xxx)", filter: ([account]: [string, string]) => account >= "3000" && account < "4000" },
-                  { title: "Kostnader (4xxx-8xxx)", filter: ([account]: [string, string]) => account >= "4000" && account < "9000" },
-                ].map(section => (
-                  <div key={section.title}>
-                    <h3 className="mb-3 rounded bg-muted px-2 py-1 text-sm font-bold uppercase tracking-wide text-foreground">
-                      {section.title}
-                    </h3>
-                    <div className="max-h-96 space-y-2 overflow-y-auto">
-                      {Object.entries(mappings)
-                        .filter(section.filter)
-                        .sort(([a], [b]) => a.localeCompare(b))
-                        .map(([account, field]) => (
-                          <div key={account} className="flex items-center justify-between rounded border border-border/50 bg-background px-3 py-2">
-                            <span className="font-mono text-sm text-muted-foreground">{account}</span>
-                            <span className="font-mono text-sm font-medium text-primary">{field}</span>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
     </div>
   );
 }
