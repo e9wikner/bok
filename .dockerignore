@@ -10,7 +10,6 @@ env/
 .pytest_cache/
 .coverage
 htmlcov/
-tmp/
 dist/
 build/
 *.egg-info/
