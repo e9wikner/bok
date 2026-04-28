@@ -96,6 +96,17 @@ export interface ComplianceIssue {
   created_at: string;
 }
 
+export interface CompanyInfo {
+  name: string;
+  org_number: string;
+  contact_name?: string | null;
+  address?: string | null;
+  postnr?: string | null;
+  postort?: string | null;
+  email?: string | null;
+  phone?: string | null;
+}
+
 export const api = {
   // Health
   getHealth: async () => {
@@ -233,6 +244,16 @@ export const api = {
   // VAT
   getVatDeclarations: async () => {
     const { data } = await apiClient.get("/api/v1/vat/declarations");
+    return data;
+  },
+
+  // Company info
+  getCompanyInfo: async (): Promise<CompanyInfo> => {
+    const { data } = await apiClient.get("/api/v1/company-info");
+    return data;
+  },
+  updateCompanyInfo: async (payload: CompanyInfo): Promise<CompanyInfo> => {
+    const { data } = await apiClient.put("/api/v1/company-info", payload);
     return data;
   },
 

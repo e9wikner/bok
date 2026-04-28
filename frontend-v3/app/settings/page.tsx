@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useHealth } from "@/hooks/useData";
-import { api } from "@/lib/api";
+import { api, CompanyInfo } from "@/lib/api";
 import { useDarkMode } from "@/hooks/useDarkMode";
 import {
   Upload,
@@ -19,12 +19,89 @@ import {
   Monitor,
   FileText,
   Settings2,
+  Building2,
 } from "lucide-react";
 import Link from "next/link";
 
 export default function SettingsPage() {
   const { data: health } = useHealth();
   const { isDark, toggle } = useDarkMode();
+  const [companyInfo, setCompanyInfo] = useState<CompanyInfo>({
+    name: "",
+    org_number: "",
+    contact_name: "",
+    address: "",
+    postnr: "",
+    postort: "",
+    email: "",
+    phone: "",
+  });
+  const [companyStatus, setCompanyStatus] = useState<"idle" | "loading" | "saving" | "success" | "error">("loading");
+  const [companyMessage, setCompanyMessage] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadCompanyInfo = async () => {
+      setCompanyStatus("loading");
+      try {
+        const data = await api.getCompanyInfo();
+        if (!cancelled) {
+          setCompanyInfo({
+            name: data.name || "",
+            org_number: data.org_number || "",
+            contact_name: data.contact_name || "",
+            address: data.address || "",
+            postnr: data.postnr || "",
+            postort: data.postort || "",
+            email: data.email || "",
+            phone: data.phone || "",
+          });
+          setCompanyStatus("idle");
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setCompanyStatus("error");
+          setCompanyMessage(err?.response?.data?.detail || "Kunde inte läsa företagsuppgifter");
+        }
+      }
+    };
+
+    loadCompanyInfo();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const updateCompanyField = (key: keyof CompanyInfo, value: string) => {
+    setCompanyInfo((current) => ({ ...current, [key]: value }));
+  };
+
+  const saveCompanyInfo = async () => {
+    setCompanyStatus("saving");
+    setCompanyMessage("");
+    try {
+      const saved = await api.updateCompanyInfo(companyInfo);
+      setCompanyInfo({
+        name: saved.name || "",
+        org_number: saved.org_number || "",
+        contact_name: saved.contact_name || "",
+        address: saved.address || "",
+        postnr: saved.postnr || "",
+        postort: saved.postort || "",
+        email: saved.email || "",
+        phone: saved.phone || "",
+      });
+      setCompanyStatus("success");
+      setCompanyMessage("Företagsuppgifter sparade");
+      setTimeout(() => {
+        setCompanyStatus("idle");
+        setCompanyMessage("");
+      }, 2500);
+    } catch (err: any) {
+      setCompanyStatus("error");
+      setCompanyMessage(err?.response?.data?.detail || "Kunde inte spara företagsuppgifter");
+    }
+  };
 
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-[1000px] mx-auto">
@@ -36,6 +113,80 @@ export default function SettingsPage() {
           Systemkonfiguration och dataimport
         </p>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Building2 className="h-5 w-5 text-primary" />
+            Företagsuppgifter
+          </CardTitle>
+          <CardDescription>
+            Används i rapporter, SIE-export och SRU-filer
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field
+              label="Företagsnamn"
+              value={companyInfo.name}
+              onChange={(value) => updateCompanyField("name", value)}
+              disabled={companyStatus === "loading" || companyStatus === "saving"}
+            />
+            <Field
+              label="Organisationsnummer"
+              value={companyInfo.org_number}
+              onChange={(value) => updateCompanyField("org_number", value)}
+              disabled={companyStatus === "loading" || companyStatus === "saving"}
+            />
+            <Field
+              label="Kontaktperson"
+              value={companyInfo.contact_name || ""}
+              onChange={(value) => updateCompanyField("contact_name", value)}
+              disabled={companyStatus === "loading" || companyStatus === "saving"}
+            />
+            <Field
+              label="E-post"
+              value={companyInfo.email || ""}
+              onChange={(value) => updateCompanyField("email", value)}
+              disabled={companyStatus === "loading" || companyStatus === "saving"}
+            />
+            <Field
+              label="Adress"
+              value={companyInfo.address || ""}
+              onChange={(value) => updateCompanyField("address", value)}
+              disabled={companyStatus === "loading" || companyStatus === "saving"}
+            />
+            <Field
+              label="Telefon"
+              value={companyInfo.phone || ""}
+              onChange={(value) => updateCompanyField("phone", value)}
+              disabled={companyStatus === "loading" || companyStatus === "saving"}
+            />
+            <Field
+              label="Postnummer"
+              value={companyInfo.postnr || ""}
+              onChange={(value) => updateCompanyField("postnr", value)}
+              disabled={companyStatus === "loading" || companyStatus === "saving"}
+            />
+            <Field
+              label="Postort"
+              value={companyInfo.postort || ""}
+              onChange={(value) => updateCompanyField("postort", value)}
+              disabled={companyStatus === "loading" || companyStatus === "saving"}
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button onClick={saveCompanyInfo} disabled={companyStatus === "loading" || companyStatus === "saving"}>
+              {companyStatus === "saving" ? "Sparar..." : "Spara företagsuppgifter"}
+            </Button>
+            {companyMessage && (
+              <span className={`text-sm ${companyStatus === "error" ? "text-destructive" : "text-emerald-600"}`}>
+                {companyMessage}
+              </span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Appearance / Dark mode */}
       <Card>
@@ -206,6 +357,32 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  const id = label.toLowerCase().replace(/\s+/g, "-");
+  return (
+    <label htmlFor={id} className="space-y-1.5">
+      <span className="text-sm font-medium text-foreground">{label}</span>
+      <input
+        id={id}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        disabled={disabled}
+        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary disabled:cursor-not-allowed disabled:opacity-60"
+      />
+    </label>
   );
 }
 

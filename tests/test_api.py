@@ -85,6 +85,30 @@ def test_get_account_not_found(client, auth_headers):
     assert resp.status_code == 404
 
 
+def test_company_info_can_be_updated(client, auth_headers):
+    """Test editable company metadata."""
+    payload = {
+        "name": "Demo AB",
+        "org_number": "559123-4567",
+        "contact_name": "Demo Kontakt",
+        "address": "Testgatan 1",
+        "postnr": "11122",
+        "postort": "Stockholm",
+        "email": "demo@example.com",
+        "phone": "08-123456",
+    }
+
+    resp = client.put("/api/v1/company-info", headers=auth_headers, json=payload)
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "Demo AB"
+    assert resp.json()["org_number"] == "559123-4567"
+
+    resp = client.get("/api/v1/company-info", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["contact_name"] == "Demo Kontakt"
+    assert resp.json()["postort"] == "Stockholm"
+
+
 def test_sru_mappings_use_account_codes(client, auth_headers, test_db):
     """Test SRU mappings are saved and returned by account code."""
     fy = PeriodRepository.create_fiscal_year(

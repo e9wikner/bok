@@ -362,6 +362,11 @@ export default function Ink2Page() {
     return field?.value ?? 0;
   };
 
+  const getField = (fieldNumber?: string): SRUField | undefined => {
+    if (!fieldNumber) return undefined;
+    return sruData?.fields?.find(f => f.field_number === fieldNumber);
+  };
+
   const sumFields = (fields: string[]): number => fields.reduce((sum, field) => sum + getFieldValue(field), 0);
   const computedAccountingResult = sumFields(["7410", "7413", "7528"]) - sumFields(["7511", "7513", "7514", "7515", "7520"]);
   const accountingResult = getFieldValue("7650") || computedAccountingResult;
@@ -379,45 +384,65 @@ export default function Ink2Page() {
     return undefined;
   };
 
+  const rowSourceAccounts = (row: DeclarationRow): string[] => {
+    const field = getField(row.sru);
+    return field?.source_accounts?.filter(Boolean) || [];
+  };
+
   const formatDate = (dateStr: string): string => {
     if (!dateStr || dateStr.length !== 8) return dateStr;
     return `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
   };
 
   const renderDeclarationSection = (section: DeclarationSection) => (
-    <section key={section.title} className="rounded-lg border border-border bg-background">
+    <section key={section.title} className="overflow-hidden rounded-lg border border-border bg-background">
       <div className="border-b border-border bg-muted/70 px-4 py-3">
-        <h3 className="font-semibold text-foreground">{section.title}</h3>
+        <h3 className="text-sm font-semibold text-foreground sm:text-base">{section.title}</h3>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[640px]">
-          <tbody>
-            {section.rows.map((row, index) => {
-              const value = rowValue(row);
-              const hasValue = !!value;
-              return (
-                <tr key={`${section.title}-${row.code}-${index}`} className={`border-b border-border/50 last:border-b-0 ${hasValue ? "bg-primary/5" : ""}`}>
-                  <td className="px-4 py-3 align-top font-mono text-sm font-semibold text-muted-foreground">{row.code}</td>
-                  <td className="px-4 py-3 align-top text-sm text-foreground">
-                    {row.label}
-                    {row.sru && <div className="mt-1 text-xs text-muted-foreground">SRU {row.sru}</div>}
-                    {row.note && <div className="mt-1 text-xs text-muted-foreground">{row.note}</div>}
-                  </td>
-                  <td className="px-4 py-3 align-top text-center font-mono text-sm text-muted-foreground">{row.sign || ""}</td>
-                  <td className={`px-4 py-3 align-top text-right font-mono text-sm ${hasValue ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
-                    {formatAmount(value)}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      <div>
+        {section.rows.map((row, index) => {
+          const value = rowValue(row);
+          const hasValue = !!value;
+          const accounts = rowSourceAccounts(row);
+          return (
+            <div
+              key={`${section.title}-${row.code}-${index}`}
+              className={`grid grid-cols-[3.25rem_minmax(0,1fr)] gap-3 border-b border-border/50 px-4 py-3 last:border-b-0 sm:grid-cols-[3.25rem_minmax(0,1fr)_8.5rem] ${
+                hasValue ? "bg-primary/5" : ""
+              }`}
+            >
+              <div className="font-mono text-sm font-semibold leading-6 text-muted-foreground">{row.code}</div>
+              <div className="min-w-0">
+                <div className="text-sm leading-6 text-foreground">{row.label}</div>
+                {accounts.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    {accounts.map((account) => (
+                      <span
+                        key={`${row.code}-${account}`}
+                        className="rounded border border-border bg-muted/60 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-muted-foreground"
+                      >
+                        {account}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {row.note && <div className="mt-1 text-xs text-muted-foreground">{row.note}</div>}
+              </div>
+              <div className="col-span-2 flex items-center justify-between gap-2 sm:col-span-1 sm:block sm:text-right">
+                {row.sign && <span className="font-mono text-xs text-muted-foreground sm:block">{row.sign}</span>}
+                <span className={`font-mono text-sm tabular-nums ${hasValue ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
+                  {formatAmount(value)}
+                </span>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </section>
   );
 
   const renderDeclarationSections = (sections: DeclarationSection[]) => (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid gap-4 xl:grid-cols-2">
       {sections.map(renderDeclarationSection)}
     </div>
   );
