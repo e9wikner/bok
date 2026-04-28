@@ -8,11 +8,18 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
+interface SourceAccountValue {
+  account: string;
+  name?: string;
+  value: number;
+}
+
 interface SRUField {
   field_number: string;
   description: string;
   value: number;
   source_accounts: string[];
+  source_account_values?: SourceAccountValue[];
 }
 
 interface SRUData {
@@ -373,9 +380,10 @@ export default function Ink2Page() {
   const taxableResult = getFieldValue("7670") || accountingResult;
   const reportContext: ReportContext = { getFieldValue, accountingResult, taxableResult };
 
-  const formatAmount = (value?: number): string => {
+  const formatAmount = (value?: number, options?: { showSign?: boolean }): string => {
     if (!value) return "";
-    return new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 0 }).format(Math.abs(Math.round(value))) + " kr";
+    const sign = options?.showSign ? (value < 0 ? "-" : "+") : "";
+    return sign + new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 0 }).format(Math.abs(Math.round(value))) + " kr";
   };
 
   const rowValue = (row: DeclarationRow): number | undefined => {
@@ -384,9 +392,12 @@ export default function Ink2Page() {
     return undefined;
   };
 
-  const rowSourceAccounts = (row: DeclarationRow): string[] => {
+  const rowSourceAccounts = (row: DeclarationRow): SourceAccountValue[] => {
     const field = getField(row.sru);
-    return field?.source_accounts?.filter(Boolean) || [];
+    if (field?.source_account_values?.length) {
+      return field.source_account_values.filter((account) => account.value !== 0);
+    }
+    return [];
   };
 
   const formatDate = (dateStr: string): string => {
@@ -418,10 +429,16 @@ export default function Ink2Page() {
                   <div className="mt-1 flex flex-wrap gap-1.5">
                     {accounts.map((account) => (
                       <span
-                        key={`${row.code}-${account}`}
-                        className="rounded border border-border bg-muted/60 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-muted-foreground"
+                        key={`${row.code}-${account.account}`}
+                        className="inline-flex items-center gap-1 rounded border border-border bg-muted/60 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-muted-foreground"
+                        title={account.name}
                       >
-                        {account}
+                        <span>{account.account}</span>
+                        {account.value !== 0 && (
+                          <span className={account.value < 0 ? "text-destructive" : "text-emerald-600"}>
+                            {formatAmount(account.value, { showSign: true })}
+                          </span>
+                        )}
                       </span>
                     ))}
                   </div>

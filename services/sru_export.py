@@ -88,6 +88,7 @@ class SRUFieldValue:
     description: str
     value: int  # In SEK (not öre)
     source_accounts: List[str]  # Which accounts contributed
+    source_account_values: Optional[List[Dict[str, int | str]]] = None
 
 
 @dataclass
@@ -275,12 +276,22 @@ class SRUExportService:
         for sru_field, accounts in field_balances.items():
             total_balance = sum(a["balance"] for a in accounts)
             value_sek = self._to_sru_value(sru_field, total_balance)
+            source_account_values = []
+            for account in accounts:
+                account_value = self._to_sru_value(sru_field, account["balance"])
+                if account_value != 0:
+                    source_account_values.append({
+                        "account": account["code"],
+                        "name": account["name"],
+                        "value": account_value,
+                    })
             
             fields[sru_field] = SRUFieldValue(
                 field_number=sru_field,
                 description=field_descriptions.get(sru_field, "Okänd fältkod"),
                 value=value_sek,
-                source_accounts=[a["code"] for a in accounts],
+                source_accounts=[a["account"] for a in source_account_values],
+                source_account_values=source_account_values,
             )
         
         # Calculate derived fields

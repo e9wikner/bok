@@ -82,6 +82,7 @@ async def preview_sru(
                 "description": field.description,
                 "value": field.value,
                 "source_accounts": field.source_accounts,
+                "source_account_values": field.source_account_values or [],
             })
         
         return {
