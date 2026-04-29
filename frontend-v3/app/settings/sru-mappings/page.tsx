@@ -44,6 +44,29 @@ interface SRUMapping {
   updated_at: string;
 }
 
+interface SRUPreview {
+  fiscal_year_id: string;
+  company: {
+    org_number: string;
+    name: string;
+  };
+  fiscal_year: {
+    start: string;
+    end: string;
+  };
+  fields: {
+    field_number: string;
+    description: string;
+    value: number;
+    source_accounts: string[];
+  }[];
+  validation: {
+    errors: string[];
+    warnings: string[];
+    is_valid: boolean;
+  };
+}
+
 // Common SRU fields with descriptions used by the app's INK2 export.
 const SRU_FIELDS = [
   { code: "7201", description: "Koncessioner, patent, licenser, varumärken, hyresrätter, goodwill och liknande rättigheter", bas: "1000-1099" },
@@ -91,6 +114,8 @@ export default function SRUMappingsPage() {
   const [defaultMappings, setDefaultMappings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const [preview, setPreview] = useState<SRUPreview | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -263,10 +288,20 @@ export default function SRUMappingsPage() {
 
   const previewSRU = async () => {
     if (!selectedYear) return;
-    
-    // Open preview in new window/tab
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "";
-    window.open(`${apiUrl}/api/v1/export/sru/${selectedYear}/preview`, "_blank");
+
+    setPreviewing(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const previewData = await api.previewSRU(selectedYear);
+      setPreview(previewData);
+      setSuccess("Förhandsgranskningen är uppdaterad");
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || "Kunde inte förhandsgranska SRU-data");
+    } finally {
+      setPreviewing(false);
+    }
   };
 
   if (loading && !fiscalYears.length) {
@@ -319,11 +354,15 @@ export default function SRUMappingsPage() {
           <Button
             variant="outline"
             onClick={previewSRU}
-            disabled={!selectedYear}
+            disabled={!selectedYear || previewing}
             className="gap-2"
           >
-            <Eye className="h-4 w-4" />
-            Förhandsgranska
+            {previewing ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Eye className="h-4 w-4" />
+            )}
+            {previewing ? "Hämtar..." : "Förhandsgranska"}
           </Button>
           <Button
             variant="outline"
@@ -411,6 +450,62 @@ export default function SRUMappingsPage() {
           </select>
         </CardContent>
       </Card>
+
+      {preview && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Förhandsgranskning av SRU-export</CardTitle>
+            <CardDescription>
+              Det här är fälten som skulle hamna i SRU-filerna för {preview.company.name}
+              {" "}({preview.fiscal_year.start} - {preview.fiscal_year.end}).
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {(preview.validation.errors.length > 0 || preview.validation.warnings.length > 0) && (
+              <div className="space-y-2">
+                {preview.validation.errors.map((message) => (
+                  <div key={message} className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {message}
+                  </div>
+                ))}
+                {preview.validation.warnings.map((message) => (
+                  <div key={message} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                    {message}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="border rounded-lg overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="px-4 py-3 text-left font-medium w-[90px]">Fält</th>
+                      <th className="px-4 py-3 text-left font-medium">Benämning</th>
+                      <th className="px-4 py-3 text-left font-medium">Konton</th>
+                      <th className="px-4 py-3 text-right font-medium w-[140px]">Belopp</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {preview.fields.map((field) => (
+                      <tr key={field.field_number}>
+                        <td className="px-4 py-3 font-mono">{field.field_number}</td>
+                        <td className="px-4 py-3">{field.description}</td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          {field.source_accounts.length > 0 ? field.source_accounts.join(", ") : "-"}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono tabular-nums">
+                          {field.value.toLocaleString("sv-SE")} kr
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Mappings Table */}
       <Card>
