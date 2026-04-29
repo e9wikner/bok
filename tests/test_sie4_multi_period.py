@@ -58,6 +58,36 @@ def test_multi_period_voucher_import():
     print(f"✅ Successfully parsed {len(data.vouchers)} vouchers across {len(set(dates))} different months")
 
 
+def test_pc8_import_preserves_swedish_characters(tmp_path):
+    """Testa att CP437/PC8-kodade SIE-filer inte får mojibake i svensk text."""
+    expected = "Återföring Småföretagsförsäkring Länsförsäkringar"
+    sie4_content = f"""#FLAGGA 0
+#FORMAT PC8
+#GEN "Test" 20260129
+#PROGRAM "Test" 1.0
+#FNAMN "Test AB"
+#FORGN 5591234567
+#RAR 0 20260101 20261231
+#KPTYP EUBAS97
+#KONTO 1700 "Förutbetalda kostnader och upplupna intäkter"
+#KONTO 6300 "Företagsförsäkringar"
+#VER A 165 20260129 "{expected}"
+{{
+#TRANS 1700 {{}} -8013 20260129
+#TRANS 6300 {{}} 8013 20260129
+}}
+"""
+    file_path = tmp_path / "pc8.se"
+    file_path.write_bytes(sie4_content.encode("cp437"))
+
+    parser = SIE4Parser()
+    data = parser.parse_file(str(file_path))
+
+    assert data.accounts[0].name == "Förutbetalda kostnader och upplupna intäkter"
+    assert data.vouchers[0].description == expected
+    assert not any(0x80 <= ord(char) <= 0x9F for char in data.vouchers[0].description)
+
+
 if __name__ == "__main__":
     test_multi_period_voucher_import()
     print("Test passed!")

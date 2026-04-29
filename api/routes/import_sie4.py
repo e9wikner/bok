@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from typing import Optional
 
 from api.deps import get_current_actor, verify_api_key
-from services.sie4_import import SIE4Importer, create_sample_sie4
+from services.sie4_import import SIE4Importer, SIE4Parser, create_sample_sie4
 from config import settings
 
 router = APIRouter(prefix="/api/v1/import", tags=["import"])
@@ -32,24 +32,8 @@ async def import_sie4(
         # Read file content
         content = await file.read()
         
-        # Detect encoding from #FORMAT header in raw bytes
-        # #FORMAT PC8 = CP437, otherwise try UTF-8 first
-        if b"#FORMAT PC8" in content or b"#FORMAT IBMPC" in content:
-            encoding = "cp437"
-        else:
-            encoding = None
-            for enc in ["utf-8", "windows-1252"]:
-                try:
-                    content.decode(enc)
-                    encoding = enc
-                    break
-                except UnicodeDecodeError:
-                    continue
-            if encoding is None:
-                encoding = "cp437"
-
         try:
-            text_content = content.decode(encoding)
+            text_content = SIE4Parser.decode_bytes(content)
         except UnicodeDecodeError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -112,29 +96,14 @@ async def validate_sie4(
     try:
         content = await file.read()
         
-        if b"#FORMAT PC8" in content or b"#FORMAT IBMPC" in content:
-            encoding = "cp437"
-        else:
-            encoding = None
-            for enc in ["utf-8", "windows-1252"]:
-                try:
-                    content.decode(enc)
-                    encoding = enc
-                    break
-                except UnicodeDecodeError:
-                    continue
-            if encoding is None:
-                encoding = "cp437"
-
         try:
-            text_content = content.decode(encoding)
+            text_content = SIE4Parser.decode_bytes(content)
         except UnicodeDecodeError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Could not decode file"
             )
         
-        from services.sie4_import import SIE4Parser
         parser = SIE4Parser()
         data = parser.parse_content(text_content)
         

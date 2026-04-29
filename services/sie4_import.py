@@ -98,13 +98,13 @@ class SIE4Parser:
         """Parse a SIE4 file from disk."""
         with open(filepath, "rb") as f:
             raw = f.read()
-        encoding = self._detect_encoding(raw)
-        return self.parse_content(raw.decode(encoding))
+        return self.parse_content(self.decode_bytes(raw))
 
     @staticmethod
     def _detect_encoding(raw: bytes) -> str:
         """Detect SIE file encoding from #FORMAT header."""
-        if b"#FORMAT PC8" in raw or b"#FORMAT IBMPC" in raw:
+        header = raw[:4096].decode("ascii", errors="ignore")
+        if re.search(r"(?im)^#FORMAT\s+(PC8|IBMPC)\b", header):
             return "cp437"
         for enc in ["utf-8", "windows-1252"]:
             try:
@@ -113,6 +113,23 @@ class SIE4Parser:
             except UnicodeDecodeError:
                 continue
         return "cp437"
+
+    @classmethod
+    def decode_bytes(cls, raw: bytes) -> str:
+        """Decode raw SIE bytes without leaving Latin-1 style C1 control mojibake."""
+        encoding = cls._detect_encoding(raw)
+        text = raw.decode(encoding)
+
+        # A previous import path decoded CP437 bytes as Latin-1, which stores
+        # Swedish letters as U+0080-U+009F control characters. If that ever
+        # happens again through a permissive decoder, prefer CP437 when it
+        # removes the control characters.
+        if encoding != "cp437" and any(0x80 <= ord(char) <= 0x9F for char in text):
+            cp437_text = raw.decode("cp437")
+            if not any(0x80 <= ord(char) <= 0x9F for char in cp437_text):
+                return cp437_text
+
+        return text
 
     def parse_content(self, content: str) -> SIEData:
         """Parse SIE4 content from string."""
