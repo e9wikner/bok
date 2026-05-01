@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertCircle, Building2, Calculator, Calendar, CheckCircle2, Download, FileSpreadsheet, FileText } from "lucide-react";
 import { api } from "@/lib/api";
 import { useFiscalYears } from "@/hooks/useData";
@@ -8,21 +8,36 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
+type TabType = "ink2" | "ink2r" | "ink2s";
+
 interface SourceAccountValue {
   account: string;
   name?: string;
   value: number;
 }
 
-interface SRUField {
-  field_number: string;
-  description: string;
-  value: number;
-  source_accounts: string[];
-  source_account_values?: SourceAccountValue[];
+interface DeclarationRow {
+  code: string;
+  label: string;
+  sru_fields: string[];
+  value?: number | null;
+  sign?: "+" | "-" | "(+) =" | "(-) =" | null;
+  note?: string | null;
+  source_accounts: SourceAccountValue[];
 }
 
-interface SRUData {
+interface DeclarationSection {
+  title: string;
+  rows: DeclarationRow[];
+}
+
+interface DeclarationTab {
+  id: TabType;
+  label: string;
+  description: string;
+}
+
+interface INK2Declaration {
   fiscal_year_id: string;
   company: {
     name: string;
@@ -32,7 +47,13 @@ interface SRUData {
     start: string;
     end: string;
   };
-  fields: SRUField[];
+  tabs: DeclarationTab[];
+  summary: {
+    accounting_result: number;
+    taxable_result: number;
+    blankettstruktur: string;
+  };
+  sections: Record<TabType, DeclarationSection[]>;
   validation?: {
     errors: string[];
     warnings: string[];
@@ -40,269 +61,41 @@ interface SRUData {
   };
 }
 
-type TabType = "ink2" | "ink2r" | "ink2s";
+const TAB_ICONS = {
+  ink2: FileText,
+  ink2r: FileSpreadsheet,
+  ink2s: Calculator,
+};
 
-interface DeclarationRow {
-  code: string;
-  label: string;
-  sru?: string | string[];
-  value?: (ctx: ReportContext) => number;
-  sign?: "+" | "-" | "(+) =" | "(-) =";
-  note?: string;
-}
-
-interface DeclarationSection {
-  title: string;
-  rows: DeclarationRow[];
-}
-
-interface ReportContext {
-  getFieldValue: (fieldNumber: string) => number;
-  accountingResult: number;
-  taxableResult: number;
-}
-
-const TABS = [
-  { id: "ink2" as TabType, label: "INK2", icon: FileText, description: "Huvudblankett" },
-  { id: "ink2r" as TabType, label: "INK2R", icon: FileSpreadsheet, description: "Räkenskapsschema" },
-  { id: "ink2s" as TabType, label: "INK2S", icon: Calculator, description: "Skattemässiga justeringar" },
-];
-
-const INK2_SECTIONS: DeclarationSection[] = [
-  {
-    title: "Underlag för inkomstskatt",
-    rows: [
-      { code: "1.1", label: "Överskott av näringsverksamhet", value: ({ taxableResult }) => Math.max(taxableResult, 0) },
-      { code: "1.2", label: "Underskott av näringsverksamhet", value: ({ taxableResult }) => Math.min(taxableResult, 0) },
-      { code: "1.3", label: "Underskott som inte redovisas i p. 1.2, koncernbidrags- och fusionsspärrat underskott" },
-    ],
+const TAB_INTROS: Record<TabType, { title: string; description: string }> = {
+  ink2: {
+    title: "INK2 - Huvudblankett",
+    description: "Underlag och summeringar enligt huvudblanketten.",
   },
-  {
-    title: "Underlag för särskild löneskatt",
-    rows: [
-      { code: "1.4", label: "Underlag för särskild löneskatt på pensionskostnader" },
-      { code: "1.5", label: "Negativt underlag för särskild löneskatt på pensionskostnader" },
-    ],
+  ink2r: {
+    title: "INK2R - Räkenskapsschema",
+    description: "Balansräkning och resultaträkning med Skatteverkets fältnummer 2.1-3.27.",
   },
-  {
-    title: "Underlag för avkastningsskatt",
-    rows: [
-      { code: "1.6", label: "Underlag för avkastningsskatt 15 %. Försäkringsföretag m.fl. Avsatt till pensioner" },
-      { code: "1.7", label: "Underlag för avkastningsskatt 30 %. Försäkringsföretag m.fl. Utländska kapitalförsäkringar" },
-    ],
+  ink2s: {
+    title: "INK2S - Skattemässiga justeringar",
+    description: "Fält 4.1-4.21 enligt blanketten. Tomma justeringsfält visas för att rapporten ska följa blankettens struktur.",
   },
-  {
-    title: "Underlag för fastighetsavgift",
-    rows: [
-      { code: "1.8", label: "Småhus, hel avgift" },
-      { code: "1.8", label: "Småhus, halv avgift" },
-      { code: "1.9", label: "Hyreshus, bostäder, hel avgift" },
-      { code: "1.9", label: "Hyreshus, bostäder, halv avgift" },
-    ],
-  },
-  {
-    title: "Underlag för fastighetsskatt",
-    rows: [
-      { code: "1.10", label: "Småhus/ägarlägenhet: tomtmark, byggnad under uppförande" },
-      { code: "1.11", label: "Hyreshus: tomtmark, bostäder under uppförande" },
-      { code: "1.12", label: "Hyreshus: lokaler" },
-      { code: "1.13", label: "Industri/elproduktionsenhet, värmekraftverk (utom vindkraftverk)" },
-      { code: "1.14", label: "Elproduktionsenhet, vattenkraftverk" },
-      { code: "1.15", label: "Elproduktionsenhet, vindkraftverk" },
-    ],
-  },
-];
-
-const INK2R_SECTIONS: DeclarationSection[] = [
-  {
-    title: "Tillgångar / Anläggningstillgångar",
-    rows: [
-      { code: "2.1", label: "Koncessioner, patent, licenser, varumärken, hyresrätter, goodwill och liknande rättigheter", sru: "7201" },
-      { code: "2.2", label: "Förskott avseende immateriella anläggningstillgångar", sru: "7202" },
-      { code: "2.3", label: "Byggnader och mark", sru: "7214" },
-      { code: "2.4", label: "Maskiner, inventarier och övriga materiella anläggningstillgångar", sru: "7215" },
-      { code: "2.5", label: "Förbättringsutgifter på annans fastighet", sru: "7216" },
-      { code: "2.6", label: "Pågående nyanläggningar och förskott avseende materiella anläggningstillgångar", sru: "7217" },
-      { code: "2.7", label: "Andelar i koncernföretag", sru: "7230" },
-      { code: "2.8", label: "Andelar i intresseföretag och gemensamt styrda företag", sru: "7231" },
-      { code: "2.9", label: "Ägarintresse i övriga företag och andra långfristiga värdepappersinnehav", sru: "7233" },
-      { code: "2.10", label: "Fordringar hos koncern-, intresse- och gemensamt styrda företag", sru: "7232" },
-      { code: "2.11", label: "Lån till delägare eller närstående", sru: "7234" },
-      { code: "2.12", label: "Fordringar hos övriga företag som det finns ett ägarintresse i och andra långfristiga fordringar", sru: "7235" },
-    ],
-  },
-  {
-    title: "Omsättningstillgångar",
-    rows: [
-      { code: "2.13", label: "Råvaror och förnödenheter", sru: "7241" },
-      { code: "2.14", label: "Varor under tillverkning", sru: "7242" },
-      { code: "2.15", label: "Färdiga varor och handelsvaror", sru: "7243" },
-      { code: "2.16", label: "Övriga lagertillgångar", sru: "7244" },
-      { code: "2.17", label: "Pågående arbeten för annans räkning", sru: "7245" },
-      { code: "2.18", label: "Förskott till leverantörer", sru: "7246" },
-      { code: "2.19", label: "Kundfordringar", sru: "7251" },
-      { code: "2.20", label: "Fordringar hos koncern-, intresse- och gemensamt styrda företag", sru: "7252" },
-      { code: "2.21", label: "Fordringar hos övriga företag som det finns ett ägarintresse i och övriga fordringar", sru: "7261" },
-      { code: "2.22", label: "Upparbetad men ej fakturerad intäkt", sru: "7262" },
-      { code: "2.23", label: "Förutbetalda kostnader och upplupna intäkter", sru: "7263" },
-      { code: "2.24", label: "Andelar i koncernföretag", sru: "7270" },
-      { code: "2.25", label: "Övriga kortfristiga placeringar", sru: "7271" },
-      { code: "2.26", label: "Kassa, bank och redovisningsmedel", sru: "7281" },
-    ],
-  },
-  {
-    title: "Eget kapital",
-    rows: [
-      { code: "2.27", label: "Bundet eget kapital", sru: "7301" },
-      { code: "2.28", label: "Fritt eget kapital", sru: "7302" },
-    ],
-  },
-  {
-    title: "Obeskattade reserver och avsättningar",
-    rows: [
-      { code: "2.29", label: "Periodiseringsfonder", sru: "7321" },
-      { code: "2.30", label: "Ackumulerade överavskrivningar", sru: "7322" },
-      { code: "2.31", label: "Övriga obeskattade reserver", sru: "7323" },
-      { code: "2.32", label: "Avsättningar för pensioner och liknande förpliktelser enligt lagen (1967:531) om tryggande av pensionsutfästelser m.m.", sru: "7331" },
-      { code: "2.33", label: "Övriga avsättningar för pensioner och liknande förpliktelser", sru: "7332" },
-      { code: "2.34", label: "Övriga avsättningar", sru: "7333" },
-    ],
-  },
-  {
-    title: "Skulder",
-    rows: [
-      { code: "2.35", label: "Obligationslån", sru: "7350" },
-      { code: "2.36", label: "Checkräkningskredit", sru: "7351" },
-      { code: "2.37", label: "Övriga skulder till kreditinstitut", sru: "7352" },
-      { code: "2.38", label: "Skulder till koncern-, intresse- och gemensamt styrda företag", sru: "7353" },
-      { code: "2.39", label: "Skulder till övriga företag som det finns ett ägarintresse i och övriga skulder", sru: "7354" },
-      { code: "2.40", label: "Checkräkningskredit", sru: "7360" },
-      { code: "2.41", label: "Övriga skulder till kreditinstitut", sru: "7361" },
-      { code: "2.42", label: "Förskott från kunder", sru: "7362" },
-      { code: "2.43", label: "Pågående arbeten för annans räkning", sru: "7363" },
-      { code: "2.44", label: "Fakturerad men ej upparbetad intäkt", sru: "7364" },
-      { code: "2.45", label: "Leverantörsskulder", sru: "7365" },
-      { code: "2.46", label: "Växelskulder", sru: "7366" },
-      { code: "2.47", label: "Skulder till koncern-, intresse- och gemensamt styrda företag", sru: "7367" },
-      { code: "2.48", label: "Skulder till övriga företag som det finns ett ägarintresse i och övriga skulder", sru: "7369" },
-      { code: "2.49", label: "Skatteskulder", sru: "7368" },
-      { code: "2.50", label: "Upplupna kostnader och förutbetalda intäkter", sru: "7370" },
-    ],
-  },
-  {
-    title: "Resultaträkning",
-    rows: [
-      { code: "3.1", label: "Nettoomsättning", sru: "7410", sign: "+" },
-      { code: "3.2", label: "Förändring av lager av produkter i arbete, färdiga varor och pågående arbete för annans räkning", sru: ["7411", "7510"], sign: "+" },
-      { code: "3.3", label: "Aktiverat arbete för egen räkning", sru: "7412", sign: "+" },
-      { code: "3.4", label: "Övriga rörelseintäkter", sru: "7413", sign: "+" },
-      { code: "3.5", label: "Råvaror och förnödenheter", sru: "7511", sign: "-" },
-      { code: "3.6", label: "Handelsvaror", sru: "7512", sign: "-" },
-      { code: "3.7", label: "Övriga externa kostnader", sru: "7513", sign: "-" },
-      { code: "3.8", label: "Personalkostnader", sru: "7514", sign: "-" },
-      { code: "3.9", label: "Av- och nedskrivningar av materiella och immateriella anläggningstillgångar", sru: "7515", sign: "-" },
-      { code: "3.10", label: "Nedskrivningar av omsättningstillgångar utöver normala nedskrivningar", sru: "7516", sign: "-" },
-      { code: "3.11", label: "Övriga rörelsekostnader", sru: "7517", sign: "-" },
-      { code: "3.12", label: "Resultat från andelar i koncernföretag", sru: ["7414", "7518"], sign: "+" },
-      { code: "3.13", label: "Resultat från andelar i intresseföretag och gemensamt styrda företag", sru: ["7415", "7519"], sign: "+" },
-      { code: "3.14", label: "Resultat från övriga företag som det finns ett ägarintresse i", sru: ["7423", "7530"], sign: "+" },
-      { code: "3.15", label: "Resultat från övriga finansiella anläggningstillgångar", sru: ["7416", "7520"], sign: "+" },
-      { code: "3.16", label: "Övriga ränteintäkter och liknande resultatposter", sru: "7417", sign: "+" },
-      { code: "3.17", label: "Nedskrivningar av finansiella anläggningstillgångar och kortfristiga placeringar", sru: "7521", sign: "-" },
-      { code: "3.18", label: "Räntekostnader och liknande resultatposter", sru: "7522", sign: "-" },
-      { code: "3.19", label: "Lämnade koncernbidrag", sru: "7524", sign: "-" },
-      { code: "3.20", label: "Mottagna koncernbidrag", sru: "7419", sign: "+" },
-      { code: "3.21", label: "Återföring av periodiseringsfond", sru: "7420", sign: "+" },
-      { code: "3.22", label: "Avsättning till periodiseringsfond", sru: "7525", sign: "-" },
-      { code: "3.23", label: "Förändring av överavskrivningar", sru: ["7421", "7526"], sign: "+" },
-      { code: "3.24", label: "Övriga bokslutsdispositioner", sru: ["7422", "7527"], sign: "+" },
-      { code: "3.25", label: "Skatt på årets resultat", sru: "7528", sign: "-" },
-      { code: "3.26", label: "Årets resultat, vinst (flyttas till p. 4.1)", sru: "7450", sign: "(+) =" },
-      { code: "3.27", label: "Årets resultat, förlust (flyttas till p. 4.2)", sru: "7550", sign: "(-) =" },
-    ],
-  },
-];
-
-const INK2S_SECTIONS: DeclarationSection[] = [
-  {
-    title: "Årets resultat",
-    rows: [
-      { code: "4.1", label: "Årets resultat, vinst", sru: "7650", sign: "+" },
-      { code: "4.2", label: "Årets resultat, förlust", value: ({ accountingResult }) => Math.min(accountingResult, 0), sign: "-" },
-    ],
-  },
-  {
-    title: "Bokförda kostnader och intäkter",
-    rows: [
-      { code: "4.3a", label: "Bokförda kostnader som inte ska dras av: skatt på årets resultat", sru: "7651", sign: "+" },
-      { code: "4.3b", label: "Bokförda kostnader som inte ska dras av: nedskrivning av finansiella tillgångar", sign: "+" },
-      { code: "4.3c", label: "Bokförda kostnader som inte ska dras av: andra bokförda kostnader", sru: "7653", sign: "+" },
-      { code: "4.4a", label: "Kostnader som ska dras av men som inte ingår i det redovisade resultatet: lämnade koncernbidrag", sign: "-" },
-      { code: "4.4b", label: "Kostnader som ska dras av men som inte ingår i det redovisade resultatet: andra ej bokförda kostnader", sign: "-" },
-      { code: "4.5a", label: "Bokförda intäkter som inte ska tas upp: ackordsvinster", sign: "-" },
-      { code: "4.5b", label: "Bokförda intäkter som inte ska tas upp: utdelning", sign: "-" },
-      { code: "4.5c", label: "Bokförda intäkter som inte ska tas upp: andra bokförda intäkter", sru: "7754", sign: "-" },
-      { code: "4.6a", label: "Intäkter som ska tas upp men som inte ingår i det redovisade resultatet: schablonintäkt på kvarvarande periodiseringsfonder", sru: "7654", sign: "+" },
-      { code: "4.6b", label: "Intäkter som ska tas upp men som inte ingår i det redovisade resultatet: schablonintäkt på investeringsfonder", sign: "+" },
-      { code: "4.6c", label: "Intäkter som ska tas upp men som inte ingår i det redovisade resultatet: mottagna koncernbidrag", sign: "+" },
-      { code: "4.6d", label: "Intäkter som ska tas upp men som inte ingår i det redovisade resultatet: intäkt negativ justerad anskaffningsutgift", sign: "+" },
-      { code: "4.6e", label: "Intäkter som ska tas upp men som inte ingår i det redovisade resultatet: andra ej bokförda intäkter", sign: "+" },
-    ],
-  },
-  {
-    title: "Övriga skattemässiga justeringar",
-    rows: [
-      { code: "4.7a", label: "Avyttring av delägarrätter: bokförd vinst", sign: "-" },
-      { code: "4.7b", label: "Avyttring av delägarrätter: bokförd förlust", sign: "+" },
-      { code: "4.7c", label: "Avyttring av delägarrätter: uppskov med kapitalvinst enligt blankett N4", sign: "-" },
-      { code: "4.7d", label: "Avyttring av delägarrätter: återfört uppskov av kapitalvinst enligt blankett N4", sign: "+" },
-      { code: "4.7e", label: "Avyttring av delägarrätter: kapitalvinst för beskattningsåret", sign: "+" },
-      { code: "4.7f", label: "Avyttring av delägarrätter: kapitalförlust som ska dras av", sign: "-" },
-      { code: "4.8a", label: "Andel i handelsbolag: bokförd intäkt/vinst", sign: "-" },
-      { code: "4.8b", label: "Andel i handelsbolag: skattemässigt överskott enligt N3B", sign: "+" },
-      { code: "4.8c", label: "Andel i handelsbolag: bokförd kostnad/förlust", sign: "+" },
-      { code: "4.8d", label: "Andel i handelsbolag: skattemässigt underskott enligt N3B", sign: "-" },
-      { code: "4.9", label: "Skattemässig justering av bokfört resultat för avskrivning på byggnader och annan fast egendom samt vid restvärdesavskrivning", sign: "+" },
-      { code: "4.10", label: "Skattemässig korrigering av bokfört resultat vid avyttring av näringsfastighet och näringsbostadsrätt", sign: "+" },
-      { code: "4.11", label: "Skogs-/substansminskningsavdrag", sign: "-" },
-      { code: "4.12", label: "Återföringar vid avyttring av fastighet", sign: "+" },
-      { code: "4.13", label: "Andra skattemässiga justeringar av resultatet", sign: "+" },
-      { code: "4.14a", label: "Underskott: outnyttjat underskott från föregående år", sign: "-" },
-      { code: "4.14b", label: "Underskott: reduktion av underskott med hänsyn till exempelvis ägarförändring eller ackord", sign: "+" },
-      { code: "4.15", label: "Överskott (flyttas till p. 1.1)", sru: "7670", sign: "(+) =" },
-      { code: "4.16", label: "Underskott (flyttas till p. 1.2)", value: ({ taxableResult }) => Math.min(taxableResult, 0), sign: "(-) =" },
-    ],
-  },
-  {
-    title: "Övriga uppgifter",
-    rows: [
-      { code: "4.17", label: "Årets begärda och tidigare års medgivna värdeminskningsavdrag på byggnader som finns kvar vid beskattningsårets utgång" },
-      { code: "4.18", label: "Årets begärda och tidigare års medgivna värdeminskningsavdrag på markanläggningar som finns kvar vid beskattningsårets utgång" },
-      { code: "4.19", label: "Vid restvärdesavskrivning: återförda belopp för av- och nedskrivning, försäljning, utrangering" },
-      { code: "4.20", label: "Lån från aktieägare (fysisk person) vid beskattningsårets utgång" },
-      { code: "4.21", label: "Pensionskostnader (som ingår i p. 3.8)" },
-    ],
-  },
-  {
-    title: "Upplysningar om årsredovisningen",
-    rows: [
-      { code: "JA/NEJ", label: "Uppdragstagare, t.ex. redovisningskonsult, har biträtt vid upprättandet av årsredovisningen" },
-      { code: "JA/NEJ", label: "Årsredovisningen har varit föremål för revision" },
-    ],
-  },
-];
+};
 
 export default function Ink2Page() {
   const [activeTab, setActiveTab] = useState<TabType>("ink2");
   const [selectedYear, setSelectedYear] = useState<string>("");
-  const [sruData, setSruData] = useState<SRUData | null>(null);
+  const [declaration, setDeclaration] = useState<INK2Declaration | null>(null);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const { data: fiscalYearsData } = useFiscalYears();
-  
-  const fiscalYears = Array.isArray(fiscalYearsData) ? fiscalYearsData : fiscalYearsData?.fiscal_years || [];
+
+  const fiscalYears = useMemo(
+    () => (Array.isArray(fiscalYearsData) ? fiscalYearsData : fiscalYearsData?.fiscal_years || []),
+    [fiscalYearsData],
+  );
 
   useEffect(() => {
     if (fiscalYears.length > 0 && !selectedYear) {
@@ -310,23 +103,24 @@ export default function Ink2Page() {
     }
   }, [fiscalYears, selectedYear]);
 
-  useEffect(() => {
-    if (!selectedYear) return;
-    loadSruData(selectedYear);
-  }, [selectedYear]);
-
-  const loadSruData = async (fiscalYearId: string) => {
+  const loadDeclaration = useCallback(async (fiscalYearId: string) => {
     setLoading(true);
     setError(null);
     try {
-      const sruResponse = await api.previewSRU(fiscalYearId);
-      setSruData(sruResponse);
+      const response = await api.getINK2Declaration(fiscalYearId);
+      setDeclaration(response);
     } catch (err: any) {
       setError(err?.response?.data?.detail || "Kunde inte ladda INK2-data");
+      setDeclaration(null);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedYear) return;
+    loadDeclaration(selectedYear);
+  }, [loadDeclaration, selectedYear]);
 
   const handleExport = async () => {
     if (!selectedYear) return;
@@ -338,7 +132,7 @@ export default function Ink2Page() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      const year = sruData?.fiscal_year?.start ? sruData.fiscal_year.start.substring(0, 4) : "INK2";
+      const year = declaration?.fiscal_year?.start ? declaration.fiscal_year.start.substring(0, 4) : "INK2";
       a.download = `INK2_${year}_SRU.zip`;
       a.click();
       URL.revokeObjectURL(url);
@@ -351,48 +145,10 @@ export default function Ink2Page() {
     }
   };
 
-  const getFieldValue = (fieldNumber: string): number => {
-    const field = sruData?.fields?.find(f => f.field_number === fieldNumber);
-    return field?.value ?? 0;
-  };
-
-  const getField = (fieldNumber?: string): SRUField | undefined => {
-    if (!fieldNumber) return undefined;
-    return sruData?.fields?.find(f => f.field_number === fieldNumber);
-  };
-
-  const rowFieldNumbers = (row: DeclarationRow): string[] => {
-    if (!row.sru) return [];
-    return Array.isArray(row.sru) ? row.sru : [row.sru];
-  };
-
-  const sumFields = (fields: string[]): number => fields.reduce((sum, field) => sum + getFieldValue(field), 0);
-  const ink2rAccountingResult = getFieldValue("7450") - getFieldValue("7550");
-  const computedAccountingResult =
-    sumFields(["7410", "7411", "7412", "7413", "7414", "7415", "7423", "7416", "7417", "7419", "7420", "7421", "7422"]) -
-    sumFields(["7510", "7511", "7512", "7513", "7514", "7515", "7516", "7517", "7518", "7519", "7530", "7520", "7521", "7522", "7524", "7525", "7526", "7527", "7528"]);
-  const accountingResult = getFieldValue("7650") || ink2rAccountingResult || computedAccountingResult;
-  const taxableResult = getFieldValue("7670") || accountingResult;
-  const reportContext: ReportContext = { getFieldValue, accountingResult, taxableResult };
-
-  const formatAmount = (value?: number, options?: { showSign?: boolean }): string => {
+  const formatAmount = (value?: number | null, options?: { showSign?: boolean }): string => {
     if (!value) return "";
     const sign = options?.showSign ? (value < 0 ? "-" : "+") : "";
     return sign + new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 0 }).format(Math.abs(Math.round(value))) + " kr";
-  };
-
-  const rowValue = (row: DeclarationRow): number | undefined => {
-    if (row.value) return row.value(reportContext);
-    const fields = rowFieldNumbers(row);
-    if (fields.length) return sumFields(fields);
-    return undefined;
-  };
-
-  const rowSourceAccounts = (row: DeclarationRow): SourceAccountValue[] => {
-    return rowFieldNumbers(row).flatMap((fieldNumber) => {
-      const field = getField(fieldNumber);
-      return field?.source_account_values?.filter((account) => account.value !== 0) ?? [];
-    });
   };
 
   const formatDate = (dateStr: string): string => {
@@ -407,9 +163,8 @@ export default function Ink2Page() {
       </div>
       <div>
         {section.rows.map((row, index) => {
-          const value = rowValue(row);
-          const hasValue = !!value;
-          const accounts = rowSourceAccounts(row);
+          const hasValue = !!row.value;
+          const accounts = row.source_accounts || [];
           return (
             <div
               key={`${section.title}-${row.code}-${index}`}
@@ -429,11 +184,9 @@ export default function Ink2Page() {
                         title={account.name}
                       >
                         <span>{account.account}</span>
-                        {account.value !== 0 && (
-                          <span className={account.value < 0 ? "text-destructive" : "text-emerald-600"}>
-                            {formatAmount(account.value, { showSign: true })}
-                          </span>
-                        )}
+                        <span className={account.value < 0 ? "text-destructive" : "text-emerald-600"}>
+                          {formatAmount(account.value, { showSign: true })}
+                        </span>
                       </span>
                     ))}
                   </div>
@@ -443,7 +196,7 @@ export default function Ink2Page() {
               <div className="col-span-2 flex items-center justify-between gap-2 sm:col-span-1 sm:block sm:text-right">
                 {row.sign && <span className="font-mono text-xs text-muted-foreground sm:block">{row.sign}</span>}
                 <span className={`font-mono text-sm tabular-nums ${hasValue ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
-                  {formatAmount(value)}
+                  {formatAmount(row.value)}
                 </span>
               </div>
             </div>
@@ -464,19 +217,38 @@ export default function Ink2Page() {
       <CardContent className="grid gap-4 p-4 md:grid-cols-3">
         <div>
           <div className="text-xs text-muted-foreground">Bokfört resultat</div>
-          <div className="font-mono text-lg font-semibold">{formatAmount(accountingResult)}</div>
+          <div className="font-mono text-lg font-semibold">{formatAmount(declaration?.summary.accounting_result)}</div>
         </div>
         <div>
           <div className="text-xs text-muted-foreground">Skattemässigt resultat</div>
-          <div className="font-mono text-lg font-semibold">{formatAmount(taxableResult)}</div>
+          <div className="font-mono text-lg font-semibold">{formatAmount(declaration?.summary.taxable_result)}</div>
         </div>
         <div>
           <div className="text-xs text-muted-foreground">Blankettstruktur</div>
-          <div className="text-sm font-medium">SKV 2002, INK2/INK2R/INK2S</div>
+          <div className="text-sm font-medium">{declaration?.summary.blankettstruktur}</div>
         </div>
       </CardContent>
     </Card>
   );
+
+  const renderActiveTab = () => {
+    if (!declaration) return null;
+    const intro = TAB_INTROS[activeTab];
+    return (
+      <div className="space-y-4">
+        {activeTab === "ink2" && renderSummaryCard()}
+        {activeTab !== "ink2" && (
+          <Card>
+            <CardHeader>
+              <CardTitle>{intro.title}</CardTitle>
+              <CardDescription>{intro.description}</CardDescription>
+            </CardHeader>
+          </Card>
+        )}
+        {renderDeclarationSections(declaration.sections?.[activeTab] || [])}
+      </div>
+    );
+  };
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -493,7 +265,7 @@ export default function Ink2Page() {
               <Calendar className="h-4 w-4 text-muted-foreground" />
               <select
                 value={selectedYear}
-                onChange={(e) => setSelectedYear(e.target.value)}
+                onChange={(event) => setSelectedYear(event.target.value)}
                 className="bg-transparent text-sm font-medium text-foreground focus:outline-none"
               >
                 {fiscalYears.map((fy: any) => (
@@ -504,14 +276,14 @@ export default function Ink2Page() {
               </select>
             </div>
           )}
-          <Button onClick={handleExport} disabled={!sruData || exporting} className="gap-2">
+          <Button onClick={handleExport} disabled={!declaration || exporting} className="gap-2">
             <Download className="h-4 w-4" />
             {exporting ? "Exporterar..." : "Ladda ner SRU"}
           </Button>
         </div>
       </div>
 
-      {sruData && (
+      {declaration && (
         <Card className="border-primary/20 bg-gradient-to-r from-primary/10 to-primary/5">
           <CardContent className="p-4">
             <div className="flex flex-wrap items-center gap-6 text-sm">
@@ -519,14 +291,14 @@ export default function Ink2Page() {
                 <Building2 className="h-5 w-5 text-primary" />
                 <div>
                   <span className="block text-xs text-muted-foreground">Företag</span>
-                  <span className="font-semibold text-foreground">{sruData.company?.name || "Företagsnamn saknas"}</span>
+                  <span className="font-semibold text-foreground">{declaration.company?.name || "Företagsnamn saknas"}</span>
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 <FileText className="h-5 w-5 text-primary" />
                 <div>
                   <span className="block text-xs text-muted-foreground">Organisationsnummer</span>
-                  <span className="font-mono text-foreground">{sruData.company?.org_number || "-"}</span>
+                  <span className="font-mono text-foreground">{declaration.company?.org_number || "-"}</span>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -534,8 +306,8 @@ export default function Ink2Page() {
                 <div>
                   <span className="block text-xs text-muted-foreground">Räkenskapsår</span>
                   <span className="text-foreground">
-                    {sruData.fiscal_year?.start && sruData.fiscal_year?.end
-                      ? `${formatDate(sruData.fiscal_year.start)} - ${formatDate(sruData.fiscal_year.end)}`
+                    {declaration.fiscal_year?.start && declaration.fiscal_year?.end
+                      ? `${formatDate(declaration.fiscal_year.start)} - ${formatDate(declaration.fiscal_year.end)}`
                       : "-"}
                   </span>
                 </div>
@@ -558,39 +330,41 @@ export default function Ink2Page() {
         </div>
       )}
 
-      {sruData?.validation?.warnings && sruData.validation.warnings.length > 0 && (
+      {declaration?.validation?.warnings && declaration.validation.warnings.length > 0 && (
         <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-4">
           <h4 className="mb-2 font-semibold text-amber-600">Varningar</h4>
           <ul className="space-y-1 text-sm text-amber-700">
-            {sruData.validation.warnings.map((warning, idx) => (
+            {declaration.validation.warnings.map((warning, idx) => (
               <li key={idx}>{warning}</li>
             ))}
           </ul>
         </div>
       )}
 
-      <div className="border-b border-border">
-        <nav className="flex space-x-1 overflow-x-auto" aria-label="Tabs">
-          {TABS.map((tab) => {
-            const Icon = tab.icon;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
-                  activeTab === tab.id
-                    ? "border-primary bg-primary/5 text-primary"
-                    : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
-                }`}
-              >
-                <Icon className="h-4 w-4" />
-                <span>{tab.label}</span>
-                <span className="hidden text-xs text-muted-foreground sm:inline">({tab.description})</span>
-              </button>
-            );
-          })}
-        </nav>
-      </div>
+      {declaration && (
+        <div className="border-b border-border">
+          <nav className="flex space-x-1 overflow-x-auto" aria-label="Tabs">
+            {declaration.tabs.map((tab) => {
+              const Icon = TAB_ICONS[tab.id] || FileText;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
+                    activeTab === tab.id
+                      ? "border-primary bg-primary/5 text-primary"
+                      : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                  <span>{tab.label}</span>
+                  <span className="hidden text-xs text-muted-foreground sm:inline">({tab.description})</span>
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+      )}
 
       {loading && (
         <div className="space-y-4">
@@ -602,39 +376,7 @@ export default function Ink2Page() {
         </div>
       )}
 
-      {!loading && sruData && activeTab === "ink2" && (
-        <div className="space-y-4">
-          {renderSummaryCard()}
-          {renderDeclarationSections(INK2_SECTIONS)}
-        </div>
-      )}
-
-      {!loading && sruData && activeTab === "ink2r" && (
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>INK2R - Räkenskapsschema</CardTitle>
-              <CardDescription>Balansräkning och resultaträkning med Skatteverkets fältnummer 2.1-3.27.</CardDescription>
-            </CardHeader>
-          </Card>
-          {renderDeclarationSections(INK2R_SECTIONS)}
-        </div>
-      )}
-
-      {!loading && sruData && activeTab === "ink2s" && (
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>INK2S - Skattemässiga justeringar</CardTitle>
-              <CardDescription>
-                Fält 4.1-4.21 enligt blanketten. Tomma justeringsfält visas för att rapporten ska följa blankettens struktur.
-              </CardDescription>
-            </CardHeader>
-          </Card>
-          {renderDeclarationSections(INK2S_SECTIONS)}
-        </div>
-      )}
-
+      {!loading && renderActiveTab()}
     </div>
   );
 }

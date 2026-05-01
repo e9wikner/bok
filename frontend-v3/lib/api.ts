@@ -397,6 +397,11 @@ export const api = {
     return data;
   },
 
+  getINK2Declaration: async (fiscalYearId: string) => {
+    const { data } = await apiClient.get(`/api/v1/tax/ink2/${fiscalYearId}`);
+    return data;
+  },
+
 };
 
 export default apiClient;
