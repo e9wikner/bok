@@ -5,34 +5,18 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { useIncomeStatement, useBalanceSheet, useGeneralLedger, useFiscalYears, useAccounts } from "@/hooks/useData";
+import { useIncomeStatement, useBalanceSheet, useGeneralLedger, useReportOptions, useAccounts } from "@/hooks/useData";
 import { api } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { TrendingUp, TrendingDown, Scale, BookOpen, Calendar, Download, CheckCircle2, AlertCircle, FileText } from "lucide-react";
 
 type ReportTab = "income" | "balance" | "ledger";
 
-const MONTHS = [
-  { value: 0, label: "Hela året" },
-  { value: 1, label: "Januari" },
-  { value: 2, label: "Februari" },
-  { value: 3, label: "Mars" },
-  { value: 4, label: "April" },
-  { value: 5, label: "Maj" },
-  { value: 6, label: "Juni" },
-  { value: 7, label: "Juli" },
-  { value: 8, label: "Augusti" },
-  { value: 9, label: "September" },
-  { value: 10, label: "Oktober" },
-  { value: 11, label: "November" },
-  { value: 12, label: "December" },
-];
-
 export default function ReportsPage() {
   const [tab, setTab] = useState<ReportTab>("income");
   const [year, setYear] = useState<number>(new Date().getFullYear());
   const [month, setMonth] = useState<number>(0);
-  const { data: fyData } = useFiscalYears();
+  const { data: reportOptions } = useReportOptions();
   const [exporting, setExporting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [sruSuccess, setSruSuccess] = useState<string | null>(null);
@@ -56,18 +40,7 @@ export default function ReportsPage() {
     setSruExporting(true);
     setErrorMessage(null);
     try {
-      // Get current fiscal year
-      const fiscalYear = fiscalYears.find((fy: any) => {
-        const startYear = new Date(fy.start_date).getFullYear();
-        return startYear === year;
-      });
-
-      if (!fiscalYear) {
-        showError(`Inget räkenskapsår hittat för ${year}.`);
-        return;
-      }
-
-      const response = await api.exportSRU(fiscalYear.id);
+      const response = await api.exportSRUByYear(year);
       
       // Download ZIP file
       const blob = new Blob([response.data], { type: "application/zip" });
@@ -93,57 +66,20 @@ export default function ReportsPage() {
     setExporting(true);
     setErrorMessage(null);
     try {
-      const periodsData = await api.getPeriods();
-      const periods: any[] = periodsData?.periods || periodsData || [];
-
-      if (periods.length === 0) {
-        showError("Inga perioder hittades. Kontrollera att räkenskapsår är konfigurerade.");
+      const fiscalYear = (reportOptions?.fiscal_years || []).find((fy: any) => fy.start_year === year);
+      if (!fiscalYear) {
+        showError(`Inget räkenskapsår hittat för ${year}.`);
         return;
       }
 
-      // Find matching period
-      let matchedPeriod;
-      if (month) {
-        matchedPeriod = periods.find((p: any) => {
-          const start = new Date(p.start_date);
-          return start.getFullYear() === year && start.getMonth() + 1 === month;
-        });
-      } else {
-        matchedPeriod = periods.find((p: any) => new Date(p.start_date).getFullYear() === year);
-      }
-
-      if (!matchedPeriod) {
-        const periodLabel = month
-          ? `${MONTHS.find((m) => m.value === month)?.label || month} ${year}`
-          : `${year}`;
-        showError(`Ingen period hittad för ${periodLabel}. Kontrollera att perioden finns.`);
-        return;
-      }
-
-      const periodId = matchedPeriod.id;
-
-      const pdfEndpoint = tab === "income"
-        ? `/api/v1/export/pdf/income-statement/${periodId}`
-        : `/api/v1/export/pdf/balance-sheet/${periodId}`;
-
-      // Try PDF endpoint first, fall back to HTML
-      const htmlEndpoint = pdfEndpoint.replace(/\/([^/]+)$/, "/$1/html");
-
-      try {
-        const blob = await api.getPdfExport(pdfEndpoint);
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `${tab}-${year}${month ? `-${String(month).padStart(2, "0")}` : ""}.pdf`;
-        a.click();
-        URL.revokeObjectURL(url);
-      } catch {
-        // Fallback: open HTML version in new tab
-        window.open(
-          `${process.env.NEXT_PUBLIC_API_URL || ""}${htmlEndpoint}`,
-          "_blank"
-        );
-      }
+      const reportType = tab === "income" ? "income" : "balance";
+      const blob = await api.getReportPdfExport(reportType, fiscalYear.id, month || undefined);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${tab}-${year}${month ? `-${String(month).padStart(2, "0")}` : ""}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
     } catch {
       showError("Kunde inte exportera PDF. Försök igen senare.");
     } finally {
@@ -151,19 +87,8 @@ export default function ReportsPage() {
     }
   };
 
-  // Extract available years from fiscal years
-  const fiscalYears = fyData?.fiscal_years || [];
-  const availableYears: number[] = [];
-  for (const fy of fiscalYears) {
-    const startYear = new Date(fy.start_date).getFullYear();
-    const endYear = new Date(fy.end_date).getFullYear();
-    if (!availableYears.includes(startYear)) availableYears.push(startYear);
-    if (!availableYears.includes(endYear)) availableYears.push(endYear);
-  }
-  if (availableYears.length === 0) {
-    availableYears.push(new Date().getFullYear());
-  }
-  availableYears.sort((a, b) => b - a);
+  const availableYears: number[] = reportOptions?.years || [new Date().getFullYear()];
+  const months = reportOptions?.months || [{ value: 0, label: "Hela året" }];
 
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-[1400px] mx-auto">
@@ -218,7 +143,7 @@ export default function ReportsPage() {
                   onChange={(e) => setMonth(Number(e.target.value))}
                   className="rounded-lg border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 >
-                  {MONTHS.map((m) => (
+                  {months.map((m: any) => (
                     <option key={m.value} value={m.value}>
                       {m.label}
                     </option>

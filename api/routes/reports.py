@@ -6,8 +6,24 @@ from datetime import datetime, date as date_type
 
 from repositories.voucher_repo import VoucherRepository
 from repositories.account_repo import AccountRepository
+from repositories.period_repo import PeriodRepository
 
 router = APIRouter(prefix="/api/v1/reports", tags=["reports"])
+
+MONTH_LABELS = {
+    1: "Januari",
+    2: "Februari",
+    3: "Mars",
+    4: "April",
+    5: "Maj",
+    6: "Juni",
+    7: "Juli",
+    8: "Augusti",
+    9: "September",
+    10: "Oktober",
+    11: "November",
+    12: "December",
+}
 
 
 def _parse_voucher_date(v) -> date_type:
@@ -23,6 +39,38 @@ def _parse_voucher_date(v) -> date_type:
 def _ören_to_kr(amount: int) -> float:
     """Convert ören to kronor."""
     return round(amount / 100, 2)
+
+
+@router.get("/options")
+async def get_report_options():
+    """Return fiscal years and month options used by report views and agents."""
+    fiscal_years = PeriodRepository.list_fiscal_years()
+    years = []
+    for fy in fiscal_years:
+        start_year = fy.start_date.year
+        end_year = fy.end_date.year
+        if start_year not in years:
+            years.append(start_year)
+        if end_year not in years:
+            years.append(end_year)
+    if not years:
+        years.append(date_type.today().year)
+
+    return {
+        "years": sorted(years, reverse=True),
+        "months": [{"value": 0, "label": "Hela året"}]
+        + [{"value": month, "label": label} for month, label in MONTH_LABELS.items()],
+        "fiscal_years": [
+            {
+                "id": fy.id,
+                "start_date": fy.start_date,
+                "end_date": fy.end_date,
+                "start_year": fy.start_date.year,
+                "end_year": fy.end_date.year,
+            }
+            for fy in fiscal_years
+        ],
+    }
 
 
 @router.get("/income-statement")

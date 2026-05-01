@@ -293,12 +293,7 @@ export default function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {recentVouchers.map((v: any) => {
-                    const totalDebit = v.rows?.reduce(
-                      (s: number, r: any) => s + (r.debit || 0),
-                      0
-                    );
-                    return (
+                  {recentVouchers.map((v: any) => (
                       <tr
                         key={v.id}
                         className="border-b last:border-0 hover:bg-muted/50 transition-colors"
@@ -336,11 +331,10 @@ export default function DashboardPage() {
                           </Badge>
                         </td>
                         <td className="py-3 text-right font-mono">
-                          {formatCurrency(totalDebit || 0)}
+                          {formatCurrency(v.total_debit || 0)}
                         </td>
                       </tr>
-                    );
-                  })}
+                  ))}
                 </tbody>
               </table>
             </div>

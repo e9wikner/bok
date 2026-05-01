@@ -192,44 +192,38 @@ export default function SRUMappingsPage() {
     setHasChanges(JSON.stringify(newMappings) !== JSON.stringify(originalMappings));
   };
 
-  const replaceMappings = (nextMappings: Record<string, string>) => {
-    setMappings(nextMappings);
-    setHasChanges(JSON.stringify(nextMappings) !== JSON.stringify(originalMappings));
-  };
-
   const inheritPreviousYear = async () => {
     if (!selectedYear) return;
 
-    const currentYear = fiscalYears.find((year) => year.id === selectedYear);
-    if (!currentYear) return;
-
-    const previousYear = fiscalYears
-      .filter((year) => new Date(year.end_date) < new Date(currentYear.start_date))
-      .sort((a, b) => new Date(b.end_date).getTime() - new Date(a.end_date).getTime())[0];
-
-    if (!previousYear) {
-      setError("Det finns inget tidigare räkenskapsår att ärva mappning från");
-      return;
-    }
-
     setError(null);
     setSuccess(null);
+    setSaving(true);
     try {
-      const mappingsResponse = await api.getSRUMappings(previousYear.id);
-      const inheritedMappings: Record<string, string> = {};
-      mappingsResponse.forEach((m: SRUMapping) => {
-        inheritedMappings[m.account_code] = m.sru_field;
-      });
-      replaceMappings(inheritedMappings);
-      setSuccess(`Mappningar från ${previousYear.name} har lästs in. Klicka på Spara ändringar för att använda dem.`);
-    } catch {
-      setError("Kunde inte hämta mappningar från föregående år");
+      const result = await api.inheritPreviousSRUMappings(selectedYear);
+      await loadAccountsAndMappings(selectedYear);
+      setSuccess(`${result.copied} mappningar ärvdes från föregående räkenskapsår`);
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || "Kunde inte ärva mappningar från föregående år");
+    } finally {
+      setSaving(false);
     }
   };
 
-  const resetToDefault = () => {
-    replaceMappings({});
-    setSuccess("Standardmappningen är vald. Klicka på Spara ändringar för att ta bort årets manuella mappningar.");
+  const resetToDefault = async () => {
+    if (!selectedYear) return;
+
+    setError(null);
+    setSuccess(null);
+    setSaving(true);
+    try {
+      const result = await api.resetDefaultSRUMappings(selectedYear);
+      await loadAccountsAndMappings(selectedYear);
+      setSuccess(`${result.deleted} årsmappningar togs bort. Standardmappningen används nu.`);
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || "Kunde inte återställa standardmappningen");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const saveMappings = async () => {
@@ -629,8 +623,9 @@ export default function SRUMappingsPage() {
                 utan årsspecifika ändringar.
               </p>
               <p className="text-sm text-muted-foreground">
-                Knappen Ärv föregående år kopierar sparade årsmappningar från närmast tidigare
-                räkenskapsår. Återställ standard tar bort årets sparade mappningar vid nästa sparning.
+                Knappen Ärv föregående år ersätter årets sparade mappningar med mappningar från
+                närmast tidigare räkenskapsår. Återställ standard tar bort årets sparade mappningar
+                direkt så att standardmappningen används.
               </p>
             </div>
           </div>

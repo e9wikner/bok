@@ -24,6 +24,72 @@ class InvoiceService:
         self.credits = CreditNoteRepository()
         self.vouchers = VoucherRepository()
         self.audit = AuditRepository()
+
+    def preview_invoice(self, rows_data: List[Dict]) -> Dict:
+        """Calculate invoice rows, VAT breakdown and totals without saving."""
+        preview_rows = []
+        total_ex_vat = 0
+        total_vat = 0
+        total_inc_vat = 0
+        vat_breakdown: Dict[str, Dict] = {}
+
+        for index, row_data in enumerate(rows_data):
+            vat_code = row_data["vat_code"]
+            if not VATCalculator.validate_vat_code(vat_code):
+                raise ValidationError(
+                    code="invalid_vat_code",
+                    message=f"Invalid VAT code: {vat_code}",
+                    details="valid codes: MP1, MP2, MP3, MF",
+                )
+
+            quantity = int(row_data["quantity"])
+            unit_price = int(row_data["unit_price"])
+            amount_ex_vat = quantity * unit_price
+            vat_amount = VATCalculator.calculate_vat(amount_ex_vat, vat_code)
+            amount_inc_vat = amount_ex_vat + vat_amount
+            vat_rate = VATCalculator.get_vat_rate(vat_code)
+
+            preview_rows.append(
+                {
+                    "index": index,
+                    "description": row_data["description"],
+                    "quantity": quantity,
+                    "unit_price": unit_price,
+                    "vat_code": vat_code,
+                    "vat_rate": vat_rate,
+                    "amount_ex_vat": amount_ex_vat,
+                    "vat_amount": vat_amount,
+                    "amount_inc_vat": amount_inc_vat,
+                }
+            )
+
+            total_ex_vat += amount_ex_vat
+            total_vat += vat_amount
+            total_inc_vat += amount_inc_vat
+
+            if vat_code not in vat_breakdown:
+                vat_breakdown[vat_code] = {
+                    "vat_code": vat_code,
+                    "vat_rate": vat_rate,
+                    "amount_ex_vat": 0,
+                    "vat_amount": 0,
+                    "amount_inc_vat": 0,
+                }
+            vat_breakdown[vat_code]["amount_ex_vat"] += amount_ex_vat
+            vat_breakdown[vat_code]["vat_amount"] += vat_amount
+            vat_breakdown[vat_code]["amount_inc_vat"] += amount_inc_vat
+
+        return {
+            "rows": preview_rows,
+            "vat_breakdown": [
+                item for item in vat_breakdown.values() if item["vat_amount"] != 0
+            ],
+            "totals": {
+                "amount_ex_vat": total_ex_vat,
+                "vat_amount": total_vat,
+                "amount_inc_vat": total_inc_vat,
+            },
+        }
     
     def create_invoice(
         self,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,10 +13,6 @@ const VAT_CODES = [
   { code: "MP3", label: "MP3 (6%)", rate: 0.06 },
   { code: "MF", label: "MF (0%)", rate: 0 },
 ];
-
-function vatRate(code: string): number {
-  return VAT_CODES.find((v) => v.code === code)?.rate ?? 0;
-}
 
 function todayStr(): string {
   return new Date().toISOString().slice(0, 10);
@@ -33,6 +29,28 @@ interface InvoiceRowData {
   quantity: string;
   unitPrice: string;
   vatCode: string;
+}
+
+interface InvoicePreview {
+  rows: {
+    index: number;
+    amount_ex_vat: number;
+    vat_amount: number;
+    amount_inc_vat: number;
+    vat_code: string;
+  }[];
+  vat_breakdown: {
+    vat_code: string;
+    vat_rate: number;
+    amount_ex_vat: number;
+    vat_amount: number;
+    amount_inc_vat: number;
+  }[];
+  totals: {
+    amount_ex_vat: number;
+    vat_amount: number;
+    amount_inc_vat: number;
+  };
 }
 
 const emptyRow = (): InvoiceRowData => ({
@@ -68,6 +86,8 @@ export default function NewInvoicePage() {
   // State
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<InvoicePreview | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   const updateRow = (index: number, field: keyof InvoiceRowData, value: string) => {
     setRows((prev) => prev.map((r, i) => (i === index ? { ...r, [field]: value } : r)));
@@ -80,34 +100,40 @@ export default function NewInvoicePage() {
     setRows((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // Computed totals
-  const computedRows = useMemo(
-    () =>
-      rows.map((r) => {
-        const qty = parseInt(r.quantity) || 0;
-        const price = Math.round(parseFloat(r.unitPrice) * 100) || 0; // öre
-        const exVat = qty * price;
-        const vat = Math.round(exVat * vatRate(r.vatCode));
-        const incVat = exVat + vat;
-        return { exVat, vat, incVat, vatCode: r.vatCode };
-      }),
-    [rows]
+  const previewPayload = useMemo(
+    () => ({
+      rows: rows.map((r) => ({
+        description: r.description,
+        quantity: parseInt(r.quantity) || 1,
+        unit_price: Math.round(parseFloat(r.unitPrice) * 100) || 0,
+        vat_code: r.vatCode,
+      })),
+    }),
+    [rows],
   );
 
-  const totalExVat = computedRows.reduce((s, r) => s + r.exVat, 0);
-  const totalVat = computedRows.reduce((s, r) => s + r.vat, 0);
-  const totalIncVat = totalExVat + totalVat;
+  const loadPreview = useCallback(async () => {
+    try {
+      const response = await api.previewInvoice(previewPayload);
+      setPreview(response);
+      setPreviewError(null);
+    } catch (err: any) {
+      setPreview(null);
+      const msg =
+        err?.response?.data?.detail?.error ||
+        err?.response?.data?.detail ||
+        err?.message ||
+        "Kunde inte förhandsgranska fakturan";
+      setPreviewError(typeof msg === "string" ? msg : JSON.stringify(msg));
+    }
+  }, [previewPayload]);
 
-  // VAT breakdown by code
-  const vatBreakdown = useMemo(() => {
-    const map: Record<string, number> = {};
-    computedRows.forEach((r) => {
-      if (r.vat > 0) {
-        map[r.vatCode] = (map[r.vatCode] || 0) + r.vat;
-      }
-    });
-    return map;
-  }, [computedRows]);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      loadPreview();
+    }, 250);
+    return () => window.clearTimeout(timeout);
+  }, [loadPreview]);
 
   const handleSubmit = async () => {
     if (!customerName.trim()) {
@@ -132,12 +158,7 @@ export default function NewInvoicePage() {
         invoice_date: invoiceDate,
         due_date: dueDate,
         description: address.trim() || undefined,
-        rows: rows.map((r) => ({
-          description: r.description,
-          quantity: parseInt(r.quantity) || 1,
-          unit_price: Math.round(parseFloat(r.unitPrice) * 100) || 0,
-          vat_code: r.vatCode,
-        })),
+        rows: previewPayload.rows,
       };
       await api.createInvoice(payload);
       router.push("/invoices");
@@ -352,7 +373,7 @@ export default function NewInvoicePage() {
                       </select>
                     </td>
                     <td className="p-2 text-right font-mono font-medium whitespace-nowrap">
-                      {formatSEK(computedRows[i]?.incVat || 0)}
+                      {formatSEK(preview?.rows?.[i]?.amount_inc_vat || 0)}
                     </td>
                     <td className="p-2">
                       <button
@@ -377,33 +398,38 @@ export default function NewInvoicePage() {
       <Card>
         <CardContent className="p-6 space-y-3">
           <h2 className="text-lg font-semibold">Summering</h2>
+          {previewError && (
+            <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
+              {previewError}
+            </p>
+          )}
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Totalt ex moms</span>
               <span className="font-mono font-medium">
-                {formatSEK(totalExVat)}
+                {formatSEK(preview?.totals.amount_ex_vat || 0)}
               </span>
             </div>
-            {Object.entries(vatBreakdown).map(([code, amount]) => {
-              const info = VAT_CODES.find((v) => v.code === code);
+            {(preview?.vat_breakdown || []).map((vat) => {
+              const info = VAT_CODES.find((v) => v.code === vat.vat_code);
               return (
-                <div key={code} className="flex justify-between">
+                <div key={vat.vat_code} className="flex justify-between">
                   <span className="text-muted-foreground">
-                    Moms {info?.label || code}
+                    Moms {info?.label || vat.vat_code}
                   </span>
-                  <span className="font-mono">{formatSEK(amount)}</span>
+                  <span className="font-mono">{formatSEK(vat.vat_amount)}</span>
                 </div>
               );
             })}
-            {totalVat > 0 && (
+            {(preview?.totals.vat_amount || 0) > 0 && (
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Total moms</span>
-                <span className="font-mono">{formatSEK(totalVat)}</span>
+                <span className="font-mono">{formatSEK(preview?.totals.vat_amount || 0)}</span>
               </div>
             )}
             <div className="flex justify-between border-t pt-2 text-base font-semibold">
               <span>Totalt inkl moms</span>
-              <span className="font-mono">{formatSEK(totalIncVat)}</span>
+              <span className="font-mono">{formatSEK(preview?.totals.amount_inc_vat || 0)}</span>
             </div>
           </div>
         </CardContent>

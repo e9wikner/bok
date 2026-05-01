@@ -132,9 +132,14 @@ export const api = {
   },
 
   // Invoices
-  getInvoices: async (status?: string) => {
+  getInvoices: async (status?: string, limit?: number, offset?: number, search?: string) => {
     const { data } = await apiClient.get("/api/v1/invoices", {
-      params: { status_filter: status },
+      params: {
+        status_filter: status,
+        limit,
+        offset,
+        search: search || undefined,
+      },
     });
     return data;
   },
@@ -157,6 +162,17 @@ export const api = {
     }[];
   }) => {
     const { data } = await apiClient.post("/api/v1/invoices", payload);
+    return data;
+  },
+  previewInvoice: async (payload: {
+    rows: {
+      description: string;
+      quantity: number;
+      unit_price: number;
+      vat_code: string;
+    }[];
+  }) => {
+    const { data } = await apiClient.post("/api/v1/invoices/preview", payload);
     return data;
   },
   sendInvoice: async (id: string) => {
@@ -184,6 +200,10 @@ export const api = {
     const params: any = {};
     if (year) params.year = year;
     const { data } = await apiClient.get("/api/v1/reports/balance-sheet", { params });
+    return data;
+  },
+  getReportOptions: async () => {
+    const { data } = await apiClient.get("/api/v1/reports/options");
     return data;
   },
   // General ledger (huvudbok per konto)
@@ -342,6 +362,14 @@ export const api = {
     });
     return data as Blob;
   },
+  getReportPdfExport: async (report: "income" | "balance", fiscalYearId: string, month?: number): Promise<Blob> => {
+    const endpoint = report === "income" ? "/api/v1/export/pdf/income-statement" : "/api/v1/export/pdf/balance-sheet";
+    const { data } = await apiClient.get(endpoint, {
+      params: { fiscal_year_id: fiscalYearId, month: month || undefined },
+      responseType: "blob",
+    });
+    return data as Blob;
+  },
 
   // Attachment URL helper (for <img> src and links)
   getAttachmentUrl: (voucherId: string, attachmentId: string) =>
@@ -384,9 +412,25 @@ export const api = {
     return data;
   },
 
+  inheritPreviousSRUMappings: async (fiscalYearId: string) => {
+    const { data } = await apiClient.post(`/api/v1/fiscal-years/${fiscalYearId}/sru-mappings/inherit-previous`);
+    return data;
+  },
+
+  resetDefaultSRUMappings: async (fiscalYearId: string) => {
+    const { data } = await apiClient.post(`/api/v1/fiscal-years/${fiscalYearId}/sru-mappings/reset-default`);
+    return data;
+  },
+
   // SRU Export
   exportSRU: async (fiscalYearId: string) => {
     const response = await apiClient.get(`/api/v1/export/sru/${fiscalYearId}`, {
+      responseType: "blob",
+    });
+    return response;
+  },
+  exportSRUByYear: async (year: number) => {
+    const response = await apiClient.get(`/api/v1/export/sru/by-year/${year}`, {
       responseType: "blob",
     });
     return response;

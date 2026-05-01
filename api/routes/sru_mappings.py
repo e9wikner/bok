@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from api.deps import get_current_actor, verify_api_key
 from db.database import get_db
+from repositories.period_repo import PeriodRepository
 
 router = APIRouter(prefix="/api/v1/fiscal-years", tags=["sru-mappings"])
 
@@ -145,6 +146,90 @@ async def list_default_sru_mappings(
         })
 
     return mappings
+
+
+@router.post("/{fiscal_year_id}/sru-mappings/inherit-previous", status_code=status.HTTP_200_OK)
+async def inherit_previous_year_sru_mappings(
+    fiscal_year_id: str,
+    actor: str = Depends(get_current_actor),
+    api_key: str = Depends(verify_api_key),
+):
+    """Replace this year's saved mappings with mappings from the closest previous fiscal year."""
+    import uuid
+    from datetime import datetime
+
+    current_year = PeriodRepository.get_fiscal_year(fiscal_year_id)
+    if not current_year:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fiscal year not found")
+
+    previous_year = next(
+        (
+            year
+            for year in sorted(
+                PeriodRepository.list_fiscal_years(),
+                key=lambda fy: fy.end_date,
+                reverse=True,
+            )
+            if year.end_date < current_year.start_date
+        ),
+        None,
+    )
+    if not previous_year:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Det finns inget tidigare räkenskapsår att ärva mappning från",
+        )
+
+    db = get_db()
+    rows = db.execute(
+        """
+        SELECT account_code, sru_field
+        FROM account_sru_mappings
+        WHERE fiscal_year_id = ?
+        ORDER BY account_code
+        """,
+        (previous_year.id,),
+    ).fetchall()
+
+    now = datetime.now().isoformat()
+    with db.transaction():
+        db.execute(
+            "DELETE FROM account_sru_mappings WHERE fiscal_year_id = ?",
+            (fiscal_year_id,),
+        )
+        for row in rows:
+            db.execute(
+                """
+                INSERT INTO account_sru_mappings (id, fiscal_year_id, account_code, sru_field, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (str(uuid.uuid4()), fiscal_year_id, row["account_code"], row["sru_field"], now, now),
+            )
+
+    return {
+        "fiscal_year_id": fiscal_year_id,
+        "source_fiscal_year_id": previous_year.id,
+        "copied": len(rows),
+    }
+
+
+@router.post("/{fiscal_year_id}/sru-mappings/reset-default", status_code=status.HTTP_200_OK)
+async def reset_sru_mappings_to_default(
+    fiscal_year_id: str,
+    actor: str = Depends(get_current_actor),
+    api_key: str = Depends(verify_api_key),
+):
+    """Remove all saved mappings for a fiscal year so default mapping is used."""
+    db = get_db()
+    cursor = db.execute(
+        "DELETE FROM account_sru_mappings WHERE fiscal_year_id = ?",
+        (fiscal_year_id,),
+    )
+    db.commit()
+    return {
+        "fiscal_year_id": fiscal_year_id,
+        "deleted": cursor.rowcount,
+    }
 
 
 @router.post("/{fiscal_year_id}/sru-mappings", status_code=status.HTTP_201_CREATED)

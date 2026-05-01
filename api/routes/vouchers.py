@@ -298,6 +298,8 @@ def _voucher_to_response(voucher) -> VoucherResponse:
     """Convert domain Voucher to response."""
     # Look up account names
     account_names = AccountRepository.get_all_as_dict()
+    total_debit = sum(row.debit for row in voucher.rows)
+    total_credit = sum(row.credit for row in voucher.rows)
 
     return VoucherResponse(
         id=voucher.id,
@@ -321,6 +323,10 @@ def _voucher_to_response(voucher) -> VoucherResponse:
             )
             for row in voucher.rows
         ],
+        total_debit=total_debit,
+        total_credit=total_credit,
+        balanced=total_debit == total_credit,
+        row_count=len(voucher.rows),
         correction_of=voucher.correction_of,
         created_at=voucher.created_at,
         created_by=voucher.created_by,

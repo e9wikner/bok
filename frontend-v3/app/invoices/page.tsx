@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,37 +40,36 @@ const statusOptions = [
   { value: "cancelled", label: "Makulerad" },
 ];
 
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debouncedValue;
+}
+
 export default function InvoicesPage() {
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounce(search, 300);
 
-  const { data, isLoading } = useInvoices(status || undefined);
-  const allInvoices = data?.invoices || data || [];
-
-  // Client-side search filter
-  const filtered = search
-    ? allInvoices.filter(
-        (inv: any) =>
-          inv.customer_name?.toLowerCase().includes(search.toLowerCase()) ||
-          String(inv.invoice_number || "").toLowerCase().includes(search.toLowerCase())
-      )
-    : allInvoices;
-
-  // Pagination
-  const total = filtered.length;
+  const { data, isLoading } = useInvoices(
+    status || undefined,
+    PAGE_SIZE,
+    page * PAGE_SIZE,
+    debouncedSearch || undefined,
+  );
+  const invoices = data?.invoices || [];
+  const summary = data?.summary || {};
+  const total = data?.total || 0;
   const totalPages = Math.ceil(total / PAGE_SIZE);
-  const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-
-  // Summary stats (for ALL invoices matching current filter, not just current page)
-  const totalAmount = filtered.reduce((s: number, i: any) => s + (i.amount_inc_vat || i.total_amount || 0), 0);
-  const paidCount = filtered.filter((i: any) => i.status === "paid").length;
-  const overdueCount = filtered.filter((i: any) => i.status === "overdue" || i.is_overdue).length;
-  const totalPaid = filtered.reduce((s: number, i: any) => s + (i.paid_amount || 0), 0);
-  const totalRemaining = totalAmount - totalPaid;
-
-  // Page total (sum for visible page)
-  const pageTotal = paged.reduce((s: number, i: any) => s + (i.amount_inc_vat || i.total_amount || 0), 0);
+  const totalAmount = summary.total_amount || 0;
+  const paidCount = summary.paid_count || 0;
+  const overdueCount = summary.overdue_count || 0;
+  const totalRemaining = summary.total_remaining || 0;
+  const pageTotal = data?.page_total || 0;
 
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-[1400px] mx-auto">
@@ -164,7 +163,7 @@ export default function InvoicesPage() {
                 <Skeleton key={i} className="h-12 w-full" />
               ))}
             </div>
-          ) : paged.length > 0 ? (
+          ) : invoices.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -179,7 +178,7 @@ export default function InvoicesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {paged.map((inv: any) => {
+                  {invoices.map((inv: any) => {
                     const effectiveStatus = inv.is_overdue && inv.status !== "paid" ? "overdue" : inv.status;
                     const config = STATUS_CONFIG[effectiveStatus] || STATUS_CONFIG.draft;
                     const amount = inv.amount_inc_vat || inv.total_amount || 0;

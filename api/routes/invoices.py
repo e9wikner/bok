@@ -1,6 +1,6 @@
 """API routes for invoices (Fas 2)."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from datetime import date
 from typing import List, Optional
@@ -30,6 +30,35 @@ class CreateInvoiceRequest(BaseModel):
     customer_org_number: Optional[str] = None
     customer_email: Optional[str] = None
     rows: List[InvoiceRowRequest] = Field(..., min_length=1)
+
+
+class PreviewInvoiceRequest(BaseModel):
+    """Request model for previewing invoice totals without saving."""
+    rows: List[InvoiceRowRequest] = Field(..., min_length=1)
+
+
+@router.post("/preview", response_model=dict)
+async def preview_invoice(
+    request: PreviewInvoiceRequest,
+    actor: str = Depends(get_current_actor),
+):
+    """Calculate invoice rows, VAT summary and totals without creating an invoice."""
+    try:
+        service = InvoiceService()
+        return service.preview_invoice([r.model_dump() for r in request.rows])
+    except (ValidationError, InvoiceValidationError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": str(e),
+                "code": getattr(e, "code", "validation_error"),
+            },
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
 
 
 @router.post("", response_model=dict, status_code=status.HTTP_201_CREATED)
@@ -102,51 +131,76 @@ async def create_invoice(
 @router.get("", response_model=dict)
 async def list_invoices(
     status_filter: str = None,
+    search: str = Query(None, description="Search customer name or invoice number"),
+    limit: int = Query(None, description="Max invoices to return"),
+    offset: int = Query(0, description="Number of invoices to skip"),
 ):
-    """List all invoices, optionally filtered by status."""
+    """List invoices with server-side filtering, pagination and summary."""
     try:
         service = InvoiceService()
         invoices = service.invoices.list_all(status=status_filter)
-        
-        return {
-            "total": len(invoices),
-            "invoices": [
-                {
-                    "id": inv.id,
-                    "invoice_number": inv.invoice_number,
-                    "customer_name": inv.customer_name,
-                    "customer_email": inv.customer_email,
-                    "invoice_date": inv.invoice_date,
-                    "due_date": inv.due_date,
-                    "amount_ex_vat": inv.amount_ex_vat,
-                    "vat_amount": inv.vat_amount,
-                    "amount_inc_vat": inv.amount_inc_vat,
-                    "paid_amount": inv.paid_amount,
-                    "remaining_amount": inv.remaining_amount(),
-                    "status": inv.status,
-                    "is_overdue": inv.is_overdue(),
-                    "rows": [
-                        {
-                            "description": r.description,
-                            "quantity": r.quantity,
-                            "unit_price": r.unit_price,
-                            "vat_code": r.vat_code,
-                            "amount_ex_vat": r.amount_ex_vat,
-                            "vat_amount": r.vat_amount,
-                            "amount_inc_vat": r.amount_inc_vat
-                        }
-                        for r in inv.rows
-                    ],
-                    "created_at": inv.created_at
-                }
+        if search:
+            search_lower = search.lower()
+            invoices = [
+                inv
                 for inv in invoices
+                if search_lower in (inv.customer_name or "").lower()
+                or search_lower in str(inv.invoice_number or "").lower()
             ]
+
+        total = len(invoices)
+        summary = _invoice_summary(invoices)
+        page_invoices = invoices[offset : offset + limit] if limit is not None else invoices
+        page_total = sum(inv.amount_inc_vat for inv in page_invoices)
+
+        return {
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "summary": summary,
+            "page_total": page_total,
+            "invoices": [_invoice_to_list_item(inv) for inv in page_invoices],
         }
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
         )
+
+
+def _invoice_summary(invoices) -> dict:
+    total_amount = sum(inv.amount_inc_vat for inv in invoices)
+    paid_amount = sum(inv.paid_amount for inv in invoices)
+    return {
+        "total_amount": total_amount,
+        "total_paid": paid_amount,
+        "total_remaining": total_amount - paid_amount,
+        "invoice_count": len(invoices),
+        "paid_count": sum(1 for inv in invoices if inv.status == "paid"),
+        "overdue_count": sum(
+            1 for inv in invoices if inv.status == "overdue" or inv.is_overdue()
+        ),
+    }
+
+
+def _invoice_to_list_item(inv) -> dict:
+    return {
+        "id": inv.id,
+        "invoice_number": inv.invoice_number,
+        "customer_name": inv.customer_name,
+        "customer_email": inv.customer_email,
+        "invoice_date": inv.invoice_date,
+        "due_date": inv.due_date,
+        "amount_ex_vat": inv.amount_ex_vat,
+        "vat_amount": inv.vat_amount,
+        "amount_inc_vat": inv.amount_inc_vat,
+        "paid_amount": inv.paid_amount,
+        "remaining_amount": inv.remaining_amount(),
+        "status": inv.status,
+        "is_overdue": inv.is_overdue(),
+        "row_count": len(inv.rows),
+        "created_at": inv.created_at,
+    }
 
 
 @router.get("/{invoice_id}", response_model=dict)

@@ -55,6 +55,10 @@ class VoucherResponse(BaseModel):
     description: str
     status: str  # draft, posted
     rows: List[VoucherRowResponse]
+    total_debit: int = 0
+    total_credit: int = 0
+    balanced: bool = True
+    row_count: int = 0
     correction_of: Optional[str] = None
     created_at: DateTimeType
     created_by: str

@@ -5,8 +5,28 @@ from typing import Optional
 
 from api.deps import get_current_actor, verify_api_key
 from services.sru_export import export_sru_for_fiscal_year
+from repositories.period_repo import PeriodRepository
 
 router = APIRouter(prefix="/api/v1/export", tags=["export"])
+
+
+@router.get("/sru/by-year/{year}")
+async def export_sru_by_year(
+    year: int,
+    actor: str = Depends(get_current_actor),
+    api_key: str = Depends(verify_api_key),
+):
+    """Export INK2 SRU files by fiscal year start year."""
+    fiscal_year = next(
+        (fy for fy in PeriodRepository.list_fiscal_years() if fy.start_date.year == year),
+        None,
+    )
+    if not fiscal_year:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Inget räkenskapsår hittades för {year}",
+        )
+    return await export_sru(fiscal_year.id, actor, api_key)
 
 
 @router.get("/sru/{fiscal_year_id}")

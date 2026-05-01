@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from typing import Optional
 
+from repositories.period_repo import PeriodRepository
 from services.pdf_export import PDFExportService, CompanyInfo
 
 router = APIRouter(prefix="/api/v1/export/pdf", tags=["export-pdf"])
@@ -53,6 +54,20 @@ def _pdf_response(pdf_bytes: bytes, filename: str) -> Response:
             "Content-Disposition": f'attachment; filename="{filename}"',
         },
     )
+
+
+def _resolve_period_id(fiscal_year_id: str, month: Optional[int] = None) -> str:
+    periods = PeriodRepository.list_periods(fiscal_year_id)
+    if not periods:
+        raise ValueError(f"Inga perioder hittades för räkenskapsår {fiscal_year_id}")
+
+    if month:
+        for period in periods:
+            if period.month == month:
+                return period.id
+        raise ValueError(f"Ingen period hittades för månad {month}")
+
+    return periods[0].id
 
 
 # ---- Invoice PDF ----
@@ -134,6 +149,27 @@ async def export_income_statement_pdf(
         )
 
 
+@router.get("/income-statement")
+async def export_income_statement_pdf_for_fiscal_year(
+    fiscal_year_id: str = Query(..., description="Räkenskapsår-ID"),
+    month: Optional[int] = Query(None, description="Månad 1-12, tomt för helår"),
+    pdf_service: PDFExportService = Depends(_get_pdf_service),
+):
+    """Exportera resultaträkning genom att ange räkenskapsår och valfri månad."""
+    try:
+        period_id = _resolve_period_id(fiscal_year_id, month)
+        pdf_bytes = pdf_service.export_income_statement(period_id)
+        suffix = f"{month:02d}" if month else "helaar"
+        return _pdf_response(pdf_bytes, f"resultatrakning_{fiscal_year_id}_{suffix}.pdf")
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Kunde inte generera resultaträkning-PDF: {str(e)}",
+        )
+
+
 # ---- Balance Sheet PDF ----
 
 @router.get("/balance-sheet/{period_id}")
@@ -149,6 +185,27 @@ async def export_balance_sheet_pdf(
     try:
         pdf_bytes = pdf_service.export_balance_sheet(period_id)
         return _pdf_response(pdf_bytes, f"balansrakning_{period_id}.pdf")
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Kunde inte generera balansräkning-PDF: {str(e)}",
+        )
+
+
+@router.get("/balance-sheet")
+async def export_balance_sheet_pdf_for_fiscal_year(
+    fiscal_year_id: str = Query(..., description="Räkenskapsår-ID"),
+    month: Optional[int] = Query(None, description="Månad 1-12, tomt för helår"),
+    pdf_service: PDFExportService = Depends(_get_pdf_service),
+):
+    """Exportera balansräkning genom att ange räkenskapsår och valfri månad."""
+    try:
+        period_id = _resolve_period_id(fiscal_year_id, month)
+        pdf_bytes = pdf_service.export_balance_sheet(period_id)
+        suffix = f"{month:02d}" if month else "helaar"
+        return _pdf_response(pdf_bytes, f"balansrakning_{fiscal_year_id}_{suffix}.pdf")
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except Exception as e:

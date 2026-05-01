@@ -27,10 +27,10 @@ export function useAccounts() {
   });
 }
 
-export function useInvoices(status?: string) {
+export function useInvoices(status?: string, limit?: number, offset?: number, search?: string) {
   return useQuery({
-    queryKey: ["invoices", status],
-    queryFn: () => api.getInvoices(status),
+    queryKey: ["invoices", status, limit, offset, search],
+    queryFn: () => api.getInvoices(status, limit, offset, search),
     staleTime: 5 * 60 * 1000,
   });
 }
@@ -64,6 +64,14 @@ export function useBalanceSheet(year?: number) {
     queryKey: ["balance-sheet", year],
     queryFn: () => api.getBalanceSheet(year),
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useReportOptions() {
+  return useQuery({
+    queryKey: ["report-options"],
+    queryFn: () => api.getReportOptions(),
+    staleTime: 10 * 60 * 1000,
   });
 }
 

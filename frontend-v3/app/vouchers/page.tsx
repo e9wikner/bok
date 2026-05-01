@@ -242,12 +242,7 @@ export default function VouchersPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {vouchers.map((v: any) => {
-                    const totalDebit = v.rows?.reduce(
-                      (s: number, r: any) => s + (r.debit || 0),
-                      0
-                    );
-                    return (
+                  {vouchers.map((v: any) => (
                       <tr
                         key={v.id}
                         className="border-b last:border-0 hover:bg-muted/30 transition-colors"
@@ -273,7 +268,7 @@ export default function VouchersPage() {
                           )}
                         </td>
                         <td className="p-4 text-muted-foreground">
-                          {v.rows?.length || 0}
+                          {v.row_count || 0}
                         </td>
                         <td className="p-4">
                           <Badge
@@ -293,11 +288,10 @@ export default function VouchersPage() {
                           </Badge>
                         </td>
                         <td className="p-4 text-right font-mono">
-                          {formatCurrency(totalDebit || 0)}
+                          {formatCurrency(v.total_debit || 0)}
                         </td>
                       </tr>
-                    );
-                  })}
+                  ))}
                 </tbody>
               </table>
             </div>
