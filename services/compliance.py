@@ -349,7 +349,7 @@ class ComplianceService:
                         f"Det finns {row['cnt']} banktransaktioner som väntar på bokföring. "
                         f"En stor backlog kan tyda på att bokföringen inte sköts löpande."
                     ),
-                    recommendation="Kör auto-kategorisering: POST /api/v1/bank/categorize",
+                    recommendation="Granska och bokför importerade banktransaktioner innan backloggen växer.",
                 ))
         except Exception:
             pass  # Table might not exist yet
