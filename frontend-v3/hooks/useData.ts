@@ -108,6 +108,15 @@ export function useComplianceIssues() {
   });
 }
 
+export function useYearlyVatDeclaration(year?: number) {
+  return useQuery({
+    queryKey: ["vat-declaration-yearly", year],
+    queryFn: () => api.getYearlyVatDeclaration(year as number),
+    staleTime: 5 * 60 * 1000,
+    enabled: !!year,
+  });
+}
+
 export function useHealth() {
   return useQuery({
     queryKey: ["health"],

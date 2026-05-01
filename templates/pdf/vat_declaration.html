@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block extra_css %}
+<style>
+  .vat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-bottom: 16px;
+  }
+  .vat-box {
+    border: 1px solid #d7dce3;
+    border-radius: 4px;
+    padding: 10px;
+    min-height: 74px;
+  }
+  .vat-box strong {
+    display: block;
+    color: #2c5aa0;
+    font-size: 11pt;
+    margin-bottom: 4px;
+  }
+  .vat-box .amount {
+    font-size: 15pt;
+    font-weight: bold;
+    text-align: right;
+    margin-top: 8px;
+  }
+  .source-list {
+    margin: 4px 0 0 0;
+    padding-left: 0;
+    list-style: none;
+    color: #666;
+    font-size: 8.5pt;
+  }
+  .source-list li {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    border-top: 1px solid #eef1f5;
+    padding-top: 3px;
+    margin-top: 3px;
+  }
+  .summary {
+    background: #eef2f7;
+    border-left: 4px solid #2c5aa0;
+    padding: 12px;
+    margin: 16px 0;
+    font-size: 11pt;
+  }
+</style>
+{% endblock %}
+{% block content %}
+<div class="header">
+  <div class="logo-area">
+    <div class="company-name">Skatteverket</div>
+  </div>
+  <div class="doc-info">
+    <div class="doc-title">MOMSDEKLARATION</div>
+    <div>{{ declaration.period_code }}</div>
+  </div>
+</div>
+
+<table class="meta-table">
+  <tr>
+    <td class="label">Företag</td>
+    <td>{{ declaration.company_name }}</td>
+    <td class="label">Organisationsnummer</td>
+    <td>{{ declaration.org_number }}</td>
+  </tr>
+  <tr>
+    <td class="label">Period</td>
+    <td>{{ declaration.start_date }} - {{ declaration.end_date }}</td>
+    <td class="label">Genererad</td>
+    <td>{{ generated_at }}</td>
+  </tr>
+</table>
+
+<div class="summary">
+  Moms att {{ "betala" if declaration.vat_to_pay >= 0 else "få tillbaka" }}:
+  <strong>{{ format_sek(declaration.vat_to_pay) }} kr</strong>
+</div>
+
+<div class="section-title">Deklarationsrutor</div>
+<div class="vat-grid">
+  {% for box in boxes %}
+  <div class="vat-box">
+    <strong>Ruta {{ box.box }}</strong>
+    <div>{{ box.label }}</div>
+    {% if box.sources %}
+    <ul class="source-list">
+      {% for source in box.sources %}
+      <li>
+        <span>{{ source.account_code }} {{ source.account_name }}</span>
+        <span>{{ source.amount_sek }} kr</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    <div class="amount">{{ box.amount_sek }} kr</div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="footer">
+  {{ declaration.company_name }}
+  {% if declaration.org_number %} · Org.nr: {{ declaration.org_number }}{% endif %}
+</div>
+{% endblock %}

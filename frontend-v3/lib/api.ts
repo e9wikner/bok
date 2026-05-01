@@ -258,6 +258,22 @@ export const api = {
     const { data } = await apiClient.get("/api/v1/vat/declarations");
     return data;
   },
+  getYearlyVatDeclaration: async (year: number) => {
+    const { data } = await apiClient.get(`/api/v1/vat/declarations/yearly/${year}`);
+    return data;
+  },
+  exportVatEskd: async (year: number) => {
+    const response = await apiClient.get(`/api/v1/vat/export/eskd/${year}`, {
+      responseType: "blob",
+    });
+    return response;
+  },
+  exportVatPdf: async (year: number): Promise<Blob> => {
+    const { data } = await apiClient.get(`/api/v1/vat/export/pdf/${year}`, {
+      responseType: "blob",
+    });
+    return data as Blob;
+  },
 
   // Company info
   getCompanyInfo: async (): Promise<CompanyInfo> => {

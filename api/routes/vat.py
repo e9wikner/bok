@@ -1,7 +1,8 @@
-"""API routes for VAT (Moms) declarations."""
+"""API routes for VAT (moms) declarations."""
 
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import Response
 
 from services.vat_report import VatReportService
 from domain.validation import ValidationError
@@ -47,6 +48,32 @@ async def generate_quarterly_declaration(
         raise HTTPException(status_code=400, detail=e.message)
 
 
+@router.post("/declarations/yearly")
+async def generate_yearly_declaration(
+    year: int = Query(..., description="Year"),
+):
+    """Generate an annual VAT declaration.
+
+    Annual eSKD declarations use period code YYYY12, matching Skatteverket's
+    upload format and the iOrdning reference export.
+    """
+    try:
+        decl = vat_service.generate_yearly(year)
+        return vat_service.format_skv_summary(decl)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=e.message)
+
+
+@router.get("/declarations/yearly/{year}")
+async def preview_yearly_declaration(year: int):
+    """Preview an annual VAT declaration without saving a new row."""
+    try:
+        decl = vat_service.preview_yearly(year)
+        return vat_service.format_skv_summary(decl)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=e.message)
+
+
 @router.get("/declarations")
 async def list_declarations(
     year: Optional[int] = Query(None, description="Filter by year"),
@@ -66,3 +93,35 @@ async def get_declaration(decl_id: str):
     if not decl:
         raise HTTPException(status_code=404, detail="Declaration not found")
     return vat_service.format_skv_summary(decl)
+
+
+@router.get("/export/eskd/{year}")
+async def export_yearly_eskd(year: int):
+    """Export annual VAT declaration as Skatteverket eSKD XML."""
+    try:
+        decl = vat_service.preview_yearly(year)
+        filename = f"Moms-{decl.period_code}.eskd"
+        return Response(
+            content=vat_service.export_eskd(decl),
+            media_type="application/xml; charset=ISO-8859-1",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=e.message)
+
+
+@router.get("/export/pdf/{year}")
+async def export_yearly_pdf(year: int):
+    """Export annual VAT declaration as PDF."""
+    try:
+        decl = vat_service.preview_yearly(year)
+        filename = f"momsdeklaration-{decl.period_code}.pdf"
+        return Response(
+            content=vat_service.export_pdf(decl),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=e.message)
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
