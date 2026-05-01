@@ -1,19 +1,39 @@
 """API routes for SIE4 import."""
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from typing import Optional
 
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+
 from api.deps import get_current_actor, verify_api_key
-from services.sie4_import import SIE4Importer, SIE4Parser, create_sample_sie4
 from config import settings
+from services.sie4_import import SIE4Importer, SIE4Parser, create_sample_sie4
 
 router = APIRouter(prefix="/api/v1/import", tags=["import"])
 
 
+async def _read_sie4_content(
+    request: Request, file: Optional[UploadFile]
+) -> tuple[str, Optional[str]]:
+    if file:
+        return SIE4Parser.decode_bytes(await file.read()), None
+
+    if request.headers.get("content-type", "").startswith("application/json"):
+        payload = await request.json()
+        content = payload.get("content")
+        if content:
+            return content, payload.get("fiscal_year_id")
+
+    raise HTTPException(
+        status_code=422,
+        detail="Provide either a SIE4 file upload or JSON content",
+    )
+
+
 @router.post("/sie4", status_code=status.HTTP_200_OK)
 async def import_sie4(
+    request: Request,
     fiscal_year_id: Optional[str] = None,
-    file: UploadFile = File(...),
+    file: Optional[UploadFile] = File(None),
     actor: str = Depends(get_current_actor),
     api_key: str = Depends(verify_api_key),
 ):
@@ -29,45 +49,55 @@ async def import_sie4(
     Returns import statistics and any errors.
     """
     try:
-        # Read file content
-        content = await file.read()
-        
         try:
-            text_content = SIE4Parser.decode_bytes(content)
+            text_content, body_fiscal_year_id = await _read_sie4_content(request, file)
         except UnicodeDecodeError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Could not decode file - unsupported encoding"
+                detail="Could not decode file - unsupported encoding",
             )
-        
+        target_fiscal_year_id = fiscal_year_id or body_fiscal_year_id
+
         # Import — pass the caller's API key so internal
         # sub-requests are authenticated
         importer = SIE4Importer(
             api_url=settings.api_url,
             api_key=api_key,
         )
-        
+        preview_data = importer.parser.parse_content(text_content)
+        encoding_issues = SIE4Parser.find_encoding_issues(preview_data)
+        if encoding_issues:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "message": "SIE4 file contains suspicious text encoding artifacts",
+                    "encoding_issues": encoding_issues,
+                    "hint": "Check the file encoding. SIE #FORMAT PC8 should be decoded as CP437.",
+                },
+            )
+
         # Run the synchronous importer in a thread pool to avoid blocking
         # the async event loop (importer makes blocking HTTP sub-requests)
         import asyncio
+
         loop = asyncio.get_event_loop()
         success = await loop.run_in_executor(
-            None, importer.import_content, text_content, fiscal_year_id
+            None, importer.import_content, text_content, target_fiscal_year_id
         )
-        
+
         return {
             "success": success,
             "imported": importer.imported,
             "errors": importer.errors,
-            "parser_errors": importer.parser.errors
+            "parser_errors": importer.parser.errors,
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Import failed: {str(e)}"
+            detail=f"Import failed: {str(e)}",
         )
 
 
@@ -79,13 +109,14 @@ async def get_sie4_sample(
     return {
         "content": create_sample_sie4(),
         "description": "Sample SIE4 file with 3 vouchers for testing",
-        "format": "SIE4"
+        "format": "SIE4",
     }
 
 
 @router.post("/sie4/validate", status_code=status.HTTP_200_OK)
 async def validate_sie4(
-    file: UploadFile = File(...),
+    request: Request,
+    file: Optional[UploadFile] = File(None),
     actor: str = Depends(get_current_actor),
 ):
     """
@@ -94,32 +125,32 @@ async def validate_sie4(
     Returns parsing results and any validation errors.
     """
     try:
-        content = await file.read()
-        
         try:
-            text_content = SIE4Parser.decode_bytes(content)
+            text_content, _ = await _read_sie4_content(request, file)
         except UnicodeDecodeError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Could not decode file"
+                detail="Could not decode file",
             )
-        
+
         parser = SIE4Parser()
         data = parser.parse_content(text_content)
-        
+
         # Validate
         errors = parser.errors
-        
+        encoding_issues = SIE4Parser.find_encoding_issues(data)
+        errors.extend(encoding_issues)
+
         # Check for required fields
         if not data.vouchers:
             errors.append("No vouchers found in file")
-        
+
         # Check voucher balance
         for voucher in data.vouchers:
             total = sum(row.amount for row in voucher.rows)
             if total != 0:
                 errors.append(f"Voucher {voucher.series}{voucher.number} is unbalanced: {total}")
-        
+
         return {
             "valid": len(errors) == 0,
             "company": {
@@ -134,13 +165,14 @@ async def validate_sie4(
                 "accounts": len(data.accounts),
                 "vouchers": len(data.vouchers),
             },
-            "errors": errors
+            "errors": errors,
+            "encoding_issues": encoding_issues,
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Validation failed: {str(e)}"
+            detail=f"Validation failed: {str(e)}",
         )

@@ -88,6 +88,32 @@ def test_pc8_import_preserves_swedish_characters(tmp_path):
     assert not any(0x80 <= ord(char) <= 0x9F for char in data.vouchers[0].description)
 
 
+def test_encoding_sanity_check_finds_c1_mojibake():
+    """Testa att importvalideringen hittar text som redan är feldekodad."""
+    sie4_content = """#FLAGGA 0
+#FORMAT PC8
+#GEN "Test" 20260129
+#PROGRAM "Test" 1.0
+#FNAMN "Test AB"
+#FORGN 5591234567
+#RAR 0 20260101 20261231
+#KPTYP EUBAS97
+#KONTO 1700 "Förutbetalda kostnader"
+#KONTO 6300 "Företagsförsäkringar"
+#VER A 165 20260129 "\x8fterf\x94ring Sm\x86f\x94retagsf\x94rs\x84kring"
+{
+#TRANS 1700 {} -8013 20260129
+#TRANS 6300 {} 8013 20260129
+}
+"""
+    parser = SIE4Parser()
+    data = parser.parse_content(sie4_content)
+    issues = SIE4Parser.find_encoding_issues(data)
+
+    assert len(issues) == 1
+    assert "voucher A165" in issues[0]
+
+
 if __name__ == "__main__":
     test_multi_period_voucher_import()
     print("Test passed!")

@@ -131,6 +131,49 @@ class SIE4Parser:
 
         return text
 
+    @staticmethod
+    def has_c1_control_characters(text: Optional[str]) -> bool:
+        """Return True when text contains U+0080-U+009F control codepoints."""
+        return bool(text) and any(0x80 <= ord(char) <= 0x9F for char in text)
+
+    @staticmethod
+    def _text_issue(label: str, text: Optional[str]) -> Optional[str]:
+        if not SIE4Parser.has_c1_control_characters(text):
+            return None
+        return f"{label} contains suspicious control characters: {text!r}"
+
+    @classmethod
+    def find_encoding_issues(cls, data: SIEData, limit: int = 25) -> List[str]:
+        """Find parsed text fields that still look like mojibake."""
+        issues: List[str] = []
+
+        def add(label: str, text: Optional[str]) -> None:
+            if len(issues) >= limit:
+                return
+            issue = cls._text_issue(label, text)
+            if issue:
+                issues.append(issue)
+
+        if data.company:
+            add("company.name", data.company.name)
+            add("company.contact_name", data.company.contact_name)
+            add("company.address", data.company.address)
+            add("company.postort", data.company.postort)
+
+        for account in data.accounts:
+            add(f"account {account.code}", account.name)
+
+        for voucher in data.vouchers:
+            voucher_label = f"voucher {voucher.series}{voucher.number}"
+            add(voucher_label, voucher.description)
+            for row in voucher.rows:
+                add(f"{voucher_label} row {row.account}", row.description)
+
+        if len(issues) == limit:
+            issues.append("Additional suspicious text fields were omitted")
+
+        return issues
+
     def parse_content(self, content: str) -> SIEData:
         """Parse SIE4 content from string."""
         data = SIEData(format_version="4")
