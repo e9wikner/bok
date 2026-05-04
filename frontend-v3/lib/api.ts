@@ -88,6 +88,32 @@ export interface InvoiceRow {
   total: number;
 }
 
+export interface Customer {
+  id: string;
+  name: string;
+  org_number?: string | null;
+  email?: string | null;
+  address?: string | null;
+  payment_terms_days: number;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Article {
+  id: string;
+  article_number: string;
+  name: string;
+  description?: string | null;
+  unit: string;
+  unit_price: number;
+  vat_code: string;
+  revenue_account: string;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ComplianceIssue {
   id: string;
   issue_type: string;
@@ -212,8 +238,30 @@ export const api = {
     const { data } = await apiClient.get("/api/v1/customers", { params: { search } });
     return data;
   },
+  createCustomer: async (payload: {
+    name: string;
+    org_number?: string;
+    email?: string;
+    address?: string;
+    payment_terms_days: number;
+  }) => {
+    const { data } = await apiClient.post("/api/v1/customers", payload);
+    return data;
+  },
   getArticles: async (search?: string) => {
     const { data } = await apiClient.get("/api/v1/articles", { params: { search } });
+    return data;
+  },
+  createArticle: async (payload: {
+    article_number: string;
+    name: string;
+    description?: string;
+    unit: string;
+    unit_price: number;
+    vat_code: string;
+    revenue_account: string;
+  }) => {
+    const { data } = await apiClient.post("/api/v1/articles", payload);
     return data;
   },
 

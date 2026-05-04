@@ -13,6 +13,9 @@ import {
   CheckCircle2,
   AlertTriangle,
   Bot,
+  Boxes,
+  Building2,
+  FileClock,
   Send,
   Plus,
   ChevronLeft,
@@ -81,12 +84,32 @@ export default function InvoicesPage() {
           <h1 className="text-2xl lg:text-3xl font-bold tracking-tight">Fakturor</h1>
           <p className="text-muted-foreground mt-1">Hantera kundfakturor och betalningar</p>
         </div>
-        <Link href="/invoices/new">
-          <Button>
-            <Plus className="h-4 w-4 mr-2" />
-            Ny faktura
-          </Button>
-        </Link>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Link href="/invoices/customers">
+            <Button variant="outline">
+              <Building2 className="h-4 w-4 mr-2" />
+              Kunder
+            </Button>
+          </Link>
+          <Link href="/invoices/articles">
+            <Button variant="outline">
+              <Boxes className="h-4 w-4 mr-2" />
+              Artiklar
+            </Button>
+          </Link>
+          <Link href="/invoices/drafts">
+            <Button variant="outline">
+              <FileClock className="h-4 w-4 mr-2" />
+              Utkast
+            </Button>
+          </Link>
+          <Link href="/invoices/new">
+            <Button>
+              <Plus className="h-4 w-4 mr-2" />
+              Ny faktura
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {pendingDrafts.length > 0 && (
@@ -96,6 +119,9 @@ export default function InvoicesPage() {
               <Bot className="h-4 w-4 text-amber-600" />
               <h2 className="font-semibold">Fakturautkast från agent</h2>
               <Badge variant="outline">{pendingDrafts.length}</Badge>
+              <Link href="/invoices/drafts" className="ml-auto text-sm text-primary hover:underline">
+                Visa alla
+              </Link>
             </div>
             <div className="divide-y">
               {pendingDrafts.slice(0, 5).map((draft: any) => (

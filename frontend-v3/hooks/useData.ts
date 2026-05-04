@@ -52,6 +52,22 @@ export function useInvoiceDraft(id: string) {
   });
 }
 
+export function useCustomers(search?: string) {
+  return useQuery({
+    queryKey: ["customers", search],
+    queryFn: () => api.getCustomers(search),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useArticles(search?: string) {
+  return useQuery({
+    queryKey: ["articles", search],
+    queryFn: () => api.getArticles(search),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 export function useLearningRules() {
   return useQuery({
     queryKey: ["learning-rules"],
