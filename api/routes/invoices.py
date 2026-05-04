@@ -19,6 +19,7 @@ class InvoiceRowRequest(BaseModel):
     quantity: int = Field(..., gt=0)
     unit_price: int = Field(..., ge=0, description="Unit price in öre")
     vat_code: str = Field(..., pattern="^(MP1|MP2|MP3|MF)$")
+    revenue_account: Optional[str] = None
 
 
 class CreateInvoiceRequest(BaseModel):
@@ -238,6 +239,7 @@ async def get_invoice(invoice_id: str):
                     "quantity": r.quantity,
                     "unit_price": r.unit_price,
                     "vat_code": r.vat_code,
+                    "revenue_account": r.revenue_account,
                     "amount_ex_vat": r.amount_ex_vat,
                     "vat_amount": r.vat_amount,
                     "amount_inc_vat": r.amount_inc_vat

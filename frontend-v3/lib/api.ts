@@ -159,6 +159,7 @@ export const api = {
       quantity: number;
       unit_price: number;
       vat_code: string;
+      revenue_account?: string;
     }[];
   }) => {
     const { data } = await apiClient.post("/api/v1/invoices", payload);
@@ -185,6 +186,34 @@ export const api = {
   },
   registerPayment: async (id: string, payload: { amount: number; payment_date: string; payment_method: string; reference?: string }) => {
     const { data } = await apiClient.post(`/api/v1/invoices/${id}/payment`, payload);
+    return data;
+  },
+  getInvoiceDrafts: async (status?: string) => {
+    const { data } = await apiClient.get("/api/v1/invoice-drafts", {
+      params: { status_filter: status },
+    });
+    return data;
+  },
+  getInvoiceDraft: async (id: string) => {
+    const { data } = await apiClient.get(`/api/v1/invoice-drafts/${id}`);
+    return data;
+  },
+  approveInvoiceDraft: async (id: string, periodId?: string) => {
+    const { data } = await apiClient.post(`/api/v1/invoice-drafts/${id}/approve-and-book`, {
+      period_id: periodId || undefined,
+    });
+    return data;
+  },
+  rejectInvoiceDraft: async (id: string) => {
+    const { data } = await apiClient.post(`/api/v1/invoice-drafts/${id}/reject`);
+    return data;
+  },
+  getCustomers: async (search?: string) => {
+    const { data } = await apiClient.get("/api/v1/customers", { params: { search } });
+    return data;
+  },
+  getArticles: async (search?: string) => {
+    const { data } = await apiClient.get("/api/v1/articles", { params: { search } });
     return data;
   },
 

@@ -57,6 +57,7 @@ class InvoiceRepository:
         quantity: int,
         unit_price: int,
         vat_code: str,
+        revenue_account: Optional[str] = None,
     ) -> InvoiceRow:
         """Add row to invoice."""
         row_id = str(uuid.uuid4())
@@ -69,13 +70,13 @@ class InvoiceRepository:
         
         sql = """
         INSERT INTO invoice_rows (id, invoice_id, description, quantity, unit_price, vat_code,
-                                 amount_ex_vat, vat_amount, amount_inc_vat, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 amount_ex_vat, vat_amount, amount_inc_vat, revenue_account, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         now = datetime.now()
         db.execute(sql, (
             row_id, invoice_id, description, quantity, unit_price, vat_code,
-            amount_ex_vat, vat_amount, amount_inc_vat, now
+            amount_ex_vat, vat_amount, amount_inc_vat, revenue_account, now
         ))
         db.commit()
         
@@ -89,6 +90,7 @@ class InvoiceRepository:
             amount_ex_vat=amount_ex_vat,
             vat_amount=vat_amount,
             amount_inc_vat=amount_inc_vat,
+            revenue_account=revenue_account,
             created_at=now
         )
     
@@ -117,6 +119,7 @@ class InvoiceRepository:
                 amount_ex_vat=row_data["amount_ex_vat"],
                 vat_amount=row_data["vat_amount"],
                 amount_inc_vat=row_data["amount_inc_vat"],
+                revenue_account=row_data["revenue_account"] if "revenue_account" in row_data.keys() else None,
                 created_at=datetime.fromisoformat(row_data["created_at"])
             ))
         

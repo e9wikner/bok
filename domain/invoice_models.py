@@ -28,6 +28,7 @@ class InvoiceRow:
     amount_ex_vat: int  # quantity * unit_price in öre
     vat_amount: int  # Calculated VAT in öre
     amount_inc_vat: int  # amount_ex_vat + vat_amount
+    revenue_account: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
 
 

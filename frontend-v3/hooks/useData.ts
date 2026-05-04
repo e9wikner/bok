@@ -35,6 +35,23 @@ export function useInvoices(status?: string, limit?: number, offset?: number, se
   });
 }
 
+export function useInvoiceDrafts(status?: string) {
+  return useQuery({
+    queryKey: ["invoice-drafts", status],
+    queryFn: () => api.getInvoiceDrafts(status),
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+export function useInvoiceDraft(id: string) {
+  return useQuery({
+    queryKey: ["invoice-draft", id],
+    queryFn: () => api.getInvoiceDraft(id),
+    staleTime: 2 * 60 * 1000,
+    enabled: !!id,
+  });
+}
+
 export function useLearningRules() {
   return useQuery({
     queryKey: ["learning-rules"],

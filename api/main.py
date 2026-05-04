@@ -16,6 +16,9 @@ from api.routes import (
     periods,
     reports,
     invoices,
+    customers,
+    articles,
+    invoice_drafts,
     k2_reports,
     agent,
     import_sie4,
@@ -62,6 +65,9 @@ app.include_router(reports.router)
 
 # Fas 2: Fakturering & Moms
 app.include_router(invoices.router)
+app.include_router(customers.router)
+app.include_router(articles.router)
+app.include_router(invoice_drafts.router)
 
 # Fas 3: Rapporter & K2
 app.include_router(k2_reports.router)

@@ -133,7 +133,8 @@ class InvoiceService:
                 description=row_data["description"],
                 quantity=row_data["quantity"],
                 unit_price=row_data["unit_price"],
-                vat_code=row_data["vat_code"]
+                vat_code=row_data["vat_code"],
+                revenue_account=row_data.get("revenue_account")
             )
             invoice.rows.append(row)
             
@@ -213,16 +214,22 @@ class InvoiceService:
             "description": f"Invoice {invoice.invoice_number}"
         })
         
-        # Group revenue by VAT code
+        # Group revenue by VAT code and revenue account. Article-based invoice
+        # drafts can set revenue_account per row; legacy invoices fall back to
+        # the original VAT-code mapping.
         vat_groups = {}
         for row in invoice.rows:
-            if row.vat_code not in vat_groups:
-                vat_groups[row.vat_code] = {
+            revenue_account = row.revenue_account or self._default_revenue_account(row.vat_code)
+            key = (row.vat_code, revenue_account)
+            if key not in vat_groups:
+                vat_groups[key] = {
+                    "vat_code": row.vat_code,
+                    "revenue_account": revenue_account,
                     "amount_ex_vat": 0,
                     "vat_amount": 0
                 }
-            vat_groups[row.vat_code]["amount_ex_vat"] += row.amount_ex_vat
-            vat_groups[row.vat_code]["vat_amount"] += row.vat_amount
+            vat_groups[key]["amount_ex_vat"] += row.amount_ex_vat
+            vat_groups[key]["vat_amount"] += row.vat_amount
         
         # Credit: Revenue and VAT
         vat_account_map = {
@@ -232,8 +239,10 @@ class InvoiceService:
             "MF": ("3010", None),     # Revenue 0%, No VAT
         }
         
-        for vat_code, amounts in vat_groups.items():
-            revenue_acct, vat_acct = vat_account_map.get(vat_code, ("3010", None))
+        for amounts in vat_groups.values():
+            vat_code = amounts["vat_code"]
+            revenue_acct = amounts["revenue_account"]
+            _, vat_acct = vat_account_map.get(vat_code, ("3010", None))
             
             # Revenue
             voucher_rows.append({
@@ -283,6 +292,14 @@ class InvoiceService:
         )
         
         return voucher.id
+
+    def _default_revenue_account(self, vat_code: str) -> str:
+        return {
+            "MP1": "3011",
+            "MP2": "3020",
+            "MP3": "3030",
+            "MF": "3010",
+        }.get(vat_code, "3010")
     
     def register_payment(
         self,

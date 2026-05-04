@@ -5,13 +5,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useInvoices } from "@/hooks/useData";
+import { useInvoiceDrafts, useInvoices } from "@/hooks/useData";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
   Receipt,
   Clock,
   CheckCircle2,
   AlertTriangle,
+  Bot,
   Send,
   Plus,
   ChevronLeft,
@@ -70,6 +71,8 @@ export default function InvoicesPage() {
   const overdueCount = summary.overdue_count || 0;
   const totalRemaining = summary.total_remaining || 0;
   const pageTotal = data?.page_total || 0;
+  const { data: draftsData } = useInvoiceDrafts("needs_review");
+  const pendingDrafts = draftsData?.drafts || [];
 
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-[1400px] mx-auto">
@@ -85,6 +88,33 @@ export default function InvoicesPage() {
           </Button>
         </Link>
       </div>
+
+      {pendingDrafts.length > 0 && (
+        <Card className="border-amber-200 dark:border-amber-900">
+          <CardContent className="p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <Bot className="h-4 w-4 text-amber-600" />
+              <h2 className="font-semibold">Fakturautkast från agent</h2>
+              <Badge variant="outline">{pendingDrafts.length}</Badge>
+            </div>
+            <div className="divide-y">
+              {pendingDrafts.slice(0, 5).map((draft: any) => (
+                <div key={draft.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <Link href={`/invoices/drafts/${draft.id}`} className="font-medium text-primary hover:underline">
+                      {draft.customer_name}
+                    </Link>
+                    <p className="text-sm text-muted-foreground">
+                      {draft.reference || "Ingen referens"} · {formatDate(draft.invoice_date)} · {draft.row_count} rader
+                    </p>
+                  </div>
+                  <div className="font-mono font-semibold">{formatCurrency(draft.amount_inc_vat || 0)}</div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
