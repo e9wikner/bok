@@ -84,6 +84,22 @@ export function useLearningStats() {
   });
 }
 
+export function useAccountingPatterns(status?: string, includeExamples = false) {
+  return useQuery({
+    queryKey: ["accounting-patterns", status, includeExamples],
+    queryFn: () => api.getAccountingPatterns(status, includeExamples),
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+export function useAccountingPatternEvaluations() {
+  return useQuery({
+    queryKey: ["accounting-pattern-evaluations"],
+    queryFn: () => api.getAccountingPatternEvaluations(),
+    staleTime: 30 * 1000,
+  });
+}
+
 export function useIncomeStatement(year?: number, month?: number) {
   return useQuery({
     queryKey: ["income-statement", year, month],

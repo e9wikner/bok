@@ -319,6 +319,50 @@ export const api = {
     });
     return data;
   },
+  analyzeAccountingPatterns: async (payload?: {
+    fiscal_year_id?: string;
+    date_from?: string;
+    date_to?: string;
+    min_examples?: number;
+  }) => {
+    const { data } = await apiClient.post("/api/v1/accounting-patterns/analyze", payload || {});
+    return data;
+  },
+  getAccountingPatterns: async (status?: string, includeExamples = false) => {
+    const { data } = await apiClient.get("/api/v1/accounting-patterns", {
+      params: { status: status || undefined, include_examples: includeExamples },
+    });
+    return data;
+  },
+  approveAccountingPattern: async (id: string) => {
+    const { data } = await apiClient.post(`/api/v1/accounting-patterns/${id}/approve`);
+    return data;
+  },
+  rejectAccountingPattern: async (id: string) => {
+    const { data } = await apiClient.post(`/api/v1/accounting-patterns/${id}/reject`);
+    return data;
+  },
+  createAccountingPatternEvaluation: async (payload?: {
+    name?: string;
+    fiscal_year_id?: string;
+    date_from?: string;
+    date_to?: string;
+    candidate_rule_ids?: string[];
+    include_all_suggested?: boolean;
+  }) => {
+    const { data } = await apiClient.post("/api/v1/accounting-patterns/evaluations", payload || {});
+    return data;
+  },
+  getAccountingPatternEvaluations: async () => {
+    const { data } = await apiClient.get("/api/v1/accounting-patterns/evaluations/list");
+    return data;
+  },
+  getAccountingPatternEvaluationCases: async (id: string, winner?: string, limit = 25) => {
+    const { data } = await apiClient.get(`/api/v1/accounting-patterns/evaluations/${id}/cases`, {
+      params: { winner: winner || undefined, limit },
+    });
+    return data;
+  },
 
   // Compliance
   getComplianceIssues: async () => {

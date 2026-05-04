@@ -29,6 +29,7 @@ from api.routes import (
     compliance,
     vat,
     learning,
+    accounting_patterns,
     attachments,
     auth,
     audit,
@@ -94,6 +95,7 @@ app.include_router(vat.router)
 
 # AI Learning & Corrections
 app.include_router(learning.router)
+app.include_router(accounting_patterns.router)
 
 # Attachments
 app.include_router(attachments.router)
