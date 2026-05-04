@@ -5,12 +5,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { useIncomeStatement, useBalanceSheet, useGeneralLedger, useReportOptions, useAccounts, useYearlyVatDeclaration } from "@/hooks/useData";
+import { useIncomeStatement, useBalanceSheet, useGeneralLedger, useReportOptions, useAccounts } from "@/hooks/useData";
 import { api } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { TrendingUp, TrendingDown, Scale, BookOpen, Calendar, Download, CheckCircle2, AlertCircle, FileText } from "lucide-react";
 
-type ReportTab = "income" | "balance" | "ledger" | "vat";
+type ReportTab = "income" | "balance" | "ledger";
 
 export default function ReportsPage() {
   const [tab, setTab] = useState<ReportTab>("income");
@@ -20,7 +20,6 @@ export default function ReportsPage() {
   const [exporting, setExporting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [sruSuccess, setSruSuccess] = useState<string | null>(null);
-  const [vatSuccess, setVatSuccess] = useState<string | null>(null);
 
   // Auto-clear error after 5 seconds
   useEffect(() => {
@@ -35,7 +34,6 @@ export default function ReportsPage() {
   }, []);
 
   const [sruExporting, setSruExporting] = useState(false);
-  const [vatExporting, setVatExporting] = useState<"pdf" | "eskd" | null>(null);
 
   // SRU export helper
   const handleSruExport = async () => {
@@ -60,41 +58,6 @@ export default function ReportsPage() {
       showError(err?.response?.data?.detail || "Kunde inte exportera SRU-filer.");
     } finally {
       setSruExporting(false);
-    }
-  };
-
-  const downloadResponseBlob = (response: any, fallbackFilename: string) => {
-    const blob = new Blob([response.data], { type: response.headers["content-type"] || "application/octet-stream" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = response.headers["content-disposition"]?.split("filename=")[1]?.replace(/"/g, "") || fallbackFilename;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleVatExport = async (format: "pdf" | "eskd") => {
-    setVatExporting(format);
-    setErrorMessage(null);
-    try {
-      if (format === "eskd") {
-        const response = await api.exportVatEskd(year);
-        downloadResponseBlob(response, `Moms-${year}12.eskd`);
-      } else {
-        const blob = await api.exportVatPdf(year);
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `momsdeklaration-${year}12.pdf`;
-        a.click();
-        URL.revokeObjectURL(url);
-      }
-      setVatSuccess(format === "eskd" ? "ESKD-fil har laddats ner" : "Momsdeklaration PDF har laddats ner");
-      setTimeout(() => setVatSuccess(null), 3000);
-    } catch (err: any) {
-      showError(err?.response?.data?.detail || "Kunde inte exportera momsdeklaration.");
-    } finally {
-      setVatExporting(null);
     }
   };
 
@@ -140,7 +103,6 @@ export default function ReportsPage() {
           { id: "income" as const, label: "Resultaträkning", icon: TrendingUp },
           { id: "balance" as const, label: "Balansräkning", icon: Scale },
           { id: "ledger" as const, label: "Huvudbok", icon: BookOpen },
-          { id: "vat" as const, label: "Momsdeklaration", icon: FileText },
         ].map((t) => (
           <Button
             key={t.id}
@@ -174,7 +136,7 @@ export default function ReportsPage() {
                 </Button>
               ))}
             </div>
-            {tab !== "balance" && tab !== "vat" && (
+            {tab !== "balance" && (
               <div className="flex items-center gap-2">
                 <select
                   value={month}
@@ -189,7 +151,7 @@ export default function ReportsPage() {
                 </select>
               </div>
             )}
-            {tab !== "ledger" && tab !== "vat" && (
+            {tab !== "ledger" && (
               <Button
                 variant="outline"
                 size="sm"
@@ -213,39 +175,12 @@ export default function ReportsPage() {
                 {sruExporting ? "Exporterar..." : "Exportera SRU"}
               </Button>
             )}
-            {tab === "vat" && (
-              <div className="flex flex-wrap gap-2 ml-auto">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleVatExport("pdf")}
-                  disabled={!!vatExporting}
-                  className="gap-2"
-                >
-                  <Download className="h-4 w-4" />
-                  {vatExporting === "pdf" ? "Exporterar..." : "Exportera PDF"}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleVatExport("eskd")}
-                  disabled={!!vatExporting}
-                  className="gap-2"
-                >
-                  <FileText className="h-4 w-4" />
-                  {vatExporting === "eskd" ? "Exporterar..." : "Exportera ESKD"}
-                </Button>
-              </div>
-            )}
           </div>
           {errorMessage && (
             <p className="text-sm text-red-600 dark:text-red-400 mt-2 px-1">{errorMessage}</p>
           )}
           {sruSuccess && (
             <p className="text-sm text-green-600 dark:text-green-400 mt-2 px-1">{sruSuccess}</p>
-          )}
-          {vatSuccess && (
-            <p className="text-sm text-green-600 dark:text-green-400 mt-2 px-1">{vatSuccess}</p>
           )}
         </CardContent>
       </Card>
@@ -257,92 +192,6 @@ export default function ReportsPage() {
       {tab === "ledger" && (
         <GeneralLedgerReport year={year} month={month || undefined} />
       )}
-      {tab === "vat" && <VatDeclarationReport year={year} />}
-    </div>
-  );
-}
-
-function VatDeclarationReport({ year }: { year: number }) {
-  const { data, isLoading } = useYearlyVatDeclaration(year);
-
-  if (isLoading) return <ReportSkeleton />;
-
-  const boxes = data?.boxes || [];
-  const summary = data?.summary || {};
-  const company = data?.company || {};
-
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-sm text-muted-foreground">Moms att betala</p>
-            <p className="text-2xl font-bold font-mono">{formatCurrency((summary.net_vat_sek || 0) * 100)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-sm text-muted-foreground">Utgående moms</p>
-            <p className="text-2xl font-bold font-mono">{formatCurrency((summary.total_output_vat_sek || 0) * 100)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-sm text-muted-foreground">Ingående moms</p>
-            <p className="text-2xl font-bold font-mono">{formatCurrency((summary.total_input_vat_sek || 0) * 100)}</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <FileText className="h-5 w-5 text-primary" />
-            Momsdeklaration {data?.period || year}
-          </CardTitle>
-          <CardDescription>
-            {company.name} {company.org_number ? `· ${company.org_number}` : ""}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50">
-                  <th className="text-left p-3 font-medium text-muted-foreground w-20">Ruta</th>
-                  <th className="text-left p-3 font-medium text-muted-foreground">Benämning</th>
-                  <th className="text-left p-3 font-medium text-muted-foreground">Underlag</th>
-                  <th className="text-right p-3 font-medium text-muted-foreground w-40">Belopp</th>
-                </tr>
-              </thead>
-              <tbody>
-                {boxes.map((box: any) => (
-                  <tr key={box.box} className="border-b last:border-0 align-top">
-                    <td className="p-3 font-mono text-muted-foreground">{box.box}</td>
-                    <td className="p-3">{box.label}</td>
-                    <td className="p-3 text-muted-foreground">
-                      {box.sources?.length ? (
-                        <div className="space-y-1">
-                          {box.sources.map((source: any) => (
-                            <div key={`${box.box}-${source.account_code}`} className="flex gap-3">
-                              <span className="font-mono">{source.account_code}</span>
-                              <span>{source.account_name}</span>
-                              <span className="ml-auto font-mono">{formatCurrency((source.amount_sek || 0) * 100)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <span>Inget saldo</span>
-                      )}
-                    </td>
-                    <td className="p-3 text-right font-mono font-medium">{formatCurrency((box.amount_sek || 0) * 100)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }
