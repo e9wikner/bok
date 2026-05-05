@@ -270,20 +270,42 @@ function AccountingPatternCard({
 function EvaluationSummary({ evaluation }: { evaluation: any }) {
   const summary = evaluation.summary || {};
   return (
-    <div className="grid gap-3 rounded-lg border bg-muted/20 p-4 md:grid-cols-4">
-      <Metric label="Testfall" value={summary.cases_total || 0} />
-      <Metric label="Baseline snitt" value={`${Math.round((summary.baseline?.average_score || 0) * 100)}%`} />
-      <Metric label="Candidate snitt" value={`${Math.round((summary.candidate?.average_score || 0) * 100)}%`} />
-      <Metric label="Förbättringar/regressioner" value={`${summary.improvements || 0}/${summary.regressions || 0}`} />
+    <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
+      <div className="grid gap-3 md:grid-cols-4">
+        <Metric
+          label="Testfall"
+          value={summary.cases_total || 0}
+          description="Historiska bokförda verifikationer som backtesten försökte återskapa."
+        />
+        <Metric
+          label="Baseline snitt"
+          value={`${Math.round((summary.baseline?.average_score || 0) * 100)}%`}
+          description="Träffsäkerhet med endast redan godkända aktiva bokföringsmönster."
+        />
+        <Metric
+          label="Candidate snitt"
+          value={`${Math.round((summary.candidate?.average_score || 0) * 100)}%`}
+          description="Träffsäkerhet med aktiva mönster plus föreslagna mönster."
+        />
+        <Metric
+          label="Förbättringar/regressioner"
+          value={`${summary.improvements || 0}/${summary.regressions || 0}`}
+          description="Antal testfall där Candidate blev bättre respektive sämre än Baseline."
+        />
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Föreslagna regler används bara i backtestet. De påverkar inte faktisk bokföring förrän de godkänns.
+      </p>
     </div>
   );
 }
 
-function Metric({ label, value }: { label: string; value: string | number }) {
+function Metric({ label, value, description }: { label: string; value: string | number; description: string }) {
   return (
     <div>
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="text-lg font-semibold">{value}</p>
+      <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
     </div>
   );
 }
