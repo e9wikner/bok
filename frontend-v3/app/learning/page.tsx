@@ -9,12 +9,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   useAccountingPatternEvaluations,
   useAccountingPatterns,
-  useAccounts,
   useLearningRules,
   useLearningStats,
 } from "@/hooks/useData";
 import { api } from "@/lib/api";
-import type { Account } from "@/lib/api";
 import { Brain, Sparkles, Target, Star, Tag, Hash, Type, DollarSign, PlayCircle, CheckCircle2, XCircle, GitCompare } from "lucide-react";
 
 const PATTERN_ICONS: Record<string, any> = {
@@ -31,12 +29,9 @@ export default function LearningPage() {
   const { data: suggestedData, isLoading: suggestedLoading } = useAccountingPatterns("suggested", true);
   const { data: activePatternsData } = useAccountingPatterns("active", false);
   const { data: evaluationsData } = useAccountingPatternEvaluations();
-  const { data: accountsData } = useAccounts();
   const [working, setWorking] = useState<"analyze" | "evaluate" | string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  const accounts: Account[] = accountsData?.accounts || accountsData || [];
-  const accountsByCode = new Map<string, Account>(accounts.map((account) => [String(account.code), account]));
   const rules = rulesData?.rules || [];
   const goldenRules = rules.filter((r: any) => r.is_golden);
   const activeRules = rules.filter((r: any) => !r.is_golden);
@@ -161,7 +156,6 @@ export default function LearningPage() {
                 <AccountingPatternCard
                   key={pattern.id}
                   pattern={pattern}
-                  accountsByCode={accountsByCode}
                   working={working === pattern.id}
                   onApprove={() => approve(pattern.id)}
                   onReject={() => reject(pattern.id)}
@@ -219,13 +213,11 @@ export default function LearningPage() {
 
 function AccountingPatternCard({
   pattern,
-  accountsByCode,
   working,
   onApprove,
   onReject,
 }: {
   pattern: any;
-  accountsByCode: Map<string, any>;
   working: boolean;
   onApprove: () => void;
   onReject: () => void;
@@ -249,8 +241,7 @@ function AccountingPatternCard({
           </p>
           <div className="flex flex-wrap gap-2 text-xs">
             {rows.map((row: any, index: number) => {
-              const account = accountsByCode.get(String(row.account));
-              const accountLabel = account?.name ? `${row.account} ${account.name}` : row.account;
+              const accountLabel = row.account_name ? `${row.account} ${row.account_name}` : row.account;
               return (
                 <span key={`${row.account}-${index}`} className="rounded-md border px-2 py-1">
                   <span className="font-mono">{accountLabel}</span>{" "}

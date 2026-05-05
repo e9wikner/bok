@@ -10,6 +10,7 @@ import re
 from domain.accounting_pattern_models import AccountingPattern
 from domain.models import Voucher
 from domain.types import VoucherSeries, VoucherStatus
+from repositories.account_repo import AccountRepository
 from repositories.accounting_pattern_repo import AccountingPatternRepository
 from repositories.voucher_repo import VoucherRepository
 
@@ -227,13 +228,14 @@ class AccountingPatternAnalysisService:
         ]
 
     def pattern_to_dict(self, pattern: AccountingPattern, include_examples: bool = False) -> Dict[str, Any]:
+        accounts_by_code = AccountRepository.get_all_as_dict(active_only=False)
         data = {
             "id": pattern.id,
             "name": pattern.name,
             "status": pattern.status,
             "match_type": pattern.match_type,
             "match_config": pattern.match_config,
-            "voucher_template": pattern.voucher_template,
+            "voucher_template": self._enrich_template_accounts(pattern.voucher_template, accounts_by_code),
             "confidence": pattern.confidence,
             "source": pattern.source,
             "sample_count": pattern.sample_count,
@@ -247,6 +249,23 @@ class AccountingPatternAnalysisService:
         if include_examples:
             data["examples"] = self.patterns.list_examples(pattern.id)
         return data
+
+    def _enrich_template_accounts(
+        self,
+        voucher_template: Dict[str, Any],
+        accounts_by_code: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        enriched = dict(voucher_template or {})
+        rows = []
+        for row in enriched.get("rows", []):
+            enriched_row = dict(row)
+            account_code = str(enriched_row.get("account", ""))
+            account = accounts_by_code.get(account_code)
+            if account:
+                enriched_row["account_name"] = account.name
+            rows.append(enriched_row)
+        enriched["rows"] = rows
+        return enriched
 
     def evaluation_to_dict(self, evaluation) -> Dict[str, Any]:
         return {

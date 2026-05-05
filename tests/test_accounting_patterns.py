@@ -62,6 +62,11 @@ def test_analyze_and_evaluate_suggested_patterns(test_db):
         "2640",
         "6200",
     ]
+    assert [row["account_name"] for row in pattern["voucher_template"]["rows"]] == [
+        "Bankkonto",
+        "Ingående moms",
+        "Tele och post",
+    ]
 
     evaluation = service.evaluate(
         name="Test backtest",
