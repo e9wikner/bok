@@ -100,6 +100,30 @@ export function useAccountingPatternEvaluations() {
   });
 }
 
+export function useAgentInstructions() {
+  return useQuery({
+    queryKey: ["agent-instructions", "accounting"],
+    queryFn: () => api.getAgentInstructions(),
+    staleTime: 60 * 1000,
+  });
+}
+
+export function useAgentInstructionVersions() {
+  return useQuery({
+    queryKey: ["agent-instruction-versions", "accounting"],
+    queryFn: () => api.getAgentInstructionVersions(),
+    staleTime: 60 * 1000,
+  });
+}
+
+export function useAccountingCorrections(limit = 25) {
+  return useQuery({
+    queryKey: ["accounting-corrections", limit],
+    queryFn: () => api.getAccountingCorrections(limit),
+    staleTime: 60 * 1000,
+  });
+}
+
 export function useIncomeStatement(year?: number, month?: number) {
   return useQuery({
     queryKey: ["income-statement", year, month],

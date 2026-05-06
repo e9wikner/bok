@@ -119,10 +119,7 @@ class Database:
                 with open(migration_file, "r") as f:
                     sql_script = f.read()
 
-                # Split by semicolon and execute each statement
-                statements = [s.strip() for s in sql_script.split(";") if s.strip()]
-                for statement in statements:
-                    conn.execute(statement)
+                conn.executescript(sql_script)
 
                 # Record migration version (migration file may have already inserted it)
                 conn.execute(

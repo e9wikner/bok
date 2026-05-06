@@ -45,6 +45,12 @@ class UpdateVoucherRequest(BaseModel):
     teach_ai: bool = Field(False, description="Whether to teach AI from this change")
 
 
+class CorrectVoucherRequest(BaseModel):
+    """Request to correct a posted voucher with a B-series correction."""
+    corrected_rows: List[VoucherRowRequest] = Field(..., description="Intended corrected accounting rows")
+    reason: Optional[str] = Field(None, description="Reason for the correction")
+
+
 class VoucherResponse(BaseModel):
     """Response model for voucher."""
     id: str

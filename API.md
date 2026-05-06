@@ -23,8 +23,10 @@ Default API Key (dev): `dev-key-change-in-production`
 11. [Compliance](#compliance)
 12. [Learning (Auto-Categorization)](#learning-auto-categorization)
 13. [Agent Integration](#agent-integration)
-14. [Admin / Tenants](#admin--tenants)
-15. [Error Handling](#error-handling)
+14. [Agent Instructions](#agent-instructions)
+15. [Accounting Corrections](#accounting-corrections)
+16. [Admin / Tenants](#admin--tenants)
+17. [Error Handling](#error-handling)
 
 ---
 
@@ -359,6 +361,27 @@ Authorization: Bearer dev-key-change-in-production
   "posted_at": "2026-03-21T10:42:00"
 }
 ```
+
+### Correct Posted Voucher
+
+```http
+POST /api/v1/vouchers/{voucher_id}/correct
+Authorization: Bearer dev-key-change-in-production
+Content-Type: application/json
+
+{
+  "reason": "Konto 5615 skulle vara 6570",
+  "corrected_rows": [
+    {"account": "1920", "debit": 0, "credit": 125000},
+    {"account": "2640", "debit": 25000, "credit": 0},
+    {"account": "6570", "debit": 100000, "credit": 0}
+  ]
+}
+```
+
+Creates and posts a B-series correction voucher. The correction voucher contains
+the reversal of the original voucher plus the corrected rows. The original
+voucher is not edited.
 
 ### Voucher Audit Trail
 
@@ -1151,6 +1174,10 @@ Authorization: Bearer dev-key-change-in-production
 
 ## Learning (Auto-Categorization)
 
+These legacy learning endpoints remain available as analysis support. The
+primary agent workflow now uses Markdown accounting instructions plus posted
+voucher/correction history.
+
 ### Suggest Account
 
 ```http
@@ -1226,6 +1253,30 @@ Authorization: Bearer dev-key-change-in-production
 ## Agent Integration
 
 Endpoints for AI agent/tool integration.
+
+### Create and Post Agent Voucher
+
+```http
+POST /api/v1/agent/vouchers
+Authorization: Bearer dev-key-change-in-production
+Content-Type: application/json
+
+{
+  "date": "2026-03-20",
+  "period_id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+  "description": "Telefonutgift Fello",
+  "reasoning_summary": "Bokfört enligt aktuella agentinstruktioner.",
+  "rows": [
+    {"account": "1920", "debit": 0, "credit": 12500},
+    {"account": "2640", "debit": 2500, "credit": 0},
+    {"account": "6200", "debit": 10000, "credit": 0}
+  ]
+}
+```
+
+Creates and posts the voucher immediately. Backend validation enforces balance,
+active accounts and open period, but the agent is responsible for the accounting
+judgement.
 
 ### Test Connectivity
 
@@ -1307,6 +1358,56 @@ Authorization: Bearer dev-key-change-in-production
 
 **Parameters:**
 - `limit` (integer, default: 100)
+
+---
+
+## Agent Instructions
+
+The accounting agent reads a Markdown instruction document before booking.
+The document is versioned by the backend and can be updated by the agent after
+it has analyzed historical vouchers and corrections.
+
+### Get Active Accounting Instructions
+
+```http
+GET /api/v1/agent-instructions/accounting
+Authorization: Bearer dev-key-change-in-production
+```
+
+### Update Accounting Instructions
+
+```http
+PUT /api/v1/agent-instructions/accounting
+Authorization: Bearer dev-key-change-in-production
+Content-Type: application/json
+
+{
+  "content_markdown": "# Bokföringsinstruktioner\n\n...",
+  "change_summary": "Lade till rutin för Fello och leasingavgifter."
+}
+```
+
+### List Instruction Versions
+
+```http
+GET /api/v1/agent-instructions/accounting/versions
+Authorization: Bearer dev-key-change-in-production
+```
+
+---
+
+## Accounting Corrections
+
+Corrections are exposed for the agent so it can update its general instructions
+from human feedback.
+
+```http
+GET /api/v1/accounting-corrections?limit=100
+Authorization: Bearer dev-key-change-in-production
+```
+
+Returns correction history with original voucher, corrected B-series voucher,
+row-level data and correction reason.
 
 ---
 

@@ -123,38 +123,37 @@ Professionell PDF-export för alla företagsdokument med svenska termer och form
 - `GET /api/v1/export/pdf/.../html` – HTML-fallback för alla ovan
 
 ### 🧠 AI Learning (Maskininlärning)
-Systemet lär sig automatiskt från användares korrigeringar för att förbättra framtida kategorisering:
+Systemets agentlärande bygger på ett levande Markdown-dokument med generella
+bokföringsinstruktioner. Agenten läser instruktionerna ungefär som en
+`AGENTS.md`-fil, hämtar historiska verifikationer och korrigeringar via API:t,
+och bokför därefter direkt som postade verifikationer.
 
 **Hur det fungerar:**
-1. Användare korrigerar en felaktig bokföring
-2. Systemet analyserar skillnaden mellan original och korrigering
-3. En learning rule skapas/uppdateras med mönster (keyword, regex, motpart, belopp)
-4. Framtida transaktioner med liknande mönster föreslås automatiskt
-5. Confidence ökar med varje lyckad användning
+1. Agenten läser aktuella bokföringsinstruktioner från backend.
+2. Agenten läser tidigare postade verifikationer och korrigeringar via API:t.
+3. Agenten uppdaterar instruktionerna när historiken visar bättre generell vägledning.
+4. Agenten skapar och postar verifikationer direkt.
+5. Användaren granskar i frontend och rättar fel i efterhand.
+6. Rättelser skapas som spårbara B-serie-korrigeringar och blir ny inlärningsdata.
 
-**Regeltyper:**
-- `keyword` – Matcha nyckelord i beskrivning (t.ex. "resa" → 5610)
-- `regex` – Regex-mönster för avancerad matchning
-- `counterparty` – Matcha motpartsnamn (t.ex. "Telia" → 4020)
-- `amount_range` – Beloppsintervall (t.ex. 1000-5000 kr)
-- `composite` – Kombination av flera villkor (JSON)
-
-**Confidence & Golden Rules:**
-- Confidence: 0.0–1.0 (börjar på 0.5, ökar med lyckade användningar)
-- Golden: Manuellt bekräftad av redovisningskonsult (confidence = 1.0)
-- Threshold: Endast regler med confidence ≥ 0.8 används automatiskt
+**Principer:**
+- Backend fattar inte bokföringsbeslutet, men validerar formella krav.
+- Agenten använder Markdown-instruktioner och historik som kontext.
+- Postade verifikationer ändras inte direkt; fel rättas med korrigeringsverifikation.
+- Frontend är en mänsklig gransknings- och korrigeringsyta.
 
 **API-endpoints:**
-- `POST /api/v1/learning/corrections` – Spela in korrigering och lär av den
-- `GET /api/v1/learning/rules` – Lista alla inlärda regler
-- `GET /api/v1/learning/rules/{id}` – Hämta specifik regel
-- `PUT /api/v1/learning/rules/{id}/confirm` – Bekräfta regel (golden)
-- `DELETE /api/v1/learning/rules/{id}` – Inaktivera felaktig regel
-- `GET /api/v1/learning/stats` – Statistik om AI-lärande
-- `GET /api/v1/learning/suggest` – Föreslå konto baserat på inlärda regler
+- `GET /api/v1/agent-instructions/accounting` – Läs aktivt instruktionsdokument
+- `PUT /api/v1/agent-instructions/accounting` – Uppdatera instruktioner och skapa ny version
+- `GET /api/v1/agent-instructions/accounting/versions` – Versionshistorik
+- `POST /api/v1/agent/vouchers` – Agenten skapar och postar verifikation direkt
+- `POST /api/v1/vouchers/{id}/correct` – Skapa postad B-serie-korrigering
+- `GET /api/v1/accounting-corrections` – Lista korrigeringar för agentens inlärning
 
 **Integration:**
-LearningService är integrerat i CategorizationService och kontrolleras först vid auto-kategorisering, före standardregler.
+Äldre learning rules och backtest finns kvar som analysstöd, men de ska inte vara
+den primära mekanismen för agentens beslut. Den primära mekanismen är det aktiva
+instruktionsdokumentet plus historiken som agenten läser via API:t.
 
 ## Projektstruktur
 
@@ -167,7 +166,9 @@ bokfoering-api/
 │   │   ├── 003_add_reports_and_k2.sql   # Fas 3 & 4: Reports + Agent
 │   │   ├── 004_add_company_info.sql     # Company metadata
 │   │   ├── 005_add_bank_and_categorization.sql  # Bank integration
-│   │   └── 006_add_learning_rules.sql   # AI learning tables
+│   │   ├── 006_add_learning_rules.sql   # Legacy AI learning tables
+│   │   ├── 013_add_agent_instructions.sql # Agent instruction versions
+│   │   └── 014_add_posted_voucher_immutability_triggers.sql
 │   └── database.py
 ├── domain/
 │   ├── models.py                # Voucher, Account, Period
@@ -205,6 +206,8 @@ bokfoering-api/
 │   │   ├── invoices.py          # Fas 2: Invoice endpoints
 │   │   ├── k2_reports.py        # Fas 3: K2 report endpoints
 │   │   ├── agent.py             # Fas 4: Agent integration
+│   │   ├── agent_instructions.py # Agent instruction documents
+│   │   ├── accounting_corrections.py # Agent-readable corrections
 │   │   ├── import_sie4.py       # SIE4: Import endpoints
 │   │   ├── export_sie4.py       # SIE4: Export endpoints
 │   │   ├── export_pdf.py        # PDF: Fakturor & rapporter
@@ -216,6 +219,7 @@ bokfoering-api/
 │   └── main.py                  # FastAPI app
 ├── repositories/
 │   ├── voucher_repo.py
+│   ├── agent_instruction_repo.py
 │   ├── account_repo.py
 │   ├── period_repo.py
 │   ├── invoice_repo.py
@@ -327,11 +331,11 @@ export NEXT_PUBLIC_API_KEY=dev-key-change-in-production
 - Synkroniseringsstatusbevakning
 
 ### 🤖 Auto-kategorisering
-- Regelbaserad motor med 18 förinlästa svenska affärsmönster
-- Matchning av nyckelord, regex, motpart och beloppsintervall
-- **AI-inlärning:** Systemet lär sig av användarkorrigeringar
-- Autobokföring av högtroende matchningar (≥90%)
-- Täcker: telekom, hyra, drivmedel, försäkring, programvara, bankavgifter, Swish, etc.
+- Agentstyrd bokföring baserad på levande Markdown-instruktioner
+- Agenten läser historiska verifikationer och korrigeringar via API:t
+- Direktpostning av agentverifikationer med backendvalidering
+- Rättelser sker via B-serie och blir ny inlärningsdata
+- Äldre regel-/mönsteranalys används som beslutsunderlag, inte som hårt facit
 
 ### ✅ BFL Compliance-kontroll
 - 8 automatiserade compliance-kontroller:

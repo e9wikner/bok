@@ -250,6 +250,57 @@ class LedgerService:
 
         return correction
 
+    def create_posted_correction(
+        self,
+        original_voucher_id: str,
+        corrected_rows: List[Dict],
+        reason: str | None = None,
+        actor: str = "system",
+    ) -> Voucher:
+        """Create and post a B-series correction for a posted voucher.
+
+        The posted correction contains reversal rows for the original voucher
+        followed by the corrected rows supplied by the caller.
+        """
+        original = self.vouchers.get(original_voucher_id)
+        if not original:
+            raise ValidationError("voucher_not_found", "Original voucher not found")
+        if not original.is_posted():
+            raise ValidationError(
+                "not_posted",
+                "Can only correct posted vouchers",
+                "original voucher must be in 'posted' status",
+            )
+
+        target_period = self._target_correction_period(original)
+        reversal_rows = [
+            {
+                "account": row.account_code,
+                "debit": row.credit,
+                "credit": row.debit,
+                "description": f"Återföring {original.series.value}{original.number}",
+            }
+            for row in original.rows
+        ]
+        correction_rows = reversal_rows + corrected_rows
+
+        self._validate_correction_rows(original, target_period, correction_rows)
+        correction = self.create_correction(
+            original_voucher_id=original.id,
+            correction_rows=correction_rows,
+            actor=actor,
+        )
+        correction = self.post_voucher(correction.id, actor=actor)
+
+        self._record_correction_history(
+            original=original,
+            correction=correction,
+            corrected_rows=corrected_rows,
+            reason=reason,
+            actor=actor,
+        )
+        return correction
+
     def update_voucher(
         self,
         voucher_id: str,
@@ -266,6 +317,8 @@ class LedgerService:
         voucher = self.vouchers.get(voucher_id)
         if not voucher:
             raise ValidationError("voucher_not_found", "Voucher not found")
+
+        VoucherValidator.validate_can_edit(voucher)
 
         # Snapshot old state for audit
         old_rows = [
@@ -338,6 +391,96 @@ class LedgerService:
         )
 
         return self.vouchers.get(voucher_id)
+
+    def _target_correction_period(self, original: Voucher) -> Period:
+        original_period = self.periods.get_period(original.period_id)
+        if original_period and original_period.locked:
+            unlocked = self._find_unlocked_period(original.period_id)
+            return unlocked if unlocked else original_period
+        return original_period
+
+    def _validate_correction_rows(
+        self,
+        original: Voucher,
+        period: Period,
+        correction_rows: List[Dict],
+    ) -> None:
+        all_accounts = self.accounts.get_all_as_dict()
+        temp = Voucher(
+            id="temp",
+            series=VoucherSeries.B,
+            number=0,
+            date=datetime.now().date(),
+            period_id=period.id,
+            description=f"Correction of voucher {original.series.value}{original.number:06d}",
+            status=VoucherStatus.DRAFT,
+            created_by="system",
+            correction_of=original.id,
+        )
+        for row_data in correction_rows:
+            temp.rows.append(
+                VoucherRow(
+                    id="temp",
+                    voucher_id="temp",
+                    account_code=row_data["account"],
+                    debit=row_data.get("debit", 0),
+                    credit=row_data.get("credit", 0),
+                    description=row_data.get("description"),
+                )
+            )
+        validate_complete_voucher(temp, period, all_accounts)
+
+    def _record_correction_history(
+        self,
+        original: Voucher,
+        correction: Voucher,
+        corrected_rows: List[Dict],
+        reason: str | None,
+        actor: str,
+    ) -> None:
+        try:
+            from repositories.learning_repo import LearningRepository
+
+            LearningRepository.create_correction_history(
+                original_voucher_id=original.id,
+                corrected_voucher_id=correction.id,
+                original_data=self._voucher_snapshot(original),
+                corrected_data={
+                    "description": original.description,
+                    "rows": [
+                        {
+                            "account_code": row["account"],
+                            "debit": row.get("debit", 0),
+                            "credit": row.get("credit", 0),
+                            "description": row.get("description"),
+                        }
+                        for row in corrected_rows
+                    ],
+                    "correction_voucher_id": correction.id,
+                },
+                change_type="multiple",
+                corrected_by=actor,
+                correction_reason=reason,
+            )
+        except Exception:
+            pass
+
+    def _voucher_snapshot(self, voucher: Voucher) -> Dict:
+        return {
+            "id": voucher.id,
+            "series": voucher.series.value,
+            "number": voucher.number,
+            "description": voucher.description,
+            "rows": [
+                {
+                    "account_code": row.account_code,
+                    "debit": row.debit,
+                    "credit": row.credit,
+                    "description": row.description,
+                }
+                for row in voucher.rows
+            ],
+        }
 
     def _find_unlocked_period(self, original_period_id: str):
         """Find the latest unlocked period in the same fiscal year."""

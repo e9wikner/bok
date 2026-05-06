@@ -1,13 +1,27 @@
 """API routes for agent integration (Fas 4)."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from typing import Optional
+from datetime import date as DateType
 import uuid
 import hashlib
 
 from api.deps import get_current_actor
+from api.schemas import VoucherRowRequest
+from domain.validation import ValidationError
+from services.ledger import LedgerService
 
 router = APIRouter(prefix="/api/v1/agent", tags=["agent-integration"])
+
+
+class AgentVoucherRequest(BaseModel):
+    date: DateType
+    period_id: str
+    description: str
+    rows: list[VoucherRowRequest] = Field(..., min_length=2)
+    series: str = "A"
+    reasoning_summary: Optional[str] = None
 
 
 @router.post("/seed", response_model=dict, status_code=status.HTTP_201_CREATED)
@@ -24,6 +38,40 @@ async def seed_demo_data(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
         )
+
+
+@router.post("/vouchers", response_model=dict, status_code=status.HTTP_201_CREATED)
+async def create_and_post_agent_voucher(
+    request: AgentVoucherRequest,
+    actor: str = Depends(get_current_actor),
+):
+    """Create and post a voucher directly from an accounting agent."""
+    try:
+        ledger = LedgerService()
+        voucher = ledger.create_voucher(
+            series=request.series,
+            date=request.date,
+            period_id=request.period_id,
+            description=request.description,
+            rows_data=[row.model_dump() for row in request.rows],
+            created_by="agent",
+        )
+        voucher = ledger.post_voucher(voucher.id, actor=actor)
+        from api.routes.vouchers import _voucher_to_response
+
+        response = _voucher_to_response(voucher).model_dump()
+        response["agent"] = {
+            "posted_directly": True,
+            "reasoning_summary": request.reasoning_summary,
+        }
+        return response
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": exc.message, "code": exc.code, "details": exc.details},
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
 
 
 @router.post("/keys/create", response_model=dict, status_code=status.HTTP_201_CREATED)

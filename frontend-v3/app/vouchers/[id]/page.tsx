@@ -161,22 +161,35 @@ export default function VoucherDetailPage() {
     setSaving(true);
     setSaveResult(null);
     try {
-      await api.updateVoucher(id, {
-        rows: editedRows.map((r: any) => ({
+      const rows = editedRows.map((r: any) => ({
           account: r.account_code || r.account,
           debit: r.debit || 0,
           credit: r.credit || 0,
-        })),
-        reason: correctionReason || undefined,
-        teach_ai: teachAI,
-      });
+        }));
+
+      const saved =
+        voucher.status === "posted"
+          ? await api.correctVoucher(id, {
+              corrected_rows: rows,
+              reason: correctionReason || undefined,
+            })
+          : await api.updateVoucher(id, {
+              rows,
+              reason: correctionReason || undefined,
+              teach_ai: teachAI,
+            });
+
       setSaveResult({
         ok: true,
-        msg: "Korrigering sparad.",
+        msg:
+          voucher.status === "posted"
+            ? `Korrigering bokförd som ${saved.series}${saved.number}.`
+            : "Ändring sparad.",
       });
       queryClient.invalidateQueries({ queryKey: ["voucher", id] });
       queryClient.invalidateQueries({ queryKey: ["voucher-audit", id] });
       queryClient.invalidateQueries({ queryKey: ["vouchers"] });
+      queryClient.invalidateQueries({ queryKey: ["accounting-corrections"] });
       setTimeout(() => setIsEditing(false), 2000);
     } catch (err: any) {
       setSaveResult({
@@ -322,7 +335,9 @@ export default function VoucherDetailPage() {
               </CardTitle>
               <CardDescription>
                 {isEditing
-                  ? "Ändra konto eller belopp och spara"
+                  ? voucher.status === "posted"
+                    ? "Skapar en postad B-serie-korrigering. Originalverifikationen ändras inte."
+                    : "Ändra konto eller belopp och spara"
                   : "Debet och kredit per konto"}
               </CardDescription>
             </div>
@@ -456,19 +471,25 @@ export default function VoucherDetailPage() {
                 />
               </div>
 
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={teachAI}
-                  onChange={(e) => setTeachAI(e.target.checked)}
-                  className="h-4 w-4 rounded border"
-                />
-                <Brain className="h-4 w-4 text-violet-500" />
-                <span className="text-sm">
-                  Lär AI:n av denna korrigering (förbättrar framtida
-                  bokföringar)
-                </span>
-              </label>
+              {voucher.status === "posted" ? (
+                <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Brain className="h-4 w-4 text-violet-500" />
+                  Korrigeringen sparas som agentläsbar historik.
+                </p>
+              ) : (
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={teachAI}
+                    onChange={(e) => setTeachAI(e.target.checked)}
+                    className="h-4 w-4 rounded border"
+                  />
+                  <Brain className="h-4 w-4 text-violet-500" />
+                  <span className="text-sm">
+                    Lär AI:n av denna ändring
+                  </span>
+                </label>
+              )}
 
               <div className="flex gap-3">
                 <Button

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   useAccountingPatternEvaluations,
   useAccountingPatterns,
+  useAccountingCorrections,
+  useAgentInstructions,
+  useAgentInstructionVersions,
   useLearningRules,
   useLearningStats,
 } from "@/hooks/useData";
@@ -29,8 +32,13 @@ export default function LearningPage() {
   const { data: suggestedData, isLoading: suggestedLoading } = useAccountingPatterns("suggested", true);
   const { data: activePatternsData } = useAccountingPatterns("active", false);
   const { data: evaluationsData } = useAccountingPatternEvaluations();
+  const { data: instructionsData } = useAgentInstructions();
+  const { data: instructionVersionsData } = useAgentInstructionVersions();
+  const { data: correctionsData } = useAccountingCorrections(10);
   const [working, setWorking] = useState<"analyze" | "evaluate" | string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [instructionDraft, setInstructionDraft] = useState("");
+  const [instructionSummary, setInstructionSummary] = useState("");
 
   const rules = rulesData?.rules || [];
   const goldenRules = rules.filter((r: any) => r.is_golden);
@@ -38,6 +46,14 @@ export default function LearningPage() {
   const suggestedPatterns = suggestedData?.patterns || [];
   const activePatterns = activePatternsData?.patterns || [];
   const latestEvaluation = evaluationsData?.evaluations?.[0];
+  const instructionVersions = instructionVersionsData?.versions || [];
+  const corrections = correctionsData?.corrections || [];
+
+  useEffect(() => {
+    if (instructionsData?.content_markdown) {
+      setInstructionDraft(instructionsData.content_markdown);
+    }
+  }, [instructionsData?.content_markdown]);
 
   const refreshPatterns = async () => {
     await queryClient.invalidateQueries({ queryKey: ["accounting-patterns"] });
@@ -95,6 +111,25 @@ export default function LearningPage() {
     }
   };
 
+  const saveInstructions = async () => {
+    setWorking("instructions");
+    setMessage(null);
+    try {
+      const result = await api.updateAgentInstructions({
+        content_markdown: instructionDraft,
+        change_summary: instructionSummary || undefined,
+      });
+      await queryClient.invalidateQueries({ queryKey: ["agent-instructions"] });
+      await queryClient.invalidateQueries({ queryKey: ["agent-instruction-versions"] });
+      setInstructionSummary("");
+      setMessage(`Instruktioner sparade som version ${result.version}.`);
+    } catch (err: any) {
+      setMessage(err?.response?.data?.detail || err?.message || "Kunde inte spara instruktionerna.");
+    } finally {
+      setWorking(null);
+    }
+  };
+
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-[1400px] mx-auto">
       <div>
@@ -134,6 +169,64 @@ export default function LearningPage() {
           </div>
           {message && <p className="text-sm text-muted-foreground">{message}</p>}
           {latestEvaluation && <EvaluationSummary evaluation={latestEvaluation} />}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Brain className="h-5 w-5 text-primary" />
+            Agentinstruktioner
+          </CardTitle>
+          <CardDescription>
+            Markdown-instruktioner som agenten läser före direktbokföring. Korrigeringar nedan är underlag för att förbättra texten.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <textarea
+            value={instructionDraft}
+            onChange={(event) => setInstructionDraft(event.target.value)}
+            className="min-h-[280px] w-full rounded-lg border bg-background px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          <div className="flex flex-col gap-2 md:flex-row">
+            <input
+              value={instructionSummary}
+              onChange={(event) => setInstructionSummary(event.target.value)}
+              placeholder="Sammanfattning av ändringen"
+              className="flex-1 rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <Button onClick={saveInstructions} disabled={!!working || !instructionDraft.trim()}>
+              {working === "instructions" ? "Sparar..." : "Spara ny version"}
+            </Button>
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="rounded-lg border p-3">
+              <h3 className="text-sm font-medium">Senaste versioner</h3>
+              <div className="mt-2 space-y-2 text-sm text-muted-foreground">
+                {instructionVersions.slice(0, 5).map((version: any) => (
+                  <div key={version.version_id} className="flex items-start justify-between gap-3">
+                    <span>Version {version.version}</span>
+                    <span className="text-right">{version.change_summary || "Ingen sammanfattning"}</span>
+                  </div>
+                ))}
+                {instructionVersions.length === 0 && <p>Inga versioner ännu.</p>}
+              </div>
+            </div>
+            <div className="rounded-lg border p-3">
+              <h3 className="text-sm font-medium">Senaste korrigeringar</h3>
+              <div className="mt-2 space-y-2 text-sm text-muted-foreground">
+                {corrections.slice(0, 5).map((correction: any) => (
+                  <div key={correction.id}>
+                    <span className="font-mono">
+                      {correction.original_voucher?.series}{correction.original_voucher?.number}
+                    </span>{" "}
+                    {correction.correction_reason || "Korrigering utan angiven anledning"}
+                  </div>
+                ))}
+                {corrections.length === 0 && <p>Inga korrigeringar ännu.</p>}
+              </div>
+            </div>
+          </div>
         </CardContent>
       </Card>
 

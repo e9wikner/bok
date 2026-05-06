@@ -140,6 +140,54 @@ bokfoering-api/
     ✅ Immutable (varaktighet requirement met)
 ```
 
+### Agent Direct Posting
+
+The accounting agent reads active Markdown instructions and historical posted
+vouchers/corrections before it creates bookkeeping entries. The agent posts
+directly; the backend validates formal accounting constraints but does not make
+the bookkeeping judgement.
+
+```
+1. Agent: GET /api/v1/agent-instructions/accounting
+    ↓
+2. Agent: GET /api/v1/vouchers?status=posted
+   Agent: GET /api/v1/accounting-corrections
+    ↓
+3. Agent decides accounting rows from instructions + source material
+    ↓
+4. Agent: POST /api/v1/agent/vouchers
+    ↓
+5. LedgerService.create_voucher()
+   LedgerService.post_voucher()
+    ↓
+6. Database stores posted voucher
+    ↓
+7. AuditRepository.log("created") + log("posted")
+```
+
+### Posted Voucher Correction
+
+Posted vouchers are not edited in place. Human review happens after posting, and
+wrong vouchers are corrected by a linked B-series correction voucher.
+
+```
+1. User opens posted voucher in frontend
+    ↓
+2. User submits corrected rows + reason
+    ↓
+3. API: POST /api/v1/vouchers/{id}/correct
+    ↓
+4. LedgerService creates B-series voucher:
+   - reversal rows for original voucher
+   - corrected rows supplied by user
+    ↓
+5. LedgerService.post_voucher()
+    ↓
+6. correction_history records original/corrected diff
+    ↓
+7. Agent later reads GET /api/v1/accounting-corrections
+```
+
 ### Invoice Auto-Booking (Fas 2)
 
 ```
@@ -275,6 +323,12 @@ Accounts are organized by type:
 - NOT NULL checks
 - CHECK constraints (dates, amounts > 0)
 
+### 4. **Agent Instruction Boundary**
+- Backend stores and versions general Markdown instructions.
+- Agent reads instructions and historical data, then decides accounting rows.
+- Backend validates and posts, but does not infer the account selection.
+- Corrections are exposed back to the agent as learning material.
+
 ## API Security
 
 ### Authentication
@@ -332,7 +386,7 @@ CREATE INDEX idx_payments_invoice ON payments(invoice_id);
 | 1 | Grundbokföring | ✅ Complete | Append-only, period locking, reports |
 | 2 | Fakturering & Moms | 🚀 In Progress | Invoicing, VAT calculation, auto-booking |
 | 3 | Rapporter & K2 | 📋 Planned | Income statement, balance sheet, annual report |
-| 4 | Agent Integration | 🔌 Planned | OpenAPI spec, idempotent ops |
+| 4 | Agent Integration | 🚀 In Progress | Direct posting, instructions, corrections |
 
 ## Testing Strategy
 

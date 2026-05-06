@@ -21,6 +21,7 @@ from api.routes import (
     invoice_drafts,
     k2_reports,
     agent,
+    agent_instructions,
     import_sie4,
     import_csv,
     export_sie4,
@@ -30,6 +31,7 @@ from api.routes import (
     vat,
     learning,
     accounting_patterns,
+    accounting_corrections,
     attachments,
     auth,
     audit,
@@ -75,6 +77,7 @@ app.include_router(k2_reports.router)
 
 # Fas 4: Agent Integration
 app.include_router(agent.router)
+app.include_router(agent_instructions.router)
 
 # Import/Export
 app.include_router(import_sie4.router)
@@ -96,6 +99,7 @@ app.include_router(vat.router)
 # AI Learning & Corrections
 app.include_router(learning.router)
 app.include_router(accounting_patterns.router)
+app.include_router(accounting_corrections.router)
 
 # Attachments
 app.include_router(attachments.router)

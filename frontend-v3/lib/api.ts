@@ -471,6 +471,13 @@ export const api = {
     const { data } = await apiClient.put(`/api/v1/vouchers/${id}`, payload);
     return data;
   },
+  correctVoucher: async (id: string, payload: {
+    corrected_rows: { account: string; debit: number; credit: number; description?: string }[];
+    reason?: string;
+  }) => {
+    const { data } = await apiClient.post(`/api/v1/vouchers/${id}/correct`, payload);
+    return data;
+  },
 
   // Create voucher
   createVoucher: async (payload: {
@@ -482,6 +489,24 @@ export const api = {
     auto_post?: boolean;
   }) => {
     const { data } = await apiClient.post("/api/v1/vouchers", payload);
+    return data;
+  },
+
+  // Agent instructions and correction history
+  getAgentInstructions: async () => {
+    const { data } = await apiClient.get("/api/v1/agent-instructions/accounting");
+    return data;
+  },
+  updateAgentInstructions: async (payload: { content_markdown: string; change_summary?: string }) => {
+    const { data } = await apiClient.put("/api/v1/agent-instructions/accounting", payload);
+    return data;
+  },
+  getAgentInstructionVersions: async () => {
+    const { data } = await apiClient.get("/api/v1/agent-instructions/accounting/versions");
+    return data;
+  },
+  getAccountingCorrections: async (limit = 100) => {
+    const { data } = await apiClient.get("/api/v1/accounting-corrections", { params: { limit } });
     return data;
   },
 

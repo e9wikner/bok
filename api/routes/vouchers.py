@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status as http_status
 
 from api.schemas import (
+    CorrectVoucherRequest,
     CreateVoucherRequest,
     UpdateVoucherRequest,
     VoucherResponse,
@@ -125,6 +126,34 @@ async def post_voucher(
         )
 
 
+@router.post("/{voucher_id}/correct", response_model=VoucherResponse)
+async def correct_voucher(
+    voucher_id: str,
+    request: CorrectVoucherRequest,
+    ledger: LedgerService = Depends(get_ledger_service),
+    actor: str = Depends(get_current_actor),
+):
+    """Correct a posted voucher by creating and posting a B-series correction."""
+    try:
+        rows_data = [r.model_dump() for r in request.corrected_rows]
+        correction = ledger.create_posted_correction(
+            original_voucher_id=voucher_id,
+            corrected_rows=rows_data,
+            reason=request.reason,
+            actor=actor,
+        )
+        return _voucher_to_response(correction)
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail={"error": e.message, "code": e.code, "details": e.details},
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
+
+
 @router.put("/{voucher_id}", response_model=VoucherResponse)
 async def update_voucher(
     voucher_id: str,
@@ -135,7 +164,8 @@ async def update_voucher(
     """
     Update voucher rows and/or description in-place.
 
-    Changes are recorded in the audit trail with before/after snapshots.
+    Only draft vouchers can be updated in place. Posted vouchers must be
+    corrected with POST /api/v1/vouchers/{id}/correct.
     """
     try:
         rows_data = [r.model_dump() for r in request.rows]
