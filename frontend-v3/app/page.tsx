@@ -12,14 +12,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   useVouchers,
   useAccounts,
-  useLearningRules,
   useHealth,
 } from "@/hooks/useData";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
   FileText,
   BookOpen,
-  Brain,
   TrendingUp,
   Activity,
   ArrowUpRight,
@@ -49,13 +47,10 @@ const STATUS_COLORS: Record<string, string> = {
 export default function DashboardPage() {
   const { data: vouchersData, isLoading: vLoading, isError: vError } = useVouchers();
   const { data: accountsData, isLoading: aLoading, isError: aError } = useAccounts();
-  const { data: rulesData, isLoading: rLoading, isError: rError } = useLearningRules();
   const { data: healthData } = useHealth();
 
   const totalVouchers = vouchersData?.total || 0;
   const vouchers = vouchersData?.vouchers || [];
-  const aiGeneratedCount = vouchers.filter((v: any) => v.created_by === "ai").length;
-  const learningRulesCount = rulesData?.rules?.length || 0;
   const accountCount =
     accountsData?.accounts?.length || accountsData?.length || 0;
 
@@ -112,7 +107,7 @@ export default function DashboardPage() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <KpiCard
           title="Verifikationer"
           value={totalVouchers}
@@ -130,15 +125,6 @@ export default function DashboardPage() {
           loading={aLoading}
           error={aError}
           href="/accounts"
-        />
-        <KpiCard
-          title="AI-regler"
-          value={learningRulesCount}
-          icon={Brain}
-          color="violet"
-          loading={rLoading}
-          error={rError}
-          href="/learning"
         />
       </div>
 

@@ -292,78 +292,6 @@ export const api = {
     return data;
   },
 
-  // Learning
-  getLearningRules: async () => {
-    const { data } = await apiClient.get("/api/v1/learning/rules");
-    return data;
-  },
-  getLearningStats: async () => {
-    const { data } = await apiClient.get("/api/v1/learning/stats");
-    return data;
-  },
-  recordCorrection: async (
-    originalVoucherId: string,
-    correctedRows: any[],
-    reason?: string
-  ) => {
-    const { data } = await apiClient.post("/api/v1/learning/corrections", {
-      original_voucher_id: originalVoucherId,
-      corrected_rows: correctedRows.map((r: any) => ({
-        account: r.account_code || r.account,
-        debit: r.debit || 0,
-        credit: r.credit || 0,
-        description: r.description,
-      })),
-      reason,
-      teach_ai: true,
-    });
-    return data;
-  },
-  analyzeAccountingPatterns: async (payload?: {
-    fiscal_year_id?: string;
-    date_from?: string;
-    date_to?: string;
-    min_examples?: number;
-  }) => {
-    const { data } = await apiClient.post("/api/v1/accounting-patterns/analyze", payload || {});
-    return data;
-  },
-  getAccountingPatterns: async (status?: string, includeExamples = false) => {
-    const { data } = await apiClient.get("/api/v1/accounting-patterns", {
-      params: { status: status || undefined, include_examples: includeExamples },
-    });
-    return data;
-  },
-  approveAccountingPattern: async (id: string) => {
-    const { data } = await apiClient.post(`/api/v1/accounting-patterns/${id}/approve`);
-    return data;
-  },
-  rejectAccountingPattern: async (id: string) => {
-    const { data } = await apiClient.post(`/api/v1/accounting-patterns/${id}/reject`);
-    return data;
-  },
-  createAccountingPatternEvaluation: async (payload?: {
-    name?: string;
-    fiscal_year_id?: string;
-    date_from?: string;
-    date_to?: string;
-    candidate_rule_ids?: string[];
-    include_all_suggested?: boolean;
-  }) => {
-    const { data } = await apiClient.post("/api/v1/accounting-patterns/evaluations", payload || {});
-    return data;
-  },
-  getAccountingPatternEvaluations: async () => {
-    const { data } = await apiClient.get("/api/v1/accounting-patterns/evaluations/list");
-    return data;
-  },
-  getAccountingPatternEvaluationCases: async (id: string, winner?: string, limit = 25) => {
-    const { data } = await apiClient.get(`/api/v1/accounting-patterns/evaluations/${id}/cases`, {
-      params: { winner: winner || undefined, limit },
-    });
-    return data;
-  },
-
   // Compliance
   getComplianceIssues: async () => {
     const { data } = await apiClient.get("/api/v1/compliance/issues");
@@ -466,7 +394,6 @@ export const api = {
   updateVoucher: async (id: string, payload: {
     rows: { account: string; debit: number; credit: number }[];
     reason?: string;
-    teach_ai?: boolean;
   }) => {
     const { data } = await apiClient.put(`/api/v1/vouchers/${id}`, payload);
     return data;

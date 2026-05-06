@@ -153,43 +153,10 @@ class VoucherAttachment:
 
 
 @dataclass
-class LearningRule:
-    """Inlärd regel från användarkorrigeringar (ML-lite)."""
-    id: str
-    pattern_type: str  # 'keyword', 'regex', 'counterparty', 'amount_range', 'composite'
-    pattern_value: str
-    corrected_account: str
-    original_account: Optional[str] = None
-    company_id: Optional[str] = None
-    description: Optional[str] = None
-    confidence: float = 0.5
-    usage_count: int = 1
-    success_count: int = 1
-    source_voucher_id: Optional[str] = None
-    created_by: Optional[str] = None
-    created_at: datetime = field(default_factory=datetime.now)
-    last_used: Optional[datetime] = None
-    last_confirmed: Optional[datetime] = None
-    is_active: bool = True
-    is_golden: bool = False
-
-    def is_reliable(self, threshold: float = 0.8) -> bool:
-        """Check if rule has high enough confidence to be used."""
-        return self.confidence >= threshold and self.is_active
-
-    def success_rate(self) -> float:
-        """Calculate success rate from usage."""
-        if self.usage_count == 0:
-            return 0.0
-        return self.success_count / self.usage_count
-
-
-@dataclass
 class CorrectionHistory:
-    """Historik över korrigeringar (audit trail för ML)."""
+    """Historik över bokföringskorrigeringar."""
     id: str
     original_voucher_id: str
-    learning_rule_id: Optional[str] = None
     corrected_voucher_id: Optional[str] = None
     original_data: Optional[dict] = None
     corrected_data: Optional[dict] = None

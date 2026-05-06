@@ -68,38 +68,6 @@ export function useArticles(search?: string) {
   });
 }
 
-export function useLearningRules() {
-  return useQuery({
-    queryKey: ["learning-rules"],
-    queryFn: () => api.getLearningRules(),
-    staleTime: 10 * 60 * 1000,
-  });
-}
-
-export function useLearningStats() {
-  return useQuery({
-    queryKey: ["learning-stats"],
-    queryFn: () => api.getLearningStats(),
-    staleTime: 10 * 60 * 1000,
-  });
-}
-
-export function useAccountingPatterns(status?: string, includeExamples = false) {
-  return useQuery({
-    queryKey: ["accounting-patterns", status, includeExamples],
-    queryFn: () => api.getAccountingPatterns(status, includeExamples),
-    staleTime: 2 * 60 * 1000,
-  });
-}
-
-export function useAccountingPatternEvaluations() {
-  return useQuery({
-    queryKey: ["accounting-pattern-evaluations"],
-    queryFn: () => api.getAccountingPatternEvaluations(),
-    staleTime: 30 * 1000,
-  });
-}
-
 export function useAgentInstructions() {
   return useQuery({
     queryKey: ["agent-instructions", "accounting"],

@@ -31,7 +31,7 @@ const navItems = [
   { href: "/invoices", label: "Fakturor", icon: Receipt },
   { href: "/reports", label: "Rapporter", icon: BarChart3 },
   { href: "/bokslut", label: "Bokslut", icon: FileCheck },
-  { href: "/learning", label: "AI-lärande", icon: Brain },
+  { href: "/learning", label: "Agentinstruktioner", icon: Brain },
   { href: "/audit", label: "Logg", icon: ScrollText },
   { href: "/settings", label: "Inställningar", icon: Settings },
 ];
@@ -184,4 +184,3 @@ export function Sidebar() {
     </>
   );
 }
-

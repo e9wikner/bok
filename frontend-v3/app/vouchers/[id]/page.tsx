@@ -60,7 +60,6 @@ export default function VoucherDetailPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [editedRows, setEditedRows] = useState<any[]>([]);
   const [correctionReason, setCorrectionReason] = useState("");
-  const [teachAI, setTeachAI] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState<{
     ok: boolean;
@@ -176,7 +175,6 @@ export default function VoucherDetailPage() {
           : await api.updateVoucher(id, {
               rows,
               reason: correctionReason || undefined,
-              teach_ai: teachAI,
             });
 
       setSaveResult({
@@ -471,24 +469,11 @@ export default function VoucherDetailPage() {
                 />
               </div>
 
-              {voucher.status === "posted" ? (
+              {voucher.status === "posted" && (
                 <p className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Brain className="h-4 w-4 text-violet-500" />
                   Korrigeringen sparas som agentläsbar historik.
                 </p>
-              ) : (
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={teachAI}
-                    onChange={(e) => setTeachAI(e.target.checked)}
-                    className="h-4 w-4 rounded border"
-                  />
-                  <Brain className="h-4 w-4 text-violet-500" />
-                  <span className="text-sm">
-                    Lär AI:n av denna ändring
-                  </span>
-                </label>
               )}
 
               <div className="flex gap-3">

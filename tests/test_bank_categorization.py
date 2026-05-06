@@ -217,35 +217,6 @@ class TestCategorization:
         assert results["total"] == 4
         assert results["categorized"] >= 3
 
-    def test_learn_from_correction(self):
-        bank = BankIntegrationService()
-        cat = CategorizationService()
-        conn = bank.create_connection(provider="manual", bank_name="Test")
-        
-        bank.import_transactions(conn.id, [{
-            "date": "2026-01-01", "amount": -1500.0,
-            "description": "ACME SUPPLIES AB",
-            "counterpart_name": "Acme Supplies AB",
-            "external_id": "acme-001",
-        }])
-        
-        tx = bank.get_transactions()[0]
-        rule_id = cat.learn_from_correction(tx.id, "6110", "MP1")
-        assert rule_id != ""
-        
-        # Import similar transaction
-        bank.import_transactions(conn.id, [{
-            "date": "2026-02-01", "amount": -2000.0,
-            "description": "ACME SUPPLIES AB",
-            "counterpart_name": "Acme Supplies AB",
-            "external_id": "acme-002",
-        }])
-        
-        tx2 = bank.get_transactions(status="pending")[0]
-        result = cat.categorize_transaction(tx2)
-        assert result is not None
-        assert result.account_code == "6110"
-
     def test_add_custom_rule(self):
         cat = CategorizationService()
         rule_id = cat.add_rule(

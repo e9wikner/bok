@@ -21,12 +21,11 @@ Default API Key (dev): `dev-key-change-in-production`
 9. [Bank Integration](#bank-integration)
 10. [VAT Declarations (Momsdeklarationer)](#vat-declarations)
 11. [Compliance](#compliance)
-12. [Learning (Auto-Categorization)](#learning-auto-categorization)
-13. [Agent Integration](#agent-integration)
-14. [Agent Instructions](#agent-instructions)
-15. [Accounting Corrections](#accounting-corrections)
-16. [Admin / Tenants](#admin--tenants)
-17. [Error Handling](#error-handling)
+12. [Agent Integration](#agent-integration)
+13. [Agent Instructions](#agent-instructions)
+14. [Accounting Corrections](#accounting-corrections)
+15. [Admin / Tenants](#admin--tenants)
+16. [Error Handling](#error-handling)
 
 ---
 
@@ -333,8 +332,7 @@ Content-Type: application/json
       "description": "VAT 25%"
     }
   ],
-  "reason": "Corrected account",
-  "teach_ai": false
+  "reason": "Corrected account"
 }
 ```
 
@@ -342,7 +340,6 @@ Content-Type: application/json
 - `description` (string, optional) - Updated description
 - `rows` (array, required) - Updated voucher rows
 - `reason` (string, optional) - Reason for update
-- `teach_ai` (boolean, optional) - Feed correction to learning service
 
 ### Post Voucher (Immutable)
 
@@ -1169,84 +1166,6 @@ Authorization: Bearer dev-key-change-in-production
 
 **Parameters:**
 - `resolved_by` (string, default: "user")
-
----
-
-## Learning (Auto-Categorization)
-
-These legacy learning endpoints remain available as analysis support. The
-primary agent workflow now uses Markdown accounting instructions plus posted
-voucher/correction history.
-
-### Suggest Account
-
-```http
-GET /api/v1/learning/suggest?description=Spotify+Premium&amount=14900
-Authorization: Bearer dev-key-change-in-production
-```
-
-**Parameters:**
-- `description` (string, required)
-- `counterparty` (string, optional)
-- `amount` (number, optional)
-- `suggested_account` (string, optional) - Pre-suggestion to validate
-
-### Record Correction
-
-```http
-POST /api/v1/learning/corrections
-Authorization: Bearer dev-key-change-in-production
-Content-Type: application/json
-
-{
-  "original_voucher_id": "...",
-  "corrected_voucher_id": null,
-  "corrected_rows": [...],
-  "reason": "Wrong account",
-  "teach_ai": true
-}
-```
-
-### List Learned Rules
-
-```http
-GET /api/v1/learning/rules?active_only=true&min_confidence=0.5&limit=100
-Authorization: Bearer dev-key-change-in-production
-```
-
-**Parameters:**
-- `active_only` (boolean, default: true)
-- `min_confidence` (float, default: 0.0)
-- `pattern_type` (string, optional)
-- `limit` (integer, default: 100)
-
-### Get Rule
-
-```http
-GET /api/v1/learning/rules/{rule_id}
-Authorization: Bearer dev-key-change-in-production
-```
-
-### Confirm Rule
-
-```http
-PUT /api/v1/learning/rules/{rule_id}/confirm
-Authorization: Bearer dev-key-change-in-production
-```
-
-### Deactivate Rule
-
-```http
-DELETE /api/v1/learning/rules/{rule_id}
-Authorization: Bearer dev-key-change-in-production
-```
-
-### Learning Stats
-
-```http
-GET /api/v1/learning/stats
-Authorization: Bearer dev-key-change-in-production
-```
 
 ---
 

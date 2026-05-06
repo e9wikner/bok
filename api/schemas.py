@@ -42,7 +42,6 @@ class UpdateVoucherRequest(BaseModel):
     description: Optional[str] = Field(None, description="Updated description")
     rows: List[VoucherRowRequest] = Field(..., description="Updated accounting rows")
     reason: Optional[str] = Field(None, description="Reason for the change")
-    teach_ai: bool = Field(False, description="Whether to teach AI from this change")
 
 
 class CorrectVoucherRequest(BaseModel):
@@ -192,52 +191,3 @@ class ErrorResponse(BaseModel):
     code: str
     details: Optional[str] = None
     timestamp: DateTimeType = Field(default_factory=DateTimeType.now)
-
-
-# Learning Schemas
-
-class CorrectionRequest(BaseModel):
-    """Request to record a correction and learn from it."""
-    original_voucher_id: str = Field(..., description="ID of the original voucher")
-    corrected_voucher_id: Optional[str] = Field(None, description="ID of the corrected voucher (if created)")
-    corrected_rows: List[VoucherRowRequest] = Field(..., description="New corrected rows")
-    reason: Optional[str] = Field(None, description="Why was it corrected?")
-    teach_ai: bool = Field(True, description="Should AI learn from this correction?")
-
-
-class LearningRuleResponse(BaseModel):
-    """Response model for a learning rule."""
-    id: str
-    pattern_type: str = Field(..., description="Type: 'keyword', 'regex', 'counterparty', 'amount_range', 'composite'")
-    pattern_value: str = Field(..., description="Pattern to match")
-    original_account: Optional[str] = Field(None, description="Original account code (if applicable)")
-    corrected_account: str = Field(..., description="Suggested account code")
-    description: Optional[str] = Field(None, description="Human-readable description")
-    confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score 0.0-1.0")
-    usage_count: int = Field(..., description="How many times rule has been used")
-    success_count: int = Field(..., description="How many times rule succeeded")
-    is_golden: bool = Field(..., description="Manually confirmed by accountant")
-    is_active: bool = Field(..., description="Whether rule is active")
-    source_voucher_id: Optional[str] = None
-    created_by: Optional[str] = None
-    created_at: DateTimeType
-    last_used: Optional[DateTimeType] = None
-    last_confirmed: Optional[DateTimeType] = None
-
-
-class LearningStatsResponse(BaseModel):
-    """Statistics about AI learning."""
-    total_rules: int
-    active_rules: int
-    golden_rules: int
-    avg_confidence: float
-    recent_corrections: int
-    top_rules: List[LearningRuleResponse]
-
-
-class AccountSuggestionResponse(BaseModel):
-    """Response for account suggestion based on learning."""
-    suggested_account: Optional[str] = None
-    confidence: float = 0.0
-    rule_id: Optional[str] = None
-    description: Optional[str] = None

@@ -170,9 +170,6 @@ async def update_voucher(
     try:
         rows_data = [r.model_dump() for r in request.rows]
 
-        # Capture original before update for AI learning
-        original = ledger.vouchers.get(voucher_id) if request.teach_ai else None
-
         voucher = ledger.update_voucher(
             voucher_id=voucher_id,
             rows_data=rows_data,
@@ -180,22 +177,6 @@ async def update_voucher(
             reason=request.reason,
             actor=actor,
         )
-
-        # Optionally teach AI
-        if request.teach_ai:
-            try:
-                from services.learning import LearningService
-
-                learning = LearningService()
-                if original:
-                    learning.learn_from_correction(
-                        original_voucher=original,
-                        corrected_voucher=voucher,
-                        correction_reason=request.reason,
-                        corrected_by=actor,
-                    )
-            except Exception:
-                pass  # AI learning is best-effort
 
         return _voucher_to_response(voucher)
 

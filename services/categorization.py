@@ -1,16 +1,12 @@
 """Automatic transaction categorization engine.
 
-This service automatically categorizes bank transactions into the correct
-BAS 2026 account codes. It uses a multi-layered approach:
+This service categorizes bank transactions into BAS 2026 account codes.
+It uses deterministic rules:
 
 1. Exact counterpart matching (highest priority)
 2. Keyword rules (configurable, pre-loaded with Swedish business patterns)
 3. Regex pattern matching
 4. Amount-range based rules
-5. Learned patterns from user corrections (ML-lite)
-
-The engine learns from corrections: when a user overrides a suggestion,
-the system creates or updates a learned rule for future matching.
 """
 
 import re
@@ -65,41 +61,13 @@ class CategorizationService:
     def categorize_transaction(self, transaction: BankTransaction) -> Optional[CategorizationResult]:
         """Categorize a single bank transaction.
         
-        Tries rules in priority order, returns first match with confidence.
-        First checks learned rules from user corrections, then falls back to standard rules.
+        Tries deterministic rules in priority order and returns the first match.
         """
         is_expense = transaction.amount < 0
         description = (transaction.description or "").lower()
         counterpart = (transaction.counterpart_name or "").lower()
         amount = abs(transaction.amount)
 
-        # 1. Check learned rules first (highest confidence)
-        from services.learning import LearningService
-        learning_service = LearningService()
-        learned_result = learning_service.apply_learning(
-            transaction_description=transaction.description or "",
-            counterparty=transaction.counterpart_name,
-            amount=amount,
-        )
-
-        if learned_result:
-            learned_account, confidence, rule_id = learned_result
-            # Get account name
-            account_row = db.execute(
-                "SELECT name FROM accounts WHERE code = ?",
-                (learned_account,)
-            ).fetchone()
-
-            return CategorizationResult(
-                account_code=learned_account,
-                account_name=account_row["name"] if account_row else None,
-                description=transaction.description or "",
-                confidence=confidence,
-                rule_id=rule_id,
-                rule_type="learned",
-            )
-
-        # 2. Fall back to standard categorization rules
         rules = self._get_active_rules()
         best_match: Optional[CategorizationResult] = None
         best_priority = 999999
@@ -247,85 +215,6 @@ class CategorizationService:
                 })
 
         return results
-
-    def learn_from_correction(
-        self,
-        transaction_id: str,
-        correct_account_code: str,
-        correct_vat_code: Optional[str] = None,
-    ) -> str:
-        """Learn from a user correction to improve future categorization.
-        
-        When a user overrides the AI's suggestion, we:
-        1. Record the override on the old rule
-        2. Create/update a learned rule for the pattern
-        """
-        tx = self.bank_service.get_transaction(transaction_id)
-        if not tx:
-            raise ValueError(f"Transaction {transaction_id} not found")
-
-        # If there was a previous suggestion, mark it as overridden
-        if tx.suggested_account_code and tx.suggested_account_code != correct_account_code:
-            # Find the rule that made the suggestion
-            # and increment its override count
-            rules = self._get_active_rules()
-            for rule in rules:
-                if rule.id == tx.suggested_account_code:
-                    db.execute(
-                        "UPDATE categorization_rules SET times_overridden = times_overridden + 1 WHERE id = ?",
-                        (rule.id,)
-                    )
-                    break
-
-        # Create or update a learned rule based on the counterpart
-        counterpart = tx.counterpart_name
-        description = tx.description
-
-        # Use counterpart if available, otherwise use description keywords
-        match_field = "match_counterpart" if counterpart else "match_description"
-        match_value = counterpart or description
-
-        if match_value:
-            # Check if we already have a learned rule for this pattern
-            existing = db.execute(
-                f"""SELECT id, times_used FROM categorization_rules 
-                    WHERE source = 'learned' AND {match_field} = ? AND target_account_code = ?""",
-                (match_value, correct_account_code)
-            ).fetchone()
-
-            if existing:
-                # Strengthen existing rule
-                rule_id = existing["id"]
-                new_confidence = min(0.95, 0.7 + (existing["times_used"] * 0.05))
-                db.execute(
-                    """UPDATE categorization_rules 
-                       SET times_used = times_used + 1, confidence = ?, updated_at = ? 
-                       WHERE id = ?""",
-                    (new_confidence, datetime.now().isoformat(), rule_id)
-                )
-            else:
-                # Create new learned rule
-                rule_id = str(uuid.uuid4())
-                db.execute(
-                    """INSERT INTO categorization_rules 
-                       (id, rule_type, priority, {match_field}, match_is_expense,
-                        target_account_code, target_vat_code, confidence, source)
-                       VALUES (?, 'learned', 50, ?, ?, ?, ?, 0.7, 'learned')""".format(match_field=match_field),
-                    (rule_id, match_value, 1 if tx.amount < 0 else 0,
-                     correct_account_code, correct_vat_code)
-                )
-
-            db.commit()
-
-        # Update the transaction
-        self.bank_service.update_transaction_status(
-            transaction_id,
-            status="categorized",
-            account_code=correct_account_code,
-            confidence=1.0,
-        )
-
-        return rule_id if match_value else ""
 
     def add_rule(
         self,

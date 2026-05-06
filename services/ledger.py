@@ -439,9 +439,9 @@ class LedgerService:
         actor: str,
     ) -> None:
         try:
-            from repositories.learning_repo import LearningRepository
+            from repositories.accounting_correction_repo import AccountingCorrectionRepository
 
-            LearningRepository.create_correction_history(
+            AccountingCorrectionRepository.create(
                 original_voucher_id=original.id,
                 corrected_voucher_id=correction.id,
                 original_data=self._voucher_snapshot(original),

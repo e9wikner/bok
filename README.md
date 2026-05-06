@@ -122,8 +122,8 @@ Professionell PDF-export för alla företagsdokument med svenska termer och form
 - `GET /api/v1/export/pdf/k2-report/{fiscal_year_id}` – K2-årsredovisning-PDF
 - `GET /api/v1/export/pdf/.../html` – HTML-fallback för alla ovan
 
-### 🧠 AI Learning (Maskininlärning)
-Systemets agentlärande bygger på ett levande Markdown-dokument med generella
+### Agentinstruktioner för bokföring
+Systemets agentstöd bygger på ett levande Markdown-dokument med generella
 bokföringsinstruktioner. Agenten läser instruktionerna ungefär som en
 `AGENTS.md`-fil, hämtar historiska verifikationer och korrigeringar via API:t,
 och bokför därefter direkt som postade verifikationer.
@@ -150,11 +150,6 @@ och bokför därefter direkt som postade verifikationer.
 - `POST /api/v1/vouchers/{id}/correct` – Skapa postad B-serie-korrigering
 - `GET /api/v1/accounting-corrections` – Lista korrigeringar för agentens inlärning
 
-**Integration:**
-Äldre learning rules och backtest finns kvar som analysstöd, men de ska inte vara
-den primära mekanismen för agentens beslut. Den primära mekanismen är det aktiva
-instruktionsdokumentet plus historiken som agenten läser via API:t.
-
 ## Projektstruktur
 
 ```
@@ -166,9 +161,10 @@ bokfoering-api/
 │   │   ├── 003_add_reports_and_k2.sql   # Fas 3 & 4: Reports + Agent
 │   │   ├── 004_add_company_info.sql     # Company metadata
 │   │   ├── 005_add_bank_and_categorization.sql  # Bank integration
-│   │   ├── 006_add_learning_rules.sql   # Legacy AI learning tables
+│   │   ├── 006_add_learning_rules.sql   # Correction history table
 │   │   ├── 013_add_agent_instructions.sql # Agent instruction versions
-│   │   └── 014_add_posted_voucher_immutability_triggers.sql
+│   │   ├── 014_add_posted_voucher_immutability_triggers.sql
+│   │   └── 015_drop_legacy_ai_rules.sql # Removes old rule/pattern tables
 │   └── database.py
 ├── domain/
 │   ├── models.py                # Voucher, Account, Period
@@ -183,8 +179,7 @@ bokfoering-api/
 │   ├── sie4_import.py           # SIE4: Parser & import
 │   ├── sie4_export.py           # SIE4: Filgenerering & export
 │   ├── pdf_export.py            # PDF: Fakturor & rapporter
-│   ├── categorization.py        # Auto-kategorisering
-│   ├── learning.py              # AI learning från korrigeringar
+│   ├── categorization.py        # Regelbaserad transaktionskategorisering
 │   ├── bank_integration.py      # Bankintegration
 │   ├── compliance.py            # BFL compliance
 │   └── vat_report.py            # Momsdeklaration

@@ -12,13 +12,13 @@ The backend already owns the most important accounting operations: vouchers, pos
 - Agent reads posted vouchers and `GET /api/v1/accounting-corrections`.
 - Agent posts directly with `POST /api/v1/agent/vouchers`.
 - Frontend correction of a posted voucher must call `POST /api/v1/vouchers/{id}/correct`, not edit posted rows in place.
-- Corrections become agent-readable learning material; frontend remains a human review/correction surface.
+- Corrections become agent-readable history; frontend remains a human review/correction surface.
 
 ## Move First
 
 1. Agent instructions, direct posting and posted correction flow
    - Current frontend: `frontend-v3/app/learning/page.tsx`, `frontend-v3/app/vouchers/[id]/page.tsx`
-   - Problem: learning is still presented mainly as generated percentage rules, and voucher correction can look like direct editing.
+   - Problem: voucher correction can look like direct editing unless the UI makes the B-series correction flow explicit.
    - Backend target: versioned instruction document, `POST /api/v1/agent/vouchers`, `POST /api/v1/vouchers/{id}/correct`, `GET /api/v1/accounting-corrections`.
    - Agent value: agent can operate from persistent instructions, and human corrections are available as structured feedback.
 

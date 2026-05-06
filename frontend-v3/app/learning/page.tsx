@@ -53,7 +53,7 @@ export default function LearningPage() {
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-[1400px] mx-auto">
       <div>
-        <h1 className="text-2xl lg:text-3xl font-bold tracking-tight">AI-lärande</h1>
+        <h1 className="text-2xl lg:text-3xl font-bold tracking-tight">Agentinstruktioner</h1>
         <p className="text-muted-foreground mt-1">
           Agentinstruktioner och korrigeringshistorik för direktbokföring
         </p>

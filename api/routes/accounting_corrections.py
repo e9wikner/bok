@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.deps import get_current_actor
-from repositories.learning_repo import LearningRepository
+from repositories.accounting_correction_repo import AccountingCorrectionRepository
 from repositories.voucher_repo import VoucherRepository
 
 router = APIRouter(prefix="/api/v1/accounting-corrections", tags=["accounting-corrections"])
@@ -14,9 +14,9 @@ async def list_accounting_corrections(
     limit: int = Query(100, ge=1, le=500),
     actor: str = Depends(get_current_actor),
 ):
-    """List correction history for agent learning."""
+    """List correction history for agent instruction updates."""
     try:
-        histories = LearningRepository.get_correction_history()[:limit]
+        histories = AccountingCorrectionRepository.list(limit=limit)
         from api.routes.vouchers import _voucher_to_response
 
         corrections = []

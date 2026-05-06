@@ -29,8 +29,6 @@ from api.routes import (
     export_sru,
     compliance,
     vat,
-    learning,
-    accounting_patterns,
     accounting_corrections,
     attachments,
     auth,
@@ -96,9 +94,7 @@ app.include_router(compliance.router)
 # Fas 5: VAT Declarations
 app.include_router(vat.router)
 
-# AI Learning & Corrections
-app.include_router(learning.router)
-app.include_router(accounting_patterns.router)
+# Agent-readable corrections
 app.include_router(accounting_corrections.router)
 
 # Attachments
