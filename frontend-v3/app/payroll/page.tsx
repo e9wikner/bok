@@ -68,6 +68,8 @@ export default function PayrollPage() {
     return typeof msg === "string" ? msg : JSON.stringify(msg);
   };
 
+  const errorCode = (err: any) => err?.response?.data?.detail?.code;
+
   const createEmployee = async (event: FormEvent) => {
     event.preventDefault();
     setSubmitting(true);
@@ -129,6 +131,19 @@ export default function PayrollPage() {
       await api.generatePayrollRun(createdRun.id);
       await invalidate();
     } catch (err: any) {
+      if (errorCode(err) === "payroll_run_already_exists") {
+        const data = await api.getPayrollRuns();
+        queryClient.setQueryData(["payroll-runs"], data);
+        const existingRun = data?.payroll_runs?.find(
+          (run: PayrollRun) => run.year === parseInt(runYear) && run.month === parseInt(runMonth)
+        );
+        setError(
+          existingRun
+            ? `Det finns redan en lönekörning för ${runYear}-${String(parseInt(runMonth)).padStart(2, "0")}. Den visas i listan nedan.`
+            : `Det finns redan en lönekörning för ${runYear}-${String(parseInt(runMonth)).padStart(2, "0")}. Listan har uppdaterats.`
+        );
+        return;
+      }
       setError(message(err, "Kunde inte skapa lönekörning."));
     } finally {
       setSubmitting(false);

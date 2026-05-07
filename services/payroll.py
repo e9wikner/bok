@@ -155,7 +155,7 @@ class PayrollService:
         if existing_runs:
             raise ValidationError(
                 "payroll_run_already_exists",
-                "Payroll run already exists for this month",
+                "Det finns redan en lönekörning för den här månaden",
                 f"existing_run_id={existing_runs[0].id}",
             )
         validation = self._validate_run(
