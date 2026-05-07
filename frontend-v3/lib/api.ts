@@ -261,6 +261,7 @@ export const api = {
       quantity: number;
       unit_price: number;
       vat_code: string;
+      revenue_account?: string;
     }[];
   }) => {
     const { data } = await apiClient.post("/api/v1/invoices/preview", payload);

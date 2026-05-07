@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { api } from "@/lib/api";
+import { useArticles, useCustomers } from "@/hooks/useData";
+import { api, Article, Customer } from "@/lib/api";
 import { Plus, Trash2, ArrowLeft, Save } from "lucide-react";
 
 const VAT_CODES = [
@@ -24,11 +25,19 @@ function plus30(): string {
   return d.toISOString().slice(0, 10);
 }
 
+function datePlusDays(dateString: string, days: number): string {
+  const d = new Date(`${dateString}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 interface InvoiceRowData {
+  articleId: string;
   description: string;
   quantity: string;
   unitPrice: string;
   vatCode: string;
+  revenueAccount: string;
 }
 
 interface InvoicePreview {
@@ -54,10 +63,12 @@ interface InvoicePreview {
 }
 
 const emptyRow = (): InvoiceRowData => ({
+  articleId: "",
   description: "",
   quantity: "1",
   unitPrice: "",
   vatCode: "MP1",
+  revenueAccount: "3010",
 });
 
 function formatSEK(ore: number): string {
@@ -69,8 +80,13 @@ function formatSEK(ore: number): string {
 
 export default function NewInvoicePage() {
   const router = useRouter();
+  const { data: customersData } = useCustomers();
+  const { data: articlesData } = useArticles();
+  const customers: Customer[] = customersData?.customers || [];
+  const articles: Article[] = articlesData?.articles || [];
 
   // Customer info
+  const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [orgNumber, setOrgNumber] = useState("");
   const [email, setEmail] = useState("");
@@ -89,8 +105,41 @@ export default function NewInvoicePage() {
   const [preview, setPreview] = useState<InvoicePreview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
+  const applyCustomer = (customerId: string) => {
+    setSelectedCustomerId(customerId);
+    const customer = customers.find((c) => c.id === customerId);
+    if (!customer) return;
+    setCustomerName(customer.name || "");
+    setOrgNumber(customer.org_number || "");
+    setEmail(customer.email || "");
+    setAddress(customer.address || "");
+    setDueDate(datePlusDays(invoiceDate, customer.payment_terms_days ?? 30));
+  };
+
   const updateRow = (index: number, field: keyof InvoiceRowData, value: string) => {
     setRows((prev) => prev.map((r, i) => (i === index ? { ...r, [field]: value } : r)));
+  };
+
+  const applyArticle = (index: number, articleId: string) => {
+    const article = articles.find((item) => item.id === articleId);
+    if (!article) {
+      updateRow(index, "articleId", "");
+      return;
+    }
+    setRows((prev) =>
+      prev.map((row, rowIndex) =>
+        rowIndex === index
+          ? {
+              ...row,
+              articleId: article.id,
+              description: article.description || article.name,
+              unitPrice: (article.unit_price / 100).toString(),
+              vatCode: article.vat_code,
+              revenueAccount: article.revenue_account,
+            }
+          : row
+      )
+    );
   };
 
   const addRow = () => setRows((prev) => [...prev, emptyRow()]);
@@ -107,6 +156,7 @@ export default function NewInvoicePage() {
         quantity: parseInt(r.quantity) || 1,
         unit_price: Math.round(parseFloat(r.unitPrice) * 100) || 0,
         vat_code: r.vatCode,
+        revenue_account: r.revenueAccount || undefined,
       })),
     }),
     [rows],
@@ -205,7 +255,34 @@ export default function NewInvoicePage() {
       {/* Customer info */}
       <Card>
         <CardContent className="p-6 space-y-4">
-          <h2 className="text-lg font-semibold">Kunduppgifter</h2>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-lg font-semibold">Kunduppgifter</h2>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.push("/invoices/customers")}
+            >
+              Hantera kunder
+            </Button>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Använd sparad kund
+            </label>
+            <select
+              value={selectedCustomerId}
+              onChange={(e) => applyCustomer(e.target.value)}
+              className={inputClass}
+            >
+              <option value="">Välj kund eller fyll i manuellt</option>
+              {customers.map((customer) => (
+                <option key={customer.id} value={customer.id}>
+                  {customer.name}
+                  {customer.org_number ? ` · ${customer.org_number}` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1">
@@ -214,7 +291,10 @@ export default function NewInvoicePage() {
               <input
                 type="text"
                 value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
+                onChange={(e) => {
+                  setSelectedCustomerId("");
+                  setCustomerName(e.target.value);
+                }}
                 placeholder="Företag AB"
                 className={inputClass}
               />
@@ -226,7 +306,10 @@ export default function NewInvoicePage() {
               <input
                 type="text"
                 value={orgNumber}
-                onChange={(e) => setOrgNumber(e.target.value)}
+                onChange={(e) => {
+                  setSelectedCustomerId("");
+                  setOrgNumber(e.target.value);
+                }}
                 placeholder="556123-4567"
                 className={inputClass}
               />
@@ -236,7 +319,10 @@ export default function NewInvoicePage() {
               <input
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setSelectedCustomerId("");
+                  setEmail(e.target.value);
+                }}
                 placeholder="faktura@foretag.se"
                 className={inputClass}
               />
@@ -246,7 +332,10 @@ export default function NewInvoicePage() {
               <input
                 type="text"
                 value={address}
-                onChange={(e) => setAddress(e.target.value)}
+                onChange={(e) => {
+                  setSelectedCustomerId("");
+                  setAddress(e.target.value);
+                }}
                 placeholder="Storgatan 1, 111 22 Stockholm"
                 className={inputClass}
               />
@@ -267,7 +356,14 @@ export default function NewInvoicePage() {
               <input
                 type="date"
                 value={invoiceDate}
-                onChange={(e) => setInvoiceDate(e.target.value)}
+                onChange={(e) => {
+                  const nextDate = e.target.value;
+                  setInvoiceDate(nextDate);
+                  const customer = customers.find((c) => c.id === selectedCustomerId);
+                  if (customer) {
+                    setDueDate(datePlusDays(nextDate, customer.payment_terms_days ?? 30));
+                  }
+                }}
                 className={inputClass}
               />
             </div>
@@ -291,16 +387,28 @@ export default function NewInvoicePage() {
         <CardContent className="p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">Fakturarader</h2>
-            <Button variant="outline" size="sm" onClick={addRow}>
-              <Plus className="h-4 w-4 mr-1" />
-              Lägg till rad
-            </Button>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => router.push("/invoices/articles")}
+              >
+                Hantera artiklar
+              </Button>
+              <Button variant="outline" size="sm" onClick={addRow}>
+                <Plus className="h-4 w-4 mr-1" />
+                Lägg till rad
+              </Button>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[980px] text-sm">
               <thead>
                 <tr className="border-b bg-muted/50">
+                  <th className="text-left p-3 font-medium text-muted-foreground w-56">
+                    Artikel
+                  </th>
                   <th className="text-left p-3 font-medium text-muted-foreground">
                     Beskrivning
                   </th>
@@ -313,6 +421,9 @@ export default function NewInvoicePage() {
                   <th className="text-left p-3 font-medium text-muted-foreground w-32">
                     Moms
                   </th>
+                  <th className="text-left p-3 font-medium text-muted-foreground w-28">
+                    Konto
+                  </th>
                   <th className="text-right p-3 font-medium text-muted-foreground w-28">
                     Totalt inkl moms
                   </th>
@@ -322,6 +433,20 @@ export default function NewInvoicePage() {
               <tbody>
                 {rows.map((row, i) => (
                   <tr key={i} className="border-b last:border-0">
+                    <td className="p-2 align-top">
+                      <select
+                        value={row.articleId}
+                        onChange={(e) => applyArticle(i, e.target.value)}
+                        className={inputClass}
+                      >
+                        <option value="">Välj artikel</option>
+                        {articles.map((article) => (
+                          <option key={article.id} value={article.id}>
+                            {article.article_number} · {article.name}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
                     <td className="p-2">
                       <input
                         type="text"
@@ -371,6 +496,17 @@ export default function NewInvoicePage() {
                           </option>
                         ))}
                       </select>
+                    </td>
+                    <td className="p-2">
+                      <input
+                        type="text"
+                        value={row.revenueAccount}
+                        onChange={(e) =>
+                          updateRow(i, "revenueAccount", e.target.value)
+                        }
+                        placeholder="3010"
+                        className={`${inputClass} font-mono`}
+                      />
                     </td>
                     <td className="p-2 text-right font-mono font-medium whitespace-nowrap">
                       {formatSEK(preview?.rows?.[i]?.amount_inc_vat || 0)}
