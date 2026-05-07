@@ -36,6 +36,8 @@ class InvoiceDraftService:
         created_by: str = "system",
     ):
         customer = CustomerRepository.get(customer_id) if customer_id else None
+        if customer_id and not customer:
+            raise ValidationError("customer_not_found", "Customer not found")
         if customer:
             customer_name = customer_name or customer.name
             customer_org_number = customer_org_number or customer.org_number
@@ -94,17 +96,82 @@ class InvoiceDraftService:
             raise ValidationError("draft_not_found", "Invoice draft not found")
         return draft
 
-    def approve_and_book(
+    def update_draft(
+        self,
+        draft_id: str,
+        invoice_date: date,
+        rows_data: List[Dict],
+        due_date: Optional[date] = None,
+        customer_id: Optional[str] = None,
+        customer_name: Optional[str] = None,
+        customer_org_number: Optional[str] = None,
+        customer_email: Optional[str] = None,
+        reference: Optional[str] = None,
+        description: Optional[str] = None,
+        status: str = "needs_review",
+        agent_summary: Optional[str] = None,
+        agent_confidence: Optional[float] = None,
+        agent_warnings: Optional[str] = None,
+        actor: str = "system",
+    ):
+        draft = self.get_draft(draft_id)
+        if draft.status == "sent":
+            raise ValidationError("draft_already_sent", "Sent invoice draft cannot be updated")
+        if draft.status == "rejected":
+            raise ValidationError("draft_rejected", "Rejected invoice draft cannot be updated")
+
+        normalized = self._normalize_draft_input(
+            invoice_date=invoice_date,
+            rows_data=rows_data,
+            due_date=due_date,
+            customer_id=customer_id,
+            customer_name=customer_name,
+            customer_org_number=customer_org_number,
+            customer_email=customer_email,
+        )
+        self.drafts.update(
+            draft_id=draft_id,
+            customer_id=normalized["customer_id"],
+            customer_name=normalized["customer_name"],
+            customer_org_number=normalized["customer_org_number"],
+            customer_email=normalized["customer_email"],
+            invoice_date=normalized["invoice_date"],
+            due_date=normalized["due_date"],
+            reference=reference,
+            description=description,
+            status=status,
+            agent_summary=agent_summary,
+            agent_confidence=agent_confidence,
+            agent_warnings=agent_warnings,
+        )
+        self.drafts.replace_rows(draft_id, normalized["rows"])
+        updated = self.drafts.get(draft_id)
+        self.audit.log(
+            entity_type="invoice_draft",
+            entity_id=draft_id,
+            action="updated",
+            actor=actor,
+            payload={
+                "customer": updated.customer_name,
+                "amount_inc_vat": updated.amount_inc_vat,
+                "rows_count": len(updated.rows),
+                "previous_status": draft.status,
+                "status": updated.status,
+            },
+        )
+        return updated
+
+    def send(
         self,
         draft_id: str,
         period_id: Optional[str] = None,
         actor: str = "system",
     ):
         draft = self.get_draft(draft_id)
-        if draft.status == "booked":
-            raise ValidationError("draft_already_booked", "Invoice draft is already booked")
+        if draft.status == "sent":
+            raise ValidationError("draft_already_sent", "Invoice draft is already sent")
         if draft.status == "rejected":
-            raise ValidationError("draft_rejected", "Rejected invoice draft cannot be approved")
+            raise ValidationError("draft_rejected", "Rejected invoice draft cannot be sent")
         if not draft.rows:
             raise ValidationError("missing_rows", "Invoice draft has no rows")
 
@@ -129,22 +196,28 @@ class InvoiceDraftService:
             description=draft.description or draft.reference,
             created_by=actor,
         )
+        invoice_service.send_invoice(invoice.id, actor=actor)
         voucher_id = invoice_service.create_booking_for_invoice(invoice.id, period_id, actor=actor)
-        self.drafts.mark_booked(draft.id, invoice.id, voucher_id)
+        self.drafts.mark_sent(draft.id, invoice.id, voucher_id)
 
         self.audit.log(
             entity_type="invoice_draft",
             entity_id=draft.id,
-            action="approved_and_booked",
+            action="sent",
             actor=actor,
             payload={"invoice_id": invoice.id, "voucher_id": voucher_id, "period_id": period_id},
         )
-        return self.drafts.get(draft.id)
+        return {
+            "draft": self.drafts.get(draft.id),
+            "invoice": invoice_service.invoices.get(invoice.id),
+            "voucher_id": voucher_id,
+            "pdf_url": f"/api/v1/export/pdf/invoice/{invoice.id}",
+        }
 
     def reject(self, draft_id: str, actor: str = "system"):
         draft = self.get_draft(draft_id)
-        if draft.status == "booked":
-            raise ValidationError("draft_already_booked", "Booked invoice draft cannot be rejected")
+        if draft.status == "sent":
+            raise ValidationError("draft_already_sent", "Sent invoice draft cannot be rejected")
         self.drafts.update_status(draft_id, "rejected")
         self.audit.log(
             entity_type="invoice_draft",
@@ -154,6 +227,44 @@ class InvoiceDraftService:
             payload={"previous_status": draft.status},
         )
         return self.drafts.get(draft_id)
+
+    def _normalize_draft_input(
+        self,
+        invoice_date: date,
+        rows_data: List[Dict],
+        due_date: Optional[date] = None,
+        customer_id: Optional[str] = None,
+        customer_name: Optional[str] = None,
+        customer_org_number: Optional[str] = None,
+        customer_email: Optional[str] = None,
+    ) -> Dict:
+        customer = CustomerRepository.get(customer_id) if customer_id else None
+        if customer_id and not customer:
+            raise ValidationError("customer_not_found", "Customer not found")
+        if customer:
+            customer_name = customer_name or customer.name
+            customer_org_number = customer_org_number or customer.org_number
+            customer_email = customer_email or customer.email
+            due_date = due_date or invoice_date + timedelta(days=customer.payment_terms_days)
+
+        if not customer_name:
+            raise ValidationError("missing_customer", "Customer name or customer_id is required")
+        if not due_date:
+            due_date = invoice_date + timedelta(days=30)
+        if due_date < invoice_date:
+            raise ValidationError("invalid_due_date", "Due date must be on or after invoice date")
+        if not rows_data:
+            raise ValidationError("missing_rows", "At least one invoice row is required")
+
+        return {
+            "customer_id": customer_id,
+            "customer_name": customer_name,
+            "customer_org_number": customer_org_number,
+            "customer_email": customer_email,
+            "invoice_date": invoice_date,
+            "due_date": due_date,
+            "rows": [self._normalize_row(row) for row in rows_data],
+        }
 
     def _normalize_row(self, row: Dict) -> Dict:
         article = ArticleRepository.get(row["article_id"]) if row.get("article_id") else None

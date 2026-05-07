@@ -122,19 +122,19 @@ Professionell PDF-export för alla företagsdokument med svenska termer och form
 - `GET /api/v1/export/pdf/k2-report/{fiscal_year_id}` – K2-årsredovisning-PDF
 - `GET /api/v1/export/pdf/.../html` – HTML-fallback för alla ovan
 
-### Agentinstruktioner för bokföring
+### Agentinstruktioner för bokföring och fakturering
 Systemets agentstöd bygger på ett levande Markdown-dokument med generella
-bokföringsinstruktioner. Agenten läser instruktionerna ungefär som en
-`AGENTS.md`-fil, hämtar historiska verifikationer och korrigeringar via API:t,
-och bokför därefter direkt som postade verifikationer.
+bokförings- och faktureringsinstruktioner. Agenten läser instruktionerna ungefär
+som en `AGENTS.md`-fil, hämtar historiska verifikationer, fakturor och
+korrigeringar via API:t och skapar därefter verifikationer eller fakturautkast.
 
 **Hur det fungerar:**
-1. Agenten läser aktuella bokföringsinstruktioner från backend.
-2. Agenten läser tidigare postade verifikationer och korrigeringar via API:t.
+1. Agenten läser aktuella bokförings- eller faktureringsinstruktioner från backend.
+2. Agenten läser tidigare postade verifikationer, fakturor, artiklar och korrigeringar via API:t.
 3. Agenten uppdaterar instruktionerna när historiken visar bättre generell vägledning.
-4. Agenten skapar och postar verifikationer direkt.
+4. Agenten skapar och postar verifikationer direkt, eller skapar fakturautkast för granskning.
 5. Användaren granskar i frontend och rättar fel i efterhand.
-6. Rättelser skapas som spårbara B-serie-korrigeringar och blir ny inlärningsdata.
+6. Fakturautkast bokförs först när användaren skapar PDF och markerar fakturan som skickad.
 
 **Principer:**
 - Backend fattar inte bokföringsbeslutet, men validerar formella krav.
@@ -146,6 +146,10 @@ och bokför därefter direkt som postade verifikationer.
 - `GET /api/v1/agent-instructions/accounting` – Läs aktivt instruktionsdokument
 - `PUT /api/v1/agent-instructions/accounting` – Uppdatera instruktioner och skapa ny version
 - `GET /api/v1/agent-instructions/accounting/versions` – Versionshistorik
+- `GET/PUT /api/v1/agent-instructions/invoicing` – Faktureringsinstruktioner
+- `POST /api/v1/invoice-drafts` – Agenten skapar fakturautkast
+- `PUT /api/v1/invoice-drafts/{id}` – Uppdatera fakturautkast
+- `POST /api/v1/invoice-drafts/{id}/send` – Skapa faktura, PDF-länk och bokföringsverifikation
 - `POST /api/v1/agent/vouchers` – Agenten skapar och postar verifikation direkt
 - `POST /api/v1/vouchers/{id}/correct` – Skapa postad B-serie-korrigering
 - `GET /api/v1/accounting-corrections` – Lista korrigeringar för agentens inlärning

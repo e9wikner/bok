@@ -15,7 +15,7 @@ const statusOptions = [
   { value: "", label: "Alla" },
   { value: "needs_review", label: "Att granska" },
   { value: "draft", label: "Utkast" },
-  { value: "booked", label: "Bokförda" },
+  { value: "sent", label: "Skickade" },
   { value: "rejected", label: "Avvisade" },
 ];
 
@@ -36,7 +36,7 @@ export default function InvoiceDraftsPage() {
             <Bot className="h-6 w-6 text-primary" />
             Fakturautkast
           </h1>
-          <p className="mt-1 text-muted-foreground">Utkast skapade av agenten innan de godkänns och bokförs.</p>
+          <p className="mt-1 text-muted-foreground">Utkast skapade av agenten innan de skickas och bokförs.</p>
         </div>
         <Link href="/invoices">
           <Button variant="outline">

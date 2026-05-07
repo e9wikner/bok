@@ -224,8 +224,36 @@ export const api = {
     const { data } = await apiClient.get(`/api/v1/invoice-drafts/${id}`);
     return data;
   },
-  approveInvoiceDraft: async (id: string, periodId?: string) => {
-    const { data } = await apiClient.post(`/api/v1/invoice-drafts/${id}/approve-and-book`, {
+  updateInvoiceDraft: async (id: string, payload: {
+    customer_id?: string | null;
+    customer_name?: string | null;
+    customer_org_number?: string | null;
+    customer_email?: string | null;
+    invoice_date: string;
+    due_date?: string | null;
+    reference?: string | null;
+    description?: string | null;
+    status?: "draft" | "needs_review";
+    rows: {
+      article_id?: string | null;
+      description?: string | null;
+      quantity: number;
+      unit_price?: number | null;
+      vat_code?: string | null;
+      revenue_account?: string | null;
+      source_note?: string | null;
+    }[];
+    agent_notes?: {
+      summary?: string | null;
+      confidence?: number | null;
+      warnings?: string[];
+    };
+  }) => {
+    const { data } = await apiClient.put(`/api/v1/invoice-drafts/${id}`, payload);
+    return data;
+  },
+  sendInvoiceDraft: async (id: string, periodId?: string) => {
+    const { data } = await apiClient.post(`/api/v1/invoice-drafts/${id}/send`, {
       period_id: periodId || undefined,
     });
     return data;
@@ -420,16 +448,16 @@ export const api = {
   },
 
   // Agent instructions and correction history
-  getAgentInstructions: async () => {
-    const { data } = await apiClient.get("/api/v1/agent-instructions/accounting");
+  getAgentInstructions: async (scope = "accounting") => {
+    const { data } = await apiClient.get(`/api/v1/agent-instructions/${scope}`);
     return data;
   },
-  updateAgentInstructions: async (payload: { content_markdown: string; change_summary?: string }) => {
-    const { data } = await apiClient.put("/api/v1/agent-instructions/accounting", payload);
+  updateAgentInstructions: async (payload: { content_markdown: string; change_summary?: string }, scope = "accounting") => {
+    const { data } = await apiClient.put(`/api/v1/agent-instructions/${scope}`, payload);
     return data;
   },
-  getAgentInstructionVersions: async () => {
-    const { data } = await apiClient.get("/api/v1/agent-instructions/accounting/versions");
+  getAgentInstructionVersions: async (scope = "accounting") => {
+    const { data } = await apiClient.get(`/api/v1/agent-instructions/${scope}/versions`);
     return data;
   },
   getAccountingCorrections: async (limit = 100) => {

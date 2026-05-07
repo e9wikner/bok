@@ -46,13 +46,6 @@ class InvoiceValidator:
                 details="invoice.status must be 'draft'"
             )
         
-        if not invoice.customer_email:
-            raise ValidationError(
-                code="missing_email",
-                message="Customer email required to send invoice",
-                details="add customer_email before sending"
-            )
-        
         if not invoice.rows:
             raise ValidationError(
                 code="no_rows",

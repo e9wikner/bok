@@ -85,8 +85,8 @@ def test_send_invoice(invoice_service):
     assert sent.sent_at is not None
 
 
-def test_send_invoice_without_email_fails(invoice_service):
-    """Test that sending without email fails."""
+def test_send_invoice_without_email_marks_sent(invoice_service):
+    """Test that PDF/export based sending does not require email."""
     invoice = invoice_service.create_invoice(
         customer_name="Test AB",
         invoice_date=date(2026, 3, 1),
@@ -96,9 +96,9 @@ def test_send_invoice_without_email_fails(invoice_service):
         ],
     )
     
-    with pytest.raises(ValidationError) as exc_info:
-        invoice_service.send_invoice(invoice.id)
-    assert exc_info.value.code == "missing_email"
+    sent = invoice_service.send_invoice(invoice.id)
+    assert sent.status == "sent"
+    assert sent.sent_at is not None
 
 
 def test_register_payment(invoice_service):

@@ -8,20 +8,29 @@ import {
   useAccountingCorrections,
   useAgentInstructions,
   useAgentInstructionVersions,
+  useInvoicingInstructions,
+  useInvoicingInstructionVersions,
 } from "@/hooks/useData";
 import { api } from "@/lib/api";
 import { Brain, FileText, History, Target } from "lucide-react";
 
 export default function LearningPage() {
   const queryClient = useQueryClient();
-  const { data: instructionsData } = useAgentInstructions();
-  const { data: instructionVersionsData } = useAgentInstructionVersions();
+  const [scope, setScope] = useState<"accounting" | "invoicing">("accounting");
+  const { data: accountingInstructionsData } = useAgentInstructions();
+  const { data: accountingVersionsData } = useAgentInstructionVersions();
+  const { data: invoicingInstructionsData } = useInvoicingInstructions();
+  const { data: invoicingVersionsData } = useInvoicingInstructionVersions();
   const { data: correctionsData } = useAccountingCorrections(25);
   const [working, setWorking] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [instructionDraft, setInstructionDraft] = useState("");
   const [instructionSummary, setInstructionSummary] = useState("");
 
+  const instructionsData =
+    scope === "accounting" ? accountingInstructionsData : invoicingInstructionsData;
+  const instructionVersionsData =
+    scope === "accounting" ? accountingVersionsData : invoicingVersionsData;
   const instructionVersions = instructionVersionsData?.versions || [];
   const corrections = correctionsData?.corrections || [];
 
@@ -38,7 +47,7 @@ export default function LearningPage() {
       const result = await api.updateAgentInstructions({
         content_markdown: instructionDraft,
         change_summary: instructionSummary || undefined,
-      });
+      }, scope);
       await queryClient.invalidateQueries({ queryKey: ["agent-instructions"] });
       await queryClient.invalidateQueries({ queryKey: ["agent-instruction-versions"] });
       setInstructionSummary("");
@@ -55,8 +64,23 @@ export default function LearningPage() {
       <div>
         <h1 className="text-2xl lg:text-3xl font-bold tracking-tight">Agentinstruktioner</h1>
         <p className="text-muted-foreground mt-1">
-          Agentinstruktioner och korrigeringshistorik för direktbokföring
+          Agentinstruktioner för bokföring och fakturering
         </p>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant={scope === "accounting" ? "default" : "outline"}
+          onClick={() => setScope("accounting")}
+        >
+          Bokföring
+        </Button>
+        <Button
+          variant={scope === "invoicing" ? "default" : "outline"}
+          onClick={() => setScope("invoicing")}
+        >
+          Fakturering
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -87,7 +111,9 @@ export default function LearningPage() {
             Agentinstruktioner
           </CardTitle>
           <CardDescription>
-            Markdown-instruktioner som agenten läser innan den skapar och postar verifikationer direkt.
+            {scope === "accounting"
+              ? "Markdown-instruktioner som agenten läser innan den skapar och postar verifikationer direkt."
+              : "Markdown-instruktioner som agenten läser innan den skapar fakturautkast från underlag."}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -149,7 +175,7 @@ export default function LearningPage() {
           <CardHeader>
             <CardTitle>Versionshistorik</CardTitle>
             <CardDescription>
-              Tidigare versioner av agentens bokföringsinstruktioner.
+              Tidigare versioner av agentens {scope === "accounting" ? "bokföringsinstruktioner" : "faktureringsinstruktioner"}.
             </CardDescription>
           </CardHeader>
           <CardContent>

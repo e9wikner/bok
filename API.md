@@ -586,7 +586,7 @@ Authorization: Bearer dev-key-change-in-production
 ```
 
 **Parameters:**
-- `status_filter` (string, optional) - Filter by status (e.g. "draft", "sent", "booked", "paid")
+- `status_filter` (string, optional) - Filter by status (e.g. "draft", "sent", "paid")
 
 ### Create Invoice
 
@@ -668,6 +668,28 @@ Authorization: Bearer dev-key-change-in-production
 ```
 
 Changes status from `draft` to `sent`.
+
+### Agent-Created Invoice Drafts
+
+```http
+POST /api/v1/invoice-drafts
+PUT /api/v1/invoice-drafts/{draft_id}
+POST /api/v1/invoice-drafts/{draft_id}/send
+POST /api/v1/invoice-drafts/{draft_id}/reject
+```
+
+The agent creates invoice drafts from external source material. Drafts can be
+edited by the agent or frontend until they are sent. `send` creates the final
+invoice, marks it sent, creates the accounting voucher and returns:
+
+```json
+{
+  "invoice_id": "inv-001",
+  "invoice_number": "20260430001",
+  "voucher_id": "voucher-001",
+  "pdf_url": "/api/v1/export/pdf/invoice/inv-001"
+}
+```
 
 ### Book Invoice (Auto-Booking)
 
@@ -1282,14 +1304,21 @@ Authorization: Bearer dev-key-change-in-production
 
 ## Agent Instructions
 
-The accounting agent reads a Markdown instruction document before booking.
-The document is versioned by the backend and can be updated by the agent after
-it has analyzed historical vouchers and corrections.
+Accounting and invoicing agents read Markdown instruction documents before
+acting. Documents are versioned by the backend and can be updated by the agent
+after it has analyzed historical vouchers, invoices and corrections.
 
 ### Get Active Accounting Instructions
 
 ```http
 GET /api/v1/agent-instructions/accounting
+Authorization: Bearer dev-key-change-in-production
+```
+
+For invoice drafting, use:
+
+```http
+GET /api/v1/agent-instructions/invoicing
 Authorization: Bearer dev-key-change-in-production
 ```
 
@@ -1306,12 +1335,16 @@ Content-Type: application/json
 }
 ```
 
+For invoice drafting, use `PUT /api/v1/agent-instructions/invoicing`.
+
 ### List Instruction Versions
 
 ```http
 GET /api/v1/agent-instructions/accounting/versions
 Authorization: Bearer dev-key-change-in-production
 ```
+
+For invoice drafting, use `GET /api/v1/agent-instructions/invoicing/versions`.
 
 ---
 

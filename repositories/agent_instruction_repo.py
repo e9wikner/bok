@@ -33,6 +33,25 @@ DEFAULT_ACCOUNTING_INSTRUCTIONS = """# Bokföringsinstruktioner
 - Läs korrigeringar som stark signal för hur framtida liknande händelser bör bokföras.
 """
 
+DEFAULT_INVOICING_INSTRUCTIONS = """# Faktureringsinstruktioner
+
+## Måste alltid följas
+- Skapa fakturautkast när underlaget är tillräckligt tydligt.
+- Fråga användaren i agentdialogen innan utkast skapas om kund, period, pris, artikel eller moms är oklart.
+- Använd befintliga kunder och artiklar när de matchar underlaget.
+- Ange källnotering per rad när raden kommer från ett specifikt underlag.
+
+## Agentens arbetssätt
+- Läs dessa instruktioner innan fakturautkast skapas.
+- Läs tidigare fakturor, kunder, artiklar och fakturautkast via API:t.
+- Uppdatera instruktionerna med generell vägledning när tidigare fakturor eller mänskliga korrigeringar visar återkommande mönster.
+
+## Fakturautkast
+- Utkast får ändras fram tills användaren skapar PDF och markerar fakturan som skickad.
+- Backend räknar alltid om totalsummor och moms.
+- Bokföring sker först när fakturan skickas.
+"""
+
 
 class AgentInstructionRepository:
     """Manage active instruction documents and immutable versions."""
@@ -42,10 +61,11 @@ class AgentInstructionRepository:
         """Return the active instruction document, creating a default if needed."""
         document = AgentInstructionRepository._get_document(scope)
         if not document:
+            default_content = AgentInstructionRepository._default_content(scope)
             return AgentInstructionRepository.update(
                 scope=scope,
-                content_markdown=DEFAULT_ACCOUNTING_INSTRUCTIONS,
-                change_summary="Initial accounting instructions",
+                content_markdown=default_content,
+                change_summary=f"Initial {scope} instructions",
                 created_by="system",
             )
 
@@ -140,6 +160,12 @@ class AgentInstructionRepository:
             (document_id,),
         ).fetchone()
         return int(row["max_version"] or 0) + 1
+
+    @staticmethod
+    def _default_content(scope: str) -> str:
+        if scope == "invoicing":
+            return DEFAULT_INVOICING_INSTRUCTIONS
+        return DEFAULT_ACCOUNTING_INSTRUCTIONS
 
     @staticmethod
     def _response(document, version) -> Dict:

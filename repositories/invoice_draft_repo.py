@@ -122,6 +122,59 @@ class InvoiceDraftRepository:
         InvoiceDraftRepository.recalculate_totals(draft_id)
 
     @staticmethod
+    def update(
+        draft_id: str,
+        customer_id: Optional[str],
+        customer_name: str,
+        customer_org_number: Optional[str],
+        customer_email: Optional[str],
+        invoice_date,
+        due_date,
+        reference: Optional[str],
+        description: Optional[str],
+        status: str,
+        agent_summary: Optional[str],
+        agent_confidence: Optional[float],
+        agent_warnings: Optional[str],
+    ) -> None:
+        db.execute(
+            """
+            UPDATE invoice_drafts
+            SET customer_id = ?,
+                customer_name = ?,
+                customer_org_number = ?,
+                customer_email = ?,
+                invoice_date = ?,
+                due_date = ?,
+                reference = ?,
+                description = ?,
+                status = ?,
+                agent_summary = ?,
+                agent_confidence = ?,
+                agent_warnings = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                customer_id,
+                customer_name,
+                customer_org_number,
+                customer_email,
+                invoice_date,
+                due_date,
+                reference,
+                description,
+                status,
+                agent_summary,
+                agent_confidence,
+                agent_warnings,
+                datetime.now(),
+                draft_id,
+            ),
+        )
+        db.commit()
+
+    @staticmethod
     def recalculate_totals(draft_id: str) -> None:
         row = db.execute(
             """
@@ -175,11 +228,11 @@ class InvoiceDraftRepository:
         return [draft for row in rows if (draft := InvoiceDraftRepository.get(row["id"]))]
 
     @staticmethod
-    def mark_booked(draft_id: str, invoice_id: str, voucher_id: str) -> None:
+    def mark_sent(draft_id: str, invoice_id: str, voucher_id: str) -> None:
         db.execute(
             """
             UPDATE invoice_drafts
-            SET status = 'booked', approved_invoice_id = ?, approved_voucher_id = ?, updated_at = ?
+            SET status = 'sent', approved_invoice_id = ?, approved_voucher_id = ?, updated_at = ?
             WHERE id = ?
             """,
             (invoice_id, voucher_id, datetime.now(), draft_id),

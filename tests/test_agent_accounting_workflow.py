@@ -62,6 +62,23 @@ def test_agent_instruction_versions(test_db):
     assert response.json()["total"] == 2
     assert response.json()["versions"][0]["change_summary"] == "Teständring"
 
+    response = client.get("/api/v1/agent-instructions/invoicing", headers=_headers())
+    assert response.status_code == 200
+    assert response.json()["version"] == 1
+    assert "Faktureringsinstruktioner" in response.json()["content_markdown"]
+
+    response = client.put(
+        "/api/v1/agent-instructions/invoicing",
+        headers=_headers(),
+        json={
+            "content_markdown": "# Faktureringsinstruktioner\n\n- Testregel",
+            "change_summary": "Fakturatest",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["scope"] == "invoicing"
+    assert response.json()["version"] == 2
+
 
 def test_agent_posts_directly_and_correction_is_agent_readable(test_db):
     _ensure_accounts()
