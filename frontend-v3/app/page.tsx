@@ -33,14 +33,16 @@ export default function DashboardPage() {
   const { data: healthData } = useHealth();
   const { data: vouchersData, isLoading: vouchersLoading } = useVouchers(undefined, 10);
   const { data: draftVoucherData } = useVouchers("draft", 5);
-  const { data: invoiceDraftData } = useInvoiceDrafts("needs_review");
+  const { data: invoiceDraftData } = useInvoiceDrafts();
   const { data: complianceData } = useComplianceIssues();
   const { data: correctionsData } = useAccountingCorrections(5);
   const { data: incomeData, isLoading: incomeLoading } = useIncomeStatement(currentYear);
 
   const vouchers = vouchersData?.vouchers || [];
   const draftVouchers = draftVoucherData?.vouchers || [];
-  const invoiceDrafts = invoiceDraftData?.drafts || [];
+  const invoiceDrafts = (invoiceDraftData?.drafts || []).filter((draft: any) =>
+    ["draft", "needs_review"].includes(draft.status)
+  );
   const complianceIssues = complianceData?.issues || [];
 
   return (
@@ -65,7 +67,7 @@ export default function DashboardPage() {
         <WorkItem
           title="Fakturautkast"
           value={invoiceDrafts.length}
-          description="Agentutkast att granska"
+          description="Utkast att granska"
           href="/invoices/drafts"
           icon={Receipt}
           urgent={invoiceDrafts.length > 0}
@@ -137,7 +139,7 @@ export default function DashboardPage() {
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
               <CardTitle>Fakturautkast att granska</CardTitle>
-              <CardDescription>Skapade av agenten från fakturaunderlag.</CardDescription>
+              <CardDescription>Manuella och agentbaserade utkast innan de skickas.</CardDescription>
             </div>
             <Link href="/invoices/drafts" className="text-sm text-primary hover:underline">
               Visa alla
