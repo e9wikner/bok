@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useArticles, useCustomers } from "@/hooks/useData";
@@ -80,6 +81,7 @@ function formatSEK(ore: number): string {
 
 export default function NewInvoicePage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { data: customersData } = useCustomers();
   const { data: articlesData } = useArticles();
   const customers: Customer[] = customersData?.customers || [];
@@ -202,16 +204,32 @@ export default function NewInvoicePage() {
     setSubmitting(true);
     try {
       const payload = {
+        customer_id: selectedCustomerId || null,
         customer_name: customerName.trim(),
         customer_org_number: orgNumber.trim() || undefined,
         customer_email: email.trim() || undefined,
         invoice_date: invoiceDate,
         due_date: dueDate,
         description: address.trim() || undefined,
-        rows: previewPayload.rows,
+        status: "draft" as const,
+        rows: rows.map((r) => ({
+          article_id: r.articleId || null,
+          description: r.description,
+          quantity: parseInt(r.quantity) || 1,
+          unit_price: Math.round(parseFloat(r.unitPrice) * 100) || 0,
+          vat_code: r.vatCode,
+          revenue_account: r.revenueAccount || null,
+          source_note: null,
+        })),
+        agent_notes: {
+          summary: null,
+          confidence: null,
+          warnings: [],
+        },
       };
-      await api.createInvoice(payload);
-      router.push("/invoices");
+      const draft = await api.createInvoiceDraft(payload);
+      await queryClient.invalidateQueries({ queryKey: ["invoice-drafts"] });
+      router.push(`/invoices/drafts/${draft.id}`);
     } catch (err: any) {
       const msg =
         err?.response?.data?.detail?.error ||

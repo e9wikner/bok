@@ -74,8 +74,10 @@ export default function InvoicesPage() {
   const overdueCount = summary.overdue_count || 0;
   const totalRemaining = summary.total_remaining || 0;
   const pageTotal = data?.page_total || 0;
-  const { data: draftsData } = useInvoiceDrafts("needs_review");
-  const pendingDrafts = draftsData?.drafts || [];
+  const { data: draftsData } = useInvoiceDrafts();
+  const pendingDrafts = (draftsData?.drafts || []).filter((draft: any) =>
+    ["draft", "needs_review"].includes(draft.status)
+  );
 
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-[1400px] mx-auto">
@@ -117,7 +119,7 @@ export default function InvoicesPage() {
           <CardContent className="p-4">
             <div className="mb-3 flex items-center gap-2">
               <Bot className="h-4 w-4 text-amber-600" />
-              <h2 className="font-semibold">Fakturautkast från agent</h2>
+              <h2 className="font-semibold">Fakturautkast att hantera</h2>
               <Badge variant="outline">{pendingDrafts.length}</Badge>
               <Link href="/invoices/drafts" className="ml-auto text-sm text-primary hover:underline">
                 Visa alla

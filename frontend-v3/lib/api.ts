@@ -289,6 +289,34 @@ export const api = {
     const { data } = await apiClient.get(`/api/v1/invoice-drafts/${id}`);
     return data;
   },
+  createInvoiceDraft: async (payload: {
+    customer_id?: string | null;
+    customer_name?: string | null;
+    customer_org_number?: string | null;
+    customer_email?: string | null;
+    invoice_date: string;
+    due_date?: string | null;
+    reference?: string | null;
+    description?: string | null;
+    status?: "draft" | "needs_review";
+    rows: {
+      article_id?: string | null;
+      description?: string | null;
+      quantity: number;
+      unit_price?: number | null;
+      vat_code?: string | null;
+      revenue_account?: string | null;
+      source_note?: string | null;
+    }[];
+    agent_notes?: {
+      summary?: string | null;
+      confidence?: number | null;
+      warnings?: string[];
+    };
+  }) => {
+    const { data } = await apiClient.post("/api/v1/invoice-drafts", payload);
+    return data;
+  },
   updateInvoiceDraft: async (id: string, payload: {
     customer_id?: string | null;
     customer_name?: string | null;

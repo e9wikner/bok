@@ -20,7 +20,7 @@ const statusOptions = [
 ];
 
 export default function InvoiceDraftsPage() {
-  const [status, setStatus] = useState("needs_review");
+  const [status, setStatus] = useState("");
   const [search, setSearch] = useState("");
   const { data, isLoading } = useInvoiceDrafts(status || undefined);
   const drafts = (data?.drafts || []).filter((draft: any) => {
@@ -36,7 +36,7 @@ export default function InvoiceDraftsPage() {
             <Bot className="h-6 w-6 text-primary" />
             Fakturautkast
           </h1>
-          <p className="mt-1 text-muted-foreground">Utkast skapade av agenten innan de skickas och bokförs.</p>
+          <p className="mt-1 text-muted-foreground">Manuella och agentbaserade utkast innan de skickas och bokförs.</p>
         </div>
         <Link href="/invoices">
           <Button variant="outline">
