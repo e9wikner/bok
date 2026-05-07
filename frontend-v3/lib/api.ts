@@ -174,6 +174,13 @@ export interface Payslip {
   voucher_id?: string | null;
 }
 
+export interface PayrollRunValidation {
+  valid: boolean;
+  errors: { code: string; message: string }[];
+  warnings: { code: string; message: string }[];
+  employee_count: number;
+}
+
 export interface PayrollRun {
   id: string;
   year: number;
@@ -187,6 +194,7 @@ export interface PayrollRun {
   total_net_salary: number;
   total_employer_cost: number;
   payslips: Payslip[];
+  validation?: PayrollRunValidation | null;
 }
 
 export const api = {
@@ -385,6 +393,14 @@ export const api = {
   },
   generatePayrollRun: async (id: string) => {
     const { data } = await apiClient.post(`/api/v1/payroll/runs/${id}/generate`);
+    return data;
+  },
+  validatePayrollRun: async (id: string) => {
+    const { data } = await apiClient.get(`/api/v1/payroll/runs/${id}/validate`);
+    return data;
+  },
+  deletePayrollRun: async (id: string) => {
+    const { data } = await apiClient.delete(`/api/v1/payroll/runs/${id}`);
     return data;
   },
   markPayslipSent: async (id: string) => {

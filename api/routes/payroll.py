@@ -120,7 +120,16 @@ async def set_salary_setting(
 async def list_payroll_runs():
     service = PayrollService()
     runs = service.runs.list_all()
-    return {"payroll_runs": [_run_to_dict(run, service.payslips.list_for_run(run.id)) for run in runs]}
+    return {
+        "payroll_runs": [
+            _run_to_dict(
+                run,
+                service.payslips.list_for_run(run.id),
+                service.validate_payroll_run(run.id) if run.status == "draft" else None,
+            )
+            for run in runs
+        ]
+    }
 
 
 @router.post("/runs", response_model=dict, status_code=status.HTTP_201_CREATED)
@@ -136,7 +145,7 @@ async def create_payroll_run(
             payment_date=request.payment_date,
             actor=actor,
         )
-        return _run_to_dict(run, [])
+        return _run_to_dict(run, [], service.validate_payroll_run(run.id))
     except ValidationError as exc:
         raise _validation_http(exc)
     except Exception as exc:
@@ -153,6 +162,28 @@ async def generate_payslips(
         payslips = service.generate_payslips(payroll_run_id, actor=actor)
         run = service.runs.get(payroll_run_id)
         return _run_to_dict(run, payslips)
+    except ValidationError as exc:
+        raise _validation_http(exc)
+
+
+@router.get("/runs/{payroll_run_id}/validate", response_model=dict)
+async def validate_payroll_run(payroll_run_id: str):
+    try:
+        service = PayrollService()
+        return _validation_to_dict(service.validate_payroll_run(payroll_run_id))
+    except ValidationError as exc:
+        raise _validation_http(exc)
+
+
+@router.delete("/runs/{payroll_run_id}", response_model=dict)
+async def delete_payroll_run(
+    payroll_run_id: str,
+    actor: str = Depends(get_current_actor),
+):
+    try:
+        service = PayrollService()
+        service.delete_payroll_run(payroll_run_id, actor=actor)
+        return {"status": "deleted", "id": payroll_run_id}
     except ValidationError as exc:
         raise _validation_http(exc)
 
@@ -231,7 +262,11 @@ def _setting_to_dict(setting: EmployeeSalarySetting) -> dict:
     }
 
 
-def _run_to_dict(run: PayrollRun, payslips: list[Payslip]) -> dict:
+def _run_to_dict(
+    run: PayrollRun,
+    payslips: list[Payslip],
+    validation: Optional[dict] = None,
+) -> dict:
     return {
         "id": run.id,
         "year": run.year,
@@ -248,6 +283,7 @@ def _run_to_dict(run: PayrollRun, payslips: list[Payslip]) -> dict:
         "total_net_salary": sum(p.net_salary for p in payslips),
         "total_employer_cost": sum(p.total_employer_cost for p in payslips),
         "payslips": [_payslip_to_dict(p) for p in payslips],
+        "validation": _validation_to_dict(validation) if validation else None,
     }
 
 
@@ -278,3 +314,12 @@ def _validation_http(exc: ValidationError) -> HTTPException:
         status_code=status.HTTP_400_BAD_REQUEST,
         detail={"error": exc.message, "code": exc.code, "details": exc.details},
     )
+
+
+def _validation_to_dict(validation: dict) -> dict:
+    return {
+        "valid": validation["valid"],
+        "errors": validation["errors"],
+        "warnings": validation["warnings"],
+        "employee_count": validation["employee_count"],
+    }

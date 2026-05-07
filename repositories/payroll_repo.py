@@ -202,6 +202,19 @@ class PayrollRunRepository:
         ]
 
     @staticmethod
+    def list_for_period(year: int, month: int) -> List[PayrollRun]:
+        rows = db.execute(
+            "SELECT * FROM payroll_runs WHERE year = ? AND month = ? ORDER BY payment_date DESC",
+            (year, month),
+        ).fetchall()
+        return [PayrollRunRepository._row_to_run(row) for row in rows]
+
+    @staticmethod
+    def delete(run_id: str) -> None:
+        db.execute("DELETE FROM payroll_runs WHERE id = ?", (run_id,))
+        db.commit()
+
+    @staticmethod
     def set_status(run_id: str, status: str) -> None:
         generated_at = datetime.now() if status == "generated" else None
         if generated_at:

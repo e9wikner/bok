@@ -57,6 +57,43 @@ def test_generate_payslip_with_employer_fee(ledger_service):
         payroll.generate_payslips(payslip.payroll_run_id)
 
 
+def test_create_payroll_run_validates_settings_and_duplicates(ledger_service):
+    _setup_period(ledger_service)
+    payroll = PayrollService()
+
+    with pytest.raises(ValidationError, match="no_active_salary_settings"):
+        payroll.create_payroll_run(2026, 3, date(2026, 3, 25))
+
+    employee = payroll.create_employee("Anna Andersson")
+    payroll.set_salary_setting(
+        employee.id,
+        gross_monthly_salary=5000000,
+        preliminary_tax=1500000,
+        employer_fee_amount=1571000,
+        payment_day=25,
+    )
+    run = payroll.create_payroll_run(2026, 3, date(2026, 3, 25))
+
+    validation = payroll.validate_payroll_run(run.id)
+    assert validation["valid"] is True
+    assert validation["employee_count"] == 1
+
+    with pytest.raises(ValidationError, match="payroll_run_already_exists"):
+        payroll.create_payroll_run(2026, 3, date(2026, 3, 26))
+
+    with pytest.raises(ValidationError, match="invalid_payment_date"):
+        payroll.create_payroll_run(2026, 4, date(2026, 5, 25))
+
+
+def test_delete_unbooked_payroll_run(ledger_service):
+    payroll, payslip = _setup_payslip(ledger_service)
+
+    payroll.delete_payroll_run(payslip.payroll_run_id)
+
+    assert payroll.runs.get(payslip.payroll_run_id) is None
+    assert payroll.payslips.get(payslip.id) is None
+
+
 def test_book_payslip_creates_balanced_payroll_voucher(ledger_service):
     payroll, payslip = _setup_payslip(ledger_service)
     bank = BankIntegrationService()
@@ -91,6 +128,9 @@ def test_book_payslip_creates_balanced_payroll_voucher(ledger_service):
 
     with pytest.raises(ValidationError, match="payslip_already_booked"):
         payroll.match_bank_transaction_and_book(payslip.id, tx.id)
+
+    with pytest.raises(ValidationError, match="payroll_run_has_booked_payslips"):
+        payroll.delete_payroll_run(payslip.payroll_run_id)
 
 
 def test_book_payslip_rejects_wrong_bank_transaction(ledger_service):

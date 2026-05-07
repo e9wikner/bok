@@ -3,7 +3,7 @@
 import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
-import { Banknote, FileText, Plus, ReceiptText, Search, Send, WalletCards } from "lucide-react";
+import { AlertTriangle, Banknote, FileText, Plus, ReceiptText, Search, Send, Trash2, WalletCards } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -23,6 +23,14 @@ function sek(value: number) {
   return new Intl.NumberFormat("sv-SE", { style: "currency", currency: "SEK" }).format((value || 0) / 100);
 }
 
+function payrollPaymentDate(yearText: string, monthText: string, dayText: string) {
+  const year = parseInt(yearText);
+  const month = parseInt(monthText);
+  const day = parseInt(dayText) || 25;
+  const lastDay = new Date(year, month, 0).getDate();
+  return `${year}-${String(month).padStart(2, "0")}-${String(Math.min(day, lastDay)).padStart(2, "0")}`;
+}
+
 export default function PayrollPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
@@ -37,7 +45,7 @@ export default function PayrollPage() {
   const [paymentDay, setPaymentDay] = useState("25");
   const [runYear, setRunYear] = useState(String(new Date().getFullYear()));
   const [runMonth, setRunMonth] = useState(String(new Date().getMonth() + 1));
-  const [paymentDate, setPaymentDate] = useState("");
+  const [runPaymentDay, setRunPaymentDay] = useState("25");
   const [bankTransactionIds, setBankTransactionIds] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,14 +121,28 @@ export default function PayrollPage() {
     setSubmitting(true);
     setError(null);
     try {
-      await api.createPayrollRun({
+      const createdRun = await api.createPayrollRun({
         year: parseInt(runYear),
         month: parseInt(runMonth),
-        payment_date: paymentDate || undefined,
+        payment_date: payrollPaymentDate(runYear, runMonth, runPaymentDay),
       });
+      await api.generatePayrollRun(createdRun.id);
       await invalidate();
     } catch (err: any) {
       setError(message(err, "Kunde inte skapa lönekörning."));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const deleteRun = async (runId: string) => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.deletePayrollRun(runId);
+      await invalidate();
+    } catch (err: any) {
+      setError(message(err, "Kunde inte ta bort lönekörningen."));
     } finally {
       setSubmitting(false);
     }
@@ -285,6 +307,15 @@ export default function PayrollPage() {
 
       <Card>
         <CardContent className="space-y-5 p-5">
+          <div>
+            <h2 className="flex items-center gap-2 font-semibold">
+              <ReceiptText className="h-4 w-4 text-primary" />
+              Månadens lönekörning
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Skapa en lönekörning per månad. Knappen skapar direkt lönespecifikationer för alla aktiva anställda med löneinställning.
+            </p>
+          </div>
           <form onSubmit={createRun} className="grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto] md:items-end">
             <label className="text-sm font-medium">
               År
@@ -295,12 +326,12 @@ export default function PayrollPage() {
               <input className={`${inputClass} mt-1`} inputMode="numeric" value={runMonth} onChange={(e) => setRunMonth(e.target.value)} />
             </label>
             <label className="text-sm font-medium">
-              Utbetalningsdatum
-              <input className={`${inputClass} mt-1`} type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} />
+              Utbetalningsdag
+              <input className={`${inputClass} mt-1`} inputMode="numeric" min={1} max={31} value={runPaymentDay} onChange={(e) => setRunPaymentDay(e.target.value)} />
             </label>
             <Button type="submit" disabled={submitting}>
               <ReceiptText className="mr-2 h-4 w-4" />
-              Skapa körning
+              Skapa månadens lönespecar
             </Button>
           </form>
 
@@ -318,9 +349,31 @@ export default function PayrollPage() {
                       <p className="text-sm text-muted-foreground">Utbetalning {run.payment_date} · {run.status}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {run.status === "draft" && <Button onClick={() => generateRun(run.id)} disabled={submitting}>Generera lönespecar</Button>}
+                      {run.status === "draft" && <Button onClick={() => generateRun(run.id)} disabled={submitting || run.validation?.valid === false}>Skapa lönespecifikationer för månaden</Button>}
+                      {run.status !== "booked" && (
+                        <Button variant="outline" onClick={() => deleteRun(run.id)} disabled={submitting}>
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Ta bort
+                        </Button>
+                      )}
                     </div>
                   </div>
+                  {run.validation && (run.validation.errors.length > 0 || run.validation.warnings.length > 0) && (
+                    <div className="space-y-2 border-b p-4">
+                      {run.validation.errors.map((item) => (
+                        <p key={item.code} className="flex items-start gap-2 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+                          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                          {item.message}
+                        </p>
+                      ))}
+                      {run.validation.warnings.map((item) => (
+                        <p key={item.code} className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                          {item.message}
+                        </p>
+                      ))}
+                    </div>
+                  )}
                   <div className="grid gap-3 border-b p-4 text-sm md:grid-cols-5">
                     <div><span className="text-muted-foreground">Brutto</span><br />{sek(run.total_gross_salary)}</div>
                     <div><span className="text-muted-foreground">Skatt</span><br />{sek(run.total_preliminary_tax)}</div>

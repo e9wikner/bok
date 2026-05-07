@@ -145,6 +145,32 @@ class PayrollService:
             raise ValidationError("invalid_period", "Month must be 1-12")
         if payment_date is None:
             payment_date = self._default_payment_date(year, month)
+        if payment_date.year != year or payment_date.month != month:
+            raise ValidationError(
+                "invalid_payment_date",
+                "Payment date must be within the payroll month",
+                f"period={year}-{month:02d} payment_date={payment_date.isoformat()}",
+            )
+        existing_runs = self.runs.list_for_period(year, month)
+        if existing_runs:
+            raise ValidationError(
+                "payroll_run_already_exists",
+                "Payroll run already exists for this month",
+                f"existing_run_id={existing_runs[0].id}",
+            )
+        validation = self._validate_run(
+            PayrollRun(
+                id="preview",
+                year=year,
+                month=month,
+                payment_date=payment_date,
+                created_by=actor,
+            ),
+            include_existing_payslips=False,
+        )
+        if not validation["valid"]:
+            first_error = validation["errors"][0]
+            raise ValidationError(first_error["code"], first_error["message"])
         run = self.runs.create(year, month, payment_date, actor)
         self.audit.log(
             "payroll_run",
@@ -155,6 +181,12 @@ class PayrollService:
         )
         return run
 
+    def validate_payroll_run(self, payroll_run_id: str) -> Dict:
+        run = self.runs.get(payroll_run_id)
+        if not run:
+            raise ValidationError("payroll_run_not_found", "Payroll run not found")
+        return self._validate_run(run, include_existing_payslips=True)
+
     def generate_payslips(self, payroll_run_id: str, actor: str = "system") -> List[Payslip]:
         run = self.runs.get(payroll_run_id)
         if not run:
@@ -163,21 +195,14 @@ class PayrollService:
         if existing:
             raise ValidationError("payslips_already_generated", "Payslips already generated")
 
-        active_settings = self.settings.list_active()
-        if not active_settings:
-            raise ValidationError("no_active_salary_settings", "No active salary settings found")
-
-        prepared = []
-        for setting in active_settings:
-            if setting.preliminary_tax > setting.gross_monthly_salary:
-                raise ValidationError(
-                    "invalid_salary",
-                    f"Preliminary tax exceeds gross salary for employee {setting.employee_id}",
-                )
-            prepared.append((setting, setting.calculate_employer_fee()))
+        validation = self._validate_run(run, include_existing_payslips=False)
+        if not validation["valid"]:
+            first_error = validation["errors"][0]
+            raise ValidationError(first_error["code"], first_error["message"])
 
         created: List[Payslip] = []
-        for setting, employer_fee in prepared:
+        for item in validation["settings"]:
+            setting = item["setting"]
             created.append(
                 self.payslips.create(
                     payroll_run_id=run.id,
@@ -187,7 +212,7 @@ class PayrollService:
                     payment_date=run.payment_date,
                     gross_salary=setting.gross_monthly_salary,
                     preliminary_tax=setting.preliminary_tax,
-                    employer_fee=employer_fee,
+                    employer_fee=item["employer_fee"],
                 )
             )
         self.runs.set_status(run.id, "generated")
@@ -199,6 +224,25 @@ class PayrollService:
             {"generated_payslips": len(created)},
         )
         return self.payslips.list_for_run(run.id)
+
+    def delete_payroll_run(self, payroll_run_id: str, actor: str = "system") -> None:
+        run = self.runs.get(payroll_run_id)
+        if not run:
+            raise ValidationError("payroll_run_not_found", "Payroll run not found")
+        payslips = self.payslips.list_for_run(payroll_run_id)
+        if any(p.voucher_id for p in payslips):
+            raise ValidationError(
+                "payroll_run_has_booked_payslips",
+                "Cannot delete a payroll run with booked payslips",
+            )
+        self.runs.delete(payroll_run_id)
+        self.audit.log(
+            "payroll_run",
+            payroll_run_id,
+            AuditAction.DELETED.value,
+            actor,
+            {"year": run.year, "month": run.month, "deleted_payslips": len(payslips)},
+        )
 
     def mark_payslip_sent(self, payslip_id: str, actor: str = "system") -> Payslip:
         payslip = self.payslips.get(payslip_id)
@@ -339,6 +383,71 @@ class PayrollService:
         payment_day = settings[0].payment_day if settings else 25
         last_day = monthrange(year, month)[1]
         return date(year, month, min(payment_day, last_day))
+
+    def _validate_run(self, run: PayrollRun, include_existing_payslips: bool) -> Dict:
+        errors = []
+        warnings = []
+        prepared = []
+
+        if run.payment_date.year != run.year or run.payment_date.month != run.month:
+            errors.append(
+                {
+                    "code": "invalid_payment_date",
+                    "message": "Utbetalningsdatum måste ligga i lönekörningens månad.",
+                }
+            )
+
+        if include_existing_payslips and self.payslips.list_for_run(run.id):
+            errors.append(
+                {
+                    "code": "payslips_already_generated",
+                    "message": "Lönespecifikationer är redan skapade för körningen.",
+                }
+            )
+
+        active_settings = self.settings.list_active()
+        if not active_settings:
+            errors.append(
+                {
+                    "code": "no_active_salary_settings",
+                    "message": "Det finns inga aktiva anställda med löneinställning.",
+                }
+            )
+
+        for setting in active_settings:
+            employee = self.employees.get(setting.employee_id)
+            employee_name = employee.name if employee else setting.employee_id
+            if setting.gross_monthly_salary <= 0:
+                errors.append(
+                    {
+                        "code": "invalid_gross_salary",
+                        "message": f"{employee_name} saknar bruttolön över 0 kr.",
+                    }
+                )
+            if setting.preliminary_tax > setting.gross_monthly_salary:
+                errors.append(
+                    {
+                        "code": "invalid_preliminary_tax",
+                        "message": f"{employee_name} har preliminärskatt som överstiger bruttolönen.",
+                    }
+                )
+            employer_fee = setting.calculate_employer_fee()
+            if employer_fee == 0:
+                warnings.append(
+                    {
+                        "code": "missing_employer_fee",
+                        "message": f"{employee_name} har 0 kr i arbetsgivaravgift.",
+                    }
+                )
+            prepared.append({"setting": setting, "employee": employee, "employer_fee": employer_fee})
+
+        return {
+            "valid": not errors,
+            "errors": errors,
+            "warnings": warnings,
+            "employee_count": len(active_settings),
+            "settings": prepared,
+        }
 
     def _ensure_payroll_accounts(self) -> None:
         for code, (name, account_type) in PAYROLL_ACCOUNTS.items():
