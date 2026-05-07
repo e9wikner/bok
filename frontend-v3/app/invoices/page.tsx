@@ -75,9 +75,13 @@ export default function InvoicesPage() {
   const totalRemaining = summary.total_remaining || 0;
   const pageTotal = data?.page_total || 0;
   const { data: draftsData } = useInvoiceDrafts();
+  const { data: legacyDraftData } = useInvoices("draft", 5, 0);
   const pendingDrafts = (draftsData?.drafts || []).filter((draft: any) =>
     ["draft", "needs_review"].includes(draft.status)
   );
+  const legacyDrafts = legacyDraftData?.invoices || [];
+  const pendingDraftCount = pendingDrafts.length + legacyDrafts.length;
+  const pendingDraftHref = pendingDrafts.length > 0 ? "/invoices/drafts" : "/invoices";
 
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-[1400px] mx-auto">
@@ -114,14 +118,14 @@ export default function InvoicesPage() {
         </div>
       </div>
 
-      {pendingDrafts.length > 0 && (
+      {pendingDraftCount > 0 && (
         <Card className="border-amber-200 dark:border-amber-900">
           <CardContent className="p-4">
             <div className="mb-3 flex items-center gap-2">
               <Bot className="h-4 w-4 text-amber-600" />
               <h2 className="font-semibold">Fakturautkast att hantera</h2>
-              <Badge variant="outline">{pendingDrafts.length}</Badge>
-              <Link href="/invoices/drafts" className="ml-auto text-sm text-primary hover:underline">
+              <Badge variant="outline">{pendingDraftCount}</Badge>
+              <Link href={pendingDraftHref} className="ml-auto text-sm text-primary hover:underline">
                 Visa alla
               </Link>
             </div>
@@ -137,6 +141,19 @@ export default function InvoicesPage() {
                     </p>
                   </div>
                   <div className="font-mono font-semibold">{formatCurrency(draft.amount_inc_vat || 0)}</div>
+                </div>
+              ))}
+              {legacyDrafts.slice(0, Math.max(0, 5 - pendingDrafts.length)).map((invoice: any) => (
+                <div key={invoice.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <Link href={`/invoices/${invoice.id}`} className="font-medium text-primary hover:underline">
+                      {invoice.customer_name}
+                    </Link>
+                    <p className="text-sm text-muted-foreground">
+                      Faktura {invoice.invoice_number || invoice.id?.slice(0, 8)} · {formatDate(invoice.invoice_date)} · {invoice.row_count || 0} rader
+                    </p>
+                  </div>
+                  <div className="font-mono font-semibold">{formatCurrency(invoice.amount_inc_vat || 0)}</div>
                 </div>
               ))}
             </div>

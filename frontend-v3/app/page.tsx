@@ -24,6 +24,7 @@ import {
   useHealth,
   useIncomeStatement,
   useInvoiceDrafts,
+  useInvoices,
   useVouchers,
 } from "@/hooks/useData";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -34,6 +35,7 @@ export default function DashboardPage() {
   const { data: vouchersData, isLoading: vouchersLoading } = useVouchers(undefined, 10);
   const { data: draftVoucherData } = useVouchers("draft", 5);
   const { data: invoiceDraftData } = useInvoiceDrafts();
+  const { data: legacyDraftInvoiceData } = useInvoices("draft", 5, 0);
   const { data: complianceData } = useComplianceIssues();
   const { data: correctionsData } = useAccountingCorrections(5);
   const { data: incomeData, isLoading: incomeLoading } = useIncomeStatement(currentYear);
@@ -43,6 +45,9 @@ export default function DashboardPage() {
   const invoiceDrafts = (invoiceDraftData?.drafts || []).filter((draft: any) =>
     ["draft", "needs_review"].includes(draft.status)
   );
+  const legacyDraftInvoices = legacyDraftInvoiceData?.invoices || [];
+  const invoiceDraftCount = invoiceDrafts.length + legacyDraftInvoices.length;
+  const invoiceDraftHref = invoiceDrafts.length > 0 ? "/invoices/drafts" : "/invoices";
   const complianceIssues = complianceData?.issues || [];
 
   return (
@@ -66,11 +71,11 @@ export default function DashboardPage() {
       <section className="grid gap-4 lg:grid-cols-4">
         <WorkItem
           title="Fakturautkast"
-          value={invoiceDrafts.length}
+          value={invoiceDraftCount}
           description="Utkast att granska"
-          href="/invoices/drafts"
+          href={invoiceDraftHref}
           icon={Receipt}
-          urgent={invoiceDrafts.length > 0}
+          urgent={invoiceDraftCount > 0}
         />
         <WorkItem
           title="Verifikationsutkast"
@@ -141,12 +146,12 @@ export default function DashboardPage() {
               <CardTitle>Fakturautkast att granska</CardTitle>
               <CardDescription>Manuella och agentbaserade utkast innan de skickas.</CardDescription>
             </div>
-            <Link href="/invoices/drafts" className="text-sm text-primary hover:underline">
+            <Link href={invoiceDraftHref} className="text-sm text-primary hover:underline">
               Visa alla
             </Link>
           </CardHeader>
           <CardContent>
-            {invoiceDrafts.length > 0 ? (
+            {invoiceDraftCount > 0 ? (
               <div className="divide-y">
                 {invoiceDrafts.slice(0, 5).map((draft: any) => (
                   <RowLink
@@ -155,6 +160,15 @@ export default function DashboardPage() {
                     title={draft.customer_name}
                     meta={`${draft.reference || "Ingen referens"} · ${formatDate(draft.invoice_date)} · ${draft.row_count} rader`}
                     value={formatCurrency(draft.amount_inc_vat || 0)}
+                  />
+                ))}
+                {legacyDraftInvoices.slice(0, Math.max(0, 5 - invoiceDrafts.length)).map((invoice: any) => (
+                  <RowLink
+                    key={invoice.id}
+                    href={`/invoices/${invoice.id}`}
+                    title={invoice.customer_name}
+                    meta={`Faktura ${invoice.invoice_number || invoice.id?.slice(0, 8)} · ${formatDate(invoice.invoice_date)} · ${invoice.row_count || 0} rader`}
+                    value={formatCurrency(invoice.amount_inc_vat || 0)}
                   />
                 ))}
               </div>
