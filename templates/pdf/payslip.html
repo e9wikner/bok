@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="header">
+  <div>
+    <div class="company-name">{{ company.name }}</div>
+    {% if company.org_number %}<div>Org.nr {{ company.org_number }}</div>{% endif %}
+    {% if company.address %}<div>{{ company.address }}</div>{% endif %}
+  </div>
+  <div class="doc-info">
+    <div class="doc-title">Lönespecifikation</div>
+    <div>{{ payslip.period_year }}-{{ "%02d"|format(payslip.period_month) }}</div>
+  </div>
+</div>
+
+<table class="meta-table">
+  <tr>
+    <td class="label">Anställd</td>
+    <td>{{ employee.name if employee else payslip.employee_id }}</td>
+    <td class="label">Utbetalningsdatum</td>
+    <td>{{ payslip.payment_date }}</td>
+  </tr>
+  <tr>
+    <td class="label">Personnummer</td>
+    <td>{{ employee.personal_number if employee and employee.personal_number else "-" }}</td>
+    <td class="label">Status</td>
+    <td>{{ payslip.status }}</td>
+  </tr>
+</table>
+
+<div class="section-title">Lön</div>
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>Rad</th>
+      <th class="right">Belopp</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Bruttolön</td>
+      <td class="right">{{ payslip.gross_salary|format_sek }} kr</td>
+    </tr>
+    <tr>
+      <td>Preliminärskatt</td>
+      <td class="right">-{{ payslip.preliminary_tax|format_sek }} kr</td>
+    </tr>
+  </tbody>
+  <tfoot>
+    <tr>
+      <td>Nettolön att utbetala</td>
+      <td class="right">{{ payslip.net_salary|format_sek }} kr</td>
+    </tr>
+  </tfoot>
+</table>
+
+<div class="section-title">Arbetsgivarens underlag</div>
+<table class="data-table">
+  <tbody>
+    <tr>
+      <td>Arbetsgivaravgift</td>
+      <td class="right">{{ payslip.employer_fee|format_sek }} kr</td>
+    </tr>
+    <tr>
+      <td>Total arbetsgivarkostnad</td>
+      <td class="right">{{ payslip.total_employer_cost|format_sek }} kr</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="payment-info">
+  <h3>Bokföringsunderlag</h3>
+  <p>Arbetsgivaravgiften bokförs som skuld och balanseras bort vid kommande arbetsgivardeklaration.</p>
+  {% if payslip.voucher_id %}<p>Verifikation: {{ payslip.voucher_id }}</p>{% endif %}
+</div>
+{% endblock %}

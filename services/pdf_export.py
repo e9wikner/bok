@@ -25,6 +25,7 @@ except (ImportError, OSError):
 from services.ledger import LedgerService
 from services.invoice import InvoiceService
 from services.k2_report import K2ReportService
+from services.payroll import PayrollService
 from repositories.period_repo import PeriodRepository
 
 
@@ -164,6 +165,7 @@ class PDFExportService:
         self.company = company or CompanyInfo()
         self.ledger = LedgerService()
         self.invoice_service = InvoiceService()
+        self.payroll_service = PayrollService()
         self.period_repo = PeriodRepository()
     
     # ---- Invoice PDF ----
@@ -196,6 +198,18 @@ class PDFExportService:
             "qr_code_data": qr_code_data,
         }
         return self.engine.render_pdf("invoice.html", context)
+
+    def export_payslip(self, payslip_id: str) -> bytes:
+        """Generate PDF for a payslip."""
+        context = self.payroll_service.get_payslip_context(payslip_id)
+        context["company"] = self.company
+        return self.engine.render_pdf("payslip.html", context)
+
+    def export_payslip_html(self, payslip_id: str) -> str:
+        """Generate payslip HTML for preview/debugging and PDF-light tests."""
+        context = self.payroll_service.get_payslip_context(payslip_id)
+        context["company"] = self.company
+        return self.engine.render_html("payslip.html", context)
     
     # ---- Trial Balance PDF ----
     

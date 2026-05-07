@@ -133,6 +133,62 @@ export interface CompanyInfo {
   phone?: string | null;
 }
 
+export interface PayrollSalarySetting {
+  id: string;
+  employee_id: string;
+  gross_monthly_salary: number;
+  preliminary_tax: number;
+  employer_fee_rate_bp?: number | null;
+  employer_fee_amount?: number | null;
+  calculated_employer_fee: number;
+  payment_day: number;
+  active: boolean;
+}
+
+export interface PayrollEmployee {
+  id: string;
+  name: string;
+  personal_number?: string | null;
+  email?: string | null;
+  bank_account?: string | null;
+  active: boolean;
+  salary_setting?: PayrollSalarySetting | null;
+}
+
+export interface Payslip {
+  id: string;
+  payroll_run_id: string;
+  employee_id: string;
+  employee_name?: string | null;
+  period_year: number;
+  period_month: number;
+  payment_date: string;
+  gross_salary: number;
+  preliminary_tax: number;
+  employer_fee: number;
+  net_salary: number;
+  total_employer_cost: number;
+  status: "generated" | "sent" | "booked";
+  pdf_sent_at?: string | null;
+  bank_transaction_id?: string | null;
+  voucher_id?: string | null;
+}
+
+export interface PayrollRun {
+  id: string;
+  year: number;
+  month: number;
+  payment_date: string;
+  status: "draft" | "generated" | "booked";
+  payslip_count: number;
+  total_gross_salary: number;
+  total_preliminary_tax: number;
+  total_employer_fee: number;
+  total_net_salary: number;
+  total_employer_cost: number;
+  payslips: Payslip[];
+}
+
 export const api = {
   // Health
   getHealth: async () => {
@@ -290,6 +346,55 @@ export const api = {
     revenue_account: string;
   }) => {
     const { data } = await apiClient.post("/api/v1/articles", payload);
+    return data;
+  },
+
+  // Payroll
+  getPayrollEmployees: async (search?: string) => {
+    const { data } = await apiClient.get("/api/v1/payroll/employees", { params: { search } });
+    return data;
+  },
+  createPayrollEmployee: async (payload: {
+    name: string;
+    personal_number?: string;
+    email?: string;
+    bank_account?: string;
+    active?: boolean;
+  }) => {
+    const { data } = await apiClient.post("/api/v1/payroll/employees", payload);
+    return data;
+  },
+  setPayrollSalary: async (employeeId: string, payload: {
+    gross_monthly_salary: number;
+    preliminary_tax: number;
+    employer_fee_rate_bp?: number | null;
+    employer_fee_amount?: number | null;
+    payment_day: number;
+    active?: boolean;
+  }) => {
+    const { data } = await apiClient.put(`/api/v1/payroll/employees/${employeeId}/salary`, payload);
+    return data;
+  },
+  getPayrollRuns: async () => {
+    const { data } = await apiClient.get("/api/v1/payroll/runs");
+    return data;
+  },
+  createPayrollRun: async (payload: { year: number; month: number; payment_date?: string }) => {
+    const { data } = await apiClient.post("/api/v1/payroll/runs", payload);
+    return data;
+  },
+  generatePayrollRun: async (id: string) => {
+    const { data } = await apiClient.post(`/api/v1/payroll/runs/${id}/generate`);
+    return data;
+  },
+  markPayslipSent: async (id: string) => {
+    const { data } = await apiClient.post(`/api/v1/payroll/payslips/${id}/mark-sent`);
+    return data;
+  },
+  bookPayslip: async (id: string, bankTransactionId: string) => {
+    const { data } = await apiClient.post(`/api/v1/payroll/payslips/${id}/book`, {
+      bank_transaction_id: bankTransactionId,
+    });
     return data;
   },
 
@@ -491,6 +596,8 @@ export const api = {
   // Attachment URL helper (for <img> src and links)
   getAttachmentUrl: (voucherId: string, attachmentId: string) =>
     `${API_URL}/api/v1/vouchers/${voucherId}/attachments/${attachmentId}`,
+  getPayslipPdfUrl: (payslipId: string) =>
+    `${API_URL}/api/v1/export/pdf/payslip/${payslipId}`,
 
   // Audit Log
   getAuditLog: async (limit = 100, entityType?: string, action?: string) => {

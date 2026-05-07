@@ -68,6 +68,22 @@ export function useArticles(search?: string) {
   });
 }
 
+export function usePayrollEmployees(search?: string) {
+  return useQuery({
+    queryKey: ["payroll-employees", search],
+    queryFn: () => api.getPayrollEmployees(search),
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+export function usePayrollRuns() {
+  return useQuery({
+    queryKey: ["payroll-runs"],
+    queryFn: () => api.getPayrollRuns(),
+    staleTime: 60 * 1000,
+  });
+}
+
 export function useAgentInstructions() {
   return useQuery({
     queryKey: ["agent-instructions", "accounting"],

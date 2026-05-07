@@ -36,6 +36,7 @@ from api.routes import (
     sru_mappings,
     company_info,
     tax_ink2,
+    payroll,
 )
 
 # Create app
@@ -114,6 +115,9 @@ app.include_router(company_info.router)
 
 # Tax declaration presentation data
 app.include_router(tax_ink2.router)
+
+# Payroll
+app.include_router(payroll.router)
 
 
 @app.get("/health", tags=["health"])

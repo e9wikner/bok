@@ -5,6 +5,7 @@ from fastapi.responses import Response
 from typing import Optional
 
 from repositories.period_repo import PeriodRepository
+from domain.validation import ValidationError
 from services.pdf_export import PDFExportService, CompanyInfo
 
 router = APIRouter(prefix="/api/v1/export/pdf", tags=["export-pdf"])
@@ -91,12 +92,50 @@ async def export_invoice_pdf(
     try:
         pdf_bytes = pdf_service.export_invoice(invoice_id)
         return _pdf_response(pdf_bytes, f"faktura_{invoice_id}.pdf")
-    except ValueError as e:
+    except (ValueError, ValidationError) as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Kunde inte generera faktura-PDF: {str(e)}",
+        )
+
+
+@router.get("/payslip/{payslip_id}")
+async def export_payslip_pdf(
+    payslip_id: str,
+    pdf_service: PDFExportService = Depends(_get_pdf_service),
+):
+    """Exportera lönespecifikation som PDF."""
+    try:
+        pdf_bytes = pdf_service.export_payslip(payslip_id)
+        return _pdf_response(pdf_bytes, f"lonespecifikation_{payslip_id}.pdf")
+    except (ValueError, ValidationError) as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Kunde inte generera lönespecifikation-PDF: {str(e)}",
+        )
+
+
+@router.get("/payslip/{payslip_id}/html")
+async def export_payslip_html(
+    payslip_id: str,
+    pdf_service: PDFExportService = Depends(_get_pdf_service),
+):
+    """Exportera lönespecifikation som HTML."""
+    try:
+        return Response(
+            content=pdf_service.export_payslip_html(payslip_id),
+            media_type="text/html; charset=utf-8",
+        )
+    except (ValueError, ValidationError) as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Kunde inte generera lönespecifikation-HTML: {str(e)}",
         )
 
 
