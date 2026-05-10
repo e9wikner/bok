@@ -28,6 +28,16 @@ docker-compose up --build
 - ✅ **Anomalidetektering** – Felprevention (Klar)
 - 🚀 **Fas 5** – Bankintegration, Auto-kategorisering, BFL-compliance, Momsdeklaration
 
+## Lokal produktionsdrift och agent
+
+För en server på det egna nätverket, använd
+[docs/local_network_deployment.md](docs/local_network_deployment.md). Den guiden
+täcker starka hemligheter, Docker Compose, backup, LAN-adresser och hur en
+Openclaw/AI-agent kopplas mot API:t med `Authorization: Bearer <BOKFOERING_API_KEY>`.
+
+Viktigt: `/api/v1/agent/keys/*` är ännu inte persistent nyckelhantering. För
+agentintegration används tills vidare `BOKFOERING_API_KEY`.
+
 ## Teknikstack
 
 ### Backend
@@ -37,7 +47,7 @@ docker-compose up --build
 - **Övrigt:** Pydantic, SQLAlchemy, Alembic
 
 ### Frontend
-- **Frontend:** Next.js 14 (React 18 + TypeScript)
+- **Frontend:** Next.js 16 (React 18 + TypeScript)
 - **Styling:** Tailwind CSS
 - **State:** React Query + hooks
 - **Mörkt läge:** Inbyggt stöd
@@ -235,7 +245,7 @@ bokfoering-api/
 docker-compose up --build
 # API Server: http://localhost:8000
 # API Docs: http://localhost:8000/docs
-# Frontend v2: http://localhost:3000 ✨ NEW
+# Frontend: http://localhost:3000
 # Streamlit (old): http://localhost:8501
 # Test data: TestCorp AB (auto-seeded)
 ```
@@ -259,12 +269,11 @@ npm run dev
 ### Miljövariabler
 ```bash
 # Backend
-export API_KEY=dev-key-change-in-production
+export BOKFOERING_API_KEY=dev-key-change-in-production
 export DATABASE_URL=sqlite:///bokfoering.db
 
 # Frontend
 export NEXT_PUBLIC_API_URL=http://localhost:8000
-export NEXT_PUBLIC_API_KEY=dev-key-change-in-production
 ```
 
 ## Dokumentation
@@ -290,6 +299,7 @@ export NEXT_PUBLIC_API_KEY=dev-key-change-in-production
   - Monitorering & loggning
   - Backup-strategi & automatisering
   - Produktions-docker-compose-konfiguration
+- **[docs/local_network_deployment.md](docs/local_network_deployment.md)** - LAN-server och Openclaw/agent
 
 ## Reglering och Compliance
 

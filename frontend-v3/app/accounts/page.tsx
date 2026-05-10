@@ -1,13 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAccounts } from "@/hooks/useData";
 import { formatCurrency } from "@/lib/utils";
-import { BookOpen, Search, ChevronDown, ChevronRight } from "lucide-react";
+import { Search, ChevronDown, ChevronRight } from "lucide-react";
 
 const TYPE_LABELS: Record<string, string> = {
   asset: "Tillgångar",

@@ -52,7 +52,7 @@ docker compose version
 - Domain name pointed to server IP
 - Subdomains configured:
   - `api.yourdomain.com` → Backend API
-  - `app.yourdomain.com` → Frontend v2
+  - `app.yourdomain.com` → Frontend
   - `docs.yourdomain.com` → API documentation (optional)
 
 ---
@@ -71,20 +71,12 @@ cd bok
 Create production environment file:
 
 ```bash
-cat > .env.production << 'EOF'
-# API Configuration
-API_KEY=your-secure-api-key-change-this
-DATABASE_URL=sqlite:////app/data/bokfoering.db
-DEBUG=False
-
-# Frontend Configuration
-NEXT_PUBLIC_API_URL=https://api.yourdomain.com
-NEXT_PUBLIC_API_KEY=your-secure-api-key-change-this
-
-# Security
-CORS_ORIGINS=https://app.yourdomain.com,https://yourdomain.com
-EOF
+cp .env.production.example .env.production
 ```
+
+Then edit `.env.production` and replace `BOKFOERING_API_KEY`, `JWT_SECRET` and
+`AUTH_PASSWORD`. For a LAN-only deployment, prefer
+[docs/local_network_deployment.md](docs/local_network_deployment.md).
 
 ### 3. Update Docker Compose for Production
 
@@ -136,7 +128,7 @@ services:
       timeout: 10s
       retries: 3
 
-  # Frontend v2 (Next.js)
+  # Frontend (Next.js)
   frontend:
     build: ./frontend-v3
     container_name: bokfoering-frontend
@@ -479,16 +471,19 @@ Place certificates in `./certs/` directory.
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `API_KEY` | API authentication key | `sk-live-xxxxxxxxxxxx` |
+| `BOKFOERING_API_KEY` | API/agent bearer token | `sk-live-xxxxxxxxxxxx` |
+| `JWT_SECRET` | JWT signing secret for frontend login sessions | long random value |
+| `AUTH_USERNAME` | Frontend login username | `admin` |
+| `AUTH_PASSWORD` | Frontend login password | long random value |
 | `DATABASE_URL` | SQLite database path | `sqlite:////app/data/bokfoering.db` |
 | `DEBUG` | Debug mode | `False` |
-| `NEXT_PUBLIC_API_URL` | Backend API URL | `https://api.yourdomain.com` |
-| `NEXT_PUBLIC_API_KEY` | Frontend API key | Same as API_KEY |
+| `NEXT_PUBLIC_API_URL` | Browser-visible backend URL. Leave empty when frontend proxies `/api` to `BACKEND_URL`. | `https://api.yourdomain.com` |
+| `BACKEND_URL` | Internal backend URL used by the Next.js rewrite proxy | `http://api:8000` |
 | `CORS_ORIGINS` | Allowed CORS origins | `https://app.yourdomain.com` |
 
 ### Security Checklist
 
-- [ ] Change default API_KEY
+- [ ] Change default `BOKFOERING_API_KEY`, `JWT_SECRET`, and `AUTH_PASSWORD`
 - [ ] Enable firewall (only ports 22, 80, 443)
 - [ ] Disable SSH password authentication
 - [ ] Enable automatic security updates

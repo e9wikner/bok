@@ -359,7 +359,7 @@ class TestSIE4ImportOpeningBalances:
         # Hitta raden för konto 1930 och verifiera beloppet
         row_1930 = next((r for r in rows if r["account"] == "1930"), None)
         assert row_1930 is not None
-        assert row_1930["debit"] == 150000
+        assert row_1930["debit"] == 15000000  # 150000.00 kr in öre
 
 
 class TestSIE4ExportAPI:

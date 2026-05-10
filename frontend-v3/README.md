@@ -1,36 +1,40 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# BokAi Frontend
 
-## Getting Started
+Next.js frontend for the BokAi bookkeeping system.
 
-First, run the development server:
+## Development
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+For local development against a backend on another origin:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev
+```
 
-## Learn More
+When `NEXT_PUBLIC_API_URL` is empty, the frontend calls relative `/api` and
+`/health` URLs. In Docker this is proxied by `next.config.mjs` to
+`BACKEND_URL`, normally `http://api:8000`.
 
-To learn more about Next.js, take a look at the following resources:
+## Production Build
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm run lint
+npm run build
+npm run start
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The Docker image uses `output: "standalone"` and runs `node server.js`.
 
-## Deploy on Vercel
+## Security Notes
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Do not expose a static API key through `NEXT_PUBLIC_*` variables.
+- Browser users authenticate through `/api/v1/auth/login` and store a JWT in
+  local storage.
+- For LAN deployment, prefer the same-origin `/api` rewrite so the browser only
+  needs to reach the frontend origin.

@@ -87,14 +87,17 @@ git clone https://github.com/e9wikner/bok.git
 cd bok
 
 # Create production config
-cat > .env.production << 'EOF'
-API_KEY=your-secure-production-key
-NEXT_PUBLIC_API_URL=https://api.yourdomain.com
-NEXT_PUBLIC_API_KEY=your-secure-production-key
-EOF
+cp .env.production.example .env.production
+nano .env.production
+
+# Required before deployment:
+# - Set BOKFOERING_API_KEY to a long random value.
+# - Set JWT_SECRET to a long random value.
+# - Set AUTH_PASSWORD to a strong admin password.
+# - Set APP_DOMAIN, API_DOMAIN, CORS_ORIGINS and LETSENCRYPT_EMAIL for HTTPS.
 
 # Deploy with Docker
-docker compose -f docker-compose.prod.yml up -d
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
 ```
 
 ## Server Types

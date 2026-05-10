@@ -82,6 +82,21 @@ Minimum API surface:
 Existing voucher, account, period and report endpoints remain the primary way
 for the agent to read historical bookkeeping data.
 
+## Openclaw / External Agent Setup
+
+For a local agent, use the backend base URL directly:
+
+- LAN: `http://SERVER_IP:8000`
+- Docker host: `http://localhost:8000`
+
+Send `Authorization: Bearer <BOKFOERING_API_KEY>` on every API call. The full
+OpenAPI document is available at `/openapi.json`; the smaller
+`/api/v1/agent/spec/openapi` endpoint is only a helper.
+
+The `/api/v1/agent/keys/*` endpoints are placeholders and do not currently
+create persistent credentials. Configure the agent with `BOKFOERING_API_KEY`
+until persistent agent key storage is implemented.
+
 ## Frontend Role
 
 Frontend responsibilities:

@@ -8,6 +8,7 @@ Documentation: https://www.sie.se/sie4_format.pdf
 """
 
 import re
+import uuid
 from datetime import date
 from typing import List, Dict, Optional
 from dataclasses import dataclass
@@ -350,8 +351,26 @@ class SIE4Parser:
         return SIEAccount(
             code=code,
             name=name,
-            type="1",  # Default to asset
+            type=self._infer_account_type(code),
         )
+
+    @staticmethod
+    def _infer_account_type(account_code: str) -> str:
+        """Infer an account type from the BAS account class."""
+        try:
+            first_digit = int(account_code[0])
+        except (ValueError, IndexError):
+            return "1"
+
+        if first_digit == 1:
+            return "1"
+        if first_digit == 2:
+            return "3" if account_code.startswith(("20", "21", "22")) else "2"
+        if first_digit == 3:
+            return "4"
+        if 4 <= first_digit <= 8:
+            return "5"
+        return "1"
 
     def _parse_sru_mapping(self, line: str) -> Optional[Dict]:
         """Parse SRU mapping line (#SRU).
@@ -536,8 +555,6 @@ class SIE4Importer:
 
     def _import_data(self, data: SIEData, fiscal_year_id: Optional[str] = None) -> bool:
         """Import parsed SIE data."""
-        import requests
-
         success = True
 
         if data.company:
@@ -599,33 +616,21 @@ class SIE4Importer:
             return False
 
     def _import_account(self, account: SIEAccount) -> bool:
-        """Import a single account via API."""
-        import requests
+        """Import a single account into the local database."""
+        from repositories.account_repo import AccountRepository
 
-        # Check if account exists
-        resp = requests.get(
-            f"{self.api_url}/api/v1/accounts/{account.code}", headers=self.headers
-        )
-
-        if resp.status_code == 200:
-            # Account exists, skip
+        if AccountRepository.exists(account.code):
             return True
 
-        # Create account
-        account_data = {
-            "code": account.code,
-            "name": account.name,
-            "account_type": self._map_account_type(account.type),
-        }
-
-        resp = requests.post(
-            f"{self.api_url}/api/v1/accounts", headers=self.headers, json=account_data
-        )
-
-        if resp.status_code == 201:
+        try:
+            AccountRepository.create(
+                code=account.code,
+                name=account.name,
+                account_type=self._map_account_type(account.type),
+            )
             return True
-        else:
-            self.errors.append(f"Failed to create account {account.code}: {resp.text}")
+        except Exception as e:
+            self.errors.append(f"Failed to create account {account.code}: {str(e)}")
             return False
 
     def _import_sru_mappings(
@@ -634,43 +639,55 @@ class SIE4Importer:
         """Import SRU mappings for accounts.
 
         Maps accounts to Swedish tax declaration (INK2) fields.
-        Only imports if API endpoint is available.
         """
-        import requests
+        from datetime import datetime
+
+        from db.database import get_db
+        from repositories.account_repo import AccountRepository
 
         success = True
         imported_count = 0
+        db = get_db()
 
         for account_code, sru_field in sru_mappings.items():
-            # Find account ID by code
-            resp = requests.get(
-                f"{self.api_url}/api/v1/accounts/{account_code}",
-                headers=self.headers,
-            )
+            if not AccountRepository.exists(account_code):
+                continue
 
-            if resp.status_code != 200:
-                continue  # Skip if account doesn't exist
-
-            # Save SRU mapping
-            mapping_data = {
-                "account_code": account_code,
-                "sru_field": sru_field,
-            }
-
-            resp = requests.post(
-                f"{self.api_url}/api/v1/fiscal-years/{fiscal_year_id}/sru-mappings",
-                headers=self.headers,
-                json=mapping_data,
-            )
-
-            if resp.status_code in (201, 200):
+            try:
+                existing = db.execute(
+                    """
+                    SELECT id
+                    FROM account_sru_mappings
+                    WHERE fiscal_year_id = ? AND account_code = ?
+                    """,
+                    (fiscal_year_id, account_code),
+                ).fetchone()
+                now = datetime.now().isoformat()
+                if existing:
+                    db.execute(
+                        """
+                        UPDATE account_sru_mappings
+                        SET sru_field = ?, updated_at = ?
+                        WHERE fiscal_year_id = ? AND account_code = ?
+                        """,
+                        (sru_field, now, fiscal_year_id, account_code),
+                    )
+                else:
+                    db.execute(
+                        """
+                        INSERT INTO account_sru_mappings
+                            (id, fiscal_year_id, account_code, sru_field, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        (str(uuid.uuid4()), fiscal_year_id, account_code, sru_field, now, now),
+                    )
+                db.commit()
                 imported_count += 1
-            elif resp.status_code == 404:
-                # API endpoint not available yet, skip silently
-                break
-            else:
-                # Log error but continue
-                pass
+            except Exception as e:
+                success = False
+                self.errors.append(
+                    f"Failed to import SRU mapping {account_code}->{sru_field}: {str(e)}"
+                )
 
         if imported_count > 0:
             self.imported["sru_mappings"] = imported_count
@@ -680,8 +697,9 @@ class SIE4Importer:
     def _import_voucher(
         self, voucher: SIEVoucher, fiscal_year_id: Optional[str] = None
     ) -> bool:
-        """Import a single voucher via API."""
-        import requests
+        """Import a single voucher into the local ledger."""
+        from domain.validation import ValidationError
+        from services.ledger import LedgerService
 
         # Find or create period for this date
         period_id = self._get_or_create_period(voucher.date, fiscal_year_id)
@@ -712,25 +730,27 @@ class SIE4Importer:
                     }
                 )
 
-        voucher_data = {
-            "series": voucher.series,
-            "number": voucher.number,
-            "date": voucher.date.isoformat(),
-            "period_id": period_id,
-            "description": voucher.description,
-            "rows": rows,
-            "auto_post": True,
-        }
-
-        resp = requests.post(
-            f"{self.api_url}/api/v1/vouchers", headers=self.headers, json=voucher_data
-        )
-
-        if resp.status_code == 201:
+        try:
+            ledger = LedgerService()
+            created = ledger.create_voucher(
+                series=voucher.series,
+                number=voucher.number,
+                date=voucher.date,
+                period_id=period_id,
+                description=voucher.description,
+                rows_data=rows,
+                created_by="sie4_import",
+            )
+            ledger.post_voucher(created.id, actor="sie4_import")
             return True
-        else:
+        except ValidationError as e:
             self.errors.append(
-                f"Failed to create voucher {voucher.series}{voucher.number}: {resp.text}"
+                f"Failed to create voucher {voucher.series}{voucher.number}: {e.message}"
+            )
+            return False
+        except Exception as e:
+            self.errors.append(
+                f"Failed to create voucher {voucher.series}{voucher.number}: {str(e)}"
             )
             return False
 
@@ -741,9 +761,12 @@ class SIE4Importer:
 
         Creates or updates a voucher on the first day of the fiscal year with rows
         representing the opening balances from the SIE file.
-        Uses upsert logic - updates existing IB voucher if one exists.
+        Uses upsert logic while the IB voucher is still a draft. Once posted, an
+        IB voucher is immutable like every other posted voucher.
         """
-        import requests
+        from domain.types import VoucherStatus
+        from domain.validation import ValidationError
+        from services.ledger import LedgerService
 
         if not data.opening_balances or not data.fiscal_year_start:
             return False
@@ -788,101 +811,73 @@ class SIE4Importer:
         year = data.fiscal_year_start.year
         existing_ib = self._find_existing_ib_voucher(fiscal_year_id)
 
-        voucher_data = {
-            "series": "IB",
-            "date": data.fiscal_year_start.isoformat(),
-            "period_id": period_id,
-            "description": f"Ingående balans {year}",
-            "rows": rows,
-            "auto_post": True,
-        }
+        ledger = LedgerService()
+        description = f"Ingående balans {year}"
 
-        if existing_ib:
-            # Update existing IB voucher
-            resp = requests.put(
-                f"{self.api_url}/api/v1/vouchers/{existing_ib['id']}",
-                headers=self.headers,
-                json=voucher_data,
-            )
-            action = "updated"
-        else:
-            # Create new IB voucher
-            resp = requests.post(
-                f"{self.api_url}/api/v1/vouchers",
-                headers=self.headers,
-                json=voucher_data,
-            )
-            action = "created"
-
-        if resp.status_code in (200, 201):
+        try:
+            if existing_ib:
+                if existing_ib.status == VoucherStatus.POSTED:
+                    self.errors.append(
+                        "Cannot update opening balance voucher because it is posted and immutable"
+                    )
+                    return False
+                ledger.update_voucher(
+                    voucher_id=existing_ib.id,
+                    rows_data=rows,
+                    description=description,
+                    reason="SIE4 opening balance import",
+                    actor="sie4_import",
+                )
+            else:
+                ledger.create_voucher(
+                    series="IB",
+                    date=data.fiscal_year_start,
+                    period_id=period_id,
+                    description=description,
+                    rows_data=rows,
+                    created_by="sie4_import",
+                )
             return True
-        else:
-            self.errors.append(
-                f"Failed to {action} opening balance voucher: {resp.text}"
-            )
+        except ValidationError as e:
+            self.errors.append(f"Failed to import opening balance voucher: {e.message}")
+            return False
+        except Exception as e:
+            self.errors.append(f"Failed to import opening balance voucher: {str(e)}")
             return False
 
     def _find_existing_ib_voucher(
         self, fiscal_year_id: Optional[str]
-    ) -> Optional[Dict]:
+    ):
         """Find existing IB voucher for a fiscal year."""
-        import requests
+        from repositories.voucher_repo import VoucherRepository
 
         if not fiscal_year_id:
             return None
 
-        # List all vouchers for the fiscal year and find IB series
-        resp = requests.get(
-            f"{self.api_url}/api/v1/vouchers",
-            headers=self.headers,
-            params={"fiscal_year_id": fiscal_year_id, "status": "all"},
-        )
-
-        if resp.status_code == 200:
-            vouchers = resp.json().get("vouchers", [])
-            for voucher in vouchers:
-                if voucher.get("series") == "IB":
-                    return voucher
+        vouchers, _ = VoucherRepository.list_all(fiscal_year_id=fiscal_year_id)
+        for voucher in vouchers:
+            if voucher.series.value == "IB":
+                return voucher
         return None
 
     def _get_or_create_period(
         self, voucher_date: date, fiscal_year_id: Optional[str] = None
     ) -> Optional[str]:
         """Get or create period for a specific date."""
-        import requests
+        from repositories.period_repo import PeriodRepository
 
-        # Find existing period
-        year = voucher_date.year
-        month = voucher_date.month
-
-        # Try to find fiscal year first
         if not fiscal_year_id:
-            resp = requests.get(
-                f"{self.api_url}/api/v1/fiscal-years", headers=self.headers
-            )
-            if resp.status_code == 200:
-                fiscal_years = resp.json().get("fiscal_years", [])
-                for fy in fiscal_years:
-                    start = date.fromisoformat(fy["start_date"])
-                    end = date.fromisoformat(fy["end_date"])
-                    if start <= voucher_date <= end:
-                        fiscal_year_id = fy["id"]
-                        break
+            for fy in PeriodRepository.list_fiscal_years():
+                if fy.start_date <= voucher_date <= fy.end_date:
+                    fiscal_year_id = fy.id
+                    break
 
         if not fiscal_year_id:
             return None
 
-        # List periods for this fiscal year
-        resp = requests.get(
-            f"{self.api_url}/api/v1/periods",
-            headers=self.headers,
-            params={"fiscal_year_id": fiscal_year_id},
-        )
-
-        if resp.status_code == 200:
-            for period in resp.json().get("periods", []):
-                if period["year"] == year and period["month"] == month:
-                    return period["id"]
+        period = PeriodRepository.get_period_by_date(fiscal_year_id, voucher_date)
+        if period:
+            return period.id
 
         return None
 

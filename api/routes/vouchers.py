@@ -324,6 +324,7 @@ def _voucher_to_response(voucher) -> VoucherResponse:
             VoucherRowResponse(
                 id=row.id,
                 voucher_id=row.voucher_id,
+                account=row.account_code,
                 account_code=row.account_code,
                 account_name=account_names[row.account_code].name
                 if row.account_code in account_names

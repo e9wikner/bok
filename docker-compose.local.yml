@@ -15,21 +15,32 @@ services:
       BOKFOERING_API_KEY: "${BOKFOERING_API_KEY:-dev-key-change-in-production}"
       AUTH_USERNAME: "${AUTH_USERNAME:-admin}"
       AUTH_PASSWORD: "${AUTH_PASSWORD:-admin}"
+      JWT_SECRET: "${JWT_SECRET:-dev-jwt-secret-change-in-production}"
+      CORS_ORIGINS: "${CORS_ORIGINS:-*}"
+      DEBUG: "${DEBUG:-False}"
     volumes:
       - bokfoering-data:/app/data
+    command: sh -c "python main.py --init-db && python main.py --host 0.0.0.0 --port 8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   frontend:
     build:
       context: ./frontend-v3
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
-        NEXT_PUBLIC_API_KEY: "dev-key-change-in-production"
     ports:
       - "3000:3000"
     environment:
       BACKEND_URL: "http://api:8000"
+    restart: unless-stopped
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
 volumes:
   bokfoering-data:

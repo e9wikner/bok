@@ -1195,6 +1195,17 @@ Authorization: Bearer dev-key-change-in-production
 
 Endpoints for AI agent/tool integration.
 
+For a local-network Openclaw or tool-using agent, point the agent at the backend
+base URL, for example `http://SERVER_IP:8000`, and send:
+
+```http
+Authorization: Bearer <BOKFOERING_API_KEY>
+```
+
+The complete FastAPI schema is available at `GET /openapi.json`. The
+`/api/v1/agent/spec/openapi` endpoint is a smaller agent-focused helper and does
+not replace the full schema.
+
 ### Create and Post Agent Voucher
 
 ```http
@@ -1251,6 +1262,12 @@ Authorization: Bearer dev-key-change-in-production
 ```
 
 ### API Keys
+
+Current status: these endpoints are placeholders for a future persistent agent
+key store. They return example data and generated values, but the generated
+keys are not persisted or accepted by `verify_api_key`. Use
+`BOKFOERING_API_KEY` for real agent authentication until persistent key storage
+is implemented.
 
 #### List API Keys
 

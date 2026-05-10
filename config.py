@@ -31,6 +31,18 @@ class Settings(BaseSettings):
 
     # Security
     debug: bool = os.getenv("DEBUG", "False").lower() == "true"
+    cors_origins: str = os.getenv("CORS_ORIGINS", "*")
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        """Return configured CORS origins as a list."""
+        if self.cors_origins.strip() == "*":
+            return ["*"]
+        return [
+            origin.strip()
+            for origin in self.cors_origins.split(",")
+            if origin.strip()
+        ]
 
     model_config = {
         "env_file": ".env",

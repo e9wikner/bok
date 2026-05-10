@@ -17,6 +17,7 @@ services:
       - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
       - "--certificatesresolvers.letsencrypt.acme.email=${LETSENCRYPT_EMAIL:-admin@localhost}"
       - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--ping=true"
       - "--log.level=INFO"
     ports:
       - "80:80"
@@ -53,8 +54,6 @@ services:
       - "traefik.http.routers.api.entrypoints=websecure"
       - "traefik.http.routers.api.tls.certresolver=letsencrypt"
       - "traefik.http.services.api.loadbalancer.server.port=8000"
-      - "traefik.http.routers.api.middlewares=api-stripprefix"
-      - "traefik.http.middlewares.api-stripprefix.stripprefix.prefixes=/api"
     command: >
       sh -c "python main.py --init-db && 
              python main.py --host 0.0.0.0 --port 8000"
@@ -74,7 +73,7 @@ services:
           cpus: '0.5'
           memory: 512M
 
-  # Frontend v2 (Next.js)
+  # Frontend (Next.js)
   frontend:
     build:
       context: ./frontend-v3

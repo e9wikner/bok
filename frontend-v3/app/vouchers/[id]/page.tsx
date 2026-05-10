@@ -1,6 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
+import Image from "next/image";
 import Link from "next/link";
 import { useState, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -526,9 +527,12 @@ export default function VoucherDetailPage() {
                   >
                     {isImage && (
                       <a href={url} target="_blank" rel="noopener noreferrer">
-                        <img
+                        <Image
                           src={url}
                           alt={att.filename}
+                          width={640}
+                          height={360}
+                          unoptimized
                           className="w-full h-48 object-contain bg-muted/30 hover:opacity-90 transition-opacity"
                         />
                       </a>

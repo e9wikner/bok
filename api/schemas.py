@@ -19,6 +19,7 @@ class VoucherRowResponse(BaseModel):
     """Response model for voucher row."""
     id: str
     voucher_id: str
+    account: str
     account_code: str
     account_name: Optional[str] = None
     debit: int

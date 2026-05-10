@@ -139,12 +139,16 @@ docker exec -it bokfoering-api /bin/bash
 ## Production Considerations
 
 For production deployment:
-1. Use PostgreSQL instead of SQLite
-2. Change `BOKFOERING_API_KEY` to a strong value
+1. Copy `.env.production.example` to `.env.production` and replace every secret
+2. Change `BOKFOERING_API_KEY`, `JWT_SECRET`, `AUTH_PASSWORD`
 3. Set `DEBUG=False`
-4. Add SSL/TLS (reverse proxy like Nginx)
-5. Set up automated backups (7-year retention per BFL)
-6. Use health checks in your orchestration
+4. Set `CORS_ORIGINS` to the frontend origin when browsers call the API directly
+5. Add SSL/TLS for public deployments (reverse proxy like Nginx/Traefik)
+6. Set up automated backups (7-year retention per BFL)
+7. Use health checks in your orchestration
+
+For a LAN-only server and Openclaw/agent setup, see
+`docs/local_network_deployment.md`.
 
 ## Troubleshooting
 

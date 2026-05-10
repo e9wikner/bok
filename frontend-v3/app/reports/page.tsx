@@ -202,7 +202,6 @@ function IncomeStatementReport({ year, month }: { year: number; month?: number }
   if (isLoading) return <ReportSkeleton />;
 
   const revenue = data?.revenue || 0;
-  const costs = data?.costs || 0;
   const financial = data?.financial || 0;
   const operatingProfit = data?.operating_profit || 0;
   const profit = data?.profit || 0;
