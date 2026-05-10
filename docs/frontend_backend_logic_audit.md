@@ -6,6 +6,24 @@ Goal: keep the frontend as a thin human UI for review and correction, while back
 
 The backend already owns the most important accounting operations: vouchers, posting, invoices, payments, SIE import/export, SRU export and reports. The new agent model also requires the backend to own versioned Markdown accounting instructions, direct agent posting, and correction history. The main remaining drift is that several frontend pages still derive domain views from lower-level API data. Those derivations should move server-side so an AI agent can call the same endpoints and get the same interpretation as the human UI.
 
+## Current Status
+
+Implemented:
+
+- Versioned agent instruction APIs: `GET/PUT /api/v1/agent-instructions/{scope}`
+- Agent direct posting: `POST /api/v1/agent/vouchers`
+- Posted voucher correction endpoint: `POST /api/v1/vouchers/{id}/correct`
+- Agent-readable correction history: `GET /api/v1/accounting-corrections`
+- Report options endpoint: `GET /api/v1/reports/options`
+
+Still remaining:
+
+- Make the posted-voucher correction UI explicit enough that it cannot look like
+  direct row editing.
+- Move INK2 declaration view models and row calculations behind backend APIs.
+- Add invoice preview and server-side list summaries where noted below.
+- Add SRU mapping command endpoints for inherit/reset.
+
 ## Agent Workflow Target
 
 - Agent reads `GET /api/v1/agent-instructions/accounting`.
@@ -14,13 +32,12 @@ The backend already owns the most important accounting operations: vouchers, pos
 - Frontend correction of a posted voucher must call `POST /api/v1/vouchers/{id}/correct`, not edit posted rows in place.
 - Corrections become agent-readable history; frontend remains a human review/correction surface.
 
-## Move First
+## Remaining Work
 
-1. Agent instructions, direct posting and posted correction flow
+1. Posted correction UI clarity
    - Current frontend: `frontend-v3/app/learning/page.tsx`, `frontend-v3/app/vouchers/[id]/page.tsx`
-   - Problem: voucher correction can look like direct editing unless the UI makes the B-series correction flow explicit.
-   - Backend target: versioned instruction document, `POST /api/v1/agent/vouchers`, `POST /api/v1/vouchers/{id}/correct`, `GET /api/v1/accounting-corrections`.
-   - Agent value: agent can operate from persistent instructions, and human corrections are available as structured feedback.
+   - Problem: voucher correction can look like direct editing unless the UI makes the B-series correction flow explicit. The backend endpoints exist.
+   - Agent value: human corrections remain clear, auditable feedback for future agent work.
 
 2. INK2 declaration layout and row calculations
    - Current frontend: `frontend-v3/app/bokslut/ink2/page.tsx`
@@ -77,12 +94,11 @@ The backend already owns the most important accounting operations: vouchers, pos
 
 ## Suggested Migration Order
 
-1. Add agent instruction APIs, direct-post endpoint and posted-correction endpoint.
-2. Convert voucher correction UI to use B-series correction for posted vouchers.
-3. Add backend INK2 declaration endpoint and convert frontend to render returned sections.
-4. Add invoice preview endpoint and use it from invoice creation/edit views.
-5. Add server-side summaries/totals to voucher and invoice list endpoints.
-6. Add report option/export helper endpoints so frontend stops resolving period IDs.
-7. Add SRU mapping command endpoints for inherit/reset.
+1. Make posted voucher correction UI clearly use B-series correction semantics.
+2. Add backend INK2 declaration endpoint and convert frontend to render returned sections.
+3. Add invoice preview endpoint and use it from invoice creation/edit views.
+4. Add server-side summaries/totals to voucher and invoice list endpoints.
+5. Add export helper endpoints so frontend stops resolving period IDs for exports.
+6. Add SRU mapping command endpoints for inherit/reset.
 
 Each step should keep existing endpoints working while frontend gradually becomes a renderer over backend-authored view models.
