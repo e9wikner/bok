@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,6 +15,7 @@ type ReportTab = "income" | "balance" | "ledger";
 export default function ReportsPage() {
   const [tab, setTab] = useState<ReportTab>("income");
   const [year, setYear] = useState<number>(new Date().getFullYear());
+  const [fiscalYearId, setFiscalYearId] = useState<string | undefined>(undefined);
   const [month, setMonth] = useState<number>(0);
   const { data: reportOptions } = useReportOptions();
   const [exporting, setExporting] = useState(false);
@@ -34,20 +35,34 @@ export default function ReportsPage() {
   }, []);
 
   const [sruExporting, setSruExporting] = useState(false);
+  const fiscalYears = useMemo(() => reportOptions?.fiscal_years || [], [reportOptions?.fiscal_years]);
+  const selectedFiscalYear = fiscalYears.find((fy: any) => fy.id === fiscalYearId);
+
+  useEffect(() => {
+    if (!fiscalYearId && fiscalYears.length > 0) {
+      const first = fiscalYears[0];
+      setFiscalYearId(first.id);
+      setYear(first.start_year);
+    }
+  }, [fiscalYearId, fiscalYears]);
 
   // SRU export helper
   const handleSruExport = async () => {
     setSruExporting(true);
     setErrorMessage(null);
     try {
-      const response = await api.exportSRUByYear(year);
+      if (!selectedFiscalYear) {
+        showError("Välj ett räkenskapsår först.");
+        return;
+      }
+      const response = await api.exportSRU(selectedFiscalYear.id);
       
       // Download ZIP file
       const blob = new Blob([response.data], { type: "application/zip" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      const filename = response.headers["content-disposition"]?.split("filename=")[1]?.replace(/"/g, "") || `INK2_${year}_SRU.zip`;
+      const filename = response.headers["content-disposition"]?.split("filename=")[1]?.replace(/"/g, "") || `INK2_${selectedFiscalYear.start_year}_SRU.zip`;
       a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
@@ -66,14 +81,13 @@ export default function ReportsPage() {
     setExporting(true);
     setErrorMessage(null);
     try {
-      const fiscalYear = (reportOptions?.fiscal_years || []).find((fy: any) => fy.start_year === year);
-      if (!fiscalYear) {
-        showError(`Inget räkenskapsår hittat för ${year}.`);
+      if (!selectedFiscalYear) {
+        showError("Välj ett räkenskapsår först.");
         return;
       }
 
       const reportType = tab === "income" ? "income" : "balance";
-      const blob = await api.getReportPdfExport(reportType, fiscalYear.id, month || undefined);
+      const blob = await api.getReportPdfExport(reportType, selectedFiscalYear.id, month || undefined);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -87,7 +101,6 @@ export default function ReportsPage() {
     }
   };
 
-  const availableYears: number[] = reportOptions?.years || [new Date().getFullYear()];
   const months = reportOptions?.months || [{ value: 0, label: "Hela året" }];
 
   return (
@@ -125,14 +138,17 @@ export default function ReportsPage() {
               <span className="text-sm font-medium">Period:</span>
             </div>
             <div className="flex flex-wrap gap-2">
-              {availableYears.map((y) => (
+              {fiscalYears.map((fy: any) => (
                 <Button
-                  key={y}
-                  variant={year === y ? "default" : "outline"}
+                  key={fy.id}
+                  variant={fiscalYearId === fy.id ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setYear(y)}
+                  onClick={() => {
+                    setFiscalYearId(fy.id);
+                    setYear(fy.start_year);
+                  }}
                 >
-                  {y}
+                  {fy.start_date} - {fy.end_date}
                 </Button>
               ))}
             </div>
@@ -186,18 +202,18 @@ export default function ReportsPage() {
       </Card>
 
       {tab === "income" && (
-        <IncomeStatementReport year={year} month={month || undefined} />
+        <IncomeStatementReport year={year} month={month || undefined} fiscalYearId={fiscalYearId} />
       )}
-      {tab === "balance" && <BalanceSheetReport year={year} />}
+      {tab === "balance" && <BalanceSheetReport year={year} fiscalYearId={fiscalYearId} />}
       {tab === "ledger" && (
-        <GeneralLedgerReport year={year} month={month || undefined} />
+        <GeneralLedgerReport year={year} month={month || undefined} fiscalYearId={fiscalYearId} />
       )}
     </div>
   );
 }
 
-function IncomeStatementReport({ year, month }: { year: number; month?: number }) {
-  const { data, isLoading } = useIncomeStatement(year, month);
+function IncomeStatementReport({ year, month, fiscalYearId }: { year: number; month?: number; fiscalYearId?: string }) {
+  const { data, isLoading } = useIncomeStatement(year, month, fiscalYearId);
 
   if (isLoading) return <ReportSkeleton />;
 
@@ -395,8 +411,8 @@ function BalanceSummaryCards({
   );
 }
 
-function BalanceSheetReport({ year }: { year: number }) {
-  const { data, isLoading } = useBalanceSheet(year);
+function BalanceSheetReport({ year, fiscalYearId }: { year: number; fiscalYearId?: string }) {
+  const { data, isLoading } = useBalanceSheet(year, fiscalYearId);
 
   if (isLoading) return <ReportSkeleton />;
 
@@ -640,10 +656,10 @@ function BalanceSheetReport({ year }: { year: number }) {
   );
 }
 
-function GeneralLedgerReport({ year, month }: { year: number; month?: number }) {
+function GeneralLedgerReport({ year, month, fiscalYearId }: { year: number; month?: number; fiscalYearId?: string }) {
   const [selectedAccount, setSelectedAccount] = useState<string>("");
   const { data: accountsData } = useAccounts();
-  const { data, isLoading } = useGeneralLedger(selectedAccount, year, month);
+  const { data, isLoading } = useGeneralLedger(selectedAccount, year, month, fiscalYearId);
 
   const allAccounts = accountsData?.accounts || [];
   const accounts = allAccounts;

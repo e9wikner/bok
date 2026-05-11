@@ -444,15 +444,17 @@ export const api = {
   },
 
   // Reports
-  getIncomeStatement: async (year?: number, month?: number) => {
+  getIncomeStatement: async (year?: number, month?: number, fiscalYearId?: string) => {
     const params: any = {};
+    if (fiscalYearId) params.fiscal_year_id = fiscalYearId;
     if (year) params.year = year;
     if (month) params.month = month;
     const { data } = await apiClient.get("/api/v1/reports/income-statement", { params });
     return data;
   },
-  getBalanceSheet: async (year?: number) => {
+  getBalanceSheet: async (year?: number, fiscalYearId?: string) => {
     const params: any = {};
+    if (fiscalYearId) params.fiscal_year_id = fiscalYearId;
     if (year) params.year = year;
     const { data } = await apiClient.get("/api/v1/reports/balance-sheet", { params });
     return data;
@@ -462,8 +464,9 @@ export const api = {
     return data;
   },
   // General ledger (huvudbok per konto)
-  getGeneralLedger: async (accountCode: string, year?: number, month?: number) => {
+  getGeneralLedger: async (accountCode: string, year?: number, month?: number, fiscalYearId?: string) => {
     const params: any = {};
+    if (fiscalYearId) params.fiscal_year_id = fiscalYearId;
     if (year) params.year = year;
     if (month) params.month = month;
     const { data } = await apiClient.get(`/api/v1/reports/general-ledger/${accountCode}`, { params });

@@ -71,6 +71,16 @@ class VoucherValidator:
                 details="period is immutable after locking"
             )
 
+        if not (period.start_date <= voucher.date <= period.end_date):
+            raise ValidationError(
+                code="voucher_date_outside_period",
+                message=(
+                    f"Voucher date {voucher.date.isoformat()} is outside period "
+                    f"{period.start_date.isoformat()} - {period.end_date.isoformat()}"
+                ),
+                details=f"period_id={period.id}"
+            )
+
         if voucher.posted_at is not None:
             raise ValidationError(
                 code="already_posted",

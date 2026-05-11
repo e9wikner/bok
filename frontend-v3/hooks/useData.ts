@@ -124,18 +124,18 @@ export function useAccountingCorrections(limit = 25) {
   });
 }
 
-export function useIncomeStatement(year?: number, month?: number) {
+export function useIncomeStatement(year?: number, month?: number, fiscalYearId?: string) {
   return useQuery({
-    queryKey: ["income-statement", year, month],
-    queryFn: () => api.getIncomeStatement(year, month),
+    queryKey: ["income-statement", year, month, fiscalYearId],
+    queryFn: () => api.getIncomeStatement(year, month, fiscalYearId),
     staleTime: 5 * 60 * 1000,
   });
 }
 
-export function useBalanceSheet(year?: number) {
+export function useBalanceSheet(year?: number, fiscalYearId?: string) {
   return useQuery({
-    queryKey: ["balance-sheet", year],
-    queryFn: () => api.getBalanceSheet(year),
+    queryKey: ["balance-sheet", year, fiscalYearId],
+    queryFn: () => api.getBalanceSheet(year, fiscalYearId),
     staleTime: 5 * 60 * 1000,
   });
 }
@@ -148,10 +148,10 @@ export function useReportOptions() {
   });
 }
 
-export function useGeneralLedger(accountCode: string, year?: number, month?: number) {
+export function useGeneralLedger(accountCode: string, year?: number, month?: number, fiscalYearId?: string) {
   return useQuery({
-    queryKey: ["general-ledger", accountCode, year, month],
-    queryFn: () => api.getGeneralLedger(accountCode, year, month),
+    queryKey: ["general-ledger", accountCode, year, month, fiscalYearId],
+    queryFn: () => api.getGeneralLedger(accountCode, year, month, fiscalYearId),
     staleTime: 5 * 60 * 1000,
     enabled: !!accountCode,
   });

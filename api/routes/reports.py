@@ -41,6 +41,31 @@ def _ören_to_kr(amount: int) -> float:
     return round(amount / 100, 2)
 
 
+def _period_label(year: Optional[int], month: Optional[int], fiscal_year_id: Optional[str]) -> str:
+    if fiscal_year_id:
+        fy = PeriodRepository.get_fiscal_year(fiscal_year_id)
+        if fy:
+            label = f"{fy.start_date.isoformat()} - {fy.end_date.isoformat()}"
+            return f"{label}, månad {month:02d}" if month else label
+        return fiscal_year_id
+    return f"{year}-{month:02d}" if year and month else str(year) if year else "all"
+
+
+def _filter_posted_vouchers(
+    fiscal_year_id: Optional[str] = None,
+    year: Optional[int] = None,
+    month: Optional[int] = None,
+):
+    vouchers, _ = VoucherRepository.list_all(status="posted")
+    if fiscal_year_id:
+        vouchers = [v for v in vouchers if v.fiscal_year_id == fiscal_year_id]
+    elif year:
+        vouchers = [v for v in vouchers if _parse_voucher_date(v).year == year]
+    if month:
+        vouchers = [v for v in vouchers if _parse_voucher_date(v).month == month]
+    return vouchers
+
+
 @router.get("/options")
 async def get_report_options():
     """Return fiscal years and month options used by report views and agents."""
@@ -75,6 +100,7 @@ async def get_report_options():
 
 @router.get("/income-statement")
 async def get_income_statement(
+    fiscal_year_id: Optional[str] = Query(None),
     year: Optional[int] = Query(None),
     month: Optional[int] = Query(None),
 ):
@@ -86,13 +112,7 @@ async def get_income_statement(
     
     All amounts returned in ören (divide by 100 for kronor).
     """
-    vouchers, _ = VoucherRepository.list_all(status="posted")
-
-    # Filter by year/month
-    if year:
-        vouchers = [v for v in vouchers if _parse_voucher_date(v).year == year]
-        if month:
-            vouchers = [v for v in vouchers if _parse_voucher_date(v).month == month]
+    vouchers = _filter_posted_vouchers(fiscal_year_id=fiscal_year_id, year=year, month=month)
     
     revenue = 0      # Intäkter (3000-3999) - normally credited
     costs = 0        # Kostnader (4000-7999) - normally debited
@@ -155,7 +175,7 @@ async def get_income_statement(
         "revenue_details": _format_details(revenue_details),
         "cost_details": _format_details(cost_details),
         "financial_details": _format_details(financial_details),
-        "period": f"{year}-{month:02d}" if year and month else str(year) if year else "all",
+        "period": _period_label(year, month, fiscal_year_id),
         "voucher_count": len(vouchers),
     }
 
@@ -166,6 +186,7 @@ async def get_income_statement(
 
 @router.get("/balance-sheet")
 async def get_balance_sheet(
+    fiscal_year_id: Optional[str] = Query(None),
     year: Optional[int] = Query(None),
     as_of_date: Optional[str] = Query(None),
 ):
@@ -184,6 +205,7 @@ async def get_balance_sheet(
     """
     vouchers, _ = VoucherRepository.list_all(status="posted")
     target_year = year
+    fiscal_year = PeriodRepository.get_fiscal_year(fiscal_year_id) if fiscal_year_id else None
     if as_of_date and not year:
         target_year = date_type.fromisoformat(as_of_date).year
 
@@ -194,7 +216,17 @@ async def get_balance_sheet(
 
     for voucher in vouchers:
         voucher_date = _parse_voucher_date(voucher)
-        if voucher_date.year == target_year:
+        if fiscal_year:
+            if voucher.fiscal_year_id == fiscal_year.id:
+                if voucher.series.value == "IB":
+                    ib_vouchers.append(voucher)
+                else:
+                    regular_vouchers.append(voucher)
+            elif voucher_date < fiscal_year.start_date:
+                prior_vouchers.append(voucher)
+        elif target_year is None:
+            regular_vouchers.append(voucher)
+        elif voucher_date.year == target_year:
             if voucher.series.value == "IB":
                 ib_vouchers.append(voucher)
             else:
@@ -333,7 +365,7 @@ async def get_balance_sheet(
         "closing_assets": closing_assets,
         "closing_equity_liabilities": closing_liabilities,
         "balanced": abs(closing_assets - closing_liabilities) < 100,
-        "period": as_of_date or str(year) if year else "all",
+        "period": as_of_date or _period_label(year, None, fiscal_year_id),
         "has_ib_vouchers": len(ib_vouchers) > 0,
         # Asset categories with 3 columns
         "opening_current_assets": opening_current_assets,
@@ -386,6 +418,7 @@ async def get_balance_sheet(
 @router.get("/general-ledger/{account_code}")
 async def get_general_ledger(
     account_code: str,
+    fiscal_year_id: Optional[str] = Query(None),
     year: Optional[int] = Query(None),
     month: Optional[int] = Query(None),
 ):
@@ -393,12 +426,7 @@ async def get_general_ledger(
     
     Returns all transactions for the account with running balance.
     """
-    vouchers, _ = VoucherRepository.list_all(status="posted")
-    
-    if year:
-        vouchers = [v for v in vouchers if _parse_voucher_date(v).year == year]
-        if month:
-            vouchers = [v for v in vouchers if _parse_voucher_date(v).month == month]
+    vouchers = _filter_posted_vouchers(fiscal_year_id=fiscal_year_id, year=year, month=month)
     
     # Sort by date
     vouchers.sort(key=lambda v: _parse_voucher_date(v))
@@ -440,5 +468,5 @@ async def get_general_ledger(
         "total_credit": total_credit,
         "closing_balance": running_balance,
         "transaction_count": len(transactions),
-        "period": f"{year}-{month:02d}" if year and month else str(year) if year else "all",
+        "period": _period_label(year, month, fiscal_year_id),
     }

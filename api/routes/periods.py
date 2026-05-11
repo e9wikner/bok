@@ -1,7 +1,7 @@
 """API routes for periods and fiscal years."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from datetime import date
+from datetime import date, timedelta
 
 from api.schemas import PeriodResponse, FiscalYearResponse
 from api.deps import get_ledger_service, get_current_actor
@@ -31,31 +31,28 @@ async def create_fiscal_year(
         
         fiscal_year = ledger.periods.create_fiscal_year(start_date, end_date)
         
-        # Create monthly periods
+        # Create monthly periods clipped to the fiscal year's actual dates.
+        # This supports shortened/extended fiscal years that start or end in
+        # the middle of a calendar month.
         from calendar import monthrange
-        current_date = start_date
-        while current_date.year < end_date.year or (current_date.year == end_date.year and current_date.month <= end_date.month):
-            year = current_date.year
-            month = current_date.month
+        current_start = start_date
+        while current_start <= end_date:
+            year = current_start.year
+            month = current_start.month
             
             # Get last day of month
             _, last_day = monthrange(year, month)
-            period_start = date(year, month, 1)
-            period_end = date(year, month, last_day)
+            period_end = min(date(year, month, last_day), end_date)
             
             ledger.periods.create_period(
                 fiscal_year_id=fiscal_year.id,
                 year=year,
                 month=month,
-                start_date=period_start,
+                start_date=current_start,
                 end_date=period_end
             )
             
-            # Move to next month
-            if month == 12:
-                current_date = date(year + 1, 1, 1)
-            else:
-                current_date = date(year, month + 1, 1)
+            current_start = period_end + timedelta(days=1)
         
         return _fiscal_year_to_response(fiscal_year)
     
