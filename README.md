@@ -93,6 +93,8 @@ agentintegration används tills vidare `BOKFOERING_API_KEY`.
   - Stöd för Windows-1252 och ISO-8859-1 teckenkodning
   - Automatisk kontoskapning vid import
   - Validering av SIE4-format före import
+  - `#RAR 0` styr räkenskapsåret automatiskt när `fiscal_year_id` utelämnas
+  - Explicit `fiscal_year_id` måste matcha filens exakta start- och slutdatum
 - **SIE4 Export:** Exportera till SIE4-format för andra bokföringsprogram
   - Alla obligatoriska SIE4-sektioner: #FLAGGA, #FORMAT, #GEN, #PROGRAM, #SIETYP, #FNAMN, #FORGN, #ADRESS, #RAR, #KPTYP, #KONTO, #SRU, #IB, #UB, #RES, #PSALDO, #VER, #TRANS
   - Automatisk beräkning av IB (ingående balans), UB (utgående balans), RES (resultat) och PSALDO (periodsaldon)

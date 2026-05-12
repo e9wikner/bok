@@ -9,7 +9,8 @@ Documentation: https://www.sie.se/sie4_format.pdf
 
 import re
 import uuid
-from datetime import date
+from calendar import monthrange
+from datetime import date, timedelta
 from typing import List, Dict, Optional
 from dataclasses import dataclass
 from decimal import Decimal
@@ -532,6 +533,7 @@ class SIE4Importer:
             "periods_created": 0,
             "sru_mappings": 0,
         }
+        self.fiscal_year_resolution: Optional[Dict[str, str]] = None
 
     def import_file(self, filepath: str, fiscal_year_id: Optional[str] = None) -> bool:
         """Import a SIE4 file."""
@@ -553,9 +555,114 @@ class SIE4Importer:
             self.errors.append(f"Failed to parse content: {str(e)}")
             return False
 
+    def resolve_fiscal_year(
+        self, data: SIEData, fiscal_year_id: Optional[str] = None
+    ) -> str:
+        """Resolve and validate the fiscal year before any import writes."""
+        from domain.validation import ValidationError
+        from repositories.period_repo import PeriodRepository
+
+        if not data.fiscal_year_start or not data.fiscal_year_end:
+            raise ValidationError(
+                "sie4_fiscal_year_missing",
+                "SIE4 file must include a valid #RAR 0 fiscal year interval",
+            )
+
+        requested = (
+            PeriodRepository.get_fiscal_year(fiscal_year_id)
+            if fiscal_year_id
+            else None
+        )
+        if fiscal_year_id and not requested:
+            raise ValidationError(
+                "fiscal_year_not_found",
+                "Requested fiscal year was not found",
+                details=f"fiscal_year_id={fiscal_year_id}",
+            )
+
+        if requested:
+            if (
+                requested.start_date != data.fiscal_year_start
+                or requested.end_date != data.fiscal_year_end
+            ):
+                raise ValidationError(
+                    "sie4_fiscal_year_mismatch",
+                    (
+                        "Requested fiscal year does not match the SIE4 file: "
+                        f"file={data.fiscal_year_start.isoformat()}.."
+                        f"{data.fiscal_year_end.isoformat()} "
+                        f"selected={requested.start_date.isoformat()}.."
+                        f"{requested.end_date.isoformat()}"
+                    ),
+                    details=f"fiscal_year_id={requested.id}",
+                )
+            fiscal_year = requested
+            resolution = "matched_requested"
+        else:
+            fiscal_year = next(
+                (
+                    year
+                    for year in PeriodRepository.list_fiscal_years()
+                    if year.start_date == data.fiscal_year_start
+                    and year.end_date == data.fiscal_year_end
+                ),
+                None,
+            )
+            if fiscal_year:
+                resolution = "matched_existing"
+            else:
+                fiscal_year = PeriodRepository.create_fiscal_year(
+                    start_date=data.fiscal_year_start,
+                    end_date=data.fiscal_year_end,
+                )
+                self._create_monthly_periods(
+                    fiscal_year.id,
+                    data.fiscal_year_start,
+                    data.fiscal_year_end,
+                )
+                resolution = "created"
+
+        self.fiscal_year_resolution = {
+            "id": fiscal_year.id,
+            "resolution": resolution,
+            "start": data.fiscal_year_start.isoformat(),
+            "end": data.fiscal_year_end.isoformat(),
+        }
+        return fiscal_year.id
+
+    def _create_monthly_periods(
+        self, fiscal_year_id: str, start_date: date, end_date: date
+    ) -> None:
+        """Create fiscal-year periods clipped to the exact SIE interval."""
+        from repositories.period_repo import PeriodRepository
+
+        current_start = start_date
+        while current_start <= end_date:
+            year = current_start.year
+            month = current_start.month
+            _, last_day = monthrange(year, month)
+            period_end = min(date(year, month, last_day), end_date)
+            PeriodRepository.create_period(
+                fiscal_year_id=fiscal_year_id,
+                year=year,
+                month=month,
+                start_date=current_start,
+                end_date=period_end,
+            )
+            self.imported["periods_created"] += 1
+            current_start = period_end + timedelta(days=1)
+
     def _import_data(self, data: SIEData, fiscal_year_id: Optional[str] = None) -> bool:
         """Import parsed SIE data."""
         success = True
+        if self.fiscal_year_resolution:
+            resolved_id = self.fiscal_year_resolution["id"]
+            if fiscal_year_id and fiscal_year_id != resolved_id:
+                fiscal_year_id = self.resolve_fiscal_year(data, fiscal_year_id)
+            else:
+                fiscal_year_id = resolved_id
+        else:
+            fiscal_year_id = self.resolve_fiscal_year(data, fiscal_year_id)
 
         if data.company:
             self._import_company_info(data.company)

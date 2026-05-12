@@ -6,7 +6,9 @@ import pytest
 from domain.validation import ValidationError
 from repositories.account_repo import AccountRepository
 from repositories.period_repo import PeriodRepository
+from repositories.voucher_repo import VoucherRepository
 from services.ledger import LedgerService
+from services.sie4_import import SIE4Importer
 
 
 def _create_basic_accounts():
@@ -160,3 +162,99 @@ def test_income_statement_can_filter_by_broken_fiscal_year(test_db):
         response = asyncio.run(awaitable)
 
     assert response["revenue"] == 30000
+
+
+def _broken_year_sie4() -> str:
+    return """#FLAGGA 0
+#FORMAT PC8
+#PROGRAM "Test" 1.0
+#FNAMN "Test AB"
+#FORGN 5566778899
+#RAR 0 20101001 20111231
+#KONTO 1930 "Företagskonto"
+#KONTO 3010 "Försäljning"
+#VER A 1 20101015 "Försäljning okt"
+{
+#TRANS 1930 {} 10000 20101015
+#TRANS 3010 {} -10000 20101015
+}
+"""
+
+
+def test_sie4_import_auto_creates_matching_broken_fiscal_year(test_db):
+    importer = SIE4Importer(api_url="http://test", api_key="test")
+
+    assert importer.import_content(_broken_year_sie4()) is True
+
+    fiscal_years = PeriodRepository.list_fiscal_years()
+    assert len(fiscal_years) == 1
+    assert fiscal_years[0].start_date == date(2010, 10, 1)
+    assert fiscal_years[0].end_date == date(2011, 12, 31)
+    assert importer.fiscal_year_resolution == {
+        "id": fiscal_years[0].id,
+        "resolution": "created",
+        "start": "2010-10-01",
+        "end": "2011-12-31",
+    }
+
+    periods = PeriodRepository.list_periods(fiscal_years[0].id)
+    assert periods[0].start_date == date(2010, 10, 1)
+    assert periods[-1].end_date == date(2011, 12, 31)
+    assert importer.imported["periods_created"] == 15
+
+    vouchers, total = VoucherRepository.list_all(fiscal_year_id=fiscal_years[0].id)
+    assert total == 1
+    assert vouchers[0].date == date(2010, 10, 15)
+
+
+def test_sie4_import_rejects_explicit_mismatched_fiscal_year(test_db):
+    importer = SIE4Importer(api_url="http://test", api_key="test")
+    data = importer.parser.parse_content(_broken_year_sie4())
+    calendar_year = PeriodRepository.create_fiscal_year(
+        start_date=date(2010, 1, 1),
+        end_date=date(2010, 12, 31),
+    )
+
+    with pytest.raises(ValidationError) as exc:
+        importer.resolve_fiscal_year(data, calendar_year.id)
+
+    assert exc.value.code == "sie4_fiscal_year_mismatch"
+    fiscal_years = PeriodRepository.list_fiscal_years()
+    assert len(fiscal_years) == 1
+
+
+def test_sie4_import_reuses_existing_matching_fiscal_year(test_db):
+    importer = SIE4Importer(api_url="http://test", api_key="test")
+    data = importer.parser.parse_content(_broken_year_sie4())
+    fiscal_year = PeriodRepository.create_fiscal_year(
+        start_date=date(2010, 10, 1),
+        end_date=date(2011, 12, 31),
+    )
+
+    resolved_id = importer.resolve_fiscal_year(data)
+
+    assert resolved_id == fiscal_year.id
+    assert importer.fiscal_year_resolution == {
+        "id": fiscal_year.id,
+        "resolution": "matched_existing",
+        "start": "2010-10-01",
+        "end": "2011-12-31",
+    }
+    assert len(PeriodRepository.list_fiscal_years()) == 1
+
+
+def test_sie4_import_requires_rar_zero_interval(test_db):
+    importer = SIE4Importer(api_url="http://test", api_key="test")
+    data = importer.parser.parse_content(
+        """#FLAGGA 0
+#FORMAT PC8
+#PROGRAM "Test" 1.0
+#FNAMN "Test AB"
+#KONTO 1930 "Företagskonto"
+"""
+    )
+
+    with pytest.raises(ValidationError) as exc:
+        importer.resolve_fiscal_year(data)
+
+    assert exc.value.code == "sie4_fiscal_year_missing"

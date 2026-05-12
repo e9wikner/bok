@@ -6,12 +6,13 @@ Complete guide for deploying the Bokföringssystem to on-premise servers or Hetz
 
 1. [Prerequisites](#prerequisites)
 2. [Docker Deployment (On-Premise)](#docker-deployment-on-premise)
-3. [Hetzner Cloud Deployment](#hetzner-cloud-deployment)
-4. [SSL/TLS Configuration](#ssltls-configuration)
-5. [Environment Variables](#environment-variables)
-6. [Monitoring & Logging](#monitoring--logging)
-7. [Backup Strategy](#backup-strategy)
-8. [Troubleshooting](#troubleshooting)
+3. [LAN Deployment From Local Repository](#lan-deployment-from-local-repository)
+4. [Hetzner Cloud Deployment](#hetzner-cloud-deployment)
+5. [SSL/TLS Configuration](#ssltls-configuration)
+6. [Environment Variables](#environment-variables)
+7. [Monitoring & Logging](#monitoring--logging)
+8. [Backup Strategy](#backup-strategy)
+9. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -75,8 +76,8 @@ cp .env.production.example .env.production
 ```
 
 Then edit `.env.production` and replace `BOKFOERING_API_KEY`, `JWT_SECRET` and
-`AUTH_PASSWORD`. For a LAN-only deployment, prefer
-[docs/local_network_deployment.md](docs/local_network_deployment.md).
+`AUTH_PASSWORD`. For a LAN-only deployment from this local repository, see
+[LAN Deployment From Local Repository](#lan-deployment-from-local-repository).
 
 ### 3. Update Docker Compose for Production
 
@@ -195,6 +196,120 @@ curl https://app.yourdomain.com
 # View logs
 docker logs bokfoering-api
 docker logs bokfoering-frontend
+```
+
+---
+
+## LAN Deployment From Local Repository
+
+Use this option when deploying to a trusted server on the local network and the
+source of truth is the current local Git repository instead of GitHub. The
+current Home Assistant host uses SSH user `dave` and a checkout under
+`/home/dave/bok`.
+
+This deployment intentionally keeps `.env.production` outside Git. The file must
+exist locally and on the server, but it must not be committed.
+
+### 1. Commit Locally
+
+Verify and commit the exact code you want to deploy:
+
+```bash
+git status --short
+git add <changed-files>
+git commit -m "Your deployment change"
+git log -1 --oneline
+```
+
+### 2. Create A Git Bundle
+
+Create a bundle from the local `HEAD`:
+
+```bash
+commit="$(git rev-parse --short HEAD)"
+git bundle create "/tmp/bok-deploy-${commit}.bundle" HEAD
+```
+
+### 3. Transfer The Bundle
+
+```bash
+scp "/tmp/bok-deploy-${commit}.bundle" dave@homeassistant.local:/home/dave/
+```
+
+For a first-time deployment, create or copy `.env.production` separately:
+
+```bash
+scp .env.production dave@homeassistant.local:/home/dave/bok/.env.production
+```
+
+For later deployments, keep the existing server-side `.env.production`.
+
+### 4. Check Out On The Server
+
+```bash
+ssh dave@homeassistant.local
+cd ~/bok
+git fetch "/home/dave/bok-deploy-${commit}.bundle" HEAD:refs/heads/deploy-local
+git checkout deploy-local
+git reset --hard deploy-local
+printf "\n.env.production\n" >> .git/info/exclude
+test -f .env.production
+git rev-parse --short HEAD
+```
+
+If `~/bok` does not exist yet, clone from the bundle first:
+
+```bash
+git clone "/home/dave/bok-deploy-${commit}.bundle" ~/bok
+cd ~/bok
+git checkout deploy-local || git checkout HEAD
+```
+
+### 5. Build And Restart
+
+Use the LAN compose file. This exposes the frontend on port `3000` and backend
+on port `8000` on the local network.
+
+```bash
+cd ~/bok
+docker compose --env-file .env.production -f docker-compose.local.yml up -d --build
+```
+
+Do not use `down -v` for a normal deployment. `down -v` removes the SQLite data
+volume and should only be used when intentionally wiping all bookkeeping data.
+
+### 6. Verify
+
+On the server:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.local.yml ps
+curl -fsS http://localhost:8000/health
+curl -fsSI http://localhost:3000/login
+curl -fsS http://localhost:3000/health
+```
+
+From another machine on the same LAN:
+
+```bash
+curl -fsSI http://homeassistant.local:3000/login
+curl -fsS http://homeassistant.local:8000/health
+```
+
+Expected user-facing frontend URL:
+
+```text
+http://homeassistant.local:3000/login
+```
+
+### 7. Rollback
+
+To roll back to a previous local commit, create and transfer a bundle for that
+commit, then repeat the checkout and restart steps.
+
+```bash
+git bundle create /tmp/bok-rollback.bundle <commit-sha>
+scp /tmp/bok-rollback.bundle dave@homeassistant.local:/home/dave/
 ```
 
 ---

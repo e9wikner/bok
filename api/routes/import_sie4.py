@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 
 from api.deps import get_current_actor, verify_api_key
 from config import settings
+from domain.validation import ValidationError
 from services.sie4_import import SIE4Importer, SIE4Parser, create_sample_sie4
 
 router = APIRouter(prefix="/api/v1/import", tags=["import"])
@@ -58,8 +59,7 @@ async def import_sie4(
             )
         target_fiscal_year_id = fiscal_year_id or body_fiscal_year_id
 
-        # Import — pass the caller's API key so internal
-        # sub-requests are authenticated
+        # Validate the target fiscal year before any import writes occur.
         importer = SIE4Importer(
             api_url=settings.api_url,
             api_key=api_key,
@@ -75,14 +75,40 @@ async def import_sie4(
                     "hint": "Check the file encoding. SIE #FORMAT PC8 should be decoded as CP437.",
                 },
             )
+        try:
+            importer.resolve_fiscal_year(preview_data, target_fiscal_year_id)
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": exc.message,
+                    "code": exc.code,
+                    "details": exc.details,
+                    "fiscal_year": {
+                        "start": (
+                            preview_data.fiscal_year_start.isoformat()
+                            if preview_data.fiscal_year_start
+                            else None
+                        ),
+                        "end": (
+                            preview_data.fiscal_year_end.isoformat()
+                            if preview_data.fiscal_year_end
+                            else None
+                        ),
+                    },
+                },
+            )
 
         # Run the synchronous importer in a thread pool to avoid blocking
-        # the async event loop (importer makes blocking HTTP sub-requests)
+        # the async event loop during database-heavy imports.
         import asyncio
 
         loop = asyncio.get_event_loop()
         success = await loop.run_in_executor(
-            None, importer.import_content, text_content, target_fiscal_year_id
+            None,
+            importer.import_content,
+            text_content,
+            importer.fiscal_year_resolution["id"],
         )
 
         return {
@@ -90,6 +116,7 @@ async def import_sie4(
             "imported": importer.imported,
             "errors": importer.errors,
             "parser_errors": importer.parser.errors,
+            "fiscal_year": importer.fiscal_year_resolution,
         }
 
     except HTTPException:
@@ -142,6 +169,9 @@ async def validate_sie4(
         errors.extend(encoding_issues)
 
         # Check for required fields
+        if not data.fiscal_year_start or not data.fiscal_year_end:
+            errors.append("Missing valid #RAR 0 fiscal year interval")
+
         if not data.vouchers:
             errors.append("No vouchers found in file")
 
