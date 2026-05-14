@@ -34,7 +34,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 Plans:
 - [x] 01-01: Add intake schema, repository, service, and secure source file storage.
 - [x] 01-02: Add human upload APIs and agent pending/processing APIs.
-- [ ] 01-03: Link agent-posted vouchers to intake sources and test traceability, duplicate detection, and path safety.
+- [x] 01-03: Link agent-posted vouchers to intake sources and test traceability, duplicate detection, and path safety.
 
 ### Phase 2: Bank Input and Direct Posting Context
 **Goal**: Users can upload bank statements/statuses separately, and the agent can use bank input plus source/history context to create missing vouchers safely.
