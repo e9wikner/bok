@@ -81,37 +81,37 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INTK-01 | TBD | Pending |
-| INTK-02 | TBD | Pending |
-| INTK-03 | TBD | Pending |
-| INTK-04 | TBD | Pending |
-| INTK-05 | TBD | Pending |
-| INTK-06 | TBD | Pending |
-| INTK-07 | TBD | Pending |
-| AGNT-01 | TBD | Pending |
-| AGNT-02 | TBD | Pending |
-| AGNT-03 | TBD | Pending |
-| AGNT-04 | TBD | Pending |
-| AGNT-05 | TBD | Pending |
-| AGNT-06 | TBD | Pending |
-| BANK-01 | TBD | Pending |
-| BANK-02 | TBD | Pending |
-| BANK-03 | TBD | Pending |
-| BANK-04 | TBD | Pending |
-| BANK-05 | TBD | Pending |
-| BANK-06 | TBD | Pending |
-| FRNT-01 | TBD | Pending |
-| FRNT-02 | TBD | Pending |
-| FRNT-03 | TBD | Pending |
-| FRNT-04 | TBD | Pending |
-| FRNT-05 | TBD | Pending |
-| FRNT-06 | TBD | Pending |
+| INTK-01 | Phase 1 | Pending |
+| INTK-02 | Phase 1 | Pending |
+| INTK-03 | Phase 1 | Pending |
+| INTK-04 | Phase 1 | Pending |
+| INTK-05 | Phase 1 | Pending |
+| INTK-06 | Phase 1 | Pending |
+| INTK-07 | Phase 1 | Pending |
+| AGNT-01 | Phase 1 | Pending |
+| AGNT-02 | Phase 1 | Pending |
+| AGNT-03 | Phase 1 | Pending |
+| AGNT-04 | Phase 1 | Pending |
+| AGNT-05 | Phase 1 | Pending |
+| AGNT-06 | Phase 2 | Pending |
+| BANK-01 | Phase 2 | Pending |
+| BANK-02 | Phase 2 | Pending |
+| BANK-03 | Phase 2 | Pending |
+| BANK-04 | Phase 2 | Pending |
+| BANK-05 | Phase 2 | Pending |
+| BANK-06 | Phase 2 | Pending |
+| FRNT-01 | Phase 3 | Pending |
+| FRNT-02 | Phase 3 | Pending |
+| FRNT-03 | Phase 3 | Pending |
+| FRNT-04 | Phase 3 | Pending |
+| FRNT-05 | Phase 3 | Pending |
+| FRNT-06 | Phase 3 | Pending |
 
 **Coverage:**
 - v1 requirements: 25 total
-- Mapped to phases: 0
-- Unmapped: 25
+- Mapped to phases: 25
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-14*
-*Last updated: 2026-05-14 after initialization*
+*Last updated: 2026-05-14 after roadmap creation*
