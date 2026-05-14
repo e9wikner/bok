@@ -3,7 +3,14 @@
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Optional, List
-from domain.types import VoucherStatus, VoucherSeries, AccountType, AuditAction
+from domain.types import (
+    VoucherStatus,
+    VoucherSeries,
+    AccountType,
+    AuditAction,
+    IntakeStatus,
+    IntakeSourceType,
+)
 
 
 @dataclass
@@ -150,6 +157,49 @@ class VoucherAttachment:
     stored_path: str
     size_bytes: int
     uploaded_at: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class IntakeSource:
+    """Uploaded voucher source material before a voucher exists."""
+    id: str
+    source_type: Optional[IntakeSourceType]
+    status: IntakeStatus
+    original_filename: str
+    mime_type: str
+    size_bytes: int
+    sha256: str
+    stored_path: str
+    explanation: Optional[str] = None
+    uploaded_by: str = "system"
+    uploaded_at: datetime = field(default_factory=datetime.now)
+    deleted_at: Optional[datetime] = None
+    deleted_by: Optional[str] = None
+
+
+@dataclass
+class IntakeProcessingAttempt:
+    """Agent processing attempt for an intake source."""
+    id: str
+    intake_source_id: str
+    status: IntakeStatus
+    summary: str
+    warnings: Optional[List[str]] = None
+    error_detail: Optional[str] = None
+    voucher_id: Optional[str] = None
+    actor: str = "system"
+    created_at: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class VoucherIntakeSource:
+    """Traceability link between a posted voucher and intake source material."""
+    id: str
+    voucher_id: str
+    intake_source_id: str
+    linked_by: str
+    linked_at: datetime = field(default_factory=datetime.now)
+    link_reason: Optional[str] = None
 
 
 @dataclass

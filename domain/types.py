@@ -52,3 +52,25 @@ class PeriodLockStatus(str, Enum):
 
     OPEN = "open"
     LOCKED = "locked"
+
+
+class IntakeStatus(str, Enum):
+    """Lifecycle status for uploaded voucher source material."""
+
+    PENDING = "pending"
+    PROCESSING = "processing"
+    PROCESSED = "processed"
+    SKIPPED = "skipped"
+    FAILED = "failed"
+    NEEDS_ATTENTION = "needs_attention"
+    DELETED = "deleted"
+
+
+class IntakeSourceType(str, Enum):
+    """Classifier for uploaded voucher source material."""
+
+    RECEIPT = "receipt"
+    SUPPLIER_INVOICE = "supplier_invoice"
+    CUSTOMER_INVOICE = "customer_invoice"
+    REIMBURSEMENT = "reimbursement"
+    OTHER = "other"

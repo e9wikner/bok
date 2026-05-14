@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     # Internal API URL (used by SIE4 importer for sub-requests)
     api_url: str = os.getenv("API_URL", "http://localhost:8000")
 
+    # Intake source file storage
+    intake_dir: str = os.getenv("INTAKE_DIR", "/app/data/intake")
+
     # Authentication
     api_key: str = os.getenv("BOKFOERING_API_KEY", "dev-key-change-in-production")
     auth_username: str = os.getenv("AUTH_USERNAME", "admin")
