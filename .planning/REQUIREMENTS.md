@@ -9,13 +9,13 @@ Requirements for the intake milestone. Each maps to roadmap phases.
 
 ### Intake Sources
 
-- [ ] **INTK-01**: User can upload voucher source material before a voucher exists.
-- [ ] **INTK-02**: User can upload PDF and common image files as voucher source material.
-- [ ] **INTK-03**: User can add an optional short explanation to uploaded voucher source material.
-- [ ] **INTK-04**: Uploaded source material preserves original filename, MIME type, size, SHA-256 hash, upload timestamp, and actor.
-- [ ] **INTK-05**: System detects duplicate source file uploads by hash and prevents duplicate pending work.
-- [ ] **INTK-06**: Intake source files can be downloaded only through authenticated APIs that enforce storage-root containment.
-- [ ] **INTK-07**: Intake source records have explicit lifecycle status: pending, processing, processed, skipped, failed, or needs_attention.
+- [x] **INTK-01**: User can upload voucher source material before a voucher exists.
+- [x] **INTK-02**: User can upload PDF and common image files as voucher source material.
+- [x] **INTK-03**: User can add an optional short explanation to uploaded voucher source material.
+- [x] **INTK-04**: Uploaded source material preserves original filename, MIME type, size, SHA-256 hash, upload timestamp, and actor.
+- [x] **INTK-05**: System detects duplicate source file uploads by hash and prevents duplicate pending work.
+- [x] **INTK-06**: Intake source files can be downloaded only through authenticated APIs that enforce storage-root containment.
+- [x] **INTK-07**: Intake source records have explicit lifecycle status: pending, processing, processed, skipped, failed, or needs_attention.
 
 ### Agent Processing
 
@@ -81,13 +81,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INTK-01 | Phase 1 | Pending |
-| INTK-02 | Phase 1 | Pending |
-| INTK-03 | Phase 1 | Pending |
-| INTK-04 | Phase 1 | Pending |
-| INTK-05 | Phase 1 | Pending |
-| INTK-06 | Phase 1 | Pending |
-| INTK-07 | Phase 1 | Pending |
+| INTK-01 | Phase 1 | Complete |
+| INTK-02 | Phase 1 | Complete |
+| INTK-03 | Phase 1 | Complete |
+| INTK-04 | Phase 1 | Complete |
+| INTK-05 | Phase 1 | Complete |
+| INTK-06 | Phase 1 | Complete |
+| INTK-07 | Phase 1 | Complete |
 | AGNT-01 | Phase 1 | Pending |
 | AGNT-02 | Phase 1 | Pending |
 | AGNT-03 | Phase 1 | Pending |
