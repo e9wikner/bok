@@ -7,9 +7,10 @@ import uuid
 
 from config import settings
 from db.database import db
-from domain.models import IntakeSource
-from domain.types import IntakeSourceType, IntakeStatus
+from domain.models import IntakeProcessingAttempt, IntakeSource, VoucherIntakeSource
+from domain.types import IntakeSourceType, IntakeStatus, VoucherStatus
 from repositories.intake_repo import IntakeRepository
+from repositories.voucher_repo import VoucherRepository
 
 
 class IntakeError(Exception):
@@ -67,6 +68,7 @@ class IntakeService:
 
     def __init__(self):
         self.sources = IntakeRepository()
+        self.vouchers = VoucherRepository()
 
     def create_source_from_upload_content(
         self,
@@ -216,6 +218,70 @@ class IntakeService:
                 _commit=False,
             )
         return attempt
+
+    def ensure_source_ready_for_voucher_link(self, source_id: str) -> IntakeSource:
+        """Validate that a source can be linked to a voucher."""
+        return self._ensure_can_record_outcome(source_id)
+
+    def link_existing_voucher(
+        self,
+        source_id: str,
+        voucher_id: str,
+        actor: str,
+        summary: str,
+        warnings: list[str] | None = None,
+        link_reason: str | None = None,
+    ) -> tuple[IntakeProcessingAttempt, VoucherIntakeSource]:
+        """Link processable source material to an already posted voucher."""
+        self._validate_summary(summary)
+        self._ensure_can_record_outcome(source_id)
+
+        voucher = self.vouchers.get(voucher_id)
+        if not voucher:
+            raise IntakeError(
+                "voucher_not_found",
+                "Voucher not found",
+                f"voucher_id={voucher_id}",
+            )
+        if voucher.status != VoucherStatus.POSTED:
+            raise IntakeConflictError(
+                "voucher_not_posted",
+                "Only posted vouchers can be linked to intake sources",
+                f"voucher_id={voucher_id}, status={voucher.status.value}",
+            )
+
+        with db.transaction():
+            link = self.sources.create_voucher_link(
+                intake_source_id=source_id,
+                voucher_id=voucher_id,
+                linked_by=actor,
+                link_reason=link_reason,
+                _commit=False,
+            )
+            attempt = self.sources.record_attempt(
+                intake_source_id=source_id,
+                status=IntakeStatus.PROCESSED.value,
+                summary=summary,
+                warnings=warnings,
+                voucher_id=voucher_id,
+                actor=actor,
+                _commit=False,
+            )
+            self.sources.update_status(
+                source_id,
+                IntakeStatus.PROCESSED.value,
+                actor=actor,
+                _commit=False,
+            )
+        return attempt, link
+
+    def list_links_for_voucher(self, voucher_id: str) -> list[VoucherIntakeSource]:
+        """List intake sources linked to a voucher."""
+        return self.sources.list_links_for_voucher(voucher_id)
+
+    def list_attempts_for_source(self, source_id: str) -> list[IntakeProcessingAttempt]:
+        """List processing attempts recorded for an intake source."""
+        return self.sources.list_attempts_for_source(source_id)
 
     def _ensure_can_record_outcome(self, source_id: str) -> IntakeSource:
         source = self.get_source(source_id)

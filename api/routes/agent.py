@@ -23,6 +23,7 @@ class AgentVoucherRequest(BaseModel):
     rows: list[VoucherRowRequest] = Field(..., min_length=2)
     series: str = "A"
     reasoning_summary: Optional[str] = None
+    intake_source_ids: list[str] = Field(default_factory=list)
 
 
 class AgentProcessingRequest(BaseModel):
@@ -58,6 +59,24 @@ async def create_and_post_agent_voucher(
     actor: str = Depends(get_current_actor),
 ):
     """Create and post a voucher directly from an accounting agent."""
+    if len(request.intake_source_ids) > 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "Phase 1 supports linking one intake source per agent voucher",
+                "code": "multiple_intake_sources_not_supported",
+                "details": f"count={len(request.intake_source_ids)}",
+            },
+        )
+
+    intake = IntakeService()
+    source_id = request.intake_source_ids[0] if request.intake_source_ids else None
+    if source_id:
+        try:
+            intake.ensure_source_ready_for_voucher_link(source_id)
+        except IntakeError as exc:
+            raise _intake_http_error(exc) from exc
+
     try:
         ledger = LedgerService()
         voucher = ledger.create_voucher(
@@ -69,12 +88,25 @@ async def create_and_post_agent_voucher(
             created_by="agent",
         )
         voucher = ledger.post_voucher(voucher.id, actor=actor)
+        processing_attempt_id = None
+        if source_id:
+            summary = request.reasoning_summary or request.description
+            attempt, _link = intake.link_existing_voucher(
+                source_id=source_id,
+                voucher_id=voucher.id,
+                actor=actor,
+                summary=summary,
+                link_reason="agent_posted_voucher",
+            )
+            processing_attempt_id = attempt.id
         from api.routes.vouchers import _voucher_to_response
 
         response = _voucher_to_response(voucher).model_dump()
         response["agent"] = {
             "posted_directly": True,
             "reasoning_summary": request.reasoning_summary,
+            "intake_source_ids": request.intake_source_ids,
+            "processing_attempt_id": processing_attempt_id,
         }
         return response
     except ValidationError as exc:
@@ -82,6 +114,8 @@ async def create_and_post_agent_voucher(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"error": exc.message, "code": exc.code, "details": exc.details},
         )
+    except IntakeError as exc:
+        raise _intake_http_error(exc) from exc
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
 
@@ -204,9 +238,9 @@ def _attempt_to_response(attempt) -> dict:
 
 
 def _intake_http_error(exc: IntakeError) -> HTTPException:
-    if exc.code in {"intake_not_found"}:
+    if exc.code in {"intake_not_found", "voucher_not_found"}:
         status_code = status.HTTP_404_NOT_FOUND
-    elif exc.code in {"intake_not_processable", "intake_already_linked"}:
+    elif exc.code in {"intake_not_processable", "intake_already_linked", "voucher_not_posted"}:
         status_code = status.HTTP_409_CONFLICT
     else:
         status_code = status.HTTP_400_BAD_REQUEST
