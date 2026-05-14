@@ -11,6 +11,7 @@ from api.deps import get_current_actor
 from api.schemas import VoucherRowRequest
 from domain.validation import ValidationError
 from services.ledger import LedgerService
+from services.intake import IntakeError, IntakeService
 
 router = APIRouter(prefix="/api/v1/agent", tags=["agent-integration"])
 
@@ -22,6 +23,17 @@ class AgentVoucherRequest(BaseModel):
     rows: list[VoucherRowRequest] = Field(..., min_length=2)
     series: str = "A"
     reasoning_summary: Optional[str] = None
+
+
+class AgentProcessingRequest(BaseModel):
+    summary: str = Field(..., min_length=1)
+    warnings: Optional[list[str]] = None
+
+
+class AgentFailedRequest(BaseModel):
+    summary: str = Field(..., min_length=1)
+    error_detail: str = Field(..., min_length=1)
+    warnings: Optional[list[str]] = None
 
 
 @router.post("/seed", response_model=dict, status_code=status.HTTP_201_CREATED)
@@ -74,6 +86,76 @@ async def create_and_post_agent_voucher(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
 
 
+@router.get("/intake/pending", response_model=dict)
+async def list_pending_intake_sources(
+    limit: int = 100,
+    offset: int = 0,
+    actor: str = Depends(get_current_actor),
+):
+    """List pending intake source material for agent processing."""
+    queue = IntakeService().get_pending_queue(limit=limit, offset=offset)
+    return {
+        "total": queue["total"],
+        "limit": queue["limit"],
+        "offset": queue["offset"],
+        "items": [
+            {
+                "id": source.id,
+                "source_type": source.source_type.value if source.source_type else None,
+                "status": source.status.value,
+                "original_filename": source.original_filename,
+                "mime_type": source.mime_type,
+                "size_bytes": source.size_bytes,
+                "sha256": source.sha256,
+                "explanation": source.explanation,
+                "uploaded_at": source.uploaded_at.isoformat(),
+                "uploaded_by": source.uploaded_by,
+                "download_url": f"/api/v1/intake/{source.id}/file",
+            }
+            for source in queue["items"]
+        ],
+    }
+
+
+@router.post("/intake/{source_id}/processing", response_model=dict)
+async def record_intake_processing(
+    source_id: str,
+    request: AgentProcessingRequest,
+    actor: str = Depends(get_current_actor),
+):
+    """Record that the agent has started processing an intake source."""
+    try:
+        attempt = IntakeService().record_processing(
+            source_id=source_id,
+            summary=request.summary,
+            warnings=request.warnings,
+            actor=actor,
+        )
+        return _attempt_to_response(attempt)
+    except IntakeError as exc:
+        raise _intake_http_error(exc) from exc
+
+
+@router.post("/intake/{source_id}/failed", response_model=dict)
+async def record_intake_failed(
+    source_id: str,
+    request: AgentFailedRequest,
+    actor: str = Depends(get_current_actor),
+):
+    """Record failed agent processing for an intake source."""
+    try:
+        attempt = IntakeService().record_failed(
+            source_id=source_id,
+            summary=request.summary,
+            error_detail=request.error_detail,
+            warnings=request.warnings,
+            actor=actor,
+        )
+        return _attempt_to_response(attempt)
+    except IntakeError as exc:
+        raise _intake_http_error(exc) from exc
+
+
 @router.post("/keys/create", response_model=dict, status_code=status.HTTP_201_CREATED)
 async def create_api_key(
     name: str,
@@ -105,6 +187,33 @@ async def create_api_key(
         "created_at": "2026-03-21T10:00:00",
         "message": "⚠️ Save this key securely. It will not be shown again."
     }
+
+
+def _attempt_to_response(attempt) -> dict:
+    return {
+        "id": attempt.id,
+        "intake_source_id": attempt.intake_source_id,
+        "status": attempt.status.value,
+        "summary": attempt.summary,
+        "warnings": attempt.warnings,
+        "error_detail": attempt.error_detail,
+        "voucher_id": attempt.voucher_id,
+        "actor": attempt.actor,
+        "created_at": attempt.created_at.isoformat(),
+    }
+
+
+def _intake_http_error(exc: IntakeError) -> HTTPException:
+    if exc.code in {"intake_not_found"}:
+        status_code = status.HTTP_404_NOT_FOUND
+    elif exc.code in {"intake_not_processable", "intake_already_linked"}:
+        status_code = status.HTTP_409_CONFLICT
+    else:
+        status_code = status.HTTP_400_BAD_REQUEST
+    return HTTPException(
+        status_code=status_code,
+        detail={"error": exc.message, "code": exc.code, "details": exc.details},
+    )
 
 
 @router.get("/keys", response_model=dict)

@@ -164,6 +164,82 @@ class IntakeService:
                 _commit=False,
             )
 
+    def record_processing(
+        self,
+        source_id: str,
+        summary: str,
+        actor: str,
+        warnings: list[str] | None = None,
+    ):
+        """Record that the agent started processing while leaving the source pending."""
+        self._validate_summary(summary)
+        self._ensure_can_record_outcome(source_id)
+        return self.sources.record_attempt(
+            intake_source_id=source_id,
+            status=IntakeStatus.PROCESSING.value,
+            summary=summary,
+            warnings=warnings,
+            actor=actor,
+        )
+
+    def record_failed(
+        self,
+        source_id: str,
+        summary: str,
+        error_detail: str,
+        actor: str,
+        warnings: list[str] | None = None,
+    ):
+        """Record failed agent processing and remove the source from pending work."""
+        self._validate_summary(summary)
+        if not error_detail or not error_detail.strip():
+            raise IntakeValidationError(
+                "missing_error_detail",
+                "Failed processing requires error detail",
+                f"source_id={source_id}",
+            )
+        self._ensure_can_record_outcome(source_id)
+        with db.transaction():
+            attempt = self.sources.record_attempt(
+                intake_source_id=source_id,
+                status=IntakeStatus.FAILED.value,
+                summary=summary,
+                warnings=warnings,
+                error_detail=error_detail,
+                actor=actor,
+                _commit=False,
+            )
+            self.sources.update_status(
+                source_id,
+                IntakeStatus.FAILED.value,
+                actor=actor,
+                _commit=False,
+            )
+        return attempt
+
+    def _ensure_can_record_outcome(self, source_id: str) -> IntakeSource:
+        source = self.get_source(source_id)
+        if source.status not in (IntakeStatus.PENDING, IntakeStatus.PROCESSING):
+            raise IntakeConflictError(
+                "intake_not_processable",
+                "Intake source cannot be processed in its current status",
+                f"source_id={source_id}, status={source.status.value}",
+            )
+        if self.sources.get_link_by_source_id(source_id):
+            raise IntakeConflictError(
+                "intake_already_linked",
+                "Intake source is already linked to a voucher",
+                f"source_id={source_id}",
+            )
+        return source
+
+    def _validate_summary(self, summary: str) -> None:
+        if not summary or not summary.strip():
+            raise IntakeValidationError(
+                "missing_summary",
+                "Processing outcome requires a summary",
+            )
+
     def _validate_upload(
         self,
         mime_type: str,
