@@ -30,6 +30,7 @@ from api.routes import (
     compliance,
     vat,
     accounting_corrections,
+    intake,
     attachments,
     auth,
     audit,
@@ -97,6 +98,9 @@ app.include_router(vat.router)
 
 # Agent-readable corrections
 app.include_router(accounting_corrections.router)
+
+# Intake source material
+app.include_router(intake.router)
 
 # Attachments
 app.include_router(attachments.router)
