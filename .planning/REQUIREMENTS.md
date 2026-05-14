@@ -19,11 +19,11 @@ Requirements for the intake milestone. Each maps to roadmap phases.
 
 ### Agent Processing
 
-- [ ] **AGNT-01**: Agent can list pending intake source material with metadata, user explanations, and file download references.
-- [ ] **AGNT-02**: Agent can mark an intake source as processing, processed, skipped, failed, or needs_attention.
+- [x] **AGNT-01**: Agent can list pending intake source material with metadata, user explanations, and file download references.
+- [x] **AGNT-02**: Agent can mark an intake source as processing, processed, skipped, failed, or needs_attention.
 - [ ] **AGNT-03**: Agent can post vouchers directly from intake material using the existing voucher posting path and backend validation.
 - [ ] **AGNT-04**: A voucher posted from intake material is linked back to all source items used for the decision.
-- [ ] **AGNT-05**: Agent processing attempts store summary, warnings or error details, linked voucher IDs, timestamps, and actor identity.
+- [x] **AGNT-05**: Agent processing attempts store summary, warnings or error details, linked voucher IDs, timestamps, and actor identity.
 - [ ] **AGNT-06**: Agent context includes relevant correction history so user corrections can inform future intake processing.
 
 ### Bank Inputs
@@ -88,11 +88,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INTK-05 | Phase 1 | Complete |
 | INTK-06 | Phase 1 | Complete |
 | INTK-07 | Phase 1 | Complete |
-| AGNT-01 | Phase 1 | Pending |
-| AGNT-02 | Phase 1 | Pending |
+| AGNT-01 | Phase 1 | Complete |
+| AGNT-02 | Phase 1 | Complete |
 | AGNT-03 | Phase 1 | Pending |
 | AGNT-04 | Phase 1 | Pending |
-| AGNT-05 | Phase 1 | Pending |
+| AGNT-05 | Phase 1 | Complete |
 | AGNT-06 | Phase 2 | Pending |
 | BANK-01 | Phase 2 | Pending |
 | BANK-02 | Phase 2 | Pending |
