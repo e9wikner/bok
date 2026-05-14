@@ -1,5 +1,6 @@
 """Tests for intake source storage and processing APIs."""
 
+from datetime import date
 import hashlib
 from io import BytesIO
 from pathlib import Path
@@ -8,14 +9,22 @@ import pytest
 from fastapi import HTTPException
 
 from api.deps import verify_api_key
-from api.routes.agent import list_pending_intake_sources, record_intake_failed
+from api.routes.agent import (
+    AgentVoucherRequest,
+    create_and_post_agent_voucher,
+    list_pending_intake_sources,
+    record_intake_failed,
+)
 from api.routes.intake import delete_intake_source, get_intake_source_file, upload_intake_source
+from api.schemas import VoucherRowRequest
 from config import settings
 from db.database import db
 from domain.types import IntakeSourceType, IntakeStatus
 from repositories.intake_repo import IntakeRepository
+from services.ledger import LedgerService
 from services.intake import (
     DuplicateIntakeSourceError,
+    IntakeConflictError,
     IntakeFileAccessError,
     IntakeService,
 )
@@ -255,3 +264,188 @@ async def test_intake_file_api_rejects_outside_root_stored_path(
     with pytest.raises(HTTPException) as exc_info:
         await get_intake_source_file(source.id, actor="api")
     assert exc_info.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_agent_voucher_posts_and_links_single_intake_source(
+    test_period,
+    intake_dir,
+):
+    service = IntakeService()
+    source = service.create_source_from_upload_content(
+        filename="receipt.pdf",
+        content_type="application/pdf",
+        content=b"%PDF-1.4 agent posted",
+        explanation="Customer payment receipt",
+        source_type="receipt",
+        actor="api",
+    )
+
+    response = await create_and_post_agent_voucher(
+        AgentVoucherRequest(
+            date=date(2026, 3, 15),
+            period_id=test_period.id,
+            description="Agent booked receipt",
+            reasoning_summary="Receipt matched to sale and VAT",
+            intake_source_ids=[source.id],
+            rows=[
+                VoucherRowRequest(account="1510", debit=12500, credit=0),
+                VoucherRowRequest(account="3011", debit=0, credit=10000),
+                VoucherRowRequest(account="2610", debit=0, credit=2500),
+            ],
+        ),
+        actor="api",
+    )
+
+    assert response["status"] == "posted"
+    assert response["created_by"] == "agent"
+    assert response["agent"]["posted_directly"] is True
+    assert response["agent"]["intake_source_ids"] == [source.id]
+    assert response["agent"]["processing_attempt_id"]
+
+    stored_source = IntakeRepository.get_source(source.id)
+    assert stored_source is not None
+    assert stored_source.status == IntakeStatus.PROCESSED
+
+    links = IntakeRepository.list_links_for_voucher(response["id"])
+    assert len(links) == 1
+    assert links[0].intake_source_id == source.id
+    assert links[0].linked_by == "api"
+    assert links[0].link_reason == "agent_posted_voucher"
+
+    attempts = IntakeRepository.list_attempts_for_source(source.id)
+    assert len(attempts) == 1
+    assert attempts[0].id == response["agent"]["processing_attempt_id"]
+    assert attempts[0].status == IntakeStatus.PROCESSED
+    assert attempts[0].summary == "Receipt matched to sale and VAT"
+    assert attempts[0].voucher_id == response["id"]
+
+
+@pytest.mark.asyncio
+async def test_agent_voucher_without_intake_sources_still_posts_directly(
+    test_period,
+):
+    response = await create_and_post_agent_voucher(
+        AgentVoucherRequest(
+            date=date(2026, 3, 16),
+            period_id=test_period.id,
+            description="Agent booked sale without source",
+            rows=[
+                VoucherRowRequest(account="1510", debit=12500, credit=0),
+                VoucherRowRequest(account="3011", debit=0, credit=10000),
+                VoucherRowRequest(account="2610", debit=0, credit=2500),
+            ],
+        ),
+        actor="api",
+    )
+
+    assert response["status"] == "posted"
+    assert response["agent"]["posted_directly"] is True
+    assert response["agent"]["intake_source_ids"] == []
+    assert response["agent"]["processing_attempt_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_agent_voucher_rejects_duplicate_intake_link(
+    test_period,
+    intake_dir,
+):
+    service = IntakeService()
+    source = service.create_source_from_upload_content(
+        filename="receipt.pdf",
+        content_type="application/pdf",
+        content=b"%PDF-1.4 duplicate link",
+        explanation=None,
+        source_type="receipt",
+        actor="api",
+    )
+
+    request = AgentVoucherRequest(
+        date=date(2026, 3, 17),
+        period_id=test_period.id,
+        description="Agent booked receipt",
+        reasoning_summary="Booked once",
+        intake_source_ids=[source.id],
+        rows=[
+            VoucherRowRequest(account="1510", debit=12500, credit=0),
+            VoucherRowRequest(account="3011", debit=0, credit=10000),
+            VoucherRowRequest(account="2610", debit=0, credit=2500),
+        ],
+    )
+    first = await create_and_post_agent_voucher(request, actor="api")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_and_post_agent_voucher(
+            request.model_copy(update={"description": "Duplicate booking attempt"}),
+            actor="api",
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "intake_not_processable"
+    assert len(IntakeRepository.list_links_for_voucher(first["id"])) == 1
+    assert len(IntakeRepository.list_attempts_for_source(source.id)) == 1
+
+
+@pytest.mark.asyncio
+async def test_agent_voucher_rejects_multiple_intake_sources(
+    test_period,
+):
+    with pytest.raises(HTTPException) as exc_info:
+        await create_and_post_agent_voucher(
+            AgentVoucherRequest(
+                date=date(2026, 3, 18),
+                period_id=test_period.id,
+                description="Too many sources",
+                intake_source_ids=["src-1", "src-2"],
+                rows=[
+                    VoucherRowRequest(account="1510", debit=12500, credit=0),
+                    VoucherRowRequest(account="3011", debit=0, credit=10000),
+                    VoucherRowRequest(account="2610", debit=0, credit=2500),
+                ],
+            ),
+            actor="api",
+        )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail["code"] == "multiple_intake_sources_not_supported"
+
+
+def test_intake_service_rejects_linking_draft_voucher(
+    test_period,
+    intake_dir,
+):
+    service = IntakeService()
+    source = service.create_source_from_upload_content(
+        filename="receipt.pdf",
+        content_type="application/pdf",
+        content=b"%PDF-1.4 draft link",
+        explanation=None,
+        source_type="receipt",
+        actor="api",
+    )
+    voucher = LedgerService().create_voucher(
+        series="A",
+        date=date(2026, 3, 19),
+        period_id=test_period.id,
+        description="Draft voucher",
+        rows_data=[
+            {"account": "1510", "debit": 12500, "credit": 0},
+            {"account": "3011", "debit": 0, "credit": 10000},
+            {"account": "2610", "debit": 0, "credit": 2500},
+        ],
+        created_by="agent",
+    )
+
+    with pytest.raises(IntakeConflictError) as exc_info:
+        service.link_existing_voucher(
+            source_id=source.id,
+            voucher_id=voucher.id,
+            actor="api",
+            summary="Attempted draft link",
+        )
+
+    assert exc_info.value.code == "voucher_not_posted"
+    stored_source = IntakeRepository.get_source(source.id)
+    assert stored_source is not None
+    assert stored_source.status == IntakeStatus.PENDING
+    assert IntakeRepository.list_links_for_voucher(voucher.id) == []
