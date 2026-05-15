@@ -114,6 +114,7 @@ class BankInputService:
         stored_path = self._stored_path_for(bank_input_id, original_filename)
         stored_path.parent.mkdir(parents=True, exist_ok=True)
         stored_path.write_bytes(content)
+        bank_input_created = False
 
         try:
             with db.transaction():
@@ -129,6 +130,7 @@ class BankInputService:
                     status=BankInputStatus.PENDING.value,
                     _commit=False,
                 )
+                bank_input_created = True
             return self._process_persisted_input(bank_input, content)
         except sqlite3.IntegrityError as exc:
             self._cleanup_stored_file(stored_path)
@@ -137,7 +139,8 @@ class BankInputService:
                 raise DuplicateBankInputError(sha256, existing.id if existing else None) from exc
             raise
         except Exception:
-            self._cleanup_stored_file(stored_path)
+            if not bank_input_created:
+                self._cleanup_stored_file(stored_path)
             raise
 
     def get_bank_input(self, bank_input_id: str) -> BankInput:
