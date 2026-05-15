@@ -197,6 +197,174 @@ export interface PayrollRun {
   validation?: PayrollRunValidation | null;
 }
 
+export type IntakeStatus =
+  | "pending"
+  | "processing"
+  | "processed"
+  | "skipped"
+  | "failed"
+  | "needs_attention"
+  | "deleted";
+
+export type IntakeKind = "voucher_source" | "bank_input";
+
+export interface IntakeProcessingAttempt {
+  id: string;
+  intake_source_id?: string;
+  status: IntakeStatus;
+  summary: string;
+  warnings: string[];
+  error_detail?: string | null;
+  voucher_id?: string | null;
+  actor: string;
+  created_at: string;
+}
+
+export interface IntakeWorkspaceBaseItem {
+  kind: IntakeKind;
+  id: string;
+  status: IntakeStatus;
+  original_filename: string;
+  mime_type: string;
+  size_bytes: number;
+  sha256: string;
+  uploaded_by: string;
+  uploaded_at: string;
+  download_url: string;
+  linked_voucher_ids: string[];
+}
+
+export interface VoucherSourceWorkspaceItem extends IntakeWorkspaceBaseItem {
+  kind: "voucher_source";
+  source_type?: string | null;
+  explanation?: string | null;
+  latest_processing_summary?: string | null;
+  latest_error_detail?: string | null;
+}
+
+export interface BankInputWorkspaceItem extends IntakeWorkspaceBaseItem {
+  kind: "bank_input";
+  bank_connection_id: string;
+  imported_count: number;
+  skipped_count: number;
+  detected_format?: string | null;
+  parse_error?: string | null;
+  transaction_ids: string[];
+  transaction_count: number;
+  match_signals: {
+    id: string;
+    status: string;
+    matched_voucher_id?: string | null;
+  }[];
+}
+
+export type IntakeWorkspaceItem =
+  | VoucherSourceWorkspaceItem
+  | BankInputWorkspaceItem;
+
+export interface IntakeWorkspaceResponse {
+  items: IntakeWorkspaceItem[];
+  total: number;
+  limit: number;
+  offset: number;
+  status_counts: Record<string, number>;
+}
+
+export type IntakeDetailResponse = IntakeWorkspaceItem & {
+  processing_attempts?: IntakeProcessingAttempt[];
+  voucher_links?: {
+    id: string;
+    voucher_id: string;
+    intake_source_id?: string;
+    bank_input_id?: string;
+    linked_by: string;
+    linked_at: string;
+    link_reason?: string | null;
+  }[];
+  transactions?: {
+    id: string;
+    status: string;
+    matched_voucher_id?: string | null;
+  }[];
+  processed_at?: string | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+};
+
+export interface IntakeSourceUploadResponse {
+  id: string;
+  source_type?: string | null;
+  status: IntakeStatus;
+  original_filename: string;
+  mime_type: string;
+  size_bytes: number;
+  sha256: string;
+  explanation?: string | null;
+  uploaded_by: string;
+  uploaded_at: string;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+}
+
+export interface BankInputUploadResponse {
+  id: string;
+  bank_connection_id: string;
+  status: "pending" | "processed" | "failed";
+  original_filename: string;
+  mime_type: string;
+  size_bytes: number;
+  sha256: string;
+  uploaded_by: string;
+  uploaded_at: string;
+  detected_format?: string | null;
+  imported_count: number;
+  skipped_count: number;
+  parse_error?: string | null;
+  processed_at?: string | null;
+}
+
+export interface BankConnectionOption {
+  id: string;
+  provider: string;
+  bank_name: string;
+  account_number?: string | null;
+  iban?: string | null;
+  currency: string;
+  status: string;
+}
+
+export interface VoucherSourceContext {
+  voucher_id: string;
+  source_material: (
+    | (VoucherSourceWorkspaceItem & {
+        linked_at: string;
+        linked_by: string;
+        link_reason?: string | null;
+      })
+    | (BankInputWorkspaceItem & {
+        linked_at: string;
+        linked_by: string;
+        link_reason?: string | null;
+      })
+  )[];
+  processing_notes: (IntakeProcessingAttempt & {
+    kind: IntakeKind;
+    imported_count?: number;
+    skipped_count?: number;
+    detected_format?: string | null;
+    transaction_ids?: string[];
+  })[];
+  correction_chain: {
+    id: string;
+    original_voucher_id: string;
+    correction_voucher_id?: string | null;
+    correction_reason?: string | null;
+    actor?: string | null;
+    timestamp: string;
+    change_type?: string | null;
+  }[];
+}
+
 export const api = {
   // Health
   getHealth: async () => {
@@ -213,6 +381,14 @@ export const api = {
   },
   getVoucher: async (id: string) => {
     const { data } = await apiClient.get(`/api/v1/vouchers/${id}`);
+    return data;
+  },
+  getVoucherSourceContext: async (
+    voucherId: string
+  ): Promise<VoucherSourceContext> => {
+    const { data } = await apiClient.get(
+      `/api/v1/vouchers/${voucherId}/source-context`
+    );
     return data;
   },
   // Accounts
@@ -532,6 +708,64 @@ export const api = {
     });
     return data;
   },
+
+  // Intake workspace
+  getIntakeWorkspace: async (params?: {
+    status?: IntakeStatus;
+    kind?: IntakeKind;
+    limit?: number;
+    offset?: number;
+  }): Promise<IntakeWorkspaceResponse> => {
+    const { data } = await apiClient.get("/api/v1/intake/workspace", {
+      params,
+    });
+    return data;
+  },
+  getIntakeDetail: async (
+    kind: IntakeKind,
+    id: string
+  ): Promise<IntakeDetailResponse> => {
+    const { data } = await apiClient.get(
+      `/api/v1/intake/workspace/${kind}/${id}`
+    );
+    return data;
+  },
+  uploadIntakeSource: async (payload: {
+    file: File;
+    source_type?: string;
+    explanation?: string;
+  }): Promise<IntakeSourceUploadResponse> => {
+    const formData = new FormData();
+    formData.append("file", payload.file);
+    if (payload.source_type) {
+      formData.append("source_type", payload.source_type);
+    }
+    if (payload.explanation) {
+      formData.append("explanation", payload.explanation);
+    }
+    const { data } = await apiClient.post("/api/v1/intake", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return data;
+  },
+  getBankInputConnections: async (): Promise<{
+    items: BankConnectionOption[];
+  }> => {
+    const { data } = await apiClient.get("/api/v1/bank-inputs/connections");
+    return data;
+  },
+  uploadBankInput: async (payload: {
+    file: File;
+    bank_connection_id: string;
+  }): Promise<BankInputUploadResponse> => {
+    const formData = new FormData();
+    formData.append("file", payload.file);
+    formData.append("bank_connection_id", payload.bank_connection_id);
+    const { data } = await apiClient.post("/api/v1/bank-inputs", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return data;
+  },
   exportSie4: async () => {
     const { data } = await apiClient.get("/api/v1/export/sie4");
     return data;
@@ -644,6 +878,9 @@ export const api = {
   // Attachment URL helper (for <img> src and links)
   getAttachmentUrl: (voucherId: string, attachmentId: string) =>
     `${API_URL}/api/v1/vouchers/${voucherId}/attachments/${attachmentId}`,
+  getIntakeFileUrl: (id: string) => `${API_URL}/api/v1/intake/${id}/file`,
+  getBankInputFileUrl: (id: string) =>
+    `${API_URL}/api/v1/bank-inputs/${id}/file`,
   getPayslipPdfUrl: (payslipId: string) =>
     `${API_URL}/api/v1/export/pdf/payslip/${payslipId}`,
 
