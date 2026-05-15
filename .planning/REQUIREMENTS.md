@@ -37,12 +37,12 @@ Requirements for the intake milestone. Each maps to roadmap phases.
 
 ### Review and Frontend
 
-- [ ] **FRNT-01**: User can upload voucher sources and bank statements/statuses from a frontend intake workspace.
-- [ ] **FRNT-02**: User can view intake items grouped or filtered by lifecycle status.
-- [ ] **FRNT-03**: User can open processed intake items and navigate to linked posted vouchers.
-- [ ] **FRNT-04**: Voucher detail view shows intake source material and agent processing notes for vouchers created from intake.
-- [ ] **FRNT-05**: Failed or needs_attention intake items show enough detail for the user to understand what went wrong.
-- [ ] **FRNT-06**: User corrections to agent-posted vouchers remain visible as part of the agent learning/review loop.
+- [x] **FRNT-01**: User can upload voucher sources and bank statements/statuses from a frontend intake workspace.
+- [x] **FRNT-02**: User can view intake items grouped or filtered by lifecycle status.
+- [x] **FRNT-03**: User can open processed intake items and navigate to linked posted vouchers.
+- [x] **FRNT-04**: Voucher detail view shows intake source material and agent processing notes for vouchers created from intake.
+- [x] **FRNT-05**: Failed or needs_attention intake items show enough detail for the user to understand what went wrong.
+- [x] **FRNT-06**: User corrections to agent-posted vouchers remain visible as part of the agent learning/review loop.
 
 ## v2 Requirements
 
@@ -100,12 +100,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BANK-04 | Phase 2 | Complete |
 | BANK-05 | Phase 2 | Complete |
 | BANK-06 | Phase 2 | Complete |
-| FRNT-01 | Phase 3 | Pending |
-| FRNT-02 | Phase 3 | Pending |
-| FRNT-03 | Phase 3 | Pending |
-| FRNT-04 | Phase 3 | Pending |
-| FRNT-05 | Phase 3 | Pending |
-| FRNT-06 | Phase 3 | Pending |
+| FRNT-01 | Phase 3 | Complete |
+| FRNT-02 | Phase 3 | Complete |
+| FRNT-03 | Phase 3 | Complete |
+| FRNT-04 | Phase 3 | Complete |
+| FRNT-05 | Phase 3 | Complete |
+| FRNT-06 | Phase 3 | Complete |
 
 **Coverage:**
 - v1 requirements: 25 total
