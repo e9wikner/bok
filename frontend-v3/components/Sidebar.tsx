@@ -20,6 +20,7 @@ import {
   ScrollText,
   FileCheck,
   WalletCards,
+  Upload,
 } from "lucide-react";
 import { useDarkMode } from "@/hooks/useDarkMode";
 import { useAuth } from "@/hooks/useAuth";
@@ -28,6 +29,7 @@ import { useState } from "react";
 const navItems = [
   { href: "/", label: "Översikt", icon: LayoutDashboard },
   { href: "/vouchers", label: "Verifikationer", icon: FileText },
+  { href: "/vouchers/intake", label: "Intag", icon: Upload },
   { href: "/accounts", label: "Kontoplan", icon: BookOpen },
   { href: "/invoices", label: "Fakturor", icon: Receipt },
   { href: "/payroll", label: "Lön", icon: WalletCards },
@@ -43,6 +45,13 @@ export function Sidebar() {
   const { isDark, toggle } = useDarkMode();
   const { logout, user } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
+  const activeNavItem = navItems
+    .filter((item) =>
+      item.href === "/"
+        ? pathname === "/"
+        : pathname === item.href || pathname.startsWith(`${item.href}/`)
+    )
+    .sort((a, b) => b.href.length - a.href.length)[0];
 
   return (
     <>
@@ -65,10 +74,7 @@ export function Sidebar() {
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-card border-t">
         <div className="flex items-center justify-around py-2">
           {navItems.map((item) => {
-            const isActive =
-              item.href === "/"
-                ? pathname === "/"
-                : pathname.startsWith(item.href);
+            const isActive = activeNavItem?.href === item.href;
             return (
               <Link
                 key={item.href}
@@ -111,10 +117,7 @@ export function Sidebar() {
         {/* Nav */}
         <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto scrollbar-thin">
           {navItems.map((item) => {
-            const isActive =
-              item.href === "/"
-                ? pathname === "/"
-                : pathname.startsWith(item.href);
+            const isActive = activeNavItem?.href === item.href;
             return (
               <Link
                 key={item.href}
