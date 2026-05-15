@@ -15,6 +15,7 @@ from api.routes.agent import (
 )
 from api.routes.bank_inputs import get_bank_input_file, list_bank_input_connections, upload_bank_input
 from api.routes.intake import get_intake_workspace_detail, list_intake_workspace
+from api.routes.vouchers import get_voucher_source_context
 from api.schemas import VoucherRowRequest
 from config import settings
 from db.database import db
@@ -29,6 +30,7 @@ from services.bank_inputs import (
 )
 from services.bank_integration import BankIntegrationService
 from services.intake import IntakeService
+from services.ledger import LedgerService
 
 
 @pytest.fixture
@@ -496,6 +498,14 @@ async def test_agent_bank_driven_posting_links_input_and_transaction(
     tx = BankIntegrationService().get_transaction(transaction_ids[0])
     assert tx.status == "booked"
     assert tx.matched_voucher_id == response["id"]
+
+    source_context = await get_voucher_source_context(response["id"], ledger=LedgerService())
+    bank_source = source_context["source_material"][0]
+    assert bank_source["kind"] == "bank_input"
+    assert bank_source["download_url"] == f"/api/v1/bank-inputs/{bank_input.id}/file"
+    assert bank_source["transaction_ids"] == transaction_ids
+    assert source_context["processing_notes"][0]["kind"] == "bank_input"
+    assert "stored_path" not in repr(source_context)
 
 
 @pytest.mark.asyncio

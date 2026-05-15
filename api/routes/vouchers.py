@@ -13,8 +13,11 @@ from api.schemas import (
 from api.deps import get_ledger_service, get_current_actor
 from domain.validation import ValidationError
 from services.ledger import LedgerService
+from repositories.accounting_correction_repo import AccountingCorrectionRepository
 from repositories.audit_repo import AuditRepository
 from repositories.account_repo import AccountRepository
+from repositories.bank_input_repo import BankInputRepository
+from repositories.intake_repo import IntakeRepository
 
 router = APIRouter(prefix="/api/v1/vouchers", tags=["vouchers"])
 
@@ -76,6 +79,113 @@ async def create_voucher(
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
+
+
+@router.get("/{voucher_id}/source-context", response_model=dict)
+async def get_voucher_source_context(
+    voucher_id: str,
+    ledger: LedgerService = Depends(get_ledger_service),
+):
+    """Return intake source material and correction context for voucher review."""
+    voucher = ledger.vouchers.get(voucher_id)
+    if not voucher:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail="Voucher not found",
+        )
+
+    intake_repo = IntakeRepository()
+    bank_repo = BankInputRepository()
+    source_material = []
+    processing_notes = []
+
+    for link in intake_repo.list_links_for_voucher(voucher_id):
+        source = intake_repo.get_source(link.intake_source_id)
+        if not source:
+            continue
+        source_material.append(
+            {
+                "kind": "voucher_source",
+                "id": source.id,
+                "source_type": source.source_type.value if source.source_type else None,
+                "status": source.status.value,
+                "original_filename": source.original_filename,
+                "mime_type": source.mime_type,
+                "size_bytes": source.size_bytes,
+                "sha256": source.sha256,
+                "explanation": source.explanation,
+                "uploaded_by": source.uploaded_by,
+                "uploaded_at": source.uploaded_at.isoformat(),
+                "download_url": f"/api/v1/intake/{source.id}/file",
+                "linked_at": link.linked_at.isoformat(),
+                "linked_by": link.linked_by,
+                "link_reason": link.link_reason,
+            }
+        )
+        processing_notes.extend(
+            _source_processing_note(attempt)
+            for attempt in intake_repo.list_attempts_for_source(source.id)
+            if attempt.voucher_id == voucher_id
+        )
+
+    for link in bank_repo.list_inputs_for_voucher(voucher_id):
+        bank_input = bank_repo.get_bank_input(link.bank_input_id)
+        if not bank_input:
+            continue
+        transaction_ids = bank_repo.list_transaction_ids_for_input(bank_input.id)
+        source_material.append(
+            {
+                "kind": "bank_input",
+                "id": bank_input.id,
+                "bank_connection_id": bank_input.bank_connection_id,
+                "status": bank_input.status.value,
+                "original_filename": bank_input.original_filename,
+                "mime_type": bank_input.mime_type,
+                "size_bytes": bank_input.size_bytes,
+                "sha256": bank_input.sha256,
+                "uploaded_by": bank_input.uploaded_by,
+                "uploaded_at": bank_input.uploaded_at.isoformat(),
+                "download_url": f"/api/v1/bank-inputs/{bank_input.id}/file",
+                "linked_at": link.linked_at.isoformat(),
+                "linked_by": link.linked_by,
+                "link_reason": None,
+                "imported_count": bank_input.imported_count,
+                "skipped_count": bank_input.skipped_count,
+                "detected_format": bank_input.detected_format,
+                "parse_error": bank_input.parse_error,
+                "transaction_ids": transaction_ids,
+                "transaction_count": len(transaction_ids),
+            }
+        )
+        processing_notes.append(
+            {
+                "kind": "bank_input",
+                "id": bank_input.id,
+                "status": bank_input.status.value,
+                "summary": _bank_input_processing_summary(bank_input),
+                "warnings": [],
+                "error_detail": bank_input.parse_error,
+                "voucher_id": voucher_id,
+                "actor": bank_input.uploaded_by,
+                "created_at": (
+                    bank_input.processed_at or bank_input.uploaded_at
+                ).isoformat(),
+                "imported_count": bank_input.imported_count,
+                "skipped_count": bank_input.skipped_count,
+                "detected_format": bank_input.detected_format,
+                "transaction_ids": transaction_ids,
+            }
+        )
+
+    return {
+        "voucher_id": voucher_id,
+        "source_material": source_material,
+        "processing_notes": sorted(
+            processing_notes,
+            key=lambda note: note["created_at"],
+        ),
+        "correction_chain": _correction_chain_for_voucher(voucher),
+    }
 
 
 @router.get("/{voucher_id}", response_model=VoucherResponse)
@@ -303,6 +413,56 @@ async def get_voucher_audit(
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
+
+
+def _source_processing_note(attempt) -> dict:
+    return {
+        "kind": "voucher_source",
+        "id": attempt.id,
+        "intake_source_id": attempt.intake_source_id,
+        "status": attempt.status.value,
+        "summary": attempt.summary,
+        "warnings": attempt.warnings or [],
+        "error_detail": attempt.error_detail,
+        "voucher_id": attempt.voucher_id,
+        "actor": attempt.actor,
+        "created_at": attempt.created_at.isoformat(),
+    }
+
+
+def _bank_input_processing_summary(bank_input) -> str:
+    if bank_input.parse_error:
+        return "Bank input parsing failed"
+    return (
+        f"Bank input processed: {bank_input.imported_count} imported, "
+        f"{bank_input.skipped_count} skipped"
+    )
+
+
+def _correction_chain_for_voucher(voucher) -> list[dict]:
+    voucher_ids = {voucher.id}
+    if voucher.correction_of:
+        voucher_ids.add(voucher.correction_of)
+
+    chain = []
+    seen = set()
+    for voucher_id in voucher_ids:
+        for history in AccountingCorrectionRepository.list(voucher_id=voucher_id):
+            if history.id in seen:
+                continue
+            seen.add(history.id)
+            chain.append(
+                {
+                    "id": history.id,
+                    "original_voucher_id": history.original_voucher_id,
+                    "correction_voucher_id": history.corrected_voucher_id,
+                    "correction_reason": history.correction_reason,
+                    "actor": history.corrected_by,
+                    "timestamp": history.created_at.isoformat(),
+                    "change_type": history.change_type,
+                }
+            )
+    return sorted(chain, key=lambda item: item["timestamp"])
 
 
 def _voucher_to_response(voucher) -> VoucherResponse:

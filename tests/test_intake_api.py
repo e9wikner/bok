@@ -17,10 +17,12 @@ from api.routes.agent import (
 )
 from api.routes.intake import delete_intake_source, get_intake_source_file, upload_intake_source
 from api.routes.intake import get_intake_workspace_detail, list_intake_workspace
+from api.routes.vouchers import get_voucher_source_context
 from api.schemas import VoucherRowRequest
 from config import settings
 from db.database import db
 from domain.types import IntakeSourceType, IntakeStatus
+from repositories.accounting_correction_repo import AccountingCorrectionRepository
 from repositories.intake_repo import IntakeRepository
 from services.ledger import LedgerService
 from services.intake import (
@@ -359,6 +361,52 @@ async def test_agent_voucher_posts_and_links_single_intake_source(
     assert attempts[0].status == IntakeStatus.PROCESSED
     assert attempts[0].summary == "Receipt matched to sale and VAT"
     assert attempts[0].voucher_id == response["id"]
+
+    source_context = await get_voucher_source_context(response["id"], ledger=LedgerService())
+    assert source_context["source_material"][0]["kind"] == "voucher_source"
+    assert source_context["source_material"][0]["download_url"] == (
+        f"/api/v1/intake/{source.id}/file"
+    )
+    assert source_context["processing_notes"][0]["summary"] == (
+        "Receipt matched to sale and VAT"
+    )
+    assert "stored_path" not in repr(source_context)
+
+
+@pytest.mark.asyncio
+async def test_voucher_source_context_correction_chain_includes_reason(
+    test_period,
+    intake_dir,
+):
+    response = await create_and_post_agent_voucher(
+        AgentVoucherRequest(
+            date=date(2026, 3, 20),
+            period_id=test_period.id,
+            description="Voucher to correct",
+            reasoning_summary="Initial agent posting",
+            rows=[
+                VoucherRowRequest(account="1510", debit=12500, credit=0),
+                VoucherRowRequest(account="3011", debit=0, credit=10000),
+                VoucherRowRequest(account="2610", debit=0, credit=2500),
+            ],
+        ),
+        actor="api",
+    )
+    correction = AccountingCorrectionRepository.create(
+        original_voucher_id=response["id"],
+        corrected_voucher_id="correction-voucher-id",
+        correction_reason="Wrong source interpretation",
+        corrected_by="api",
+    )
+
+    source_context = await get_voucher_source_context(response["id"], ledger=LedgerService())
+    assert source_context["correction_chain"][0]["original_voucher_id"] == response["id"]
+    assert source_context["correction_chain"][0]["correction_voucher_id"] == (
+        correction.corrected_voucher_id
+    )
+    assert source_context["correction_chain"][0]["correction_reason"] == (
+        "Wrong source interpretation"
+    )
 
 
 @pytest.mark.asyncio
