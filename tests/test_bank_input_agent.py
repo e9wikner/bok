@@ -57,6 +57,9 @@ class _UploadFile:
         self.content_type = content_type
         self.file = BytesIO(content)
 
+    async def read(self, size: int = -1) -> bytes:
+        return self.file.read(size)
+
 
 def _active_connection():
     return BankIntegrationService().create_connection(
@@ -364,6 +367,19 @@ async def test_bank_input_upload_download_and_error_mapping_api(
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail["code"] == "duplicate_bank_input"
 
+    with pytest.raises(HTTPException) as exc_info:
+        await upload_bank_input(
+            file=_UploadFile(
+                "huge.csv",
+                "text/csv",
+                b"x" * (10 * 1024 * 1024 + 1),
+            ),
+            bank_connection_id=conn.id,
+            actor="api",
+        )
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail["code"] == "file_too_large"
+
     download = await get_bank_input_file(response["id"], actor="api")
     assert download.status_code == 200
     assert Path(download.path).read_bytes() == content
@@ -469,6 +485,40 @@ async def test_intake_workspace_returns_voucher_sources_and_bank_inputs_with_fil
 
 
 @pytest.mark.asyncio
+async def test_mixed_intake_workspace_paginates_without_skipping_bank_inputs(
+    test_db,
+    bank_input_dir,
+    intake_dir,
+):
+    source_ids = []
+    for index in range(3):
+        source = IntakeService().create_source_from_upload_content(
+            filename=f"receipt-{index}.pdf",
+            content_type="application/pdf",
+            content=f"%PDF-1.4 workspace receipt {index}".encode(),
+            explanation="Receipt",
+            source_type="receipt",
+            actor="api",
+        )
+        source_ids.append(source.id)
+
+    bank_ids = []
+    for index in range(3):
+        bank_input, _ = _processed_bank_input(
+            content=f"Datum;Belopp;Text\n2026-03-0{index + 1};-{index + 1}00,00;Avgift {index}".encode()
+        )
+        bank_ids.append(bank_input.id)
+
+    seen_ids = []
+    for offset in range(0, 6, 2):
+        page = await list_intake_workspace(limit=2, offset=offset, actor="api")
+        seen_ids.extend(item["id"] for item in page["items"])
+
+    assert set(seen_ids) == set(source_ids + bank_ids)
+    assert len(seen_ids) == 6
+
+
+@pytest.mark.asyncio
 async def test_agent_bank_driven_posting_links_input_and_transaction(
     test_period,
     bank_input_dir,
@@ -499,7 +549,11 @@ async def test_agent_bank_driven_posting_links_input_and_transaction(
     assert tx.status == "booked"
     assert tx.matched_voucher_id == response["id"]
 
-    source_context = await get_voucher_source_context(response["id"], ledger=LedgerService())
+    source_context = await get_voucher_source_context(
+        response["id"],
+        ledger=LedgerService(),
+        actor="api",
+    )
     bank_source = source_context["source_material"][0]
     assert bank_source["kind"] == "bank_input"
     assert bank_source["download_url"] == f"/api/v1/bank-inputs/{bank_input.id}/file"

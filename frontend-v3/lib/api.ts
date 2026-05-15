@@ -807,7 +807,7 @@ export const api = {
 
   // Update voucher
   updateVoucher: async (id: string, payload: {
-    rows: { account: string; debit: number; credit: number }[];
+    rows: { account: string; debit: number; credit: number; description?: string }[];
     reason?: string;
   }) => {
     const { data } = await apiClient.put(`/api/v1/vouchers/${id}`, payload);
@@ -861,6 +861,16 @@ export const api = {
 
   // PDF export — returns a Blob
   getPdfExport: async (endpoint: string): Promise<Blob> => {
+    const { data } = await apiClient.get(endpoint, {
+      responseType: "blob",
+    });
+    return data as Blob;
+  },
+  getIntakeFile: async (kind: IntakeKind, id: string): Promise<Blob> => {
+    const endpoint =
+      kind === "bank_input"
+        ? `/api/v1/bank-inputs/${id}/file`
+        : `/api/v1/intake/${id}/file`;
     const { data } = await apiClient.get(endpoint, {
       responseType: "blob",
     });

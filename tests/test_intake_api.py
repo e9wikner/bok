@@ -2,13 +2,14 @@
 
 from datetime import date
 import hashlib
+import inspect
 from io import BytesIO
 from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
 
-from api.deps import verify_api_key
+from api.deps import get_current_actor, verify_api_key
 from api.routes.agent import (
     AgentVoucherRequest,
     create_and_post_agent_voucher,
@@ -52,6 +53,9 @@ class _UploadFile:
         self.filename = filename
         self.content_type = content_type
         self.file = BytesIO(content)
+
+    async def read(self, size: int = -1) -> bytes:
+        return self.file.read(size)
 
 
 def test_intake_service_persists_pending_source_metadata(test_db, intake_dir):
@@ -167,6 +171,16 @@ async def test_intake_upload_download_pending_and_soft_delete_api(
             actor="api",
         )
     assert exc_info.value.status_code == 409
+
+    with pytest.raises(HTTPException) as exc_info:
+        await upload_intake_source(
+            file=_UploadFile("huge.pdf", "application/pdf", b"x" * (10 * 1024 * 1024 + 1)),
+            explanation=None,
+            source_type="receipt",
+            actor="api",
+        )
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail["code"] == "file_too_large"
 
     pending = await list_pending_intake_sources(actor="api")
     pending_items = pending["items"]
@@ -362,7 +376,11 @@ async def test_agent_voucher_posts_and_links_single_intake_source(
     assert attempts[0].summary == "Receipt matched to sale and VAT"
     assert attempts[0].voucher_id == response["id"]
 
-    source_context = await get_voucher_source_context(response["id"], ledger=LedgerService())
+    source_context = await get_voucher_source_context(
+        response["id"],
+        ledger=LedgerService(),
+        actor="api",
+    )
     assert source_context["source_material"][0]["kind"] == "voucher_source"
     assert source_context["source_material"][0]["download_url"] == (
         f"/api/v1/intake/{source.id}/file"
@@ -399,7 +417,11 @@ async def test_voucher_source_context_correction_chain_includes_reason(
         corrected_by="api",
     )
 
-    source_context = await get_voucher_source_context(response["id"], ledger=LedgerService())
+    source_context = await get_voucher_source_context(
+        response["id"],
+        ledger=LedgerService(),
+        actor="api",
+    )
     assert source_context["correction_chain"][0]["original_voucher_id"] == response["id"]
     assert source_context["correction_chain"][0]["correction_voucher_id"] == (
         correction.corrected_voucher_id
@@ -407,6 +429,11 @@ async def test_voucher_source_context_correction_chain_includes_reason(
     assert source_context["correction_chain"][0]["correction_reason"] == (
         "Wrong source interpretation"
     )
+
+
+def test_voucher_source_context_route_requires_current_actor_dependency():
+    actor_param = inspect.signature(get_voucher_source_context).parameters["actor"]
+    assert actor_param.default.dependency is get_current_actor
 
 
 @pytest.mark.asyncio

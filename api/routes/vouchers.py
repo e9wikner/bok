@@ -85,6 +85,7 @@ async def create_voucher(
 async def get_voucher_source_context(
     voucher_id: str,
     ledger: LedgerService = Depends(get_ledger_service),
+    actor: str = Depends(get_current_actor),
 ):
     """Return intake source material and correction context for voucher review."""
     voucher = ledger.vouchers.get(voucher_id)

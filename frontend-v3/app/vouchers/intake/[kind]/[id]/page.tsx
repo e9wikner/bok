@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useCallback } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -24,6 +25,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useIntakeDetail } from "@/hooks/useData";
+import { api } from "@/lib/api";
 import type { IntakeDetailResponse, IntakeKind, IntakeStatus } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
 
@@ -50,6 +52,17 @@ export default function IntakeDetailPage() {
   const kind = toIntakeKind(params.kind);
   const id = typeof params.id === "string" ? params.id : undefined;
   const { data: item, isLoading, isError } = useIntakeDetail(kind, id);
+  const openSourceFile = useCallback(async (item: IntakeDetailResponse) => {
+    const target = window.open("", "_blank", "noopener,noreferrer");
+    const blob = await api.getIntakeFile(item.kind, item.id);
+    const objectUrl = URL.createObjectURL(blob);
+    if (target) {
+      target.location.href = objectUrl;
+    } else {
+      window.open(objectUrl, "_blank", "noopener,noreferrer");
+    }
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  }, []);
 
   if (!kind || !id) {
     return (
@@ -203,12 +216,14 @@ export default function IntakeDetailPage() {
               />
             </div>
 
-            <a href={item.download_url} target="_blank" rel="noopener noreferrer">
-              <Button variant="outline" className="gap-2">
-                <Download className="h-4 w-4" />
-                Öppna fil
-              </Button>
-            </a>
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={() => openSourceFile(item)}
+            >
+              <Download className="h-4 w-4" />
+              Öppna fil
+            </Button>
           </CardContent>
         </Card>
 

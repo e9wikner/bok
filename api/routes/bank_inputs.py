@@ -19,6 +19,7 @@ from services.bank_inputs import (
 from services.bank_integration import BankIntegrationService
 
 router = APIRouter(prefix="/api/v1/bank-inputs", tags=["bank-inputs"])
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 
 @router.post("", response_model=dict, status_code=http_status.HTTP_201_CREATED)
@@ -28,7 +29,7 @@ async def upload_bank_input(
     actor: str = Depends(get_current_actor),
 ):
     """Upload bank CSV source material before agent voucher posting."""
-    content = file.file.read()
+    content = await _read_limited_upload(file)
     try:
         bank_input = BankInputService().create_from_upload_content(
             filename=file.filename,
@@ -115,6 +116,16 @@ def _bank_input_to_dict(bank_input: BankInput) -> dict:
         "parse_error": bank_input.parse_error,
         "processed_at": bank_input.processed_at.isoformat() if bank_input.processed_at else None,
     }
+
+
+async def _read_limited_upload(file: UploadFile) -> bytes:
+    content = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail={"error": "File too large", "code": "file_too_large"},
+        )
+    return content
 
 
 def _http_error(exc: BankInputError) -> HTTPException:

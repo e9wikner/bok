@@ -111,6 +111,21 @@ export default function VoucherDetailPage() {
     [id, refetchAttachments]
   );
 
+  const openSourceFile = useCallback(
+    async (source: VoucherSourceContext["source_material"][number]) => {
+      const target = window.open("", "_blank", "noopener,noreferrer");
+      const blob = await api.getIntakeFile(source.kind, source.id);
+      const objectUrl = URL.createObjectURL(blob);
+      if (target) {
+        target.location.href = objectUrl;
+      } else {
+        window.open(objectUrl, "_blank", "noopener,noreferrer");
+      }
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    },
+    []
+  );
+
   const handleDeleteAttachment = async (attachmentId: string) => {
     if (!confirm("Ta bort denna bilaga?")) return;
     try {
@@ -167,6 +182,7 @@ export default function VoucherDetailPage() {
         account_code: r.account_code,
         debit: r.debit || 0,
         credit: r.credit || 0,
+        description: r.description || "",
       }))
     );
     setIsEditing(true);
@@ -194,6 +210,7 @@ export default function VoucherDetailPage() {
           account: r.account_code || r.account,
           debit: r.debit || 0,
           credit: r.credit || 0,
+          description: r.description || undefined,
         }));
 
       const saved =
@@ -216,6 +233,7 @@ export default function VoucherDetailPage() {
       });
       queryClient.invalidateQueries({ queryKey: ["voucher", id] });
       queryClient.invalidateQueries({ queryKey: ["voucher-audit", id] });
+      queryClient.invalidateQueries({ queryKey: ["voucher-source-context", id] });
       queryClient.invalidateQueries({ queryKey: ["vouchers"] });
       queryClient.invalidateQueries({ queryKey: ["accounting-corrections"] });
       setTimeout(() => setIsEditing(false), 2000);
@@ -527,6 +545,7 @@ export default function VoucherDetailPage() {
       <SourceMaterialSection
         isLoading={sourceContextLoading}
         sourceMaterials={sourceMaterials}
+        onOpenSourceFile={openSourceFile}
       />
 
       <AgentProcessingSection
@@ -799,9 +818,13 @@ export default function VoucherDetailPage() {
 function SourceMaterialSection({
   isLoading,
   sourceMaterials,
+  onOpenSourceFile,
 }: {
   isLoading: boolean;
   sourceMaterials: VoucherSourceContext["source_material"];
+  onOpenSourceFile: (
+    source: VoucherSourceContext["source_material"][number]
+  ) => void;
 }) {
   return (
     <Card>
@@ -866,16 +889,15 @@ function SourceMaterialSection({
                   </div>
 
                   <div className="flex flex-wrap gap-2 sm:justify-end">
-                    <a
-                      href={source.download_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      onClick={() => onOpenSourceFile(source)}
                     >
-                      <Button variant="outline" size="sm" className="gap-2">
-                        <Download className="h-3.5 w-3.5" />
-                        Öppna fil
-                      </Button>
-                    </a>
+                      <Download className="h-3.5 w-3.5" />
+                      Öppna fil
+                    </Button>
                     <Link href={`/vouchers/intake/${source.kind}/${source.id}`}>
                       <Button variant="ghost" size="sm" className="gap-2">
                         <ExternalLink className="h-3.5 w-3.5" />

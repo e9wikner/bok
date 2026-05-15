@@ -1,6 +1,8 @@
 """API routes for voucher source intake."""
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi import status as http_status
 from fastapi.responses import FileResponse
 
@@ -21,6 +23,7 @@ from services.intake import (
 
 router = APIRouter(prefix="/api/v1/intake", tags=["intake"])
 VALID_WORKSPACE_KINDS = {"voucher_source", "bank_input"}
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 
 @router.post("", response_model=dict, status_code=http_status.HTTP_201_CREATED)
@@ -31,7 +34,7 @@ async def upload_intake_source(
     actor: str = Depends(get_current_actor),
 ):
     """Upload voucher source material before a voucher exists."""
-    content = file.file.read()
+    content = await _read_limited_upload(file)
     try:
         source = IntakeService().create_source_from_upload_content(
             filename=file.filename,
@@ -50,8 +53,8 @@ async def upload_intake_source(
 async def list_intake_workspace(
     status: str | None = None,
     kind: str | None = None,
-    limit: int = 100,
-    offset: int = 0,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
     actor: str = Depends(get_current_actor),
 ):
     """List voucher sources and bank inputs for human intake review."""
@@ -65,18 +68,31 @@ async def list_intake_workspace(
     total = 0
 
     if include_sources:
-        sources = intake_repo.list_by_status(status=status, limit=limit, offset=offset)
+        source_limit = limit if kind == "voucher_source" else limit + offset
+        source_offset = offset if kind == "voucher_source" else 0
+        sources = intake_repo.list_by_status(
+            status=status,
+            limit=source_limit,
+            offset=source_offset,
+        )
         total += intake_repo.count_by_status(status=status)
         items.extend(_workspace_source_item(source, intake_repo) for source in sources)
 
     if include_bank_inputs:
-        bank_inputs = bank_repo.list_by_status(status=status, limit=limit, offset=offset)
+        bank_limit = limit if kind == "bank_input" else limit + offset
+        bank_offset = offset if kind == "bank_input" else 0
+        bank_inputs = bank_repo.list_by_status(
+            status=status,
+            limit=bank_limit,
+            offset=bank_offset,
+        )
         total += bank_repo.count_by_status(status=status)
         items.extend(_workspace_bank_item(bank_input, bank_repo) for bank_input in bank_inputs)
 
     items.sort(key=lambda item: item["uploaded_at"])
+    page_items = items if kind is not None else items[offset : offset + limit]
     return {
-        "items": items[:limit],
+        "items": page_items[:limit],
         "total": total,
         "limit": limit,
         "offset": offset,
@@ -216,6 +232,16 @@ def _validate_workspace_filters(status: str | None, kind: str | None) -> None:
             status_code=http_status.HTTP_400_BAD_REQUEST,
             detail={"error": "Invalid intake status", "code": "invalid_intake_status"},
         )
+
+
+async def _read_limited_upload(file: UploadFile) -> bytes:
+    content = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail={"error": "File too large", "code": "file_too_large"},
+        )
+    return content
 
 
 def _workspace_source_item(source: IntakeSource, repo: IntakeRepository) -> dict:
