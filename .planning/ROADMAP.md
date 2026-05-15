@@ -50,7 +50,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 02-01: Add bank statement/status intake records and upload API.
+- [x] 02-01: Add bank statement/status intake records and upload API.
 - [ ] 02-02: Integrate parseable bank uploads with existing bank transaction import and source batch linkage.
 - [ ] 02-03: Extend agent context and posting safeguards for bank-driven voucher creation.
 
