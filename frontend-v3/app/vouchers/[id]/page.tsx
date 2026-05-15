@@ -158,6 +158,8 @@ export default function VoucherDetailPage() {
   const attachmentsList = attachmentsData?.attachments || [];
   const sourceMaterials = sourceContext?.source_material || [];
   const processingNotes = sourceContext?.processing_notes || [];
+  const correctionChain = sourceContext?.correction_chain || [];
+  const showCorrectionChain = correctionChain.length > 0 || !!voucher.correction_of;
 
   const startEditing = () => {
     setEditedRows(
@@ -531,6 +533,14 @@ export default function VoucherDetailPage() {
         isLoading={sourceContextLoading}
         processingNotes={processingNotes}
       />
+
+      {showCorrectionChain && (
+        <CorrectionChainSection
+          currentVoucherId={voucher.id}
+          correctionOf={voucher.correction_of}
+          correctionChain={correctionChain}
+        />
+      )}
 
       {/* Attachments */}
       <Card>
@@ -1009,6 +1019,123 @@ function AgentProcessingSection({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function CorrectionChainSection({
+  currentVoucherId,
+  correctionOf,
+  correctionChain,
+}: {
+  currentVoucherId: string;
+  correctionOf?: string | null;
+  correctionChain: VoucherSourceContext["correction_chain"];
+}) {
+  const fallbackChain =
+    correctionChain.length > 0
+      ? correctionChain
+      : [
+          {
+            id: `${correctionOf}-${currentVoucherId}`,
+            original_voucher_id: correctionOf || "",
+            correction_voucher_id: currentVoucherId,
+            correction_reason: null,
+            actor: null,
+            timestamp: "",
+            change_type: null,
+          },
+        ];
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <History className="h-5 w-5 text-primary" />
+          Korrigeringskedja
+        </CardTitle>
+        <CardDescription>
+          Read-only historik över ursprunglig verifikation och korrigeringar.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="rounded-lg border bg-muted/30 p-3 text-sm">
+          Den här historiken kan användas av agenten vid framtida bokföring.
+        </p>
+
+        <div className="space-y-3">
+          {fallbackChain.map((entry) => (
+            <div key={entry.id} className="rounded-lg border p-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <CorrectionVoucherLink
+                  label="Originalverifikation"
+                  voucherId={entry.original_voucher_id || correctionOf}
+                />
+                <CorrectionVoucherLink
+                  label="Korrigeringsverifikation"
+                  voucherId={entry.correction_voucher_id || currentVoucherId}
+                />
+              </div>
+
+              <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                <ReadOnlyField
+                  label="Anledning"
+                  value={entry.correction_reason || "Ingen anledning angiven"}
+                />
+                <ReadOnlyField label="Aktör" value={entry.actor || "okänd"} />
+                <ReadOnlyField
+                  label="Tidpunkt"
+                  value={entry.timestamp ? formatDate(entry.timestamp) : "-"}
+                />
+              </div>
+
+              {entry.change_type && (
+                <div className="mt-3">
+                  <Badge variant="outline">{entry.change_type}</Badge>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function CorrectionVoucherLink({
+  label,
+  voucherId,
+}: {
+  label: string;
+  voucherId?: string | null;
+}) {
+  return (
+    <div className="rounded-lg border bg-muted/20 p-3">
+      <p className="text-xs font-semibold uppercase text-muted-foreground">
+        {label}
+      </p>
+      {voucherId ? (
+        <Link
+          href={`/vouchers/${voucherId}`}
+          className="mt-1 inline-flex items-center gap-1 break-all text-sm text-primary hover:underline"
+        >
+          <ExternalLink className="h-3.5 w-3.5 flex-shrink-0" />
+          {voucherId}
+        </Link>
+      ) : (
+        <p className="mt-1 text-sm text-muted-foreground">Saknas</p>
+      )}
+    </div>
+  );
+}
+
+function ReadOnlyField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border bg-muted/20 p-3">
+      <p className="text-xs font-semibold uppercase text-muted-foreground">
+        {label}
+      </p>
+      <p className="mt-1 break-words text-sm">{value}</p>
+    </div>
   );
 }
 
