@@ -24,16 +24,16 @@ Requirements for the intake milestone. Each maps to roadmap phases.
 - [x] **AGNT-03**: Agent can post vouchers directly from intake material using the existing voucher posting path and backend validation.
 - [x] **AGNT-04**: A voucher posted from intake material is linked back to all source items used for the decision.
 - [x] **AGNT-05**: Agent processing attempts store summary, warnings or error details, linked voucher IDs, timestamps, and actor identity.
-- [ ] **AGNT-06**: Agent context includes relevant correction history so user corrections can inform future intake processing.
+- [x] **AGNT-06**: Agent context includes relevant correction history so user corrections can inform future intake processing.
 
 ### Bank Inputs
 
 - [x] **BANK-01**: User can upload bank statements/statuses separately from voucher source material.
 - [x] **BANK-02**: Bank statement/status uploads preserve the original uploaded file and source metadata.
 - [x] **BANK-03**: Parseable bank CSV uploads create or update bank transaction records through the existing bank import logic.
-- [ ] **BANK-04**: Agent can use uploaded bank statements/statuses and imported bank transactions as source input for creating missing vouchers.
-- [ ] **BANK-05**: Bank-driven voucher creation checks for duplicate source items, bank transactions, invoices, payroll entries, and existing vouchers before posting.
-- [ ] **BANK-06**: Vouchers created from bank inputs are linked back to the bank statement/status source and any imported bank transaction rows used.
+- [x] **BANK-04**: Agent can use uploaded bank statements/statuses and imported bank transactions as source input for creating missing vouchers.
+- [x] **BANK-05**: Bank-driven voucher creation checks for duplicate source items, bank transactions, invoices, payroll entries, and existing vouchers before posting.
+- [x] **BANK-06**: Vouchers created from bank inputs are linked back to the bank statement/status source and any imported bank transaction rows used.
 
 ### Review and Frontend
 
@@ -93,13 +93,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | AGNT-03 | Phase 1 | Complete |
 | AGNT-04 | Phase 1 | Complete |
 | AGNT-05 | Phase 1 | Complete |
-| AGNT-06 | Phase 2 | Pending |
+| AGNT-06 | Phase 2 | Complete |
 | BANK-01 | Phase 2 | Complete |
 | BANK-02 | Phase 2 | Complete |
 | BANK-03 | Phase 2 | Complete |
-| BANK-04 | Phase 2 | Pending |
-| BANK-05 | Phase 2 | Pending |
-| BANK-06 | Phase 2 | Pending |
+| BANK-04 | Phase 2 | Complete |
+| BANK-05 | Phase 2 | Complete |
+| BANK-06 | Phase 2 | Complete |
 | FRNT-01 | Phase 3 | Pending |
 | FRNT-02 | Phase 3 | Pending |
 | FRNT-03 | Phase 3 | Pending |
