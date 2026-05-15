@@ -15,8 +15,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useVoucher, useAccounts } from "@/hooks/useData";
+import { useVoucher, useAccounts, useVoucherSourceContext } from "@/hooks/useData";
 import { api } from "@/lib/api";
+import type { IntakeStatus, VoucherSourceContext } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
   ArrowLeft,
@@ -35,12 +36,36 @@ import {
   FileImage,
   File,
   Trash2,
+  Download,
+  ExternalLink,
+  Landmark,
 } from "lucide-react";
+
+const intakeStatusLabels: Record<IntakeStatus, string> = {
+  pending: "Väntar",
+  processing: "Bearbetas",
+  processed: "Klar",
+  skipped: "Hoppad över",
+  failed: "Misslyckad",
+  needs_attention: "Behöver granskas",
+  deleted: "Borttagen",
+};
+
+const sourceTypeLabels: Record<string, string> = {
+  receipt: "Kvitto",
+  supplier_invoice: "Leverantörsfaktura",
+  customer_invoice: "Kundfaktura",
+  reimbursement: "Utlägg/ersättning",
+  other: "Annat",
+};
+
 export default function VoucherDetailPage() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
   const { data: voucher, isLoading } = useVoucher(id);
   const { data: accountsData } = useAccounts();
+  const { data: sourceContext, isLoading: sourceContextLoading } =
+    useVoucherSourceContext(id);
   const accounts = accountsData?.accounts || [];
 
   // Audit trail
@@ -131,6 +156,8 @@ export default function VoucherDetailPage() {
   const isBalanced = Math.abs((totalDebit || 0) - (totalCredit || 0)) < 0.01;
   const auditEntries = auditData?.entries || [];
   const attachmentsList = attachmentsData?.attachments || [];
+  const sourceMaterials = sourceContext?.source_material || [];
+  const processingNotes = sourceContext?.processing_notes || [];
 
   const startEditing = () => {
     setEditedRows(
@@ -495,6 +522,16 @@ export default function VoucherDetailPage() {
         </CardContent>
       </Card>
 
+      <SourceMaterialSection
+        isLoading={sourceContextLoading}
+        sourceMaterials={sourceMaterials}
+      />
+
+      <AgentProcessingSection
+        isLoading={sourceContextLoading}
+        processingNotes={processingNotes}
+      />
+
       {/* Attachments */}
       <Card>
         <CardHeader>
@@ -747,4 +784,258 @@ export default function VoucherDetailPage() {
       </div>
     </div>
   );
+}
+
+function SourceMaterialSection({
+  isLoading,
+  sourceMaterials,
+}: {
+  isLoading: boolean;
+  sourceMaterials: VoucherSourceContext["source_material"];
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <FileText className="h-5 w-5 text-primary" />
+          Källmaterial
+          {sourceMaterials.length > 0 && (
+            <Badge variant="secondary" className="text-xs">
+              {sourceMaterials.length}
+            </Badge>
+          )}
+        </CardTitle>
+        <CardDescription>
+          Intagsmaterial kopplat till verifikationen, separat från manuella bilagor.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-20 w-full" />
+          </div>
+        ) : sourceMaterials.length > 0 ? (
+          <div className="space-y-3">
+            {sourceMaterials.map((source) => (
+              <div
+                key={`${source.kind}-${source.id}`}
+                className="rounded-lg border p-4"
+              >
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0 space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <SourceKindBadge kind={source.kind} />
+                      <IntakeStatusBadge status={source.status} />
+                    </div>
+                    <p className="break-words text-sm font-medium">
+                      {source.original_filename}
+                    </p>
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      <span>Uppladdad {formatDate(source.uploaded_at)}</span>
+                      <span>Kopplad {formatDate(source.linked_at)}</span>
+                      <span>Av {source.uploaded_by || source.linked_by || "okänd"}</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {source.kind === "bank_input"
+                        ? `${source.imported_count} importerade, ${source.skipped_count} hoppade över`
+                        : source.source_type
+                        ? sourceTypeLabels[source.source_type] || source.source_type
+                        : "Verifikationsunderlag"}
+                    </p>
+                    {source.kind === "voucher_source" && source.explanation && (
+                      <p className="whitespace-pre-wrap break-words text-sm">
+                        {source.explanation}
+                      </p>
+                    )}
+                    {source.link_reason && (
+                      <p className="text-xs text-muted-foreground">
+                        Länkorsak: {source.link_reason}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 sm:justify-end">
+                    <a
+                      href={source.download_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <Button variant="outline" size="sm" className="gap-2">
+                        <Download className="h-3.5 w-3.5" />
+                        Öppna fil
+                      </Button>
+                    </a>
+                    <Link href={`/vouchers/intake/${source.kind}/${source.id}`}>
+                      <Button variant="ghost" size="sm" className="gap-2">
+                        <ExternalLink className="h-3.5 w-3.5" />
+                        Visa intag
+                      </Button>
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            Inget intagsmaterial är kopplat till verifikationen.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function AgentProcessingSection({
+  isLoading,
+  processingNotes,
+}: {
+  isLoading: boolean;
+  processingNotes: VoucherSourceContext["processing_notes"];
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Brain className="h-5 w-5 text-primary" />
+          Agentbearbetning
+          {processingNotes.length > 0 && (
+            <Badge variant="secondary" className="text-xs">
+              {processingNotes.length}
+            </Badge>
+          )}
+        </CardTitle>
+        <CardDescription>
+          Sammanfattningar, varningar och fel från agentens behandling av källmaterial.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-20 w-full" />
+          </div>
+        ) : processingNotes.length > 0 ? (
+          <div className="space-y-3">
+            {processingNotes.map((note) => (
+              <div key={`${note.kind}-${note.id}`} className="rounded-lg border p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <SourceKindBadge kind={note.kind} />
+                  <IntakeStatusBadge status={note.status} />
+                  <span className="text-xs text-muted-foreground">
+                    {note.actor || "agent"}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {formatDate(note.created_at)}
+                  </span>
+                </div>
+
+                {note.summary && (
+                  <p className="mt-3 whitespace-pre-wrap break-words text-sm">
+                    {note.summary}
+                  </p>
+                )}
+
+                {note.kind === "bank_input" && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {note.detected_format || "Okänt format"} ·{" "}
+                    {note.imported_count ?? 0} importerade ·{" "}
+                    {note.skipped_count ?? 0} hoppade över
+                  </p>
+                )}
+
+                {note.warnings?.length > 0 && (
+                  <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-900/50 dark:bg-amber-950/20">
+                    <div className="flex items-center gap-2 text-sm font-medium text-amber-800 dark:text-amber-300">
+                      <AlertTriangle className="h-4 w-4" />
+                      Varningar
+                    </div>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+                      {note.warnings.map((warning, index) => (
+                        <li key={index} className="break-words">
+                          {warning}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {note.error_detail && (
+                  <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+                    <div className="flex items-center gap-2 text-sm font-medium text-destructive">
+                      <AlertTriangle className="h-4 w-4" />
+                      Fel
+                    </div>
+                    <p className="mt-2 whitespace-pre-wrap break-words text-sm">
+                      {note.error_detail}
+                    </p>
+                  </div>
+                )}
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {note.kind === "voucher_source" && note.intake_source_id && (
+                    <Link
+                      href={`/vouchers/intake/voucher_source/${note.intake_source_id}`}
+                      className="text-xs text-primary hover:underline"
+                    >
+                      Underlag {note.intake_source_id}
+                    </Link>
+                  )}
+                  {note.kind === "bank_input" && (
+                    <Link
+                      href={`/vouchers/intake/bank_input/${note.id}`}
+                      className="text-xs text-primary hover:underline"
+                    >
+                      Bankfil {note.id}
+                    </Link>
+                  )}
+                  {note.voucher_id && (
+                    <Link
+                      href={`/vouchers/${note.voucher_id}`}
+                      className="text-xs text-primary hover:underline"
+                    >
+                      Verifikation {note.voucher_id}
+                    </Link>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            Inga agentanteckningar är kopplade till verifikationen.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function SourceKindBadge({ kind }: { kind: "voucher_source" | "bank_input" }) {
+  return (
+    <Badge variant="outline" className="gap-1.5">
+      {kind === "bank_input" ? (
+        <Landmark className="h-3 w-3" />
+      ) : (
+        <FileText className="h-3 w-3" />
+      )}
+      {kind === "bank_input" ? "Bankfil" : "Underlag"}
+    </Badge>
+  );
+}
+
+function IntakeStatusBadge({ status }: { status: IntakeStatus }) {
+  const variant =
+    status === "processed"
+      ? "success"
+      : status === "failed"
+      ? "destructive"
+      : status === "needs_attention"
+      ? "warning"
+      : status === "pending"
+      ? "secondary"
+      : "outline";
+
+  return <Badge variant={variant}>{intakeStatusLabels[status]}</Badge>;
 }
