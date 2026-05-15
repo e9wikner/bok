@@ -104,8 +104,8 @@ class TestBankIntegration:
 2026-01-11;5000,00;Swish från kund;Johan AB
 2026-01-12;-1200,00;Telia faktura;Telia"""
         
-        imported, skipped = service.import_csv(conn.id, csv_content)
-        assert imported == 3
+        result = service.import_csv(conn.id, csv_content)
+        assert result.imported_count == 3
 
     def test_pending_count(self):
         service = BankIntegrationService()
