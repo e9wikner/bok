@@ -10,6 +10,7 @@ import {
   ExternalLink,
   FileText,
   Hash,
+  History,
   Landmark,
 } from "lucide-react";
 import {
@@ -271,6 +272,12 @@ export default function IntakeDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      {item.kind === "voucher_source" ? (
+        <ProcessingHistory item={item} />
+      ) : (
+        <BankParseHistory item={item} />
+      )}
     </DetailFrame>
   );
 }
@@ -341,6 +348,196 @@ function StatusBadge({ status }: { status: IntakeStatus }) {
       : "outline";
 
   return <Badge variant={variant}>{statusLabels[status]}</Badge>;
+}
+
+function ProcessingHistory({ item }: { item: IntakeDetailResponse }) {
+  const attempts = [...(item.processing_attempts || [])].sort((a, b) =>
+    a.created_at.localeCompare(b.created_at)
+  );
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <History className="h-5 w-5 text-primary" />
+          Bearbetningshistorik
+        </CardTitle>
+        <CardDescription>
+          Rå historik över agentens försök, varningar och fel.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {attempts.length > 0 ? (
+          <div className="space-y-4">
+            {attempts.map((attempt) => (
+              <div key={attempt.id} className="rounded-lg border p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <StatusBadge status={attempt.status} />
+                  <span className="text-xs text-muted-foreground">
+                    {attempt.actor || "agent"}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {formatDate(attempt.created_at)}
+                  </span>
+                  {attempt.voucher_id && (
+                    <Link
+                      href={`/vouchers/${attempt.voucher_id}`}
+                      className="text-xs text-primary hover:underline"
+                    >
+                      Verifikation {attempt.voucher_id}
+                    </Link>
+                  )}
+                </div>
+
+                {attempt.summary && (
+                  <p className="mt-3 whitespace-pre-wrap break-words text-sm">
+                    {attempt.summary}
+                  </p>
+                )}
+
+                {attempt.warnings?.length > 0 && (
+                  <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-900/50 dark:bg-amber-950/20">
+                    <div className="flex items-center gap-2 text-sm font-medium text-amber-800 dark:text-amber-300">
+                      <AlertTriangle className="h-4 w-4" />
+                      Varningar
+                    </div>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                      {attempt.warnings.map((warning, index) => (
+                        <li key={index} className="break-words">
+                          {warning}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {attempt.error_detail && (
+                  <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+                    <div className="flex items-center gap-2 text-sm font-medium text-destructive">
+                      <AlertTriangle className="h-4 w-4" />
+                      Fel
+                    </div>
+                    <p className="mt-2 whitespace-pre-wrap break-words text-sm">
+                      {attempt.error_detail}
+                    </p>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            Ingen bearbetningshistorik finns ännu.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function BankParseHistory({ item }: { item: IntakeDetailResponse }) {
+  if (item.kind !== "bank_input") return null;
+
+  const transactions = item.transactions || [];
+  const transactionIds =
+    item.transaction_ids?.length > 0 ? item.transaction_ids : transactions.map((tx) => tx.id);
+  const matchedSignals = item.match_signals || [];
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Landmark className="h-5 w-5 text-primary" />
+          Banktolkning
+        </CardTitle>
+        <CardDescription>
+          Rå importhistorik, transaktioner och matchningssignaler.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <SummaryField
+            label="Identifierat format"
+            value={item.detected_format || "Inte identifierat"}
+          />
+          <SummaryField label="Importerade" value={String(item.imported_count)} />
+          <SummaryField label="Hoppade över" value={String(item.skipped_count)} />
+          <SummaryField
+            label="Bearbetad"
+            value={item.processed_at ? formatDate(item.processed_at) : "-"}
+          />
+        </div>
+
+        {item.parse_error && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+            <div className="flex items-center gap-2 text-sm font-medium text-destructive">
+              <AlertTriangle className="h-4 w-4" />
+              Parse-fel
+            </div>
+            <p className="mt-2 whitespace-pre-wrap break-words text-sm">
+              {item.parse_error}
+            </p>
+          </div>
+        )}
+
+        <div className="rounded-lg border p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+            <p className="text-sm font-medium">Transaktioner</p>
+            <Badge variant="secondary">{transactionIds.length}</Badge>
+          </div>
+          {transactionIds.length > 0 ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {transactionIds.map((transactionId) => (
+                <span
+                  key={transactionId}
+                  className="rounded-md bg-muted px-2 py-1 font-mono text-xs"
+                >
+                  {transactionId}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-muted-foreground">
+              Inga transaktions-ID:n returnerades.
+            </p>
+          )}
+        </div>
+
+        <div className="rounded-lg border p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <History className="h-4 w-4 text-muted-foreground" />
+            <p className="text-sm font-medium">Matchningssignaler</p>
+            <Badge variant="secondary">{matchedSignals.length}</Badge>
+          </div>
+          {matchedSignals.length > 0 ? (
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {matchedSignals.map((signal) => (
+                <div key={signal.id} className="rounded-md bg-muted/60 p-3">
+                  <p className="break-words font-mono text-xs">{signal.id}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <Badge variant="outline">{signal.status}</Badge>
+                    {signal.matched_voucher_id && (
+                      <Link
+                        href={`/vouchers/${signal.matched_voucher_id}`}
+                        className="text-xs text-primary hover:underline"
+                      >
+                        Verifikation {signal.matched_voucher_id}
+                      </Link>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-muted-foreground">
+              Inga matchningssignaler returnerades.
+            </p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 function toIntakeKind(value?: string): IntakeKind | undefined {
