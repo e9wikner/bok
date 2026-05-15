@@ -21,6 +21,10 @@ class Settings(BaseSettings):
 
     # Intake source file storage
     intake_dir: str = os.getenv("INTAKE_DIR", "/app/data/intake")
+    bank_input_dir: str = os.getenv(
+        "BANK_INPUT_DIR",
+        os.path.join(intake_dir, "bank-inputs"),
+    )
 
     # Authentication
     api_key: str = os.getenv("BOKFOERING_API_KEY", "dev-key-change-in-production")
