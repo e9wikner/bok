@@ -12,9 +12,9 @@ This milestone turns Bok's existing agent-capable bookkeeping system into an aut
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Intake Foundation and Agent Queue** - Store voucher source material before vouchers exist and expose it safely to the agent.
-- [ ] **Phase 2: Bank Input and Direct Posting Context** - Add bank statement/status intake and let the agent use it to create missing vouchers without duplicating existing accounting.
-- [ ] **Phase 3: Frontend Intake Workspace and Review Loop** - Provide the operational UI for upload, status, linked voucher review, and correction learning.
+- [x] **Phase 1: Intake Foundation and Agent Queue** - Store voucher source material before vouchers exist and expose it safely to the agent.
+- [x] **Phase 2: Bank Input and Direct Posting Context** - Add bank statement/status intake and let the agent use it to create missing vouchers without duplicating existing accounting.
+- [x] **Phase 3: Frontend Intake Workspace and Review Loop** - Provide the operational UI for upload, status, linked voucher review, and correction learning.
 
 ## Phase Details
 
@@ -70,7 +70,7 @@ Plans:
 Plans:
 - [x] 03-01: Add frontend API client/types/hooks for intake and bank input.
 - [x] 03-02: Build the intake upload and status workspace.
-- [ ] 03-03: Extend voucher review pages with linked source material, processing notes, and correction-learning context.
+- [x] 03-03: Extend voucher review pages with linked source material, processing notes, and correction-learning context.
 
 ## Progress
 
@@ -79,6 +79,6 @@ Phases execute in numeric order: 1 -> 2 -> 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Intake Foundation and Agent Queue | 0/3 | Not started | - |
-| 2. Bank Input and Direct Posting Context | 0/3 | Not started | - |
-| 3. Frontend Intake Workspace and Review Loop | 0/3 | Not started | - |
+| 1. Intake Foundation and Agent Queue | 3/3 | Complete | 2026-05-15 |
+| 2. Bank Input and Direct Posting Context | 3/3 | Complete | 2026-05-15 |
+| 3. Frontend Intake Workspace and Review Loop | 3/3 | Complete | 2026-05-15 |
