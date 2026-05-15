@@ -9,6 +9,7 @@ from config import settings
 from db.database import db
 from domain.models import BankInput
 from domain.types import BankInputStatus
+from domain.validation import ValidationError
 from repositories.bank_input_repo import BankInputRepository
 from services.bank_integration import BankIntegrationService
 
@@ -105,7 +106,7 @@ class BankInputService:
 
         try:
             with db.transaction():
-                return self.inputs.create_bank_input(
+                bank_input = self.inputs.create_bank_input(
                     bank_input_id=bank_input_id,
                     bank_connection_id=bank_connection_id,
                     original_filename=original_filename,
@@ -117,6 +118,7 @@ class BankInputService:
                     status=BankInputStatus.PENDING.value,
                     _commit=False,
                 )
+            return self._process_persisted_input(bank_input, content)
         except sqlite3.IntegrityError as exc:
             self._cleanup_stored_file(stored_path)
             if "sha256" in str(exc).lower() or "unique" in str(exc).lower():
@@ -159,6 +161,46 @@ class BankInputService:
             "offset": offset,
             "items": self.inputs.list_by_status(status=None, limit=limit, offset=offset),
         }
+
+    def _process_persisted_input(self, bank_input: BankInput, content: bytes) -> BankInput:
+        try:
+            csv_content = content.decode("utf-8-sig")
+        except UnicodeDecodeError as exc:
+            return self.inputs.update_processing_result(
+                bank_input.id,
+                status="failed",
+                imported_count=0,
+                skipped_count=0,
+                parse_error=f"invalid_bank_csv_encoding: {exc}",
+            )
+
+        try:
+            result = self.bank.import_csv(bank_input.bank_connection_id, csv_content)
+        except ValidationError as exc:
+            return self.inputs.update_processing_result(
+                bank_input.id,
+                status="failed",
+                imported_count=0,
+                skipped_count=0,
+                parse_error=f"{exc.code}: {exc.message}",
+            )
+
+        with db.transaction():
+            for transaction_id in result.imported_transaction_ids:
+                self.inputs.create_transaction_link(
+                    bank_input_id=bank_input.id,
+                    bank_transaction_id=transaction_id,
+                    _commit=False,
+                )
+            return self.inputs.update_processing_result(
+                bank_input.id,
+                status="processed",
+                detected_format=result.detected_format,
+                imported_count=result.imported_count,
+                skipped_count=result.skipped_count,
+                parse_error=None,
+                _commit=False,
+            )
 
     def _validate_upload(self, filename: str, mime_type: str, content: bytes) -> None:
         if not filename.lower().endswith(".csv"):

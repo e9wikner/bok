@@ -45,7 +45,7 @@ def _active_connection():
     )
 
 
-def test_bank_input_service_persists_pending_csv_metadata(test_db, bank_input_dir):
+def test_bank_input_service_persists_processed_csv_metadata(test_db, bank_input_dir):
     conn = _active_connection()
     content = b"Datum;Belopp;Text\n2026-03-01;-100,00;Bankavgift"
 
@@ -57,21 +57,23 @@ def test_bank_input_service_persists_pending_csv_metadata(test_db, bank_input_di
         actor="api",
     )
 
-    assert bank_input.status == BankInputStatus.PENDING
+    assert bank_input.status == BankInputStatus.PROCESSED
     assert bank_input.bank_connection_id == conn.id
     assert bank_input.original_filename == "transactions.csv"
     assert bank_input.mime_type == "text/csv"
     assert bank_input.size_bytes == len(content)
     assert bank_input.sha256 == hashlib.sha256(content).hexdigest()
     assert bank_input.uploaded_by == "api"
-    assert bank_input.imported_count == 0
+    assert bank_input.detected_format == "swedish_standard_semicolon"
+    assert bank_input.imported_count == 1
     assert bank_input.skipped_count == 0
     assert Path(bank_input.stored_path).exists()
 
     stored = BankInputRepository.get_bank_input(bank_input.id)
     assert stored is not None
-    assert stored.status == BankInputStatus.PENDING
+    assert stored.status == BankInputStatus.PROCESSED
     assert stored.sha256 == bank_input.sha256
+    assert BankInputRepository.count_transactions_for_input(bank_input.id) == 1
 
 
 def test_bank_input_service_rejects_duplicate_upload(test_db, bank_input_dir):
@@ -165,6 +167,48 @@ def test_bank_input_service_rejects_outside_root_stored_path(test_db, bank_input
         service.resolve_input_file(tampered)
 
 
+def test_bank_input_upload_marks_unsupported_csv_failed(test_db, bank_input_dir):
+    conn = _active_connection()
+
+    bank_input = BankInputService().create_from_upload_content(
+        filename="transactions.csv",
+        content_type="text/csv",
+        content=b"When;Value;Memo\n2026-03-01;-100,00;Bankavgift",
+        bank_connection_id=conn.id,
+        actor="api",
+    )
+
+    assert bank_input.status == BankInputStatus.FAILED
+    assert bank_input.imported_count == 0
+    assert bank_input.skipped_count == 0
+    assert bank_input.parse_error is not None
+    assert "unsupported_bank_csv_format" in bank_input.parse_error
+    assert Path(bank_input.stored_path).exists()
+
+
+def test_bank_input_upload_records_duplicate_transaction_skip_count(test_db, bank_input_dir):
+    conn = _active_connection()
+
+    bank_input = BankInputService().create_from_upload_content(
+        filename="transactions.csv",
+        content_type="text/csv",
+        content="\n".join(
+            [
+                "Datum;Belopp;Text",
+                "2026-03-01;-100,00;Bankavgift",
+                "2026-03-01;-100,00;Bankavgift",
+            ]
+        ).encode(),
+        bank_connection_id=conn.id,
+        actor="api",
+    )
+
+    assert bank_input.status == BankInputStatus.PROCESSED
+    assert bank_input.imported_count == 1
+    assert bank_input.skipped_count == 1
+    assert BankInputRepository.count_transactions_for_input(bank_input.id) == 1
+
+
 def test_bank_csv_import_detects_supported_format_and_reports_details(test_db):
     conn = _active_connection()
     result = BankIntegrationService().import_csv(
@@ -226,12 +270,14 @@ async def test_bank_input_upload_download_and_error_mapping_api(
 
     assert response["id"]
     assert response["bank_connection_id"] == conn.id
-    assert response["status"] == "pending"
+    assert response["status"] == "processed"
     assert response["original_filename"] == "transactions.csv"
     assert response["mime_type"] == "text/csv"
     assert response["size_bytes"] == len(content)
     assert response["sha256"] == hashlib.sha256(content).hexdigest()
     assert response["uploaded_by"] == "api"
+    assert response["detected_format"] == "swedish_standard_semicolon"
+    assert response["imported_count"] == 1
 
     with pytest.raises(HTTPException) as exc_info:
         await upload_bank_input(
