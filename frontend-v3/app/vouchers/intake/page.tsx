@@ -5,8 +5,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import {
   AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle2,
   Clock,
+  ExternalLink,
   FileText,
   Landmark,
   Upload,
@@ -82,9 +85,14 @@ export default function IntakePage() {
       kind: kindFilter === "all" ? undefined : kindFilter,
       limit: PAGE_SIZE,
       offset: page * PAGE_SIZE,
-  });
+    });
   const intakeItems = workspaceData?.items || [];
   const total = workspaceData?.total || 0;
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const allStatusCount = Object.values(workspaceData?.status_counts || {}).reduce(
+    (sum, count) => sum + count,
+    0
+  );
 
   const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [sourceFileInputKey, setSourceFileInputKey] = useState(0);
@@ -312,7 +320,7 @@ export default function IntakePage() {
             {statusFilters.map((filter) => {
               const count =
                 filter.value === "all"
-                  ? total
+                  ? allStatusCount || total
                   : workspaceData?.status_counts?.[filter.value] || 0;
               return (
                 <Button
@@ -361,7 +369,7 @@ export default function IntakePage() {
             </div>
           ) : intakeItems.length > 0 ? (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[860px] text-sm">
+              <table className="w-full min-w-[860px] table-fixed text-sm">
                 <thead>
                   <tr className="border-b bg-muted/50">
                     <th className="text-left p-4 font-medium text-muted-foreground">
@@ -410,11 +418,7 @@ export default function IntakePage() {
                         <StatusDetail item={item} />
                       </td>
                       <td className="p-4 text-right">
-                        <Link href={`/vouchers/intake/${item.kind}/${item.id}`}>
-                          <Button variant="outline" size="sm">
-                            Visa intagspost
-                          </Button>
-                        </Link>
+                        <RowActions item={item} />
                       </td>
                     </tr>
                   ))}
@@ -435,6 +439,42 @@ export default function IntakePage() {
           )}
         </CardContent>
       </Card>
+
+      {total > 0 && (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground">
+            Visar {page * PAGE_SIZE + 1}-
+            {Math.min((page + 1) * PAGE_SIZE, total)} av {total}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((value) => Math.max(0, value - 1))}
+              disabled={page === 0}
+              aria-label="Föregående sida"
+              title="Föregående sida"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="min-w-12 text-center text-sm">
+              {page + 1} / {Math.max(totalPages, 1)}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setPage((value) => Math.min(totalPages - 1, value + 1))
+              }
+              disabled={page >= totalPages - 1}
+              aria-label="Nästa sida"
+              title="Nästa sida"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -525,6 +565,63 @@ function StatusDetail({ item }: { item: IntakeWorkspaceItem }) {
     >
       {text}
     </span>
+  );
+}
+
+function RowActions({ item }: { item: IntakeWorkspaceItem }) {
+  const detailHref = `/vouchers/intake/${item.kind}/${item.id}`;
+  const linkedVoucherId = item.linked_voucher_ids[0];
+
+  if (item.status === "processed" && linkedVoucherId) {
+    return (
+      <div className="flex flex-wrap justify-end gap-2">
+        <Link href={`/vouchers/${linkedVoucherId}`}>
+          <Button size="sm" className="gap-1.5 whitespace-nowrap">
+            <ExternalLink className="h-3.5 w-3.5" />
+            Öppna verifikation
+          </Button>
+        </Link>
+        <Link href={detailHref}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="whitespace-nowrap"
+          >
+            Visa intagspost
+          </Button>
+        </Link>
+      </div>
+    );
+  }
+
+  if (item.status === "failed") {
+    return (
+      <Link href={detailHref}>
+        <Button size="sm" className="gap-1.5 whitespace-nowrap">
+          <AlertTriangle className="h-3.5 w-3.5" />
+          Granska fel
+        </Button>
+      </Link>
+    );
+  }
+
+  if (item.status === "needs_attention") {
+    return (
+      <Link href={detailHref}>
+        <Button size="sm" className="gap-1.5 whitespace-nowrap">
+          <AlertTriangle className="h-3.5 w-3.5" />
+          Granska underlag
+        </Button>
+      </Link>
+    );
+  }
+
+  return (
+    <Link href={detailHref}>
+      <Button variant="outline" size="sm" className="whitespace-nowrap">
+        Visa intagspost
+      </Button>
+    </Link>
   );
 }
 
