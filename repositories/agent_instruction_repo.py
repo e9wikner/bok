@@ -163,7 +163,7 @@ class AgentInstructionRepository:
 
     @staticmethod
     def _default_content(scope: str) -> str:
-        if scope == "invoicing":
+        if scope in {"invoicing", "invoicing_company"}:
             return DEFAULT_INVOICING_INSTRUCTIONS
         return DEFAULT_ACCOUNTING_INSTRUCTIONS
 

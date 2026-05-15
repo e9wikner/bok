@@ -32,9 +32,9 @@ def _period():
     return PeriodRepository.create_period(
         fiscal_year_id=fiscal_year.id,
         year=2026,
-        month=3,
-        start_date=date(2026, 3, 1),
-        end_date=date(2026, 3, 31),
+        month=5,
+        start_date=date(2026, 5, 1),
+        end_date=date(2026, 5, 31),
     )
 
 
@@ -43,8 +43,9 @@ def test_agent_instruction_versions(test_db):
 
     response = client.get("/api/v1/agent-instructions/accounting", headers=_headers())
     assert response.status_code == 200
-    assert response.json()["version"] == 1
-    assert "Bokföringsinstruktioner" in response.json()["content_markdown"]
+    assert response.json()["company"]["version"] == 1
+    assert "Bokföringsinstruktioner" in response.json()["company"]["content_markdown"]
+    assert response.json()["system"]["is_editable"] is False
 
     response = client.put(
         "/api/v1/agent-instructions/accounting",
@@ -64,8 +65,9 @@ def test_agent_instruction_versions(test_db):
 
     response = client.get("/api/v1/agent-instructions/invoicing", headers=_headers())
     assert response.status_code == 200
-    assert response.json()["version"] == 1
-    assert "Faktureringsinstruktioner" in response.json()["content_markdown"]
+    assert response.json()["company"]["version"] == 1
+    assert "Faktureringsinstruktioner" in response.json()["company"]["content_markdown"]
+    assert response.json()["system"]["is_editable"] is False
 
     response = client.put(
         "/api/v1/agent-instructions/invoicing",
@@ -76,7 +78,7 @@ def test_agent_instruction_versions(test_db):
         },
     )
     assert response.status_code == 200
-    assert response.json()["scope"] == "invoicing"
+    assert response.json()["scope"] == "invoicing_company"
     assert response.json()["version"] == 2
 
 
@@ -89,7 +91,7 @@ def test_agent_posts_directly_and_correction_is_agent_readable(test_db):
         "/api/v1/agent/vouchers",
         headers=_headers(),
         json={
-            "date": "2026-03-10",
+            "date": "2026-05-10",
             "period_id": period.id,
             "description": "Telefonutgift Fello",
             "reasoning_summary": "Test",

@@ -1,5 +1,6 @@
 """Tests for bank input storage, upload APIs, and agent bank context."""
 
+from datetime import date
 from io import BytesIO
 from pathlib import Path
 import hashlib
@@ -7,17 +8,26 @@ import hashlib
 import pytest
 from fastapi import HTTPException
 
+from api.routes.agent import (
+    AgentVoucherRequest,
+    create_and_post_agent_voucher,
+    list_pending_intake_sources,
+)
 from api.routes.bank_inputs import get_bank_input_file, upload_bank_input
+from api.schemas import VoucherRowRequest
 from config import settings
 from db.database import db
 from domain.types import BankInputStatus
+from repositories.intake_repo import IntakeRepository
 from repositories.bank_input_repo import BankInputRepository
+from repositories.voucher_repo import VoucherRepository
 from services.bank_inputs import (
     BankInputFileAccessError,
     BankInputService,
     DuplicateBankInputError,
 )
 from services.bank_integration import BankIntegrationService
+from services.intake import IntakeService
 
 
 @pytest.fixture
@@ -27,6 +37,15 @@ def bank_input_dir(tmp_path):
     settings.bank_input_dir = str(tmp_path / "bank-inputs")
     yield Path(settings.bank_input_dir)
     settings.bank_input_dir = original
+
+
+@pytest.fixture
+def intake_dir(tmp_path):
+    """Use isolated ordinary intake storage for mixed source tests."""
+    original = settings.intake_dir
+    settings.intake_dir = str(tmp_path / "intake")
+    yield Path(settings.intake_dir)
+    settings.intake_dir = original
 
 
 class _UploadFile:
@@ -42,6 +61,33 @@ def _active_connection():
         bank_name="SEB",
         account_number="****1234",
         currency="SEK",
+    )
+
+
+def _processed_bank_input(content: bytes | None = None):
+    conn = _active_connection()
+    bank_input = BankInputService().create_from_upload_content(
+        filename="transactions.csv",
+        content_type="text/csv",
+        content=content or b"Datum;Belopp;Text\n2026-03-01;100,00;Kundbetalning",
+        bank_connection_id=conn.id,
+        actor="api",
+    )
+    transaction_ids = BankInputRepository.list_transaction_ids_for_input(bank_input.id)
+    return bank_input, transaction_ids
+
+
+def _agent_sale_request(period_id: str, amount: int = 10000, **kwargs) -> AgentVoucherRequest:
+    return AgentVoucherRequest(
+        date=date(2026, 3, 1),
+        period_id=period_id,
+        description="Agent bank-driven sale",
+        reasoning_summary="Bank transaction matched to sales voucher",
+        rows=[
+            VoucherRowRequest(account="1510", debit=amount, credit=0),
+            VoucherRowRequest(account="3011", debit=0, credit=amount),
+        ],
+        **kwargs,
     )
 
 
@@ -303,3 +349,219 @@ async def test_bank_input_upload_download_and_error_mapping_api(
     with pytest.raises(HTTPException) as exc_info:
         await get_bank_input_file(response["id"], actor="api")
     assert exc_info.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_agent_pending_queue_returns_voucher_sources_and_bank_inputs(
+    test_db,
+    bank_input_dir,
+    intake_dir,
+):
+    source = IntakeService().create_source_from_upload_content(
+        filename="receipt.pdf",
+        content_type="application/pdf",
+        content=b"%PDF-1.4 receipt",
+        explanation="Receipt",
+        source_type="receipt",
+        actor="api",
+    )
+    bank_input, transaction_ids = _processed_bank_input()
+
+    queue = await list_pending_intake_sources(actor="api")
+
+    assert queue["correction_history_url"] == "/api/v1/accounting-corrections"
+    voucher_item = next(item for item in queue["items"] if item["id"] == source.id)
+    bank_item = next(item for item in queue["items"] if item["id"] == bank_input.id)
+    assert voucher_item["kind"] == "voucher_source"
+    assert bank_item["kind"] == "bank_input"
+    assert bank_item["transaction_ids"] == transaction_ids
+    assert bank_item["transaction_count"] == 1
+    assert isinstance(bank_item["match_signals"], list)
+    assert "description" not in bank_item["match_signals"][0]
+
+
+@pytest.mark.asyncio
+async def test_agent_bank_driven_posting_links_input_and_transaction(
+    test_period,
+    bank_input_dir,
+):
+    bank_input, transaction_ids = _processed_bank_input()
+
+    response = await create_and_post_agent_voucher(
+        _agent_sale_request(
+            test_period.id,
+            bank_input_ids=[bank_input.id],
+            bank_transaction_ids=transaction_ids,
+        ),
+        actor="api",
+    )
+
+    assert response["status"] == "posted"
+    assert response["agent"]["bank_input_ids"] == [bank_input.id]
+    assert response["agent"]["bank_transaction_ids"] == transaction_ids
+    assert response["agent"]["traceability"]["bank_input_link_count"] == 1
+    assert response["agent"]["traceability"]["bank_transaction_link_count"] == 1
+
+    input_links = BankInputRepository.list_inputs_for_voucher(response["id"])
+    transaction_links = BankInputRepository.list_transactions_for_voucher(response["id"])
+    assert [link.bank_input_id for link in input_links] == [bank_input.id]
+    assert [link.bank_transaction_id for link in transaction_links] == transaction_ids
+
+    tx = BankIntegrationService().get_transaction(transaction_ids[0])
+    assert tx.status == "booked"
+    assert tx.matched_voucher_id == response["id"]
+
+
+@pytest.mark.asyncio
+async def test_agent_bank_driven_posting_can_use_multiple_transactions(
+    test_period,
+    bank_input_dir,
+):
+    bank_input, transaction_ids = _processed_bank_input(
+        b"Datum;Belopp;Text\n2026-03-01;100,00;Kundbetalning\n2026-03-02;100,00;Kundbetalning 2"
+    )
+
+    response = await create_and_post_agent_voucher(
+        _agent_sale_request(
+            test_period.id,
+            amount=20000,
+            bank_input_ids=[bank_input.id],
+            bank_transaction_ids=transaction_ids,
+        ),
+        actor="api",
+    )
+
+    assert response["status"] == "posted"
+    assert response["agent"]["traceability"]["bank_transaction_link_count"] == 2
+    assert len(BankInputRepository.list_transactions_for_voucher(response["id"])) == 2
+
+
+@pytest.mark.asyncio
+async def test_agent_bank_driven_posting_can_link_ordinary_intake_source(
+    test_period,
+    bank_input_dir,
+    intake_dir,
+):
+    bank_input, transaction_ids = _processed_bank_input()
+    source = IntakeService().create_source_from_upload_content(
+        filename="receipt.pdf",
+        content_type="application/pdf",
+        content=b"%PDF-1.4 receipt for bank tx",
+        explanation="Receipt",
+        source_type="receipt",
+        actor="api",
+    )
+
+    response = await create_and_post_agent_voucher(
+        _agent_sale_request(
+            test_period.id,
+            bank_input_ids=[bank_input.id],
+            bank_transaction_ids=transaction_ids,
+            intake_source_ids=[source.id],
+        ),
+        actor="api",
+    )
+
+    assert response["status"] == "posted"
+    assert response["agent"]["intake_source_ids"] == [source.id]
+    assert response["agent"]["processing_attempt_ids"]
+    assert IntakeRepository.list_links_for_voucher(response["id"])[0].intake_source_id == source.id
+    assert BankInputRepository.list_inputs_for_voucher(response["id"])[0].bank_input_id == bank_input.id
+
+
+@pytest.mark.asyncio
+async def test_agent_rejects_booked_bank_transaction_without_creating_voucher(
+    test_period,
+    bank_input_dir,
+):
+    bank_input, transaction_ids = _processed_bank_input()
+    first = await create_and_post_agent_voucher(
+        _agent_sale_request(
+            test_period.id,
+            bank_input_ids=[bank_input.id],
+            bank_transaction_ids=transaction_ids,
+        ),
+        actor="api",
+    )
+    _, before_count = VoucherRepository.list_all()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_and_post_agent_voucher(
+            _agent_sale_request(
+                test_period.id,
+                bank_input_ids=[bank_input.id],
+                bank_transaction_ids=transaction_ids,
+            ),
+            actor="api",
+        )
+
+    assert first["status"] == "posted"
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "bank_transaction_already_booked"
+    _, after_count = VoucherRepository.list_all()
+    assert after_count == before_count
+
+
+@pytest.mark.asyncio
+async def test_agent_rejects_matched_bank_transaction_without_creating_voucher(
+    test_period,
+    bank_input_dir,
+):
+    bank_input, transaction_ids = _processed_bank_input()
+    voucher = await create_and_post_agent_voucher(
+        _agent_sale_request(
+            test_period.id,
+            bank_input_ids=[bank_input.id],
+            bank_transaction_ids=transaction_ids,
+        ),
+        actor="api",
+    )
+    db.execute(
+        "UPDATE bank_transactions SET status = 'pending', matched_voucher_id = ? WHERE id = ?",
+        (voucher["id"], transaction_ids[0]),
+    )
+    db.commit()
+    _, before_count = VoucherRepository.list_all()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_and_post_agent_voucher(
+            _agent_sale_request(
+                test_period.id,
+                bank_input_ids=[bank_input.id],
+                bank_transaction_ids=transaction_ids,
+            ),
+            actor="api",
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "bank_transaction_already_matched"
+    _, after_count = VoucherRepository.list_all()
+    assert after_count == before_count
+
+
+@pytest.mark.asyncio
+async def test_agent_rejects_unlinked_bank_transaction_before_voucher_creation(
+    test_period,
+    bank_input_dir,
+):
+    bank_input, _transaction_ids = _processed_bank_input()
+    other_input, other_transaction_ids = _processed_bank_input(
+        b"Datum;Belopp;Text\n2026-03-09;100,00;Other payment"
+    )
+    _, before_count = VoucherRepository.list_all()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_and_post_agent_voucher(
+            _agent_sale_request(
+                test_period.id,
+                bank_input_ids=[bank_input.id],
+                bank_transaction_ids=other_transaction_ids,
+            ),
+            actor="api",
+        )
+
+    assert other_input.id != bank_input.id
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "bank_transaction_not_linked"
+    _, after_count = VoucherRepository.list_all()
+    assert after_count == before_count
