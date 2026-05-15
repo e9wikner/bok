@@ -51,7 +51,7 @@ Plans:
 
 Plans:
 - [x] 02-01: Add bank statement/status intake records and upload API.
-- [ ] 02-02: Integrate parseable bank uploads with existing bank transaction import and source batch linkage.
+- [x] 02-02: Integrate parseable bank uploads with existing bank transaction import and source batch linkage.
 - [ ] 02-03: Extend agent context and posting safeguards for bank-driven voucher creation.
 
 ### Phase 3: Frontend Intake Workspace and Review Loop
