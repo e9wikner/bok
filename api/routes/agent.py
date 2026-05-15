@@ -12,6 +12,7 @@ from api.schemas import VoucherRowRequest
 from domain.validation import ValidationError
 from services.ledger import LedgerService
 from services.intake import IntakeError, IntakeService
+from services.bank_inputs import BankInputError, BankInputService
 
 router = APIRouter(prefix="/api/v1/agent", tags=["agent-integration"])
 
@@ -24,6 +25,8 @@ class AgentVoucherRequest(BaseModel):
     series: str = "A"
     reasoning_summary: Optional[str] = None
     intake_source_ids: list[str] = Field(default_factory=list)
+    bank_input_ids: list[str] = Field(default_factory=list)
+    bank_transaction_ids: list[str] = Field(default_factory=list)
 
 
 class AgentProcessingRequest(BaseModel):
@@ -59,23 +62,19 @@ async def create_and_post_agent_voucher(
     actor: str = Depends(get_current_actor),
 ):
     """Create and post a voucher directly from an accounting agent."""
-    if len(request.intake_source_ids) > 1:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "Phase 1 supports linking one intake source per agent voucher",
-                "code": "multiple_intake_sources_not_supported",
-                "details": f"count={len(request.intake_source_ids)}",
-            },
-        )
-
     intake = IntakeService()
-    source_id = request.intake_source_ids[0] if request.intake_source_ids else None
-    if source_id:
-        try:
+    bank_inputs = BankInputService()
+    try:
+        for source_id in request.intake_source_ids:
             intake.ensure_source_ready_for_voucher_link(source_id)
-        except IntakeError as exc:
-            raise _intake_http_error(exc) from exc
+        bank_inputs.ensure_transactions_available(
+            request.bank_input_ids,
+            request.bank_transaction_ids,
+        )
+    except IntakeError as exc:
+        raise _intake_http_error(exc) from exc
+    except BankInputError as exc:
+        raise _bank_input_http_error(exc) from exc
 
     try:
         ledger = LedgerService()
@@ -88,8 +87,9 @@ async def create_and_post_agent_voucher(
             created_by="agent",
         )
         voucher = ledger.post_voucher(voucher.id, actor=actor)
-        processing_attempt_id = None
-        if source_id:
+        processing_attempt_ids = []
+        summary = request.reasoning_summary or request.description
+        for source_id in request.intake_source_ids:
             summary = request.reasoning_summary or request.description
             attempt, _link = intake.link_existing_voucher(
                 source_id=source_id,
@@ -98,7 +98,13 @@ async def create_and_post_agent_voucher(
                 summary=summary,
                 link_reason="agent_posted_voucher",
             )
-            processing_attempt_id = attempt.id
+            processing_attempt_ids.append(attempt.id)
+        traceability = bank_inputs.link_posted_voucher(
+            voucher_id=voucher.id,
+            bank_input_ids=request.bank_input_ids,
+            bank_transaction_ids=request.bank_transaction_ids,
+            actor=actor,
+        )
         from api.routes.vouchers import _voucher_to_response
 
         response = _voucher_to_response(voucher).model_dump()
@@ -106,7 +112,13 @@ async def create_and_post_agent_voucher(
             "posted_directly": True,
             "reasoning_summary": request.reasoning_summary,
             "intake_source_ids": request.intake_source_ids,
-            "processing_attempt_id": processing_attempt_id,
+            "processing_attempt_id": processing_attempt_ids[0]
+            if len(processing_attempt_ids) == 1
+            else None,
+            "processing_attempt_ids": processing_attempt_ids,
+            "bank_input_ids": request.bank_input_ids,
+            "bank_transaction_ids": request.bank_transaction_ids,
+            "traceability": traceability,
         }
         return response
     except ValidationError as exc:
@@ -116,6 +128,8 @@ async def create_and_post_agent_voucher(
         )
     except IntakeError as exc:
         raise _intake_http_error(exc) from exc
+    except BankInputError as exc:
+        raise _bank_input_http_error(exc) from exc
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
 
@@ -128,12 +142,15 @@ async def list_pending_intake_sources(
 ):
     """List pending intake source material for agent processing."""
     queue = IntakeService().get_pending_queue(limit=limit, offset=offset)
+    bank_queue = BankInputService().agent_queue_items(limit=limit, offset=offset)
     return {
-        "total": queue["total"],
+        "total": queue["total"] + bank_queue["total"],
         "limit": queue["limit"],
         "offset": queue["offset"],
+        "correction_history_url": "/api/v1/accounting-corrections",
         "items": [
             {
+                "kind": "voucher_source",
                 "id": source.id,
                 "source_type": source.source_type.value if source.source_type else None,
                 "status": source.status.value,
@@ -147,7 +164,8 @@ async def list_pending_intake_sources(
                 "download_url": f"/api/v1/intake/{source.id}/file",
             }
             for source in queue["items"]
-        ],
+        ]
+        + bank_queue["items"],
     }
 
 
@@ -241,6 +259,24 @@ def _intake_http_error(exc: IntakeError) -> HTTPException:
     if exc.code in {"intake_not_found", "voucher_not_found"}:
         status_code = status.HTTP_404_NOT_FOUND
     elif exc.code in {"intake_not_processable", "intake_already_linked", "voucher_not_posted"}:
+        status_code = status.HTTP_409_CONFLICT
+    else:
+        status_code = status.HTTP_400_BAD_REQUEST
+    return HTTPException(
+        status_code=status_code,
+        detail={"error": exc.message, "code": exc.code, "details": exc.details},
+    )
+
+
+def _bank_input_http_error(exc: BankInputError) -> HTTPException:
+    if exc.code in {"bank_input_not_found", "bank_connection_not_found", "bank_transaction_not_found"}:
+        status_code = status.HTTP_404_NOT_FOUND
+    elif exc.code in {
+        "bank_input_not_processed",
+        "bank_transaction_not_linked",
+        "bank_transaction_already_booked",
+        "bank_transaction_already_matched",
+    }:
         status_code = status.HTTP_409_CONFLICT
     else:
         status_code = status.HTTP_400_BAD_REQUEST

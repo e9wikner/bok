@@ -54,6 +54,17 @@ class BankConnectionNotFoundError(BankInputError):
         )
 
 
+class BankTransactionNotFoundError(BankInputError):
+    """Raised when a selected bank transaction cannot be found."""
+
+    def __init__(self, bank_transaction_id: str):
+        super().__init__(
+            "bank_transaction_not_found",
+            "Bank transaction not found",
+            f"bank_transaction_id={bank_transaction_id}",
+        )
+
+
 class BankInputValidationError(BankInputError):
     """Raised when bank input data is invalid."""
 
@@ -160,6 +171,125 @@ class BankInputService:
             "limit": limit,
             "offset": offset,
             "items": self.inputs.list_by_status(status=None, limit=limit, offset=offset),
+        }
+
+    def agent_queue_items(self, limit: int = 100, offset: int = 0) -> dict:
+        """Return compact bank input items for the agent intake queue."""
+        queue = self.list_agent_relevant(limit=limit, offset=offset)
+        items = []
+        for bank_input in queue["items"]:
+            transaction_ids = self.inputs.list_transaction_ids_for_input(bank_input.id)
+            items.append(
+                {
+                    "kind": "bank_input",
+                    "id": bank_input.id,
+                    "status": bank_input.status.value,
+                    "bank_connection_id": bank_input.bank_connection_id,
+                    "original_filename": bank_input.original_filename,
+                    "mime_type": bank_input.mime_type,
+                    "size_bytes": bank_input.size_bytes,
+                    "sha256": bank_input.sha256,
+                    "uploaded_at": bank_input.uploaded_at.isoformat(),
+                    "uploaded_by": bank_input.uploaded_by,
+                    "download_url": f"/api/v1/bank-inputs/{bank_input.id}/file",
+                    "imported_count": bank_input.imported_count,
+                    "skipped_count": bank_input.skipped_count,
+                    "detected_format": bank_input.detected_format,
+                    "parse_error": bank_input.parse_error,
+                    "transaction_ids": transaction_ids,
+                    "transaction_count": len(transaction_ids),
+                    "match_signals": self.inputs.list_transaction_signals_for_input(bank_input.id),
+                }
+            )
+        return {**queue, "items": items}
+
+    def ensure_transactions_available(
+        self,
+        bank_input_ids: list[str],
+        bank_transaction_ids: list[str],
+    ) -> None:
+        """Validate bank inputs and linked transactions before voucher creation."""
+        if bank_transaction_ids and not bank_input_ids:
+            raise BankInputValidationError(
+                "missing_bank_input_traceability",
+                "Bank transaction IDs require at least one bank input ID",
+            )
+
+        input_id_set = set(bank_input_ids)
+        for bank_input_id in bank_input_ids:
+            bank_input = self.get_bank_input(bank_input_id)
+            if bank_input.status != BankInputStatus.PROCESSED:
+                raise BankInputConflictError(
+                    "bank_input_not_processed",
+                    "Only processed bank inputs can be used for posting",
+                    f"bank_input_id={bank_input_id}, status={bank_input.status.value}",
+                )
+
+        for transaction_id in bank_transaction_ids:
+            transaction = self.bank.get_transaction(transaction_id)
+            if not transaction:
+                raise BankTransactionNotFoundError(transaction_id)
+            linked_input_ids = set(self.inputs.list_input_ids_for_transaction(transaction_id))
+            if not linked_input_ids.intersection(input_id_set):
+                raise BankInputConflictError(
+                    "bank_transaction_not_linked",
+                    "Bank transaction is not linked to the supplied bank input",
+                    f"bank_transaction_id={transaction_id}",
+                )
+            if transaction.status == "booked":
+                raise BankInputConflictError(
+                    "bank_transaction_already_booked",
+                    "Bank transaction is already booked",
+                    f"bank_transaction_id={transaction_id}",
+                )
+            if transaction.matched_voucher_id is not None:
+                raise BankInputConflictError(
+                    "bank_transaction_already_matched",
+                    "Bank transaction is already matched to a voucher",
+                    f"bank_transaction_id={transaction_id}, voucher_id={transaction.matched_voucher_id}",
+                )
+
+    def link_posted_voucher(
+        self,
+        voucher_id: str,
+        bank_input_ids: list[str],
+        bank_transaction_ids: list[str],
+        actor: str,
+    ) -> dict:
+        """Persist bank traceability and mark used transactions booked."""
+        if not bank_input_ids and not bank_transaction_ids:
+            return {
+                "bank_input_link_count": 0,
+                "bank_transaction_link_count": 0,
+                "booked_transaction_count": 0,
+            }
+
+        self.ensure_transactions_available(bank_input_ids, bank_transaction_ids)
+        with db.transaction():
+            for bank_input_id in bank_input_ids:
+                self.inputs.create_voucher_bank_input_link(
+                    voucher_id=voucher_id,
+                    bank_input_id=bank_input_id,
+                    linked_by=actor,
+                    _commit=False,
+                )
+            for transaction_id in bank_transaction_ids:
+                self.inputs.create_voucher_bank_transaction_link(
+                    voucher_id=voucher_id,
+                    bank_transaction_id=transaction_id,
+                    linked_by=actor,
+                    _commit=False,
+                )
+            self.inputs.mark_transactions_booked(
+                bank_transaction_ids,
+                voucher_id=voucher_id,
+                _commit=False,
+            )
+
+        return {
+            "bank_input_link_count": len(bank_input_ids),
+            "bank_transaction_link_count": len(bank_transaction_ids),
+            "booked_transaction_count": len(bank_transaction_ids),
         }
 
     def _process_persisted_input(self, bank_input: BankInput, content: bytes) -> BankInput:

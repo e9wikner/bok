@@ -276,6 +276,38 @@ class BankInputRepository:
         return [dict(row) for row in rows]
 
     @staticmethod
+    def list_input_ids_for_transaction(bank_transaction_id: str) -> list[str]:
+        rows = db.execute(
+            """
+            SELECT bank_input_id
+            FROM bank_input_transactions
+            WHERE bank_transaction_id = ?
+            ORDER BY linked_at ASC
+            """,
+            (bank_transaction_id,),
+        ).fetchall()
+        return [row["bank_input_id"] for row in rows]
+
+    @staticmethod
+    def mark_transactions_booked(
+        bank_transaction_ids: list[str],
+        voucher_id: str,
+        _commit: bool = True,
+    ) -> None:
+        now = datetime.now()
+        for transaction_id in bank_transaction_ids:
+            db.execute(
+                """
+                UPDATE bank_transactions
+                SET status = 'booked', matched_voucher_id = ?, booked_at = ?
+                WHERE id = ?
+                """,
+                (voucher_id, now, transaction_id),
+            )
+        if _commit:
+            db.commit()
+
+    @staticmethod
     def list_inputs_for_voucher(voucher_id: str) -> list[VoucherBankInput]:
         rows = db.execute(
             """
