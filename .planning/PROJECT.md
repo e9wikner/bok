@@ -28,19 +28,22 @@ The system should let a small Swedish company keep compliant books with minimal 
 - ✓ Voucher attachments for already-created vouchers, including PDF and image files — existing
 - ✓ Manual CSV bank transaction import and bank transaction storage/deduplication — existing
 - ✓ User correction of posted vouchers through linked correction vouchers that preserve original records — existing
+- ✓ Uploaded bank CSV inputs are modeled separately from voucher source material — validated in Phase 02
+- ✓ Bank CSV uploads preserve original file metadata and import transaction rows with source linkage — validated in Phase 02
+- ✓ Agent context exposes typed bank input queue items plus correction-history discovery — validated in Phase 02
+- ✓ Bank-driven direct posting rejects explicit reuse of booked or matched transactions — validated in Phase 02
+- ✓ Bank-driven vouchers preserve traceability to uploaded bank input rows and exact bank transactions — validated in Phase 02
 
 ### Active
 
 - [ ] User can upload source material before a voucher exists, including receipt/invoice PDFs and images.
 - [ ] User can add a short explanation to each uploaded voucher source, such as whether it is a company-paid invoice or an employee-paid reimbursable expense.
-- [ ] User can upload bank statements/statuses separately from voucher source material.
 - [ ] Uploaded voucher source material is visible to the agent as pending work during its status/context check.
-- [ ] Uploaded bank statements/statuses are visible to the agent as input for creating missing vouchers.
 - [ ] Agent can create and post vouchers directly from uploaded source material without requiring user approval first.
 - [ ] Posted vouchers created from intake material preserve traceability back to the source files and user explanation.
 - [ ] User can review agent-posted vouchers after the fact and correct mistakes through existing B-series correction flows.
-- [ ] Agent can use user corrections as learning context for future intake decisions.
 - [ ] Intake items have enough lifecycle state to avoid duplicate processing and to show whether they were posted, skipped, or need attention.
+- [ ] Frontend provides an operational intake workspace for voucher source uploads, bank CSV uploads, scan status, and review/correction loops.
 
 ### Out of Scope
 
@@ -85,9 +88,9 @@ Known codebase concerns relevant to this work:
 | Treat this as a brownfield project | The app already has backend, frontend, agent integration, attachments, bank import, and core bookkeeping workflows | — Pending |
 | Default agent behavior is direct posting from intake | The product goal is automated bookkeeping with as little user interaction as possible | — Pending |
 | Use corrections as the learning loop | Mistakes are expected to be corrected by the user through B-series correction vouchers, and those corrections become future agent context | — Pending |
-| Bank statements/statuses are source input for voucher creation | Uploaded bank data should help the agent create missing vouchers, not only reconcile already-created ones | — Pending |
-| Keep voucher source uploads separate from bank statement uploads | Receipts/invoices and bank statements represent different evidence types and need different lifecycle handling | — Pending |
-| Preserve backend validation boundaries | The agent decides bookkeeping treatment; backend enforces balance, periods, accounts, immutability, and audit rules | — Pending |
+| Bank statements/statuses are source input for voucher creation | Uploaded bank data should help the agent create missing vouchers, not only reconcile already-created ones | Validated in Phase 02 with bank CSV inputs and bank-driven agent posting safeguards |
+| Keep voucher source uploads separate from bank statement uploads | Receipts/invoices and bank statements represent different evidence types and need different lifecycle handling | Validated in Phase 02 with `bank_inputs` separate from `intake_sources` |
+| Preserve backend validation boundaries | The agent decides bookkeeping treatment; backend enforces balance, periods, accounts, immutability, and audit rules | Validated in Phase 02 by keeping bank-driven posting on `LedgerService` and adding transaction reuse guardrails |
 
 ## Evolution
 
@@ -107,4 +110,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-14 after initialization*
+*Last updated: 2026-05-15 after Phase 02 completion*
