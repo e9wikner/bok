@@ -13,7 +13,7 @@ from api.routes.agent import (
     create_and_post_agent_voucher,
     list_pending_intake_sources,
 )
-from api.routes.bank_inputs import get_bank_input_file, upload_bank_input
+from api.routes.bank_inputs import get_bank_input_file, list_bank_input_connections, upload_bank_input
 from api.routes.intake import get_intake_workspace_detail, list_intake_workspace
 from api.schemas import VoucherRowRequest
 from config import settings
@@ -173,6 +173,33 @@ def test_bank_input_upload_requires_active_connection(test_db, bank_input_dir):
         )
 
     assert getattr(exc_info.value, "code") == "inactive_bank_connection"
+
+
+@pytest.mark.asyncio
+async def test_bank_input_connections_selector_returns_active_display_fields(test_db):
+    active = _active_connection()
+    inactive = BankIntegrationService().create_connection(
+        provider="manual",
+        bank_name="Nordea",
+        account_number="****9999",
+        iban="SE999",
+        currency="SEK",
+    )
+    db.execute("UPDATE bank_connections SET status = 'expired' WHERE id = ?", (inactive.id,))
+    db.commit()
+
+    response = await list_bank_input_connections(actor="api")
+    items = response["items"]
+    assert [item["id"] for item in items] == [active.id]
+    assert items[0]["bank_name"] == active.bank_name
+    assert items[0]["account_number"] == active.account_number
+    assert items[0]["currency"] == "SEK"
+    assert items[0]["status"] == "active"
+
+    route_paths = [route.path for route in list_bank_input_connections.__globals__["router"].routes]
+    assert route_paths.index("/api/v1/bank-inputs/connections") < route_paths.index(
+        "/api/v1/bank-inputs/{bank_input_id}"
+    )
 
 
 def test_bank_input_service_rejects_non_csv(test_db, bank_input_dir):

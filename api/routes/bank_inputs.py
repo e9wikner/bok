@@ -16,6 +16,7 @@ from services.bank_inputs import (
     BankInputValidationError,
     DuplicateBankInputError,
 )
+from services.bank_integration import BankIntegrationService
 
 router = APIRouter(prefix="/api/v1/bank-inputs", tags=["bank-inputs"])
 
@@ -39,6 +40,31 @@ async def upload_bank_input(
         return _bank_input_to_dict(bank_input)
     except BankInputError as exc:
         raise _http_error(exc) from exc
+
+
+@router.get("/connections", response_model=dict)
+async def list_bank_input_connections(
+    include_inactive: bool = False,
+    actor: str = Depends(get_current_actor),
+):
+    """List bank account options for bank CSV upload."""
+    connections = BankIntegrationService().get_connections()
+    if not include_inactive:
+        connections = [conn for conn in connections if conn.status == "active"]
+    return {
+        "items": [
+            {
+                "id": conn.id,
+                "provider": conn.provider,
+                "bank_name": conn.bank_name,
+                "account_number": conn.account_number,
+                "iban": conn.iban,
+                "currency": conn.currency,
+                "status": conn.status,
+            }
+            for conn in connections
+        ]
+    }
 
 
 @router.get("/{bank_input_id}", response_model=dict)
