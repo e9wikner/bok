@@ -31,6 +31,7 @@ from api.routes import (
     vat,
     accounting_corrections,
     intake,
+    bank_inputs,
     attachments,
     auth,
     audit,
@@ -101,6 +102,7 @@ app.include_router(accounting_corrections.router)
 
 # Intake source material
 app.include_router(intake.router)
+app.include_router(bank_inputs.router)
 
 # Attachments
 app.include_router(attachments.router)
