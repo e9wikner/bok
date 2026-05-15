@@ -107,6 +107,17 @@ class BankInputRepository:
         return [BankInputRepository._row_to_bank_input(row) for row in rows]
 
     @staticmethod
+    def count_by_status(status: str | None = None) -> int:
+        if status:
+            row = db.execute(
+                "SELECT COUNT(*) AS count FROM bank_inputs WHERE status = ?",
+                (status,),
+            ).fetchone()
+        else:
+            row = db.execute("SELECT COUNT(*) AS count FROM bank_inputs").fetchone()
+        return row["count"] if row else 0
+
+    @staticmethod
     def count_agent_relevant() -> int:
         row = db.execute(
             """
@@ -316,6 +327,18 @@ class BankInputRepository:
             ORDER BY linked_at ASC
             """,
             (voucher_id,),
+        ).fetchall()
+        return [BankInputRepository._row_to_voucher_bank_input(row) for row in rows]
+
+    @staticmethod
+    def list_voucher_links_for_input(bank_input_id: str) -> list[VoucherBankInput]:
+        rows = db.execute(
+            """
+            SELECT * FROM voucher_bank_inputs
+            WHERE bank_input_id = ?
+            ORDER BY linked_at ASC
+            """,
+            (bank_input_id,),
         ).fetchall()
         return [BankInputRepository._row_to_voucher_bank_input(row) for row in rows]
 

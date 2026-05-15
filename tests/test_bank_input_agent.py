@@ -14,6 +14,7 @@ from api.routes.agent import (
     list_pending_intake_sources,
 )
 from api.routes.bank_inputs import get_bank_input_file, upload_bank_input
+from api.routes.intake import get_intake_workspace_detail, list_intake_workspace
 from api.schemas import VoucherRowRequest
 from config import settings
 from db.database import db
@@ -378,6 +379,64 @@ async def test_agent_pending_queue_returns_voucher_sources_and_bank_inputs(
     assert bank_item["transaction_count"] == 1
     assert isinstance(bank_item["match_signals"], list)
     assert "description" not in bank_item["match_signals"][0]
+
+
+@pytest.mark.asyncio
+async def test_intake_workspace_returns_voucher_sources_and_bank_inputs_with_filters(
+    test_db,
+    bank_input_dir,
+    intake_dir,
+):
+    source = IntakeService().create_source_from_upload_content(
+        filename="receipt.pdf",
+        content_type="application/pdf",
+        content=b"%PDF-1.4 workspace receipt",
+        explanation="Receipt",
+        source_type="receipt",
+        actor="api",
+    )
+    failed_source = IntakeService().create_source_from_upload_content(
+        filename="failed.pdf",
+        content_type="application/pdf",
+        content=b"%PDF-1.4 failed workspace receipt",
+        explanation=None,
+        source_type="receipt",
+        actor="api",
+    )
+    IntakeService().record_failed(
+        failed_source.id,
+        summary="Could not process",
+        error_detail="Missing amount",
+        actor="api",
+    )
+    bank_input, transaction_ids = _processed_bank_input()
+    failed_bank = BankInputService().create_from_upload_content(
+        filename="bad.csv",
+        content_type="text/csv",
+        content=b"When;Value;Memo\n2026-03-01;-100,00;Bankavgift",
+        bank_connection_id=bank_input.bank_connection_id,
+        actor="api",
+    )
+
+    workspace = await list_intake_workspace(actor="api")
+    item_kinds = {item["id"]: item["kind"] for item in workspace["items"]}
+    assert item_kinds[source.id] == "voucher_source"
+    assert item_kinds[bank_input.id] == "bank_input"
+    assert "stored_path" not in repr(workspace)
+
+    failed = await list_intake_workspace(status="failed", actor="api")
+    assert {item["id"] for item in failed["items"]} == {failed_source.id, failed_bank.id}
+    assert {item["status"] for item in failed["items"]} == {"failed"}
+
+    only_sources = await list_intake_workspace(kind="voucher_source", actor="api")
+    assert all(item["kind"] == "voucher_source" for item in only_sources["items"])
+
+    detail = await get_intake_workspace_detail("bank_input", bank_input.id, actor="api")
+    assert detail["kind"] == "bank_input"
+    assert detail["transaction_ids"] == transaction_ids
+    assert detail["transaction_count"] == 1
+    assert detail["download_url"] == f"/api/v1/bank-inputs/{bank_input.id}/file"
+    assert "stored_path" not in repr(detail)
 
 
 @pytest.mark.asyncio

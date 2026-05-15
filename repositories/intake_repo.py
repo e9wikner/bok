@@ -96,6 +96,44 @@ class IntakeRepository:
         return [IntakeRepository._row_to_source(row) for row in rows]
 
     @staticmethod
+    def list_by_status(
+        status: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[IntakeSource]:
+        if status:
+            rows = db.execute(
+                """
+                SELECT * FROM intake_sources
+                WHERE status = ?
+                ORDER BY uploaded_at ASC
+                LIMIT ? OFFSET ?
+                """,
+                (status, limit, offset),
+            ).fetchall()
+        else:
+            rows = db.execute(
+                """
+                SELECT * FROM intake_sources
+                ORDER BY uploaded_at ASC
+                LIMIT ? OFFSET ?
+                """,
+                (limit, offset),
+            ).fetchall()
+        return [IntakeRepository._row_to_source(row) for row in rows]
+
+    @staticmethod
+    def count_by_status(status: str | None = None) -> int:
+        if status:
+            row = db.execute(
+                "SELECT COUNT(*) AS count FROM intake_sources WHERE status = ?",
+                (status,),
+            ).fetchone()
+        else:
+            row = db.execute("SELECT COUNT(*) AS count FROM intake_sources").fetchone()
+        return row["count"] if row else 0
+
+    @staticmethod
     def count_pending() -> int:
         row = db.execute(
             "SELECT COUNT(*) AS count FROM intake_sources WHERE status = ?",
@@ -222,6 +260,18 @@ class IntakeRepository:
             ORDER BY linked_at ASC
             """,
             (voucher_id,),
+        ).fetchall()
+        return [IntakeRepository._row_to_link(row) for row in rows]
+
+    @staticmethod
+    def list_links_for_source(source_id: str) -> List[VoucherIntakeSource]:
+        rows = db.execute(
+            """
+            SELECT * FROM voucher_intake_sources
+            WHERE intake_source_id = ?
+            ORDER BY linked_at ASC
+            """,
+            (source_id,),
         ).fetchall()
         return [IntakeRepository._row_to_link(row) for row in rows]
 

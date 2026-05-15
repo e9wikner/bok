@@ -16,6 +16,7 @@ from api.routes.agent import (
     record_intake_failed,
 )
 from api.routes.intake import delete_intake_source, get_intake_source_file, upload_intake_source
+from api.routes.intake import get_intake_workspace_detail, list_intake_workspace
 from api.schemas import VoucherRowRequest
 from config import settings
 from db.database import db
@@ -235,6 +236,45 @@ async def test_agent_failed_outcome_persists_attempt_and_hides_pending_source(
 
     pending = await list_pending_intake_sources(actor="api")
     assert pending["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_intake_workspace_failed_source_detail_includes_full_error_without_storage_path(
+    test_db,
+    intake_dir,
+):
+    service = IntakeService()
+    source = service.create_source_from_upload_content(
+        filename="receipt.pdf",
+        content_type="application/pdf",
+        content=b"%PDF-1.4 failed workspace",
+        explanation="Needs review",
+        source_type="receipt",
+        actor="api",
+    )
+    service.record_failed(
+        source.id,
+        summary="Could not process",
+        error_detail="Missing supplier name and accounting period",
+        warnings=["supplier lookup failed"],
+        actor="api",
+    )
+
+    workspace = await list_intake_workspace(status="failed", actor="api")
+    assert workspace["total"] == 1
+    assert workspace["status_counts"]["failed"] == 1
+    item = workspace["items"][0]
+    assert item["kind"] == "voucher_source"
+    assert item["download_url"] == f"/api/v1/intake/{source.id}/file"
+    assert item["latest_error_detail"] == "Missing supplier name and accounting period"
+    assert "stored_path" not in repr(item)
+
+    detail = await get_intake_workspace_detail("voucher_source", source.id, actor="api")
+    assert detail["kind"] == "voucher_source"
+    assert detail["processing_attempts"][0]["error_detail"] == (
+        "Missing supplier name and accounting period"
+    )
+    assert "stored_path" not in repr(detail)
 
 
 @pytest.mark.asyncio
