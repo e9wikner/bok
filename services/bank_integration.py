@@ -10,6 +10,8 @@ For production: Use Tink API (https://docs.tink.com/)
 For development: Supports manual CSV import and mock data
 """
 
+import csv
+import io
 import uuid
 import json
 from datetime import date, datetime
@@ -60,6 +62,17 @@ class BankTransaction:
     created_at: datetime = field(default_factory=datetime.now)
 
 
+@dataclass
+class CsvImportResult:
+    """Detailed result from importing a detected bank CSV format."""
+
+    imported_count: int
+    skipped_count: int
+    imported_transaction_ids: list[str]
+    skipped_external_ids: list[str]
+    detected_format: str
+
+
 class BankIntegrationService:
     """Manages bank connections and transaction imports."""
 
@@ -108,7 +121,8 @@ class BankIntegrationService:
         self,
         connection_id: str,
         transactions: List[Dict],
-    ) -> Tuple[int, int]:
+        return_details: bool = False,
+    ) -> Tuple[int, int] | Tuple[int, int, list[str], list[str]]:
         """Import transactions from bank data.
         
         Args:
@@ -133,6 +147,8 @@ class BankIntegrationService:
 
         imported = 0
         skipped = 0
+        imported_transaction_ids: list[str] = []
+        skipped_external_ids: list[str] = []
 
         with db.transaction():
             for tx_data in transactions:
@@ -147,6 +163,7 @@ class BankIntegrationService:
                 
                 if existing:
                     skipped += 1
+                    skipped_external_ids.append(external_id)
                     continue
 
                 # Convert amount: if float/int SEK → öre
@@ -175,6 +192,7 @@ class BankIntegrationService:
                      json.dumps(tx_data) if tx_data else None)
                 )
                 imported += 1
+                imported_transaction_ids.append(tx_id)
 
             # Update last sync timestamp
             db.execute(
@@ -182,6 +200,8 @@ class BankIntegrationService:
                 (datetime.now().isoformat(), datetime.now().isoformat(), connection_id)
             )
 
+        if return_details:
+            return imported, skipped, imported_transaction_ids, skipped_external_ids
         return imported, skipped
 
     def get_transactions(
@@ -263,43 +283,147 @@ class BankIntegrationService:
         self,
         connection_id: str,
         csv_content: str,
-        date_column: str = "Datum",
-        amount_column: str = "Belopp",
-        description_column: str = "Text",
-        delimiter: str = ";",
-    ) -> Tuple[int, int]:
+        date_column: str | None = None,
+        amount_column: str | None = None,
+        description_column: str | None = None,
+        delimiter: str | None = None,
+    ) -> CsvImportResult:
         """Import transactions from Swedish bank CSV format.
         
         Supports common Swedish bank CSV exports (SEB, Nordea, Handelsbanken, Swedbank).
         """
-        import csv
-        import io
-        
-        reader = csv.DictReader(io.StringIO(csv_content), delimiter=delimiter)
+        detected = self._detect_csv_format(
+            csv_content,
+            date_column=date_column,
+            amount_column=amount_column,
+            description_column=description_column,
+            delimiter=delimiter,
+        )
+        reader = csv.DictReader(io.StringIO(csv_content), delimiter=detected["delimiter"])
         transactions = []
         
-        for row in reader:
+        for row_number, row in enumerate(reader, start=2):
             # Parse amount (Swedish format: "1 234,56" or "-1234.56")
-            amount_str = row.get(amount_column, "0")
+            amount_str = row.get(detected["amount"], "0")
             amount_str = amount_str.replace(" ", "").replace(",", ".")
             try:
                 amount = float(amount_str)
             except ValueError:
-                continue
+                raise ValidationError(
+                    "invalid_bank_csv_row",
+                    "Bank CSV row contains an invalid amount",
+                    f"row={row_number}, amount={row.get(detected['amount'], '')}",
+                )
             
             # Parse date
-            date_str = row.get(date_column, "")
+            date_str = row.get(detected["date"], "")
+            if not date_str:
+                raise ValidationError(
+                    "invalid_bank_csv_row",
+                    "Bank CSV row is missing a transaction date",
+                    f"row={row_number}",
+                )
+            booking_date = row.get(detected["booking_date"]) if detected.get("booking_date") else None
+            description = row.get(detected["description"], "")
             
             transactions.append({
-                "external_id": f"csv-{date_str}-{amount_str}-{row.get(description_column, '')}",
+                "external_id": f"csv-{date_str}-{amount_str}-{description}",
                 "date": date_str,
+                "booking_date": booking_date,
                 "amount": amount,
-                "description": row.get(description_column, ""),
-                "counterpart_name": row.get("Mottagare", row.get("Motpart", "")),
-                "reference": row.get("Referens", row.get("OCR", "")),
+                "description": description,
+                "counterpart_name": row.get(detected["counterpart_name"], "")
+                if detected.get("counterpart_name")
+                else row.get("Mottagare", row.get("Motpart", "")),
+                "counterpart_account": row.get(detected["counterpart_account"], "")
+                if detected.get("counterpart_account")
+                else row.get("Motpartskonto", ""),
+                "reference": row.get(detected["reference"], "")
+                if detected.get("reference")
+                else row.get("Referens", row.get("OCR", "")),
             })
         
-        return self.import_transactions(connection_id, transactions)
+        imported, skipped, imported_ids, skipped_external_ids = self.import_transactions(
+            connection_id,
+            transactions,
+            return_details=True,
+        )
+        return CsvImportResult(
+            imported_count=imported,
+            skipped_count=skipped,
+            imported_transaction_ids=imported_ids,
+            skipped_external_ids=skipped_external_ids,
+            detected_format=detected["format"],
+        )
+
+    def _detect_csv_format(
+        self,
+        csv_content: str,
+        date_column: str | None = None,
+        amount_column: str | None = None,
+        description_column: str | None = None,
+        delimiter: str | None = None,
+    ) -> dict:
+        """Detect a supported Swedish bank CSV format from delimiter and headers."""
+        selected_delimiter = delimiter or self._detect_delimiter(csv_content)
+        reader = csv.DictReader(io.StringIO(csv_content), delimiter=selected_delimiter)
+        headers = set(reader.fieldnames or [])
+        if date_column and amount_column and description_column:
+            required = {date_column, amount_column, description_column}
+            if required.issubset(headers):
+                return {
+                    "format": "custom_columns",
+                    "delimiter": selected_delimiter,
+                    "date": date_column,
+                    "booking_date": None,
+                    "amount": amount_column,
+                    "description": description_column,
+                    "counterpart_name": "Mottagare" if "Mottagare" in headers else "Motpart" if "Motpart" in headers else None,
+                    "counterpart_account": "Motpartskonto" if "Motpartskonto" in headers else None,
+                    "reference": "Referens" if "Referens" in headers else "OCR" if "OCR" in headers else None,
+                }
+
+        known_formats = [
+            {
+                "format": "swedish_standard_semicolon",
+                "delimiter": ";",
+                "date": "Datum",
+                "booking_date": None,
+                "amount": "Belopp",
+                "description": "Text",
+                "counterpart_name": "Mottagare" if "Mottagare" in headers else "Motpart" if "Motpart" in headers else None,
+                "counterpart_account": "Motpartskonto" if "Motpartskonto" in headers else None,
+                "reference": "Referens" if "Referens" in headers else "OCR" if "OCR" in headers else None,
+                "required": {"Datum", "Belopp", "Text"},
+            },
+            {
+                "format": "swedish_booking_day_message",
+                "delimiter": ";",
+                "date": "Transaktionsdag",
+                "booking_date": "Bokföringsdag",
+                "amount": "Belopp",
+                "description": "Meddelande",
+                "counterpart_name": "Motpart" if "Motpart" in headers else None,
+                "counterpart_account": "Motpartskonto" if "Motpartskonto" in headers else None,
+                "reference": "Referens" if "Referens" in headers else "OCR" if "OCR" in headers else None,
+                "required": {"Bokföringsdag", "Transaktionsdag", "Belopp", "Meddelande"},
+            },
+        ]
+        for mapping in known_formats:
+            if mapping["delimiter"] == selected_delimiter and mapping["required"].issubset(headers):
+                detected = dict(mapping)
+                detected.pop("required")
+                return detected
+
+        raise ValidationError(
+            "unsupported_bank_csv_format",
+            "Unsupported bank CSV format",
+            f"headers={sorted(headers)}, delimiter={selected_delimiter}",
+        )
+
+    def _detect_delimiter(self, csv_content: str) -> str:
+        first_line = csv_content.splitlines()[0] if csv_content.splitlines() else ""
+        return ";" if first_line.count(";") >= first_line.count(",") else ","
 
     def get_sync_summary(self) -> Dict:
         """Get summary of all bank syncs."""

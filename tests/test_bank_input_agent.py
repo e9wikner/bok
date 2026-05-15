@@ -165,6 +165,51 @@ def test_bank_input_service_rejects_outside_root_stored_path(test_db, bank_input
         service.resolve_input_file(tampered)
 
 
+def test_bank_csv_import_detects_supported_format_and_reports_details(test_db):
+    conn = _active_connection()
+    result = BankIntegrationService().import_csv(
+        conn.id,
+        "Datum;Belopp;Text\n2026-03-01;-100,00;Bankavgift\n",
+    )
+
+    assert result.detected_format == "swedish_standard_semicolon"
+    assert result.imported_count == 1
+    assert result.skipped_count == 0
+    assert len(result.imported_transaction_ids) == 1
+
+
+def test_bank_csv_import_rejects_unsupported_format(test_db):
+    conn = _active_connection()
+
+    with pytest.raises(Exception) as exc_info:
+        BankIntegrationService().import_csv(
+            conn.id,
+            "When;Value;Memo\n2026-03-01;-100,00;Bankavgift\n",
+        )
+
+    assert getattr(exc_info.value, "code") == "unsupported_bank_csv_format"
+
+
+def test_bank_csv_import_reports_duplicate_rows(test_db):
+    conn = _active_connection()
+    result = BankIntegrationService().import_csv(
+        conn.id,
+        "\n".join(
+            [
+                "Datum;Belopp;Text",
+                "2026-03-01;-100,00;Bankavgift",
+                "2026-03-01;-100,00;Bankavgift",
+            ]
+        ),
+    )
+
+    assert result.detected_format == "swedish_standard_semicolon"
+    assert result.imported_count == 1
+    assert result.skipped_count == 1
+    assert len(result.imported_transaction_ids) == 1
+    assert result.skipped_external_ids == ["csv-2026-03-01--100.00-Bankavgift"]
+
+
 @pytest.mark.asyncio
 async def test_bank_input_upload_download_and_error_mapping_api(
     test_db,
