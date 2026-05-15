@@ -8,6 +8,7 @@ from domain.types import (
     VoucherSeries,
     AccountType,
     AuditAction,
+    BankInputStatus,
     IntakeStatus,
     IntakeSourceType,
 )
@@ -200,6 +201,55 @@ class VoucherIntakeSource:
     linked_by: str
     linked_at: datetime = field(default_factory=datetime.now)
     link_reason: Optional[str] = None
+
+
+@dataclass
+class BankInput:
+    """Uploaded bank CSV source material before agent voucher posting."""
+    id: str
+    bank_connection_id: str
+    status: BankInputStatus
+    original_filename: str
+    mime_type: str
+    size_bytes: int
+    sha256: str
+    stored_path: str
+    uploaded_by: str
+    uploaded_at: datetime = field(default_factory=datetime.now)
+    detected_format: Optional[str] = None
+    imported_count: int = 0
+    skipped_count: int = 0
+    parse_error: Optional[str] = None
+    processed_at: Optional[datetime] = None
+
+
+@dataclass
+class BankInputTransactionLink:
+    """Traceability link between a bank input and imported bank transaction."""
+    id: str
+    bank_input_id: str
+    bank_transaction_id: str
+    linked_at: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class VoucherBankInput:
+    """Traceability link between a posted voucher and uploaded bank input."""
+    id: str
+    voucher_id: str
+    bank_input_id: str
+    linked_by: str
+    linked_at: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class VoucherBankTransaction:
+    """Traceability link between a posted voucher and used bank transaction."""
+    id: str
+    voucher_id: str
+    bank_transaction_id: str
+    linked_by: str
+    linked_at: datetime = field(default_factory=datetime.now)
 
 
 @dataclass

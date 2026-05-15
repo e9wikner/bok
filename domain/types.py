@@ -74,3 +74,11 @@ class IntakeSourceType(str, Enum):
     CUSTOMER_INVOICE = "customer_invoice"
     REIMBURSEMENT = "reimbursement"
     OTHER = "other"
+
+
+class BankInputStatus(str, Enum):
+    """Lifecycle status for uploaded bank input files."""
+
+    PENDING = "pending"
+    PROCESSED = "processed"
+    FAILED = "failed"
