@@ -69,7 +69,7 @@ Plans:
 
 Plans:
 - [x] 03-01: Add frontend API client/types/hooks for intake and bank input.
-- [ ] 03-02: Build the intake upload and status workspace.
+- [x] 03-02: Build the intake upload and status workspace.
 - [ ] 03-03: Extend voucher review pages with linked source material, processing notes, and correction-learning context.
 
 ## Progress
