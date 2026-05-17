@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Literal, Optional
 from datetime import date as DateType
 import uuid
 import hashlib
@@ -23,7 +23,7 @@ class AgentVoucherRequest(BaseModel):
     period_id: str
     description: str
     rows: list[VoucherRowRequest] = Field(..., min_length=2)
-    series: str = "A"
+    series: Literal["A", "B"] = "A"
     reasoning_summary: Optional[str] = None
     intake_source_ids: list[str] = Field(default_factory=list)
     bank_input_ids: list[str] = Field(default_factory=list)
@@ -81,6 +81,8 @@ async def create_and_post_agent_voucher(
         raise _bank_input_http_error(exc) from exc
 
     try:
+        fiscal_year_id = None
+        voucher_series = None
         with db.transaction():
             ledger = LedgerService()
             voucher = ledger.create_voucher(
@@ -117,6 +119,18 @@ async def create_and_post_agent_voucher(
                 actor=actor,
                 _commit=False,
             )
+            fiscal_year_id = voucher.fiscal_year_id
+            voucher_series = voucher.series.value
+        if fiscal_year_id and voucher_series != "IB":
+            try:
+                from services.opening_balance import OpeningBalanceService
+
+                OpeningBalanceService().update_opening_balances_for_next_year(
+                    fiscal_year_id,
+                    actor,
+                )
+            except Exception:
+                pass
         from api.routes.vouchers import _voucher_to_response
 
         response = _voucher_to_response(voucher).model_dump()
@@ -153,31 +167,36 @@ async def list_pending_intake_sources(
     actor: str = Depends(get_current_actor),
 ):
     """List pending intake source material for agent processing."""
-    queue = IntakeService().get_pending_queue(limit=limit, offset=offset)
-    bank_queue = BankInputService().agent_queue_items(limit=limit, offset=offset)
+    source_limit = limit + offset
+    queue = IntakeService().get_pending_queue(limit=source_limit, offset=0)
+    bank_queue = BankInputService().agent_queue_items(limit=source_limit, offset=0)
+    source_items = [
+        {
+            "kind": "voucher_source",
+            "id": source.id,
+            "source_type": source.source_type.value if source.source_type else None,
+            "status": source.status.value,
+            "original_filename": source.original_filename,
+            "mime_type": source.mime_type,
+            "size_bytes": source.size_bytes,
+            "sha256": source.sha256,
+            "explanation": source.explanation,
+            "uploaded_at": source.uploaded_at.isoformat(),
+            "uploaded_by": source.uploaded_by,
+            "download_url": f"/api/v1/intake/{source.id}/file",
+        }
+        for source in queue["items"]
+    ]
+    items = sorted(
+        source_items + bank_queue["items"],
+        key=lambda item: item["uploaded_at"],
+    )
     return {
         "total": queue["total"] + bank_queue["total"],
-        "limit": queue["limit"],
-        "offset": queue["offset"],
+        "limit": limit,
+        "offset": offset,
         "correction_history_url": "/api/v1/accounting-corrections",
-        "items": [
-            {
-                "kind": "voucher_source",
-                "id": source.id,
-                "source_type": source.source_type.value if source.source_type else None,
-                "status": source.status.value,
-                "original_filename": source.original_filename,
-                "mime_type": source.mime_type,
-                "size_bytes": source.size_bytes,
-                "sha256": source.sha256,
-                "explanation": source.explanation,
-                "uploaded_at": source.uploaded_at.isoformat(),
-                "uploaded_by": source.uploaded_by,
-                "download_url": f"/api/v1/intake/{source.id}/file",
-            }
-            for source in queue["items"]
-        ]
-        + bank_queue["items"],
+        "items": items[offset : offset + limit],
     }
 
 

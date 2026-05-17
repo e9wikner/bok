@@ -8,7 +8,6 @@ from domain.types import VoucherSeries, VoucherStatus
 from domain.validation import ValidationError
 from repositories.voucher_repo import VoucherRepository
 from repositories.period_repo import PeriodRepository
-from repositories.fiscal_year_repo import FiscalYearRepository
 from repositories.audit_repo import AuditRepository
 from services.ledger import LedgerService
 
@@ -23,7 +22,7 @@ class OpeningBalanceService:
     def __init__(self):
         self.vouchers = VoucherRepository()
         self.periods = PeriodRepository()
-        self.fiscal_years = FiscalYearRepository()
+        self.fiscal_years = PeriodRepository()
         self.audit = AuditRepository()
         self.ledger = LedgerService()
 
