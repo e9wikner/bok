@@ -212,6 +212,8 @@ class BankInputService:
         bank_transaction_ids: list[str],
     ) -> None:
         """Validate bank inputs and linked transactions before voucher creation."""
+        bank_input_ids = _unique_preserve_order(bank_input_ids)
+        bank_transaction_ids = _unique_preserve_order(bank_transaction_ids)
         if bank_transaction_ids and not bank_input_ids:
             raise BankInputValidationError(
                 "missing_bank_input_traceability",
@@ -260,6 +262,8 @@ class BankInputService:
         actor: str,
     ) -> dict:
         """Persist bank traceability and mark used transactions booked."""
+        bank_input_ids = _unique_preserve_order(bank_input_ids)
+        bank_transaction_ids = _unique_preserve_order(bank_transaction_ids)
         if not bank_input_ids and not bank_transaction_ids:
             return {
                 "bank_input_link_count": 0,
@@ -382,3 +386,14 @@ class BankInputService:
             stored_path.parent.rmdir()
         except OSError:
             pass
+
+
+def _unique_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    unique_values = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        unique_values.append(value)
+    return unique_values

@@ -231,7 +231,7 @@ class BankInputRepository:
         now = datetime.now()
         db.execute(
             """
-            INSERT INTO voucher_bank_transactions
+            INSERT OR IGNORE INTO voucher_bank_transactions
             (id, voucher_id, bank_transaction_id, linked_by, linked_at)
             VALUES (?, ?, ?, ?, ?)
             """,
@@ -239,13 +239,15 @@ class BankInputRepository:
         )
         if _commit:
             db.commit()
-        return VoucherBankTransaction(
-            id=link_id,
-            voucher_id=voucher_id,
-            bank_transaction_id=bank_transaction_id,
-            linked_by=linked_by,
-            linked_at=now,
-        )
+        row = db.execute(
+            """
+            SELECT * FROM voucher_bank_transactions
+            WHERE bank_transaction_id = ?
+            LIMIT 1
+            """,
+            (bank_transaction_id,),
+        ).fetchone()
+        return BankInputRepository._row_to_voucher_bank_transaction(row)
 
     @staticmethod
     def list_transaction_ids_for_input(bank_input_id: str) -> list[str]:

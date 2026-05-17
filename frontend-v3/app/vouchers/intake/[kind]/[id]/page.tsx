@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -47,21 +47,41 @@ const sourceTypeLabels: Record<string, string> = {
   other: "Annat",
 };
 
+async function openAuthenticatedBlob(
+  fetchBlob: () => Promise<Blob>,
+  onError: () => void
+) {
+  const target = window.open("about:blank", "_blank");
+  if (target) {
+    target.opener = null;
+  }
+  try {
+    const blob = await fetchBlob();
+    const objectUrl = URL.createObjectURL(blob);
+    if (target) {
+      target.location.href = objectUrl;
+    } else {
+      window.location.assign(objectUrl);
+    }
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  } catch {
+    target?.close();
+    onError();
+  }
+}
+
 export default function IntakeDetailPage() {
   const params = useParams<{ kind?: string; id?: string }>();
   const kind = toIntakeKind(params.kind);
   const id = typeof params.id === "string" ? params.id : undefined;
   const { data: item, isLoading, isError } = useIntakeDetail(kind, id);
+  const [sourceFileError, setSourceFileError] = useState<string | null>(null);
   const openSourceFile = useCallback(async (item: IntakeDetailResponse) => {
-    const target = window.open("", "_blank", "noopener,noreferrer");
-    const blob = await api.getIntakeFile(item.kind, item.id);
-    const objectUrl = URL.createObjectURL(blob);
-    if (target) {
-      target.location.href = objectUrl;
-    } else {
-      window.open(objectUrl, "_blank", "noopener,noreferrer");
-    }
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    setSourceFileError(null);
+    await openAuthenticatedBlob(
+      () => api.getIntakeFile(item.kind, item.id),
+      () => setSourceFileError("Kunde inte öppna källfilen.")
+    );
   }, []);
 
   if (!kind || !id) {
@@ -224,6 +244,11 @@ export default function IntakeDetailPage() {
               <Download className="h-4 w-4" />
               Öppna fil
             </Button>
+            {sourceFileError && (
+              <p className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {sourceFileError}
+              </p>
+            )}
           </CardContent>
         </Card>
 

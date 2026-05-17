@@ -64,12 +64,15 @@ async def create_and_post_agent_voucher(
     """Create and post a voucher directly from an accounting agent."""
     intake = IntakeService()
     bank_inputs = BankInputService()
+    intake_source_ids = _unique_preserve_order(request.intake_source_ids)
+    bank_input_ids = _unique_preserve_order(request.bank_input_ids)
+    bank_transaction_ids = _unique_preserve_order(request.bank_transaction_ids)
     try:
-        for source_id in request.intake_source_ids:
+        for source_id in intake_source_ids:
             intake.ensure_source_ready_for_voucher_link(source_id)
         bank_inputs.ensure_transactions_available(
-            request.bank_input_ids,
-            request.bank_transaction_ids,
+            bank_input_ids,
+            bank_transaction_ids,
         )
     except IntakeError as exc:
         raise _intake_http_error(exc) from exc
@@ -89,7 +92,7 @@ async def create_and_post_agent_voucher(
         voucher = ledger.post_voucher(voucher.id, actor=actor)
         processing_attempt_ids = []
         summary = request.reasoning_summary or request.description
-        for source_id in request.intake_source_ids:
+        for source_id in intake_source_ids:
             summary = request.reasoning_summary or request.description
             attempt, _link = intake.link_existing_voucher(
                 source_id=source_id,
@@ -101,8 +104,8 @@ async def create_and_post_agent_voucher(
             processing_attempt_ids.append(attempt.id)
         traceability = bank_inputs.link_posted_voucher(
             voucher_id=voucher.id,
-            bank_input_ids=request.bank_input_ids,
-            bank_transaction_ids=request.bank_transaction_ids,
+            bank_input_ids=bank_input_ids,
+            bank_transaction_ids=bank_transaction_ids,
             actor=actor,
         )
         from api.routes.vouchers import _voucher_to_response
@@ -111,13 +114,13 @@ async def create_and_post_agent_voucher(
         response["agent"] = {
             "posted_directly": True,
             "reasoning_summary": request.reasoning_summary,
-            "intake_source_ids": request.intake_source_ids,
+            "intake_source_ids": intake_source_ids,
             "processing_attempt_id": processing_attempt_ids[0]
             if len(processing_attempt_ids) == 1
             else None,
             "processing_attempt_ids": processing_attempt_ids,
-            "bank_input_ids": request.bank_input_ids,
-            "bank_transaction_ids": request.bank_transaction_ids,
+            "bank_input_ids": bank_input_ids,
+            "bank_transaction_ids": bank_transaction_ids,
             "traceability": traceability,
         }
         return response
@@ -284,6 +287,17 @@ def _bank_input_http_error(exc: BankInputError) -> HTTPException:
         status_code=status_code,
         detail={"error": exc.message, "code": exc.code, "details": exc.details},
     )
+
+
+def _unique_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    unique_values = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        unique_values.append(value)
+    return unique_values
 
 
 @router.get("/keys", response_model=dict)

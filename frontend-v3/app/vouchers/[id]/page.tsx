@@ -59,6 +59,39 @@ const sourceTypeLabels: Record<string, string> = {
   other: "Annat",
 };
 
+function formatOreInput(amountInOre: number): string {
+  if (!amountInOre) return "";
+  return (amountInOre / 100).toFixed(2).replace(".", ",");
+}
+
+function parseOreInput(value: string): number {
+  const parsed = Number.parseFloat(value.replace(",", "."));
+  return Number.isFinite(parsed) ? Math.round(parsed * 100) : 0;
+}
+
+async function openAuthenticatedBlob(
+  fetchBlob: () => Promise<Blob>,
+  onError: () => void
+) {
+  const target = window.open("about:blank", "_blank");
+  if (target) {
+    target.opener = null;
+  }
+  try {
+    const blob = await fetchBlob();
+    const objectUrl = URL.createObjectURL(blob);
+    if (target) {
+      target.location.href = objectUrl;
+    } else {
+      window.location.assign(objectUrl);
+    }
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  } catch {
+    target?.close();
+    onError();
+  }
+}
+
 export default function VoucherDetailPage() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
@@ -91,6 +124,7 @@ export default function VoucherDetailPage() {
     ok: boolean;
     msg: string;
   } | null>(null);
+  const [sourceFileError, setSourceFileError] = useState<string | null>(null);
 
   // Upload state
   const [uploading, setUploading] = useState(false);
@@ -113,15 +147,11 @@ export default function VoucherDetailPage() {
 
   const openSourceFile = useCallback(
     async (source: VoucherSourceContext["source_material"][number]) => {
-      const target = window.open("", "_blank", "noopener,noreferrer");
-      const blob = await api.getIntakeFile(source.kind, source.id);
-      const objectUrl = URL.createObjectURL(blob);
-      if (target) {
-        target.location.href = objectUrl;
-      } else {
-        window.open(objectUrl, "_blank", "noopener,noreferrer");
-      }
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+      setSourceFileError(null);
+      await openAuthenticatedBlob(
+        () => api.getIntakeFile(source.kind, source.id),
+        () => setSourceFileError("Kunde inte öppna källfilen.")
+      );
     },
     []
   );
@@ -180,8 +210,8 @@ export default function VoucherDetailPage() {
     setEditedRows(
       voucher.rows.map((r: any) => ({
         account_code: r.account_code,
-        debit: r.debit || 0,
-        credit: r.credit || 0,
+        debit: formatOreInput(r.debit || 0),
+        credit: formatOreInput(r.credit || 0),
         description: r.description || "",
       }))
     );
@@ -208,8 +238,8 @@ export default function VoucherDetailPage() {
     try {
       const rows = editedRows.map((r: any) => ({
           account: r.account_code || r.account,
-          debit: r.debit || 0,
-          credit: r.credit || 0,
+          debit: parseOreInput(r.debit || ""),
+          credit: parseOreInput(r.credit || ""),
           description: r.description || undefined,
         }));
 
@@ -434,13 +464,14 @@ export default function VoucherDetailPage() {
                         </td>
                         <td className="p-2">
                           <input
-                            type="number"
+                            type="text"
+                            inputMode="decimal"
                             value={row.debit || ""}
                             onChange={(e) =>
                               updateRow(
                                 i,
                                 "debit",
-                                parseInt(e.target.value) || 0
+                                e.target.value
                               )
                             }
                             className="w-full rounded border bg-background px-2 py-1.5 text-sm text-right font-mono"
@@ -449,13 +480,14 @@ export default function VoucherDetailPage() {
                         </td>
                         <td className="p-2">
                           <input
-                            type="number"
+                            type="text"
+                            inputMode="decimal"
                             value={row.credit || ""}
                             onChange={(e) =>
                               updateRow(
                                 i,
                                 "credit",
-                                parseInt(e.target.value) || 0
+                                e.target.value
                               )
                             }
                             className="w-full rounded border bg-background px-2 py-1.5 text-sm text-right font-mono"
@@ -545,6 +577,7 @@ export default function VoucherDetailPage() {
       <SourceMaterialSection
         isLoading={sourceContextLoading}
         sourceMaterials={sourceMaterials}
+        error={sourceFileError}
         onOpenSourceFile={openSourceFile}
       />
 
@@ -818,10 +851,12 @@ export default function VoucherDetailPage() {
 function SourceMaterialSection({
   isLoading,
   sourceMaterials,
+  error,
   onOpenSourceFile,
 }: {
   isLoading: boolean;
   sourceMaterials: VoucherSourceContext["source_material"];
+  error: string | null;
   onOpenSourceFile: (
     source: VoucherSourceContext["source_material"][number]
   ) => void;
@@ -843,6 +878,11 @@ function SourceMaterialSection({
         </CardDescription>
       </CardHeader>
       <CardContent>
+        {error && (
+          <p className="mb-3 rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {error}
+          </p>
+        )}
         {isLoading ? (
           <div className="space-y-3">
             <Skeleton className="h-20 w-full" />

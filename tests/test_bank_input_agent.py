@@ -587,6 +587,31 @@ async def test_agent_bank_driven_posting_can_use_multiple_transactions(
 
 
 @pytest.mark.asyncio
+async def test_agent_bank_driven_posting_deduplicates_transaction_ids(
+    test_period,
+    bank_input_dir,
+):
+    bank_input, transaction_ids = _processed_bank_input()
+    duplicated_ids = [transaction_ids[0], transaction_ids[0]]
+
+    response = await create_and_post_agent_voucher(
+        _agent_sale_request(
+            test_period.id,
+            bank_input_ids=[bank_input.id],
+            bank_transaction_ids=duplicated_ids,
+        ),
+        actor="api",
+    )
+
+    assert response["status"] == "posted"
+    assert response["agent"]["bank_transaction_ids"] == [transaction_ids[0]]
+    assert response["agent"]["traceability"]["bank_transaction_link_count"] == 1
+    assert response["agent"]["traceability"]["booked_transaction_count"] == 1
+    transaction_links = BankInputRepository.list_transactions_for_voucher(response["id"])
+    assert [link.bank_transaction_id for link in transaction_links] == [transaction_ids[0]]
+
+
+@pytest.mark.asyncio
 async def test_agent_bank_driven_posting_can_link_ordinary_intake_source(
     test_period,
     bank_input_dir,
