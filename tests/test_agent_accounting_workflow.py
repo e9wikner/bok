@@ -2,7 +2,9 @@
 
 from datetime import date
 
-from fastapi.testclient import TestClient
+import httpx
+import pytest
+import pytest_asyncio
 
 from api.main import app
 from config import settings
@@ -38,16 +40,22 @@ def _period():
     )
 
 
-def test_agent_instruction_versions(test_db):
-    client = TestClient(app)
+@pytest_asyncio.fixture
+async def async_client():
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client
 
-    response = client.get("/api/v1/agent-instructions/accounting", headers=_headers())
+
+@pytest.mark.asyncio
+async def test_agent_instruction_versions(test_db, async_client):
+    response = await async_client.get("/api/v1/agent-instructions/accounting", headers=_headers())
     assert response.status_code == 200
     assert response.json()["company"]["version"] == 1
     assert "Bokföringsinstruktioner" in response.json()["company"]["content_markdown"]
     assert response.json()["system"]["is_editable"] is False
 
-    response = client.put(
+    response = await async_client.put(
         "/api/v1/agent-instructions/accounting",
         headers=_headers(),
         json={
@@ -58,18 +66,21 @@ def test_agent_instruction_versions(test_db):
     assert response.status_code == 200
     assert response.json()["version"] == 2
 
-    response = client.get("/api/v1/agent-instructions/accounting/versions", headers=_headers())
+    response = await async_client.get(
+        "/api/v1/agent-instructions/accounting/versions",
+        headers=_headers(),
+    )
     assert response.status_code == 200
     assert response.json()["total"] == 2
     assert response.json()["versions"][0]["change_summary"] == "Teständring"
 
-    response = client.get("/api/v1/agent-instructions/invoicing", headers=_headers())
+    response = await async_client.get("/api/v1/agent-instructions/invoicing", headers=_headers())
     assert response.status_code == 200
     assert response.json()["company"]["version"] == 1
     assert "Faktureringsinstruktioner" in response.json()["company"]["content_markdown"]
     assert response.json()["system"]["is_editable"] is False
 
-    response = client.put(
+    response = await async_client.put(
         "/api/v1/agent-instructions/invoicing",
         headers=_headers(),
         json={
@@ -82,12 +93,12 @@ def test_agent_instruction_versions(test_db):
     assert response.json()["version"] == 2
 
 
-def test_agent_posts_directly_and_correction_is_agent_readable(test_db):
+@pytest.mark.asyncio
+async def test_agent_posts_directly_and_correction_is_agent_readable(test_db, async_client):
     _ensure_accounts()
     period = _period()
-    client = TestClient(app)
 
-    response = client.post(
+    response = await async_client.post(
         "/api/v1/agent/vouchers",
         headers=_headers(),
         json={
@@ -106,7 +117,7 @@ def test_agent_posts_directly_and_correction_is_agent_readable(test_db):
     assert original["status"] == "posted"
     assert original["created_by"] == "agent"
 
-    response = client.post(
+    response = await async_client.post(
         f"/api/v1/vouchers/{original['id']}/correct",
         headers=_headers(),
         json={
@@ -124,7 +135,7 @@ def test_agent_posts_directly_and_correction_is_agent_readable(test_db):
     assert correction["correction_of"] == original["id"]
     assert correction["row_count"] == 4
 
-    response = client.get("/api/v1/accounting-corrections", headers=_headers())
+    response = await async_client.get("/api/v1/accounting-corrections", headers=_headers())
     assert response.status_code == 200
     corrections = response.json()["corrections"]
     assert corrections[0]["original_voucher_id"] == original["id"]

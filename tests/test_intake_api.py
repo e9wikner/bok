@@ -192,7 +192,7 @@ async def test_intake_upload_download_pending_and_soft_delete_api(
     assert Path(download.path).read_bytes() == content
 
     with pytest.raises(HTTPException) as exc_info:
-        verify_api_key(None)
+        await verify_api_key(None)
     assert exc_info.value.status_code == 401
 
     deleted = await delete_intake_source(source["id"], actor="api")

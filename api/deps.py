@@ -7,7 +7,7 @@ from services.auth import AuthService
 from services.ledger import LedgerService
 
 
-def verify_api_key(authorization: Optional[str] = Header(None)) -> str:
+async def verify_api_key(authorization: Optional[str] = Header(None)) -> str:
     """Verify API key or JWT token from Authorization header."""
     if not authorization:
         raise HTTPException(
@@ -45,11 +45,11 @@ def verify_api_key(authorization: Optional[str] = Header(None)) -> str:
     )
 
 
-def get_ledger_service() -> LedgerService:
+async def get_ledger_service() -> LedgerService:
     """Get ledger service instance."""
     return LedgerService()
 
 
-def get_current_actor(api_key: str = Depends(verify_api_key)) -> str:
+async def get_current_actor(api_key: str = Depends(verify_api_key)) -> str:
     """Get current actor (user) from API key."""
     return "api"
