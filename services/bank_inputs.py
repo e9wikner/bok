@@ -260,6 +260,7 @@ class BankInputService:
         bank_input_ids: list[str],
         bank_transaction_ids: list[str],
         actor: str,
+        _commit: bool = True,
     ) -> dict:
         """Persist bank traceability and mark used transactions booked."""
         bank_input_ids = _unique_preserve_order(bank_input_ids)
@@ -272,7 +273,8 @@ class BankInputService:
             }
 
         self.ensure_transactions_available(bank_input_ids, bank_transaction_ids)
-        with db.transaction():
+
+        def persist_links() -> None:
             for bank_input_id in bank_input_ids:
                 self.inputs.create_voucher_bank_input_link(
                     voucher_id=voucher_id,
@@ -292,6 +294,19 @@ class BankInputService:
                 voucher_id=voucher_id,
                 _commit=False,
             )
+
+        try:
+            if _commit:
+                with db.transaction():
+                    persist_links()
+            else:
+                persist_links()
+        except sqlite3.IntegrityError as exc:
+            raise BankInputConflictError(
+                "bank_transaction_already_linked",
+                "Bank transaction is already linked to a voucher",
+                str(exc),
+            ) from exc
 
         return {
             "bank_input_link_count": len(bank_input_ids),

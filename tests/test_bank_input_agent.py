@@ -24,6 +24,7 @@ from repositories.intake_repo import IntakeRepository
 from repositories.bank_input_repo import BankInputRepository
 from repositories.voucher_repo import VoucherRepository
 from services.bank_inputs import (
+    BankInputConflictError,
     BankInputFileAccessError,
     BankInputService,
     DuplicateBankInputError,
@@ -587,6 +588,36 @@ async def test_agent_bank_driven_posting_can_use_multiple_transactions(
 
 
 @pytest.mark.asyncio
+async def test_source_context_only_lists_transactions_linked_to_voucher(
+    test_period,
+    bank_input_dir,
+):
+    bank_input, transaction_ids = _processed_bank_input(
+        b"Datum;Belopp;Text\n2026-03-01;100,00;Kundbetalning\n2026-03-02;100,00;Kundbetalning 2"
+    )
+
+    response = await create_and_post_agent_voucher(
+        _agent_sale_request(
+            test_period.id,
+            amount=10000,
+            bank_input_ids=[bank_input.id],
+            bank_transaction_ids=[transaction_ids[0]],
+        ),
+        actor="api",
+    )
+
+    source_context = await get_voucher_source_context(
+        response["id"],
+        ledger=LedgerService(),
+        actor="api",
+    )
+    bank_source = source_context["source_material"][0]
+    assert bank_source["transaction_ids"] == [transaction_ids[0]]
+    assert bank_source["transaction_count"] == 1
+    assert source_context["processing_notes"][0]["transaction_ids"] == [transaction_ids[0]]
+
+
+@pytest.mark.asyncio
 async def test_agent_bank_driven_posting_deduplicates_transaction_ids(
     test_period,
     bank_input_dir,
@@ -609,6 +640,35 @@ async def test_agent_bank_driven_posting_deduplicates_transaction_ids(
     assert response["agent"]["traceability"]["booked_transaction_count"] == 1
     transaction_links = BankInputRepository.list_transactions_for_voucher(response["id"])
     assert [link.bank_transaction_id for link in transaction_links] == [transaction_ids[0]]
+
+
+@pytest.mark.asyncio
+async def test_agent_posting_rolls_back_voucher_when_traceability_link_fails(
+    test_period,
+    monkeypatch,
+):
+    def fail_link_posted_voucher(*args, **kwargs):
+        raise BankInputConflictError(
+            "forced_traceability_failure",
+            "Forced traceability failure",
+        )
+
+    monkeypatch.setattr(
+        BankInputService,
+        "link_posted_voucher",
+        fail_link_posted_voucher,
+    )
+    _, before_count = VoucherRepository.list_all()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_and_post_agent_voucher(
+            _agent_sale_request(test_period.id),
+            actor="api",
+        )
+
+    assert exc_info.value.detail["code"] == "forced_traceability_failure"
+    _, after_count = VoucherRepository.list_all()
+    assert after_count == before_count
 
 
 @pytest.mark.asyncio

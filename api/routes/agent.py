@@ -9,6 +9,7 @@ import hashlib
 
 from api.deps import get_current_actor
 from api.schemas import VoucherRowRequest
+from db.database import db
 from domain.validation import ValidationError
 from services.ledger import LedgerService
 from services.intake import IntakeError, IntakeService
@@ -80,34 +81,42 @@ async def create_and_post_agent_voucher(
         raise _bank_input_http_error(exc) from exc
 
     try:
-        ledger = LedgerService()
-        voucher = ledger.create_voucher(
-            series=request.series,
-            date=request.date,
-            period_id=request.period_id,
-            description=request.description,
-            rows_data=[row.model_dump() for row in request.rows],
-            created_by="agent",
-        )
-        voucher = ledger.post_voucher(voucher.id, actor=actor)
-        processing_attempt_ids = []
-        summary = request.reasoning_summary or request.description
-        for source_id in intake_source_ids:
-            summary = request.reasoning_summary or request.description
-            attempt, _link = intake.link_existing_voucher(
-                source_id=source_id,
-                voucher_id=voucher.id,
-                actor=actor,
-                summary=summary,
-                link_reason="agent_posted_voucher",
+        with db.transaction():
+            ledger = LedgerService()
+            voucher = ledger.create_voucher(
+                series=request.series,
+                date=request.date,
+                period_id=request.period_id,
+                description=request.description,
+                rows_data=[row.model_dump() for row in request.rows],
+                created_by="agent",
+                _commit=False,
             )
-            processing_attempt_ids.append(attempt.id)
-        traceability = bank_inputs.link_posted_voucher(
-            voucher_id=voucher.id,
-            bank_input_ids=bank_input_ids,
-            bank_transaction_ids=bank_transaction_ids,
-            actor=actor,
-        )
+            voucher = ledger.post_voucher(
+                voucher.id,
+                actor=actor,
+                _commit=False,
+                update_opening_balance=False,
+            )
+            processing_attempt_ids = []
+            summary = request.reasoning_summary or request.description
+            for source_id in intake_source_ids:
+                attempt, _link = intake.link_existing_voucher(
+                    source_id=source_id,
+                    voucher_id=voucher.id,
+                    actor=actor,
+                    summary=summary,
+                    link_reason="agent_posted_voucher",
+                    _commit=False,
+                )
+                processing_attempt_ids.append(attempt.id)
+            traceability = bank_inputs.link_posted_voucher(
+                voucher_id=voucher.id,
+                bank_input_ids=bank_input_ids,
+                bank_transaction_ids=bank_transaction_ids,
+                actor=actor,
+                _commit=False,
+            )
         from api.routes.vouchers import _voucher_to_response
 
         response = _voucher_to_response(voucher).model_dump()

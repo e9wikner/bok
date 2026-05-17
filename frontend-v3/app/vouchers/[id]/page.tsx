@@ -316,7 +316,7 @@ export default function VoucherDetailPage() {
           <p className="text-muted-foreground mt-1">{voucher.description}</p>
         </div>
         <div className="flex items-center gap-2">
-          {voucher.created_by === "ai" && (
+          {["agent", "ai"].includes(voucher.created_by) && (
             <Badge variant="secondary" className="gap-1">
               <Brain className="h-3 w-3" /> AI-genererad
             </Badge>

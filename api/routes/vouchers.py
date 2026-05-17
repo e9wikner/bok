@@ -129,11 +129,17 @@ async def get_voucher_source_context(
             if attempt.voucher_id == voucher_id
         )
 
+    voucher_transaction_links = bank_repo.list_transactions_for_voucher(voucher_id)
     for link in bank_repo.list_inputs_for_voucher(voucher_id):
         bank_input = bank_repo.get_bank_input(link.bank_input_id)
         if not bank_input:
             continue
-        transaction_ids = bank_repo.list_transaction_ids_for_input(bank_input.id)
+        transaction_ids_for_input = set(bank_repo.list_transaction_ids_for_input(bank_input.id))
+        transaction_ids = [
+            tx_link.bank_transaction_id
+            for tx_link in voucher_transaction_links
+            if tx_link.bank_transaction_id in transaction_ids_for_input
+        ]
         source_material.append(
             {
                 "kind": "bank_input",

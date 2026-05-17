@@ -35,6 +35,7 @@ class LedgerService:
         rows_data: List[Dict],
         created_by: str = "system",
         number: int | None = None,
+        _commit: bool = True,
     ) -> Voucher:
         """Create new draft voucher with rows.
 
@@ -84,10 +85,7 @@ class LedgerService:
         # Validate BEFORE writing to database
         validate_complete_voucher(temp_voucher, period, all_accounts)
 
-        # Now persist (validation passed) - use transaction for atomicity
-        from db.database import db
-
-        with db.transaction():
+        def persist_voucher() -> Voucher:
             voucher = self.vouchers.create(
                 series=series,
                 number=number,
@@ -98,7 +96,6 @@ class LedgerService:
                 created_by=created_by,
                 _commit=False,
             )
-
             for row_data in rows_data:
                 row = self.vouchers.add_row(
                     voucher_id=voucher.id,
@@ -109,6 +106,15 @@ class LedgerService:
                     _commit=False,
                 )
                 voucher.rows.append(row)
+            return voucher
+
+        if _commit:
+            from db.database import db
+
+            with db.transaction():
+                voucher = persist_voucher()
+        else:
+            voucher = persist_voucher()
 
         # Log
         self.audit.log(
@@ -122,12 +128,18 @@ class LedgerService:
                 "date": voucher.date.isoformat(),
                 "rows_count": len(voucher.rows),
             },
+            _commit=_commit,
         )
 
         return voucher
 
     def post_voucher(
-        self, voucher_id: str, auto_post: bool = False, actor: str = "system"
+        self,
+        voucher_id: str,
+        auto_post: bool = False,
+        actor: str = "system",
+        _commit: bool = True,
+        update_opening_balance: bool = True,
     ) -> Voucher:
         """Post voucher (make immutable - BFL varaktighet requirement)."""
         voucher = self.vouchers.get(voucher_id)
@@ -150,7 +162,7 @@ class LedgerService:
         fiscal_year_id = period.fiscal_year_id
 
         # Post (make immutable)
-        self.vouchers.post(voucher.id)
+        self.vouchers.post(voucher.id, _commit=_commit)
 
         # Log
         self.audit.log(
@@ -164,10 +176,11 @@ class LedgerService:
                 "total_debit": voucher.get_total_debit(),
                 "total_credit": voucher.get_total_credit(),
             },
+            _commit=_commit,
         )
 
         # Trigger IB update for next fiscal year (if this is a regular voucher, not IB)
-        if voucher.series != VoucherSeries.IB:
+        if _commit and update_opening_balance and voucher.series != VoucherSeries.IB:
             try:
                 from services.opening_balance import OpeningBalanceService
 

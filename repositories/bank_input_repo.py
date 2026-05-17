@@ -231,7 +231,7 @@ class BankInputRepository:
         now = datetime.now()
         db.execute(
             """
-            INSERT OR IGNORE INTO voucher_bank_transactions
+            INSERT INTO voucher_bank_transactions
             (id, voucher_id, bank_transaction_id, linked_by, linked_at)
             VALUES (?, ?, ?, ?, ?)
             """,
@@ -242,10 +242,10 @@ class BankInputRepository:
         row = db.execute(
             """
             SELECT * FROM voucher_bank_transactions
-            WHERE bank_transaction_id = ?
+            WHERE voucher_id = ? AND bank_transaction_id = ?
             LIMIT 1
             """,
-            (bank_transaction_id,),
+            (voucher_id, bank_transaction_id),
         ).fetchone()
         return BankInputRepository._row_to_voucher_bank_transaction(row)
 

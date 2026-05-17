@@ -244,11 +244,12 @@ class VoucherRepository:
         return (row["max_num"] or 0) + 1
 
     @staticmethod
-    def post(voucher_id: str) -> bool:
+    def post(voucher_id: str, _commit: bool = True) -> bool:
         """Post voucher (make immutable - BFL varaktighet requirement)."""
         sql = "UPDATE vouchers SET status = 'posted', posted_at = ? WHERE id = ?"
         db.execute(sql, (datetime.now(), voucher_id))
-        db.commit()
+        if _commit:
+            db.commit()
         return True
 
     @staticmethod

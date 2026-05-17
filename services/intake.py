@@ -231,6 +231,7 @@ class IntakeService:
         summary: str,
         warnings: list[str] | None = None,
         link_reason: str | None = None,
+        _commit: bool = True,
     ) -> tuple[IntakeProcessingAttempt, VoucherIntakeSource]:
         """Link processable source material to an already posted voucher."""
         self._validate_summary(summary)
@@ -250,7 +251,7 @@ class IntakeService:
                 f"voucher_id={voucher_id}, status={voucher.status.value}",
             )
 
-        with db.transaction():
+        def persist_link() -> tuple[IntakeProcessingAttempt, VoucherIntakeSource]:
             link = self.sources.create_voucher_link(
                 intake_source_id=source_id,
                 voucher_id=voucher_id,
@@ -273,7 +274,12 @@ class IntakeService:
                 actor=actor,
                 _commit=False,
             )
-        return attempt, link
+            return attempt, link
+
+        if _commit:
+            with db.transaction():
+                return persist_link()
+        return persist_link()
 
     def list_links_for_voucher(self, voucher_id: str) -> list[VoucherIntakeSource]:
         """List intake sources linked to a voucher."""

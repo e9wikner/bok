@@ -19,6 +19,7 @@ class AuditRepository:
         action: str,
         actor: str = "system",
         payload: Optional[dict] = None,
+        _commit: bool = True,
     ) -> AuditLogEntry:
         """Create audit log entry."""
         log_id = str(uuid.uuid4())
@@ -30,7 +31,8 @@ class AuditRepository:
         payload_json = json.dumps(payload) if payload else None
         
         db.execute(sql, (log_id, entity_type, entity_id, action, actor, payload_json, now))
-        db.commit()
+        if _commit:
+            db.commit()
         
         return AuditLogEntry(
             id=log_id,
