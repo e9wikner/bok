@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 
 from api.deps import get_current_actor
 from domain.models import BankInput
+from repositories.account_repo import AccountRepository
 from services.bank_inputs import (
     BankConnectionNotFoundError,
     BankInputConflictError,
@@ -30,12 +31,13 @@ async def upload_bank_input(
 ):
     """Upload bank CSV source material before agent voucher posting."""
     content = await _read_limited_upload(file)
+    resolved_bank_connection_id = _resolve_bank_connection_reference(bank_connection_id)
     try:
         bank_input = BankInputService().create_from_upload_content(
             filename=file.filename,
             content_type=file.content_type,
             content=content,
-            bank_connection_id=bank_connection_id,
+            bank_connection_id=resolved_bank_connection_id,
             actor=actor,
         )
         return _bank_input_to_dict(bank_input)
@@ -52,12 +54,17 @@ async def list_bank_input_connections(
     connections = BankIntegrationService().get_connections()
     if not include_inactive:
         connections = [conn for conn in connections if conn.status == "active"]
+
+    if not connections:
+        connections = _manual_account_connections()
+
     return {
         "items": [
             {
                 "id": conn.id,
                 "provider": conn.provider,
                 "bank_name": conn.bank_name,
+                "display_name": _connection_display_name(conn),
                 "account_number": conn.account_number,
                 "iban": conn.iban,
                 "currency": conn.currency,
@@ -149,3 +156,52 @@ def _http_error(exc: BankInputError) -> HTTPException:
         status_code=status_code,
         detail={"error": exc.message, "code": exc.code, "details": exc.details},
     )
+
+
+def _connection_display_name(conn) -> str:
+    identifier = conn.account_number or conn.iban
+    if identifier:
+        return f"{identifier} - {conn.bank_name}"
+    return conn.bank_name
+
+
+def _manual_account_connections():
+    manual_connections = []
+    for account in AccountRepository.list_all(active_only=True):
+        if not account.code.startswith("19"):
+            continue
+        manual_connections.append(
+            BankIntegrationService().create_connection(
+                provider="manual",
+                bank_name=account.name,
+                account_number=account.code,
+                currency="SEK",
+            )
+        )
+    return manual_connections
+
+
+def _resolve_bank_connection_reference(bank_connection_id: str) -> str:
+    if not bank_connection_id.startswith("account:"):
+        return bank_connection_id
+
+    account_code = bank_connection_id.split(":", 1)[1]
+    if not account_code:
+        return bank_connection_id
+
+    service = BankIntegrationService()
+    for connection in service.get_connections():
+        if connection.account_number == account_code and connection.status == "active":
+            return connection.id
+
+    account = AccountRepository.get(account_code)
+    if not account:
+        return bank_connection_id
+
+    connection = service.create_connection(
+        provider="manual",
+        bank_name=account.name,
+        account_number=account.code,
+        currency="SEK",
+    )
+    return connection.id

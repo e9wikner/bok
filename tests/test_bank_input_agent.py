@@ -21,6 +21,7 @@ from api.schemas import VoucherRowRequest
 from config import settings
 from db.database import db
 from domain.types import BankInputStatus
+from repositories.account_repo import AccountRepository
 from repositories.intake_repo import IntakeRepository
 from repositories.bank_input_repo import BankInputRepository
 from repositories.voucher_repo import VoucherRepository
@@ -205,6 +206,7 @@ async def test_bank_input_connections_selector_returns_active_display_fields(tes
     items = response["items"]
     assert [item["id"] for item in items] == [active.id]
     assert items[0]["bank_name"] == active.bank_name
+    assert items[0]["display_name"] == f"{active.account_number} - {active.bank_name}"
     assert items[0]["account_number"] == active.account_number
     assert items[0]["currency"] == "SEK"
     assert items[0]["status"] == "active"
@@ -213,6 +215,24 @@ async def test_bank_input_connections_selector_returns_active_display_fields(tes
     assert route_paths.index("/api/v1/bank-inputs/connections") < route_paths.index(
         "/api/v1/bank-inputs/{bank_input_id}"
     )
+
+
+@pytest.mark.asyncio
+async def test_bank_input_connections_selector_seeds_manual_connections_from_bank_accounts(test_db):
+    if not AccountRepository.exists("1930"):
+        AccountRepository.create("1930", "Företagskonto", "asset")
+    if not AccountRepository.exists("1940"):
+        AccountRepository.create("1940", "Placeringskonto", "asset")
+    if not AccountRepository.exists("1510"):
+        AccountRepository.create("1510", "Kundfordringar", "asset")
+
+    response = await list_bank_input_connections(actor="api")
+
+    items = response["items"]
+    assert [item["account_number"] for item in items] == ["1930", "1940"]
+    assert items[0]["display_name"] == "1930 - Företagskonto"
+    assert items[1]["display_name"] == "1940 - Placeringskonto"
+    assert all(item["status"] == "active" for item in items)
 
 
 def test_bank_input_service_rejects_non_csv(test_db, bank_input_dir):

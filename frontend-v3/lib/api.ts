@@ -327,6 +327,7 @@ export interface BankConnectionOption {
   id: string;
   provider: string;
   bank_name: string;
+  display_name?: string;
   account_number?: string | null;
   iban?: string | null;
   currency: string;

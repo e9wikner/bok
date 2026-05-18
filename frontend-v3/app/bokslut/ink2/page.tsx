@@ -7,6 +7,7 @@ import { useFiscalYears } from "@/hooks/useData";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { formatFiscalYearLabel } from "@/lib/utils";
 
 type TabType = "ink2" | "ink2r" | "ink2s";
 
@@ -270,7 +271,7 @@ export default function Ink2Page() {
               >
                 {fiscalYears.map((fy: any) => (
                   <option key={fy.id} value={fy.id}>
-                    Räkenskapsår {new Date(fy.start_date).getFullYear()}
+                    Räkenskapsår {formatFiscalYearLabel(fy)}
                   </option>
                 ))}
               </select>

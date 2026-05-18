@@ -30,3 +30,15 @@ export function formatNumber(num: number): string {
     maximumFractionDigits: 2,
   }).format(num);
 }
+
+export function formatFiscalYearLabel(
+  fiscalYear?: { start_date?: string | null; end_date?: string | null } | null
+): string {
+  const start = fiscalYear?.start_date;
+  const end = fiscalYear?.end_date;
+  if (!start || !end) return "";
+
+  const startYear = start.slice(0, 4);
+  const endYear = end.slice(0, 4);
+  return startYear === endYear ? startYear : `${startYear}-${endYear}`;
+}

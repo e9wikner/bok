@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useVouchers, useFiscalYears } from "@/hooks/useData";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, formatFiscalYearLabel } from "@/lib/utils";
 import {
   FileText,
   ChevronLeft,
@@ -57,7 +58,10 @@ function getCurrentFiscalYearId(fiscalYears: any[]): string | undefined {
 }
 
 export default function VouchersPage() {
-  const [status, setStatus] = useState("");
+  const searchParams = useSearchParams();
+  const initialStatus = searchParams.get("status") || "";
+  const initialFiscalYearMode = searchParams.get("fiscalYear");
+  const [status, setStatus] = useState(initialStatus);
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<string | undefined>(undefined);
@@ -67,14 +71,25 @@ export default function VouchersPage() {
 
   const { data: fiscalYearsData } = useFiscalYears();
   const fiscalYears = fiscalYearsData?.fiscal_years || [];
+  const hasInitializedFiscalYear = useRef(false);
 
   // Default to current fiscal year when data loads
   useEffect(() => {
-    if (fiscalYearsData?.fiscal_years && fiscalYearsData.fiscal_years.length > 0 && !fiscalYearId) {
+    if (hasInitializedFiscalYear.current) return;
+    if (!fiscalYearsData?.fiscal_years || fiscalYearsData.fiscal_years.length === 0) return;
+
+    if (initialFiscalYearMode === "all") {
+      hasInitializedFiscalYear.current = true;
+      setFiscalYearId(undefined);
+      return;
+    }
+
+    if (!fiscalYearId) {
       const currentId = getCurrentFiscalYearId(fiscalYearsData.fiscal_years);
+      hasInitializedFiscalYear.current = true;
       setFiscalYearId(currentId);
     }
-  }, [fiscalYearsData, fiscalYearId]);
+  }, [fiscalYearsData, fiscalYearId, initialFiscalYearMode]);
 
   // Reset to page 0 when search term changes
   const prevSearch = useRef(debouncedSearch);
@@ -163,7 +178,7 @@ export default function VouchersPage() {
                     setPage(0);
                   }}
                 >
-                  {fy.start_date.slice(0, 4)}
+                  {formatFiscalYearLabel(fy)}
                 </Button>
               ))}
               <Button

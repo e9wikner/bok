@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import {
@@ -184,15 +184,13 @@ export default function IntakePage() {
           <CardContent className="space-y-4">
             <label className="space-y-1.5 block" htmlFor="source-file">
               <span className="text-sm font-medium text-foreground">Fil</span>
-              <input
+              <FilePicker
                 key={sourceFileInputKey}
                 id="source-file"
-                type="file"
                 accept=".pdf,image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"
-                onChange={(event) =>
-                  setSourceFile(event.target.files?.[0] || null)
-                }
-                className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium focus:outline-none focus:ring-2 focus:ring-ring"
+                file={sourceFile}
+                onChange={setSourceFile}
+                placeholder="Ingen fil vald"
               />
             </label>
 
@@ -255,15 +253,13 @@ export default function IntakePage() {
           <CardContent className="space-y-4">
             <label className="space-y-1.5 block" htmlFor="bank-file">
               <span className="text-sm font-medium text-foreground">CSV-fil</span>
-              <input
+              <FilePicker
                 key={bankFileInputKey}
                 id="bank-file"
-                type="file"
                 accept=".csv,text/csv"
-                onChange={(event) =>
-                  setBankFile(event.target.files?.[0] || null)
-                }
-                className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium focus:outline-none focus:ring-2 focus:ring-ring"
+                file={bankFile}
+                onChange={setBankFile}
+                placeholder="Ingen fil vald"
               />
             </label>
 
@@ -279,16 +275,28 @@ export default function IntakePage() {
                 className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors focus:ring-2 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <option value="">
-                  {bankConnectionsLoading ? "Läser bankkonton..." : "Välj bankkonto"}
+                  {bankConnectionsLoading
+                    ? "Läser bankkonton..."
+                    : bankConnections.length > 0
+                    ? "Välj bankkonto"
+                    : "Inga bankkonton tillgängliga"}
                 </option>
                 {bankConnections.map((connection) => (
                   <option key={connection.id} value={connection.id}>
-                    {connection.account_number || connection.iban || connection.id} -{" "}
-                    {connection.bank_name}
+                    {connection.display_name ||
+                      connection.account_number ||
+                      connection.iban ||
+                      connection.id}
                   </option>
                 ))}
               </select>
             </label>
+
+            {!bankConnectionsLoading && bankConnections.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                Lägg upp ett lokalt bankkonto eller använd ett befintligt bankkonto i kontoplanen för att kunna koppla CSV-filer till rätt bankflöde.
+              </p>
+            )}
 
             <div className="flex flex-wrap items-center gap-3">
               <Button
@@ -475,6 +483,46 @@ export default function IntakePage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function FilePicker({
+  id,
+  accept,
+  file,
+  onChange,
+  placeholder,
+}: {
+  id: string;
+  accept: string;
+  file: File | null;
+  onChange: (file: File | null) => void;
+  placeholder: string;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  return (
+    <div className="flex min-h-12 items-center gap-3 rounded-md border border-input bg-background px-3 py-2">
+      <input
+        ref={inputRef}
+        id={id}
+        type="file"
+        accept={accept}
+        onChange={(event) => onChange(event.target.files?.[0] || null)}
+        className="sr-only"
+      />
+      <Button
+        type="button"
+        variant="outline"
+        className="shrink-0"
+        onClick={() => inputRef.current?.click()}
+      >
+        Välj fil
+      </Button>
+      <span className="min-w-0 truncate text-sm text-foreground/90">
+        {file?.name || placeholder}
+      </span>
     </div>
   );
 }

@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useIncomeStatement, useBalanceSheet, useGeneralLedger, useReportOptions, useAccounts } from "@/hooks/useData";
 import { api } from "@/lib/api";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatFiscalYearLabel } from "@/lib/utils";
 import { TrendingUp, TrendingDown, Scale, BookOpen, Calendar, Download, CheckCircle2, AlertCircle, FileText } from "lucide-react";
 
 type ReportTab = "income" | "balance" | "ledger";
@@ -148,7 +148,7 @@ export default function ReportsPage() {
                     setYear(fy.start_year);
                   }}
                 >
-                  {fy.start_date} - {fy.end_date}
+                  {formatFiscalYearLabel(fy)}
                 </Button>
               ))}
             </div>

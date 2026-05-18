@@ -33,12 +33,12 @@ export default function LearningPage() {
     scope === "accounting" ? accountingVersionsData : invoicingVersionsData;
   const instructionVersions = instructionVersionsData?.versions || [];
   const corrections = correctionsData?.corrections || [];
+  const companyInstructions = instructionsData?.company;
+  const systemInstructions = instructionsData?.system;
 
   useEffect(() => {
-    if (instructionsData?.content_markdown) {
-      setInstructionDraft(instructionsData.content_markdown);
-    }
-  }, [instructionsData?.content_markdown]);
+    setInstructionDraft(companyInstructions?.content_markdown || "");
+  }, [companyInstructions?.content_markdown]);
 
   const saveInstructions = async () => {
     setWorking(true);
@@ -86,7 +86,7 @@ export default function LearningPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <StatCard
           title="Aktiv version"
-          value={instructionsData?.version || 0}
+          value={companyInstructions?.version || 0}
           icon={FileText}
           color="blue"
         />
@@ -117,10 +117,26 @@ export default function LearningPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {systemInstructions?.content_markdown && (
+            <div className="rounded-lg border border-border bg-muted/40 p-4">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">Systeminstruktioner</p>
+                  <p className="text-xs text-muted-foreground">
+                    Skrivskyddad systemkontext som alltid ingår när agenten läser instruktionerna.
+                  </p>
+                </div>
+              </div>
+              <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background p-3 text-xs text-muted-foreground">
+                {systemInstructions.content_markdown}
+              </pre>
+            </div>
+          )}
           <textarea
             value={instructionDraft}
             onChange={(event) => setInstructionDraft(event.target.value)}
             className="min-h-[420px] w-full rounded-lg border bg-background px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            placeholder="Lägg till företagsspecifika regler och lärdomar här."
           />
           <div className="flex flex-col gap-2 md:flex-row">
             <input

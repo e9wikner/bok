@@ -21,27 +21,27 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   useAccountingCorrections,
   useComplianceIssues,
+  useFiscalYears,
   useHealth,
   useIncomeStatement,
   useInvoiceDrafts,
   useInvoices,
   useVouchers,
 } from "@/hooks/useData";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, formatFiscalYearLabel } from "@/lib/utils";
 
 export default function DashboardPage() {
-  const currentYear = new Date().getFullYear();
   const { data: healthData } = useHealth();
+  const { data: fiscalYearsData } = useFiscalYears();
   const { data: vouchersData, isLoading: vouchersLoading } = useVouchers(undefined, 10);
   const { data: draftVoucherData } = useVouchers("draft", 5);
   const { data: invoiceDraftData } = useInvoiceDrafts();
   const { data: legacyDraftInvoiceData } = useInvoices("draft", 5, 0);
   const { data: complianceData } = useComplianceIssues();
   const { data: correctionsData } = useAccountingCorrections(5);
-  const { data: incomeData, isLoading: incomeLoading } = useIncomeStatement(currentYear);
 
   const vouchers = vouchersData?.vouchers || [];
-  const draftVouchers = draftVoucherData?.vouchers || [];
+  const draftVoucherCount = draftVoucherData?.total || 0;
   const invoiceDrafts = (invoiceDraftData?.drafts || []).filter((draft: any) =>
     ["draft", "needs_review"].includes(draft.status)
   );
@@ -49,6 +49,20 @@ export default function DashboardPage() {
   const invoiceDraftCount = invoiceDrafts.length + legacyDraftInvoices.length;
   const invoiceDraftHref = invoiceDrafts.length > 0 ? "/invoices/drafts" : "/invoices";
   const complianceIssues = complianceData?.issues || [];
+  const fiscalYears = fiscalYearsData?.fiscal_years || [];
+  const activeFiscalYear = fiscalYears.find((fy: any) => {
+    const today = new Date().toISOString().slice(0, 10);
+    return today >= fy.start_date && today <= fy.end_date;
+  }) || fiscalYears[0];
+  const activeFiscalYearLabel = formatFiscalYearLabel(activeFiscalYear);
+  const incomeStatementYear = activeFiscalYear
+    ? Number(activeFiscalYear.start_date.slice(0, 4))
+    : new Date().getFullYear();
+  const { data: incomeData, isLoading: incomeLoading } = useIncomeStatement(
+    incomeStatementYear,
+    undefined,
+    activeFiscalYear?.id
+  );
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-6 p-4 lg:p-8">
@@ -64,7 +78,9 @@ export default function DashboardPage() {
             {healthData ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
             {healthData ? "System online" : "Ingen anslutning"}
           </Badge>
-          <Badge variant="outline">Räkenskapsår {currentYear}</Badge>
+          {activeFiscalYearLabel && (
+            <Badge variant="outline">Räkenskapsår {activeFiscalYearLabel}</Badge>
+          )}
         </div>
       </div>
 
@@ -79,11 +95,11 @@ export default function DashboardPage() {
         />
         <WorkItem
           title="Verifikationsutkast"
-          value={draftVouchers.length}
+          value={draftVoucherCount}
           description="Utkast före bokföring"
-          href="/vouchers?status=draft"
+          href="/vouchers?status=draft&fiscalYear=all"
           icon={FileClock}
-          urgent={draftVouchers.length > 0}
+          urgent={draftVoucherCount > 0}
         />
         <WorkItem
           title="Varningar"
@@ -106,7 +122,9 @@ export default function DashboardPage() {
         <Card>
           <CardHeader>
             <CardTitle>Periodens läge</CardTitle>
-            <CardDescription>Resultat för {currentYear}, baserat på bokförda verifikationer.</CardDescription>
+            <CardDescription>
+              Resultat för {activeFiscalYearLabel || incomeStatementYear}, baserat på bokförda verifikationer.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {incomeLoading ? (
@@ -239,9 +257,13 @@ function WorkItem({ title, value, description, href, icon: Icon, urgent = false 
 
 function Metric({ label, value, strong = false, numeric = false }: { label: string; value: number; strong?: boolean; numeric?: boolean }) {
   return (
-    <div className="rounded-lg border p-4">
+    <div className="min-w-0 rounded-lg border p-4">
       <p className="text-sm text-muted-foreground">{label}</p>
-      <p className={`mt-2 font-mono text-xl ${strong ? "font-bold" : "font-semibold"}`}>
+      <p
+        className={`mt-2 overflow-hidden text-lg font-semibold leading-tight tabular-nums sm:text-xl ${
+          strong ? "font-bold" : ""
+        }`}
+      >
         {numeric ? value : formatCurrency(value)}
       </p>
     </div>
