@@ -3,7 +3,7 @@
 ## Milestones
 
 - ✅ **v1.0 Intake Automation** — Phases 1-3 (shipped 2026-05-18). Full archive: [v1.0-ROADMAP.md](milestones/v1.0-ROADMAP.md)
-- ◆ **v1.1 Clear Instructions for Deployment** — Phases 4-5 (planned). Scope: owner-friendly Docker deployment documentation; Terraform/Hetzner marked outdated.
+- ◆ **v1.1 Clear Instructions for Deployment** — Phases 4-5 (in progress). Scope: owner-friendly Docker deployment documentation; Terraform/Hetzner marked outdated.
 
 ## Phases
 
@@ -22,7 +22,7 @@ Archive:
 </details>
 
 <details open>
-<summary>◆ v1.1 Clear Instructions for Deployment (Phases 4-5) — PLANNED</summary>
+<summary>◆ v1.1 Clear Instructions for Deployment (Phases 4-5) — IN PROGRESS</summary>
 
 ### Phase 4: Deployment Guide and Configuration Clarity
 
@@ -36,15 +36,15 @@ Archive:
 3. The guide explains `.env.production`, required secrets, unsafe placeholders, LAN URLs, public-domain settings, and Compose file selection in owner-friendly language.
 4. Verification commands cover container status, backend health, frontend availability, and first login.
 
-**Plans:** 0/3 plans executed
+**Plans:** 3/3 plans executed
 
 Plans:
 **Wave 1**
-- [ ] 04-01-PLAN.md — Rewrite `DEPLOYMENT.md` into a LAN-first Swedish deployment checklist with a separate optional public-domain HTTPS path.
+- [x] 04-01-PLAN.md — Rewrite `DEPLOYMENT.md` into a LAN-first Swedish deployment checklist with a separate optional public-domain HTTPS path.
 
-**Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 04-02-PLAN.md — Align `.env.production.example` with LAN deployment defaults and optional public-domain settings.
-- [ ] 04-03-PLAN.md — Update `README.md` deployment routing and remove stale status/broken LAN-doc links.
+**Wave 2**
+- [x] 04-02-PLAN.md — Align `.env.production.example` with LAN deployment defaults and optional public-domain settings.
+- [x] 04-03-PLAN.md — Update `README.md` deployment routing and remove stale status/broken LAN-doc links.
 
 ### Phase 5: Operations, Troubleshooting, and Outdated Infra Warnings
 
@@ -68,9 +68,9 @@ Plans:
 | 1. Intake Foundation and Agent Queue | v1.0 | 3/3 | Complete | 2026-05-15 |
 | 2. Bank Input and Direct Posting Context | v1.0 | 3/3 | Complete | 2026-05-15 |
 | 3. Frontend Intake Workspace and Review Loop | v1.0 | 3/3 | Complete | 2026-05-15 |
-| 4. Deployment Guide and Configuration Clarity | v1.1 | 0/3 | Planned | — |
+| 4. Deployment Guide and Configuration Clarity | v1.1 | 3/3 | Complete | 2026-05-18 |
 | 5. Operations, Troubleshooting, and Outdated Infra Warnings | v1.1 | 0/0 | Planned | — |
 
 ## Next
 
-Execute Phase 4 with `$gsd-execute-phase 4`.
+Verify Phase 4 with `$gsd-verify-work 4`.

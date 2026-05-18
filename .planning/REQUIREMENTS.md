@@ -9,17 +9,17 @@ Requirements for the clear deployment instructions milestone. Each maps to roadm
 
 ### Deployment Guide
 
-- [ ] **DEPL-01**: Owner can identify the recommended deployment path for their situation: LAN/local server or public-domain Docker deployment.
-- [ ] **DEPL-02**: Owner can follow a single ordered deployment checklist from prerequisites through first login without needing to infer missing steps.
-- [ ] **DEPL-03**: Owner can understand what each required deployment file does: `.env.production`, `docker-compose.local.yml`, `docker-compose.prod.yml`, and `DEPLOYMENT.md`.
-- [ ] **DEPL-04**: Owner can verify a deployment with explicit health checks for backend, frontend, login page, and container status.
+- [x] **DEPL-01**: Owner can identify the recommended deployment path for their situation: LAN/local server or public-domain Docker deployment.
+- [x] **DEPL-02**: Owner can follow a single ordered deployment checklist from prerequisites through first login without needing to infer missing steps.
+- [x] **DEPL-03**: Owner can understand what each required deployment file does: `.env.production`, `docker-compose.local.yml`, `docker-compose.prod.yml`, and `DEPLOYMENT.md`.
+- [x] **DEPL-04**: Owner can verify a deployment with explicit health checks for backend, frontend, login page, and container status.
 
 ### Configuration and Secrets
 
-- [ ] **CONF-01**: Owner can create `.env.production` from the example and replace every required secret safely.
-- [ ] **CONF-02**: Owner can configure LAN/direct access without public DNS.
-- [ ] **CONF-03**: Owner can configure optional public-domain HTTPS deployment when they have domain names and email for Let's Encrypt.
-- [ ] **CONF-04**: Owner can understand which default credentials or placeholder secrets are unsafe for real use.
+- [x] **CONF-01**: Owner can create `.env.production` from the example and replace every required secret safely.
+- [x] **CONF-02**: Owner can configure LAN/direct access without public DNS.
+- [x] **CONF-03**: Owner can configure optional public-domain HTTPS deployment when they have domain names and email for Let's Encrypt.
+- [x] **CONF-04**: Owner can understand which default credentials or placeholder secrets are unsafe for real use.
 
 ### Operations
 
@@ -30,9 +30,9 @@ Requirements for the clear deployment instructions milestone. Each maps to roadm
 
 ### Documentation Alignment
 
-- [ ] **DOCS-01**: `README.md` points users to the correct deployment guide and does not advertise stale or conflicting deployment paths.
-- [ ] **DOCS-02**: `DEPLOYMENT.md` is structured for a non-expert owner and avoids contradictory compose/env instructions.
-- [ ] **DOCS-03**: `.env.production.example` comments match the deployment guide's recommended settings.
+- [x] **DOCS-01**: `README.md` points users to the correct deployment guide and does not advertise stale or conflicting deployment paths.
+- [x] **DOCS-02**: `DEPLOYMENT.md` is structured for a non-expert owner and avoids contradictory compose/env instructions.
+- [x] **DOCS-03**: `.env.production.example` comments match the deployment guide's recommended settings.
 - [ ] **DOCS-04**: Terraform/Hetzner documentation is clearly marked outdated and excluded from the current recommended deployment path.
 
 ## Future Requirements
@@ -63,21 +63,21 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DEPL-01 | Phase 4 | Pending |
-| DEPL-02 | Phase 4 | Pending |
-| DEPL-03 | Phase 4 | Pending |
-| DEPL-04 | Phase 4 | Pending |
-| CONF-01 | Phase 4 | Pending |
-| CONF-02 | Phase 4 | Pending |
-| CONF-03 | Phase 4 | Pending |
-| CONF-04 | Phase 4 | Pending |
+| DEPL-01 | Phase 4 | Complete |
+| DEPL-02 | Phase 4 | Complete |
+| DEPL-03 | Phase 4 | Complete |
+| DEPL-04 | Phase 4 | Complete |
+| CONF-01 | Phase 4 | Complete |
+| CONF-02 | Phase 4 | Complete |
+| CONF-03 | Phase 4 | Complete |
+| CONF-04 | Phase 4 | Complete |
 | OPS-01 | Phase 5 | Pending |
 | OPS-02 | Phase 5 | Pending |
 | OPS-03 | Phase 5 | Pending |
 | OPS-04 | Phase 5 | Pending |
-| DOCS-01 | Phase 4 | Pending |
-| DOCS-02 | Phase 4 | Pending |
-| DOCS-03 | Phase 4 | Pending |
+| DOCS-01 | Phase 4 | Complete |
+| DOCS-02 | Phase 4 | Complete |
+| DOCS-03 | Phase 4 | Complete |
 | DOCS-04 | Phase 5 | Pending |
 
 **Coverage:**
