@@ -36,6 +36,16 @@ Archive:
 3. The guide explains `.env.production`, required secrets, unsafe placeholders, LAN URLs, public-domain settings, and Compose file selection in owner-friendly language.
 4. Verification commands cover container status, backend health, frontend availability, and first login.
 
+**Plans:** 0/3 plans executed
+
+Plans:
+**Wave 1**
+- [ ] 04-01-PLAN.md — Rewrite `DEPLOYMENT.md` into a LAN-first Swedish deployment checklist with a separate optional public-domain HTTPS path.
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 04-02-PLAN.md — Align `.env.production.example` with LAN deployment defaults and optional public-domain settings.
+- [ ] 04-03-PLAN.md — Update `README.md` deployment routing and remove stale status/broken LAN-doc links.
+
 ### Phase 5: Operations, Troubleshooting, and Outdated Infra Warnings
 
 **Goal:** Give owners enough operational instructions to update, back up, restore, roll back, and troubleshoot deployments without risking bookkeeping data.
@@ -58,9 +68,9 @@ Archive:
 | 1. Intake Foundation and Agent Queue | v1.0 | 3/3 | Complete | 2026-05-15 |
 | 2. Bank Input and Direct Posting Context | v1.0 | 3/3 | Complete | 2026-05-15 |
 | 3. Frontend Intake Workspace and Review Loop | v1.0 | 3/3 | Complete | 2026-05-15 |
-| 4. Deployment Guide and Configuration Clarity | v1.1 | 0/0 | Planned | — |
+| 4. Deployment Guide and Configuration Clarity | v1.1 | 0/3 | Planned | — |
 | 5. Operations, Troubleshooting, and Outdated Infra Warnings | v1.1 | 0/0 | Planned | — |
 
 ## Next
 
-Start Phase 4 with `$gsd-discuss-phase 4` or `$gsd-plan-phase 4`.
+Execute Phase 4 with `$gsd-execute-phase 4`.
