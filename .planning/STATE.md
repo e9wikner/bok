@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Clear Instructions for Deployment
 status: planning
-last_updated: "2026-05-18T18:46:35.406Z"
+last_updated: "2026-05-18T18:55:00.000Z"
 last_activity: 2026-05-18
 progress:
-  total_phases: 0
+  total_phases: 2
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-18)
 
 **Core value:** The system should let a small Swedish company keep compliant books with minimal manual interaction by giving an agent enough source material, history, and correction feedback to post accurate vouchers.
-**Current focus:** Planning next milestone
+**Current focus:** Phase 4: Deployment Guide and Configuration Clarity
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 4 — Deployment Guide and Configuration Clarity
 Plan: —
-Status: Defining requirements
-Last activity: 2026-05-18 — Milestone v1.1 started
+Status: Roadmap created; ready for phase discussion or planning
+Last activity: 2026-05-18 — Milestone v1.1 roadmap created
 
 ## Performance Metrics
 
@@ -104,4 +104,4 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Start Phase 4 with /gsd-discuss-phase 4 or /gsd-plan-phase 4
