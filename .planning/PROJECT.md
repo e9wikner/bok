@@ -10,6 +10,8 @@ Bok now includes an intake system for source material: users upload receipts, in
 
 v1.0 Intake Automation shipped on 2026-05-18. The codebase now supports durable voucher-source intake, separate bank CSV input intake, agent direct posting with source traceability, and frontend work surfaces for upload, status scanning, voucher source review, and correction-learning context.
 
+Phase 4 of v1.1 is complete. `README.md`, `DEPLOYMENT.md`, and `.env.production.example` now present a LAN-first Docker deployment path, required secret replacement, Compose defaults, verification commands, and a separate optional public-domain HTTPS path.
+
 Known closeout debt: the v1.0 milestone audit was accepted with `gaps_found` because Phase 1 lacks aggregate `01-VERIFICATION.md`, even though its plan summaries record focused implementation checks.
 
 ## Current Milestone: v1.1 Clear Instructions for Deployment
@@ -58,11 +60,12 @@ The system should let a small Swedish company keep compliant books with minimal 
 - ✓ User can review agent-posted vouchers after the fact and correct mistakes through existing B-series correction flows — shipped in v1.0
 - ✓ Intake items have lifecycle state to avoid duplicate processing and show posted, skipped, failed, or attention-needed outcomes — shipped in v1.0
 - ✓ Frontend provides an operational intake workspace for voucher source uploads, bank CSV uploads, scan status, and review/correction loops — shipped in v1.0
+- ✓ Deployment instructions are clear enough for a non-expert small-company owner to deploy Bok using the existing Docker-based LAN path — validated in Phase 04
+- ✓ Terraform/Hetzner documentation is excluded from the recommended deployment path and treated as outside the current validated route — validated in Phase 04
 
 ### Active
 
-- [ ] Make deployment instructions clear enough for a non-expert small-company owner to deploy Bok using the existing Docker-based paths.
-- [ ] Mark Terraform/Hetzner documentation as outdated and out of scope for the current deployment path.
+- [ ] Add operational instructions for updates, backup, restore, rollback, troubleshooting, and outdated infrastructure warnings.
 
 ### Out of Scope
 
@@ -111,8 +114,8 @@ Known codebase concerns relevant to this work:
 | Keep source material review separate from manual voucher attachments | Intake evidence and manual attachments have different lifecycle and audit semantics | Validated in Phase 03 with voucher `source-context` sections distinct from `Bilagor` |
 | Use dedicated human review endpoints instead of the agent queue for the frontend | The frontend needs status counts, details, and linked voucher navigation beyond agent work-queue shape | Validated in Phase 03 with `/api/v1/intake/workspace` and detail routes |
 | Accept v1.0 with known verification debt | The implementation and integration checks were acceptable, but Phase 1 lacked aggregate verification evidence | Accepted at milestone close; tracked as deferred tech debt |
-| Keep v1.1 deployment-focused and Docker-first | The immediate need is clear deployment instructions for a non-expert owner, not new infrastructure behavior | — Pending |
-| Mark Terraform/Hetzner docs outdated for now | The current milestone should prevent accidental reliance on stale infrastructure docs without spending scope on repairing them | — Pending |
+| Keep v1.1 deployment-focused and Docker-first | The immediate need is clear deployment instructions for a non-expert owner, not new infrastructure behavior | Validated in Phase 04 with LAN-first `DEPLOYMENT.md` |
+| Mark Terraform/Hetzner docs outdated for now | The current milestone should prevent accidental reliance on stale infrastructure docs without spending scope on repairing them | Validated in Phase 04 by excluding Terraform/Hetzner from the recommended path |
 
 ## Evolution
 
@@ -132,4 +135,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-18 after v1.1 milestone start*
+*Last updated: 2026-05-18 after Phase 04 completion*

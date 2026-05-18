@@ -73,4 +73,4 @@ Plans:
 
 ## Next
 
-Verify Phase 4 with `$gsd-verify-work 4`.
+Plan Phase 5 with `$gsd-plan-phase 5`.

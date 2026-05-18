@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Clear Instructions for Deployment
-status: verifying
-stopped_at: Completed Phase 04 execution
+status: ready_to_plan
+stopped_at: Completed Phase 04 verification
 last_updated: "2026-05-18T19:40:10.522Z"
 last_activity: 2026-05-18
 progress:
   total_phases: 2
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 3
   completed_plans: 3
   percent: 100
@@ -21,20 +21,20 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-18)
 
 **Core value:** The system should let a small Swedish company keep compliant books with minimal manual interaction by giving an agent enough source material, history, and correction feedback to post accurate vouchers.
-**Current focus:** Phase 04 — deployment-guide-and-configuration-clarity
+**Current focus:** Phase 5: operations,-troubleshooting,-and-outdated-infra-warnings
 
 ## Current Position
 
-Phase: 04 (deployment-guide-and-configuration-clarity) — VERIFYING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
+Phase: 5
+Plan: Not started
+Status: Ready to plan
 Last activity: 2026-05-18
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 9
+- Total plans completed: 12
 - Average duration: n/a
 - Total execution time: 0.0 hours
 
@@ -45,6 +45,7 @@ Last activity: 2026-05-18
 | 01 | 3 | - | - |
 | 02 | 3 | - | - |
 | 03 | 3 | - | - |
+| 04 | 3 | - | - |
 
 **Recent Trend:**
 
@@ -108,4 +109,4 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Verify Phase 4 with /gsd-verify-work 4
+- Plan Phase 5 with /gsd-plan-phase 5
