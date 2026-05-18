@@ -12,9 +12,16 @@ v1.0 Intake Automation shipped on 2026-05-18. The codebase now supports durable 
 
 Known closeout debt: the v1.0 milestone audit was accepted with `gaps_found` because Phase 1 lacks aggregate `01-VERIFICATION.md`, even though its plan summaries record focused implementation checks.
 
-## Next Milestone Goals
+## Current Milestone: v1.1 Clear Instructions for Deployment
 
-Fresh requirements should be defined with `$gsd-new-milestone`. Candidate areas carried forward from v1 planning include OCR/text extraction, Open Banking automation, and S3-compatible source storage.
+**Goal:** Make Bok deployable by a non-expert small-company owner through clear, trustworthy instructions for the existing Docker-based deployment paths.
+
+**Target features:**
+- Owner-friendly deployment guide that explains what to do, in what order, and why each step matters.
+- Clear setup for secrets, LAN/direct server access, optional public domains, Docker Compose choices, backups, updates, rollback, and verification.
+- Troubleshooting guidance for common deployment failures: unhealthy containers, frontend/backend connection issues, HTTPS/domain setup where relevant, missing environment variables, and data/backup concerns.
+- Documentation alignment across `README.md`, `DEPLOYMENT.md`, `.env.production.example`, and Docker Compose files so there are no conflicting instructions.
+- Terraform/Hetzner docs are explicitly marked outdated and excluded from this milestone's deployment path.
 
 ## Core Value
 
@@ -54,7 +61,8 @@ The system should let a small Swedish company keep compliant books with minimal 
 
 ### Active
 
-- [ ] Define v1.1 requirements.
+- [ ] Make deployment instructions clear enough for a non-expert small-company owner to deploy Bok using the existing Docker-based paths.
+- [ ] Mark Terraform/Hetzner documentation as outdated and out of scope for the current deployment path.
 
 ### Out of Scope
 
@@ -88,6 +96,7 @@ Known codebase concerns relevant to this work:
 - **Storage**: Initial implementation should fit the existing SQLite plus local filesystem architecture — consistent with current deployment and backup model.
 - **Frontend**: The UI should be an operational work surface, not a landing page — users need to upload, scan status, and review outcomes efficiently.
 - **Security**: File-serving paths must be constrained to the configured attachment/intake storage root — existing codebase concern and high-risk surface.
+- **Deployment scope**: v1.1 should clarify and align existing Docker-based deployment instructions; Terraform/Hetzner deployment should be marked outdated rather than repaired in this milestone.
 
 ## Key Decisions
 
@@ -102,6 +111,8 @@ Known codebase concerns relevant to this work:
 | Keep source material review separate from manual voucher attachments | Intake evidence and manual attachments have different lifecycle and audit semantics | Validated in Phase 03 with voucher `source-context` sections distinct from `Bilagor` |
 | Use dedicated human review endpoints instead of the agent queue for the frontend | The frontend needs status counts, details, and linked voucher navigation beyond agent work-queue shape | Validated in Phase 03 with `/api/v1/intake/workspace` and detail routes |
 | Accept v1.0 with known verification debt | The implementation and integration checks were acceptable, but Phase 1 lacked aggregate verification evidence | Accepted at milestone close; tracked as deferred tech debt |
+| Keep v1.1 deployment-focused and Docker-first | The immediate need is clear deployment instructions for a non-expert owner, not new infrastructure behavior | — Pending |
+| Mark Terraform/Hetzner docs outdated for now | The current milestone should prevent accidental reliance on stale infrastructure docs without spending scope on repairing them | — Pending |
 
 ## Evolution
 
@@ -121,4 +132,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-18 after v1.0 milestone*
+*Last updated: 2026-05-18 after v1.1 milestone start*
