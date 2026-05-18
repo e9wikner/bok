@@ -4,36 +4,32 @@ Egenbyggt bokföringssystem med REST API för svenska aktiebolag. Uppfyller alla
 
 **Licens:** MIT License — Fri att använda, modifiera och hosta för ditt eget företag. Se [LICENSE](LICENSE) för detaljer.
 
-## 🚀 Quick Start
+## Quick Start
 
 ```bash
-# Clone and start
+# Lokal utveckling
 git clone https://github.com/e9wikner/bok.git
 cd bok
 docker-compose up --build
 
-# Access
 # API: http://localhost:8000/docs
 # Frontend: http://localhost:3000
-# Login: admin / admin
 ```
 
-**Status:** 🎉 **ALLA FASER KLARA + FAS 5 PÅGÅR**
-- ✅ **Fas 1** – Grundbokföring (Klar)
-- ✅ **Fas 2** – Fakturering & Moms (Klar)
-- ✅ **Fas 3** – Rapporter & K2 (Klar)
-- ✅ **Fas 4** – Agentintegration (Klar)
-- ✅ **SIE4** – Import & Export (Klar)
-- ✅ **PDF-export** – Fakturor & Rapporter (Klar)
-- ✅ **Anomalidetektering** – Felprevention (Klar)
-- 🚀 **Fas 5** – Bankintegration, Auto-kategorisering, BFL-compliance, Momsdeklaration
+## Lokal produktionsdrift
 
-## Lokal produktionsdrift och agent
+Rekommenderad ägardrift är LAN/lokal server med Docker Compose. Börja i
+[DEPLOYMENT.md](DEPLOYMENT.md); den guiden täcker `.env.production`, starka
+hemligheter, `docker-compose.local.yml`, verifiering och första inloggning.
 
-För en server på det egna nätverket, använd
-[docs/local_network_deployment.md](docs/local_network_deployment.md). Den guiden
-täcker starka hemligheter, Docker Compose, backup, LAN-adresser och hur en
-Openclaw/AI-agent kopplas mot API:t med `Authorization: Bearer <BOKFOERING_API_KEY>`.
+Kort kommandoväg efter att `.env.production` har skapats och hemligheterna är
+bytta:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.local.yml up -d --build
+```
+
+Publik domän med HTTPS är valfri och beskrivs separat i `DEPLOYMENT.md`.
 
 Viktigt: `/api/v1/agent/keys/*` är ännu inte persistent nyckelhantering. För
 agentintegration används tills vidare `BOKFOERING_API_KEY`.
@@ -294,14 +290,9 @@ export NEXT_PUBLIC_API_URL=http://localhost:8000
   - Deploymentsinstruktioner
 
 ### Deployment
-- **[DEPLOYMENT.md](DEPLOYMENT.md)** - 🚀 Komplett deployment-guide
-  - Docker-deployment on-premise
-  - Hetzner Cloud-deployment (Console, API, Terraform)
-  - SSL/TLS-konfiguration med Let's Encrypt
-  - Monitorering & loggning
-  - Backup-strategi & automatisering
-  - Produktions-docker-compose-konfiguration
-- **[docs/local_network_deployment.md](docs/local_network_deployment.md)** - LAN-server och Openclaw/agent
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** - kanonisk guide för LAN/lokal server med
+  `docker-compose.local.yml`, `.env.production`, verifiering, första inloggning
+  och valfri publik domän/HTTPS via `docker-compose.prod.yml`.
 
 ## Reglering och Compliance
 
