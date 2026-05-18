@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: milestone_complete
+status: Awaiting next milestone
 stopped_at: Completed 03-03-PLAN.md
-last_updated: "2026-05-18T05:10:15Z"
-last_activity: 2026-05-18
+last_updated: "2026-05-18T18:33:51.160Z"
+last_activity: 2026-05-18 — Milestone v1.0 completed and archived
 progress:
   total_phases: 3
   completed_phases: 3
@@ -18,25 +18,23 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-14)
+See: .planning/PROJECT.md (updated 2026-05-18)
 
 **Core value:** The system should let a small Swedish company keep compliant books with minimal manual interaction by giving an agent enough source material, history, and correction feedback to post accurate vouchers.
-**Current focus:** Phase 03 — frontend-intake-workspace-and-review-loop
+**Current focus:** Planning next milestone
 
 ## Current Position
 
-Phase: 03
-Plan: Not started
-Status: Milestone complete
-Last activity: 2026-05-18
-
-Progress: [██████████] 100%
+Phase: Milestone v1.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-05-18 — Milestone v1.0 completed and archived
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 6
+- Total plans completed: 9
 - Average duration: n/a
 - Total execution time: 0.0 hours
 
@@ -44,6 +42,7 @@ Progress: [██████████] 100%
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
+| 01 | 3 | - | - |
 | 02 | 3 | - | - |
 | 03 | 3 | - | - |
 
@@ -85,8 +84,7 @@ None yet.
 
 ### Blockers/Concerns
 
-- Confirm during Phase 1 planning whether the connected agent can download/read original PDFs and images directly.
-- Bank statement format examples are needed during Phase 2 planning/testing.
+- Phase 1 has no aggregate `01-VERIFICATION.md`; accepted as deferred verification debt at v1.0 close.
 
 ## Deferred Items
 
@@ -97,9 +95,14 @@ Items acknowledged and carried forward from previous milestone close:
 | Extraction | OCR/text extraction for uploaded PDFs/images | v2 candidate | Initialization |
 | Bank automation | Open Banking connection and periodic sync | v2 candidate | Initialization |
 | Storage | S3-compatible object storage | v2 candidate | Initialization |
+| Verification | Phase 1 aggregate `01-VERIFICATION.md` missing; v1.0 audit marked Phase 1 requirements orphaned from phase verification evidence | accepted tech debt | 2026-05-18 milestone close |
 
 ## Session Continuity
 
 Last session: 2026-05-15T19:35:05.248Z
 Stopped at: Completed 03-03-PLAN.md
 Resume file: None
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone

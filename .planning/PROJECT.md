@@ -4,7 +4,17 @@
 
 Bok is a self-hosted bookkeeping application for small Swedish limited companies that want to run accounting without external accountants and without needing deep bookkeeping knowledge. It combines a FastAPI backend, a Next.js frontend, Swedish accounting compliance rules, and an AI-agent-facing API so bookkeeping decisions can be automated while the backend enforces formal accounting constraints.
 
-The current project focus is an intake system for source material: users upload receipts, invoices, and bank statements/statuses through the frontend, and the agent uses that material to decide which vouchers to post. The intended workflow favors automation over pre-approval: the agent should post vouchers directly, and user review plus B-series correction vouchers become the feedback loop the agent learns from.
+Bok now includes an intake system for source material: users upload receipts, invoices, and bank statements/statuses through the frontend, and the agent uses that material to decide which vouchers to post. The intended workflow favors automation over pre-approval: the agent posts vouchers directly, and user review plus B-series correction vouchers become the feedback loop the agent learns from.
+
+## Current State
+
+v1.0 Intake Automation shipped on 2026-05-18. The codebase now supports durable voucher-source intake, separate bank CSV input intake, agent direct posting with source traceability, and frontend work surfaces for upload, status scanning, voucher source review, and correction-learning context.
+
+Known closeout debt: the v1.0 milestone audit was accepted with `gaps_found` because Phase 1 lacks aggregate `01-VERIFICATION.md`, even though its plan summaries record focused implementation checks.
+
+## Next Milestone Goals
+
+Fresh requirements should be defined with `$gsd-new-milestone`. Candidate areas carried forward from v1 planning include OCR/text extraction, Open Banking automation, and S3-compatible source storage.
 
 ## Core Value
 
@@ -33,17 +43,18 @@ The system should let a small Swedish company keep compliant books with minimal 
 - ✓ Agent context exposes typed bank input queue items plus correction-history discovery — validated in Phase 02
 - ✓ Bank-driven direct posting rejects explicit reuse of booked or matched transactions — validated in Phase 02
 - ✓ Bank-driven vouchers preserve traceability to uploaded bank input rows and exact bank transactions — validated in Phase 02
+- ✓ User can upload source material before a voucher exists, including receipt/invoice PDFs and images — shipped in v1.0
+- ✓ User can add a short explanation to each uploaded voucher source — shipped in v1.0
+- ✓ Uploaded voucher source material is visible to the agent as pending work during status/context checks — shipped in v1.0
+- ✓ Agent can create and post vouchers directly from uploaded source material without requiring user approval first — shipped in v1.0
+- ✓ Posted vouchers created from intake material preserve traceability back to source files and user explanation — shipped in v1.0
+- ✓ User can review agent-posted vouchers after the fact and correct mistakes through existing B-series correction flows — shipped in v1.0
+- ✓ Intake items have lifecycle state to avoid duplicate processing and show posted, skipped, failed, or attention-needed outcomes — shipped in v1.0
+- ✓ Frontend provides an operational intake workspace for voucher source uploads, bank CSV uploads, scan status, and review/correction loops — shipped in v1.0
 
 ### Active
 
-- [ ] User can upload source material before a voucher exists, including receipt/invoice PDFs and images.
-- [ ] User can add a short explanation to each uploaded voucher source, such as whether it is a company-paid invoice or an employee-paid reimbursable expense.
-- [ ] Uploaded voucher source material is visible to the agent as pending work during its status/context check.
-- [ ] Agent can create and post vouchers directly from uploaded source material without requiring user approval first.
-- [ ] Posted vouchers created from intake material preserve traceability back to the source files and user explanation.
-- [ ] User can review agent-posted vouchers after the fact and correct mistakes through existing B-series correction flows.
-- [ ] Intake items have enough lifecycle state to avoid duplicate processing and to show whether they were posted, skipped, or need attention.
-- [ ] Frontend provides an operational intake workspace for voucher source uploads, bank CSV uploads, scan status, and review/correction loops.
+- [ ] Define v1.1 requirements.
 
 ### Out of Scope
 
@@ -55,21 +66,18 @@ The system should let a small Swedish company keep compliant books with minimal 
 
 ## Context
 
-The repository already contains a layered monolith: FastAPI routes in `api/routes`, business services in `services`, SQL repositories in `repositories`, migrations in `db/migrations`, and a Next.js frontend under `frontend-v3`. SQLite is the active persistence engine, with local filesystem storage for voucher attachments under `ATTACHMENTS_DIR`.
+The repository contains a layered monolith: FastAPI routes in `api/routes`, business services in `services`, SQL repositories in `repositories`, migrations in `db/migrations`, and a Next.js frontend under `frontend-v3`. SQLite is the active persistence engine, with local filesystem storage for voucher attachments, intake source material, and bank input files.
 
 The existing architecture is intentionally agent-friendly. The agent reads accounting and invoicing instructions, historical posted vouchers, invoices, and correction history, then posts vouchers through the agent API. This means intake should extend the agent context model rather than create a separate bookkeeping path.
 
-There are already two adjacent capabilities that should shape the intake implementation:
-
-- Voucher attachments exist, but they attach to an existing voucher. Intake needs source material before a voucher exists.
-- Bank transaction import exists, but bank statements/statuses need to become agent input for creating missing vouchers, not only a manual settings import.
-
 Known codebase concerns relevant to this work:
 
-- Attachment retrieval should enforce that persisted paths remain under `ATTACHMENTS_DIR` before download/delete.
+- File retrieval should enforce that persisted paths remain under their configured storage roots before download/delete.
 - API key lifecycle endpoints are placeholder-like; production agent authentication currently relies on `BOKFOERING_API_KEY` or JWT.
 - Several route handlers use broad exception conversion, so new intake APIs should prefer typed errors and stable response payloads.
 - SQLite and local filesystem storage are acceptable for the small-company/self-hosted target but should keep file lifecycle and backup behavior explicit.
+- The main worktree frontend build is still affected by a pre-existing ignored `.next` ownership issue; clean-copy builds passed during v1.0 verification.
+- Phase 1 is missing aggregate verification documentation and should be repaired before relying on milestone audit scores for historical reporting.
 
 ## Constraints
 
@@ -91,6 +99,9 @@ Known codebase concerns relevant to this work:
 | Bank statements/statuses are source input for voucher creation | Uploaded bank data should help the agent create missing vouchers, not only reconcile already-created ones | Validated in Phase 02 with bank CSV inputs and bank-driven agent posting safeguards |
 | Keep voucher source uploads separate from bank statement uploads | Receipts/invoices and bank statements represent different evidence types and need different lifecycle handling | Validated in Phase 02 with `bank_inputs` separate from `intake_sources` |
 | Preserve backend validation boundaries | The agent decides bookkeeping treatment; backend enforces balance, periods, accounts, immutability, and audit rules | Validated in Phase 02 by keeping bank-driven posting on `LedgerService` and adding transaction reuse guardrails |
+| Keep source material review separate from manual voucher attachments | Intake evidence and manual attachments have different lifecycle and audit semantics | Validated in Phase 03 with voucher `source-context` sections distinct from `Bilagor` |
+| Use dedicated human review endpoints instead of the agent queue for the frontend | The frontend needs status counts, details, and linked voucher navigation beyond agent work-queue shape | Validated in Phase 03 with `/api/v1/intake/workspace` and detail routes |
+| Accept v1.0 with known verification debt | The implementation and integration checks were acceptable, but Phase 1 lacked aggregate verification evidence | Accepted at milestone close; tracked as deferred tech debt |
 
 ## Evolution
 
@@ -110,4 +121,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-15 after Phase 02 completion*
+*Last updated: 2026-05-18 after v1.0 milestone*
