@@ -204,12 +204,15 @@ async def test_bank_input_connections_selector_returns_active_display_fields(tes
 
     response = await list_bank_input_connections(actor="api")
     items = response["items"]
-    assert [item["id"] for item in items] == [active.id]
+    assert items[0]["id"] == active.id
+    assert inactive.id not in [item["id"] for item in items]
     assert items[0]["bank_name"] == active.bank_name
     assert items[0]["display_name"] == f"{active.account_number} - {active.bank_name}"
     assert items[0]["account_number"] == active.account_number
     assert items[0]["currency"] == "SEK"
     assert items[0]["status"] == "active"
+    assert all(item["id"].startswith("account:") for item in items[1:])
+    assert "account:1930" in [item["id"] for item in items]
 
     route_paths = [route.path for route in list_bank_input_connections.__globals__["router"].routes]
     assert route_paths.index("/api/v1/bank-inputs/connections") < route_paths.index(
@@ -218,21 +221,64 @@ async def test_bank_input_connections_selector_returns_active_display_fields(tes
 
 
 @pytest.mark.asyncio
-async def test_bank_input_connections_selector_seeds_manual_connections_from_bank_accounts(test_db):
-    if not AccountRepository.exists("1930"):
-        AccountRepository.create("1930", "Företagskonto", "asset")
-    if not AccountRepository.exists("1940"):
-        AccountRepository.create("1940", "Placeringskonto", "asset")
+async def test_bank_input_connections_selector_seeds_manual_options_from_active_accounts(test_db):
+    if not AccountRepository.exists("1630"):
+        AccountRepository.create("1630", "Skattekonto", "asset")
     if not AccountRepository.exists("1510"):
         AccountRepository.create("1510", "Kundfordringar", "asset")
+    if not AccountRepository.exists("2440"):
+        AccountRepository.create("2440", "Leverantörsskulder", "liability")
+    if not AccountRepository.exists("8999"):
+        AccountRepository.create("8999", "Inaktivt konto", "expense", active=False)
 
     response = await list_bank_input_connections(actor="api")
 
     items = response["items"]
-    assert [item["account_number"] for item in items] == ["1930", "1940"]
-    assert items[0]["display_name"] == "1930 - Företagskonto"
-    assert items[1]["display_name"] == "1940 - Placeringskonto"
+    account_numbers = [item["account_number"] for item in items]
+    assert account_numbers == sorted(account_numbers)
+    assert "1510" in account_numbers
+    assert "1630" in account_numbers
+    assert "1930" in account_numbers
+    assert "2440" in account_numbers
+    assert "8999" not in account_numbers
+    assert next(item for item in items if item["account_number"] == "1630")["display_name"] == (
+        "1630 - Skattekonto"
+    )
     assert all(item["status"] == "active" for item in items)
+
+
+@pytest.mark.asyncio
+async def test_bank_input_connections_selector_merges_live_connections_and_manual_options(test_db):
+    if not AccountRepository.exists("1630"):
+        AccountRepository.create("1630", "Skattekonto", "asset")
+
+    active = _active_connection()
+
+    response = await list_bank_input_connections(actor="api")
+    items = response["items"]
+
+    assert items[0]["id"] == active.id
+    assert "account:1630" in [item["id"] for item in items]
+    assert "1630" in [item["account_number"] for item in items]
+
+
+@pytest.mark.asyncio
+async def test_bank_input_connections_selector_deduplicates_live_connection_account_numbers(test_db):
+    if not AccountRepository.exists("1930"):
+        AccountRepository.create("1930", "Företagskonto", "asset")
+
+    active = BankIntegrationService().create_connection(
+        provider="manual",
+        bank_name="Live account",
+        account_number="1930",
+        currency="SEK",
+    )
+
+    response = await list_bank_input_connections(actor="api")
+    items = response["items"]
+
+    assert items[0]["id"] == active.id
+    assert [item["account_number"] for item in items].count("1930") == 1
 
 
 def test_bank_input_service_rejects_non_csv(test_db, bank_input_dir):
@@ -423,6 +469,49 @@ async def test_bank_input_upload_download_and_error_mapping_api(
     with pytest.raises(HTTPException) as exc_info:
         await get_bank_input_file(response["id"], actor="api")
     assert exc_info.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_bank_input_upload_resolves_active_account_option_to_manual_connection(
+    test_db,
+    bank_input_dir,
+):
+    AccountRepository.create("1510", "Kundfordringar", "asset")
+
+    response = await upload_bank_input(
+        file=_UploadFile(
+            "transactions.csv",
+            "text/csv",
+            b"Datum;Belopp;Text\n2026-03-01;100,00;Kundbetalning",
+        ),
+        bank_connection_id="account:1510",
+        actor="api",
+    )
+
+    connection = BankIntegrationService().get_connection(response["bank_connection_id"])
+    assert connection is not None
+    assert connection.account_number == "1510"
+    assert connection.bank_name == "Kundfordringar"
+    assert response["status"] == "processed"
+
+
+@pytest.mark.asyncio
+async def test_bank_input_upload_rejects_inactive_account_option(test_db, bank_input_dir):
+    AccountRepository.create("8999", "Inaktivt konto", "expense", active=False)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await upload_bank_input(
+            file=_UploadFile(
+                "transactions.csv",
+                "text/csv",
+                b"Datum;Belopp;Text\n2026-03-01;100,00;Kundbetalning",
+            ),
+            bank_connection_id="account:8999",
+            actor="api",
+        )
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail["code"] == "bank_connection_not_found"
 
 
 @pytest.mark.asyncio

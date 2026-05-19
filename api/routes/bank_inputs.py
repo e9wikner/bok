@@ -17,7 +17,7 @@ from services.bank_inputs import (
     BankInputValidationError,
     DuplicateBankInputError,
 )
-from services.bank_integration import BankIntegrationService
+from services.bank_integration import BankConnection, BankIntegrationService
 
 router = APIRouter(prefix="/api/v1/bank-inputs", tags=["bank-inputs"])
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -55,8 +55,7 @@ async def list_bank_input_connections(
     if not include_inactive:
         connections = [conn for conn in connections if conn.status == "active"]
 
-    if not connections:
-        connections = _manual_account_connections()
+    connections = _merge_manual_account_options(connections)
 
     return {
         "items": [
@@ -165,17 +164,28 @@ def _connection_display_name(conn) -> str:
     return conn.bank_name
 
 
-def _manual_account_connections():
+def _merge_manual_account_options(connections: list[BankConnection]) -> list[BankConnection]:
+    """Add chart-of-accounts options without duplicating live connections."""
+    seen_account_numbers = {conn.account_number for conn in connections if conn.account_number}
+    connections.extend(
+        manual_connection
+        for manual_connection in _manual_account_connections()
+        if manual_connection.account_number not in seen_account_numbers
+    )
+    return connections
+
+
+def _manual_account_connections() -> list[BankConnection]:
     manual_connections = []
     for account in AccountRepository.list_all(active_only=True):
-        if not account.code.startswith("19"):
-            continue
         manual_connections.append(
-            BankIntegrationService().create_connection(
+            BankConnection(
+                id=f"account:{account.code}",
                 provider="manual",
                 bank_name=account.name,
                 account_number=account.code,
                 currency="SEK",
+                status="active",
             )
         )
     return manual_connections
@@ -195,7 +205,7 @@ def _resolve_bank_connection_reference(bank_connection_id: str) -> str:
             return connection.id
 
     account = AccountRepository.get(account_code)
-    if not account:
+    if not account or not account.active:
         return bank_connection_id
 
     connection = service.create_connection(

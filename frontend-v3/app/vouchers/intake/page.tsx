@@ -265,7 +265,7 @@ export default function IntakePage() {
 
             <label className="space-y-1.5 block" htmlFor="bank-connection">
               <span className="text-sm font-medium text-foreground">
-                Bankkonto
+                Konto för bankfil
               </span>
               <select
                 id="bank-connection"
@@ -278,8 +278,8 @@ export default function IntakePage() {
                   {bankConnectionsLoading
                     ? "Läser bankkonton..."
                     : bankConnections.length > 0
-                    ? "Välj bankkonto"
-                    : "Inga bankkonton tillgängliga"}
+                    ? "Välj konto"
+                    : "Inga konton tillgängliga"}
                 </option>
                 {bankConnections.map((connection) => (
                   <option key={connection.id} value={connection.id}>
@@ -294,7 +294,7 @@ export default function IntakePage() {
 
             {!bankConnectionsLoading && bankConnections.length === 0 && (
               <p className="text-sm text-muted-foreground">
-                Lägg upp ett lokalt bankkonto eller använd ett befintligt bankkonto i kontoplanen för att kunna koppla CSV-filer till rätt bankflöde.
+                Lägg upp ett konto i kontoplanen för att kunna koppla CSV-filer till rätt bankflöde.
               </p>
             )}
 
