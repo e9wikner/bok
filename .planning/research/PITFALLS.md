@@ -1,204 +1,80 @@
-# Pitfalls Research
+# Research: Pitfalls for v1.2 Agent Onboarding
 
-**Domain:** Swedish small-company bookkeeping source-material intake for AI-agent posting
-**Researched:** 2026-05-14
-**Confidence:** HIGH
+**Date:** 2026-06-04
+**Milestone:** v1.2 Agent Onboarding
 
-## Critical Pitfalls
+## Question
 
-### Pitfall 1: Losing the Link Between Source Material and Posted Voucher
+What mistakes should Bok avoid when adding agent onboarding?
 
-**What goes wrong:**
-The agent posts a voucher but later review cannot show which receipt, invoice, bank row, and user explanation drove the decision.
+## Pitfalls
 
-**Why it happens:**
-Teams treat uploads as transient agent input rather than accounting evidence.
+### Shipping Stale Discovery Data
 
-**How to avoid:**
-Persist intake source records, processing attempts, and source-to-voucher links before marking anything processed.
+`/api/v1/agent/spec/openapi` currently returns a tiny hand-written schema that
+does not reflect the real application. If onboarding points agents there as the
+truth, agents will miss the actual workflow and may call the wrong endpoints.
 
-**Warning signs:**
-Voucher detail pages show accounting rows but no original uploaded source or agent rationale.
+Prevention: link `/openapi.json` as the canonical full schema, and only keep a
+scoped agent schema if it is generated or deliberately maintained.
 
-**Phase to address:**
-Phase 1.
+### Presenting Placeholder API Key Management as Production
 
----
+`/api/v1/agent/keys/create`, `/keys`, and `/revoke` return generated/static data
+but do not appear to persist or enforce per-key lifecycle. Publishing these in
+deployment instructions would cause false confidence.
 
-### Pitfall 2: Changing or Discarding Original Accounting Information
+Prevention: document `BOKFOERING_API_KEY` as the supported v1.2 credential and
+explicitly mark persistent key management as future work unless implemented.
 
-**What goes wrong:**
-The system stores only extracted text, thumbnails, or transformed files, making the original source hard to prove.
+### Overbuilding MCP
 
-**Why it happens:**
-OCR/extraction is treated as the product instead of a derived convenience.
+OpenClaw can manage MCP servers, and the MCP protocol is useful for tool
+discovery. But a compliant MCP server adds a second protocol and session model.
+The current milestone need is an HTTP agent with an API key.
 
-**How to avoid:**
-Preserve the original file bytes, SHA-256 hash, filename, content type, and upload metadata. Store extraction only as supplemental metadata.
+Prevention: defer MCP implementation. At most, document that Bok's REST API can
+be wrapped by a future MCP adapter after onboarding is stable.
 
-**Warning signs:**
-No stable download endpoint for the original upload, or no file hash in the database.
+### Exposing Sensitive State Through Onboarding
 
-**Phase to address:**
-Phase 1.
+Onboarding should not leak source filenames, pending work, company data,
+corrections, or secrets to unauthenticated callers.
 
----
+Prevention: keep public onboarding limited to static connection metadata and
+guardrails, or require auth if any company-specific content is returned.
 
-### Pitfall 3: Duplicate Posting From Re-Uploads or Bank Rows
+### Creating a Separate Agent Bookkeeping Path
 
-**What goes wrong:**
-The same receipt or bank transaction creates multiple posted vouchers.
+The backend must remain the formal constraint enforcer. A new onboarding route
+should not bypass `LedgerService`, intake traceability, bank transaction reuse
+guards, period locking, or correction semantics.
 
-**Why it happens:**
-Direct posting removes a manual checkpoint, so duplicate detection must happen before and during agent processing.
+Prevention: onboarding should point to existing posting endpoints, not introduce
+new posting logic.
 
-**How to avoid:**
-Use file hashes, bank external IDs, source statuses, and agent duplicate checks against existing vouchers, invoices, payroll, and bank transactions.
+### Ambiguous "Start Bookkeeping" Instructions
 
-**Warning signs:**
-Repeated uploads are accepted silently, or the agent queue includes already-processed source IDs.
+If docs only say "connect your agent to the API", owners and agents still have
+to infer the workflow.
 
-**Phase to address:**
-Phase 1 and Phase 2.
+Prevention: provide explicit startup checks, first agent prompt, endpoint order,
+and expected success/failure behavior.
 
----
+### LAN URL Confusion
 
-### Pitfall 4: Bank Statements Treated as Complete Bookkeeping Context
+The frontend is normally reached at port 3000 while backend health is on port
+8000 in local verification. Browser API calls may proxy through `/api`, while
+external agents usually need the backend URL.
 
-**What goes wrong:**
-The agent posts expense or income vouchers from bank text alone and misses VAT, reimbursement treatment, invoice settlement, or payroll semantics.
+Prevention: docs should distinguish:
 
-**Why it happens:**
-Bank data looks structured but is often only payment evidence, not the full business event.
+- Frontend URL for humans: `http://SERVER:3000`
+- Backend/API URL for agents on LAN: `http://SERVER:8000`
+- Optional public deployment URL if configured separately
 
-**How to avoid:**
-Expose bank statements as one input alongside receipts, invoice records, payroll, existing vouchers, and user hints. Store uncertainty in processing notes.
+## Phase Placement
 
-**Warning signs:**
-Agent code path only reads `bank_transactions` and does not inspect source documents or historical context.
-
-**Phase to address:**
-Phase 2.
-
----
-
-### Pitfall 5: Unsafe File Serving
-
-**What goes wrong:**
-An attachment/intake record with a manipulated `stored_path` can serve files outside the intended storage root.
-
-**Why it happens:**
-File paths are trusted after reading them from the database.
-
-**How to avoid:**
-Resolve paths and enforce that they remain under the configured intake/attachment root before download/delete. Add regression tests.
-
-**Warning signs:**
-`FileResponse` is built directly from a DB path without `resolve()` and root containment checks.
-
-**Phase to address:**
-Phase 1.
-
----
-
-### Pitfall 6: Review UI Shows Outcomes But Not Why
-
-**What goes wrong:**
-The user sees a posted voucher but cannot understand why the agent chose those accounts or whether a source item was skipped/failed.
-
-**Why it happens:**
-Processing status is collapsed to a boolean "done" state.
-
-**How to avoid:**
-Store processing attempts with summary, warnings, confidence if available, errors, and linked sources/vouchers.
-
-**Warning signs:**
-The intake page can only display "pending" and "processed" with no details.
-
-**Phase to address:**
-Phase 3.
-
-## Technical Debt Patterns
-
-| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
-|----------|-------------------|----------------|-----------------|
-| Nullable `voucher_id` on source only | Quick linking | Fails for bank batches, multiple receipts per voucher, and one receipt split across vouchers | Only for throwaway prototype; not recommended here. |
-| Reusing voucher attachments table for pre-voucher files | Less schema | Forces fake vouchers or nullable voucher references | Never for final intake. |
-| No processing attempt table | Less work | No audit/debug trail for autonomous posting | Never for direct-posting automation. |
-| MIME-only validation | Simple upload validation | Spoofed content types and unsafe downloads | Acceptable only with auth, size limits, and later content sniffing. |
-
-## Integration Gotchas
-
-| Integration | Common Mistake | Correct Approach |
-|-------------|----------------|------------------|
-| Agent API | Return only text metadata, not file access | Return authenticated file download URLs or IDs the agent can fetch. |
-| Bank import | Import transactions but lose source batch identity | Link every imported transaction to its uploaded bank source/batch. |
-| Voucher posting | Create a separate intake-specific posting path | Use existing LedgerService/agent voucher API so validation stays consistent. |
-| Corrections | Learn only from corrected voucher rows | Link correction back to original source and agent processing notes. |
-
-## Performance Traps
-
-| Trap | Symptoms | Prevention | When It Breaks |
-|------|----------|------------|----------------|
-| Loading full file bytes for list APIs | Slow intake page | List metadata only; download files separately | Dozens of PDFs/images. |
-| Recomputing duplicate candidates by scanning all vouchers | Slow agent checks | Store hashes, external IDs, and indexed dates/amounts | Hundreds/thousands of vouchers. |
-| Storing bank rows without indexes | Slow pending queue and matching | Index status, date, external ID, source batch | Large statement imports. |
-
-## Security Mistakes
-
-| Mistake | Risk | Prevention |
-|---------|------|------------|
-| Trusting DB file paths | Arbitrary readable file disclosure | Root-path enforcement before serving/deleting. |
-| Letting agents delete source material | Loss of accounting evidence | Agents can mark skipped/processed, not delete originals. |
-| No actor/audit on intake actions | Weak accountability for sensitive financial data | Log upload, download, processing, and link operations with actor identity. |
-| Permissive file types | Malware/content handling risk | Allow only PDF/images/known bank file types; size limits and safe content disposition. |
-
-## UX Pitfalls
-
-| Pitfall | User Impact | Better Approach |
-|---------|-------------|-----------------|
-| Hiding processed intake | User cannot verify what happened | Keep searchable processed history with voucher links. |
-| Mixing bank statements and receipt uploads in one undifferentiated list | Confusing workflows | Separate upload affordances and filters while allowing unified status overview. |
-| Asking for too much metadata | Automation value disappears | Require only file and optional explanation; derive or let agent infer the rest. |
-| No failed-state recovery | User cannot fix upload/agent issues | Show failed/needs-attention states with retry or clarification path. |
-
-## "Looks Done But Isn't" Checklist
-
-- [ ] **Upload works:** Verify source can be consumed before voucher exists.
-- [ ] **Agent sees queue:** Verify pending API includes metadata, hints, and file references.
-- [ ] **Posting works:** Verify posted voucher links back to all source IDs.
-- [ ] **Review works:** Verify voucher detail shows original source and agent attempt notes.
-- [ ] **Correction learning works:** Verify corrected voucher remains linked to source and available to agent context.
-- [ ] **File safety works:** Verify path traversal/manipulated stored path cannot escape storage root.
-- [ ] **Bank input works:** Verify bank statement uploads can create missing vouchers without duplicating existing vouchers.
-
-## Recovery Strategies
-
-| Pitfall | Recovery Cost | Recovery Steps |
-|---------|---------------|----------------|
-| Duplicate posting | MEDIUM | Detect duplicate, create correction voucher if posted, mark duplicate intake item skipped with reason. |
-| Wrong account/VAT | LOW-MEDIUM | User creates correction voucher; agent reads correction history before next run. |
-| Lost source link | HIGH | Re-link manually if file exists; otherwise source traceability may be permanently weakened. |
-| Failed bank parse | LOW | Keep original file, mark needs_attention, let user upload CSV or agent inspect original. |
-
-## Pitfall-to-Phase Mapping
-
-| Pitfall | Prevention Phase | Verification |
-|---------|------------------|--------------|
-| Lost source-voucher link | Phase 1 | Unit/API test: processed intake has voucher link and voucher detail references source. |
-| Original file not preserved | Phase 1 | Test file hash/download after processing. |
-| Unsafe file serving | Phase 1 | Security regression test with malicious stored path. |
-| Duplicate posting | Phase 1/2 | Tests for duplicate file upload and duplicate bank transaction handling. |
-| Bank context overconfidence | Phase 2 | Agent context includes source docs, bank rows, vouchers, invoices, and correction history. |
-| Opaque review | Phase 3 | UI shows processing attempts and source material from posted voucher. |
-
-## Sources
-
-- Existing codebase concerns for attachment path safety and auth/audit limitations.
-- Sveriges Riksdag, Bokföringslag (1999:1078), especially 5 kap. 6-7 §§ and 7 kap. 1-2, 6 §§.
-- BFNAR 2013:2, Chapter 5 verification guidance.
-- Bokföringsnämnden Arkivering FAQ.
-
----
-*Pitfalls research for: Swedish bookkeeping intake*
-*Researched: 2026-05-14*
+- API discovery/auth truthfulness should be early, before docs.
+- Documentation should follow once endpoint behavior is verified.
+- MCP should remain outside the v1.2 roadmap unless explicitly re-scoped.

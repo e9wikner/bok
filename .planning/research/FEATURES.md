@@ -1,119 +1,85 @@
-# Feature Research
+# Research: Feature Expectations for v1.2 Agent Onboarding
 
-**Domain:** Swedish small-company bookkeeping source-material intake for AI-agent posting
-**Researched:** 2026-05-14
-**Confidence:** HIGH
+**Date:** 2026-06-04
+**Milestone:** v1.2 Agent Onboarding
 
-## Feature Landscape
+## Question
 
-### Table Stakes (Users Expect These)
+How should agent onboarding work for a deployed Bok instance?
 
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| Voucher source upload | Users need to drop receipts, supplier invoices, and reimbursement evidence before a voucher exists | MEDIUM | Accept PDF and common image formats; preserve original file and hash. |
-| User explanation/hint | Source files often do not contain context such as "employee paid, reimburse later" | LOW | Store short text, source type, date hint, amount hint if available. |
-| Separate bank statement/status upload | Bank data has different semantics from voucher evidence | MEDIUM | Keep separate intake type or table; can feed voucher creation and later reconciliation. |
-| Agent-readable pending queue | The agent needs to know what new material exists when it checks status | MEDIUM | API should return pending source items, metadata, secure file URLs, and prior attempts. |
-| Direct posting from intake | Product goal is minimal user interaction | MEDIUM | Agent should call existing posting APIs and then mark intake processed with voucher links. |
-| Source-to-voucher traceability | Required for review, audit, and later correction learning | MEDIUM | Link each intake file/item to posted voucher ID(s), correction history, and processing log. |
-| Duplicate detection | Receipts and statements are easy to upload twice | LOW | SHA-256 per file plus optional duplicate warnings by amount/date/counterparty. |
-| Intake lifecycle status | Users need to see whether uploads were processed, posted, skipped, failed, or need attention | MEDIUM | Use explicit statuses and timestamps; avoid implicit "missing from queue means done." |
-| File security and retention behavior | Accounting source material may be sensitive and compliance-relevant | MEDIUM | Auth-gated downloads, root-path enforcement, deletion rules, and backup compatibility. |
+## Table Stakes
 
-### Differentiators (Competitive Advantage)
+### Discoverability
 
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| Correction-informed learning loop | Mistakes become future agent context without manual rule authoring | MEDIUM | Ensure corrections can be traced back to source material and original agent rationale. |
-| Agent processing notes | Makes autonomous posting reviewable after the fact | MEDIUM | Store summary, confidence, warnings, selected source material, and assumptions. |
-| Bank-statement-driven voucher creation | Lets the agent infer missing expense/payment vouchers from bank data | HIGH | Needs careful duplicate checks against existing vouchers and invoice payment flows. |
-| Matched evidence bundles | One voucher can be supported by receipt plus bank transaction plus user hint | HIGH | Useful but can follow after basic intake links exist. |
+An agent can call one stable endpoint and learn:
 
-### Anti-Features (Commonly Requested, Often Problematic)
+- Service identity, version, and health URL.
+- Auth method and header format.
+- Canonical API base URL.
+- Human docs URLs (`/docs`, `/redoc`, `DEPLOYMENT.md` guidance).
+- Machine-readable schema URLs (`/openapi.json`, agent tool definitions if kept).
+- Supported agent workflow steps.
 
-| Feature | Why Requested | Why Problematic | Alternative |
-|---------|---------------|-----------------|-------------|
-| Mandatory approval before posting | Feels safer | Conflicts with the core automation goal and recreates accountant-like manual workload | Post directly, then review/correct with B-series corrections. |
-| Destructive reprocessing | Seems convenient after agent mistakes | Can erase audit trail and confuse source-to-voucher links | Add immutable processing attempts and correction records. |
-| Treating bank statement rows as automatically correct accounting categories | Speeds implementation | Bank text rarely contains enough accounting context; VAT/reimbursement/invoice-payment distinctions need context | Let the agent use statements as one input with history and source documents. |
-| Deleting source files after posting | Saves disk | Accounting records and traceability can require preservation | Retain source files under managed storage; allow only policy-driven deletion if legally safe. |
+### Connectivity Test
 
-## Feature Dependencies
+The onboarding response should direct the agent to a ping endpoint that proves
+the API key works. Bok already has `POST /api/v1/agent/test/ping`; v1.2 should
+make it part of the startup path and remove stale fixed timestamps if necessary.
 
-```text
-Intake storage + metadata
-    ├──requires──> Secure upload/download
-    ├──requires──> Lifecycle statuses
-    └──enables──> Agent pending queue
-                       └──enables──> Direct posting from intake
-                                         └──requires──> Source-to-voucher links
-                                                           └──enables──> Review/correction learning
+### Workflow Instructions
 
-Bank statement upload
-    └──enables──> Bank-driven voucher creation
-                       └──requires──> Duplicate/match checks
-```
+The agent should be told a concrete startup order:
 
-### Dependency Notes
+1. Verify health.
+2. Verify auth with agent ping.
+3. Read accounting instructions.
+4. Read pending intake queue.
+5. Inspect source files or bank input rows as needed.
+6. Post vouchers through `POST /api/v1/agent/vouchers`.
+7. Read correction history before future decisions.
+8. Leave failures or warnings on intake items.
 
-- **Agent pending queue requires intake storage:** The agent needs stable IDs, metadata, and file URLs rather than ad hoc uploads.
-- **Direct posting requires traceability:** Once the agent posts immediately, later review depends on being able to inspect the exact source material and assumptions.
-- **Bank-driven voucher creation requires duplicate checks:** Bank rows may correspond to existing invoice payments, payroll runs, reimbursements, or already-posted vouchers.
+### Deployment Documentation
 
-## MVP Definition
+`DEPLOYMENT.md` should include a post-deploy "connect an agent" section with:
 
-### Launch With (v1)
+- Where to find the Bok base URL on LAN.
+- Which secret to copy into the agent.
+- A `curl` health check.
+- A `curl` authenticated ping check.
+- How to point an OpenClaw HTTP tool/API profile at Bok.
+- The first prompt/instruction to give the agent.
+- Security notes: keep the key in a password manager or agent secret store, do
+  not paste it into public chats, rotate by changing `.env.production` and
+  restarting.
 
-- [ ] Voucher source upload before voucher creation — essential intake path.
-- [ ] Bank statement/status upload as separate input — user explicitly requested it and wants it used for voucher creation.
-- [ ] Agent-readable pending intake API — required for the agent to consume uploads.
-- [ ] Direct agent posting with processed status and voucher links — core automation behavior.
-- [ ] Source file retention and download from posted voucher review — required for traceability.
-- [ ] Correction-to-source learning context — preserves the existing agent learning model.
+### API Coherence
 
-### Add After Validation (v1.x)
+Existing placeholder endpoints should not be recommended if they mislead:
 
-- [ ] Rich matching between bank transactions and source files — add after basic direct-post flow works.
-- [ ] Agent confidence/warnings surfaced in dashboard — add when processing notes are stable.
-- [ ] Reprocessing controls for failed/skipped items — add once failure modes are known.
+- `/api/v1/agent/keys/*` appears non-persistent.
+- `/api/v1/agent/spec/openapi` is hand-written and incomplete.
+- `/api/v1/agent/operations/idempotent/{operation_id}` is placeholder-like.
 
-### Future Consideration (v2+)
+v1.2 should either revise these to be truthful or keep them out of onboarding.
 
-- [ ] OCR/text extraction index — defer until proven necessary.
-- [ ] Open Banking connection — defer because uploaded statements/statuses are enough for this milestone.
-- [ ] Multi-user approval policies — defer because the target workflow is automation-first.
-- [ ] Object storage backend — defer until local filesystem storage becomes operationally limiting.
+## Differentiators
 
-## Feature Prioritization Matrix
+- An onboarding response that includes "bookkeeping guardrails": immutability,
+  B-series corrections, backend validation boundaries, source traceability, and
+  automation-first expectations.
+- A compact agent startup prompt embedded in the onboarding payload and
+  deployment docs.
+- Explicit separation between voucher source intake and bank input intake.
+- Clear correction-learning loop: corrections are not only audit data; the
+  agent should read them before posting future similar vouchers.
 
-| Feature | User Value | Implementation Cost | Priority |
-|---------|------------|---------------------|----------|
-| Voucher source upload | HIGH | MEDIUM | P1 |
-| Bank statement/status upload | HIGH | MEDIUM | P1 |
-| Agent pending queue | HIGH | MEDIUM | P1 |
-| Direct posting and source-to-voucher linking | HIGH | MEDIUM | P1 |
-| Intake status dashboard | MEDIUM | MEDIUM | P1 |
-| Correction learning context | HIGH | MEDIUM | P1 |
-| Bank/source matching bundles | MEDIUM | HIGH | P2 |
-| OCR/extraction | MEDIUM | HIGH | P3 |
-| Open Banking | MEDIUM | HIGH | P3 |
+## Anti-Features
 
-## Competitor Feature Analysis
-
-| Feature | Common accounting apps | Our Approach |
-|---------|------------------------|--------------|
-| Receipt upload | Usually creates a review queue or suggested bookkeeping entry | Create agent-readable intake and allow direct posting by default. |
-| Bank statement import | Often used for reconciliation and categorization | Use as source material for missing vouchers as requested. |
-| Human approval | Common default for accountant-led products | Keep review after posting through correction vouchers. |
-| Audit trail | Expected in accounting products | Preserve original file, processing attempt, posted voucher, and correction linkage. |
-
-## Sources
-
-- Existing README/API/frontend docs — current system capabilities and requested next step.
-- Sveriges Riksdag, Bokföringslag (1999:1078), 5 kap. 6-7 §§ and 7 kap. 1-2 §§ — source material must support verifications and retention.
-- BFNAR 2013:2, Chapter 5 — verification contents, supplementation, and link to original information.
-- Bokföringsnämnden Limited companies page — Swedish ABs must record transactions, have supporting vouchers, archive accounting information, and prepare annual reports.
-
----
-*Feature research for: Swedish bookkeeping intake*
-*Researched: 2026-05-14*
+- Pre-approval as default agent flow. This conflicts with Bok's automation-first
+  product direction.
+- Generic MCP work before the HTTP path is reliable.
+- Telling users to use generated `/api/v1/agent/keys/*` secrets before those
+  keys are persisted and enforced.
+- Publishing broad unsafe tool advice that lets an agent call every backend
+  endpoint without a documented bookkeeping workflow.
