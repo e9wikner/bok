@@ -8,10 +8,10 @@
 
 ### Agent Onboarding
 
-- [ ] **ONBD-01**: Agent can call a stable instruction entrypoint at `/api/v1/agent-instructions/entrypoint`.
-- [ ] **ONBD-02**: Agent can discover Bok service identity, API version, docs URLs, schema URL, health URL, and authenticated ping URL.
-- [ ] **ONBD-03**: Agent can discover the supported bookkeeping startup workflow in ordered steps.
-- [ ] **ONBD-04**: Agent onboarding communicates Bok guardrails: immutable posted vouchers, B-series corrections, source traceability, bank/voucher input separation, and backend validation boundaries.
+- [x] **ONBD-01**: Agent can call a stable instruction entrypoint at `/api/v1/agent-instructions/entrypoint`.
+- [x] **ONBD-02**: Agent can discover Bok service identity, API version, docs URLs, schema URL, health URL, and authenticated ping URL.
+- [x] **ONBD-03**: Agent can discover the supported bookkeeping startup workflow in ordered steps.
+- [x] **ONBD-04**: Agent onboarding communicates Bok guardrails: immutable posted vouchers, B-series corrections, source traceability, bank/voucher input separation, and backend validation boundaries.
 
 ### Agent Authentication
 
@@ -22,7 +22,7 @@
 
 - [ ] **API-01**: Agent ping returns current service, version, and authenticated actor data suitable for deployment verification.
 - [ ] **API-02**: Agent-facing schema and tool discovery points to truthful current endpoints rather than stale hand-written placeholder data.
-- [ ] **API-03**: Agent startup flow links to existing instructions, pending intake, direct voucher posting, failed-processing, correction-history, and voucher source-context endpoints.
+- [x] **API-03**: Agent startup flow links to existing instructions, pending intake, direct voucher posting, failed-processing, correction-history, and voucher source-context endpoints.
 
 ### Deployment Documentation
 
@@ -33,7 +33,7 @@
 
 ### Verification
 
-- [ ] **VER-01**: Backend tests verify instruction entrypoint response shape, public-safe content, auth guidance, and ping behavior.
+- [x] **VER-01**: Backend tests verify instruction entrypoint response shape, public-safe content, auth guidance, and ping behavior.
 - [ ] **VER-02**: Documentation examples are checked against actual route paths and auth behavior.
 
 ## Future Requirements
@@ -65,20 +65,20 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ONBD-01 | Phase 6 | Pending |
-| ONBD-02 | Phase 6 | Pending |
-| ONBD-03 | Phase 6 | Pending |
-| ONBD-04 | Phase 6 | Pending |
+| ONBD-01 | Phase 6 | Complete |
+| ONBD-02 | Phase 6 | Complete |
+| ONBD-03 | Phase 6 | Complete |
+| ONBD-04 | Phase 6 | Complete |
 | AUTH-01 | Phase 7 | Pending |
 | AUTH-02 | Phase 6 | Pending |
 | API-01 | Phase 6 | Pending |
 | API-02 | Phase 6 | Pending |
-| API-03 | Phase 6 | Pending |
+| API-03 | Phase 6 | Complete |
 | DOCS-01 | Phase 7 | Pending |
 | DOCS-02 | Phase 7 | Pending |
 | DOCS-03 | Phase 7 | Pending |
 | DOCS-04 | Phase 7 | Pending |
-| VER-01 | Phase 6 | Pending |
+| VER-01 | Phase 6 | Complete |
 | VER-02 | Phase 7 | Pending |
 
 **Coverage:**
