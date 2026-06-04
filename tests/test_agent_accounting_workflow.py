@@ -1,5 +1,6 @@
 """Tests for agent instructions, direct posting and correction history."""
 
+from calendar import monthrange
 from datetime import date
 
 import httpx
@@ -27,16 +28,18 @@ def _ensure_accounts():
 
 
 def _period():
+    today = date.today()
+    last_day = monthrange(today.year, today.month)[1]
     fiscal_year = PeriodRepository.create_fiscal_year(
-        start_date=date(2026, 1, 1),
-        end_date=date(2026, 12, 31),
+        start_date=date(today.year, 1, 1),
+        end_date=date(today.year, 12, 31),
     )
     return PeriodRepository.create_period(
         fiscal_year_id=fiscal_year.id,
-        year=2026,
-        month=5,
-        start_date=date(2026, 5, 1),
-        end_date=date(2026, 5, 31),
+        year=today.year,
+        month=today.month,
+        start_date=date(today.year, today.month, 1),
+        end_date=date(today.year, today.month, last_day),
     )
 
 
@@ -102,7 +105,7 @@ async def test_agent_posts_directly_and_correction_is_agent_readable(test_db, as
         "/api/v1/agent/vouchers",
         headers=_headers(),
         json={
-            "date": "2026-05-10",
+            "date": date.today().isoformat(),
             "period_id": period.id,
             "description": "Telefonutgift Fello",
             "reasoning_summary": "Test",

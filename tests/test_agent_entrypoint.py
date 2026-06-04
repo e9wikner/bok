@@ -2,12 +2,14 @@
 
 import json
 from collections.abc import Iterator
+from datetime import datetime
 
 import httpx
 import pytest
 import pytest_asyncio
 
 from api.main import app
+from config import settings
 
 
 ENTRYPOINT_PATH = "/api/v1/agent-instructions/entrypoint"
@@ -38,6 +40,10 @@ async def _entrypoint(async_client: httpx.AsyncClient) -> dict:
     response = await async_client.get(ENTRYPOINT_PATH)
     assert response.status_code == 200
     return response.json()
+
+
+def _auth_headers() -> dict[str, str]:
+    return {"Authorization": f"Bearer {settings.api_key}"}
 
 
 def _strings(value: object) -> Iterator[str]:
@@ -132,3 +138,47 @@ async def test_agent_entrypoint_excludes_sensitive_or_company_state_fields(async
         "original_filename",
     ]:
         assert forbidden not in serialized
+
+
+@pytest.mark.asyncio
+async def test_agent_ping_requires_auth(async_client):
+    response = await async_client.post("/api/v1/agent/test/ping")
+
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_agent_ping_returns_dynamic_bounded_auth_data(async_client):
+    response = await async_client.post(
+        "/api/v1/agent/test/ping",
+        headers=_auth_headers(),
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+    assert data["service"] == "bokfoering-api"
+    assert data["version"] == settings.api_version
+    assert data["agent"] == "api"
+    assert "timestamp" in data
+    assert datetime.fromisoformat(data["timestamp"]).tzinfo is not None
+    assert data["timestamp"] != "2026-03-21" + "T10:00:00"
+
+
+@pytest.mark.asyncio
+async def test_placeholder_agent_routes_are_removed(async_client):
+    removed_routes = [
+        ("GET", "/api/v1/agent/" + "spec/openapi", None),
+        ("POST", "/api/v1/agent/" + "spec/tools", {}),
+        ("GET", "/api/v1/agent/" + "keys", None),
+        ("POST", "/api/v1/agent/" + "operations/idempotent/test-op", {}),
+    ]
+
+    for method, path, payload in removed_routes:
+        response = await async_client.request(
+            method,
+            path,
+            headers=_auth_headers(),
+            json=payload,
+        )
+        assert response.status_code in {404, 405}

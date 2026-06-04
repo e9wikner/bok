@@ -32,8 +32,9 @@ docker compose --env-file .env.production -f docker-compose.local.yml up -d --bu
 
 Publik domän med HTTPS är valfri och beskrivs separat i `DEPLOYMENT.md`.
 
-Viktigt: `/api/v1/agent/keys/*` är ännu inte persistent nyckelhantering. För
-agentintegration används tills vidare `BOKFOERING_API_KEY`.
+För agentintegration används tills vidare `BOKFOERING_API_KEY`. Skicka
+entrypoint-länken `GET /api/v1/agent-instructions/entrypoint` till agenten så
+hämtar den själv startup-instruktioner, auth-check och workflow-länkar.
 
 ## Teknikstack
 
@@ -77,13 +78,12 @@ agentintegration används tills vidare `BOKFOERING_API_KEY`.
 - Rapportstatusbevakning (utkast → slutlig → inlämnad)
 
 ### ✅ Fas 4: Agentintegration
-- **OpenAPI 3.1-specifikation** för agentintegration
-- **Tool-definieringar** för Claude/agent-användning
-- API-nyckelhantering med detaljerade behörigheter
-- Idempotenta operations-ID (retry-säkra för agenter)
+- Publik, maskinläsbar agent-entrypoint för startup-instruktioner
+- Auth-check via `POST /api/v1/agent/test/ping` med `BOKFOERING_API_KEY`
+- FastAPI-genererad schema via `/openapi.json`
+- Direktpostning av agentverifikationer med källmaterial- och bankinput-spårbarhet
+- Agentkö för pending intake, processing-status och felrapportering
 - Agentoperationsloggning och revisionsspår
-- Hastighetsbegränsning per API-nyckel
-- Anslutningstestningsendpoints
 
 ### ✅ SIE4 Import & Export
 - **SIE4 Import:** Importera bokföringsdata från andra system
@@ -152,6 +152,7 @@ korrigeringar via API:t och skapar därefter verifikationer eller fakturautkast.
 - Frontend är en mänsklig gransknings- och korrigeringsyta.
 
 **API-endpoints:**
+- `GET /api/v1/agent-instructions/entrypoint` – Publik startup-instruktion för agenten
 - `GET /api/v1/agent-instructions/accounting` – Läs aktivt instruktionsdokument
 - `PUT /api/v1/agent-instructions/accounting` – Uppdatera instruktioner och skapa ny version
 - `GET /api/v1/agent-instructions/accounting/versions` – Versionshistorik
