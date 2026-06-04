@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Agent Onboarding
-status: planning
-last_updated: "2026-06-04T21:35:00.000Z"
-last_activity: 2026-06-04 -- Roadmap created for v1.2
+status: Roadmap created; ready to discuss or plan Phase 6
+stopped_at: Phase 6 context gathered
+last_updated: "2026-06-04T22:06:03.981Z"
+last_activity: 2026-06-04 — Roadmap created for v1.2 Agent Onboarding
 progress:
   total_phases: 2
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
-  percent: 0
 ---
 
 # Project State
@@ -106,9 +106,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-04T19:43:24.784Z
-Stopped at: Milestone v1.1 archived
-Resume file: .planning/MILESTONES.md
+Last session: 2026-06-04T22:06:03.977Z
+Stopped at: Phase 6 context gathered
+Resume file: .planning/phases/06-agent-instruction-entrypoint-and-api-discovery/06-CONTEXT.md
 
 ## Operator Next Steps
 
