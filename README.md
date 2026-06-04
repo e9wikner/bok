@@ -20,7 +20,8 @@ docker-compose up --build
 
 Rekommenderad ägardrift är LAN/lokal server med Docker Compose. Börja i
 [DEPLOYMENT.md](DEPLOYMENT.md); den guiden täcker `.env.production`, starka
-hemligheter, `docker-compose.local.yml`, verifiering och första inloggning.
+hemligheter, `docker-compose.local.yml`, uppdateringar, säkerhetskopiering,
+återställning, rollback, felsökning och valfri publik domän med HTTPS.
 
 Kort kommandoväg efter att `.env.production` har skapats och hemligheterna är
 bytta:
@@ -291,8 +292,9 @@ export NEXT_PUBLIC_API_URL=http://localhost:8000
 
 ### Deployment
 - **[DEPLOYMENT.md](DEPLOYMENT.md)** - kanonisk guide för LAN/lokal server med
-  `docker-compose.local.yml`, `.env.production`, verifiering, första inloggning
-  och valfri publik domän/HTTPS via `docker-compose.prod.yml`.
+  `docker-compose.local.yml`, `.env.production`, uppdateringar,
+  säkerhetskopiering, återställning, rollback, felsökning och valfri publik
+  domän/HTTPS via `docker-compose.prod.yml`.
 
 ## Reglering och Compliance
 

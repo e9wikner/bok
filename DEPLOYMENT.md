@@ -5,7 +5,7 @@ LAN/lokalt nätverk. Det här är self-hosted Docker, inte managed hosting.
 Publik domän med HTTPS är ett separat, valfritt spår längre ned.
 
 Terraform/Hetzner-instruktionerna är inte den validerade vägen i den här
-milstolpen.
+milstolpen. Använd `DEPLOYMENT.md` som den kanoniska driftguiden.
 
 ## Filerna du använder
 
@@ -45,11 +45,9 @@ git clone https://github.com/e9wikner/bok.git
 cd bok
 ```
 
-Vid senare uppdatering:
-
-```bash
-git pull
-```
+`git bundle` över SSH är ett avancerat, sekundärt spår för installationer där
+servern inte ska hämta direkt från GitHub. Det är inte normalvägen för
+LAN-uppdateringar.
 
 ### 3. Skapa `.env.production`
 
@@ -62,12 +60,30 @@ tjänsten.
 
 Obligatoriskt att byta:
 
-- `BOKFOERING_API_KEY` - API-nyckel för agenten.
-- `JWT_SECRET` - signeringshemlighet för inloggning.
-- `AUTH_PASSWORD` - adminlösenordet för första inloggning.
+- `BOKFOERING_API_KEY` - används av agent/API-klienter mot backendens skyddade
+  endpoints.
+- `JWT_SECRET` - används av backend för att signera och verifiera
+  inloggningstokens.
+- `AUTH_PASSWORD` - används för första admininloggningen i webbgränssnittet.
 
-Använd en lösenordshanterare eller annan betrodd slumpgenerator. Spara värdena
-så att du kan återställa installationen senare. Kör inte med exempelvärden.
+Exempel på säkra värden:
+
+```bash
+openssl rand -hex 32    # BOKFOERING_API_KEY
+openssl rand -hex 32    # JWT_SECRET
+openssl rand -base64 24 # AUTH_PASSWORD
+```
+
+Sätt sedan in resultatet i `.env.production`, till exempel:
+
+```env
+BOKFOERING_API_KEY=klistra-in-slumpat-varde-har
+JWT_SECRET=klistra-in-slumpat-varde-har
+AUTH_PASSWORD=klistra-in-starkt-losenord-har
+```
+
+Spara värdena i en lösenordshanterare så att du kan återställa installationen
+senare. Kör inte med exempelvärden.
 
 Osäkra fallbacks/placeholders som inte får användas i verklig drift:
 
@@ -96,8 +112,9 @@ Compose-nätverket. Ändra inte den för LAN-drift.
 docker compose --env-file .env.production -f docker-compose.local.yml up -d --build
 ```
 
-Använd inte `docker compose down -v` för normal deployment eller uppdatering.
-`-v` tar bort volymer och kan radera SQLite-data.
+Använd inte `docker compose down -v` för normal deployment, uppdatering eller
+återställning. `-v`, borttagning av Docker-volymer eller radering av
+`bokfoering-data` kan radera bokföringsdata.
 
 ### 6. Verifiera containrar
 
@@ -133,6 +150,133 @@ http://SERVER_IP_OR_HOSTNAME:3000/login
 Logga in med användarnamnet från `AUTH_USERNAME` och lösenordet du satte i
 `AUTH_PASSWORD`.
 
+## Uppdatera säkert på LAN
+
+Den normala uppdateringsvägen för LAN/lokal server är lokal Git-checkout +
+`docker-compose.local.yml`. Använd inte Terraform/Hetzner eller `git bundle`
+som standardrutin för vanliga uppdateringar.
+
+### Uppdateringschecklista
+
+1. Skapa eller bekräfta en aktuell säkerhetskopia innan du rör koden.
+2. Kontrollera att arbetskopian är ren så att du vet vad som ändras.
+3. Hämta den avsedda versionen med Git.
+4. Bygg om och starta tjänsterna igen.
+5. Verifiera containerstatus, backend och frontend innan du lämnar servern.
+
+```bash
+git status
+git pull
+docker compose --env-file .env.production -f docker-compose.local.yml up -d --build
+docker compose --env-file .env.production -f docker-compose.local.yml ps
+curl -fsS http://localhost:8000/health
+curl -fsSI http://localhost:3000/login
+curl -fsS http://localhost:3000/health
+```
+
+Blunt varning: kör inte `docker compose down -v`, ta inte bort Docker-volymer
+och radera aldrig `bokfoering-data` som del av en normal uppdatering. Normala
+uppdateringar ska använda `up -d --build` följt av verifiering, inte volymradering.
+
+## Säkerhetskopiering
+
+Den viktiga bokföringsdatan ligger i `/app/data` i den persistenta Docker-volymen
+`bokfoering-data`. Git-checkouten och `.env.production` räcker inte för att
+återställa bokföringsdata. Använd `./backups` som lokal katalog för
+ägarkontrollerade backupfiler.
+
+### Manuell LAN-backup
+
+Skapa en tidsstämplad arkivfil från `bokfoering-data`:
+
+```bash
+mkdir -p backups
+timestamp=$(date +%Y%m%d-%H%M%S)
+docker run --rm \
+  -v bokfoering-data:/source:ro \
+  -v "$PWD/backups:/archive" \
+  alpine sh -c "cd /source && tar -czf /archive/bokfoering-data-${timestamp}.tar.gz ."
+ls -lh backups/
+tar -tzf "backups/bokfoering-data-${timestamp}.tar.gz" | head
+```
+
+Det här arkivet är den praktiska säkerhetskopian av SQLite-databasen och övriga
+filer i `/app/data`.
+
+### Valfritt publikt backupspår
+
+`docker-compose.prod.yml` innehåller den valfria containern
+`offen/docker-volume-backup`, som skriver backuparkiv till `./backups`. Det spåret
+hör till publik domän/HTTPS-installationer och är inte den rekommenderade
+standardrutinen för LAN.
+
+S3-kompatibla variabler i `.env.production.example` är valfria platshållare för
+framtida eller separat validerad off-site backup. I den här milstolpen ska de
+inte tolkas som en verifierad backupväg.
+
+## Återställ backup
+
+Återställning ersätter aktuell bokföringsdata. Ta en ny backup först om du vill
+behålla nuvarande läge innan du återställer en äldre kopia.
+
+Stoppa tjänsterna utan att ta bort volymer:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.local.yml stop
+```
+
+Återställ vald backup till `bokfoering-data`:
+
+```bash
+BACKUP_FILE=backups/bokfoering-data-YYYYMMDD-HHMMSS.tar.gz
+docker run --rm \
+  -v bokfoering-data:/target \
+  -v "$PWD/backups:/archive" \
+  alpine sh -c "rm -rf /target/* /target/.[!.]* /target/..?* 2>/dev/null; tar -xzf /archive/$(basename "$BACKUP_FILE") -C /target"
+```
+
+Starta därefter tjänsterna igen:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.local.yml up -d
+docker compose --env-file .env.production -f docker-compose.local.yml ps
+curl -fsS http://localhost:8000/health
+curl -fsSI http://localhost:3000/login
+curl -fsS http://localhost:3000/health
+```
+
+Kontrollera även inloggning i webbläsaren efter återställning. Bevara
+`.env.production` om du inte medvetet återställer hemligheter eller annan
+konfiguration separat. Återställning får inte använda `docker compose down -v`
+och ska inte radera Docker-volymer utanför den kontrollerade återläsningen till
+`bokfoering-data`.
+
+## Rollback till tidigare commit
+
+Om en uppdatering går fel kan du köra tillbaka till en tidigare Git-commit utan
+att radera volymer eller ersätta `.env.production`.
+
+```bash
+git log --oneline -n 10
+git checkout <COMMIT_SHA>
+docker compose --env-file .env.production -f docker-compose.local.yml up -d --build
+docker compose --env-file .env.production -f docker-compose.local.yml ps
+curl -fsS http://localhost:8000/health
+curl -fsSI http://localhost:3000/login
+curl -fsS http://localhost:3000/health
+```
+
+När problemet är löst och du vill tillbaka till ordinarie gren:
+
+```bash
+git checkout main
+git pull
+docker compose --env-file .env.production -f docker-compose.local.yml up -d --build
+```
+
+Rollback ska inte ta bort Docker-volymer och ska inte ersätta
+`.env.production` om du inte uttryckligen också återställer konfiguration.
+
 ## Avancerat: git bundle över SSH
 
 Använd bara det här om servern ska få kod från en lokal repository-kopia i stället
@@ -159,6 +303,7 @@ cd ~/bok
 git fetch "/tmp/bok-deploy-${commit}.bundle" HEAD:refs/heads/deploy-local
 git checkout deploy-local
 git reset --hard deploy-local
+docker compose --env-file .env.production -f docker-compose.local.yml up -d --build
 ```
 
 Behåll serverns befintliga `.env.production`. Den ska inte komma från Git.
@@ -196,29 +341,102 @@ curl -fsSI "https://${APP_DOMAIN}/login"
 
 ## Felsökning
 
-Visa status:
+### Containerstatus eller unhealthy tjänster
 
 ```bash
 docker compose --env-file .env.production -f docker-compose.local.yml ps
+docker compose --env-file .env.production -f docker-compose.local.yml logs --tail=100
 ```
 
-Visa loggar:
-
-```bash
-docker compose --env-file .env.production -f docker-compose.local.yml logs -f
-```
-
-Starta om efter ändring i `.env.production`:
+Om `api` eller `frontend` inte är `Up` ska du läsa loggarna först och sedan
+starta om med:
 
 ```bash
 docker compose --env-file .env.production -f docker-compose.local.yml up -d
 ```
 
-Kontrollera att `.env.production` finns och inte innehåller placeholders:
+### Backend svarar inte
+
+```bash
+curl -fsS http://localhost:8000/health
+```
+
+Om kommandot fallerar:
+
+- kontrollera `docker compose ... ps`
+- läs `docker compose ... logs --tail=100 api`
+- bekräfta att `.env.production` finns
+- kontrollera att inga placeholders används i hemlighetsfälten
+
+### Frontend eller inloggningssidan svarar inte
+
+```bash
+curl -fsSI http://localhost:3000/login
+curl -fsS http://localhost:3000/health
+```
+
+Om frontend svarar men API-anrop från webben misslyckas, kontrollera dessa värden
+i `.env.production`:
+
+```env
+NEXT_PUBLIC_API_URL=
+BACKEND_URL=http://api:8000
+```
+
+För LAN/lokal server ska `NEXT_PUBLIC_API_URL=` vara tom och
+`BACKEND_URL=http://api:8000`. Om du sätter ett annat värde här kan frontenden
+peka fel eller hoppa över samma-origin-proxyn.
+
+### `.env.production` saknas eller innehåller osäkra värden
 
 ```bash
 test -f .env.production
 rg "dev-key-change-in-production|dev-jwt-secret-change-in-production|AUTH_PASSWORD=admin" .env.production
 ```
 
-Om `rg` hittar något av dessa värden ska filen ändras innan tjänsten används.
+Om `test -f` misslyckas finns filen inte. Om `rg` skriver träffar innehåller
+filen osäkra placeholders och måste rättas innan tjänsten används.
+
+### Publik domän, DNS eller HTTPS fungerar inte
+
+Det här avsnittet gäller bara om du använder `docker-compose.prod.yml`.
+Kontrollera att följande variabler finns och är riktiga:
+
+```env
+APP_DOMAIN=app.example.com
+API_DOMAIN=api.example.com
+LETSENCRYPT_EMAIL=admin@example.com
+```
+
+Verifiera sedan DNS och HTTPS:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml ps
+curl -fsS "https://${API_DOMAIN}/health"
+curl -fsSI "https://${APP_DOMAIN}/login"
+```
+
+Om detta fallerar, kontrollera att DNS redan pekar rätt, att port 80/443 når
+servern och att Let's Encrypt kan utfärda certifikat för `APP_DOMAIN` och
+`API_DOMAIN`.
+
+## Supportklar diagnostik
+
+Skicka diagnostik som visar version, commit, containerstatus, loggutdrag och
+hälsokontroller. Skicka inte hela `.env.production`.
+
+```bash
+docker --version
+docker compose version
+git rev-parse --short HEAD
+docker compose --env-file .env.production -f docker-compose.local.yml ps
+docker compose --env-file .env.production -f docker-compose.local.yml logs --tail=100
+curl -fsS http://localhost:8000/health
+curl -fsSI http://localhost:3000/login
+curl -fsS http://localhost:3000/health
+rg "dev-key-change-in-production|dev-jwt-secret-change-in-production|AUTH_PASSWORD=admin" .env.production
+```
+
+Berätta gärna vilken URL du testade, vad du förväntade dig och exakt vilket fel
+du såg. Men klistra inte in hela `.env.production` i supportkanaler eller issue-
+rapporter.

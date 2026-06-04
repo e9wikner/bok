@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Clear Instructions for Deployment
-status: executing
-stopped_at: Phase 5 context gathered
-last_updated: "2026-06-04T19:58:17.483Z"
-last_activity: 2026-06-04 -- Phase 05 planning complete
+status: between_milestones
+stopped_at: Milestone v1.1 archived
+last_updated: "2026-06-04T20:54:38Z"
+last_activity: 2026-06-04 -- Milestone v1.1 archived
 progress:
   total_phases: 2
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 6
-  completed_plans: 3
-  percent: 50
+  completed_plans: 6
+  percent: 100
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-18)
 
 **Core value:** The system should let a small Swedish company keep compliant books with minimal manual interaction by giving an agent enough source material, history, and correction feedback to post accurate vouchers.
-**Current focus:** Phase 5: operations,-troubleshooting,-and-outdated-infra-warnings
+**Current focus:** Between milestones
 
 ## Current Position
 
-Phase: 5
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-06-04 -- Phase 05 planning complete
+Phase: None
+Plan: None
+Status: v1.1 archived; waiting for next milestone definition
+Last activity: 2026-06-04 -- Milestone v1.1 archived
 
 ## Performance Metrics
 
@@ -84,7 +84,7 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-None yet.
+- Start the next milestone with fresh requirements.
 
 ### Blockers/Concerns
 
@@ -100,13 +100,15 @@ Items acknowledged and carried forward from previous milestone close:
 | Bank automation | Open Banking connection and periodic sync | v2 candidate | Initialization |
 | Storage | S3-compatible object storage | v2 candidate | Initialization |
 | Verification | Phase 1 aggregate `01-VERIFICATION.md` missing; v1.0 audit marked Phase 1 requirements orphaned from phase verification evidence | accepted tech debt | 2026-05-18 milestone close |
+| Audit | v1.1 closed without `.planning/milestones/v1.1-MILESTONE-AUDIT.md` | accepted process debt | 2026-06-04 milestone close |
+| Security | Phase 5 security review (`$gsd-secure-phase 5`) not run before v1.1 close | accepted process debt | 2026-06-04 milestone close |
 
 ## Session Continuity
 
 Last session: 2026-06-04T19:43:24.784Z
-Stopped at: Phase 5 context gathered
-Resume file: .planning/phases/05-operations-troubleshooting-and-outdated-infra-warnings/05-CONTEXT.md
+Stopped at: Milestone v1.1 archived
+Resume file: .planning/MILESTONES.md
 
 ## Operator Next Steps
 
-- Plan Phase 5 with /gsd-plan-phase 5
+- Define the next milestone with `$gsd-new-milestone`

@@ -1,4 +1,9 @@
-# Terraform Deployment for Hetzner Cloud
+# OUTDATED: Terraform Deployment for Hetzner Cloud
+
+Warning: this Terraform/Hetzner path is outdated, not validated in v1.1, and
+excluded from the recommended deployment path. It is kept only as a legacy
+reference. Use [../DEPLOYMENT.md](../DEPLOYMENT.md) for the current Docker
+LAN/local server route and the separate optional public-domain HTTPS route.
 
 Infrastructure as Code (IaC) deployment for Bokföringssystem on Hetzner Cloud.
 

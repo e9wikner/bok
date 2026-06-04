@@ -10,20 +10,22 @@ Bok now includes an intake system for source material: users upload receipts, in
 
 v1.0 Intake Automation shipped on 2026-05-18. The codebase now supports durable voucher-source intake, separate bank CSV input intake, agent direct posting with source traceability, and frontend work surfaces for upload, status scanning, voucher source review, and correction-learning context.
 
-Phase 4 of v1.1 is complete. `README.md`, `DEPLOYMENT.md`, and `.env.production.example` now present a LAN-first Docker deployment path, required secret replacement, Compose defaults, verification commands, and a separate optional public-domain HTTPS path.
+v1.1 Clear Instructions for Deployment shipped on 2026-06-04. `README.md`,
+`DEPLOYMENT.md`, `.env.production.example`, and `terraform/README.md` now
+present a LAN-first Docker deployment path with brief secret-generation guidance,
+verification commands, safe updates, backup/restore, rollback, troubleshooting,
+support diagnostics, and explicit warnings that Terraform/Hetzner is not the
+current validated path.
 
 Known closeout debt: the v1.0 milestone audit was accepted with `gaps_found` because Phase 1 lacks aggregate `01-VERIFICATION.md`, even though its plan summaries record focused implementation checks.
 
-## Current Milestone: v1.1 Clear Instructions for Deployment
+Known closeout debt for v1.1: milestone close proceeded without a dedicated
+`v1.1` milestone audit file and without running `$gsd-secure-phase 5`.
 
-**Goal:** Make Bok deployable by a non-expert small-company owner through clear, trustworthy instructions for the existing Docker-based deployment paths.
+## Next Milestone Goals
 
-**Target features:**
-- Owner-friendly deployment guide that explains what to do, in what order, and why each step matters.
-- Clear setup for secrets, LAN/direct server access, optional public domains, Docker Compose choices, backups, updates, rollback, and verification.
-- Troubleshooting guidance for common deployment failures: unhealthy containers, frontend/backend connection issues, HTTPS/domain setup where relevant, missing environment variables, and data/backup concerns.
-- Documentation alignment across `README.md`, `DEPLOYMENT.md`, `.env.production.example`, and Docker Compose files so there are no conflicting instructions.
-- Terraform/Hetzner docs are explicitly marked outdated and excluded from this milestone's deployment path.
+Define fresh milestone scope with `$gsd-new-milestone`. No new active milestone
+requirements are locked yet.
 
 ## Core Value
 
@@ -62,10 +64,12 @@ The system should let a small Swedish company keep compliant books with minimal 
 - ✓ Frontend provides an operational intake workspace for voucher source uploads, bank CSV uploads, scan status, and review/correction loops — shipped in v1.0
 - ✓ Deployment instructions are clear enough for a non-expert small-company owner to deploy Bok using the existing Docker-based LAN path — validated in Phase 04
 - ✓ Terraform/Hetzner documentation is excluded from the recommended deployment path and treated as outside the current validated route — validated in Phase 04
+- ✓ Operational deployment instructions now cover updates, backup, restore, rollback, troubleshooting, and support diagnostics — shipped in v1.1
+- ✓ Secret setup guidance now briefly explains required values, where they are used, and how to generate example values — shipped in v1.1
 
 ### Active
 
-- [ ] Add operational instructions for updates, backup, restore, rollback, troubleshooting, and outdated infrastructure warnings.
+- [ ] Define the next milestone's requirements and roadmap.
 
 ### Out of Scope
 
@@ -116,6 +120,7 @@ Known codebase concerns relevant to this work:
 | Accept v1.0 with known verification debt | The implementation and integration checks were acceptable, but Phase 1 lacked aggregate verification evidence | Accepted at milestone close; tracked as deferred tech debt |
 | Keep v1.1 deployment-focused and Docker-first | The immediate need is clear deployment instructions for a non-expert owner, not new infrastructure behavior | Validated in Phase 04 with LAN-first `DEPLOYMENT.md` |
 | Mark Terraform/Hetzner docs outdated for now | The current milestone should prevent accidental reliance on stale infrastructure docs without spending scope on repairing them | Validated in Phase 04 by excluding Terraform/Hetzner from the recommended path |
+| Close v1.1 with acknowledged process gaps | Milestone scope shipped, but the dedicated milestone audit and Phase 5 security review were skipped at close | Accepted as deferred process debt at v1.1 milestone close |
 
 ## Evolution
 
@@ -135,4 +140,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-18 after Phase 04 completion*
+*Last updated: 2026-06-04 after v1.1 milestone close*

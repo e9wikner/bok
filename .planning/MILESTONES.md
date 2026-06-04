@@ -1,5 +1,33 @@
 # Milestones
 
+## v1.1 Clear Instructions for Deployment (Shipped: 2026-06-04)
+
+**Phases completed:** 2 phases, 6 plans, 18 tasks
+
+**Delivered:** Owner-facing Docker deployment and operations documentation for
+LAN/local installs, with optional public-domain guidance, safe secret setup,
+updates, backup/restore, rollback, troubleshooting, and explicit Terraform
+deprecation warnings.
+
+**Key accomplishments:**
+
+- LAN-first Swedish deployment guide with required secrets, Docker Compose verification, first login, and optional public HTTPS separated.
+- Production environment template now mirrors the LAN deployment defaults and clearly separates optional public-domain and backup settings.
+- README now sends deployment users to the canonical LAN-first guide and removes stale status, broken LAN-doc routing, and default credential guidance.
+- `DEPLOYMENT.md` now covers safe updates, concrete rollback steps, and blunt data-loss warnings around Docker volume deletion.
+- `DEPLOYMENT.md` now covers backup scope, manual LAN backup commands, restore steps, optional backup-sidecar context, and troubleshooting/support diagnostics.
+- `terraform/README.md` is now marked outdated, not validated in v1.1, and excluded from the recommended deployment path.
+
+**Known deferred items at close:** Milestone closed without a dedicated
+`v1.1-MILESTONE-AUDIT.md`, and Phase 5 security review (`$gsd-secure-phase 5`)
+was acknowledged but not run before close. See `.planning/STATE.md` Deferred
+Items.
+
+**What's next:** Define fresh requirements for the next milestone with
+`$gsd-new-milestone`.
+
+---
+
 ## v1.0 Intake Automation (Shipped: 2026-05-18)
 
 **Phases completed:** 3 phases, 9 plans, 36 tasks
