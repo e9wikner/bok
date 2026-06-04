@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from api.deps import get_current_actor
+from config import settings
 from repositories.agent_instruction_repo import AgentInstructionRepository
 from repositories.system_instructions import (
     get_accounting_system_instructions,
@@ -26,6 +27,135 @@ router = APIRouter(prefix="/api/v1/agent-instructions", tags=["agent-instruction
 class UpdateAgentInstructionRequest(BaseModel):
     content_markdown: str = Field(..., min_length=1)
     change_summary: Optional[str] = None
+
+
+@router.get("/entrypoint", response_model=dict)
+async def get_agent_instruction_entrypoint():
+    """Return the public-safe startup contract for external bookkeeping agents."""
+    return {
+        "service": "bokfoering-api",
+        "version": settings.api_version,
+        "purpose": (
+            "Machine-readable startup instructions for an external agent that "
+            "posts Bok vouchers from uploaded source material while the backend "
+            "enforces formal Swedish bookkeeping constraints."
+        ),
+        "auth": {
+            "type": "bearer",
+            "header": "Authorization",
+            "value_format": "Bearer <BOKFOERING_API_KEY>",
+            "check": {
+                "method": "POST",
+                "path": "/api/v1/agent/test/ping",
+                "expected_status": 200,
+            },
+        },
+        "links": {
+            "health": "/api/v1/health",
+            "docs": "/docs",
+            "redoc": "/redoc",
+            "openapi": "/openapi.json",
+        },
+        "startup_sequence": [
+            {
+                "step": 1,
+                "action": "read_entrypoint",
+                "method": "GET",
+                "path": "/api/v1/agent-instructions/entrypoint",
+                "auth_required": False,
+            },
+            {
+                "step": 2,
+                "action": "verify_auth",
+                "method": "POST",
+                "path": "/api/v1/agent/test/ping",
+                "auth_required": True,
+            },
+            {
+                "step": 3,
+                "action": "read_accounting_instructions",
+                "method": "GET",
+                "path": "/api/v1/agent-instructions/accounting",
+                "auth_required": True,
+            },
+            {
+                "step": 4,
+                "action": "read_recent_corrections",
+                "method": "GET",
+                "path": "/api/v1/accounting-corrections",
+                "auth_required": True,
+            },
+            {
+                "step": 5,
+                "action": "scan_pending_intake",
+                "method": "GET",
+                "path": "/api/v1/agent/intake/pending",
+                "auth_required": True,
+            },
+            {
+                "step": 6,
+                "action": "process_pending_items",
+                "guidance": (
+                    "Process all pending items automatically, one item at a time. "
+                    "Mark an item processing before work, post a voucher when the "
+                    "bookkeeping decision is complete, and record failed or warning "
+                    "outcomes instead of guessing."
+                ),
+            },
+        ],
+        "workflow_endpoints": {
+            "ping": {
+                "method": "POST",
+                "path": "/api/v1/agent/test/ping",
+            },
+            "accounting_instructions": {
+                "method": "GET",
+                "path": "/api/v1/agent-instructions/accounting",
+            },
+            "correction_history": {
+                "method": "GET",
+                "path": "/api/v1/accounting-corrections",
+            },
+            "pending_intake": {
+                "method": "GET",
+                "path": "/api/v1/agent/intake/pending",
+            },
+            "mark_processing": {
+                "method": "POST",
+                "path": "/api/v1/agent/intake/{source_id}/processing",
+            },
+            "mark_failed": {
+                "method": "POST",
+                "path": "/api/v1/agent/intake/{source_id}/failed",
+            },
+            "post_voucher": {
+                "method": "POST",
+                "path": "/api/v1/agent/vouchers",
+            },
+            "source_context": {
+                "method": "GET",
+                "path": "/api/v1/vouchers/{voucher_id}/source-context",
+            },
+        },
+        "guardrails": [
+            "Posted vouchers are immutable; corrections must use correction vouchers.",
+            "Use source material, accounting instructions, and correction history before posting.",
+            "Post directly when the decision is complete; user review happens after posting.",
+            "Keep voucher source material and bank statement/status inputs conceptually separate.",
+            "If an item cannot be completed, record failed or warning context instead of guessing.",
+        ],
+        "unsupported_features": [
+            "Persistent per-agent credential lifecycle is not implemented; use the configured bearer credential.",
+            "Generated tool-schema discovery is not implemented; use /openapi.json for the current HTTP schema.",
+            "Durable idempotency for agent operations is not implemented.",
+        ],
+        "agent_start_instructions": (
+            "The owner should send this entrypoint URL to OpenClaw. Read this payload, "
+            "verify bearer access with the ping endpoint, then read accounting "
+            "instructions and recent corrections before scanning pending intake. "
+            "Process pending items automatically one at a time."
+        ),
+    }
 
 
 @router.get("/accounting", response_model=dict)

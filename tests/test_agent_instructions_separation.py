@@ -8,9 +8,10 @@ This test suite verifies:
 """
 
 import pytest
-from fastapi.testclient import TestClient
+import httpx
+import pytest_asyncio
 
-from main import app
+from api.main import app
 from repositories.system_instructions import (
     get_system_instructions,
     get_accounting_system_instructions,
@@ -18,7 +19,11 @@ from repositories.system_instructions import (
 )
 
 
-client = TestClient(app)
+@pytest_asyncio.fixture
+async def async_client():
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client
 
 
 class TestSystemInstructions:
@@ -67,9 +72,10 @@ class TestSystemInstructions:
 class TestAgentInstructionsAPI:
     """Test agent instructions API endpoints."""
 
-    def test_get_accounting_instructions_structure(self, auth_headers):
+    @pytest.mark.asyncio
+    async def test_get_accounting_instructions_structure(self, test_db, async_client, auth_headers):
         """GET /accounting should return both system and company."""
-        response = client.get(
+        response = await async_client.get(
             "/api/v1/agent-instructions/accounting",
             headers=auth_headers
         )
@@ -90,9 +96,10 @@ class TestAgentInstructionsAPI:
         assert "version" in data["company"]
         assert "content_markdown" in data["company"]
     
-    def test_get_invoicing_instructions_structure(self, auth_headers):
+    @pytest.mark.asyncio
+    async def test_get_invoicing_instructions_structure(self, test_db, async_client, auth_headers):
         """GET /invoicing should return both system and company."""
-        response = client.get(
+        response = await async_client.get(
             "/api/v1/agent-instructions/invoicing",
             headers=auth_headers
         )
@@ -104,11 +111,17 @@ class TestAgentInstructionsAPI:
         assert "system" in data
         assert "company" in data
     
-    def test_update_accounting_company_instructions(self, auth_headers):
+    @pytest.mark.asyncio
+    async def test_update_accounting_company_instructions(
+        self,
+        test_db,
+        async_client,
+        auth_headers,
+    ):
         """PUT /accounting should update company instructions."""
         new_content = "# Företagsspecifika instruktioner\n\nVi använder konto 1930 istället för 1920."
         
-        response = client.put(
+        response = await async_client.put(
             "/api/v1/agent-instructions/accounting",
             headers=auth_headers,
             json={
@@ -126,11 +139,17 @@ class TestAgentInstructionsAPI:
         assert "version" in data
         assert "version_id" in data
     
-    def test_update_invoicing_company_instructions(self, auth_headers):
+    @pytest.mark.asyncio
+    async def test_update_invoicing_company_instructions(
+        self,
+        test_db,
+        async_client,
+        auth_headers,
+    ):
         """PUT /invoicing should update company instructions."""
         new_content = "# Faktureringsregler\n\nAlla fakturor ska ha ordernummer."
         
-        response = client.put(
+        response = await async_client.put(
             "/api/v1/agent-instructions/invoicing",
             headers=auth_headers,
             json={
@@ -145,9 +164,10 @@ class TestAgentInstructionsAPI:
         assert data["scope"] == "invoicing_company"
         assert "version" in data
     
-    def test_accounting_versions_endpoint(self, auth_headers):
+    @pytest.mark.asyncio
+    async def test_accounting_versions_endpoint(self, test_db, async_client, auth_headers):
         """GET /accounting/versions should list company versions."""
-        response = client.get(
+        response = await async_client.get(
             "/api/v1/agent-instructions/accounting/versions",
             headers=auth_headers
         )
@@ -160,9 +180,10 @@ class TestAgentInstructionsAPI:
         assert "total" in data
         assert "note" in data
     
-    def test_system_only_endpoints(self, auth_headers):
+    @pytest.mark.asyncio
+    async def test_system_only_endpoints(self, async_client, auth_headers):
         """System-only endpoints should return read-only instructions."""
-        response = client.get(
+        response = await async_client.get(
             "/api/v1/agent-instructions/system/accounting",
             headers=auth_headers
         )
@@ -191,9 +212,10 @@ class TestSIE4Documentation:
         assert "räkenskapsår" in content.lower()
         assert "multi-period" in content.lower() or "multiperiod" in content.lower()
     
-    def test_sie4_documentation_via_api(self, auth_headers):
+    @pytest.mark.asyncio
+    async def test_sie4_documentation_via_api(self, async_client, auth_headers):
         """SIE4 documentation should be accessible via API."""
-        response = client.get(
+        response = await async_client.get(
             "/api/v1/agent-instructions/system/accounting",
             headers=auth_headers
         )
@@ -210,9 +232,10 @@ class TestSIE4Documentation:
 class TestBackwardCompatibility:
     """Test that legacy endpoints still work."""
 
-    def test_legacy_accounting_endpoint(self, auth_headers):
+    @pytest.mark.asyncio
+    async def test_legacy_accounting_endpoint(self, test_db, async_client, auth_headers):
         """Legacy endpoint should still work."""
-        response = client.get(
+        response = await async_client.get(
             "/api/v1/agent-instructions/accounting/legacy",
             headers=auth_headers
         )

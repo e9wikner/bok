@@ -4,9 +4,16 @@ import pytest
 import tempfile
 import os
 from datetime import date
+from config import settings
 from db.database import Database, db
 from services.ledger import LedgerService
 from repositories.account_repo import AccountRepository
+
+
+@pytest.fixture
+def auth_headers():
+    """Return bearer auth headers for protected API endpoints."""
+    return {"Authorization": f"Bearer {settings.api_key}"}
 
 
 @pytest.fixture(scope="function")
