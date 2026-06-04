@@ -16,12 +16,12 @@
 ### Agent Authentication
 
 - [ ] **AUTH-01**: Deployment docs and the instruction entrypoint explain `Authorization: Bearer <BOKFOERING_API_KEY>` as the supported v1.2 agent credential.
-- [ ] **AUTH-02**: Existing placeholder API-key lifecycle endpoints are not presented as production key management unless made truthful and persistent.
+- [x] **AUTH-02**: Existing placeholder API-key lifecycle endpoints are not presented as production key management unless made truthful and persistent.
 
 ### Agent API Coherence
 
-- [ ] **API-01**: Agent ping returns current service, version, and authenticated actor data suitable for deployment verification.
-- [ ] **API-02**: Agent-facing schema and tool discovery points to truthful current endpoints rather than stale hand-written placeholder data.
+- [x] **API-01**: Agent ping returns current service, version, and authenticated actor data suitable for deployment verification.
+- [x] **API-02**: Agent-facing schema and tool discovery points to truthful current endpoints rather than stale hand-written placeholder data.
 - [x] **API-03**: Agent startup flow links to existing instructions, pending intake, direct voucher posting, failed-processing, correction-history, and voucher source-context endpoints.
 
 ### Deployment Documentation
@@ -70,9 +70,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ONBD-03 | Phase 6 | Complete |
 | ONBD-04 | Phase 6 | Complete |
 | AUTH-01 | Phase 7 | Pending |
-| AUTH-02 | Phase 6 | Pending |
-| API-01 | Phase 6 | Pending |
-| API-02 | Phase 6 | Pending |
+| AUTH-02 | Phase 6 | Complete |
+| API-01 | Phase 6 | Complete |
+| API-02 | Phase 6 | Complete |
 | API-03 | Phase 6 | Complete |
 | DOCS-01 | Phase 7 | Pending |
 | DOCS-02 | Phase 7 | Pending |
