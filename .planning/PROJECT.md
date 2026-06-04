@@ -22,10 +22,19 @@ Known closeout debt: the v1.0 milestone audit was accepted with `gaps_found` bec
 Known closeout debt for v1.1: milestone close proceeded without a dedicated
 `v1.1` milestone audit file and without running `$gsd-secure-phase 5`.
 
-## Next Milestone Goals
+## Current Milestone: v1.2 Agent Onboarding
 
-Define fresh milestone scope with `$gsd-new-milestone`. No new active milestone
-requirements are locked yet.
+**Goal:** Make a deployed Bok instance understandable and connectable for an
+OpenClaw-style HTTP agent so it can begin bookkeeping through the existing
+agent API.
+
+**Target features:**
+- REST-style agent onboarding endpoint that tells an agent how to connect,
+  authenticate, discover available agent endpoints, and start the bookkeeping
+  workflow.
+- Post-deploy OpenClaw/HTTP-agent setup instructions in `DEPLOYMENT.md`.
+- Revised agent API behavior where needed so startup, context scanning, direct
+  posting, and correction feedback are coherent for an external agent.
 
 ## Core Value
 
@@ -69,7 +78,9 @@ The system should let a small Swedish company keep compliant books with minimal 
 
 ### Active
 
-- [ ] Define the next milestone's requirements and roadmap.
+- [ ] External HTTP agents can discover how to connect to a deployed Bok instance.
+- [ ] Deployment documentation explains how to configure an OpenClaw-style agent for Bok.
+- [ ] Agent-facing API startup flow is coherent enough for an external agent to begin bookkeeping without manual reverse engineering.
 
 ### Out of Scope
 
@@ -103,7 +114,8 @@ Known codebase concerns relevant to this work:
 - **Storage**: Initial implementation should fit the existing SQLite plus local filesystem architecture — consistent with current deployment and backup model.
 - **Frontend**: The UI should be an operational work surface, not a landing page — users need to upload, scan status, and review outcomes efficiently.
 - **Security**: File-serving paths must be constrained to the configured attachment/intake storage root — existing codebase concern and high-risk surface.
-- **Deployment scope**: v1.1 should clarify and align existing Docker-based deployment instructions; Terraform/Hetzner deployment should be marked outdated rather than repaired in this milestone.
+- **Deployment scope**: Docker-based deployment remains the validated path; agent setup documentation should build on the existing LAN-first deployment guide.
+- **Agent integration scope**: v1.2 prioritizes HTTP/API-key agent connectivity; MCP is deferred unless implementation reveals a small compatibility or documentation-only path.
 
 ## Key Decisions
 
@@ -121,6 +133,7 @@ Known codebase concerns relevant to this work:
 | Keep v1.1 deployment-focused and Docker-first | The immediate need is clear deployment instructions for a non-expert owner, not new infrastructure behavior | Validated in Phase 04 with LAN-first `DEPLOYMENT.md` |
 | Mark Terraform/Hetzner docs outdated for now | The current milestone should prevent accidental reliance on stale infrastructure docs without spending scope on repairing them | Validated in Phase 04 by excluding Terraform/Hetzner from the recommended path |
 | Close v1.1 with acknowledged process gaps | Milestone scope shipped, but the dedicated milestone audit and Phase 5 security review were skipped at close | Accepted as deferred process debt at v1.1 milestone close |
+| Prioritize HTTP agent onboarding over MCP for v1.2 | The immediate need is connecting an OpenClaw-style agent that can call REST APIs with an API key or bearer token | — Pending |
 
 ## Evolution
 
@@ -140,4 +153,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-04 after v1.1 milestone close*
+*Last updated: 2026-06-04 after v1.2 milestone start*
