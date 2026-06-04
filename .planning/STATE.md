@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Agent Onboarding
 status: planning
-last_updated: "2026-06-04T21:28:34.009Z"
-last_activity: 2026-06-04
+last_updated: "2026-06-04T21:35:00.000Z"
+last_activity: 2026-06-04 -- Roadmap created for v1.2
 progress:
-  total_phases: 0
+  total_phases: 2
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,17 +17,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-18)
+See: .planning/PROJECT.md (updated 2026-06-04)
 
 **Core value:** The system should let a small Swedish company keep compliant books with minimal manual interaction by giving an agent enough source material, history, and correction feedback to post accurate vouchers.
-**Current focus:** Between milestones
+**Current focus:** Phase 6 - Agent Instruction Entrypoint and API Discovery
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 6 - Agent Instruction Entrypoint and API Discovery
 Plan: —
-Status: Defining requirements
-Last activity: 2026-06-04 — Milestone v1.2 started
+Status: Roadmap created; ready to discuss or plan Phase 6
+Last activity: 2026-06-04 — Roadmap created for v1.2 Agent Onboarding
 
 ## Performance Metrics
 
@@ -45,6 +45,8 @@ Last activity: 2026-06-04 — Milestone v1.2 started
 | 02 | 3 | - | - |
 | 03 | 3 | - | - |
 | 04 | 3 | - | - |
+| 06 | 0 | - | - |
+| 07 | 0 | - | - |
 
 **Recent Trend:**
 
@@ -83,7 +85,7 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-- Start the next milestone with fresh requirements.
+- Start Phase 6 planning for the agent instruction entrypoint and API discovery work.
 
 ### Blockers/Concerns
 
@@ -110,4 +112,4 @@ Resume file: .planning/MILESTONES.md
 
 ## Operator Next Steps
 
-- Define the next milestone with `$gsd-new-milestone`
+- Discuss or plan Phase 6: Agent Instruction Entrypoint and API Discovery.
