@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS correction_notes (
     resolved_at TIMESTAMP,
     CHECK(status IN ('pending', 'suggested', 'applied', 'dismissed', 'rejected')),
     FOREIGN KEY (voucher_id) REFERENCES vouchers(id),
-    FOREIGN KEY (suggested_voucher_id) REFERENCES vouchers(id)
+    FOREIGN KEY (suggested_voucher_id) REFERENCES vouchers(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_correction_notes_voucher ON correction_notes(voucher_id);
