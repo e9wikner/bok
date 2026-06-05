@@ -122,6 +122,33 @@ def test_intake_service_rejects_duplicate_upload_and_keeps_one_pending_source(
     assert IntakeRepository.count_pending() == 1
 
 
+def test_intake_service_allows_reupload_after_soft_delete(test_db, intake_dir):
+    content = b"%PDF-1.4 receipt to delete and re-upload"
+    service = IntakeService()
+    source = service.create_source_from_upload_content(
+        filename="receipt.pdf",
+        content_type="application/pdf",
+        content=content,
+        explanation=None,
+        source_type="receipt",
+        actor="api",
+    )
+
+    service.soft_delete(source.id, actor="api")
+
+    reupload = service.create_source_from_upload_content(
+        filename="receipt.pdf",
+        content_type="application/pdf",
+        content=content,
+        explanation=None,
+        source_type="receipt",
+        actor="api",
+    )
+
+    assert reupload.id != source.id
+    assert IntakeRepository.count_pending() == 1
+
+
 def test_intake_service_rejects_outside_root_stored_path(test_db, intake_dir, tmp_path):
     content = b"%PDF-1.4 path safety"
     service = IntakeService()

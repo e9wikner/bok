@@ -80,8 +80,8 @@ class IntakeRepository:
     @staticmethod
     def get_by_sha256(sha256: str) -> Optional[IntakeSource]:
         row = db.execute(
-            "SELECT * FROM intake_sources WHERE sha256 = ? LIMIT 1",
-            (sha256,),
+            "SELECT * FROM intake_sources WHERE sha256 = ? AND status != ? LIMIT 1",
+            (sha256, IntakeStatus.DELETED.value),
         ).fetchone()
         return IntakeRepository._row_to_source(row) if row else None
 
