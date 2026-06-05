@@ -22,6 +22,7 @@ class AccountingCorrectionRepository:
         was_successful: Optional[bool] = None,
         corrected_by: Optional[str] = None,
         correction_reason: Optional[str] = None,
+        _commit: bool = True,
     ) -> CorrectionHistory:
         history_id = str(uuid.uuid4())
         now = datetime.now()
@@ -47,7 +48,8 @@ class AccountingCorrectionRepository:
                 now,
             ),
         )
-        db.commit()
+        if _commit:
+            db.commit()
 
         return CorrectionHistory(
             id=history_id,
