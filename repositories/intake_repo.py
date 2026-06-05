@@ -24,6 +24,7 @@ class IntakeRepository:
         uploaded_by: str,
         source_type: Optional[str] = None,
         explanation: Optional[str] = None,
+        agent_guidance: Optional[str] = None,
         status: str = IntakeStatus.PENDING.value,
         _commit: bool = True,
     ) -> IntakeSource:
@@ -32,8 +33,8 @@ class IntakeRepository:
             """
             INSERT INTO intake_sources
             (id, source_type, status, original_filename, mime_type, size_bytes,
-             sha256, stored_path, explanation, uploaded_by, uploaded_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             sha256, stored_path, explanation, agent_guidance, uploaded_by, uploaded_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 source_id,
@@ -45,6 +46,7 @@ class IntakeRepository:
                 sha256,
                 stored_path,
                 explanation,
+                agent_guidance,
                 uploaded_by,
                 now,
             ),
@@ -62,6 +64,7 @@ class IntakeRepository:
             sha256=sha256,
             stored_path=stored_path,
             explanation=explanation,
+            agent_guidance=agent_guidance,
             uploaded_by=uploaded_by,
             uploaded_at=now,
         )
@@ -144,6 +147,19 @@ class IntakeRepository:
             (IntakeStatus.PENDING.value,),
         ).fetchone()
         return row["count"] if row else 0
+
+    @staticmethod
+    def update_agent_guidance(
+        source_id: str,
+        agent_guidance: Optional[str],
+        _commit: bool = True,
+    ) -> None:
+        db.execute(
+            "UPDATE intake_sources SET agent_guidance = ? WHERE id = ?",
+            (agent_guidance, source_id),
+        )
+        if _commit:
+            db.commit()
 
     @staticmethod
     def update_status(
@@ -305,6 +321,7 @@ class IntakeRepository:
             sha256=row["sha256"],
             stored_path=row["stored_path"],
             explanation=row["explanation"],
+            agent_guidance=row["agent_guidance"],
             uploaded_by=row["uploaded_by"],
             uploaded_at=datetime.fromisoformat(row["uploaded_at"]),
             deleted_at=datetime.fromisoformat(deleted_at) if deleted_at else None,

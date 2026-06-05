@@ -206,6 +206,7 @@ class BankInputService:
                     "mime_type": bank_input.mime_type,
                     "size_bytes": bank_input.size_bytes,
                     "sha256": bank_input.sha256,
+                    "guidance": None,
                     "uploaded_at": bank_input.uploaded_at.isoformat(),
                     "uploaded_by": bank_input.uploaded_by,
                     "download_url": f"/api/v1/bank-inputs/{bank_input.id}/file",

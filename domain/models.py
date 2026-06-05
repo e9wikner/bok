@@ -172,6 +172,7 @@ class IntakeSource:
     sha256: str
     stored_path: str
     explanation: Optional[str] = None
+    agent_guidance: Optional[str] = None
     uploaded_by: str = "system"
     uploaded_at: datetime = field(default_factory=datetime.now)
     deleted_at: Optional[datetime] = None

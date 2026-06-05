@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi import status as http_status
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 from api.deps import get_current_actor
 from domain.models import BankInput, IntakeProcessingAttempt, IntakeSource, VoucherIntakeSource
@@ -26,11 +27,17 @@ VALID_WORKSPACE_KINDS = {"voucher_source", "bank_input"}
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 
+class UpdateAgentGuidanceRequest(BaseModel):
+    """Request to update agent guidance for an intake source."""
+    agent_guidance: str | None = None
+
+
 @router.post("", response_model=dict, status_code=http_status.HTTP_201_CREATED)
 async def upload_intake_source(
     file: UploadFile = File(...),
     explanation: str | None = Form(None),
     source_type: str | None = Form(None),
+    agent_guidance: str | None = Form(None),
     actor: str = Depends(get_current_actor),
 ):
     """Upload voucher source material before a voucher exists."""
@@ -43,6 +50,7 @@ async def upload_intake_source(
             explanation=explanation,
             source_type=source_type,
             actor=actor,
+            agent_guidance=agent_guidance,
         )
         return _source_to_dict(source)
     except IntakeError as exc:
@@ -168,6 +176,24 @@ async def get_intake_source(
         raise _http_error(exc) from exc
 
 
+@router.put("/{source_id}/agent-guidance", response_model=dict)
+async def update_intake_agent_guidance(
+    source_id: str,
+    request: UpdateAgentGuidanceRequest,
+    actor: str = Depends(get_current_actor),
+):
+    """Update agent guidance for a pending or processing intake source."""
+    try:
+        source = IntakeService().update_agent_guidance(
+            source_id=source_id,
+            agent_guidance=request.agent_guidance,
+            actor=actor,
+        )
+        return _source_to_dict(source)
+    except IntakeError as exc:
+        raise _http_error(exc) from exc
+
+
 @router.get("/{source_id}/file")
 async def get_intake_source_file(
     source_id: str,
@@ -209,6 +235,7 @@ def _source_to_dict(source: IntakeSource) -> dict:
         "size_bytes": source.size_bytes,
         "sha256": source.sha256,
         "explanation": source.explanation,
+        "agent_guidance": source.agent_guidance,
         "uploaded_by": source.uploaded_by,
         "uploaded_at": source.uploaded_at.isoformat(),
         "deleted_at": source.deleted_at.isoformat() if source.deleted_at else None,
@@ -258,6 +285,7 @@ def _workspace_source_item(source: IntakeSource, repo: IntakeRepository) -> dict
         "size_bytes": source.size_bytes,
         "sha256": source.sha256,
         "explanation": source.explanation,
+        "agent_guidance": source.agent_guidance,
         "uploaded_by": source.uploaded_by,
         "uploaded_at": source.uploaded_at.isoformat(),
         "download_url": f"/api/v1/intake/{source.id}/file",

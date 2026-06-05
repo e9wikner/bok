@@ -180,6 +180,7 @@ async def list_pending_intake_sources(
             "size_bytes": source.size_bytes,
             "sha256": source.sha256,
             "explanation": source.explanation,
+            "guidance": source.agent_guidance,
             "uploaded_at": source.uploaded_at.isoformat(),
             "uploaded_by": source.uploaded_by,
             "download_url": f"/api/v1/intake/{source.id}/file",

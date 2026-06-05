@@ -78,8 +78,11 @@ class IntakeService:
         explanation: str | None,
         source_type: str | None,
         actor: str,
+        agent_guidance: str | None = None,
     ) -> IntakeSource:
         """Persist uploaded source bytes and create a pending intake source."""
+        if agent_guidance is not None and not isinstance(agent_guidance, str):
+            agent_guidance = None
         original_filename = filename or "file"
         mime_type = content_type or ""
         self._validate_upload(mime_type, content, source_type)
@@ -104,6 +107,7 @@ class IntakeService:
                 sha256=sha256,
                 stored_path=str(stored_path),
                 explanation=explanation,
+                agent_guidance=agent_guidance,
                 uploaded_by=actor,
             )
         except sqlite3.IntegrityError as exc:
@@ -121,6 +125,26 @@ class IntakeService:
         if not source:
             raise IntakeNotFoundError(source_id)
         return source
+
+    def update_agent_guidance(
+        self,
+        source_id: str,
+        agent_guidance: str | None,
+        actor: str,
+    ) -> IntakeSource:
+        source = self.get_source(source_id)
+        if source.status not in (IntakeStatus.PENDING, IntakeStatus.PROCESSING):
+            raise IntakeConflictError(
+                "intake_guidance_locked",
+                "Guidance can only be updated for pending or processing sources",
+                f"source_id={source_id}, status={source.status.value}",
+            )
+        normalized = agent_guidance.strip() if agent_guidance else None
+        if normalized == "":
+            normalized = None
+        self.sources.update_agent_guidance(source_id, normalized)
+        db.commit()
+        return self.get_source(source_id)
 
     def resolve_source_file(self, source: IntakeSource) -> Path:
         """Return a stored file path only if it remains inside the intake root."""
