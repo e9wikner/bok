@@ -13,12 +13,12 @@
 
 ### CORR — Simplified Correction Flow
 
-- [ ] **CORR-01**: User can leave a text correction note on a posted voucher
+- [x] **CORR-01**: User can leave a text correction note on a posted voucher
 - [ ] **CORR-02**: Agent can read pending correction notes
-- [ ] **CORR-03**: Agent can suggest a B-series correction based on a correction note
-- [ ] **CORR-04**: User can review and approve a suggested correction before posting
-- [ ] **CORR-05**: Approved correction still produces an immutable B-series voucher
-- [ ] **CORR-06**: Correction note lifecycle is tracked (pending, suggested, applied, dismissed)
+- [x] **CORR-03**: Agent can suggest a B-series correction based on a correction note
+- [x] **CORR-04**: User can review and approve a suggested correction before posting
+- [x] **CORR-05**: Approved correction still produces an immutable B-series voucher
+- [x] **CORR-06**: Correction note lifecycle is tracked (pending, suggested, applied, dismissed)
 
 ### INSTR — Agent Instruction Persistence
 
@@ -61,12 +61,12 @@
 | GUIDE-01 | Phase 8 | Pending |
 | GUIDE-02 | Phase 8 | Pending |
 | GUIDE-03 | Phase 8 | Pending |
-| CORR-01 | Phase 9 | Pending |
+| CORR-01 | Phase 9 | Complete |
 | CORR-02 | Phase 9 | Pending |
-| CORR-03 | Phase 9 | Pending |
-| CORR-04 | Phase 9 | Pending |
-| CORR-05 | Phase 9 | Pending |
-| CORR-06 | Phase 9 | Pending |
+| CORR-03 | Phase 9 | Complete |
+| CORR-04 | Phase 9 | Complete |
+| CORR-05 | Phase 9 | Complete |
+| CORR-06 | Phase 9 | Complete |
 | INSTR-01 | Phase 10 | Pending |
 | INSTR-02 | Phase 10 | Pending |
 | INSTR-03 | Phase 10 | Pending |
