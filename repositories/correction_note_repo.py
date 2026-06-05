@@ -74,15 +74,24 @@ class CorrectionNoteRepository:
         return CorrectionNoteRepository._row_to_note(row) if row else None
 
     @staticmethod
-    def list_pending() -> List[CorrectionNote]:
+    def list_pending(limit: int = 100, offset: int = 0) -> List[CorrectionNote]:
         rows = db.execute(
             """
             SELECT * FROM correction_notes
             WHERE status = 'pending'
             ORDER BY created_at ASC
-            """
+            LIMIT ? OFFSET ?
+            """,
+            (limit, offset),
         ).fetchall()
         return [CorrectionNoteRepository._row_to_note(row) for row in rows]
+
+    @staticmethod
+    def count_pending() -> int:
+        row = db.execute(
+            "SELECT COUNT(*) AS count FROM correction_notes WHERE status = 'pending'"
+        ).fetchone()
+        return row["count"]
 
     @staticmethod
     def set_suggested(

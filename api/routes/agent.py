@@ -10,6 +10,7 @@ from api.schemas import VoucherRowRequest
 from config import settings
 from db.database import db
 from domain.validation import ValidationError
+from repositories.correction_note_repo import CorrectionNoteRepository
 from services.ledger import LedgerService
 from services.intake import IntakeError, IntakeService
 from services.bank_inputs import BankInputError, BankInputService
@@ -170,6 +171,11 @@ async def list_pending_intake_sources(
     source_limit = limit + offset
     queue = IntakeService().get_pending_queue(limit=source_limit, offset=0)
     bank_queue = BankInputService().agent_queue_items(limit=source_limit, offset=0)
+    correction_note_repo = CorrectionNoteRepository()
+    correction_notes = correction_note_repo.list_pending(
+        limit=source_limit,
+        offset=0,
+    )
     source_items = [
         {
             "kind": "voucher_source",
@@ -188,17 +194,40 @@ async def list_pending_intake_sources(
         }
         for source in queue["items"]
     ]
+    correction_note_items = [
+        {
+            "kind": "correction_note",
+            "id": note.id,
+            "voucher_id": note.voucher_id,
+            "original_voucher_id": note.voucher_id,
+            "note_text": note.note_text,
+            "status": note.status,
+            "created_at": note.created_at.isoformat(),
+            "created_by": note.created_by,
+            "source_context_url": f"/api/v1/vouchers/{note.voucher_id}/source-context",
+            "correction_draft_url": f"/api/v1/vouchers/{note.voucher_id}/correction-draft",
+            "suggest_url": (
+                f"/api/v1/vouchers/{note.voucher_id}/correction-notes/"
+                f"{note.id}/suggest"
+            ),
+        }
+        for note in correction_notes
+    ]
     items = sorted(
-        source_items + bank_queue["items"],
-        key=lambda item: item["uploaded_at"],
+        source_items + bank_queue["items"] + correction_note_items,
+        key=_agent_queue_timestamp,
     )
     return {
-        "total": queue["total"] + bank_queue["total"],
+        "total": queue["total"] + bank_queue["total"] + correction_note_repo.count_pending(),
         "limit": limit,
         "offset": offset,
         "correction_history_url": "/api/v1/accounting-corrections",
         "items": items[offset : offset + limit],
     }
+
+
+def _agent_queue_timestamp(item: dict) -> str:
+    return item.get("uploaded_at") or item.get("created_at") or ""
 
 
 @router.post("/intake/{source_id}/processing", response_model=dict)
