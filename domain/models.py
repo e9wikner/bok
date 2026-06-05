@@ -266,3 +266,18 @@ class CorrectionHistory:
     corrected_by: Optional[str] = None
     correction_reason: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class CorrectionNote:
+    """User correction note driving an agent-suggested B-series draft."""
+    id: str
+    voucher_id: str
+    note_text: str
+    status: str = "pending"  # pending, suggested, applied, dismissed, rejected
+    suggested_voucher_id: Optional[str] = None
+    rejection_reason: Optional[str] = None
+    created_at: datetime = field(default_factory=datetime.now)
+    created_by: str = "system"
+    updated_at: Optional[datetime] = None
+    resolved_at: Optional[datetime] = None
