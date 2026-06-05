@@ -51,6 +51,50 @@ class CorrectVoucherRequest(BaseModel):
     reason: Optional[str] = Field(None, description="Reason for the correction")
 
 
+class CreateCorrectionNoteRequest(BaseModel):
+    """Request to create a correction note for a posted voucher."""
+    note_text: str = Field(..., description="User explanation of what should be corrected")
+
+
+class CorrectionDraftRequest(BaseModel):
+    """Request to create a draft B-series correction voucher."""
+    correction_rows: List[VoucherRowRequest] = Field(..., description="Draft correction rows")
+
+
+class SuggestCorrectionNoteRequest(BaseModel):
+    """Request to link a correction note to a draft B-series suggestion."""
+    correction_rows: List[VoucherRowRequest] = Field(..., description="Suggested correction rows")
+
+
+class ApproveCorrectionNoteRequest(BaseModel):
+    """Request to approve a suggested correction note."""
+    rows: Optional[List[VoucherRowRequest]] = Field(None, description="Optional edited draft rows")
+
+
+class DismissCorrectionNoteRequest(BaseModel):
+    """Request to dismiss a pending or suggested correction note."""
+    reason: Optional[str] = Field(None, description="Reason for dismissing the note")
+
+
+class RejectCorrectionNoteRequest(BaseModel):
+    """Request for an agent to reject a correction note."""
+    rejection_reason: str = Field(..., description="Why no correction could be suggested")
+
+
+class CorrectionNoteResponse(BaseModel):
+    """Response model for a correction note."""
+    id: str
+    voucher_id: str
+    note_text: str
+    status: str
+    suggested_voucher_id: Optional[str] = None
+    rejection_reason: Optional[str] = None
+    created_at: DateTimeType
+    created_by: str
+    updated_at: Optional[DateTimeType] = None
+    resolved_at: Optional[DateTimeType] = None
+
+
 class VoucherResponse(BaseModel):
     """Response model for voucher."""
     id: str

@@ -4,8 +4,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status as http_status
 
 from api.schemas import (
+    ApproveCorrectionNoteRequest,
+    CorrectionDraftRequest,
+    CorrectionNoteResponse,
     CorrectVoucherRequest,
+    CreateCorrectionNoteRequest,
     CreateVoucherRequest,
+    DismissCorrectionNoteRequest,
+    RejectCorrectionNoteRequest,
+    SuggestCorrectionNoteRequest,
     UpdateVoucherRequest,
     VoucherResponse,
     VoucherRowResponse,
@@ -18,8 +25,206 @@ from repositories.audit_repo import AuditRepository
 from repositories.account_repo import AccountRepository
 from repositories.bank_input_repo import BankInputRepository
 from repositories.intake_repo import IntakeRepository
+from services.correction_notes import CorrectionNoteError, CorrectionNoteService
 
 router = APIRouter(prefix="/api/v1/vouchers", tags=["vouchers"])
+
+
+@router.get("/{voucher_id}/correction-notes", response_model=list[CorrectionNoteResponse])
+async def list_correction_notes(
+    voucher_id: str,
+    actor: str = Depends(get_current_actor),
+):
+    """List correction notes for a voucher."""
+    try:
+        notes = CorrectionNoteService().list_for_voucher(voucher_id)
+        return [_correction_note_to_response(note) for note in notes]
+    except CorrectionNoteError as e:
+        _raise_correction_note_http_error(e)
+    except Exception as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.post(
+    "/{voucher_id}/correction-notes",
+    response_model=CorrectionNoteResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def create_correction_note(
+    voucher_id: str,
+    request: CreateCorrectionNoteRequest,
+    actor: str = Depends(get_current_actor),
+):
+    """Create a correction note for a posted voucher."""
+    try:
+        note = CorrectionNoteService().create_note(
+            voucher_id=voucher_id,
+            note_text=request.note_text,
+            actor=actor,
+        )
+        return _correction_note_to_response(note)
+    except CorrectionNoteError as e:
+        _raise_correction_note_http_error(e)
+    except Exception as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.post("/{voucher_id}/correction-draft", response_model=VoucherResponse)
+async def create_correction_draft(
+    voucher_id: str,
+    request: CorrectionDraftRequest,
+    actor: str = Depends(get_current_actor),
+):
+    """Create a draft B-series correction voucher for later approval."""
+    try:
+        draft = CorrectionNoteService().create_draft(
+            voucher_id=voucher_id,
+            correction_rows=[row.model_dump() for row in request.correction_rows],
+            actor=actor,
+        )
+        return _voucher_to_response(draft)
+    except CorrectionNoteError as e:
+        _raise_correction_note_http_error(e)
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail={"error": e.message, "code": e.code, "details": e.details},
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.post("/{voucher_id}/correction-notes/{note_id}/suggest", response_model=dict)
+async def suggest_correction_note(
+    voucher_id: str,
+    note_id: str,
+    request: SuggestCorrectionNoteRequest,
+    actor: str = Depends(get_current_actor),
+):
+    """Create and link a draft B-series suggestion for a correction note."""
+    try:
+        note, draft = CorrectionNoteService().suggest(
+            voucher_id=voucher_id,
+            note_id=note_id,
+            correction_rows=[row.model_dump() for row in request.correction_rows],
+            actor=actor,
+        )
+        return {
+            "note": _correction_note_to_response(note),
+            "draft": _voucher_to_response(draft),
+        }
+    except CorrectionNoteError as e:
+        _raise_correction_note_http_error(e)
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail={"error": e.message, "code": e.code, "details": e.details},
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.post(
+    "/{voucher_id}/correction-notes/{note_id}/approve",
+    response_model=VoucherResponse,
+)
+async def approve_correction_note(
+    voucher_id: str,
+    note_id: str,
+    request: ApproveCorrectionNoteRequest,
+    actor: str = Depends(get_current_actor),
+):
+    """Approve and post a suggested B-series correction voucher."""
+    try:
+        rows = (
+            [row.model_dump() for row in request.rows]
+            if request.rows is not None
+            else None
+        )
+        voucher = CorrectionNoteService().approve(
+            voucher_id=voucher_id,
+            note_id=note_id,
+            rows_data=rows,
+            actor=actor,
+        )
+        return _voucher_to_response(voucher)
+    except CorrectionNoteError as e:
+        _raise_correction_note_http_error(e)
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail={"error": e.message, "code": e.code, "details": e.details},
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.post(
+    "/{voucher_id}/correction-notes/{note_id}/dismiss",
+    response_model=CorrectionNoteResponse,
+)
+async def dismiss_correction_note(
+    voucher_id: str,
+    note_id: str,
+    request: DismissCorrectionNoteRequest,
+    actor: str = Depends(get_current_actor),
+):
+    """Dismiss a pending or suggested correction note."""
+    try:
+        note = CorrectionNoteService().dismiss(
+            voucher_id=voucher_id,
+            note_id=note_id,
+            reason=request.reason,
+            actor=actor,
+        )
+        return _correction_note_to_response(note)
+    except CorrectionNoteError as e:
+        _raise_correction_note_http_error(e)
+    except Exception as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.post("/{voucher_id}/correction-notes/{note_id}/reject", response_model=CorrectionNoteResponse)
+async def reject_correction_note(
+    voucher_id: str,
+    note_id: str,
+    request: RejectCorrectionNoteRequest,
+    actor: str = Depends(get_current_actor),
+):
+    """Reject a correction note when an agent cannot produce a useful suggestion."""
+    try:
+        note = CorrectionNoteService().reject(
+            voucher_id=voucher_id,
+            note_id=note_id,
+            rejection_reason=request.rejection_reason,
+            actor=actor,
+        )
+        return _correction_note_to_response(note)
+    except CorrectionNoteError as e:
+        _raise_correction_note_http_error(e)
+    except Exception as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
 
 
 @router.post(
@@ -470,6 +675,40 @@ def _correction_chain_for_voucher(voucher) -> list[dict]:
                 }
             )
     return sorted(chain, key=lambda item: item["timestamp"])
+
+
+def _correction_note_to_response(note) -> CorrectionNoteResponse:
+    return CorrectionNoteResponse(
+        id=note.id,
+        voucher_id=note.voucher_id,
+        note_text=note.note_text,
+        status=note.status,
+        suggested_voucher_id=note.suggested_voucher_id,
+        rejection_reason=note.rejection_reason,
+        created_at=note.created_at,
+        created_by=note.created_by,
+        updated_at=note.updated_at,
+        resolved_at=note.resolved_at,
+    )
+
+
+def _raise_correction_note_http_error(error: CorrectionNoteError) -> None:
+    status_code = http_status.HTTP_400_BAD_REQUEST
+    if error.code in {"voucher_not_found", "correction_note_not_found"}:
+        status_code = http_status.HTTP_404_NOT_FOUND
+    elif error.code in {
+        "correction_note_active_exists",
+        "invalid_lifecycle_transition",
+    }:
+        status_code = http_status.HTTP_409_CONFLICT
+    raise HTTPException(
+        status_code=status_code,
+        detail={
+            "error": error.message,
+            "code": error.code,
+            "details": error.details,
+        },
+    )
 
 
 def _voucher_to_response(voucher) -> VoucherResponse:
