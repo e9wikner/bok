@@ -423,7 +423,7 @@ class LedgerService:
             id="temp",
             series=VoucherSeries.B,
             number=0,
-            date=datetime.now().date(),
+            date=original.date,
             period_id=period.id,
             description=f"Correction of voucher {original.series.value}{original.number:06d}",
             status=VoucherStatus.DRAFT,
