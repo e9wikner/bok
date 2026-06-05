@@ -5,7 +5,7 @@ milestone_name: Agent Usability & Feedback Loop
 status: Idle
 stopped_at: Phase 9 UI-SPEC approved
 last_updated: "2026-06-05T18:12:51.771Z"
-last_activity: 2026-06-05 -- Quick task 260605-r3p complete
+last_activity: 2026-06-05 -- Quick task 260605-s6j complete: fix-intake-source-re-upload-blocked-afte
 progress:
   total_phases: 4
   completed_phases: 1
@@ -84,6 +84,7 @@ Last activity: 2026-06-05 -- Quick task 260605-r3p complete
 | 2026-06-05 | something-is-not-working-my-agent-got-th | Analyzed agent voucher posting traceability gap where omitted intake_source_ids leaves Verifikationsunderlag pending. |
 | 2026-06-05 | more-csv-formats-must-be-supported-in-in | Added Skatteverket skattekonto and Lansforsakringar Bank CSV import support for bank input uploads. |
 | 2026-06-05 | analyze-the-logs-from-my-agent-activitie | Improved agent startup guidance for auth failures and bank-input transaction discovery after analyzing activity logs. |
+| 2026-06-05 | fix-intake-source-re-upload-blocked-afte | Fixed intake source re-upload after soft-delete by excluding deleted sources from sha256 duplicate check and adding a partial unique index. |
 
 ## Accumulated Context
 
