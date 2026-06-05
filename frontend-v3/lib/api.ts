@@ -45,6 +45,33 @@ export interface VoucherRow {
   description?: string;
 }
 
+export type CorrectionNoteStatus =
+  | "pending"
+  | "suggested"
+  | "applied"
+  | "dismissed"
+  | "rejected";
+
+export interface CorrectionNote {
+  id: string;
+  voucher_id: string;
+  note_text: string;
+  status: CorrectionNoteStatus;
+  suggested_voucher_id?: string | null;
+  rejection_reason?: string | null;
+  created_at: string;
+  created_by: string;
+  updated_at?: string | null;
+  resolved_at?: string | null;
+}
+
+export interface CorrectionRowPayload {
+  account: string;
+  debit: number;
+  credit: number;
+  description?: string;
+}
+
 export interface Account {
   code: string;
   name: string;
@@ -391,6 +418,44 @@ export const api = {
   ): Promise<VoucherSourceContext> => {
     const { data } = await apiClient.get(
       `/api/v1/vouchers/${voucherId}/source-context`
+    );
+    return data;
+  },
+  getCorrectionNotes: async (voucherId: string): Promise<CorrectionNote[]> => {
+    const { data } = await apiClient.get(
+      `/api/v1/vouchers/${voucherId}/correction-notes`
+    );
+    return data;
+  },
+  createCorrectionNote: async (
+    voucherId: string,
+    note_text: string
+  ): Promise<CorrectionNote> => {
+    const { data } = await apiClient.post(
+      `/api/v1/vouchers/${voucherId}/correction-notes`,
+      { note_text }
+    );
+    return data;
+  },
+  approveCorrectionNote: async (
+    voucherId: string,
+    noteId: string,
+    rows?: CorrectionRowPayload[]
+  ): Promise<Voucher> => {
+    const { data } = await apiClient.post(
+      `/api/v1/vouchers/${voucherId}/correction-notes/${noteId}/approve`,
+      { rows }
+    );
+    return data;
+  },
+  dismissCorrectionNote: async (
+    voucherId: string,
+    noteId: string,
+    reason?: string
+  ): Promise<CorrectionNote> => {
+    const { data } = await apiClient.post(
+      `/api/v1/vouchers/${voucherId}/correction-notes/${noteId}/dismiss`,
+      { reason }
     );
     return data;
   },

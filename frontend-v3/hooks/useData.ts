@@ -29,6 +29,15 @@ export function useVoucherSourceContext(voucherId?: string) {
   });
 }
 
+export function useCorrectionNotes(voucherId?: string) {
+  return useQuery({
+    queryKey: ["correction-notes", voucherId],
+    queryFn: () => api.getCorrectionNotes(voucherId as string),
+    staleTime: 60 * 1000,
+    enabled: !!voucherId,
+  });
+}
+
 export function useIntakeWorkspace(params?: {
   status?: IntakeStatus;
   kind?: IntakeKind;
