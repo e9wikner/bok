@@ -31,6 +31,7 @@ from db.database import db
 from domain.types import IntakeSourceType, IntakeStatus
 from repositories.accounting_correction_repo import AccountingCorrectionRepository
 from repositories.intake_repo import IntakeRepository
+from repositories.voucher_repo import VoucherRepository
 from services.ledger import LedgerService
 from services.intake import (
     DuplicateIntakeSourceError,
@@ -408,12 +409,21 @@ async def test_voucher_source_context_correction_chain_includes_reason(
     test_period,
     intake_dir,
 ):
+    source = IntakeService().create_source_from_upload_content(
+        filename="correction-source.pdf",
+        content_type="application/pdf",
+        content=b"%PDF-1.4 correction source",
+        explanation="Original source for correction",
+        source_type="receipt",
+        actor="api",
+    )
     response = await create_and_post_agent_voucher(
         AgentVoucherRequest(
             date=date(2026, 3, 20),
             period_id=test_period.id,
             description="Voucher to correct",
             reasoning_summary="Initial agent posting",
+            intake_source_ids=[source.id],
             rows=[
                 VoucherRowRequest(account="1510", debit=12500, credit=0),
                 VoucherRowRequest(account="3011", debit=0, credit=10000),
@@ -449,27 +459,30 @@ def test_voucher_source_context_route_requires_current_actor_dependency():
 
 
 @pytest.mark.asyncio
-async def test_agent_voucher_without_intake_sources_still_posts_directly(
+async def test_agent_voucher_without_source_traceability_is_rejected(
     test_period,
 ):
-    response = await create_and_post_agent_voucher(
-        AgentVoucherRequest(
-            date=date(2026, 3, 16),
-            period_id=test_period.id,
-            description="Agent booked sale without source",
-            rows=[
-                VoucherRowRequest(account="1510", debit=12500, credit=0),
-                VoucherRowRequest(account="3011", debit=0, credit=10000),
-                VoucherRowRequest(account="2610", debit=0, credit=2500),
-            ],
-        ),
-        actor="api",
-    )
+    _, before_count = VoucherRepository.list_all()
 
-    assert response["status"] == "posted"
-    assert response["agent"]["posted_directly"] is True
-    assert response["agent"]["intake_source_ids"] == []
-    assert response["agent"]["processing_attempt_id"] is None
+    with pytest.raises(HTTPException) as exc_info:
+        await create_and_post_agent_voucher(
+            AgentVoucherRequest(
+                date=date(2026, 3, 16),
+                period_id=test_period.id,
+                description="Agent booked sale without source",
+                rows=[
+                    VoucherRowRequest(account="1510", debit=12500, credit=0),
+                    VoucherRowRequest(account="3011", debit=0, credit=10000),
+                    VoucherRowRequest(account="2610", debit=0, credit=2500),
+                ],
+            ),
+            actor="api",
+        )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail["code"] == "missing_source_traceability"
+    _, after_count = VoucherRepository.list_all()
+    assert after_count == before_count
 
 
 @pytest.mark.asyncio

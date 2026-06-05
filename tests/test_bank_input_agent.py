@@ -945,8 +945,11 @@ async def test_agent_bank_driven_posting_deduplicates_transaction_ids(
 @pytest.mark.asyncio
 async def test_agent_posting_rolls_back_voucher_when_traceability_link_fails(
     test_period,
+    bank_input_dir,
     monkeypatch,
 ):
+    bank_input, _transaction_ids = _processed_bank_input()
+
     def fail_link_posted_voucher(*args, **kwargs):
         raise BankInputConflictError(
             "forced_traceability_failure",
@@ -962,7 +965,7 @@ async def test_agent_posting_rolls_back_voucher_when_traceability_link_fails(
 
     with pytest.raises(HTTPException) as exc_info:
         await create_and_post_agent_voucher(
-            _agent_sale_request(test_period.id),
+            _agent_sale_request(test_period.id, bank_input_ids=[bank_input.id]),
             actor="api",
         )
 
@@ -974,8 +977,10 @@ async def test_agent_posting_rolls_back_voucher_when_traceability_link_fails(
 @pytest.mark.asyncio
 async def test_agent_posting_updates_next_year_opening_balances_after_commit(
     test_period,
+    bank_input_dir,
     monkeypatch,
 ):
+    bank_input, _transaction_ids = _processed_bank_input()
     calls = []
     original_update = OpeningBalanceService.update_opening_balances_for_next_year
 
@@ -991,7 +996,7 @@ async def test_agent_posting_updates_next_year_opening_balances_after_commit(
     )
 
     response = await create_and_post_agent_voucher(
-        _agent_sale_request(test_period.id),
+        _agent_sale_request(test_period.id, bank_input_ids=[bank_input.id]),
         actor="api",
     )
 

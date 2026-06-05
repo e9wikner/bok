@@ -1218,6 +1218,7 @@ Content-Type: application/json
   "period_id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
   "description": "Telefonutgift Fello",
   "reasoning_summary": "Bokfört enligt aktuella agentinstruktioner.",
+  "intake_source_ids": ["uploaded-source-id"],
   "rows": [
     {"account": "1920", "debit": 0, "credit": 12500},
     {"account": "2640", "debit": 2500, "credit": 0},
@@ -1226,9 +1227,11 @@ Content-Type: application/json
 }
 ```
 
-Creates and posts the voucher immediately. Backend validation enforces balance,
-active accounts and open period, but the agent is responsible for the accounting
-judgement.
+Creates and posts the voucher immediately. Agent vouchers must include source
+traceability: use `intake_source_ids` for voucher source material, or
+`bank_input_ids` plus selected `bank_transaction_ids` for bank-driven postings.
+Backend validation enforces traceability, balance, active accounts and open
+period, but the agent is responsible for the accounting judgement.
 
 ### Test Connectivity
 

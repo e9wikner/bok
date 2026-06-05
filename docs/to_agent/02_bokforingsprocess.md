@@ -81,9 +81,9 @@ Content-Type: application/json
 Belopp anges alltid i öre. Verifikationen ska balansera exakt.
 
 När verifikationen bygger på ett vanligt uppladdat underlag (`kind:
-voucher_source`) måste underlagets `id` skickas i `intake_source_ids`. Annars
-ligger underlaget kvar som `pending` i intaget även om agenten har bokfört
-affärshändelsen.
+voucher_source`) måste underlagets `id` skickas i `intake_source_ids`.
+API:t avvisar agentpostningar som saknar spårbarhet till uppladdat underlag
+eller bankunderlag.
 
 När verifikationen bygger på bankunderlag (`kind: bank_input`) ska bankfilens
 `id` skickas i `bank_input_ids` och de använda bankhändelsernas id:n i

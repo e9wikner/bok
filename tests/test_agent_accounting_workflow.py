@@ -11,6 +11,7 @@ from api.main import app
 from config import settings
 from repositories.account_repo import AccountRepository
 from repositories.period_repo import PeriodRepository
+from services.intake import IntakeService
 
 
 def _headers():
@@ -97,24 +98,42 @@ async def test_agent_instruction_versions(test_db, async_client):
 
 
 @pytest.mark.asyncio
-async def test_agent_posts_directly_and_correction_is_agent_readable(test_db, async_client):
+async def test_agent_posts_directly_and_correction_is_agent_readable(
+    test_db,
+    async_client,
+    tmp_path,
+):
     _ensure_accounts()
     period = _period()
-
-    response = await async_client.post(
-        "/api/v1/agent/vouchers",
-        headers=_headers(),
-        json={
-            "date": date.today().isoformat(),
-            "period_id": period.id,
-            "description": "Telefonutgift Fello",
-            "reasoning_summary": "Test",
-            "rows": [
-                {"account": "1920", "debit": 0, "credit": 12500},
-                {"account": "6200", "debit": 12500, "credit": 0},
-            ],
-        },
+    original_intake_dir = settings.intake_dir
+    settings.intake_dir = str(tmp_path / "intake")
+    source = IntakeService().create_source_from_upload_content(
+        filename="telefon.pdf",
+        content_type="application/pdf",
+        content=b"%PDF-1.4 telefonutgift",
+        explanation="Telefonutgift Fello",
+        source_type="receipt",
+        actor="api",
     )
+
+    try:
+        response = await async_client.post(
+            "/api/v1/agent/vouchers",
+            headers=_headers(),
+            json={
+                "date": date.today().isoformat(),
+                "period_id": period.id,
+                "description": "Telefonutgift Fello",
+                "reasoning_summary": "Test",
+                "intake_source_ids": [source.id],
+                "rows": [
+                    {"account": "1920", "debit": 0, "credit": 12500},
+                    {"account": "6200", "debit": 12500, "credit": 0},
+                ],
+            },
+        )
+    finally:
+        settings.intake_dir = original_intake_dir
     assert response.status_code == 201
     original = response.json()
     assert original["status"] == "posted"

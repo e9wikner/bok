@@ -80,6 +80,7 @@ Last activity: 2026-06-05 -- Phase 08 execution complete
 
 | Date | Task | Summary |
 |------|------|---------|
+| 2026-06-05 | fix-agent-voucher-posting-so-vouchers-ca | Enforced agent voucher source traceability so unlinked postings are rejected before voucher creation. |
 | 2026-06-05 | something-is-not-working-my-agent-got-th | Analyzed agent voucher posting traceability gap where omitted intake_source_ids leaves Verifikationsunderlag pending. |
 | 2026-06-05 | more-csv-formats-must-be-supported-in-in | Added Skatteverket skattekonto and Lansforsakringar Bank CSV import support for bank input uploads. |
 

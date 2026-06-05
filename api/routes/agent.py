@@ -70,6 +70,7 @@ async def create_and_post_agent_voucher(
     try:
         for source_id in intake_source_ids:
             intake.ensure_source_ready_for_voucher_link(source_id)
+        _ensure_agent_voucher_has_traceability(intake_source_ids, bank_input_ids)
         bank_inputs.ensure_transactions_available(
             bank_input_ids,
             bank_transaction_ids,
@@ -293,6 +294,25 @@ def _unique_preserve_order(values: list[str]) -> list[str]:
         seen.add(value)
         unique_values.append(value)
     return unique_values
+
+
+def _ensure_agent_voucher_has_traceability(
+    intake_source_ids: list[str],
+    bank_input_ids: list[str],
+) -> None:
+    if intake_source_ids or bank_input_ids:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail={
+            "error": "Agent vouchers must reference intake source material",
+            "code": "missing_source_traceability",
+            "details": (
+                "Provide intake_source_ids for voucher sources or bank_input_ids "
+                "for bank inputs"
+            ),
+        },
+    )
 
 
 @router.get("/operations/log", response_model=dict)
