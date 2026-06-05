@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Agent Onboarding
-status: ready_to_plan
-stopped_at: Phase 6 context gathered
-last_updated: "2026-06-05T07:22:05.606Z"
-last_activity: 2026-06-05
+status: planning
+stopped_at: Phase 7 context gathered
+last_updated: "2026-06-05T10:58:00.198Z"
+last_activity: 2026-06-04
 progress:
   total_phases: 2
-  completed_phases: 2
+  completed_phases: 1
   total_plans: 2
   completed_plans: 2
   percent: 100
@@ -116,9 +116,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-04T22:06:03.977Z
-Stopped at: Phase 6 context gathered
-Resume file: .planning/phases/06-agent-instruction-entrypoint-and-api-discovery/06-CONTEXT.md
+Last session: 2026-06-05T10:58:00.194Z
+Stopped at: Phase 7 context gathered
+Resume file: .planning/phases/07-openclaw-deployment-instructions-and-verification/07-CONTEXT.md
 
 ## Operator Next Steps
 
