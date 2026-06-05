@@ -28,6 +28,9 @@ EXPECTED_PATHS = {
     "/api/v1/agent/intake/{source_id}/failed",
     "/api/v1/agent/vouchers",
     "/api/v1/vouchers/{voucher_id}/source-context",
+    "/api/v1/vouchers/{voucher_id}/correction-draft",
+    "/api/v1/vouchers/{voucher_id}/correction-notes/{note_id}/suggest",
+    "/api/v1/vouchers/{voucher_id}/correction-notes/{note_id}/reject",
 }
 
 
@@ -81,6 +84,18 @@ async def test_agent_entrypoint_contains_expected_links_and_workflow_paths(async
     assert data["links"]["openapi"] == "/openapi.json"
     assert data["workflow_endpoints"]["ping"]["path"] == "/api/v1/agent/test/ping"
     assert data["workflow_endpoints"]["post_voucher"]["path"] == "/api/v1/agent/vouchers"
+
+
+@pytest.mark.asyncio
+async def test_agent_entrypoint_documents_correction_note_workflow(async_client):
+    data = await _entrypoint(async_client)
+    serialized = json.dumps(data)
+
+    assert "correction_note" in serialized
+    assert "/api/v1/vouchers/{voucher_id}/correction-draft" in serialized
+    assert "/api/v1/vouchers/{voucher_id}/source-context" in serialized
+    assert "draft B-series" in serialized
+    assert "Never edit the original posted voucher directly" in serialized
 
 
 @pytest.mark.asyncio

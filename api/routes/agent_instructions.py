@@ -126,6 +126,37 @@ async def get_agent_instruction_entrypoint():
                 "of the current agent API."
             ),
         },
+        "correction_note_contract": {
+            "queue_source": "/api/v1/agent/intake/pending",
+            "queue_kind": "correction_note",
+            "fields": [
+                "id",
+                "voucher_id",
+                "original_voucher_id",
+                "note_text",
+                "status",
+                "created_at",
+                "created_by",
+                "source_context_url",
+                "correction_draft_url",
+                "suggest_url",
+            ],
+            "source_context": "/api/v1/vouchers/{voucher_id}/source-context",
+            "create_draft": "/api/v1/vouchers/{voucher_id}/correction-draft",
+            "mark_suggested": (
+                "/api/v1/vouchers/{voucher_id}/correction-notes/{note_id}/suggest"
+            ),
+            "mark_rejected": (
+                "/api/v1/vouchers/{voucher_id}/correction-notes/{note_id}/reject"
+            ),
+            "workflow": (
+                "For kind=correction_note items, read note_text, inspect the "
+                "voucher source context if needed, create a draft B-series "
+                "correction, then mark the note suggested with the draft rows. "
+                "If no compliant correction can be suggested, mark the note "
+                "rejected with a concise reason."
+            ),
+        },
         "workflow_endpoints": {
             "ping": {
                 "method": "POST",
@@ -159,6 +190,18 @@ async def get_agent_instruction_entrypoint():
                 "method": "GET",
                 "path": "/api/v1/vouchers/{voucher_id}/source-context",
             },
+            "correction_draft": {
+                "method": "POST",
+                "path": "/api/v1/vouchers/{voucher_id}/correction-draft",
+            },
+            "suggest_correction_note": {
+                "method": "POST",
+                "path": "/api/v1/vouchers/{voucher_id}/correction-notes/{note_id}/suggest",
+            },
+            "reject_correction_note": {
+                "method": "POST",
+                "path": "/api/v1/vouchers/{voucher_id}/correction-notes/{note_id}/reject",
+            },
         },
         "guardrails": [
             (
@@ -166,6 +209,10 @@ async def get_agent_instruction_entrypoint():
                 "is missing, malformed, or wrong; fix auth before doing any accounting work."
             ),
             "Posted vouchers are immutable; corrections must use correction vouchers.",
+            (
+                "Correction notes must produce draft B-series suggestions. "
+                "Never edit the original posted voucher directly."
+            ),
             "Use source material, accounting instructions, and correction history before posting.",
             "Post directly when the decision is complete; user review happens after posting.",
             (
