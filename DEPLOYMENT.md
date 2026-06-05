@@ -207,6 +207,20 @@ curl -fsS -X POST "${BOK_API_URL}/api/v1/agent/test/ping" \
 3. Ge båda till agenten. Agenten hämtar själv startup-instruktioner,
    auth-check och workflow-länkar från entrypoint.
 
+**Första instruktion till agenten (verifiering):**
+
+Klistra in följande i agenten. Detta är enbart en verifieringsprompt — agenten
+ska inte börja bokföra eller behandla pending intake än:
+
+```text
+Du är en HTTP-agent som ska börja bokföra i Bok. Gör följande:
+1. Läs startup-instruktionerna från ${BOK_API_URL}/api/v1/agent-instructions/entrypoint
+2. Verifiera att du kan anropa API:t med POST ${BOK_API_URL}/api/v1/agent/test/ping och Authorization: Bearer <BOKFOERING_API_KEY>
+3. Rapportera att du är redo och beskriv exakt vilken fråga eller åtgärd ägaren behöver göra härnäst för att starta bokföringen
+4. Be ägaren om tillstånd innan du påbörjar den första bokföringskörningen
+5. Behandla inte pending intake och starta inte bokföringen nu — detta är enbart en verifieringsprompt
+```
+
 ## Uppdatera säkert på LAN
 
 Den normala uppdateringsvägen för LAN/lokal server är lokal Git-checkout +
@@ -371,6 +385,9 @@ Det här spåret är bara för en server som ska exponeras publikt och där du r
 har DNS och en e-postadress för Let's Encrypt. Blanda inte ihop detta med
 LAN-checklistan ovan.
 
+**Om du använder publik domän och HTTPS:** människor loggar in via
+`https://${APP_DOMAIN}` och agenten använder `https://${API_DOMAIN}`.
+
 Använd `docker-compose.prod.yml` och sätt minst:
 
 ```env
@@ -476,6 +493,17 @@ curl -fsSI "https://${APP_DOMAIN}/login"
 Om detta fallerar, kontrollera att DNS redan pekar rätt, att port 80/443 når
 servern och att Let's Encrypt kan utfärda certifikat för `APP_DOMAIN` och
 `API_DOMAIN`.
+
+### Agenten får 401 eller svarar inte
+
+Om agenten får `401 Unauthorized` eller inget svar:
+
+- Kontrollera att du använder rätt API-nyckel från `BOKFOERING_API_KEY`.
+- Kontrollera att `Authorization: Bearer ${API_KEY}` skickas med i headern.
+- Kontrollera att du använder backend-porten `8000`, inte frontend-porten `3000`.
+- Kontrollera att du använder den externa backend-URL:en
+  (`http://SERVER_IP_OR_HOSTNAME:8000`), inte Docker-interna
+  `BACKEND_URL=http://api:8000`.
 
 ## Supportklar diagnostik
 
