@@ -3,7 +3,7 @@
 import { useParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Card,
@@ -15,9 +15,19 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useVoucher, useAccounts, useVoucherSourceContext } from "@/hooks/useData";
+import {
+  useVoucher,
+  useAccounts,
+  useVoucherSourceContext,
+  useCorrectionNotes,
+} from "@/hooks/useData";
 import { api } from "@/lib/api";
-import type { IntakeStatus, VoucherSourceContext } from "@/lib/api";
+import type {
+  CorrectionNote,
+  IntakeStatus,
+  Voucher,
+  VoucherSourceContext,
+} from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
   ArrowLeft,
@@ -59,6 +69,22 @@ const sourceTypeLabels: Record<string, string> = {
   other: "Annat",
 };
 
+const correctionNoteStatusLabels: Record<CorrectionNote["status"], string> = {
+  pending: "Väntar på agent",
+  suggested: "Förslag klart",
+  applied: "Tillämpad",
+  dismissed: "Avfärdad",
+  rejected: "Ingen lösning",
+};
+
+function correctionNoteStatusVariant(
+  status: CorrectionNote["status"]
+): "success" | "secondary" | "warning" {
+  if (status === "applied") return "success";
+  if (status === "dismissed" || status === "rejected") return "secondary";
+  return "warning";
+}
+
 function formatOreInput(amountInOre: number): string {
   if (!amountInOre) return "";
   return (amountInOre / 100).toFixed(2).replace(".", ",");
@@ -99,7 +125,24 @@ export default function VoucherDetailPage() {
   const { data: accountsData } = useAccounts();
   const { data: sourceContext, isLoading: sourceContextLoading } =
     useVoucherSourceContext(id);
+  const { data: correctionNotes = [] } = useCorrectionNotes(id);
   const accounts = accountsData?.accounts || [];
+  const activeCorrectionNote = correctionNotes.find((note) =>
+    ["pending", "suggested"].includes(note.status)
+  );
+  const terminalCorrectionNotes = correctionNotes.filter((note) =>
+    ["applied", "dismissed", "rejected"].includes(note.status)
+  );
+  const suggestedVoucherId =
+    activeCorrectionNote?.status === "suggested"
+      ? activeCorrectionNote.suggested_voucher_id
+      : undefined;
+  const { data: suggestedDraft } = useQuery<Voucher>({
+    queryKey: ["voucher", suggestedVoucherId],
+    queryFn: () => api.getVoucher(suggestedVoucherId as string),
+    staleTime: 60 * 1000,
+    enabled: !!suggestedVoucherId,
+  });
 
   // Audit trail
   const { data: auditData } = useQuery({
@@ -125,6 +168,10 @@ export default function VoucherDetailPage() {
     msg: string;
   } | null>(null);
   const [sourceFileError, setSourceFileError] = useState<string | null>(null);
+  const [correctionNoteText, setCorrectionNoteText] = useState("");
+  const [correctionNoteSaving, setCorrectionNoteSaving] = useState(false);
+  const [correctionNoteActionId, setCorrectionNoteActionId] = useState<string | null>(null);
+  const [suggestedRows, setSuggestedRows] = useState<any[]>([]);
 
   // Upload state
   const [uploading, setUploading] = useState(false);
@@ -155,6 +202,18 @@ export default function VoucherDetailPage() {
     },
     []
   );
+
+  useEffect(() => {
+    if (!suggestedDraft?.rows) return;
+    setSuggestedRows(
+      suggestedDraft.rows.map((row) => ({
+        account_code: row.account_code,
+        debit: formatOreInput(row.debit || 0),
+        credit: formatOreInput(row.credit || 0),
+        description: row.description || "",
+      }))
+    );
+  }, [suggestedDraft?.id, suggestedDraft?.rows]);
 
   const handleDeleteAttachment = async (attachmentId: string) => {
     if (!confirm("Ta bort denna bilaga?")) return;
@@ -277,8 +336,123 @@ export default function VoucherDetailPage() {
     }
   };
 
+  const invalidateCorrectionNoteState = (note?: CorrectionNote | null) => {
+    queryClient.invalidateQueries({ queryKey: ["correction-notes", voucher.id] });
+    queryClient.invalidateQueries({ queryKey: ["voucher-source-context", voucher.id] });
+    queryClient.invalidateQueries({ queryKey: ["accounting-corrections"] });
+    if (note?.suggested_voucher_id) {
+      queryClient.invalidateQueries({ queryKey: ["voucher", note.suggested_voucher_id] });
+    }
+  };
+
+  const handleCreateCorrectionNote = async () => {
+    const trimmed = correctionNoteText.trim();
+    if (!trimmed) return;
+    setCorrectionNoteSaving(true);
+    setSaveResult(null);
+    try {
+      await api.createCorrectionNote(voucher.id, trimmed);
+      setCorrectionNoteText("");
+      invalidateCorrectionNoteState(null);
+      setSaveResult({
+        ok: true,
+        msg: "Noteringen har skickats till agenten.",
+      });
+    } catch (err: any) {
+      const code = err?.response?.data?.detail?.code;
+      setSaveResult({
+        ok: false,
+        msg:
+          code === "correction_note_active_exists"
+            ? "Det finns redan en aktiv korrigeringsnotering för verifikationen."
+            : "Korrigeringsnoteringen kunde inte sparas. Försök igen.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["correction-notes", voucher.id] });
+    } finally {
+      setCorrectionNoteSaving(false);
+    }
+  };
+
+  const handleDismissCorrectionNote = async (
+    note: CorrectionNote,
+    confirmation: string,
+    successMessage: string
+  ) => {
+    if (!confirm(confirmation)) return;
+    setCorrectionNoteActionId(note.id);
+    setSaveResult(null);
+    try {
+      await api.dismissCorrectionNote(voucher.id, note.id);
+      invalidateCorrectionNoteState(note);
+      setSaveResult({ ok: true, msg: successMessage });
+    } catch (err: any) {
+      setSaveResult({
+        ok: false,
+        msg: err?.message || "Kunde inte avfärda korrigeringsnoteringen.",
+      });
+    } finally {
+      setCorrectionNoteActionId(null);
+    }
+  };
+
+  const updateSuggestedRow = (index: number, field: string, value: string) => {
+    setSuggestedRows((prev) =>
+      prev.map((row, i) => (i === index ? { ...row, [field]: value } : row))
+    );
+  };
+
+  const handleApproveSuggestedCorrection = async () => {
+    if (!activeCorrectionNote) return;
+    setCorrectionNoteActionId(activeCorrectionNote.id);
+    setSaveResult(null);
+    try {
+      const rows = suggestedRows.map((row) => ({
+        account: row.account_code,
+        debit: parseOreInput(row.debit || ""),
+        credit: parseOreInput(row.credit || ""),
+        description: row.description || undefined,
+      }));
+      const posted = await api.approveCorrectionNote(
+        voucher.id,
+        activeCorrectionNote.id,
+        rows
+      );
+      queryClient.invalidateQueries({ queryKey: ["voucher", id] });
+      if (activeCorrectionNote.suggested_voucher_id) {
+        queryClient.invalidateQueries({
+          queryKey: ["voucher", activeCorrectionNote.suggested_voucher_id],
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: ["correction-notes", id] });
+      queryClient.invalidateQueries({ queryKey: ["voucher-source-context", id] });
+      queryClient.invalidateQueries({ queryKey: ["vouchers"] });
+      queryClient.invalidateQueries({ queryKey: ["accounting-corrections"] });
+      setSaveResult({
+        ok: true,
+        msg: `Korrigeringen bokfördes som ${posted.series}-serie.`,
+      });
+    } catch (err: any) {
+      setSaveResult({
+        ok: false,
+        msg: err?.message || "Kunde inte bokföra korrigeringen.",
+      });
+    } finally {
+      setCorrectionNoteActionId(null);
+    }
+  };
+
   const attachmentUrl = (attId: string) =>
     api.getAttachmentUrl(id, attId);
+
+  const suggestedDebit = suggestedRows.reduce(
+    (sum, row) => sum + parseOreInput(row.debit || ""),
+    0
+  );
+  const suggestedCredit = suggestedRows.reduce(
+    (sum, row) => sum + parseOreInput(row.credit || ""),
+    0
+  );
+  const suggestedBalanced = suggestedDebit === suggestedCredit;
 
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-[1000px] mx-auto">
@@ -400,6 +574,279 @@ export default function VoucherDetailPage() {
           <span className="text-sm font-medium">{saveResult.msg}</span>
         </div>
       )}
+
+      {voucher.status === "posted" && !voucher.correction_of && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Pencil className="h-5 w-5 text-primary" />
+              Korrigeringsnotering
+            </CardTitle>
+            <CardDescription>
+              Skriv vad som behöver rättas så kan agenten föreslå en B-serie-korrigering.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {activeCorrectionNote ? (
+              <div className="space-y-4">
+                <div className="rounded-md border bg-muted/30 p-3">
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <Badge
+                      variant={correctionNoteStatusVariant(activeCorrectionNote.status)}
+                    >
+                      {correctionNoteStatusLabels[activeCorrectionNote.status]}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">
+                      {formatDate(activeCorrectionNote.created_at)}
+                    </span>
+                  </div>
+                  <p className="whitespace-pre-wrap break-words text-sm">
+                    {activeCorrectionNote.note_text}
+                  </p>
+                  {activeCorrectionNote.status === "rejected" &&
+                    activeCorrectionNote.rejection_reason && (
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        Agenten kunde inte föreslå en korrigering:{" "}
+                        {activeCorrectionNote.rejection_reason}
+                      </p>
+                    )}
+                </div>
+
+                {["pending", "suggested"].includes(activeCorrectionNote.status) && (
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        handleDismissCorrectionNote(
+                          activeCorrectionNote,
+                          "Avfärda notering: agenten kommer inte att föreslå någon korrigering för denna notering.",
+                          "Noteringen har avfärdats."
+                        )
+                      }
+                      disabled={correctionNoteActionId === activeCorrectionNote.id}
+                    >
+                      Avfärda notering
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div>
+                  <label
+                    htmlFor="correction-note-text"
+                    className="mb-1 block text-sm font-medium"
+                  >
+                    Notering
+                  </label>
+                  <textarea
+                    id="correction-note-text"
+                    value={correctionNoteText}
+                    onChange={(event) => setCorrectionNoteText(event.target.value)}
+                    placeholder="Exempel: Bankavgiften ska bokföras på 6570 utan moms."
+                    className="w-full rounded-lg border bg-background px-3 py-2 text-sm min-h-[88px] focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button
+                    onClick={handleCreateCorrectionNote}
+                    disabled={
+                      correctionNoteSaving || correctionNoteText.trim().length === 0
+                    }
+                  >
+                    {correctionNoteSaving ? "Skickar..." : "Skicka till agent"}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {terminalCorrectionNotes.length > 0 && (
+              <div className="space-y-3">
+                {terminalCorrectionNotes.map((note) => (
+                  <div
+                    key={note.id}
+                    className="rounded-md border bg-muted/30 p-3"
+                  >
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <Badge variant={correctionNoteStatusVariant(note.status)}>
+                        {correctionNoteStatusLabels[note.status]}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {formatDate(note.resolved_at || note.updated_at || note.created_at)}
+                      </span>
+                    </div>
+                    {note.status === "rejected" && (
+                      <p className="mb-1 text-sm font-medium">
+                        Agenten kunde inte föreslå en korrigering
+                      </p>
+                    )}
+                    <p className="whitespace-pre-wrap break-words text-sm">
+                      {note.note_text}
+                    </p>
+                    {note.rejection_reason && (
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        {note.rejection_reason}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {activeCorrectionNote?.status === "suggested" &&
+        activeCorrectionNote.suggested_voucher_id && (
+          <Card>
+            <CardHeader>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Brain className="h-5 w-5 text-primary" />
+                    Föreslagen korrigering
+                  </CardTitle>
+                  <CardDescription>
+                    Granska raderna innan korrigeringen bokförs. Originalverifikationen ändras inte.
+                  </CardDescription>
+                </div>
+                <Badge variant="warning">Förslag klart</Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/50">
+                      <th className="text-left p-3 font-medium text-muted-foreground">
+                        Konto
+                      </th>
+                      <th className="text-left p-3 font-medium text-muted-foreground">
+                        Beskrivning
+                      </th>
+                      <th className="text-right p-3 font-medium text-muted-foreground">
+                        Debet
+                      </th>
+                      <th className="text-right p-3 font-medium text-muted-foreground">
+                        Kredit
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {suggestedRows.map((row, index) => (
+                      <tr key={index} className="border-b last:border-0">
+                        <td className="p-2">
+                          <select
+                            value={row.account_code}
+                            onChange={(event) =>
+                              updateSuggestedRow(
+                                index,
+                                "account_code",
+                                event.target.value
+                              )
+                            }
+                            className="w-full rounded border bg-background px-2 py-1.5 text-sm font-mono"
+                          >
+                            {accounts.map((account: any) => (
+                              <option key={account.code} value={account.code}>
+                                {account.code} — {account.name}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="p-2">
+                          <input
+                            type="text"
+                            value={row.description || ""}
+                            onChange={(event) =>
+                              updateSuggestedRow(
+                                index,
+                                "description",
+                                event.target.value
+                              )
+                            }
+                            className="w-full rounded border bg-background px-2 py-1.5 text-sm"
+                          />
+                        </td>
+                        <td className="p-2">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={row.debit || ""}
+                            onChange={(event) =>
+                              updateSuggestedRow(index, "debit", event.target.value)
+                            }
+                            className="w-full rounded border bg-background px-2 py-1.5 text-sm text-right font-mono"
+                            placeholder="0"
+                          />
+                        </td>
+                        <td className="p-2">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={row.credit || ""}
+                            onChange={(event) =>
+                              updateSuggestedRow(index, "credit", event.target.value)
+                            }
+                            className="w-full rounded border bg-background px-2 py-1.5 text-sm text-right font-mono"
+                            placeholder="0"
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 font-bold">
+                      <td className="p-3" colSpan={2}>
+                        Summa
+                      </td>
+                      <td className="p-3 text-right font-mono">
+                        {formatCurrency(suggestedDebit)}
+                      </td>
+                      <td className="p-3 text-right font-mono">
+                        {formatCurrency(suggestedCredit)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              {!suggestedBalanced && (
+                <p className="text-sm text-destructive">
+                  Förslaget måste balansera innan det kan bokföras.
+                </p>
+              )}
+
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  onClick={handleApproveSuggestedCorrection}
+                  disabled={
+                    !suggestedBalanced ||
+                    suggestedRows.length === 0 ||
+                    correctionNoteActionId === activeCorrectionNote.id
+                  }
+                >
+                  {correctionNoteActionId === activeCorrectionNote.id
+                    ? "Bokför..."
+                    : "Bokför korrigering"}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    handleDismissCorrectionNote(
+                      activeCorrectionNote,
+                      "Avfärda förslag: utkastet tas bort och förslaget sparas i historiken för agentens lärande.",
+                      "Förslaget har avfärdats och sparats i historiken."
+                    )
+                  }
+                  disabled={correctionNoteActionId === activeCorrectionNote.id}
+                >
+                  Avfärda förslag
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
       {/* Rows table — read-only or edit mode */}
       <Card>
