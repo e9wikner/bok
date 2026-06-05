@@ -33,6 +33,7 @@ async def list_accounting_corrections(
                     "original_voucher_id": history.original_voucher_id,
                     "corrected_voucher_id": history.corrected_voucher_id,
                     "change_type": history.change_type,
+                    "was_successful": history.was_successful,
                     "correction_reason": history.correction_reason,
                     "corrected_by": history.corrected_by,
                     "created_at": history.created_at,

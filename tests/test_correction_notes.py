@@ -248,6 +248,14 @@ async def test_dismissing_suggested_note_deletes_draft_and_records_history(
     histories = AccountingCorrectionRepository.list(voucher_id=original["id"])
     assert histories[0].corrected_voucher_id is None
     assert histories[0].change_type == "suggestion_dismissed"
+    response = await async_client.get(
+        "/api/v1/accounting-corrections",
+        headers=_headers(),
+    )
+    assert response.status_code == 200
+    correction = response.json()["corrections"][0]
+    assert correction["corrected_voucher_id"] is None
+    assert correction["corrected_data"]["rows"][0]["account_code"] == "1930"
 
 
 @pytest.mark.asyncio
@@ -276,3 +284,12 @@ async def test_rejecting_note_records_failure_context(test_db, async_client):
     assert histories[0].corrected_voucher_id is None
     assert histories[0].change_type == "suggestion_rejected"
     assert histories[0].was_successful is False
+    response = await async_client.get(
+        "/api/v1/accounting-corrections",
+        headers=_headers(),
+    )
+    assert response.status_code == 200
+    correction = response.json()["corrections"][0]
+    assert correction["corrected_voucher_id"] is None
+    assert correction["corrected_data"]["rejection_reason"] == "Missing source context"
+    assert correction["was_successful"] is False

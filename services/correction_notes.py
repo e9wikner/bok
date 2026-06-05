@@ -181,13 +181,14 @@ class CorrectionNoteService:
             draft = self.ledger.vouchers.get(note.suggested_voucher_id)
             if draft:
                 draft_snapshot = self._voucher_snapshot(draft)
+        failure_context = draft_snapshot or {"rejection_reason": rejection_reason}
         original = self._require_voucher(voucher_id)
         with db.transaction():
             self.history.create(
                 original_voucher_id=voucher_id,
                 corrected_voucher_id=None,
                 original_data=self._voucher_snapshot(original),
-                corrected_data=draft_snapshot,
+                corrected_data=failure_context,
                 change_type="suggestion_rejected",
                 was_successful=False,
                 corrected_by=actor,
