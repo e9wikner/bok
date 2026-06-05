@@ -238,6 +238,7 @@ export interface VoucherSourceWorkspaceItem extends IntakeWorkspaceBaseItem {
   kind: "voucher_source";
   source_type?: string | null;
   explanation?: string | null;
+  agent_guidance?: string | null;
   latest_processing_summary?: string | null;
   latest_error_detail?: string | null;
 }
@@ -300,6 +301,7 @@ export interface IntakeSourceUploadResponse {
   size_bytes: number;
   sha256: string;
   explanation?: string | null;
+  agent_guidance?: string | null;
   uploaded_by: string;
   uploaded_at: string;
   deleted_at?: string | null;
@@ -735,6 +737,7 @@ export const api = {
     file: File;
     source_type?: string;
     explanation?: string;
+    agent_guidance?: string;
   }): Promise<IntakeSourceUploadResponse> => {
     const formData = new FormData();
     formData.append("file", payload.file);
@@ -744,8 +747,20 @@ export const api = {
     if (payload.explanation) {
       formData.append("explanation", payload.explanation);
     }
+    if (payload.agent_guidance) {
+      formData.append("agent_guidance", payload.agent_guidance);
+    }
     const { data } = await apiClient.post("/api/v1/intake", formData, {
       headers: { "Content-Type": "multipart/form-data" },
+    });
+    return data;
+  },
+  updateIntakeGuidance: async (
+    id: string,
+    agent_guidance?: string | null
+  ): Promise<IntakeSourceUploadResponse> => {
+    const { data } = await apiClient.put(`/api/v1/intake/${id}/agent-guidance`, {
+      agent_guidance,
     });
     return data;
   },

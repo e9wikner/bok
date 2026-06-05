@@ -99,6 +99,7 @@ export default function IntakePage() {
   const [sourceFileInputKey, setSourceFileInputKey] = useState(0);
   const [sourceType, setSourceType] = useState("receipt");
   const [explanation, setExplanation] = useState("");
+  const [agentGuidance, setAgentGuidance] = useState("");
   const [sourceUploadStatus, setSourceUploadStatus] =
     useState<UploadStatus>("idle");
   const [sourceMessage, setSourceMessage] = useState("");
@@ -125,6 +126,7 @@ export default function IntakePage() {
         file: sourceFile,
         source_type: sourceType,
         explanation: explanation.trim() || undefined,
+        agent_guidance: agentGuidance.trim() || undefined,
       });
       await refreshWorkspace();
       setSourceUploadStatus("success");
@@ -133,6 +135,7 @@ export default function IntakePage() {
       setSourceFileInputKey((value) => value + 1);
       setSourceType("receipt");
       setExplanation("");
+      setAgentGuidance("");
     } catch {
       setSourceUploadStatus("error");
       setSourceMessage(uploadErrorMessage);
@@ -244,6 +247,20 @@ export default function IntakePage() {
                 onChange={(event) => setExplanation(event.target.value)}
                 rows={3}
                 placeholder="Exempel: betald med företagskort eller privat utlägg"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:ring-2 focus:ring-ring"
+              />
+            </label>
+
+            <label className="space-y-1.5 block" htmlFor="source-agent-guidance">
+              <span className="text-sm font-medium text-foreground">
+                Meddelande till agent
+              </span>
+              <textarea
+                id="source-agent-guidance"
+                value={agentGuidance}
+                onChange={(event) => setAgentGuidance(event.target.value)}
+                rows={3}
+                placeholder="Valfritt — beskriv hur agenten ska bokföra detta underlag"
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:ring-2 focus:ring-ring"
               />
             </label>

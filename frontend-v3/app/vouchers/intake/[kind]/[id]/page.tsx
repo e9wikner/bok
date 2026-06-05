@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -83,6 +84,11 @@ export default function IntakeDetailPage() {
       () => setSourceFileError("Kunde inte öppna källfilen.")
     );
   }, []);
+  const queryClient = useQueryClient();
+  const [isEditingGuidance, setIsEditingGuidance] = useState(false);
+  const [guidanceValue, setGuidanceValue] = useState("");
+  const [guidanceError, setGuidanceError] = useState<string | null>(null);
+  const [guidanceSaving, setGuidanceSaving] = useState(false);
 
   if (!kind || !id) {
     return (
@@ -212,6 +218,67 @@ export default function IntakeDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {item.kind === "voucher_source" && (
+        <GuidanceEditor
+          agentGuidance={
+            (item as Extract<IntakeDetailResponse, { kind: "voucher_source" }>)
+              .agent_guidance
+          }
+          status={item.status}
+          isEditing={isEditingGuidance}
+          onStartEdit={() => {
+            setGuidanceValue(
+              (
+                item as Extract<
+                  IntakeDetailResponse,
+                  { kind: "voucher_source" }
+                >
+              ).agent_guidance || ""
+            );
+            setIsEditingGuidance(true);
+            setGuidanceError(null);
+          }}
+          onCancelEdit={() => {
+            setIsEditingGuidance(false);
+            setGuidanceError(null);
+          }}
+          guidanceValue={guidanceValue}
+          onChangeGuidance={setGuidanceValue}
+          onSave={async () => {
+            if (!id) return;
+            setGuidanceSaving(true);
+            setGuidanceError(null);
+            try {
+              await api.updateIntakeGuidance(
+                id,
+                guidanceValue.trim() || null
+              );
+              setIsEditingGuidance(false);
+              await queryClient.invalidateQueries({
+                queryKey: ["intake-detail", kind, id],
+              });
+              await queryClient.invalidateQueries({
+                queryKey: ["intake-workspace"],
+              });
+            } catch (error: any) {
+              if (error?.response?.status === 409) {
+                setGuidanceError(
+                  "Meddelandet kan inte ändras eftersom underlaget redan har behandlats."
+                );
+              } else {
+                setGuidanceError(
+                  "Meddelandet kunde inte sparas. Försök igen."
+                );
+              }
+            } finally {
+              setGuidanceSaving(false);
+            }
+          }}
+          saving={guidanceSaving}
+          error={guidanceError}
+        />
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
@@ -575,6 +642,92 @@ function BankParseHistory({ item }: { item: IntakeDetailResponse }) {
             </p>
           )}
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function GuidanceEditor({
+  agentGuidance,
+  status,
+  isEditing,
+  onStartEdit,
+  onCancelEdit,
+  guidanceValue,
+  onChangeGuidance,
+  onSave,
+  saving,
+  error,
+}: {
+  agentGuidance?: string | null;
+  status: IntakeStatus;
+  isEditing: boolean;
+  onStartEdit: () => void;
+  onCancelEdit: () => void;
+  guidanceValue: string;
+  onChangeGuidance: (value: string) => void;
+  onSave: () => void;
+  saving: boolean;
+  error: string | null;
+}) {
+  const canEdit = status === "pending" || status === "processing";
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <FileText className="h-5 w-5 text-primary" />
+          Meddelande till agent
+        </CardTitle>
+        <CardDescription>
+          Instruktioner som agenten ser när underlaget behandlas.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {isEditing ? (
+          <>
+            <textarea
+              value={guidanceValue}
+              onChange={(event) => onChangeGuidance(event.target.value)}
+              rows={3}
+              placeholder="Valfritt — beskriv hur agenten ska bokföra detta underlag"
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:ring-2 focus:ring-ring"
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                onClick={onSave}
+                disabled={saving}
+                className="gap-1.5"
+              >
+                {saving ? "Sparar..." : "Spara"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onCancelEdit}
+                disabled={saving}
+              >
+                Avbryt
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="text-sm text-foreground">
+              {agentGuidance || "Inget meddelande angivet."}
+            </p>
+            {canEdit && (
+              <Button variant="outline" size="sm" onClick={onStartEdit}>
+                Ändra meddelande
+              </Button>
+            )}
+          </>
+        )}
+        {error && (
+          <p className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {error}
+          </p>
+        )}
       </CardContent>
     </Card>
   );
