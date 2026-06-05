@@ -150,6 +150,63 @@ http://SERVER_IP_OR_HOSTNAME:3000/login
 Logga in med användarnamnet från `AUTH_USERNAME` och lösenordet du satte i
 `AUTH_PASSWORD`.
 
+### 10. Koppla OpenClaw eller annan HTTP-agent
+
+Bok har ett publikt API-entrypoint för externa agenter. Efter att du har loggat
+in kan du koppla en HTTP-agent (t.ex. OpenClaw) som skickar
+bearer-autentiserade anrop till backend.
+
+**Människor använder frontend:**
+```text
+http://SERVER_IP_OR_HOSTNAME:3000/login
+```
+
+**Agenter använder backend-API:**
+```text
+http://SERVER_IP_OR_HOSTNAME:8000
+```
+
+`BACKEND_URL=http://api:8000` är Docker-intern och ska aldrig ges till en agent
+utanför Docker-nätverket.
+
+**Kontrollera innan du kopplar agenten:**
+
+Sätt shell-variabler:
+
+```bash
+BOK_API_URL="http://SERVER_IP_OR_HOSTNAME:8000"
+API_KEY="ditt-värde-från-BOKFOERING_API_KEY"
+```
+
+Kontrollera backend-hälsa:
+
+```bash
+curl -fsS "${BOK_API_URL}/health"
+```
+
+Kontrollera att entrypoint är publikt:
+
+```bash
+curl -fsS "${BOK_API_URL}/api/v1/agent-instructions/entrypoint"
+```
+
+Kontrollera att agent-auth fungerar:
+
+```bash
+curl -fsS -X POST "${BOK_API_URL}/api/v1/agent/test/ping" \
+  -H "Authorization: Bearer ${API_KEY}"
+```
+
+**Ge agenten entrypoint och nyckel:**
+
+1. Kopiera backend-entrypoint-URL:en:
+   ```text
+   ${BOK_API_URL}/api/v1/agent-instructions/entrypoint
+   ```
+2. Kopiera API-nyckeln från `BOKFOERING_API_KEY` i `.env.production`.
+3. Ge båda till agenten. Agenten hämtar själv startup-instruktioner,
+   auth-check och workflow-länkar från entrypoint.
+
 ## Uppdatera säkert på LAN
 
 Den normala uppdateringsvägen för LAN/lokal server är lokal Git-checkout +
