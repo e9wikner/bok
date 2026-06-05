@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Agent Usability & Feedback Loop
 status: Idle
-stopped_at: Phase 9 context gathered
-last_updated: "2026-06-05T18:02:39.084Z"
+stopped_at: Phase 9 UI-SPEC approved
+last_updated: "2026-06-05T18:12:51.771Z"
 last_activity: 2026-06-05 -- Quick task 260605-r3p complete
 progress:
   total_phases: 4
@@ -129,9 +129,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-05T18:02:39.079Z
-Stopped at: Phase 9 context gathered
-Resume file: /home/rsw/Work/bok/.planning/phases/09-corr-simplified-correction-flow/09-CONTEXT.md
+Last session: 2026-06-05T18:12:51.766Z
+Stopped at: Phase 9 UI-SPEC approved
+Resume file: .planning/phases/09-corr-simplified-correction-flow/09-UI-SPEC.md
 
 ## Operator Next Steps
 
