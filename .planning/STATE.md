@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Agent Onboarding
-status: executing
-stopped_at: Phase 7 complete, awaiting verification
+status: completed
+stopped_at: Milestone v1.2 complete — archived and tagged
 last_updated: "2026-06-05T12:00:00Z"
-last_activity: 2026-06-05 -- Phase 7 execution complete
+last_activity: 2026-06-05 -- Milestone v1.2 completion and archive
 progress:
   total_phases: 2
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 4
   completed_plans: 4
   percent: 100
@@ -18,17 +18,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-04)
+See: .planning/PROJECT.md (updated 2026-06-05)
 
 **Core value:** The system should let a small Swedish company keep compliant books with minimal manual interaction by giving an agent enough source material, history, and correction feedback to post accurate vouchers.
-**Current focus:** Phase 7 — OpenClaw Deployment Instructions and Verification
+**Current focus:** Planning next milestone (v1.3)
 
 ## Current Position
 
-Phase: 7
-Plan: 07-02 complete
-Status: Verified
-Last activity: 2026-06-05 -- Phase 7 verification complete
+Milestone: v1.2 Agent Onboarding — SHIPPED 2026-06-05
+Phase: 7 complete
+Status: All plans completed and verified
+Last activity: 2026-06-05 -- Milestone v1.2 archived, PROJECT.md evolved, ROADMAP.md reorganized, git tag v1.2 created
 
 ## Performance Metrics
 
@@ -89,18 +89,21 @@ Recent decisions affecting current work:
 - Intake workflow is automation-first: agent posts vouchers directly from source material.
 - User review happens after posting through existing B-series correction flows.
 - Bank statements/statuses are source input for creating missing vouchers, not only reconciliation.
-- Initial roadmap uses MVP mode for all phases.
-- [Phase 03]: Intake detail pages use API-provided download_url values for source file actions.
-- [Phase 03]: Correction history remains read-only agent-learning context alongside the existing correction form.
-- [Phase 03]: Voucher detail keeps Källmaterial separate from manual Bilagor.
+- Entrypoint returns only static metadata and settings.api_version; no auth dependencies or repositories.
+- Remove misleading placeholder routes instead of deprecating them.
+- LAN-first agent setup with shell variables in docs avoids inline secrets.
+- Verify deployment docs with deterministic pytest assertions.
 
 ### Pending Todos
 
-- Start Phase 6 planning for the agent instruction entrypoint and API discovery work.
+- Plan next milestone (v1.3) with `$gsd-new-milestone`.
 
 ### Blockers/Concerns
 
 - Phase 1 has no aggregate `01-VERIFICATION.md`; accepted as deferred verification debt at v1.0 close.
+- v1.1 closed without `.planning/milestones/v1.1-MILESTONE-AUDIT.md` and without `$gsd-secure-phase 5`.
+- v1.2 closed without `.planning/milestones/v1.2-MILESTONE-AUDIT.md`.
+- REQUIREMENTS.md checkbox sync issue: 6 requirements had stale unchecked boxes even though phase summaries recorded completion.
 
 ## Deferred Items
 
@@ -114,13 +117,15 @@ Items acknowledged and carried forward from previous milestone close:
 | Verification | Phase 1 aggregate `01-VERIFICATION.md` missing; v1.0 audit marked Phase 1 requirements orphaned from phase verification evidence | accepted tech debt | 2026-05-18 milestone close |
 | Audit | v1.1 closed without `.planning/milestones/v1.1-MILESTONE-AUDIT.md` | accepted process debt | 2026-06-04 milestone close |
 | Security | Phase 5 security review (`$gsd-secure-phase 5`) not run before v1.1 close | accepted process debt | 2026-06-04 milestone close |
+| Audit | v1.2 closed without `.planning/milestones/v1.2-MILESTONE-AUDIT.md` | accepted process debt | 2026-06-05 milestone close |
+| Traceability | REQUIREMENTS.md checkbox sync gap for AUTH-01, DOCS-01-04, VER-02 | accepted process debt | 2026-06-05 milestone close |
 
 ## Session Continuity
 
-Last session: 2026-06-05T10:58:00.194Z
-Stopped at: Phase 7 context gathered
-Resume file: .planning/phases/07-openclaw-deployment-instructions-and-verification/07-CONTEXT.md
+Last session: 2026-06-05T12:00:00Z
+Stopped at: Milestone v1.2 completion
+Resume file: none
 
 ## Operator Next Steps
 
-- Discuss or plan Phase 6: Agent Instruction Entrypoint and API Discovery.
+- Define fresh requirements for the next milestone with `$gsd-new-milestone`.
