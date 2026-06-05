@@ -3,6 +3,7 @@
 import json
 from collections.abc import Iterator
 from datetime import datetime
+from pathlib import Path
 
 import httpx
 import pytest
@@ -13,6 +14,7 @@ from config import settings
 
 
 ENTRYPOINT_PATH = "/api/v1/agent-instructions/entrypoint"
+DRIFT_DOC_PATH = Path("docs/to_agent/01_drift_och_atkomst.md")
 EXPECTED_PATHS = {
     "/api/v1/health",
     "/docs",
@@ -118,6 +120,34 @@ async def test_agent_entrypoint_prescribes_startup_order_and_guardrails(async_cl
 
 
 @pytest.mark.asyncio
+async def test_agent_entrypoint_tells_agents_to_stop_on_auth_failure(async_client):
+    data = await _entrypoint(async_client)
+    serialized = json.dumps(data).lower()
+
+    assert data["auth"]["required_on"] == (
+        "all workflow endpoints except this public entrypoint and health checks"
+    )
+    assert data["auth"]["check"]["on_401"]
+    assert "401" in serialized
+    assert "fix auth" in serialized or "fix the authorization header" in serialized
+    assert "until ping returns 200" in serialized
+
+
+@pytest.mark.asyncio
+async def test_agent_entrypoint_documents_bank_input_transaction_source(async_client):
+    data = await _entrypoint(async_client)
+    contract = data["bank_input_contract"]
+    serialized = json.dumps(contract)
+
+    assert contract["queue_source"] == "/api/v1/agent/intake/pending"
+    assert "transaction_ids" in contract["transaction_ids_source"]
+    assert contract["download"] == "/api/v1/bank-inputs/{bank_input_id}/file"
+    assert contract["post_voucher_fields"] == ["bank_input_ids", "bank_transaction_ids"]
+    assert "/api/v1/bank-transactions" in serialized
+    assert "not part of the current agent API" in serialized
+
+
+@pytest.mark.asyncio
 async def test_agent_entrypoint_discloses_unsupported_features(async_client):
     data = await _entrypoint(async_client)
     unsupported = " ".join(data["unsupported_features"]).lower()
@@ -126,6 +156,7 @@ async def test_agent_entrypoint_discloses_unsupported_features(async_client):
     assert "credential lifecycle" in unsupported
     assert "generated tool-schema discovery" in unsupported
     assert "durable idempotency" in unsupported
+    assert "/api/v1/bank-transactions" in unsupported
 
 
 @pytest.mark.asyncio
@@ -185,3 +216,11 @@ async def test_placeholder_agent_routes_are_removed(async_client):
             json=payload,
         )
         assert response.status_code in {404, 405}
+
+
+def test_agent_system_access_doc_does_not_advertise_removed_schema_routes():
+    text = DRIFT_DOC_PATH.read_text(encoding="utf-8")
+
+    assert "GET /api/v1/agent/spec/openapi" not in text
+    assert "POST /api/v1/agent/spec/tools" not in text
+    assert "finns inte i aktuell version" in text

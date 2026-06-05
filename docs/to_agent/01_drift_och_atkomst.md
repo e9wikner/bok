@@ -42,10 +42,19 @@ Kontrollera först att backend svarar:
 
 ```http
 GET /health
-Authorization: Bearer <BOKFOERING_API_KEY>
 ```
 
 Ett friskt svar innehåller normalt tjänstenamn, version och commit.
+
+Kontrollera därefter bearer-token mot agentens ping-endpoint:
+
+```http
+POST /api/v1/agent/test/ping
+Authorization: Bearer <BOKFOERING_API_KEY>
+```
+
+Om ping returnerar `401` är headern fel, token saknas eller tokenvärdet är fel.
+Fortsätt inte till bokföringsendpoints förrän ping returnerar `200`.
 
 ## API-upptäckt
 
@@ -53,12 +62,28 @@ Använd dessa endpoints för schema och verktygsdefinitioner:
 
 ```http
 GET /openapi.json
-GET /api/v1/agent/spec/openapi
-POST /api/v1/agent/spec/tools
 ```
 
-`/openapi.json` är hela FastAPI-schemat. `/api/v1/agent/spec/openapi` och
-`/api/v1/agent/spec/tools` är mindre hjälpresurser för agentintegration.
+`/openapi.json` är hela FastAPI-schemat. Särskilda endpoints för genererad
+tool-schema-discovery, till exempel `/api/v1/agent/spec/openapi` och
+`/api/v1/agent/spec/tools`, finns inte i aktuell version.
+
+## Bankunderlag och bankhändelser
+
+Bankunderlag hämtas via intagskön:
+
+```http
+GET /api/v1/agent/intake/pending
+Authorization: Bearer <BOKFOERING_API_KEY>
+```
+
+Poster med `kind: bank_input` innehåller `transaction_ids`, `transaction_count`
+och `match_signals`. Använd dessa fält när du postar verifikation med
+`bank_input_ids` och `bank_transaction_ids`.
+
+Det finns ingen separat agent-route `GET /api/v1/bank-transactions`. Om den
+returnerar `404`, gå tillbaka till `/api/v1/agent/intake/pending` och använd
+bankhändelse-id:n därifrån.
 
 ## Frontend
 
@@ -79,4 +104,3 @@ Om API:t returnerar fel:
 - kontrollera period, konto, belopp och schema
 - gör inte antaganden om saknade uppgifter
 - be om kompletterande underlag när bokföringsbeslutet är oklart
-

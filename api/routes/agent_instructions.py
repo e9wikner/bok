@@ -44,10 +44,15 @@ async def get_agent_instruction_entrypoint():
             "type": "bearer",
             "header": "Authorization",
             "value_format": "Bearer <BOKFOERING_API_KEY>",
+            "required_on": "all workflow endpoints except this public entrypoint and health checks",
             "check": {
                 "method": "POST",
                 "path": "/api/v1/agent/test/ping",
                 "expected_status": 200,
+                "on_401": (
+                    "Stop and fix the Authorization header or configured secret. "
+                    "Do not continue to protected workflow endpoints until ping returns 200."
+                ),
             },
         },
         "links": {
@@ -108,6 +113,19 @@ async def get_agent_instruction_entrypoint():
                 ),
             },
         ],
+        "bank_input_contract": {
+            "queue_source": "/api/v1/agent/intake/pending",
+            "transaction_ids_source": (
+                "For kind=bank_input items, use the transaction_ids and "
+                "match_signals already returned by the pending-intake queue."
+            ),
+            "download": "/api/v1/bank-inputs/{bank_input_id}/file",
+            "post_voucher_fields": ["bank_input_ids", "bank_transaction_ids"],
+            "no_separate_transaction_listing": (
+                "Do not call /api/v1/bank-transactions; that route is not part "
+                "of the current agent API."
+            ),
+        },
         "workflow_endpoints": {
             "ping": {
                 "method": "POST",
@@ -143,6 +161,10 @@ async def get_agent_instruction_entrypoint():
             },
         },
         "guardrails": [
+            (
+                "If /api/v1/agent/test/ping returns 401, the bearer credential "
+                "is missing, malformed, or wrong; fix auth before doing any accounting work."
+            ),
             "Posted vouchers are immutable; corrections must use correction vouchers.",
             "Use source material, accounting instructions, and correction history before posting.",
             "Post directly when the decision is complete; user review happens after posting.",
@@ -158,6 +180,7 @@ async def get_agent_instruction_entrypoint():
             "Persistent per-agent credential lifecycle is not implemented; use the configured bearer credential.",
             "Generated tool-schema discovery is not implemented; use /openapi.json for the current HTTP schema.",
             "Durable idempotency for agent operations is not implemented.",
+            "A standalone /api/v1/bank-transactions listing endpoint is not implemented for agents; use transaction_ids from /api/v1/agent/intake/pending.",
         ],
         "agent_start_instructions": (
             "The owner should send this entrypoint URL to OpenClaw. Read this payload, "
