@@ -51,7 +51,10 @@
   1. User can type and save an agent message when uploading or editing a receipt/invoice
   2. Agent message appears on the intake detail page for human review
   3. Agent receives the per-source message when fetching the intake item for processing
-**Plans**: TBD
+**Plans**:
+  - 08-01: Backend schema, intake API, and agent queue guidance
+  - 08-02: Frontend upload and detail guidance surfaces
+  - 08-03: Guidance tests and agent entrypoint documentation
 **UI hint**: yes
 
 ### Phase 9: CORR — Simplified Correction Flow
@@ -101,7 +104,7 @@
 | 5. Intake Agent Traceability | v1.1 | 3/3 | Complete | 2026-06-04 |
 | 6. Agent Instruction Entrypoint | v1.2 | 2/2 | Complete | 2026-06-05 |
 | 7. OpenClaw Deployment | v1.2 | 2/2 | Complete | 2026-06-05 |
-| 8. GUIDE — Per-Source Agent Guidance | v1.3 | 0/0 | Not started | - |
+| 8. GUIDE — Per-Source Agent Guidance | v1.3 | 0/3 | Ready to execute | - |
 | 9. CORR — Simplified Correction Flow | v1.3 | 0/0 | Not started | - |
 | 10. INSTR — Agent Instruction Persistence | v1.3 | 0/0 | Not started | - |
 | 11. Integration & Entrypoint Update | v1.3 | 0/0 | Not started | - |
