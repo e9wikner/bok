@@ -685,6 +685,7 @@ async def test_agent_pending_queue_returns_voucher_sources_and_bank_inputs(
         explanation="Receipt",
         source_type="receipt",
         actor="api",
+        agent_guidance="Book as travel",
     )
     bank_input, transaction_ids = _processed_bank_input()
 
@@ -695,6 +696,8 @@ async def test_agent_pending_queue_returns_voucher_sources_and_bank_inputs(
     bank_item = next(item for item in queue["items"] if item["id"] == bank_input.id)
     assert voucher_item["kind"] == "voucher_source"
     assert bank_item["kind"] == "bank_input"
+    assert voucher_item["guidance"] == "Book as travel"
+    assert bank_item["guidance"] is None
     assert bank_item["transaction_ids"] == transaction_ids
     assert bank_item["transaction_count"] == 1
     assert isinstance(bank_item["match_signals"], list)

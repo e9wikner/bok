@@ -16,7 +16,13 @@ from api.routes.agent import (
     list_pending_intake_sources,
     record_intake_failed,
 )
-from api.routes.intake import delete_intake_source, get_intake_source_file, upload_intake_source
+from api.routes.intake import (
+    delete_intake_source,
+    get_intake_source_file,
+    upload_intake_source,
+    update_intake_agent_guidance,
+    UpdateAgentGuidanceRequest,
+)
 from api.routes.intake import get_intake_workspace_detail, list_intake_workspace
 from api.routes.vouchers import get_voucher_source_context
 from api.schemas import VoucherRowRequest
@@ -592,3 +598,170 @@ def test_intake_service_rejects_linking_draft_voucher(
     assert stored_source is not None
     assert stored_source.status == IntakeStatus.PENDING
     assert IntakeRepository.list_links_for_voucher(voucher.id) == []
+
+
+def test_intake_service_persists_agent_guidance(test_db, intake_dir):
+    content = b"%PDF-1.4 guided receipt"
+    service = IntakeService()
+
+    source = service.create_source_from_upload_content(
+        filename="receipt.pdf",
+        content_type="application/pdf",
+        content=content,
+        explanation="Guided receipt",
+        source_type="receipt",
+        actor="api",
+        agent_guidance="Book as travel",
+    )
+
+    assert source.agent_guidance == "Book as travel"
+    stored = IntakeRepository.get_source(source.id)
+    assert stored is not None
+    assert stored.agent_guidance == "Book as travel"
+
+
+@pytest.mark.asyncio
+async def test_intake_upload_with_agent_guidance_response(
+    test_db,
+    intake_dir,
+    auth_headers,
+):
+    content = b"%PDF-1.4 api guided receipt"
+    source = await upload_intake_source(
+        file=_UploadFile("receipt.pdf", "application/pdf", content),
+        explanation="API guided receipt",
+        source_type="receipt",
+        agent_guidance="Book as meals",
+        actor="api",
+    )
+    assert source["agent_guidance"] == "Book as meals"
+
+
+@pytest.mark.asyncio
+async def test_intake_workspace_detail_returns_agent_guidance(
+    test_db,
+    intake_dir,
+):
+    service = IntakeService()
+    source = service.create_source_from_upload_content(
+        filename="receipt.pdf",
+        content_type="application/pdf",
+        content=b"%PDF-1.4 detail guidance",
+        explanation="Detail test",
+        source_type="receipt",
+        actor="api",
+        agent_guidance="Use account 5460",
+    )
+
+    detail = await get_intake_workspace_detail("voucher_source", source.id, actor="api")
+    assert detail["agent_guidance"] == "Use account 5460"
+
+
+@pytest.mark.asyncio
+async def test_agent_pending_queue_returns_guidance(
+    test_db,
+    intake_dir,
+):
+    service = IntakeService()
+    source = service.create_source_from_upload_content(
+        filename="receipt.pdf",
+        content_type="application/pdf",
+        content=b"%PDF-1.4 queue guidance",
+        explanation="Queue test",
+        source_type="receipt",
+        actor="api",
+        agent_guidance="Priority booking",
+    )
+
+    pending = await list_pending_intake_sources(actor="api")
+    voucher_item = next(item for item in pending["items"] if item["id"] == source.id)
+    assert voucher_item["guidance"] == "Priority booking"
+
+
+@pytest.mark.asyncio
+async def test_update_agent_guidance_for_pending_source(
+    test_db,
+    intake_dir,
+):
+    service = IntakeService()
+    source = service.create_source_from_upload_content(
+        filename="receipt.pdf",
+        content_type="application/pdf",
+        content=b"%PDF-1.4 update guidance",
+        explanation="Update test",
+        source_type="receipt",
+        actor="api",
+        agent_guidance="Initial guidance",
+    )
+
+    updated = await update_intake_agent_guidance(
+        source.id,
+        UpdateAgentGuidanceRequest(agent_guidance="Updated guidance"),
+        actor="api",
+    )
+    assert updated["agent_guidance"] == "Updated guidance"
+
+    stored = IntakeRepository.get_source(source.id)
+    assert stored is not None
+    assert stored.agent_guidance == "Updated guidance"
+
+
+@pytest.mark.asyncio
+async def test_update_agent_guidance_whitespace_clears_to_null(
+    test_db,
+    intake_dir,
+):
+    service = IntakeService()
+    source = service.create_source_from_upload_content(
+        filename="receipt.pdf",
+        content_type="application/pdf",
+        content=b"%PDF-1.4 clear guidance",
+        explanation="Clear test",
+        source_type="receipt",
+        actor="api",
+        agent_guidance="To be cleared",
+    )
+
+    updated = await update_intake_agent_guidance(
+        source.id,
+        UpdateAgentGuidanceRequest(agent_guidance="   "),
+        actor="api",
+    )
+    assert updated["agent_guidance"] is None
+
+    stored = IntakeRepository.get_source(source.id)
+    assert stored is not None
+    assert stored.agent_guidance is None
+
+
+@pytest.mark.asyncio
+async def test_update_agent_guidance_rejected_for_processed_source(
+    test_db,
+    intake_dir,
+):
+    service = IntakeService()
+    source = service.create_source_from_upload_content(
+        filename="receipt.pdf",
+        content_type="application/pdf",
+        content=b"%PDF-1.4 processed lock",
+        explanation="Lock test",
+        source_type="receipt",
+        actor="api",
+        agent_guidance="Locked soon",
+    )
+    service.record_processing(source.id, summary="Processing", actor="api")
+    service.record_failed(
+        source.id,
+        summary="Failed",
+        error_detail="Error",
+        actor="api",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await update_intake_agent_guidance(
+            source.id,
+            UpdateAgentGuidanceRequest(agent_guidance="Should fail"),
+            actor="api",
+        )
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "intake_guidance_locked"

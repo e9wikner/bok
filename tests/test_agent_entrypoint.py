@@ -114,6 +114,7 @@ async def test_agent_entrypoint_prescribes_startup_order_and_guardrails(async_cl
     assert "failed or warning" in guidance
     assert "intake_source_ids" in guidance
     assert "pending queue" in guidance
+    assert "guidance" in guidance
 
 
 @pytest.mark.asyncio

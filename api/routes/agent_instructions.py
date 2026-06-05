@@ -103,6 +103,8 @@ async def get_agent_instruction_entrypoint():
                     "bank_input items, include bank_input_ids and the selected "
                     "bank_transaction_ids. If an item cannot be completed, record "
                     "failed or warning outcomes instead of guessing."
+                    " Consider any item-level guidance field provided by the user "
+                    "when deciding how to book the voucher."
                 ),
             },
         ],
