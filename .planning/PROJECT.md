@@ -19,23 +19,26 @@ current validated path.
 
 v1.2 Agent Onboarding shipped on 2026-06-05. The deployed Bok instance now exposes a public-safe agent instruction entrypoint (`/api/v1/agent-instructions/entrypoint`) with service identity, auth guidance, ordered startup workflow, and guardrails. Placeholder agent routes have been removed. `DEPLOYMENT.md` now includes a post-deploy OpenClaw/HTTP-agent setup section with shell-variable `curl` verification commands, frontend/backend URL separation notes, and a setup-only starter agent prompt. Deterministic pytest tests verify the documentation content and route behavior against the live FastAPI app.
 
+v1.3 Agent Usability & Feedback Loop started on 2026-06-05. Real-world agent usage revealed gaps between agent processing and backend bookkeeping: already-posted intake items remain in pending state, imported bank transactions are not exposed as matchable entities, agent instruction updates are not persisted, uploaded receipts lack per-source guidance fields, and the correction workflow is too heavy for non-expert users.
+
 Known closeout debt: the v1.0 milestone audit was accepted with `gaps_found` because Phase 1 lacks aggregate `01-VERIFICATION.md`, even though its plan summaries record focused implementation checks. The v1.1 milestone closed without a dedicated `v1.1-MILESTONE-AUDIT.md` and without running `$gsd-secure-phase 5`. The v1.2 milestone closed without a dedicated `v1.2-MILESTONE-AUDIT.md`.
 
-## Current Milestone: v1.2 Agent Onboarding (Shipped)
+## Current Milestone: v1.3 Agent Usability & Feedback Loop (In Progress)
 
-**Goal:** Make a deployed Bok instance understandable and connectable for an OpenClaw-style HTTP agent so it can begin bookkeeping through the existing agent API.
+**Goal:** Fix the real-world gaps between agent processing and backend bookkeeping so the agent actually produces visible, correct, and reviewable verifications.
 
-**Shipped:**
-- REST-style agent onboarding endpoint that tells an agent how to connect, authenticate, discover available agent endpoints, and start the bookkeeping workflow.
-- Post-deploy OpenClaw/HTTP-agent setup instructions in `DEPLOYMENT.md`.
-- Revised agent API behavior: startup, context scanning, direct posting, and correction feedback are coherent for an external agent.
+**Target features:**
+- **Intake deduplication/linking** — Already-posted intake items must be linkable to existing vouchers or markable as handled, so the agent stops re-processing them.
+- **Bank transaction matchability** — Imported bank transactions must be exposed as matchable entities via the agent API so the agent can create vouchers from them.
+- **Agent instruction persistence** — The agent must be able to update/persist instructions it learns, or the system must support agent-driven instruction updates.
+- **Per-source agent guidance** — Users can attach an "agent message" to uploaded receipts/invoices to guide the agent on how to book them.
+- **Simplified correction flow** — Users can leave a text correction note instead of creating a B-series correction themselves; the agent reads the note, suggests a correction, and gets approval before posting.
 
 ## Next Milestone Goals
 
 - Persistent, revocable per-agent API keys with audit metadata (KEYS-01)
 - MCP adapter for selected agent workflow operations (MCP-01)
 - Durable idempotency keys for retry-safe agent posting (IDEM-01)
-- Continued refinement of agent context and correction-learning surfaces
 
 ## Core Value
 
@@ -83,9 +86,11 @@ The system should let a small Swedish company keep compliant books with minimal 
 
 ### Active
 
-- [ ] Persistent, revocable per-agent API keys with audit metadata (KEYS-01)
-- [ ] MCP adapter for selected agent workflow operations (MCP-01)
-- [ ] Durable idempotency keys for retry-safe agent posting (IDEM-01)
+- [ ] Intake deduplication/linking — already-posted intake items can be linked to existing vouchers or marked handled (DEDUP-01)
+- [ ] Bank transaction matchability — imported bank transactions exposed as matchable entities via agent API (MATCH-01)
+- [ ] Agent instruction persistence — agent can update/persist instructions it learns (INSTR-01)
+- [ ] Per-source agent guidance — user can attach an "agent message" to uploaded receipts/invoices (GUIDE-01)
+- [ ] Simplified correction flow — user leaves a text correction note; agent suggests fix and gets approval (CORR-01)
 
 ### Out of Scope
 
@@ -162,4 +167,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-05 after v1.2 milestone completion*
+*Last updated: 2026-06-05 after v1.3 milestone start*
