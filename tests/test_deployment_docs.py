@@ -2,7 +2,12 @@
 
 from pathlib import Path
 
+import httpx
 import pytest
+import pytest_asyncio
+
+from api.main import app
+from config import settings
 
 
 DEPLOYMENT_PATH = Path("DEPLOYMENT.md")
@@ -143,3 +148,48 @@ def test_openclaw_section_has_no_expected_response_snippets(openclaw_section):
 def test_openclaw_section_has_setup_only_constraint(openclaw_section):
     assert "behandla inte pending intake" in openclaw_section.lower() or "pending intake" in openclaw_section.lower()
     assert "starta inte bokföringen" in openclaw_section.lower() or "bokföringen" in openclaw_section.lower()
+
+
+# --- Route and auth behavior tests ---
+
+
+@pytest_asyncio.fixture
+async def async_client():
+    """Create an async HTTP client for the FastAPI app."""
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client
+
+
+def _auth_headers() -> dict[str, str]:
+    return {"Authorization": f"Bearer {settings.api_key}"}
+
+
+@pytest.mark.asyncio
+async def test_health_route_returns_200(async_client):
+    response = await async_client.get("/health")
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_entrypoint_route_is_public(async_client):
+    response = await async_client.get("/api/v1/agent-instructions/entrypoint")
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_ping_route_requires_auth(async_client):
+    response = await async_client.post("/api/v1/agent/test/ping")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_ping_route_returns_ok_with_auth(async_client):
+    response = await async_client.post(
+        "/api/v1/agent/test/ping",
+        headers=_auth_headers(),
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+    assert data["service"] == "bokfoering-api"
