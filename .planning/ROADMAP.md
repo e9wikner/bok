@@ -36,22 +36,24 @@ API-03, VER-01
    excluded from the supported startup path.
 6. Backend tests cover the entrypoint response contract and ping behavior.
 
-### Phase 7: OpenClaw Deployment Instructions and Verification
+### Phase 7: OpenClaw Deployment Instructions and Verification ✅
 
 **Goal:** Document and verify the post-deploy OpenClaw/HTTP-agent setup path so
 an owner can connect an external agent without reverse engineering Bok.
 
 **Requirements:** AUTH-01, DOCS-01, DOCS-02, DOCS-03, DOCS-04, VER-02
 
+**Completed:** 2026-06-05
+
 **Success criteria:**
-1. `DEPLOYMENT.md` includes a post-deploy OpenClaw/HTTP-agent setup section.
-2. The docs distinguish the human frontend URL from the backend API URL used by
+1. ✅ `DEPLOYMENT.md` includes a post-deploy OpenClaw/HTTP-agent setup section.
+2. ✅ The docs distinguish the human frontend URL from the backend API URL used by
    agents on LAN.
-3. The docs include concrete `curl` commands for health and authenticated agent
+3. ✅ The docs include concrete `curl` commands for health and authenticated agent
    ping checks.
-4. The docs include a first agent prompt or instruction that tells OpenClaw how
+4. ✅ The docs include a first agent prompt or instruction that tells OpenClaw how
    to begin bookkeeping in Bok through the instruction entrypoint.
-5. Documentation examples are checked against actual route paths and auth
+5. ✅ Documentation examples are checked against actual route paths and auth
    behavior.
 
 ## Coverage
