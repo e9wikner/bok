@@ -672,6 +672,8 @@ def _correction_chain_for_voucher(voucher) -> list[dict]:
                     "actor": history.corrected_by,
                     "timestamp": history.created_at.isoformat(),
                     "change_type": history.change_type,
+                    "original_data": history.original_data,
+                    "corrected_data": history.corrected_data,
                 }
             )
     return sorted(chain, key=lambda item: item["timestamp"])

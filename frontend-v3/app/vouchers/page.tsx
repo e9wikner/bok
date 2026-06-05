@@ -108,7 +108,7 @@ export default function VouchersPage() {
     sortBy,
     sortOrder,
     fiscalYearId,
-    "IB" // Exclude opening balance vouchers from regular list
+    "IB,B" // Exclude opening balance and B-series correction vouchers from regular list
   );
 
   function toggleSort(column: string) {

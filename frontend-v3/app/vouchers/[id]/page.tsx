@@ -173,6 +173,9 @@ export default function VoucherDetailPage() {
   const [correctionNoteActionId, setCorrectionNoteActionId] = useState<string | null>(null);
   const [suggestedRows, setSuggestedRows] = useState<any[]>([]);
 
+  // Correction visualization state
+  const [rowView, setRowView] = useState<"original" | "net" | "diff">("original");
+
   // Upload state
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -214,6 +217,11 @@ export default function VoucherDetailPage() {
       }))
     );
   }, [suggestedDraft?.id, suggestedDraft?.rows]);
+
+  // Reset row view when voucher changes
+  useEffect(() => {
+    setRowView("original");
+  }, [id]);
 
   const handleDeleteAttachment = async (attachmentId: string) => {
     if (!confirm("Ta bort denna bilaga?")) return;
@@ -276,6 +284,7 @@ export default function VoucherDetailPage() {
     );
     setIsEditing(true);
     setSaveResult(null);
+    setRowView("original");
   };
 
   const cancelEditing = () => {
@@ -508,6 +517,39 @@ export default function VoucherDetailPage() {
           )}
         </div>
       </div>
+
+      {/* B-series correction banner */}
+      {voucher.correction_of && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-4 dark:border-amber-900/50 dark:bg-amber-950/20">
+          <div className="flex items-center gap-2 text-sm font-medium text-amber-800 dark:text-amber-300">
+            <History className="h-4 w-4" />
+            Detta är en korrigeringsverifikation (B-serie).
+          </div>
+          <p className="mt-1 text-sm text-amber-700 dark:text-amber-400">
+            Visa den sammanfogade vyn på originalverifikationen för att se nettot.
+          </p>
+          <Link
+            href={`/vouchers/${voucher.correction_of}`}
+            className="mt-2 inline-flex items-center gap-1 text-sm text-primary hover:underline"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            Gå till originalverifikation {voucher.correction_of}
+          </Link>
+        </div>
+      )}
+
+      {/* Corrected badge on original */}
+      {correctionChain.length > 0 && !voucher.correction_of && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+          <div className="flex items-center gap-2 text-sm font-medium text-emerald-800 dark:text-emerald-300">
+            <CheckCircle2 className="h-4 w-4" />
+            Denna verifikation har korrigerats.
+          </div>
+          <p className="mt-1 text-sm text-emerald-700 dark:text-emerald-400">
+            Se nettot efter korrigering under konteringsrader nedan.
+          </p>
+        </div>
+      )}
 
       {/* Meta info */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -861,6 +903,8 @@ export default function VoucherDetailPage() {
                   ? voucher.status === "posted"
                     ? "Skapar en postad B-serie-korrigering. Originalverifikationen ändras inte."
                     : "Ändra konto eller belopp och spara"
+                  : correctionChain.length > 0 && !voucher.correction_of
+                  ? "Original, netto och ändringar för korrigerad verifikation"
                   : "Debet och kredit per konto"}
               </CardDescription>
             </div>
@@ -870,100 +914,156 @@ export default function VoucherDetailPage() {
               </Button>
             )}
           </div>
+          {!isEditing && correctionChain.length > 0 && !voucher.correction_of && (
+            <div className="mt-3 flex gap-1">
+              <Button
+                variant={rowView === "original" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setRowView("original")}
+              >
+                Original
+              </Button>
+              <Button
+                variant={rowView === "net" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setRowView("net")}
+              >
+                Netto
+              </Button>
+              <Button
+                variant={rowView === "diff" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setRowView("diff")}
+              >
+                Ändringar
+              </Button>
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50">
-                  <th className="text-left p-3 font-medium text-muted-foreground">
-                    Konto
-                  </th>
-                  <th className="text-left p-3 font-medium text-muted-foreground">
-                    Kontonamn
-                  </th>
-                  <th className="text-right p-3 font-medium text-muted-foreground">
-                    Debet
-                  </th>
-                  <th className="text-right p-3 font-medium text-muted-foreground">
-                    Kredit
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {isEditing
-                  ? editedRows.map((row, i) => (
-                      <tr key={i} className="border-b last:border-0">
-                        <td className="p-2" colSpan={2}>
-                          <select
-                            value={row.account_code}
-                            onChange={(e) =>
-                              updateRow(i, "account_code", e.target.value)
-                            }
-                            className="w-full rounded border bg-background px-2 py-1.5 text-sm font-mono"
-                          >
-                            {accounts.map((a: any) => (
-                              <option key={a.code} value={a.code}>
-                                {a.code} — {a.name}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="p-2">
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={row.debit || ""}
-                            onChange={(e) =>
-                              updateRow(
-                                i,
-                                "debit",
-                                e.target.value
-                              )
-                            }
-                            className="w-full rounded border bg-background px-2 py-1.5 text-sm text-right font-mono"
-                            placeholder="0"
-                          />
-                        </td>
-                        <td className="p-2">
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={row.credit || ""}
-                            onChange={(e) =>
-                              updateRow(
-                                i,
-                                "credit",
-                                e.target.value
-                              )
-                            }
-                            className="w-full rounded border bg-background px-2 py-1.5 text-sm text-right font-mono"
-                            placeholder="0"
-                          />
-                        </td>
-                      </tr>
-                    ))
-                  : voucher.rows?.map((row: any, i: number) => (
-                      <tr
-                        key={i}
-                        className="border-b last:border-0 hover:bg-muted/30"
-                      >
-                        <td className="p-3 font-mono font-medium">
-                          {row.account_code}
-                        </td>
-                        <td className="p-3 text-muted-foreground">
-                          {row.account_name || "-"}
-                        </td>
-                        <td className="p-3 text-right font-mono">
-                          {row.debit ? formatCurrency(row.debit) : "-"}
-                        </td>
-                        <td className="p-3 text-right font-mono">
-                          {row.credit ? formatCurrency(row.credit) : "-"}
-                        </td>
-                      </tr>
-                    ))}
-              </tbody>
-              {!isEditing && (
+            {isEditing ? (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <th className="text-left p-3 font-medium text-muted-foreground">
+                      Konto
+                    </th>
+                    <th className="text-left p-3 font-medium text-muted-foreground">
+                      Kontonamn
+                    </th>
+                    <th className="text-right p-3 font-medium text-muted-foreground">
+                      Debet
+                    </th>
+                    <th className="text-right p-3 font-medium text-muted-foreground">
+                      Kredit
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {editedRows.map((row, i) => (
+                    <tr key={i} className="border-b last:border-0">
+                      <td className="p-2" colSpan={2}>
+                        <select
+                          value={row.account_code}
+                          onChange={(e) =>
+                            updateRow(i, "account_code", e.target.value)
+                          }
+                          className="w-full rounded border bg-background px-2 py-1.5 text-sm font-mono"
+                        >
+                          {accounts.map((a: any) => (
+                            <option key={a.code} value={a.code}>
+                              {a.code} — {a.name}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="p-2">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={row.debit || ""}
+                          onChange={(e) =>
+                            updateRow(
+                              i,
+                              "debit",
+                              e.target.value
+                            )
+                          }
+                          className="w-full rounded border bg-background px-2 py-1.5 text-sm text-right font-mono"
+                          placeholder="0"
+                        />
+                      </td>
+                      <td className="p-2">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={row.credit || ""}
+                          onChange={(e) =>
+                            updateRow(
+                              i,
+                              "credit",
+                              e.target.value
+                            )
+                          }
+                          className="w-full rounded border bg-background px-2 py-1.5 text-sm text-right font-mono"
+                          placeholder="0"
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : rowView === "net" && correctionChain.length > 0 ? (
+              <NetRowsTable
+                correctionChain={correctionChain}
+                accountNames={accounts}
+              />
+            ) : rowView === "diff" && correctionChain.length > 0 ? (
+              <CorrectionDiffTable
+                voucher={voucher}
+                correctionChain={correctionChain}
+                accountNames={accounts}
+              />
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <th className="text-left p-3 font-medium text-muted-foreground">
+                      Konto
+                    </th>
+                    <th className="text-left p-3 font-medium text-muted-foreground">
+                      Kontonamn
+                    </th>
+                    <th className="text-right p-3 font-medium text-muted-foreground">
+                      Debet
+                    </th>
+                    <th className="text-right p-3 font-medium text-muted-foreground">
+                      Kredit
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {voucher.rows?.map((row: any, i: number) => (
+                    <tr
+                      key={i}
+                      className="border-b last:border-0 hover:bg-muted/30"
+                    >
+                      <td className="p-3 font-mono font-medium">
+                        {row.account_code}
+                      </td>
+                      <td className="p-3 text-muted-foreground">
+                        {row.account_name || "-"}
+                      </td>
+                      <td className="p-3 text-right font-mono">
+                        {row.debit ? formatCurrency(row.debit) : "-"}
+                      </td>
+                      <td className="p-3 text-right font-mono">
+                        {row.credit ? formatCurrency(row.credit) : "-"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
                 <tfoot>
                   <tr className="border-t-2 font-bold">
                     <td className="p-3" colSpan={2}>
@@ -977,8 +1077,8 @@ export default function VoucherDetailPage() {
                     </td>
                   </tr>
                 </tfoot>
-              )}
-            </table>
+              </table>
+            )}
           </div>
 
           {/* Correction form */}
@@ -1034,7 +1134,7 @@ export default function VoucherDetailPage() {
       />
 
       {showCorrectionChain && (
-        <CorrectionChainSection
+        <CorrectionMetaSection
           currentVoucherId={voucher.id}
           correctionOf={voucher.correction_of}
           correctionChain={correctionChain}
@@ -1295,6 +1395,183 @@ export default function VoucherDetailPage() {
   );
 }
 
+function NetRowsTable({
+  correctionChain,
+  accountNames,
+}: {
+  correctionChain: VoucherSourceContext["correction_chain"];
+  accountNames: { code: string; name: string }[];
+}) {
+  const latest = correctionChain[correctionChain.length - 1];
+  const netRows = latest?.corrected_data?.rows || [];
+  const totalDebit = netRows.reduce((s, r) => s + (r.debit || 0), 0);
+  const totalCredit = netRows.reduce((s, r) => s + (r.credit || 0), 0);
+  const nameMap = new Map(accountNames.map((a) => [a.code, a.name]));
+
+  return (
+    <table className="w-full text-sm">
+      <thead>
+        <tr className="border-b bg-muted/50">
+          <th className="text-left p-3 font-medium text-muted-foreground">
+            Konto
+          </th>
+          <th className="text-left p-3 font-medium text-muted-foreground">
+            Kontonamn
+          </th>
+          <th className="text-right p-3 font-medium text-muted-foreground">
+            Debet
+          </th>
+          <th className="text-right p-3 font-medium text-muted-foreground">
+            Kredit
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {netRows.map((row, i) => (
+          <tr key={i} className="border-b last:border-0 hover:bg-muted/30">
+            <td className="p-3 font-mono font-medium">{row.account_code}</td>
+            <td className="p-3 text-muted-foreground">
+              {nameMap.get(row.account_code) || "-"}
+            </td>
+            <td className="p-3 text-right font-mono">
+              {row.debit ? formatCurrency(row.debit) : "-"}
+            </td>
+            <td className="p-3 text-right font-mono">
+              {row.credit ? formatCurrency(row.credit) : "-"}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+      <tfoot>
+        <tr className="border-t-2 font-bold">
+          <td className="p-3" colSpan={2}>
+            Summa
+          </td>
+          <td className="p-3 text-right font-mono">
+            {formatCurrency(totalDebit)}
+          </td>
+          <td className="p-3 text-right font-mono">
+            {formatCurrency(totalCredit)}
+          </td>
+        </tr>
+      </tfoot>
+    </table>
+  );
+}
+
+function CorrectionDiffTable({
+  voucher,
+  correctionChain,
+  accountNames,
+}: {
+  voucher: any;
+  correctionChain: VoucherSourceContext["correction_chain"];
+  accountNames: { code: string; name: string }[];
+}) {
+  const latest = correctionChain[correctionChain.length - 1];
+  const originalRows = latest?.original_data?.rows || voucher.rows || [];
+  const correctedRows = latest?.corrected_data?.rows || [];
+  const nameMap = new Map(accountNames.map((a) => [a.code, a.name]));
+
+  // Aggregate by account code for a compact diff view
+  const agg = new Map<
+    string,
+    { beforeDebit: number; beforeCredit: number; afterDebit: number; afterCredit: number }
+  >();
+
+  for (const row of originalRows) {
+    const key = row.account_code;
+    const cur = agg.get(key) || { beforeDebit: 0, beforeCredit: 0, afterDebit: 0, afterCredit: 0 };
+    cur.beforeDebit += row.debit || 0;
+    cur.beforeCredit += row.credit || 0;
+    agg.set(key, cur);
+  }
+
+  for (const row of correctedRows) {
+    const key = row.account_code;
+    const cur = agg.get(key) || { beforeDebit: 0, beforeCredit: 0, afterDebit: 0, afterCredit: 0 };
+    cur.afterDebit += row.debit || 0;
+    cur.afterCredit += row.credit || 0;
+    agg.set(key, cur);
+  }
+
+  // Only show accounts where something changed
+  const changed = Array.from(agg.entries()).filter(([, v]) => {
+    return v.beforeDebit !== v.afterDebit || v.beforeCredit !== v.afterCredit;
+  });
+
+  if (changed.length === 0) {
+    return (
+      <p className="text-center text-sm text-muted-foreground py-6">
+        Inga ändringar mellan original och korrigerad verifikation.
+      </p>
+    );
+  }
+
+  return (
+    <table className="w-full text-sm">
+      <thead>
+        <tr className="border-b bg-muted/50">
+          <th className="text-left p-3 font-medium text-muted-foreground">
+            Konto
+          </th>
+          <th className="text-right p-3 font-medium text-muted-foreground">
+            Före (D/K)
+          </th>
+          <th className="text-right p-3 font-medium text-muted-foreground">
+            Efter (D/K)
+          </th>
+          <th className="text-right p-3 font-medium text-muted-foreground">
+            Delta
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {changed.map(([accountCode, v]) => {
+          const debitDelta = v.afterDebit - v.beforeDebit;
+          const creditDelta = v.afterCredit - v.beforeCredit;
+          return (
+            <tr key={accountCode} className="border-b last:border-0 hover:bg-muted/30">
+              <td className="p-3">
+                <span className="font-mono font-medium">{accountCode}</span>
+                <span className="ml-2 text-muted-foreground text-xs">
+                  {nameMap.get(accountCode) || "-"}
+                </span>
+              </td>
+              <td className="p-3 text-right font-mono text-muted-foreground">
+                {formatCurrency(v.beforeDebit)} / {formatCurrency(v.beforeCredit)}
+              </td>
+              <td className="p-3 text-right font-mono">
+                {formatCurrency(v.afterDebit)} / {formatCurrency(v.afterCredit)}
+              </td>
+              <td className="p-3 text-right font-mono">
+                {debitDelta !== 0 && (
+                  <span className={debitDelta > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}>
+                    D {debitDelta > 0 ? "+" : ""}
+                    {formatCurrency(Math.abs(debitDelta))}
+                  </span>
+                )}
+                {debitDelta !== 0 && creditDelta !== 0 && (
+                  <span className="mx-1 text-muted-foreground">·</span>
+                )}
+                {creditDelta !== 0 && (
+                  <span className={creditDelta > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}>
+                    K {creditDelta > 0 ? "+" : ""}
+                    {formatCurrency(Math.abs(creditDelta))}
+                  </span>
+                )}
+                {debitDelta === 0 && creditDelta === 0 && (
+                  <span className="text-muted-foreground">-</span>
+                )}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
 function SourceMaterialSection({
   isLoading,
   sourceMaterials,
@@ -1531,8 +1808,7 @@ function AgentProcessingSection({
   );
 }
 
-function CorrectionChainSection({
-  currentVoucherId,
+function CorrectionMetaSection({
   correctionOf,
   correctionChain,
 }: {
@@ -1540,111 +1816,51 @@ function CorrectionChainSection({
   correctionOf?: string | null;
   correctionChain: VoucherSourceContext["correction_chain"];
 }) {
-  const fallbackChain =
-    correctionChain.length > 0
-      ? correctionChain
-      : [
-          {
-            id: `${correctionOf}-${currentVoucherId}`,
-            original_voucher_id: correctionOf || "",
-            correction_voucher_id: currentVoucherId,
-            correction_reason: null,
-            actor: null,
-            timestamp: "",
-            change_type: null,
-          },
-        ];
+  if (correctionChain.length === 0 && !correctionOf) return null;
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <History className="h-5 w-5 text-primary" />
-          Korrigeringskedja
+          Korrigeringshistorik
         </CardTitle>
         <CardDescription>
-          Read-only historik över ursprunglig verifikation och korrigeringar.
+          Metadata för bokförda korrigeringar.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <p className="rounded-lg border bg-muted/30 p-3 text-sm">
-          Den här historiken kan användas av agenten vid framtida bokföring.
-        </p>
-
-        <div className="space-y-3">
-          {fallbackChain.map((entry) => (
-            <div key={entry.id} className="rounded-lg border p-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <CorrectionVoucherLink
-                  label="Originalverifikation"
-                  voucherId={entry.original_voucher_id || correctionOf}
-                />
-                <CorrectionVoucherLink
-                  label="Korrigeringsverifikation"
-                  voucherId={entry.correction_voucher_id || currentVoucherId}
-                />
-              </div>
-
-              <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                <ReadOnlyField
-                  label="Anledning"
-                  value={entry.correction_reason || "Ingen anledning angiven"}
-                />
-                <ReadOnlyField label="Aktör" value={entry.actor || "okänd"} />
-                <ReadOnlyField
-                  label="Tidpunkt"
-                  value={entry.timestamp ? formatDate(entry.timestamp) : "-"}
-                />
-              </div>
-
-              {entry.change_type && (
-                <div className="mt-3">
-                  <Badge variant="outline">{entry.change_type}</Badge>
-                </div>
-              )}
+      <CardContent className="space-y-3">
+        {correctionChain.map((entry) => (
+          <div key={entry.id} className="rounded-lg border p-4">
+            <div className="flex flex-wrap items-center gap-2 mb-2">
+              <Badge variant="outline">{entry.change_type || "korrigering"}</Badge>
+              <span className="text-xs text-muted-foreground">
+                {entry.timestamp ? formatDate(entry.timestamp) : "-"}
+              </span>
             </div>
-          ))}
-        </div>
+            <p className="text-sm text-muted-foreground">
+              <span className="font-medium text-foreground">Anledning:</span>{" "}
+              {entry.correction_reason || "Ingen anledning angiven"}
+            </p>
+            <p className="text-sm text-muted-foreground mt-1">
+              <span className="font-medium text-foreground">Aktör:</span>{" "}
+              {entry.actor || "okänd"}
+            </p>
+            {entry.correction_voucher_id && (
+              <p className="text-sm text-muted-foreground mt-1">
+                <span className="font-medium text-foreground">Korrigeringsverifikation:</span>{" "}
+                <Link
+                  href={`/vouchers/${entry.correction_voucher_id}`}
+                  className="text-primary hover:underline"
+                >
+                  {entry.correction_voucher_id}
+                </Link>
+              </p>
+            )}
+          </div>
+        ))}
       </CardContent>
     </Card>
-  );
-}
-
-function CorrectionVoucherLink({
-  label,
-  voucherId,
-}: {
-  label: string;
-  voucherId?: string | null;
-}) {
-  return (
-    <div className="rounded-lg border bg-muted/20 p-3">
-      <p className="text-xs font-semibold uppercase text-muted-foreground">
-        {label}
-      </p>
-      {voucherId ? (
-        <Link
-          href={`/vouchers/${voucherId}`}
-          className="mt-1 inline-flex items-center gap-1 break-all text-sm text-primary hover:underline"
-        >
-          <ExternalLink className="h-3.5 w-3.5 flex-shrink-0" />
-          {voucherId}
-        </Link>
-      ) : (
-        <p className="mt-1 text-sm text-muted-foreground">Saknas</p>
-      )}
-    </div>
-  );
-}
-
-function ReadOnlyField({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border bg-muted/20 p-3">
-      <p className="text-xs font-semibold uppercase text-muted-foreground">
-        {label}
-      </p>
-      <p className="mt-1 break-words text-sm">{value}</p>
-    </div>
   );
 }
 

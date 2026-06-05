@@ -392,6 +392,25 @@ export interface VoucherSourceContext {
     actor?: string | null;
     timestamp: string;
     change_type?: string | null;
+    original_data?: {
+      description: string;
+      rows: {
+        account_code: string;
+        debit: number;
+        credit: number;
+        description?: string | null;
+      }[];
+    } | null;
+    corrected_data?: {
+      description: string;
+      rows: {
+        account_code: string;
+        debit: number;
+        credit: number;
+        description?: string | null;
+      }[];
+      correction_voucher_id?: string | null;
+    } | null;
   }[];
 }
 

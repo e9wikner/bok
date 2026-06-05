@@ -89,6 +89,7 @@ Last activity: 2026-06-05 - Completed quick task 260605-uk6: continue pending qu
 | 2026-06-05 | analyze-the-logs-from-my-agent-activitie | Improved agent startup guidance for auth failures and bank-input transaction discovery after analyzing activity logs. |
 | 2026-06-05 | fix-intake-source-re-upload-blocked-afte | Fixed intake source re-upload after soft-delete by excluding deleted sources from sha256 duplicate check and adding a partial unique index. |
 | 2026-06-05 | continue-pending-quick-fix-files-are-edi | B-series correction vouchers now inherit the original voucher's date instead of the current date, ensuring BFL/BFNAR compliance. |
+| 2026-06-05 | refine-correction-voucher-ui-display-mer | B-series correction vouchers are hidden from the list; original vouchers show merged Original/Netto/Ändringar tabs with diff and net rows. |
 
 ## Accumulated Context
 
