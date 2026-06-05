@@ -121,9 +121,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-05T12:00:00Z
-Stopped at: Milestone v1.2 completion
-Resume file: none
+Last session: 2026-06-05T14:00:00Z
+Stopped at: Phase 8 context gathered
+Resume file: .planning/phases/08-guide-per-source-agent-guidance/08-CONTEXT.md
 
 ## Operator Next Steps
 
