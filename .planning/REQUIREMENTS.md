@@ -14,7 +14,7 @@
 ### CORR — Simplified Correction Flow
 
 - [x] **CORR-01**: User can leave a text correction note on a posted voucher
-- [ ] **CORR-02**: Agent can read pending correction notes
+- [x] **CORR-02**: Agent can read pending correction notes
 - [x] **CORR-03**: Agent can suggest a B-series correction based on a correction note
 - [x] **CORR-04**: User can review and approve a suggested correction before posting
 - [x] **CORR-05**: Approved correction still produces an immutable B-series voucher
@@ -62,7 +62,7 @@
 | GUIDE-02 | Phase 8 | Pending |
 | GUIDE-03 | Phase 8 | Pending |
 | CORR-01 | Phase 9 | Complete |
-| CORR-02 | Phase 9 | Pending |
+| CORR-02 | Phase 9 | Complete |
 | CORR-03 | Phase 9 | Complete |
 | CORR-04 | Phase 9 | Complete |
 | CORR-05 | Phase 9 | Complete |
