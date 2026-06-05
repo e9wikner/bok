@@ -105,6 +105,18 @@ async def get_bank_input_file(
         raise _http_error(exc) from exc
 
 
+@router.delete("/{bank_input_id}", status_code=http_status.HTTP_204_NO_CONTENT)
+async def delete_bank_input(
+    bank_input_id: str,
+    actor: str = Depends(get_current_actor),
+):
+    """Delete a bank input that has not been successfully processed."""
+    try:
+        BankInputService().delete_unprocessed(bank_input_id)
+    except BankInputError as exc:
+        raise _http_error(exc) from exc
+
+
 def _bank_input_to_dict(bank_input: BankInput) -> dict:
     return {
         "id": bank_input.id,

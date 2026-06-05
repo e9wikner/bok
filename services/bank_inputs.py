@@ -167,6 +167,20 @@ class BankInputService:
             )
         return candidate
 
+    def delete_unprocessed(self, bank_input_id: str) -> None:
+        """Delete a bank input that has not been successfully processed."""
+        bank_input = self.get_bank_input(bank_input_id)
+        if bank_input.status == BankInputStatus.PROCESSED:
+            raise BankInputConflictError(
+                "bank_input_processed",
+                "Processed bank inputs cannot be deleted",
+                f"bank_input_id={bank_input_id}",
+            )
+        stored_path = self.resolve_input_file(bank_input)
+        with db.transaction():
+            self.inputs.delete_bank_input(bank_input_id, _commit=False)
+        self._cleanup_stored_file(stored_path)
+
     def list_agent_relevant(self, limit: int = 100, offset: int = 0) -> dict:
         """Return bank inputs relevant to the agent intake queue."""
         return {

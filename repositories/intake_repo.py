@@ -115,10 +115,11 @@ class IntakeRepository:
             rows = db.execute(
                 """
                 SELECT * FROM intake_sources
+                WHERE status != ?
                 ORDER BY uploaded_at ASC
                 LIMIT ? OFFSET ?
                 """,
-                (limit, offset),
+                (IntakeStatus.DELETED.value, limit, offset),
             ).fetchall()
         return [IntakeRepository._row_to_source(row) for row in rows]
 
@@ -130,7 +131,10 @@ class IntakeRepository:
                 (status,),
             ).fetchone()
         else:
-            row = db.execute("SELECT COUNT(*) AS count FROM intake_sources").fetchone()
+            row = db.execute(
+                "SELECT COUNT(*) AS count FROM intake_sources WHERE status != ?",
+                (IntakeStatus.DELETED.value,),
+            ).fetchone()
         return row["count"] if row else 0
 
     @staticmethod

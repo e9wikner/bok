@@ -767,6 +767,12 @@ export const api = {
     });
     return data;
   },
+  deleteIntakeSource: async (id: string): Promise<void> => {
+    await apiClient.delete(`/api/v1/intake/${id}`);
+  },
+  deleteBankInput: async (id: string): Promise<void> => {
+    await apiClient.delete(`/api/v1/bank-inputs/${id}`);
+  },
   exportSie4: async () => {
     const { data } = await apiClient.get("/api/v1/export/sie4");
     return data;

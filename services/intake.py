@@ -150,12 +150,12 @@ class IntakeService:
         }
 
     def soft_delete(self, source_id: str, actor: str) -> None:
-        """Soft-delete a pending intake source while preserving file and row."""
+        """Soft-delete an unprocessed intake source while preserving file and row."""
         source = self.get_source(source_id)
-        if source.status != IntakeStatus.PENDING:
+        if source.status == IntakeStatus.PROCESSED:
             raise IntakeConflictError(
-                "intake_not_pending",
-                "Only pending intake sources can be deleted",
+                "intake_processed",
+                "Processed intake sources cannot be deleted",
                 f"source_id={source_id}, status={source.status.value}",
             )
         with db.transaction():

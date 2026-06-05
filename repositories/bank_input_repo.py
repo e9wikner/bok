@@ -164,6 +164,19 @@ class BankInputRepository:
         return bank_input
 
     @staticmethod
+    def delete_bank_input(bank_input_id: str, _commit: bool = True) -> None:
+        db.execute(
+            "DELETE FROM bank_input_transactions WHERE bank_input_id = ?",
+            (bank_input_id,),
+        )
+        db.execute(
+            "DELETE FROM bank_inputs WHERE id = ?",
+            (bank_input_id,),
+        )
+        if _commit:
+            db.commit()
+
+    @staticmethod
     def create_transaction_link(
         bank_input_id: str,
         bank_transaction_id: str,

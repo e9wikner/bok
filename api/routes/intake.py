@@ -192,7 +192,7 @@ async def delete_intake_source(
     source_id: str,
     actor: str = Depends(get_current_actor),
 ):
-    """Soft-delete a pending intake source."""
+    """Soft-delete an intake source that has not been processed."""
     try:
         IntakeService().soft_delete(source_id, actor)
     except IntakeError as exc:

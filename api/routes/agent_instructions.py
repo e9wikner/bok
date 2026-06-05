@@ -97,9 +97,12 @@ async def get_agent_instruction_entrypoint():
                 "action": "process_pending_items",
                 "guidance": (
                     "Process all pending items automatically, one item at a time. "
-                    "Mark an item processing before work, post a voucher when the "
-                    "bookkeeping decision is complete, and record failed or warning "
-                    "outcomes instead of guessing."
+                    "Mark an item processing before work. When a voucher-source "
+                    "item is completed, post the voucher with that source ID in "
+                    "intake_source_ids so the item leaves the pending queue. For "
+                    "bank_input items, include bank_input_ids and the selected "
+                    "bank_transaction_ids. If an item cannot be completed, record "
+                    "failed or warning outcomes instead of guessing."
                 ),
             },
         ],
@@ -141,6 +144,7 @@ async def get_agent_instruction_entrypoint():
             "Posted vouchers are immutable; corrections must use correction vouchers.",
             "Use source material, accounting instructions, and correction history before posting.",
             "Post directly when the decision is complete; user review happens after posting.",
+            "A voucher-source intake item is not complete until its ID is included in intake_source_ids on /api/v1/agent/vouchers, or a failed outcome is recorded.",
             "Keep voucher source material and bank statement/status inputs conceptually separate.",
             "If an item cannot be completed, record failed or warning context instead of guessing.",
         ],

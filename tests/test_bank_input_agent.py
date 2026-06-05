@@ -14,7 +14,12 @@ from api.routes.agent import (
     create_and_post_agent_voucher,
     list_pending_intake_sources,
 )
-from api.routes.bank_inputs import get_bank_input_file, list_bank_input_connections, upload_bank_input
+from api.routes.bank_inputs import (
+    delete_bank_input,
+    get_bank_input_file,
+    list_bank_input_connections,
+    upload_bank_input,
+)
 from api.routes.intake import get_intake_workspace_detail, list_intake_workspace
 from api.routes.vouchers import get_voucher_source_context
 from api.schemas import VoucherRowRequest
@@ -356,6 +361,46 @@ def test_bank_input_upload_marks_unsupported_csv_failed(test_db, bank_input_dir)
     assert Path(bank_input.stored_path).exists()
 
 
+def test_bank_input_service_deletes_failed_upload_and_allows_reupload(
+    test_db,
+    bank_input_dir,
+):
+    conn = _active_connection()
+    service = BankInputService()
+    failed = service.create_from_upload_content(
+        filename="transactions.csv",
+        content_type="text/csv",
+        content=b"When;Value;Memo\n2026-03-01;-100,00;Bankavgift",
+        bank_connection_id=conn.id,
+        actor="api",
+    )
+    stored_path = Path(failed.stored_path)
+
+    service.delete_unprocessed(failed.id)
+
+    assert BankInputRepository.get_bank_input(failed.id) is None
+    assert not stored_path.exists()
+    reuploaded = service.create_from_upload_content(
+        filename="transactions.csv",
+        content_type="text/csv",
+        content=b"When;Value;Memo\n2026-03-01;-100,00;Bankavgift",
+        bank_connection_id=conn.id,
+        actor="api",
+    )
+    assert reuploaded.status == BankInputStatus.FAILED
+    assert reuploaded.id != failed.id
+
+
+def test_bank_input_service_rejects_deleting_processed_upload(test_db, bank_input_dir):
+    bank_input, _transaction_ids = _processed_bank_input()
+
+    with pytest.raises(BankInputConflictError) as exc_info:
+        BankInputService().delete_unprocessed(bank_input.id)
+
+    assert exc_info.value.code == "bank_input_processed"
+    assert BankInputRepository.get_bank_input(bank_input.id) is not None
+
+
 def test_bank_input_upload_records_duplicate_transaction_skip_count(test_db, bank_input_dir):
     conn = _active_connection()
 
@@ -546,6 +591,42 @@ async def test_bank_input_upload_download_and_error_mapping_api(
     with pytest.raises(HTTPException) as exc_info:
         await get_bank_input_file(response["id"], actor="api")
     assert exc_info.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_bank_input_delete_api_removes_failed_but_rejects_processed(
+    test_db,
+    bank_input_dir,
+):
+    conn = _active_connection()
+    failed = BankInputService().create_from_upload_content(
+        filename="bad.csv",
+        content_type="text/csv",
+        content=b"When;Value;Memo\n2026-03-01;-100,00;Bankavgift",
+        bank_connection_id=conn.id,
+        actor="api",
+    )
+    stored_path = Path(failed.stored_path)
+
+    response = await delete_bank_input(failed.id, actor="api")
+
+    assert response is None
+    assert BankInputRepository.get_bank_input(failed.id) is None
+    assert not stored_path.exists()
+
+    processed = await upload_bank_input(
+        file=_UploadFile(
+            "transactions.csv",
+            "text/csv",
+            b"Datum;Belopp;Text\n2026-03-01;-100,00;Bankavgift",
+        ),
+        bank_connection_id=conn.id,
+        actor="api",
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        await delete_bank_input(processed["id"], actor="api")
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "bank_input_processed"
 
 
 @pytest.mark.asyncio

@@ -60,6 +60,7 @@ Content-Type: application/json
   "period_id": "<period-id>",
   "description": "Kort beskrivning av affärshändelsen",
   "reasoning_summary": "Kort motivering utifrån underlag och aktuella instruktioner.",
+  "intake_source_ids": ["<source-id-från-/api/v1/agent/intake/pending>"],
   "rows": [
     {
       "account": "1930",
@@ -79,9 +80,20 @@ Content-Type: application/json
 
 Belopp anges alltid i öre. Verifikationen ska balansera exakt.
 
+När verifikationen bygger på ett vanligt uppladdat underlag (`kind:
+voucher_source`) måste underlagets `id` skickas i `intake_source_ids`. Annars
+ligger underlaget kvar som `pending` i intaget även om agenten har bokfört
+affärshändelsen.
+
+När verifikationen bygger på bankunderlag (`kind: bank_input`) ska bankfilens
+`id` skickas i `bank_input_ids` och de använda bankhändelsernas id:n i
+`bank_transaction_ids`.
+
 Efter postning:
 
 - kontrollera API-svaret
+- kontrollera att API-svarets `agent.intake_source_ids`, `agent.bank_input_ids`
+  och `agent.bank_transaction_ids` innehåller de intagsposter som behandlades
 - notera voucher-id i arbetsloggen
 - gör inte om samma postning om svaret är oklart; läs först verifikationslistan
   eller använd idempotensflöde när det är lämpligt
@@ -165,4 +177,3 @@ Avstå från att posta och be om mänsklig komplettering när:
 - perioden är låst eller saknas
 - verifikationen inte balanserar
 - transaktionen kan ha juridisk eller skattemässig effekt som inte framgår av underlaget
-

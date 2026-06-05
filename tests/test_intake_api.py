@@ -253,6 +253,12 @@ async def test_agent_failed_outcome_persists_attempt_and_hides_pending_source(
     pending = await list_pending_intake_sources(actor="api")
     assert pending["items"] == []
 
+    deleted = await delete_intake_source(source.id, actor="api")
+    assert deleted is None
+    stored = IntakeRepository.get_source(source.id)
+    assert stored is not None
+    assert stored.status == IntakeStatus.DELETED
+
 
 @pytest.mark.asyncio
 async def test_intake_workspace_failed_source_detail_includes_full_error_without_storage_path(

@@ -12,6 +12,7 @@ import {
   ExternalLink,
   FileText,
   Landmark,
+  Trash2,
   Upload,
 } from "lucide-react";
 import {
@@ -89,8 +90,8 @@ export default function IntakePage() {
   const intakeItems = workspaceData?.items || [];
   const total = workspaceData?.total || 0;
   const totalPages = Math.ceil(total / PAGE_SIZE);
-  const allStatusCount = Object.values(workspaceData?.status_counts || {}).reduce(
-    (sum, count) => sum + count,
+  const allStatusCount = Object.entries(workspaceData?.status_counts || {}).reduce(
+    (sum, [status, count]) => (status === "deleted" ? sum : sum + count),
     0
   );
 
@@ -108,6 +109,7 @@ export default function IntakePage() {
   const [bankUploadStatus, setBankUploadStatus] =
     useState<UploadStatus>("idle");
   const [bankMessage, setBankMessage] = useState("");
+  const [deletingItemId, setDeletingItemId] = useState<string | null>(null);
 
   async function refreshWorkspace() {
     await queryClient.invalidateQueries({ queryKey: ["intake-workspace"] });
@@ -156,6 +158,28 @@ export default function IntakePage() {
     } catch {
       setBankUploadStatus("error");
       setBankMessage(uploadErrorMessage);
+    }
+  }
+
+  async function deleteIntakeItem(item: IntakeWorkspaceItem) {
+    if (
+      !window.confirm(
+        `Ta bort ${item.original_filename}? Det går inte att ångra.`
+      )
+    ) {
+      return;
+    }
+
+    setDeletingItemId(item.id);
+    try {
+      if (item.kind === "bank_input") {
+        await api.deleteBankInput(item.id);
+      } else {
+        await api.deleteIntakeSource(item.id);
+      }
+      await refreshWorkspace();
+    } finally {
+      setDeletingItemId(null);
     }
   }
 
@@ -426,7 +450,11 @@ export default function IntakePage() {
                         <StatusDetail item={item} />
                       </td>
                       <td className="p-4 text-right">
-                        <RowActions item={item} />
+                        <RowActions
+                          item={item}
+                          isDeleting={deletingItemId === item.id}
+                          onDelete={deleteIntakeItem}
+                        />
                       </td>
                     </tr>
                   ))}
@@ -616,9 +644,30 @@ function StatusDetail({ item }: { item: IntakeWorkspaceItem }) {
   );
 }
 
-function RowActions({ item }: { item: IntakeWorkspaceItem }) {
+function RowActions({
+  item,
+  isDeleting,
+  onDelete,
+}: {
+  item: IntakeWorkspaceItem;
+  isDeleting: boolean;
+  onDelete: (item: IntakeWorkspaceItem) => void;
+}) {
   const detailHref = `/vouchers/intake/${item.kind}/${item.id}`;
   const linkedVoucherId = item.linked_voucher_ids[0];
+  const canDelete = item.status !== "processed" && item.status !== "deleted";
+  const deleteButton = canDelete ? (
+    <Button
+      variant="outline"
+      size="sm"
+      className="gap-1.5 whitespace-nowrap"
+      disabled={isDeleting}
+      onClick={() => onDelete(item)}
+    >
+      <Trash2 className="h-3.5 w-3.5" />
+      Ta bort
+    </Button>
+  ) : null;
 
   if (item.status === "processed" && linkedVoucherId) {
     return (
@@ -644,12 +693,15 @@ function RowActions({ item }: { item: IntakeWorkspaceItem }) {
 
   if (item.status === "failed") {
     return (
-      <Link href={detailHref}>
-        <Button size="sm" className="gap-1.5 whitespace-nowrap">
-          <AlertTriangle className="h-3.5 w-3.5" />
-          Granska fel
-        </Button>
-      </Link>
+      <div className="flex flex-wrap justify-end gap-2">
+        <Link href={detailHref}>
+          <Button size="sm" className="gap-1.5 whitespace-nowrap">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Granska fel
+          </Button>
+        </Link>
+        {deleteButton}
+      </div>
     );
   }
 
@@ -665,11 +717,14 @@ function RowActions({ item }: { item: IntakeWorkspaceItem }) {
   }
 
   return (
-    <Link href={detailHref}>
-      <Button variant="outline" size="sm" className="whitespace-nowrap">
-        Visa intagspost
-      </Button>
-    </Link>
+    <div className="flex flex-wrap justify-end gap-2">
+      <Link href={detailHref}>
+        <Button variant="outline" size="sm" className="whitespace-nowrap">
+          Visa intagspost
+        </Button>
+      </Link>
+      {deleteButton}
+    </div>
   );
 }
 
