@@ -15,6 +15,7 @@ import io
 import uuid
 import json
 from datetime import date, datetime
+import re
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass, field
 
@@ -299,13 +300,19 @@ class BankIntegrationService:
             description_column=description_column,
             delimiter=delimiter,
         )
-        reader = csv.DictReader(io.StringIO(csv_content), delimiter=detected["delimiter"])
+        reader = csv.DictReader(
+            io.StringIO(detected.get("csv_content", csv_content)),
+            delimiter=detected["delimiter"],
+        )
         transactions = []
         
         for row_number, row in enumerate(reader, start=2):
             # Parse amount (Swedish format: "1 234,56" or "-1234.56")
             amount_str = row.get(detected["amount"], "0")
-            amount_str = amount_str.replace(" ", "").replace(",", ".")
+            date_str = row.get(detected["date"], "")
+            if detected.get("skip_incomplete_rows") and (not amount_str.strip() or not date_str.strip()):
+                continue
+            amount_str = self._normalize_amount(amount_str)
             try:
                 amount = float(amount_str)
             except ValueError:
@@ -316,7 +323,6 @@ class BankIntegrationService:
                 )
             
             # Parse date
-            date_str = row.get(detected["date"], "")
             if not date_str:
                 raise ValidationError(
                     "invalid_bank_csv_row",
@@ -324,7 +330,12 @@ class BankIntegrationService:
                     f"row={row_number}",
                 )
             booking_date = row.get(detected["booking_date"]) if detected.get("booking_date") else None
-            description = row.get(detected["description"], "")
+            description_parts = [
+                row.get(column, "").strip()
+                for column in detected["description"]
+                if row.get(column, "").strip()
+            ]
+            description = " - ".join(description_parts)
             
             transactions.append({
                 "external_id": f"csv-{date_str}-{amount_str}-{description}",
@@ -366,6 +377,7 @@ class BankIntegrationService:
     ) -> dict:
         """Detect a supported Swedish bank CSV format from delimiter and headers."""
         selected_delimiter = delimiter or self._detect_delimiter(csv_content)
+        csv_content = self._strip_preamble(csv_content, selected_delimiter)
         reader = csv.DictReader(io.StringIO(csv_content), delimiter=selected_delimiter)
         headers = set(reader.fieldnames or [])
         if date_column and amount_column and description_column:
@@ -374,10 +386,11 @@ class BankIntegrationService:
                 return {
                     "format": "custom_columns",
                     "delimiter": selected_delimiter,
+                    "csv_content": csv_content,
                     "date": date_column,
                     "booking_date": None,
                     "amount": amount_column,
-                    "description": description_column,
+                    "description": [description_column],
                     "counterpart_name": "Mottagare" if "Mottagare" in headers else "Motpart" if "Motpart" in headers else None,
                     "counterpart_account": "Motpartskonto" if "Motpartskonto" in headers else None,
                     "reference": "Referens" if "Referens" in headers else "OCR" if "OCR" in headers else None,
@@ -390,7 +403,7 @@ class BankIntegrationService:
                 "date": "Datum",
                 "booking_date": None,
                 "amount": "Belopp",
-                "description": "Text",
+                "description": ["Text"],
                 "counterpart_name": "Mottagare" if "Mottagare" in headers else "Motpart" if "Motpart" in headers else None,
                 "counterpart_account": "Motpartskonto" if "Motpartskonto" in headers else None,
                 "reference": "Referens" if "Referens" in headers else "OCR" if "OCR" in headers else None,
@@ -402,17 +415,51 @@ class BankIntegrationService:
                 "date": "Transaktionsdag",
                 "booking_date": "Bokföringsdag",
                 "amount": "Belopp",
-                "description": "Meddelande",
+                "description": ["Meddelande"],
                 "counterpart_name": "Motpart" if "Motpart" in headers else None,
                 "counterpart_account": "Motpartskonto" if "Motpartskonto" in headers else None,
                 "reference": "Referens" if "Referens" in headers else "OCR" if "OCR" in headers else None,
                 "required": {"Bokföringsdag", "Transaktionsdag", "Belopp", "Meddelande"},
+            },
+            {
+                "format": "skatteverket_skattekonto",
+                "delimiter": ";",
+                "date": None,
+                "booking_date": "Bokföringsdatum",
+                "amount": "Belopp",
+                "description": ["Text"],
+                "counterpart_name": None,
+                "counterpart_account": None,
+                "reference": None,
+                "required": {"Bokföringsdatum", "Text", "Belopp", "Saldo"},
+                "skip_incomplete_rows": True,
+            },
+            {
+                "format": "lansforsakringar_bank",
+                "delimiter": ";",
+                "date": "Transaktionsdatum",
+                "booking_date": "Bokföringsdatum",
+                "amount": "Belopp",
+                "description": ["Transaktionstyp", "Meddelande"],
+                "counterpart_name": None,
+                "counterpart_account": None,
+                "reference": "Meddelande" if "Meddelande" in headers else None,
+                "required": {
+                    "Bokföringsdatum",
+                    "Transaktionsdatum",
+                    "Transaktionstyp",
+                    "Meddelande",
+                    "Belopp",
+                },
             },
         ]
         for mapping in known_formats:
             if mapping["delimiter"] == selected_delimiter and mapping["required"].issubset(headers):
                 detected = dict(mapping)
                 detected.pop("required")
+                detected["csv_content"] = csv_content
+                if detected["date"] is None:
+                    detected["date"] = detected["booking_date"]
                 return detected
 
         raise ValidationError(
@@ -424,6 +471,36 @@ class BankIntegrationService:
     def _detect_delimiter(self, csv_content: str) -> str:
         first_line = csv_content.splitlines()[0] if csv_content.splitlines() else ""
         return ";" if first_line.count(";") >= first_line.count(",") else ","
+
+    def _strip_preamble(self, csv_content: str, delimiter: str) -> str:
+        """Return CSV content from the first supported transaction header row."""
+        lines = csv_content.splitlines()
+        known_header_markers = (
+            {"Datum", "Belopp", "Text"},
+            {"Bokföringsdag", "Transaktionsdag", "Belopp", "Meddelande"},
+            {"Bokföringsdatum", "Text", "Belopp", "Saldo"},
+            {"Bokföringsdatum", "Transaktionsdatum", "Transaktionstyp", "Meddelande", "Belopp"},
+        )
+        for index, line in enumerate(lines):
+            row = next(csv.reader([line], delimiter=delimiter), [])
+            headers = {cell.strip() for cell in row}
+            if any(markers.issubset(headers) for markers in known_header_markers):
+                return "\n".join(lines[index:])
+            if len(row) >= 4 and self._is_iso_date(row[0].strip()):
+                skatteverket_headers = delimiter.join(
+                    ["Bokföringsdatum", "Text", "Belopp", "Saldo"]
+                )
+                return "\n".join([skatteverket_headers, *lines[index:]])
+        return csv_content
+
+    def _normalize_amount(self, amount: str) -> str:
+        amount = (amount or "").strip().replace("\u00a0", " ").replace(" ", "")
+        if "," in amount and "." in amount:
+            amount = amount.replace(".", "")
+        return amount.replace(",", ".")
+
+    def _is_iso_date(self, value: str) -> bool:
+        return re.fullmatch(r"\d{4}-\d{2}-\d{2}", value) is not None
 
     def get_sync_summary(self) -> Dict:
         """Get summary of all bank syncs."""

@@ -87,6 +87,23 @@ def _processed_bank_input(content: bytes | None = None):
     return bank_input, transaction_ids
 
 
+SKATTEVERKET_CSV = """"Stefan Wikner Consulting AB";"556819-4731";"";""
+"";"";"";""
+"";"Ingående saldo 2026-01-01";"";"39 039"
+"2026-01-03";"Intäktsränta";"15";"39 054"
+"2026-01-19";"Debiterad preliminärskatt";"-9 047";"30 007"
+"";"Utgående saldo 2026-06-04";"";"30 007"
+"""
+
+LANSFORSAKRINGAR_CSV = """"Kontonummer";"Kontonamn";"";"Saldo";"Tillgängligt belopp"
+"90225892210";"1920";"";"217 789,02";"217 789,02"
+
+"Bokföringsdatum";"Transaktionsdatum";"Transaktionstyp";"Meddelande";"Belopp"
+"2026-06-04";"2026-06-04";"Betalning";"FELLO";"-275,00"
+"2026-05-29";"2026-05-29";"Autogiro";"Lysa Spar";"-10 000,00"
+"""
+
+
 def _agent_sale_request(period_id: str, amount: int = 10000, **kwargs) -> AgentVoucherRequest:
     return AgentVoucherRequest(
         date=date(2026, 3, 1),
@@ -373,6 +390,66 @@ def test_bank_csv_import_detects_supported_format_and_reports_details(test_db):
     assert result.imported_count == 1
     assert result.skipped_count == 0
     assert len(result.imported_transaction_ids) == 1
+
+
+def test_bank_csv_import_detects_skatteverket_skattekonto_export(test_db):
+    conn = _active_connection()
+    result = BankIntegrationService().import_csv(conn.id, SKATTEVERKET_CSV)
+    transactions = BankIntegrationService().get_transactions(connection_id=conn.id)
+
+    assert result.detected_format == "skatteverket_skattekonto"
+    assert result.imported_count == 2
+    assert result.skipped_count == 0
+    assert [tx.amount for tx in transactions] == [-904700, 1500]
+    assert {tx.description for tx in transactions} == {
+        "Intäktsränta",
+        "Debiterad preliminärskatt",
+    }
+
+
+def test_bank_csv_import_detects_lansforsakringar_bank_export(test_db):
+    conn = _active_connection()
+    result = BankIntegrationService().import_csv(conn.id, LANSFORSAKRINGAR_CSV)
+    transactions = BankIntegrationService().get_transactions(connection_id=conn.id)
+
+    assert result.detected_format == "lansforsakringar_bank"
+    assert result.imported_count == 2
+    assert result.skipped_count == 0
+    assert [tx.amount for tx in transactions] == [-27500, -1000000]
+    assert {tx.description for tx in transactions} == {
+        "Betalning - FELLO",
+        "Autogiro - Lysa Spar",
+    }
+
+
+def test_bank_input_upload_processes_skatteverket_and_lansforsakringar_exports(
+    test_db,
+    bank_input_dir,
+):
+    first_conn = _active_connection()
+    second_conn = _active_connection()
+
+    skatteverket = BankInputService().create_from_upload_content(
+        filename="skattekonto.csv",
+        content_type="text/csv",
+        content=SKATTEVERKET_CSV.encode(),
+        bank_connection_id=first_conn.id,
+        actor="api",
+    )
+    lansforsakringar = BankInputService().create_from_upload_content(
+        filename="lansforsakringar.csv",
+        content_type="text/csv",
+        content=LANSFORSAKRINGAR_CSV.encode(),
+        bank_connection_id=second_conn.id,
+        actor="api",
+    )
+
+    assert skatteverket.status == BankInputStatus.PROCESSED
+    assert skatteverket.detected_format == "skatteverket_skattekonto"
+    assert skatteverket.imported_count == 2
+    assert lansforsakringar.status == BankInputStatus.PROCESSED
+    assert lansforsakringar.detected_format == "lansforsakringar_bank"
+    assert lansforsakringar.imported_count == 2
 
 
 def test_bank_csv_import_rejects_unsupported_format(test_db):

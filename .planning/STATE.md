@@ -4,8 +4,8 @@ milestone: v1.2
 milestone_name: Agent Onboarding
 status: ready_to_plan
 stopped_at: Phase 6 context gathered
-last_updated: "2026-06-04T22:28:44.305Z"
-last_activity: 2026-06-04
+last_updated: "2026-06-05T07:22:05.606Z"
+last_activity: 2026-06-05
 progress:
   total_phases: 2
   completed_phases: 2
@@ -70,6 +70,12 @@ Last activity: 2026-06-04
 | Phase 04 P04-01 | 1 min | 3 tasks | 1 files |
 | Phase 6 P06-01 | 18 | 2 tasks | 4 files |
 | Phase 6 P06-02 | 10 | 4 tasks | 4 files |
+
+## Quick Tasks Completed
+
+| Date | Task | Summary |
+|------|------|---------|
+| 2026-06-05 | more-csv-formats-must-be-supported-in-in | Added Skatteverket skattekonto and Lansforsakringar Bank CSV import support for bank input uploads. |
 
 ## Accumulated Context
 
