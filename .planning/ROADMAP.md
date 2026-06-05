@@ -36,7 +36,7 @@
 
 ### 📋 v1.3 (Planned)
 
-- [ ] **Phase 8: GUIDE — Per-Source Agent Guidance** — Schema, agent-facing routes, and frontend for attaching per-source messages
+- [x] **Phase 8: GUIDE — Per-Source Agent Guidance** — Schema, agent-facing routes, and frontend for attaching per-source messages — completed 2026-06-05
 - [ ] **Phase 9: CORR — Simplified Correction Flow** — Correction notes, agent suggestion, user approval, and B-series voucher production
 - [ ] **Phase 10: INSTR — Agent Instruction Persistence** — Versioned, deduplicated, capped instruction append with user-visible history
 - [ ] **Phase 11: Integration & Entrypoint Update** — Update agent entrypoint, integration tests, and end-to-end validation
@@ -104,7 +104,7 @@
 | 5. Intake Agent Traceability | v1.1 | 3/3 | Complete | 2026-06-04 |
 | 6. Agent Instruction Entrypoint | v1.2 | 2/2 | Complete | 2026-06-05 |
 | 7. OpenClaw Deployment | v1.2 | 2/2 | Complete | 2026-06-05 |
-| 8. GUIDE — Per-Source Agent Guidance | v1.3 | 0/3 | Ready to execute | - |
+| 8. GUIDE — Per-Source Agent Guidance | v1.3 | 3/3 | Complete | 2026-06-05 |
 | 9. CORR — Simplified Correction Flow | v1.3 | 0/0 | Not started | - |
 | 10. INSTR — Agent Instruction Persistence | v1.3 | 0/0 | Not started | - |
 | 11. Integration & Entrypoint Update | v1.3 | 0/0 | Not started | - |
