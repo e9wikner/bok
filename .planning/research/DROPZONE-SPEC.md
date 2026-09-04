@@ -32,9 +32,9 @@ Bokföring/                     ← the Syncthing shared folder
   Kundfakturor/                → source_type = customer_invoice
   Utlägg/                      → source_type = reimbursement
   Övrigt/                      → source_type = other
-  Bank/
-    1930/                      → bank input on account 1930
-    1630/                      → bank input on account 1630 (skattekonto)
+  Kontoutdrag/
+    1930 Företagskonto/        → account statement for account 1930
+    1630 Skattekonto/          → account statement for account 1630
   _Inläst/2026-09/             ← app moves ingested files here
   _Problem/                    ← app moves rejects here, with a .txt saying why
 ```
@@ -43,16 +43,69 @@ Bokföring/                     ← the Syncthing shared folder
 
 - Folder name → `source_type`, matched **case-insensitively and
   Unicode-normalised** (§9 — this is a real trap, not a formality).
-- `Bank/<kontokod>/` → a bank input. The account code is passed as
-  `account:<kontokod>`, which the existing
-  `_resolve_bank_connection_reference()` (`api/routes/bank_inputs.py:206-229`)
-  already resolves to a real connection, creating a manual one from the chart of
-  accounts if none exists. **No new bank-account concept is invented.**
+- `Kontoutdrag/<kontokod> <valfri etikett>/` → an account statement. See §2.1.
 - A file directly in the root, or in an unrecognised folder, is ingested with
   **`source_type = None`** and the agent classifies it. Unknown folders are not
   an error — the backend already accepts a null source type
   (`api/routes/intake.py:39`).
 - `_Inläst/` and `_Problem/` are never scanned.
+
+### 2.1 `Kontoutdrag/` — account statements
+
+**Named `Kontoutdrag/`, not `Bank/`.** These files are not all from banks: the
+company tax account (skattekonto) statement from Skatteverket is the obvious
+second case — the CSV parser already handles that format — and card, Swish and
+payment-provider statements are the same shape again. "Kontoutdrag" is the
+ordinary Swedish word for all of them and does not have to be stretched.
+`Bank/` is accepted as an alias so an existing folder keeps working, but
+`Kontoutdrag/` is the documented name.
+
+**Folder naming.** The leading token must be an account code; anything after the
+first separator is a human label the parser ignores. All three are equivalent:
+
+```
+Kontoutdrag/1930/
+Kontoutdrag/1930 Företagskonto/
+Kontoutdrag/1930-Företagskonto/
+```
+
+This keeps the folder readable in Finder and unambiguous to the parser.
+
+**Resolution.** The code is passed as `account:<kontokod>` to the existing
+`_resolve_bank_connection_reference()` (`api/routes/bank_inputs.py:206-229`),
+which is reused rather than reimplemented. Its three outcomes, each verified
+against the running code:
+
+| Chart of accounts | Result |
+|---|---|
+| Account exists and is active | A manual `BankConnection` is **auto-created on first use**, named after the account. Nothing to set up beyond having the account. |
+| Same folder used again later | Resolves to the **same** connection id; no duplicate is created. Dropping statements into the same folder for years is safe. |
+| Account missing or inactive | Resolution returns the literal `"account:1630"`, and `_validate_active_connection()` raises `bank_connection_not_found`. |
+
+So **adding `Kontoutdrag/1630/` works with no code change and no configuration —
+provided account 1630 exists in the chart of accounts.** Worth knowing: 1930
+Företagskonto is seeded by migration `017_add_payroll.sql:85`, but **1630 is not
+seeded anywhere.** A chart of accounts imported from SIE4 will normally have it;
+a bare `--init-db` install will not.
+
+**The failure must be legible.** `bank_connection_not_found` is a useless message
+for someone who just made a folder. The `_Problem/` note must say what to do:
+
+> Konto 1630 finns inte i kontoplanen. Lägg upp kontot i kontoplanen först, eller
+> flytta filen till en mapp för ett konto som finns.
+
+**Warn before the drop, not after.** The status endpoint (§7) reports folders
+under `Kontoutdrag/` whose account code is unknown, so a mistyped or unseeded
+folder is visible *before* forty statements are dropped into it and bounced one
+by one.
+
+**⚠ Pre-existing gap to close here.** `_manual_account_connections()`
+(`api/routes/bank_inputs.py:190-203`) builds options from **every** active
+account regardless of type, so a revenue account is accepted as a bank account —
+verified: `Kontoutdrag/3010/` resolves cleanly and imports transactions against a
+revenue account. The folder makes this easier to hit by typo than the dropdown
+does. Restrict resolution to `asset` and `liability` accounts and reject the rest
+with a clear message. This also improves the existing upload dropdown.
 
 **Sidecar metadata** (both optional)
 
@@ -130,7 +183,7 @@ Per tick:
    completion, but the gate also covers a file being copied in by hand or over
    SMB. Reading a partial file would store corrupt bytes under a *valid* sha256
    — permanently, because dedupe would then reject the good copy.
-4. Route by folder (§2) and call the existing service:
+4. Route by folder (§2, §2.1) and call the existing service:
    `IntakeService.create_source_from_upload_content()` or
    `BankInputService.create_from_upload_content()`. **No new ingest path** — the
    scanner is a caller, not a parallel implementation, so validation, storage,
@@ -181,13 +234,15 @@ looks exactly the same when the scanner is dead as when files were just dropped.
   "pending_file_count": 3,
   "ingested_total": 84,
   "problem_file_count": 1,
+  "unknown_account_folders": ["Kontoutdrag/1630 Skattekonto"],
   "last_error": null
 }
 ```
 
 Surfaced on the intake page as one line: when `last_scan_at` is older than
-roughly three scan intervals, show a warning that pickup has stopped. That is
-the entire frontend change in this issue.
+roughly three scan intervals, show a warning that pickup has stopped, and list
+any `unknown_account_folders` (§2.1). That is the entire frontend change in this
+issue.
 
 ---
 
@@ -268,7 +323,13 @@ New `tests/test_dropzone.py`, using `tmp_path` and the existing `test_db` /
 |---|------|---------|
 | 1 | PDF in `Kvitton/` | source created with `source_type == "receipt"`; file moved to `_Inläst/YYYY-MM/` |
 | 2 | File in an unknown folder | ingested with `source_type is None`, not rejected |
-| 3 | CSV in `Bank/1930/` | bank input created against the resolved connection for account 1930 |
+| 3 | CSV in `Kontoutdrag/1930/` | bank input created against the resolved connection for account 1930 |
+| 3b | CSV in `Kontoutdrag/1930 Företagskonto/` | same result — the label after the code is ignored (§2.1) |
+| 3c | CSV in `Bank/1930/` | same result — legacy alias still accepted |
+| 3d | Two CSVs into the same account folder | one connection created, not two; second resolves to the same id |
+| 3e | CSV in `Kontoutdrag/1630/` with 1630 **absent** from the chart of accounts | moved to `_Problem/`; note names the account and says to add it to the chart of accounts |
+| 3f | CSV in `Kontoutdrag/1630/` after 1630 is added | ingests on the next tick with no restart |
+| 3g | `Kontoutdrag/3010/` (a revenue account) | rejected — resolution is restricted to asset/liability (§2.1) |
 | 4 | File modified during the tick | **not** ingested; ingested on a later tick once stable (§5.3) |
 | 5 | Same file dropped twice | second is a duplicate, still moved to `_Inläst/`, no second source |
 | 6 | Oversized / disallowed file | moved to `_Problem/` with a `.problem.txt` naming the reason |
@@ -304,7 +365,10 @@ No code dependency exists in either direction: the scanner calls
 
 1. A PDF dropped into `Kvitton/` appears in the intake workspace within one scan
    interval, typed as a receipt, with no browser interaction.
-2. A CSV dropped into `Bank/1930/` becomes a bank input on that account.
+2. A CSV dropped into `Kontoutdrag/1930/` becomes a bank input on that account.
+2b. Adding `Kontoutdrag/1630 Skattekonto/` needs no code change and no config —
+   only that account 1630 exists in the chart of accounts. If it does not, the
+   intake page says so before anything is dropped there.
 3. Ingested files are moved to `_Inläst/YYYY-MM/`; the inbox folder empties.
 4. Re-dropping an already-ingested file creates nothing and still tidies away.
 5. A rejected file lands in `_Problem/` with a readable Swedish explanation.
@@ -320,11 +384,11 @@ No code dependency exists in either direction: the scanner calls
 | # | Task | Files |
 |---|------|-------|
 | 1 | Config settings | `config.py` |
-| 2 | Folder→type mapping with NFC normalisation and the ignore list | new `services/dropzone.py` |
+| 2 | Folder→type mapping: account-code parsing (§2.1), NFC normalisation, ignore list | new `services/dropzone.py` |
 | 3 | Scan loop: stability gate, routing, sidecars, move/disposal | `services/dropzone.py` |
 | 4 | Lifespan thread + single-instance lock | `api/main.py`, `services/dropzone.py` |
-| 5 | Move `_resolve_bank_connection_reference()` from the route into a service so both callers share it | `api/routes/bank_inputs.py`, `services/bank_inputs.py` |
-| 6 | Status endpoint | `api/routes/intake.py` |
+| 5 | Move `_resolve_bank_connection_reference()` into a service so both callers share it; restrict it to asset/liability accounts (§2.1) | `api/routes/bank_inputs.py`, `services/bank_inputs.py` |
+| 6 | Status endpoint, incl. `unknown_account_folders` | `api/routes/intake.py` |
 | 7 | Status line on the intake page | `frontend-v3/app/vouchers/intake/page.tsx`, `frontend-v3/lib/api.ts` |
 | 8 | Docker mount + env wiring | `docker-compose.yml`, `docker-compose.local.yml`, `.env.example` |
 | 9 | Syncthing setup section + folder skeleton | `DEPLOYMENT.md` |

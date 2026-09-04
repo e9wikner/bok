@@ -67,9 +67,9 @@ Bokföring/                        ← Syncthing shared folder
   Leverantörsfakturor/
   Kundfakturor/
   Utlägg/
-  Bank/
-    Företagskonto-1930/
-    Skattekonto/
+  Kontoutdrag/
+    1930 Företagskonto/
+    1630 Skattekonto/
   _Inläst/                        ← app moves ingested files here
     2026-09/
   _Problem/                       ← app moves rejects here + a .txt saying why
@@ -79,7 +79,9 @@ The folder name carries the metadata that the form asks for today:
 
 - Top-level folder → `source_type` (`Kvitton` → `receipt`, `Leverantörsfakturor`
   → `supplier_invoice`, …). Both per-file dropdowns disappear.
-- `Bank/<konto>/` → `bank_connection_id`, resolved by folder name.
+- `Kontoutdrag/<kontokod> <etikett>/` → `bank_connection_id`, resolved from the
+  leading account code. Covers bank, skattekonto, card and payment-provider
+  statements — not only banks, hence the general name.
 - Optional `_meddelande.txt` in a folder → `agent_guidance` for everything in it.
 - Optional `<filnamn>.txt` beside a file → that file's `explanation`.
 
@@ -233,7 +235,7 @@ red rows is worse than the current slow form.
 | **10 MB cap** | A scanned stack of receipts as one PDF exceeds it | Raise the cap for PDFs, and downscale oversized images on ingest |
 | **Multi-receipt PDF** | One PDF of 30 receipts is one intake source, but needs 30 vouchers. `link_existing_voucher` → `_ensure_can_record_outcome` raises `intake_already_linked` on the second voucher (`services/intake.py:262`, `:324-329`), so this is genuinely blocked today. | Split per page on ingest (preferred — keeps one source per voucher and the traceability model unchanged), or allow one source to link to many vouchers |
 | **ZIP archives** | The common shape of a bank/portal bulk export | Expand on ingest; each member becomes its own source |
-| **Bank kontoutdrag as PDF** | `bank_inputs` hard-requires `.csv` (`services/bank_inputs.py:373-378`); banks hand out PDF by default | Decide explicitly: either accept the PDF as a `voucher_source` for context, or say clearly in the UI and in the folder README that `Bank/` needs CSV |
+| **Kontoutdrag as PDF** | `bank_inputs` hard-requires `.csv` (`services/bank_inputs.py:373-378`); banks and Skatteverket hand out PDF by default | Decide explicitly: either accept the PDF as a `voucher_source` for context, or say clearly in the UI and in the folder README that `Kontoutdrag/` needs CSV |
 
 ---
 
