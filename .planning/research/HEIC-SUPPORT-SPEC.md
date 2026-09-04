@@ -1,6 +1,9 @@
 # Spec: HEIC/HEIF support for intake source material
 
-**Status:** Ready for implementation
+**Status:** ⛔ **DESCOPED 2026-09-04 — not scheduled.** The owner will save photos
+as JPEG before they reach intake, so HEIC support is not needed. This spec is kept
+complete and ready in case that changes; see §14 for the trigger to revisit.
+Originally: ready for implementation
 **Created:** 2026-09-04
 **Related:** `.planning/research/BATCH-INTAKE-UX-PLAN.md` §5 (format gaps)
 **Scope:** Backend ingest + storage + file serving; small frontend change
@@ -356,3 +359,25 @@ Also re-run `tests/test_pdf_export.py` for the Pillow bump (§9).
 | 8 | Agent-facing docs note | `docs/to_agent/` |
 
 Tasks 1–4 are the substance; 5–8 follow mechanically.
+
+
+---
+
+## 14. Why this is descoped, and when to revisit
+
+**Decided 2026-09-04.** Photos will be saved as JPEG before they reach intake —
+either by setting the iPhone camera to "Mest kompatibla" or by exporting as JPEG
+when a photo is copied into the queue deliberately. That removes the need for
+this work entirely, at the cost of one per-photo habit.
+
+The reasoning holds as long as files are placed into the queue **deliberately**.
+
+**Revisit if** a phone's camera roll is ever auto-synced into `Kvitton/`. At that
+point nobody is choosing a format per photo, HEIC becomes the most common
+arriving file type, and every one of them lands in `_Problem/` — the silent
+pile-up the dropzone's status endpoint exists to prevent, on the highest-volume
+input. That is the single condition that flips this back on.
+
+Until then, `DROPZONE-SPEC.md` §12 requires the `_Problem/` note for a HEIC file
+to name the fix ("spara om som JPEG"), so a stray HEIC is recoverable in seconds
+rather than mysterious.

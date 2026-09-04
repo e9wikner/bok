@@ -3,7 +3,7 @@
 **Status:** Ready for implementation
 **Created:** 2026-09-04
 **Related:** `.planning/research/BATCH-INTAKE-UX-PLAN.md` §3 (the folder)
-**Depends on:** HEIC support (`HEIC-SUPPORT-SPEC.md`) — see §12
+**Depends on:** nothing — see §12
 **Scope:** Backend scanner + config + Docker mount + status endpoint + deployment docs
 **Estimated shape:** 1 new service, 1 new route, 0 migrations, ~6 touched files
 
@@ -346,18 +346,31 @@ New `tests/test_dropzone.py`, using `tmp_path` and the existing `test_db` /
 
 ---
 
-## 12. Relationship to HEIC (#36)
+## 12. HEIC — deliberately not supported
 
-Independent, one-directional: **HEIC ships on its own; the dropzone is much less
-useful without it.**
+**Decided 2026-09-04: HEIC is out of scope and the dropzone does not wait for
+it.** Photos are converted to JPEG before they reach the folder — either by
+setting the iPhone camera to "Mest kompatibla" or by exporting as JPEG when a
+photo is copied in deliberately.
 
-If the dropzone lands first, every iPhone photo syncing in from `Kvitton/` is
-rejected and moved to `_Problem/` — the exact silent pile-up §7 is designed to
-prevent, on the single most common file type. Ship HEIC first, or accept that
-phone capture does not work until it lands.
+There is no code dependency in either direction; this is purely a decision about
+which formats the owner will feed the folder.
 
-No code dependency exists in either direction: the scanner calls
-`create_source_from_upload_content()`, which is where HEIC handling is added.
+**What the scanner must do about it.** A HEIC file that does reach `Kvitton/` is
+rejected by the existing MIME allow-list and moved to `_Problem/` — correct
+behaviour, but the note must name the actual fix rather than say "filtypen stöds
+inte":
+
+> HEIC stöds inte. Spara om bilden som JPEG och lägg tillbaka den — eller ställ
+> in kameran på "Mest kompatibla".
+
+That one sentence is what makes this decision safe: the file is not lost, and the
+owner is told exactly how to get it in.
+
+**The condition under which to revisit:** if a phone's camera roll is ever
+auto-synced into `Kvitton/` rather than files being placed there deliberately,
+this stops being a per-file choice and HEIC becomes the most common arriving
+format. Then reopen it. The spec is kept at `HEIC-SUPPORT-SPEC.md`.
 
 ---
 

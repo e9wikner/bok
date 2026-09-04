@@ -7,9 +7,11 @@
 
 **Decided 2026-09-04:** sync tool is **Syncthing** (resolves open questions 1 and 4).
 
-**Ticketed:** the folder (§3) is specced in `DROPZONE-SPEC.md`; the HEIC gap in
-`HEIC-SUPPORT-SPEC.md`. The frontend surfaces in §4 (batch drop, batches, triage
-queue, completeness view) remain plan-level and are not yet ticketed.
+**Ticketed:** the folder (§3) is specced in `DROPZONE-SPEC.md`. HEIC support is
+specced in `HEIC-SUPPORT-SPEC.md` but **descoped 2026-09-04** — photos will be
+converted to JPEG before they reach the folder. The frontend surfaces in §4
+(batch drop, batches, triage queue, completeness view) remain plan-level and are
+not yet ticketed.
 
 ---
 
@@ -30,7 +32,7 @@ Concrete friction in today's code:
 | 4 | Every failure collapses into one generic Swedish sentence covering filetype, bank account *and* duplicate | `page.tsx:47-48` |
 | 5 | Re-uploading a file already in the system is a hard `409` | `services/intake.py:88-90` |
 | 6 | Status list is a flat table, 15 rows per page, no grouping — 100 files is 7 pages | `page.tsx:37` |
-| 7 | MIME allow-list is jpeg/png/gif/webp/pdf with a 10 MB cap — no HEIC, no ZIP | `services/intake.py:60-66` |
+| 7 | MIME allow-list is jpeg/png/gif/webp/pdf with a 10 MB cap — no ZIP, no HEIC (HEIC descoped, see §5) | `services/intake.py:60-66` |
 
 Cost per session at 100 files: roughly 500 discrete UI interactions, each with a
 network round trip, and no way to see which of them landed.
@@ -146,9 +148,9 @@ why.
   can auto-upload a camera album straight into `Kvitton/`, so the phone never
   touches the app at all. On iOS there is no first-party Syncthing client — the
   practical path is a shared folder on the laptop that the phone's photo library
-  exports into, or a third-party client. **This makes HEIC support a hard
-  prerequisite** rather than a nice-to-have: the iPhone camera default is HEIC
-  and intake rejects it today. See `HEIC-SUPPORT-SPEC.md`.
+  exports into, or a third-party client. Note that **camera-roll auto-upload is
+  the one setup that would make HEIC support necessary** — dropping photos in
+  deliberately does not, because they can be saved as JPEG on the way.
 
 ---
 
@@ -231,7 +233,7 @@ red rows is worse than the current slow form.
 
 | Gap | Why it bites at 100 files | Proposed outcome |
 |-----|---------------------------|------------------|
-| **HEIC not in the allow-list** | It is the iPhone default. Every phone photo of a receipt is rejected today. | Accept and convert to JPEG on ingest — specced in `HEIC-SUPPORT-SPEC.md` |
+| ~~**HEIC not in the allow-list**~~ | ~~It is the iPhone default.~~ | **Descoped 2026-09-04** — photos are saved as JPEG before they reach intake. Spec kept at `HEIC-SUPPORT-SPEC.md`; revisit only if a camera roll is ever auto-synced into `Kvitton/` |
 | **10 MB cap** | A scanned stack of receipts as one PDF exceeds it | Raise the cap for PDFs, and downscale oversized images on ingest |
 | **Multi-receipt PDF** | One PDF of 30 receipts is one intake source, but needs 30 vouchers. `link_existing_voucher` → `_ensure_can_record_outcome` raises `intake_already_linked` on the second voucher (`services/intake.py:262`, `:324-329`), so this is genuinely blocked today. | Split per page on ingest (preferred — keeps one source per voucher and the traceability model unchanged), or allow one source to link to many vouchers |
 | **ZIP archives** | The common shape of a bank/portal bulk export | Expand on ingest; each member becomes its own source |
@@ -246,8 +248,8 @@ Each step ships on its own and is useful on its own.
 1. **Batch drop + per-file outcomes + duplicate-as-benign.** Frontend and error
    mapping only, no schema change. Largest relief per unit of work — this alone
    turns 500 interactions into about 3.
-2. **Format gaps** (HEIC, size cap, ZIP). Without this, step 1 just produces a
-   faster wall of rejects.
+2. **Format gaps** (size cap, ZIP — HEIC descoped). Without this, step 1 just
+   produces a faster wall of rejects.
 3. **Dropzone scanner + folder convention + ops documentation.** This is the step
    that removes the browser from the loop entirely — the outcome actually asked
    for.
@@ -276,8 +278,10 @@ dropped, not in a batch at all.
    large trees, and recovers on its own after a restart. A 30–60 s interval is
    invisible at this cadence.
 
-Still open, and newly relevant now that iPhone capture is the main HEIC source:
+Still open:
 
 5. **Is there an iOS device in the loop, or Android only?** Android has a
    first-party Syncthing client and a clean camera-album path; iOS does not, and
-   would need the laptop as an intermediate hop.
+   would need the laptop as an intermediate hop. Less urgent now that HEIC is
+   descoped — but if the answer is "camera roll syncs automatically", that
+   decision needs revisiting (`DROPZONE-SPEC.md` §12).
