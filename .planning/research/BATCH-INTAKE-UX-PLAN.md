@@ -5,6 +5,8 @@
 **Scope:** Frontend intake surfaces + a synced-folder ingest path
 **Not in scope of this document:** implementation; this describes the outcome only
 
+**Decided 2026-09-04:** sync tool is **Syncthing** (resolves open questions 1 and 4).
+
 ---
 
 ## 1. The problem
@@ -56,7 +58,7 @@ queue**.
 ### 3.1 Folder shape
 
 ```
-Bokföring/                        ← synced (Syncthing / Nextcloud / SMB)
+Bokföring/                        ← Syncthing shared folder
   Kvitton/
   Leverantörsfakturor/
   Kundfakturor/
@@ -116,18 +118,31 @@ why.
   relocated. The durable accounting copy is the one already stored under
   `intake_dir`; `_Inläst/` is a convenience mirror, not the legal record.
 - **Ignore list** is mandatory: `.stfolder`, `.stversions`, `.stignore`,
-  `.nextcloudsync.log`, `.DS_Store`, `._*`, `Thumbs.db`, `desktop.ini`.
-- **Sync tool stays outside the app.** The app watches a directory; it does not
-  care how bytes get there. Syncthing is the best fit (no server, LAN-only,
-  matches the LAN-first deployment posture in `DEPLOYMENT.md`, and has an Android
-  client that can auto-upload a camera album). An SMB share on the always-on
-  server is the simpler alternative if the machine never leaves the LAN.
-- **Placeholder files.** OneDrive/Dropbox "online-only" files appear as
-  zero-byte stubs. If either is the chosen tool, the scanner must treat a
-  zero-byte file as "not ready yet" rather than as a reject.
-- **Phone capture.** Paper receipts are photographed. The clean path is the phone
-  writing straight into `Kvitton/` via the sync client's camera auto-upload, so
-  the phone never touches the app at all.
+  `~syncthing~*.tmp`, plus OS noise — `.DS_Store`, `._*`, `Thumbs.db`,
+  `desktop.ini`.
+- **Sync tool is Syncthing** (decided). The app watches a directory and does not
+  care how bytes get there. Syncthing fits the LAN-first posture in
+  `DEPLOYMENT.md`: no third-party server, no cloud account, and every device
+  holds a real copy. Two consequences follow from choosing it:
+  - **No placeholder-file problem.** Syncthing materialises real bytes on disk,
+    so unlike OneDrive/Dropbox there are no zero-byte "online-only" stubs the
+    scanner would have to recognise. A zero-byte file can be treated as a
+    genuine reject rather than "not ready yet".
+  - **Its own junk to ignore:** `.stfolder`, `.stversions`, `.stignore`, and
+    `~syncthing~*.tmp` partial writes. The `~syncthing~*.tmp` pattern is the
+    important one — it is how Syncthing names in-flight transfers, so it is the
+    primary signal for the stability check above.
+- **Syncthing setup belongs in the deployment docs**, not in the app: one shared
+  folder between the server and each device, with the server as an
+  "introducer" so the phone and laptop pair once. Set the server's copy to
+  *Send & Receive* — the scanner's move into `_Inläst/` must propagate back out.
+- **Phone capture.** Paper receipts are photographed. Syncthing's Android client
+  can auto-upload a camera album straight into `Kvitton/`, so the phone never
+  touches the app at all. On iOS there is no first-party Syncthing client — the
+  practical path is a shared folder on the laptop that the phone's photo library
+  exports into, or a third-party client. **This makes HEIC support a hard
+  prerequisite** rather than a nice-to-have: the iPhone camera default is HEIC
+  and intake rejects it today. See `HEIC-SUPPORT-SPEC.md`.
 
 ---
 
@@ -210,7 +225,7 @@ red rows is worse than the current slow form.
 
 | Gap | Why it bites at 100 files | Proposed outcome |
 |-----|---------------------------|------------------|
-| **HEIC not in the allow-list** | It is the iPhone default. Every phone photo of a receipt is rejected today. | Accept and convert to JPEG on ingest |
+| **HEIC not in the allow-list** | It is the iPhone default. Every phone photo of a receipt is rejected today. | Accept and convert to JPEG on ingest — specced in `HEIC-SUPPORT-SPEC.md` |
 | **10 MB cap** | A scanned stack of receipts as one PDF exceeds it | Raise the cap for PDFs, and downscale oversized images on ingest |
 | **Multi-receipt PDF** | One PDF of 30 receipts is one intake source, but needs 30 vouchers. `link_existing_voucher` → `_ensure_can_record_outcome` raises `intake_already_linked` on the second voucher (`services/intake.py:262`, `:324-329`), so this is genuinely blocked today. | Split per page on ingest (preferred — keeps one source per voucher and the traceability model unchanged), or allow one source to link to many vouchers |
 | **ZIP archives** | The common shape of a bank/portal bulk export | Expand on ingest; each member becomes its own source |
@@ -242,15 +257,21 @@ dropped, not in a batch at all.
 
 ## 7. Open questions
 
-1. **Which sync tool is on the shared drive today** — Syncthing, Nextcloud, SMB,
-   Dropbox, OneDrive? This decides whether the scanner has to tolerate
-   online-only placeholder files and which junk-file ignore list applies.
+1. ~~Which sync tool?~~ **Resolved 2026-09-04: Syncthing.** Folded into §3.4.
 2. **Should `_Inläst/` live inside the synced tree** (visible and space-consuming
    on every device, but a reassuring visible archive) **or only on the server**
    (the inbox folder simply empties)?
 3. **Is the phone the main capture device for paper receipts?** If yes, camera
    auto-upload into `Kvitton/` should be part of the setup documentation rather
    than an afterthought.
-4. **Should the dropzone scan on an interval or on filesystem events?** Interval
-   is simpler and survives network filesystems, which do not reliably emit
-   inotify events; a 30–60 s interval is invisible at this cadence.
+4. ~~Interval scan or filesystem events?~~ **Resolved by the Syncthing choice:
+   interval.** Syncthing writes to a real local filesystem, so inotify would
+   work — but an interval scan is simpler, has no watch-descriptor limits on
+   large trees, and recovers on its own after a restart. A 30–60 s interval is
+   invisible at this cadence.
+
+Still open, and newly relevant now that iPhone capture is the main HEIC source:
+
+5. **Is there an iOS device in the loop, or Android only?** Android has a
+   first-party Syncthing client and a clean camera-album path; iOS does not, and
+   would need the laptop as an intermediate hop.
