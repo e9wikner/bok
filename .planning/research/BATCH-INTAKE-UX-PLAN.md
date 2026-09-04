@@ -7,6 +7,10 @@
 
 **Decided 2026-09-04:** sync tool is **Syncthing** (resolves open questions 1 and 4).
 
+**Ticketed:** the folder (§3) is specced in `DROPZONE-SPEC.md`; the HEIC gap in
+`HEIC-SUPPORT-SPEC.md`. The frontend surfaces in §4 (batch drop, batches, triage
+queue, completeness view) remain plan-level and are not yet ticketed.
+
 ---
 
 ## 1. The problem
