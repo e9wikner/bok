@@ -26,6 +26,17 @@ class Settings(BaseSettings):
         os.path.join(intake_dir, "bank-inputs"),
     )
 
+    # Dropzone (folder-based intake, e.g. a Syncthing-shared folder)
+    dropzone_enabled: bool = os.getenv("DROPZONE_ENABLED", "False").lower() == "true"
+    dropzone_dir: str = os.getenv("DROPZONE_DIR", "/app/data/dropzone")
+    dropzone_scan_interval_seconds: int = int(
+        os.getenv("DROPZONE_SCAN_INTERVAL_SECONDS", "60")
+    )
+    dropzone_quiet_seconds: int = int(os.getenv("DROPZONE_QUIET_SECONDS", "10"))
+    dropzone_max_files_per_scan: int = int(
+        os.getenv("DROPZONE_MAX_FILES_PER_SCAN", "25")
+    )
+
     # Authentication
     api_key: str = os.getenv("BOKFOERING_API_KEY", "dev-key-change-in-production")
     auth_username: str = os.getenv("AUTH_USERNAME", "admin")

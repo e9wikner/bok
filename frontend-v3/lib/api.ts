@@ -319,6 +319,19 @@ export type IntakeDetailResponse = IntakeWorkspaceItem & {
   deleted_by?: string | null;
 };
 
+export interface DropzoneStatus {
+  enabled: boolean;
+  dropzone_dir: string;
+  scan_interval_seconds: number;
+  last_scan_at: string | null;
+  last_scan_duration_ms: number | null;
+  pending_file_count: number;
+  ingested_total: number;
+  problem_file_count: number;
+  unknown_account_folders: string[];
+  last_error: string | null;
+}
+
 export interface IntakeSourceUploadResponse {
   id: string;
   source_type?: string | null;
@@ -806,6 +819,10 @@ export const api = {
     const { data } = await apiClient.get("/api/v1/intake/workspace", {
       params,
     });
+    return data;
+  },
+  getDropzoneStatus: async (): Promise<DropzoneStatus> => {
+    const { data } = await apiClient.get("/api/v1/intake/dropzone/status");
     return data;
   },
   getIntakeDetail: async (

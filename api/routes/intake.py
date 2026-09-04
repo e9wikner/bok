@@ -12,6 +12,7 @@ from domain.models import BankInput, IntakeProcessingAttempt, IntakeSource, Vouc
 from domain.types import BankInputStatus, IntakeStatus
 from repositories.bank_input_repo import BankInputRepository
 from repositories.intake_repo import IntakeRepository
+from services.dropzone import dropzone_status
 from services.intake import (
     DuplicateIntakeSourceError,
     IntakeConflictError,
@@ -111,6 +112,18 @@ async def list_intake_workspace(
             bank_repo=bank_repo,
         ),
     }
+
+
+@router.get("/dropzone/status", response_model=dict)
+async def get_dropzone_status(actor: str = Depends(get_current_actor)):
+    """Report whether folder pickup is running and what it can see.
+
+    The characteristic failure of a folder-based intake is the scanner dying
+    quietly: files pile up in the inbox, the owner assumes they are queued, and
+    nothing is booked. A stopped scanner and a just-dropped file look identical
+    in the folder, so the answer has to come from here.
+    """
+    return dropzone_status()
 
 
 @router.get("/workspace/{kind}/{item_id}", response_model=dict)

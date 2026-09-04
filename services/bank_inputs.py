@@ -7,11 +7,18 @@ import uuid
 
 from config import settings
 from db.database import db
-from domain.models import BankInput
-from domain.types import BankInputStatus
+from domain.models import Account, BankInput
+from domain.types import AccountType, BankInputStatus
 from domain.validation import ValidationError
+from repositories.account_repo import AccountRepository
 from repositories.bank_input_repo import BankInputRepository
-from services.bank_integration import BankIntegrationService
+from services.bank_integration import BankConnection, BankIntegrationService
+
+# Only balance-sheet accounts can hold an account statement. Booking imported
+# transactions against e.g. a revenue account is always a mistake, and a folder
+# name or a dropdown entry makes that mistake easy to hit by typo.
+STATEMENT_ACCOUNT_TYPES = frozenset({AccountType.ASSET, AccountType.LIABILITY})
+ACCOUNT_REFERENCE_PREFIX = "account:"
 
 
 class BankInputError(Exception):
@@ -63,6 +70,18 @@ class BankTransactionNotFoundError(BankInputError):
             "Bank transaction not found",
             f"bank_transaction_id={bank_transaction_id}",
         )
+
+
+class UnsupportedStatementAccountError(BankInputError):
+    """Raised when an account statement is routed to a non balance-sheet account."""
+
+    def __init__(self, account: Account):
+        super().__init__(
+            "unsupported_statement_account_type",
+            "Account statements can only be imported for asset or liability accounts",
+            f"account_code={account.code}, account_type={account.account_type.value}",
+        )
+        self.account = account
 
 
 class BankInputValidationError(BankInputError):
@@ -142,6 +161,57 @@ class BankInputService:
             if not bank_input_created:
                 self._cleanup_stored_file(stored_path)
             raise
+
+    def resolve_connection_reference(self, bank_connection_id: str) -> str:
+        """Resolve an ``account:<kontokod>`` reference to a real connection id.
+
+        A chart-of-accounts reference gets a manual bank connection created on
+        first use and resolves to that same connection on every later use, so
+        both the upload dropdown and the dropzone can name an account directly.
+        """
+        if not bank_connection_id.startswith(ACCOUNT_REFERENCE_PREFIX):
+            return bank_connection_id
+
+        account_code = bank_connection_id[len(ACCOUNT_REFERENCE_PREFIX):].strip()
+        if not account_code:
+            raise BankInputValidationError(
+                "missing_bank_connection_id",
+                "Bank input upload requires a selected bank connection",
+            )
+
+        account = AccountRepository.get(account_code)
+        if account and account.active and not is_statement_account(account):
+            raise UnsupportedStatementAccountError(account)
+
+        for connection in self.bank.get_connections():
+            if connection.account_number == account_code and connection.status == "active":
+                return connection.id
+
+        if not account or not account.active:
+            raise BankConnectionNotFoundError(bank_connection_id)
+
+        connection = self.bank.create_connection(
+            provider="manual",
+            bank_name=account.name,
+            account_number=account.code,
+            currency="SEK",
+        )
+        return connection.id
+
+    def statement_account_connections(self) -> list[BankConnection]:
+        """Chart-of-accounts options that can legitimately hold a statement."""
+        return [
+            BankConnection(
+                id=f"{ACCOUNT_REFERENCE_PREFIX}{account.code}",
+                provider="manual",
+                bank_name=account.name,
+                account_number=account.code,
+                currency="SEK",
+                status="active",
+            )
+            for account in AccountRepository.list_all(active_only=True)
+            if is_statement_account(account)
+        ]
 
     def get_bank_input(self, bank_input_id: str) -> BankInput:
         bank_input = self.inputs.get_bank_input(bank_input_id)
@@ -416,6 +486,11 @@ class BankInputService:
             stored_path.parent.rmdir()
         except OSError:
             pass
+
+
+def is_statement_account(account: Account) -> bool:
+    """Return whether an account can hold an imported account statement."""
+    return account.account_type in STATEMENT_ACCOUNT_TYPES
 
 
 def _unique_preserve_order(values: list[str]) -> list[str]:

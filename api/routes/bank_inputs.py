@@ -6,7 +6,6 @@ from fastapi.responses import FileResponse
 
 from api.deps import get_current_actor
 from domain.models import BankInput
-from repositories.account_repo import AccountRepository
 from services.bank_inputs import (
     BankConnectionNotFoundError,
     BankInputConflictError,
@@ -31,13 +30,13 @@ async def upload_bank_input(
 ):
     """Upload bank CSV source material before agent voucher posting."""
     content = await _read_limited_upload(file)
-    resolved_bank_connection_id = _resolve_bank_connection_reference(bank_connection_id)
+    service = BankInputService()
     try:
-        bank_input = BankInputService().create_from_upload_content(
+        bank_input = service.create_from_upload_content(
             filename=file.filename,
             content_type=file.content_type,
             content=content,
-            bank_connection_id=resolved_bank_connection_id,
+            bank_connection_id=service.resolve_connection_reference(bank_connection_id),
             actor=actor,
         )
         return _bank_input_to_dict(bank_input)
@@ -188,42 +187,4 @@ def _merge_manual_account_options(connections: list[BankConnection]) -> list[Ban
 
 
 def _manual_account_connections() -> list[BankConnection]:
-    manual_connections = []
-    for account in AccountRepository.list_all(active_only=True):
-        manual_connections.append(
-            BankConnection(
-                id=f"account:{account.code}",
-                provider="manual",
-                bank_name=account.name,
-                account_number=account.code,
-                currency="SEK",
-                status="active",
-            )
-        )
-    return manual_connections
-
-
-def _resolve_bank_connection_reference(bank_connection_id: str) -> str:
-    if not bank_connection_id.startswith("account:"):
-        return bank_connection_id
-
-    account_code = bank_connection_id.split(":", 1)[1]
-    if not account_code:
-        return bank_connection_id
-
-    service = BankIntegrationService()
-    for connection in service.get_connections():
-        if connection.account_number == account_code and connection.status == "active":
-            return connection.id
-
-    account = AccountRepository.get(account_code)
-    if not account or not account.active:
-        return bank_connection_id
-
-    connection = service.create_connection(
-        provider="manual",
-        bank_name=account.name,
-        account_number=account.code,
-        currency="SEK",
-    )
-    return connection.id
+    return BankInputService().statement_account_connections()

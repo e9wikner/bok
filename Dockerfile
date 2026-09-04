@@ -19,6 +19,10 @@ COPY . .
 # Create necessary directories
 RUN mkdir -p scripts data
 
+# The container runs as root on purpose: the dropzone bind mount (/app/data/dropzone)
+# is written by the host's Syncthing user, and the scanner has to read and move
+# those files. Adding a non-root USER breaks folder-based intake.
+
 # Expose port
 EXPOSE 8000
 

@@ -11,6 +11,7 @@ import {
   Clock,
   ExternalLink,
   FileText,
+  FolderSync,
   Landmark,
   Trash2,
   Upload,
@@ -25,9 +26,18 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useBankInputConnections, useIntakeWorkspace } from "@/hooks/useData";
+import {
+  useBankInputConnections,
+  useDropzoneStatus,
+  useIntakeWorkspace,
+} from "@/hooks/useData";
 import { api } from "@/lib/api";
-import type { IntakeKind, IntakeStatus, IntakeWorkspaceItem } from "@/lib/api";
+import type {
+  DropzoneStatus,
+  IntakeKind,
+  IntakeStatus,
+  IntakeWorkspaceItem,
+} from "@/lib/api";
 import { formatDate } from "@/lib/utils";
 
 type UploadStatus = "idle" | "uploading" | "success" | "error";
@@ -77,6 +87,8 @@ export default function IntakePage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [kindFilter, setKindFilter] = useState<KindFilter>("all");
   const [page, setPage] = useState(0);
+  const { data: dropzoneStatus, dataUpdatedAt: dropzoneCheckedAt } =
+    useDropzoneStatus();
   const { data: bankConnectionsData, isLoading: bankConnectionsLoading } =
     useBankInputConnections();
   const bankConnections = bankConnectionsData?.items || [];
@@ -196,6 +208,11 @@ export default function IntakePage() {
           Ladda upp underlag och följ agentens bokföringsarbete.
         </p>
       </div>
+
+      <DropzoneStatusLine
+        status={dropzoneStatus}
+        checkedAt={dropzoneCheckedAt}
+      />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
@@ -569,6 +586,77 @@ function FilePicker({
         {file?.name || placeholder}
       </span>
     </div>
+  );
+}
+
+function DropzoneStatusLine({
+  status,
+  checkedAt,
+}: {
+  status?: DropzoneStatus;
+  checkedAt: number;
+}) {
+  if (!status || !status.enabled) return null;
+
+  // A stopped scanner and a just-dropped file look identical in the folder, so
+  // the page has to say when pickup last ran. Staleness is measured against the
+  // moment the status was fetched, which the periodic refetch keeps current.
+  const lastScan = status.last_scan_at ? new Date(status.last_scan_at) : null;
+  const staleAfterMs = status.scan_interval_seconds * 3 * 1000;
+  const hasStopped =
+    !lastScan || checkedAt - lastScan.getTime() > staleAfterMs;
+  const unknownFolders = status.unknown_account_folders;
+  const isWarning = hasStopped || unknownFolders.length > 0 || !!status.last_error;
+
+  return (
+    <Card className={isWarning ? "border-destructive/50" : undefined}>
+      <CardContent className="p-4 flex items-start gap-3">
+        {isWarning ? (
+          <AlertTriangle className="h-5 w-5 shrink-0 text-destructive" />
+        ) : (
+          <FolderSync className="h-5 w-5 shrink-0 text-primary" />
+        )}
+        <div className="space-y-1 text-sm">
+          {hasStopped ? (
+            <p className="font-medium text-destructive">
+              Hämtningen från mappen verkar ha stannat
+              {lastScan
+                ? ` — senast körd ${lastScan.toLocaleString("sv-SE")}.`
+                : " — den har inte körts sedan servern startade."}{" "}
+              Filer som ligger i mappen bokförs inte förrän den går igång igen.
+            </p>
+          ) : (
+            <p className="text-muted-foreground">
+              Hämtning från mappen kördes {lastScan.toLocaleString("sv-SE")}.{" "}
+              {status.pending_file_count > 0
+                ? `${status.pending_file_count} fil(er) väntar på nästa hämtning.`
+                : "Inga filer väntar."}{" "}
+              {status.ingested_total} inlästa totalt.
+            </p>
+          )}
+
+          {unknownFolders.length > 0 && (
+            <p className="text-destructive">
+              Okänd kontokod i {unknownFolders.join(", ")}. Lägg upp kontot i
+              kontoplanen eller döp om mappen — kontoutdrag som läggs där avvisas.
+            </p>
+          )}
+
+          {status.problem_file_count > 0 && (
+            <p className="text-muted-foreground">
+              {status.problem_file_count} fil(er) ligger i _Problem/ med en
+              förklaring i en .txt-fil bredvid.
+            </p>
+          )}
+
+          {status.last_error && (
+            <p className="text-muted-foreground">
+              Senaste fel: {status.last_error}
+            </p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

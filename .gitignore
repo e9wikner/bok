@@ -34,3 +34,6 @@ env/
 .env
 .env.local
 bokfoering.db
+
+# Folder-based intake: default host directory for the dropzone bind mount
+dropzone/

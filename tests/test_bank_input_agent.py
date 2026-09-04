@@ -530,6 +530,45 @@ def test_bank_csv_import_reports_duplicate_rows(test_db):
 
 
 @pytest.mark.asyncio
+async def test_bank_input_upload_rejects_non_balance_sheet_account(
+    test_db,
+    bank_input_dir,
+):
+    """A statement booked against e.g. a revenue account is always a mistake."""
+    AccountRepository.create("3015", "Försäljning övrigt", "revenue")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await upload_bank_input(
+            file=_UploadFile(
+                "transactions.csv",
+                "text/csv",
+                b"Datum;Belopp;Text\n2026-03-01;-100,00;Bankavgift",
+            ),
+            bank_connection_id="account:3015",
+            actor="api",
+        )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail["code"] == "unsupported_statement_account_type"
+    assert BankIntegrationService().get_connections() == []
+
+
+@pytest.mark.asyncio
+async def test_bank_input_connections_selector_omits_non_balance_sheet_accounts(test_db):
+    AccountRepository.create("3016", "Försäljning tjänster", "revenue")
+    AccountRepository.create("5011", "Förbrukningsmaterial", "expense")
+    if not AccountRepository.exists("2440"):
+        AccountRepository.create("2440", "Leverantörsskulder", "liability")
+
+    response = await list_bank_input_connections(actor="api")
+
+    account_numbers = [item["account_number"] for item in response["items"]]
+    assert "2440" in account_numbers
+    assert "3016" not in account_numbers
+    assert "5011" not in account_numbers
+
+
+@pytest.mark.asyncio
 async def test_bank_input_upload_download_and_error_mapping_api(
     test_db,
     bank_input_dir,
