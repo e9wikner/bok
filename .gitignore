@@ -33,4 +33,5 @@ env/
 .DS_Store
 .env
 .env.local
+.env.production
 bokfoering.db
