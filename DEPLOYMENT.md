@@ -326,10 +326,15 @@ DROPZONE_HOST_DIR=/opt/docker/bok/dropzone
 Starta om och verifiera:
 
 ```bash
-docker compose -f docker-compose.local.yml up -d --build
+docker compose --env-file .env.production -f docker-compose.local.yml up -d --build
 curl -fsS -H "Authorization: Bearer ${API_KEY}" \
   http://localhost:8000/api/v1/intake/dropzone/status
 ```
+
+Utan `--env-file .env.production` läser Compose bara sin default-`.env`, och då
+faller `DROPZONE_ENABLED` tillbaka till `false` och `DROPZONE_HOST_DIR` till
+`./dropzone` — mappen monteras fel och ingenting hämtas, trots att variablerna
+är satta ovan.
 
 Scannern är en tråd i API-processen och tar ett låsfil-lås i mappen, så bara en
 scanner går även om fler startas. Den raderar aldrig någon fil — den flyttar.

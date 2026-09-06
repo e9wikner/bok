@@ -981,3 +981,43 @@ def test_import_folder_name_is_matched_case_insensitively(
 
     assert result.ingested == 1
     assert len(_vouchers()) == 1
+
+
+# --- the scan timestamp crosses a process boundary ---------------------
+
+
+def test_last_scan_at_carries_a_utc_offset(test_db, scanner, dropzone_dir):
+    """The browser parses this with ``new Date()``.
+
+    An offset-free ISO string is read as *local* time there, so a UTC server
+    and a CEST browser would make a scan that just ran look two hours old and
+    the intake page would report a healthy scanner as stopped.
+    """
+    from datetime import datetime, timezone
+
+    scanner.scan_once()
+
+    emitted = scanner.status()["last_scan_at"]
+    parsed = datetime.fromisoformat(emitted)
+    assert parsed.tzinfo is not None, f"no offset in {emitted!r}"
+    assert parsed.utcoffset() == timezone.utc.utcoffset(None)
+    # Sanity: it really is now, not shifted by the local offset.
+    age = abs((datetime.now(timezone.utc) - parsed).total_seconds())
+    assert age < 60, f"timestamp is {age}s away from now"
+
+
+def test_problem_note_timestamp_is_unambiguous(test_db, scanner, dropzone_dir):
+    """The note is read by a person in the folder, so it says which offset."""
+    from datetime import datetime
+
+    _drop(dropzone_dir, "Kvitton/omojlig.docx", b"nope")
+
+    scanner.scan_once()
+
+    line = next(
+        row
+        for row in _problem_note_text(dropzone_dir).splitlines()
+        if row.startswith("Tidpunkt: ")
+    )
+    parsed = datetime.fromisoformat(line.removeprefix("Tidpunkt: "))
+    assert parsed.tzinfo is not None, f"no offset in {line!r}"

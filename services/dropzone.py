@@ -23,7 +23,7 @@ either stays put or is moved.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from fnmatch import fnmatch
 from pathlib import Path
 import logging
@@ -216,7 +216,12 @@ class DropzoneScanner:
         if result.errors and error is None:
             error = result.errors[-1]
 
-        self._state.last_scan_at = datetime.now()
+        # Aware UTC, not naive local: this timestamp is read by a browser via
+        # new Date(), which treats an offset-free ISO string as *local* time. A
+        # UTC container and a CEST browser would then make a scan that just ran
+        # look two hours old, and the page would report a healthy scanner as
+        # stopped.
+        self._state.last_scan_at = datetime.now(timezone.utc)
         self._state.last_scan_duration_ms = int((time.monotonic() - started_at) * 1000)
         self._state.last_error = error
         self._state.last_ingested_count = result.ingested
@@ -588,7 +593,8 @@ class DropzoneScanner:
                     f"Fil: {path.name}",
                     f"Mapp: {folder.as_posix() if folder.parts else '.'}",
                     f"Felkod: {code}",
-                    f"Tidpunkt: {datetime.now().isoformat(timespec='seconds')}",
+                    "Tidpunkt: "
+                    f"{datetime.now().astimezone().isoformat(timespec='seconds')}",
                 ]
             )
             + "\n",
