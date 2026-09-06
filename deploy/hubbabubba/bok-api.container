@@ -1,0 +1,37 @@
+# Bok accounting API — rootless Podman quadlet, runs under the e9wikner
+# `systemd --user` instance on hubbabubba. Installed by
+# deploy/hubbabubba/deploy.sh into ~/.config/containers/systemd/.
+# See deploy/hubbabubba/README.md.
+#
+# Network=host      - LAN HTTP on :8000, same model as every other hubbabubba
+#                     stack (no reverse proxy, no TLS).
+# UserNS=keep-id... - the image runs the API as root inside the container, so
+#                     map container-root to e9wikner's own uid; otherwise the
+#                     SQLite DB under /app/data lands owned by a subuid and is
+#                     invisible without sudo.
+# EnvironmentFile   - the three secrets (API key, JWT secret, admin password)
+#                     live in /srv/appdata/bok/bok.env (mode 600, not in git).
+# Exec              - `--init-db` lays down schema + BAS 2026 accounts and
+#                     exits; the second invocation starts uvicorn.
+[Unit]
+Description=Bok accounting API
+After=network-online.target
+
+[Container]
+Image=bok-api:latest
+ContainerName=bok-api
+Network=host
+UserNS=keep-id:uid=0,gid=0
+Volume=/srv/appdata/bok/data:/app/data:Z
+Environment=DATABASE_URL=sqlite:////app/data/bokfoering.db
+Environment=DEBUG=False
+Environment=AUTH_USERNAME=admin
+Environment=CORS_ORIGINS=http://localhost:3000
+EnvironmentFile=/srv/appdata/bok/bok.env
+Exec=sh -c "python main.py --init-db && python main.py --host 0.0.0.0 --port 8000"
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

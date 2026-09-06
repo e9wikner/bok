@@ -33,6 +33,7 @@ env/
 .DS_Store
 .env
 .env.local
+.env.production
 bokfoering.db
 
 # Folder-based intake: default host directory for the dropzone bind mount

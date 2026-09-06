@@ -1,5 +1,13 @@
 # Deployment av Bok
 
+> **Drift på hubbabubba:** Den kanoniska driften på hemservern `hubbabubba`
+> sker via `deploy/hubbabubba/` — två rootless Podman-quadlets (`bok-api`,
+> `bok-frontend`) som byggs från källkod och körs som `e9wikner`, LAN över
+> HTTP. Kör `deploy/hubbabubba/deploy.sh` på servern; se
+> `deploy/hubbabubba/README.md`. Den här guiden beskriver den Docker
+> Compose-baserade driften på `q.stefanwikner.se`, som avvecklas när
+> hubbabubba-instansen är verifierad.
+
 Den rekommenderade driftsformen i den här milstolpen är en egen Docker-server på
 LAN/lokalt nätverk. Det här är self-hosted Docker, inte managed hosting.
 Publik domän med HTTPS är ett separat, valfritt spår längre ned.

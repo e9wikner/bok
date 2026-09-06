@@ -1,0 +1,34 @@
+# Bok accounting frontend (Next.js 14 standalone) — rootless Podman quadlet
+# under the e9wikner `systemd --user` instance on hubbabubba. Installed by
+# deploy/hubbabubba/deploy.sh into ~/.config/containers/systemd/.
+# See deploy/hubbabubba/README.md.
+#
+# Network=host - shares the host netns with bok-api; there is no `api` DNS
+#               name the way Docker Compose provides one, so BACKEND_URL is
+#               loopback.
+# No UserNS    - the container writes nothing persistent and the image runs as
+#               its own unprivileged uid.
+# BACKEND_URL  - Next.js proxies /api and /health here server-side. deploy.sh
+#               also bakes this value in as a build arg (the Dockerfile wires
+#               it into the rewrites); set here too so runtime wins if the
+#               Next version re-reads it. NEXT_PUBLIC_API_URL is left empty at
+#               build so the browser calls the same origin, not a public URL.
+[Unit]
+Description=Bok accounting frontend
+After=network-online.target bok-api.service
+Wants=bok-api.service
+
+[Container]
+Image=bok-frontend:latest
+ContainerName=bok-frontend
+Network=host
+Environment=PORT=3000
+Environment=HOSTNAME=0.0.0.0
+Environment=NEXT_TELEMETRY_DISABLED=1
+Environment=BACKEND_URL=http://127.0.0.1:8000
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target
