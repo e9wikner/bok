@@ -12,6 +12,7 @@ intake services, and moves it out of the way afterwards:
       Utlägg/                      -> source_type = reimbursement
       Övrigt/                      -> source_type = other
       Kontoutdrag/1930 Företagskonto/  -> account statement for account 1930
+      SIE4-import/                 -> whole-year SIE4 ledger export, imported
       _Inläst/2026-09/             <- ingested files are moved here
       _Problem/                    <- rejected files, with a .txt saying why
 
@@ -78,6 +79,15 @@ SOURCE_TYPE_FOLDERS = {
 # alike. "Bank" stays accepted so an existing folder keeps working.
 STATEMENT_FOLDERS = {folder_key("Kontoutdrag"), folder_key("Bank")}
 
+# A whole-year SIE4 export is the one dropzone input that writes vouchers
+# directly instead of queueing a document for the agent to classify.
+SIE4_FOLDERS = {folder_key("SIE4-import")}
+
+# ".txt" is reserved for sidecar metadata (see _is_sidecar), so a SIE4 file
+# saved as .txt would be read as an explanation and never imported. The
+# accepted extensions are the ones SIE exporters actually emit.
+SIE4_EXTENSIONS = {".se", ".si", ".sie", ".sie4"}
+
 RESERVED_DIR_NAMES = {folder_key(INGESTED_DIR_NAME), folder_key(PROBLEM_DIR_NAME)}
 
 IGNORED_NAME_PATTERNS = (
@@ -111,11 +121,25 @@ MIME_TYPE_BY_EXTENSION = {
 ACCOUNT_FOLDER_PATTERN = re.compile(r"^(\d{3,6})(?:[\s\-_.].*)?$")
 
 
+class Sie4DropzoneError(Exception):
+    """A SIE4 file could not be imported, explained in Swedish.
+
+    Carries its own message rather than going through ``problem_message_for``:
+    the useful thing to say about a rejected ledger export is which fiscal year
+    it covers and what already occupies it, which no error code conveys.
+    """
+
+    def __init__(self, message: str, code: str):
+        super().__init__(message)
+        self.message = message
+        self.code = code
+
+
 @dataclass
 class DropzoneRoute:
     """Where a dropzone file belongs, derived from its folder."""
 
-    kind: str  # "voucher_source", "bank_input" or "problem"
+    kind: str  # "voucher_source", "bank_input", "sie4_import" or "problem"
     source_type: str | None = None
     account_code: str | None = None
     problem_message: str | None = None
@@ -301,6 +325,8 @@ class DropzoneScanner:
             )
         if top in STATEMENT_FOLDERS:
             return self._statement_route(parts)
+        if top in SIE4_FOLDERS:
+            return self._sie4_route(path)
         # An unrecognised folder is not an error: the file is ingested without a
         # type and the agent classifies it.
         return DropzoneRoute(kind="voucher_source")
@@ -325,6 +351,28 @@ class DropzoneScanner:
             )
         return DropzoneRoute(kind="bank_input", account_code=account_code)
 
+    def _sie4_route(self, path: Path) -> DropzoneRoute:
+        """Only recognised SIE extensions are treated as ledger exports.
+
+        Anything else in the folder is bounced rather than ingested as an
+        untyped document: silently filing a stray PDF as a receipt from a
+        folder the owner meant for whole-year imports would be worse than
+        saying so.
+        """
+        extension = path.suffix.lower()
+        if extension in SIE4_EXTENSIONS:
+            return DropzoneRoute(kind="sie4_import")
+        return DropzoneRoute(
+            kind="problem",
+            problem_message=(
+                f"Filtypen {extension or 'okänd'} känns inte igen som en "
+                "SIE4-fil. SIE4-import/ tar bara emot bokföringsexporter "
+                "(.se, .si, .sie eller .sie4). Lägg underlag i Kvitton/, "
+                "Leverantörsfakturor/, Kundfakturor/, Utlägg/ eller Övrigt/ "
+                "i stället."
+            ),
+        )
+
     # --- ingestion -----------------------------------------------------
 
     def _process_file(self, path: Path, result: ScanResult) -> None:
@@ -341,6 +389,8 @@ class DropzoneScanner:
         try:
             if route.kind == "bank_input":
                 self._ingest_bank_input(filename, mime_type, content, route)
+            elif route.kind == "sie4_import":
+                self._ingest_sie4(filename, content)
             else:
                 self._ingest_source(path, filename, mime_type, content, route)
         except (DuplicateIntakeSourceError, DuplicateBankInputError):
@@ -348,6 +398,9 @@ class DropzoneScanner:
             # away anyway is what makes re-dropping a half-processed folder safe.
             self._archive(path)
             result.ingested += 1
+        except Sie4DropzoneError as exc:
+            self._reject(path, exc.message, exc.code)
+            result.problems += 1
         except (IntakeError, BankInputError) as exc:
             self._reject(path, problem_message_for(exc, route, filename), exc.code)
             result.problems += 1
@@ -371,6 +424,105 @@ class DropzoneScanner:
             source_type=route.source_type,
             actor=DROPZONE_ACTOR,
             agent_guidance=self._folder_guidance(path.parent),
+        )
+
+    def _ingest_sie4(self, filename: str, content: bytes) -> None:
+        """Import a whole-year SIE4 export, but only into an empty fiscal year.
+
+        Every other dropzone input queues a document for an agent to classify
+        and a human to approve. This one writes *posted* vouchers, and posted
+        vouchers are immutable under BFL — there is no undo, only B-series
+        reversals. So the guard matters more than the convenience: a file is
+        imported only when the fiscal year it covers holds no vouchers yet.
+        Bootstrapping history stays hands-off, while auto-posting on top of a
+        year that is already booked becomes impossible.
+        """
+        from domain.validation import ValidationError
+        from repositories.voucher_repo import VoucherRepository
+        from services.sie4_import import SIE4Importer, SIE4Parser
+
+        try:
+            text = SIE4Parser.decode_bytes(content)
+        except UnicodeDecodeError:
+            raise Sie4DropzoneError(
+                "Filen gick inte att teckentolka. En SIE4-fil ska vara sparad "
+                "som PC8/CP437 eller UTF-8. Exportera om den från ditt "
+                "bokföringsprogram och lägg tillbaka den.",
+                "sie4_decode_failed",
+            )
+
+        importer = SIE4Importer(
+            api_url=settings.api_url,
+            api_key=settings.api_key,
+        )
+        try:
+            data = importer.parser.parse_content(text)
+        except Exception as exc:
+            raise Sie4DropzoneError(
+                f"Filen kunde inte tolkas som SIE4: {exc}. Kontrollera att det "
+                "är en fullständig SIE4-export och inte en delvis sparad fil.",
+                "sie4_parse_failed",
+            )
+
+        encoding_issues = SIE4Parser.find_encoding_issues(data)
+        if encoding_issues:
+            raise Sie4DropzoneError(
+                "Filen innehåller tecken som ser felkodade ut — till exempel "
+                f"{encoding_issues[0]}. Exportera om den med rätt teckenkodning "
+                "(#FORMAT PC8 ska sparas som CP437) så att å, ä och ö blir rätt.",
+                "sie4_encoding_issues",
+            )
+
+        try:
+            fiscal_year_id = importer.resolve_fiscal_year(data)
+        except ValidationError as exc:
+            raise Sie4DropzoneError(
+                f"Räkenskapsåret kunde inte avgöras: {exc.message}. En SIE4-fil "
+                "måste innehålla en giltig #RAR 0-rad med räkenskapsårets "
+                "start- och slutdatum.",
+                exc.code,
+            )
+
+        _, existing_vouchers = VoucherRepository.list_all(
+            fiscal_year_id=fiscal_year_id, limit=1
+        )
+        if existing_vouchers:
+            # Read the dates back from the resolution rather than from the
+            # parsed file: they are already normalised to ISO there, and it
+            # does not depend on resolve_fiscal_year having rejected None.
+            resolution = importer.fiscal_year_resolution or {}
+            period = f"{resolution.get('start')}–{resolution.get('end')}"
+            raise Sie4DropzoneError(
+                f"Räkenskapsåret {period} innehåller redan {existing_vouchers} "
+                "verifikationer, så filen importerades inte. Automatisk import "
+                "sker bara till ett tomt räkenskapsår, eftersom bokförda "
+                "verifikationer inte kan ändras eller tas bort i efterhand. "
+                "Vill du ändå importera filen får du göra det manuellt under "
+                "Import i webbgränssnittet, efter att ha kontrollerat vad som "
+                "redan är bokfört på året.",
+                "sie4_fiscal_year_not_empty",
+            )
+
+        if not importer.import_content(text, fiscal_year_id):
+            imported = importer.imported
+            reasons = "; ".join(importer.errors[:5]) or "okänt fel"
+            raise Sie4DropzoneError(
+                "Importen gick inte igenom fullständigt. "
+                f"{imported['vouchers']} verifikationer och "
+                f"{imported['accounts']} konton bokfördes, men minst en post "
+                f"kunde inte bokföras. Orsak: {reasons}. "
+                "OBS: de verifikationer som redan bokförts ligger kvar och kan "
+                "inte tas bort — lägg inte tillbaka filen i mappen igen, utan "
+                "stäm av räkenskapsåret först.",
+                "sie4_import_incomplete",
+            )
+
+        logger.info(
+            "Dropzone imported SIE4 %s: %s vouchers, %s accounts, fiscal year %s",
+            filename,
+            importer.imported["vouchers"],
+            importer.imported["accounts"],
+            fiscal_year_id,
         )
 
     def _ingest_bank_input(

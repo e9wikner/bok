@@ -266,6 +266,7 @@ Skapa mappen som Syncthing ska dela och lägg upp skelettet:
 ```bash
 mkdir -p /opt/docker/bok/dropzone/{Kvitton,Leverantörsfakturor,Kundfakturor,Utlägg,Övrigt}
 mkdir -p "/opt/docker/bok/dropzone/Kontoutdrag/1930 Företagskonto"
+mkdir -p /opt/docker/bok/dropzone/SIE4-import
 ```
 
 Mappkontraktet:
@@ -280,6 +281,7 @@ Bokföring/                     ← Syncthings delade mapp
   Kontoutdrag/
     1930 Företagskonto/        → kontoutdrag för konto 1930
     1630 Skattekonto/          → kontoutdrag för konto 1630
+  SIE4-import/                 → hel årsexport i SIE4-format, bokförs direkt
   _Inläst/2026-09/             ← hit flyttas inlästa filer
   _Problem/                    ← hit flyttas avvisade filer, med .txt som förklarar
 ```
@@ -295,6 +297,18 @@ som ignoreras: `Kontoutdrag/1930/`, `Kontoutdrag/1930 Företagskonto/` och
 Att lägga till `Kontoutdrag/1630 Skattekonto/` kräver ingen kodändring och ingen
 konfiguration — bara att konto 1630 finns i kontoplanen och är ett tillgångs-
 eller skuldkonto. Saknas kontot säger intagssidan till innan något lagts där.
+
+**SIE4-import.** `SIE4-import/` tar emot hela årsexporter (`.se`, `.si`, `.sie`,
+`.sie4`) och är den enda mappen som skriver verifikationer direkt i stället för
+att lägga ett underlag i kö för agenten. Eftersom bokförda verifikationer är
+oföränderliga enligt BFL importeras en fil **bara till ett tomt räkenskapsår**.
+Innehåller året redan verifikationer flyttas filen till `_Problem/` med en
+förklaring — vill man ändå importera får man göra det manuellt under Import i
+webbgränssnittet, efter avstämning. Räkenskapsåret läses ur filens `#RAR 0`-rad
+och skapas med perioder om det inte redan finns; konton skapas ur `#KONTO`.
+Andra filtyper än SIE4 avvisas här i stället för att läsas in som underlag.
+Filer med `.txt` fungerar som sidodata även i den här mappen, så en SIE4-fil får
+inte sparas som `.txt`.
 
 **Valfri sidodata.** `_meddelande.txt` i en mapp blir meddelande till agenten för
 alla filer i mappen och ligger kvar. `<filnamn>.txt` bredvid en fil blir just den

@@ -766,3 +766,218 @@ def test_duplicate_bank_input_is_also_tidied_away(test_db, scanner, dropzone_dir
     assert result.problems == 0
     assert len(BankInputRepository().list_by_status(status=None, limit=10, offset=0)) == 1
     assert len(_ingested_files(dropzone_dir)) == 2
+
+
+# --- SIE4 whole-year imports -------------------------------------------
+
+
+def _sie4(
+    start: str = "20240101",
+    end: str = "20241231",
+    vouchers: str | None = None,
+) -> str:
+    """A minimal but valid SIE4 export for one fiscal year."""
+    if vouchers is None:
+        vouchers = (
+            '#VER A 1 20240115 "Försäljning januari"\n'
+            "{\n"
+            '#TRANS 1930 {} 12500.00 20240115 "Inbetalning"\n'
+            '#TRANS 3010 {} -10000.00 20240115 "Försäljning"\n'
+            '#TRANS 2610 {} -2500.00 20240115 "Utgående moms"\n'
+            "}\n"
+        )
+    return (
+        "#FLAGGA 0\n"
+        "#FORMAT PC8\n"
+        "#SIETYP 4\n"
+        '#GEN "Bokföringssystem" 20250101\n'
+        '#FNAMN "Testbolaget AB"\n'
+        f"#RAR 0 {start} {end}\n"
+        '#KONTO 1930 "Företagskonto"\n'
+        '#KONTO 3010 "Försäljning tjänster"\n'
+        '#KONTO 2610 "Utgående moms 25%"\n'
+        "\n" + vouchers
+    )
+
+
+def _sie4_bytes(**kwargs) -> bytes:
+    """Encode as CP437, which is what ``#FORMAT PC8`` actually means."""
+    return _sie4(**kwargs).encode("cp437")
+
+
+def _vouchers(fiscal_year_id: str | None = None) -> list:
+    from repositories.voucher_repo import VoucherRepository
+
+    found, _ = VoucherRepository.list_all(fiscal_year_id=fiscal_year_id, limit=100)
+    return found
+
+
+def _problem_note_text(root: Path) -> str:
+    notes = [p for p in _problem_files(root) if p.name.endswith(".problem.txt")]
+    assert len(notes) == 1, f"expected one problem note, got {notes}"
+    return notes[0].read_text(encoding="utf-8")
+
+
+def test_sie4_file_is_imported_and_archived(test_db, scanner, dropzone_dir):
+    _drop(dropzone_dir, "SIE4-import/bokforing-2024.se", _sie4_bytes())
+
+    result = scanner.scan_once()
+
+    assert result.ingested == 1
+    assert result.problems == 0
+    vouchers = _vouchers()
+    assert len(vouchers) == 1
+    assert vouchers[0].description == "Försäljning januari"
+    # Imported as a ledger entry, not queued as a document for the agent.
+    assert _sources() == []
+    assert [p.name for p in _ingested_files(dropzone_dir)] == ["bokforing-2024.se"]
+
+
+def test_sie4_import_creates_the_fiscal_year_and_accounts(
+    test_db, scanner, dropzone_dir
+):
+    _drop(dropzone_dir, "SIE4-import/2024.se", _sie4_bytes())
+
+    scanner.scan_once()
+
+    from repositories.period_repo import PeriodRepository
+
+    years = PeriodRepository.list_fiscal_years()
+    assert len(years) == 1
+    assert years[0].start_date.isoformat() == "2024-01-01"
+    assert years[0].end_date.isoformat() == "2024-12-31"
+    assert AccountRepository.exists("3010")
+
+
+def test_cp437_import_keeps_swedish_letters(test_db, scanner, dropzone_dir):
+    _drop(dropzone_dir, "SIE4-import/2024.se", _sie4_bytes())
+
+    scanner.scan_once()
+
+    assert _vouchers()[0].description == "Försäljning januari"
+
+
+def test_sie4_is_not_imported_into_a_year_that_already_has_vouchers(
+    test_db, scanner, dropzone_dir
+):
+    _drop(dropzone_dir, "SIE4-import/2024.se", _sie4_bytes())
+    scanner.scan_once()
+    assert len(_vouchers()) == 1
+
+    # The same year, dropped again — the guard, not the UNIQUE constraint,
+    # is what has to stop this.
+    _drop(dropzone_dir, "SIE4-import/2024-igen.se", _sie4_bytes())
+    result = scanner.scan_once()
+
+    assert result.ingested == 0
+    assert result.problems == 1
+    assert len(_vouchers()) == 1, "no second import into a booked year"
+    note = _problem_note_text(dropzone_dir)
+    assert "innehåller redan" in note
+    assert "2024-01-01" in note and "2024-12-31" in note
+    assert "sie4_fiscal_year_not_empty" in note
+
+
+def test_a_different_year_still_imports_alongside_an_existing_one(
+    test_db, scanner, dropzone_dir
+):
+    _drop(dropzone_dir, "SIE4-import/2024.se", _sie4_bytes())
+    scanner.scan_once()
+
+    _drop(
+        dropzone_dir,
+        "SIE4-import/2025.se",
+        _sie4(
+            start="20250101",
+            end="20251231",
+            vouchers=(
+                '#VER A 1 20250115 "Försäljning 2025"\n'
+                "{\n"
+                '#TRANS 1930 {} 6250.00 20250115 "Inbetalning"\n'
+                '#TRANS 3010 {} -5000.00 20250115 "Försäljning"\n'
+                '#TRANS 2610 {} -1250.00 20250115 "Utgående moms"\n'
+                "}\n"
+            ),
+        ).encode("cp437"),
+    )
+    result = scanner.scan_once()
+
+    assert result.ingested == 1
+    assert result.problems == 0
+    assert len(_vouchers()) == 2
+
+
+def test_non_sie4_file_in_the_import_folder_is_rejected_not_ingested(
+    test_db, scanner, dropzone_dir
+):
+    _drop(dropzone_dir, "SIE4-import/kvitto.pdf")
+
+    result = scanner.scan_once()
+
+    assert result.problems == 1
+    assert _sources() == [], "a PDF here must not become an untyped source"
+    note = _problem_note_text(dropzone_dir)
+    assert ".pdf" in note
+    assert "Kvitton/" in note
+
+
+def test_sie4_without_fiscal_year_is_rejected(test_db, scanner, dropzone_dir):
+    content = _sie4().replace("#RAR 0 20240101 20241231\n", "")
+    _drop(dropzone_dir, "SIE4-import/trasig.se", content.encode("cp437"))
+
+    result = scanner.scan_once()
+
+    assert result.problems == 1
+    assert _vouchers() == []
+    assert "#RAR 0" in _problem_note_text(dropzone_dir)
+
+
+def test_partial_sie4_import_says_what_was_already_written(
+    test_db, scanner, dropzone_dir
+):
+    # 4010 is referenced by a voucher but never declared with #KONTO, so that
+    # voucher cannot be created while the first one can.
+    vouchers = (
+        '#VER A 1 20240115 "Försäljning januari"\n'
+        "{\n"
+        '#TRANS 1930 {} 12500.00 20240115 "Inbetalning"\n'
+        '#TRANS 3010 {} -10000.00 20240115 "Försäljning"\n'
+        '#TRANS 2610 {} -2500.00 20240115 "Utgående moms"\n'
+        "}\n"
+        '#VER A 2 20240210 "Okänt konto"\n'
+        "{\n"
+        '#TRANS 4010 {} 1000.00 20240210 "Kostnad"\n'
+        '#TRANS 1930 {} -1000.00 20240210 "Betalning"\n'
+        "}\n"
+    )
+    _drop(dropzone_dir, "SIE4-import/2024.se", _sie4(vouchers=vouchers).encode("cp437"))
+
+    result = scanner.scan_once()
+
+    assert result.problems == 1
+    note = _problem_note_text(dropzone_dir)
+    # The honest part: some vouchers are already posted and immutable.
+    assert "sie4_import_incomplete" in note
+    assert "kan inte tas bort" in note
+    assert "lägg inte tillbaka filen" in note.lower()
+
+
+def test_txt_in_the_import_folder_is_still_a_sidecar(test_db, scanner, dropzone_dir):
+    _write(dropzone_dir, "SIE4-import/_meddelande.txt", "Årsexporter läggs här.")
+
+    result = scanner.scan_once()
+
+    assert result.ingested == 0
+    assert result.problems == 0
+    assert (dropzone_dir / "SIE4-import/_meddelande.txt").exists()
+
+
+def test_import_folder_name_is_matched_case_insensitively(
+    test_db, scanner, dropzone_dir
+):
+    _drop(dropzone_dir, "sie4-import/2024.se", _sie4_bytes())
+
+    result = scanner.scan_once()
+
+    assert result.ingested == 1
+    assert len(_vouchers()) == 1
