@@ -361,6 +361,132 @@ class TestSIE4ImportOpeningBalances:
         assert row_1930 is not None
         assert row_1930["debit"] == 15000000  # 150000.00 kr in öre
 
+    def test_export_reflects_imported_opening_balance_voucher(
+        self, client, auth_headers
+    ):
+        """Exporten ska spegla den importerade IB-verifikationen.
+
+        Regressionstest: tidigare härledde exporten IB genom att spela om
+        föregående års *bokförda* verifikationer. IB-verifikationen lämnas som
+        utkast av importern, så alla ingående balanser som bara fanns där
+        (aktiekapital, periodiseringsfonder, upplupna löner ...) försvann ur
+        #IB/#UB och driften växte år för år.
+        """
+        for code, name, acc_type in [
+            ("1930", "Företagskonto", "asset"),
+            ("2081", "Aktiekapital", "equity"),
+            ("2890", "Övriga kortfristiga skulder", "liability"),
+            ("5010", "Lokalhyra", "expense"),
+        ]:
+            if not AccountRepository.exists(code):
+                AccountRepository.create(code, name, acc_type)
+
+        fy = PeriodRepository.create_fiscal_year(
+            start_date=date(2026, 1, 1), end_date=date(2026, 12, 31)
+        )
+        for month, last in [(1, 31), (3, 31)]:
+            PeriodRepository.create_period(
+                fiscal_year_id=fy.id, year=2026, month=month,
+                start_date=date(2026, month, 1), end_date=date(2026, month, last),
+            )
+
+        # #IB har en post (2890) som ingen verifikation under året rör.
+        sie4 = """#FLAGGA 0
+#FORMAT PC8
+#PROGRAM "Test" 1.0
+#FNAMN "IB AB"
+#RAR 0 20260101 20261231
+#KONTO 1930 "Företagskonto"
+#KONTO 2081 "Aktiekapital"
+#KONTO 2890 "Övriga kortfristiga skulder"
+#KONTO 5010 "Lokalhyra"
+#IB 0 1930 200000
+#IB 0 2081 -50000
+#IB 0 2890 -150000
+#VER A 1 20260315 "Hyra"
+{
+#TRANS 5010 {} 10000.00
+#TRANS 1930 {} -10000.00
+}
+"""
+        resp = client.post(
+            "/api/v1/import/sie4",
+            headers=auth_headers,
+            json={"content": sie4, "fiscal_year_id": fy.id},
+        )
+        assert resp.status_code == 200
+
+        content = client.get(
+            "/api/v1/export/sie4",
+            headers=auth_headers,
+            params={"fiscal_year_id": fy.id, "download": False},
+        ).json()["content"]
+
+        # IB speglar filens #IB — även konton utan rörelse under året.
+        assert "#IB 0 1930 200000.00" in content
+        assert "#IB 0 2081 -50000.00" in content
+        assert "#IB 0 2890 -150000.00" in content
+
+        # UB = IB + rörelse, utan dubbelräkning av IB-verifikationen.
+        assert "#UB 0 1930 190000.00" in content   # 200000 - 10000
+        assert "#UB 0 2081 -50000.00" in content   # oförändrat
+        assert "#UB 0 2890 -150000.00" in content  # oförändrat
+        assert "#RES 0 5010 10000.00" in content
+
+        # IB-verifikationen skrivs aldrig ut som #VER.
+        assert "#VER IB" not in content
+        assert "#VER A 1" in content
+
+    def test_all_zero_opening_balance_is_not_a_failure(
+        self, client, auth_headers
+    ):
+        """En startårsexport har #IB-rader men alla är 0. Det ska inte flagga
+        importen som ofullständig (och i dropzonen skicka filen till _Problem/).
+        """
+        for code, name, acc_type in [
+            ("1930", "Företagskonto", "asset"),
+            ("2081", "Aktiekapital", "equity"),
+        ]:
+            if not AccountRepository.exists(code):
+                AccountRepository.create(code, name, acc_type)
+
+        fy = PeriodRepository.create_fiscal_year(
+            start_date=date(2026, 1, 1), end_date=date(2026, 12, 31)
+        )
+        PeriodRepository.create_period(
+            fiscal_year_id=fy.id, year=2026, month=1,
+            start_date=date(2026, 1, 1), end_date=date(2026, 1, 31),
+        )
+
+        sie4 = """#FLAGGA 0
+#FORMAT PC8
+#FNAMN "Startår AB"
+#RAR 0 20260101 20261231
+#KONTO 1930 "Företagskonto"
+#KONTO 2081 "Aktiekapital"
+#IB 0 1930 0
+#IB 0 2081 0
+#VER A 1 20260115 "Kontantemission"
+{
+#TRANS 1930 {} 50000.00
+#TRANS 2081 {} -50000.00
+}
+"""
+        resp = client.post(
+            "/api/v1/import/sie4",
+            headers=auth_headers,
+            json={"content": sie4, "fiscal_year_id": fy.id},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["success"] is True
+
+        vouchers = client.get(
+            "/api/v1/vouchers", headers=auth_headers,
+            params={"fiscal_year_id": fy.id},
+        ).json()["vouchers"]
+        assert not [v for v in vouchers if v["series"] == "IB"]
+        assert len([v for v in vouchers if v["series"] == "A"]) == 1
+
 
 class TestSIE4ExportAPI:
     """Testa API-endpoints för SIE4-export."""

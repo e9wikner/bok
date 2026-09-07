@@ -685,12 +685,11 @@ class SIE4Importer:
         if data.sru_mappings and fiscal_year_id:
             self._import_sru_mappings(data.sru_mappings, fiscal_year_id)
 
-        # Import opening balances as a special voucher
-        if data.opening_balances:
-            if self._import_opening_balances(data, fiscal_year_id):
-                self.imported["vouchers"] += 1
-            else:
-                success = False
+        # Import opening balances as a special voucher. The counter is bumped
+        # inside _import_opening_balances only when a voucher is actually
+        # written — an all-zero #IB block is a no-op success.
+        if not self._import_opening_balances(data, fiscal_year_id):
+            success = False
 
         # Import vouchers
         for voucher in data.vouchers:
@@ -888,8 +887,17 @@ class SIE4Importer:
         from domain.validation import ValidationError
         from services.ledger import LedgerService
 
-        if not data.opening_balances or not data.fiscal_year_start:
+        if not data.fiscal_year_start:
             return False
+
+        # An all-zero #IB block (a start-up year's first fiscal year, or a file
+        # that lists every account at 0) is "nothing to book", not a failure —
+        # returning False here would flag the whole import as incomplete and
+        # send a perfectly good file to the dropzone's _Problem/ folder.
+        if not data.opening_balances or all(
+            amount == 0 for amount in data.opening_balances.values()
+        ):
+            return True
 
         # Find period for the first day of fiscal year
         period_id = self._get_or_create_period(data.fiscal_year_start, fiscal_year_id)
@@ -925,7 +933,7 @@ class SIE4Importer:
                 )
 
         if not rows:
-            return False
+            return True
 
         # Check if an IB voucher already exists for this fiscal year
         year = data.fiscal_year_start.year
@@ -957,6 +965,7 @@ class SIE4Importer:
                     rows_data=rows,
                     created_by="sie4_import",
                 )
+            self.imported["vouchers"] += 1
             return True
         except ValidationError as e:
             self.errors.append(f"Failed to import opening balance voucher: {e.message}")
