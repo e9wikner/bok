@@ -9,9 +9,13 @@
 #
 # ── One-time setup (run once, in an admin/rsw shell) ──────────────────────
 #   sudo mkdir -p /srv/appdata/bok/data
-#   sudo chown -R e9wikner:e9wikner /srv/appdata/bok
+#   sudo chown e9wikner:e9wikner /srv/appdata/bok /srv/appdata/bok/data
 #   sudo -u e9wikner install -m 600 /dev/null /srv/appdata/bok/bok.env
 #   # then edit /srv/appdata/bok/bok.env — see README.md in this directory
+#
+# NOT `chown -R`: /srv/appdata/bok/dropzone is an SMB share owned by the file
+# server (rsw:rsw 2770, with a POSIX ACL granting e9wikner). Taking ownership of
+# it would be undone by hubbabubba's daily permission check the next morning.
 #
 # Options:
 #   --no-build     skip the image builds, just re-render quadlets and restart
@@ -20,6 +24,7 @@
 set -euo pipefail
 
 APPDATA=/srv/appdata/bok
+DROPZONE=$APPDATA/dropzone
 ENV_FILE=$APPDATA/bok.env
 SRC=$APPDATA/src
 REPO=https://github.com/e9wikner/bok.git
@@ -48,7 +53,7 @@ $APPDATA is missing or not writable by e9wikner.
 
 One-time setup, in an admin (rsw) shell:
   sudo mkdir -p $APPDATA/data
-  sudo chown -R e9wikner:e9wikner $APPDATA
+  sudo chown e9wikner:e9wikner $APPDATA $APPDATA/data
   sudo -u e9wikner install -m 600 /dev/null $ENV_FILE
 
 then fill in $ENV_FILE (see $SCRIPT_DIR/README.md) and re-run this script.
@@ -64,6 +69,57 @@ fi
 chmod 600 "$ENV_FILE"
 
 mkdir -p "$APPDATA/data" "$QUADLET_DIR"
+
+# ── preflight: the dropzone share must exist and be writable ─────────────
+# bok-api.container sets DROPZONE_ENABLED=true, so a missing or unwritable
+# dropzone is not a degraded deploy — it is a scanner logging
+# `dropzone_dir_missing` every 60 seconds while receipts pile up in a folder
+# nobody is reading. Fail here, naming the check, rather than start like that.
+#
+# The directory is the `Bokforing` SMB share, declared and owned by hubbabubba
+# (file_shares in group_vars/all.yml; docs/samba.md §3 "Application shares").
+# This repo never creates or chowns it — it only asserts the host preparation
+# it depends on actually holds, the same contract homeass and telldus use.
+if [ ! -d "$DROPZONE" ]; then
+  cat >&2 <<EOF
+error: $DROPZONE does not exist.
+
+It is the 'Bokforing' SMB share, declared in the hubbabubba repo:
+  ansible/inventory/group_vars/all.yml  ->  file_shares
+Apply it on this host with:
+  python scripts/install.py --tags samba
+
+To deploy without folder intake instead, remove the DROPZONE_ENABLED line
+from $SCRIPT_DIR/bok-api.container.
+EOF
+  exit 1
+fi
+
+if [ ! -w "$DROPZONE" ] || [ ! -x "$DROPZONE" ]; then
+  cat >&2 <<EOF
+error: $DROPZONE is not writable by $(id -un).
+
+The share grants this account through a POSIX ACL, not ownership. Check it:
+  getfacl -p $DROPZONE     # expect user:$(id -un):rwx and default:user:$(id -un):rwx
+
+If it is missing, the grant is not declared (or has drifted). In the hubbabubba
+repo the share needs:
+  host_acl:
+    - { etype: user, entity: "{{ dev_user }}", permissions: rwx }
+then: sudo /usr/local/lib/hubbabubba/permissions.py --fix
+EOF
+  exit 1
+fi
+
+# The folder contract the scanner reads (services/dropzone.py). Creating them is
+# this repo's job, not the file server's: the names ARE the classification.
+# Folder names are matched case- and NFC/NFD-insensitively, so a folder created
+# on a Mac works too. Add more account statement folders the same way —
+# `Kontoutdrag/<account> <label>/`, no code or config change needed.
+echo "==> ensuring the dropzone folder contract in $DROPZONE"
+for folder in Kvitton Leverantörsfakturor Kundfakturor Utlägg Övrigt               "Kontoutdrag/1930 Företagskonto" SIE4-import; do
+  mkdir -p "$DROPZONE/$folder"
+done
 
 # ── source ──────────────────────────────────────────────────────────────
 changed=1
@@ -135,6 +191,17 @@ printf 'login    '; curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:
 
 db=$APPDATA/data/bokfoering.db
 [ -f "$db" ] && printf 'db owner %s (want e9wikner:e9wikner)\n' "$(stat -c '%U:%G' "$db")"
+
+# The classic folder-intake failure is a scanner that dies quietly: files pile
+# up, everyone assumes they are queued, and nothing is booked. Print its status
+# here so a deploy never ends without having looked.
+api_key=$(sed -n 's/^BOKFOERING_API_KEY=//p' "$ENV_FILE" | head -1)
+if [ -n "$api_key" ]; then
+  printf 'dropzone '
+  curl -fsS -H "Authorization: Bearer $api_key" \
+    http://127.0.0.1:8000/api/v1/intake/dropzone/status || echo '(no answer)'
+  echo
+fi
 
 echo
 echo "done — UI at http://hubbabubba:3000, API at http://hubbabubba:8000"
