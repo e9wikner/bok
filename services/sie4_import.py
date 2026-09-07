@@ -946,10 +946,12 @@ class SIE4Importer:
             if existing_ib:
                 if existing_ib.status == VoucherStatus.POSTED:
                     self.errors.append(
-                        "Cannot update opening balance voucher because it is posted and immutable"
+                        "Cannot update opening balance voucher because it is posted and immutable. "
+                        "The fiscal year already has an opening balance — re-import is only "
+                        "possible into an empty fiscal year."
                     )
                     return False
-                ledger.update_voucher(
+                voucher = ledger.update_voucher(
                     voucher_id=existing_ib.id,
                     rows_data=rows,
                     description=description,
@@ -957,7 +959,7 @@ class SIE4Importer:
                     actor="sie4_import",
                 )
             else:
-                ledger.create_voucher(
+                voucher = ledger.create_voucher(
                     series="IB",
                     date=data.fiscal_year_start,
                     period_id=period_id,
@@ -965,6 +967,13 @@ class SIE4Importer:
                     rows_data=rows,
                     created_by="sie4_import",
                 )
+            # Post immediately: reports (balance sheet, trial balance, opening
+            # balance carry-forward) only ever read posted vouchers, so a draft
+            # IB voucher is invisible to them. Posting also makes it immutable,
+            # which is what closes off the upsert path above on a later import
+            # into the same fiscal year — matching the dropzone's "only an
+            # empty fiscal year can be imported" rule for the manual endpoint.
+            ledger.post_voucher(voucher.id, actor="sie4_import")
             self.imported["vouchers"] += 1
             return True
         except ValidationError as e:

@@ -272,8 +272,16 @@ class TestSIE4ImportOpeningBalances:
         assert "Ingående balans" in ib["description"]
         assert "2026" in ib["description"]
 
-    def test_import_upserts_existing_ib_voucher(self, client, auth_headers):
-        """Testa att importera uppdaterar befintlig IB-verifikation (upsert)."""
+    def test_import_posts_ib_voucher_and_refuses_a_second_import(
+        self, client, auth_headers
+    ):
+        """IB-verifikationen ska bokföras direkt, och en andra import i samma
+        räkenskapsår ska då avvisas i stället för att skriva över den.
+
+        Bokförda verifikationer är oföränderliga (BFL), så en IB-verifikation
+        kan inte längre uppdateras sedan den bokförts vid den första importen.
+        Det matchar vad dropzonen redan kräver: automatisk import sker bara i
+        ett tomt räkenskapsår."""
         # Skapa räkenskapsår
         fy = PeriodRepository.create_fiscal_year(
             start_date=date(2026, 1, 1),
@@ -317,11 +325,12 @@ class TestSIE4ImportOpeningBalances:
             headers=auth_headers,
             params={"fiscal_year_id": fy.id},
         )
-        first_ib_id = [
+        first_ib = [
             v for v in vouchers_resp.json()["vouchers"] if v["series"] == "IB"
-        ][0]["id"]
+        ][0]
+        assert first_ib["status"] == "posted"
 
-        # Andra importen med uppdaterad IB
+        # Andra importen försöker skriva en annan IB till samma räkenskapsår
         sie4_content_2 = """#FLAGGA 0
 #FORMAT PC8
 #PROGRAM "Test" 1.0
@@ -339,8 +348,11 @@ class TestSIE4ImportOpeningBalances:
             json={"content": sie4_content_2, "fiscal_year_id": fy.id},
         )
         assert resp2.status_code == 200
+        assert resp2.json()["success"] is False
+        assert any("posted" in error.lower() for error in resp2.json()["errors"])
 
-        # Verifiera att det fortfarande bara finns en IB-verifikation
+        # Verifiera att det fortfarande bara finns en IB-verifikation, och att
+        # den ursprungliga bokförda verifikationen inte ändrats
         vouchers_resp = client.get(
             "/api/v1/vouchers",
             headers=auth_headers,
@@ -350,16 +362,13 @@ class TestSIE4ImportOpeningBalances:
             v for v in vouchers_resp.json()["vouchers"] if v["series"] == "IB"
         ]
         assert len(ib_vouchers) == 1
+        assert ib_vouchers[0]["id"] == first_ib["id"]
 
-        # Verifiera att beloppen uppdaterades
-        ib = ib_vouchers[0]
-        rows = ib["rows"]
-        assert len(rows) == 2
-
-        # Hitta raden för konto 1930 och verifiera beloppet
-        row_1930 = next((r for r in rows if r["account"] == "1930"), None)
+        row_1930 = next(
+            (r for r in ib_vouchers[0]["rows"] if r["account"] == "1930"), None
+        )
         assert row_1930 is not None
-        assert row_1930["debit"] == 15000000  # 150000.00 kr in öre
+        assert row_1930["debit"] == 10000000  # unchanged: 100000.00 kr in öre
 
     def test_export_reflects_imported_opening_balance_voucher(
         self, client, auth_headers
