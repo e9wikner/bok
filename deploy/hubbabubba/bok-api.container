@@ -8,7 +8,20 @@
 # UserNS=keep-id... - the image runs the API as root inside the container, so
 #                     map container-root to e9wikner's own uid; otherwise the
 #                     SQLite DB under /app/data lands owned by a subuid and is
-#                     invisible without sudo.
+#                     invisible without sudo. It is also what makes the dropzone
+#                     work: the share's POSIX ACL grants e9wikner, and this is
+#                     what makes the container that identity.
+# dropzone volume   - /srv/appdata/bok/dropzone is the `Bokforing` SMB share
+#                     (hubbabubba: file_shares, docs/samba.md §3 "Application
+#                     shares"). Files dropped there over SMB are picked up,
+#                     booked, and moved into _Inläst/. Note the missing `:Z`:
+#                     smbd serves this same directory, so relabelling it
+#                     private to this container is the wrong intent even on a
+#                     host where SELinux makes it a no-op. Mounted at
+#                     /app/dropzone rather than under /app/data (the config
+#                     default) so it is not a bind mount nested inside another
+#                     one — that works, but it leaves an empty `dropzone/`
+#                     stub in the SQLite data directory on the host.
 # EnvironmentFile   - the three secrets (API key, JWT secret, admin password)
 #                     live in /srv/appdata/bok/bok.env (mode 600, not in git).
 # Exec              - `--init-db` lays down schema + BAS 2026 accounts and
@@ -23,7 +36,14 @@ ContainerName=bok-api
 Network=host
 UserNS=keep-id:uid=0,gid=0
 Volume=/srv/appdata/bok/data:/app/data:Z
+Volume=/srv/appdata/bok/dropzone:/app/dropzone
 Environment=DATABASE_URL=sqlite:////app/data/bokfoering.db
+Environment=DROPZONE_ENABLED=true
+Environment=DROPZONE_DIR=/app/dropzone
+# 10s (the default) is the whole guard against reading a half-copied file, and
+# SMB writes straight to the final name — no .part temp file to ignore. 30s
+# covers a large PDF arriving over WiFi without making the inbox feel slow.
+Environment=DROPZONE_QUIET_SECONDS=30
 Environment=DEBUG=False
 Environment=AUTH_USERNAME=admin
 Environment=CORS_ORIGINS=http://localhost:3000
