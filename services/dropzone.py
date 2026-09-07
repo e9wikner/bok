@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from fnmatch import fnmatch
 from pathlib import Path
+import fcntl
 import logging
 import mimetypes
 import os
@@ -696,7 +697,7 @@ class DropzoneRunner:
         self.scanner = scanner
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self._lock_path: Path | None = None
+        self._lock: "_DropzoneLock | None" = None
 
     @property
     def running(self) -> bool:
@@ -713,8 +714,8 @@ class DropzoneRunner:
             logger.error("Dropzone directory %s is unusable: %s", root, exc)
             return False
 
-        self._lock_path = _acquire_lock(root)
-        if self._lock_path is None:
+        self._lock = _acquire_lock(root)
+        if self._lock is None:
             logger.warning(
                 "Dropzone scanner not started: %s is held by another process",
                 root / LOCK_FILENAME,
@@ -737,8 +738,8 @@ class DropzoneRunner:
         if thread is not None:
             thread.join(timeout=timeout)
         self._thread = None
-        _release_lock(self._lock_path)
-        self._lock_path = None
+        _release_lock(self._lock)
+        self._lock = None
 
     def _run(self) -> None:
         while not self._stop.is_set():
@@ -918,60 +919,69 @@ def _count_files(folder: Path, exclude_suffix: str | None = None) -> int:
     return count
 
 
-# Locks this process holds. The lock file alone cannot tell "another worker in
-# this process tree" from "a leftover file written by a process that has since
-# died and whose pid we now reuse", so ownership within the process is tracked
-# here and staleness is only ever inferred for a pid we do not hold.
+# Locks this process holds, keyed by absolute lock path, so a second scanner
+# started within the same process (rather than a second OS process) is
+# refused too.
 _held_locks: set[str] = set()
 _held_locks_guard = threading.Lock()
 
 
-def _acquire_lock(root: Path) -> Path | None:
-    """Take an exclusive lock file so only one scanner walks the tree."""
+@dataclass
+class _DropzoneLock:
+    """An open handle holding the ``flock`` — closing it releases the lock."""
+
+    path: Path
+    handle: object
+
+
+def _acquire_lock(root: Path) -> "_DropzoneLock | None":
+    """Take an exclusive ``flock`` on the lock file so only one scanner walks the tree.
+
+    A PID written into the file cannot tell a live holder from a stale one
+    under a container runtime that reuses the same PID namespace layout on
+    every restart (rootless Podman gives uvicorn PID ~8 every time) — after an
+    unclean restart the PID in a leftover lock file matches the *new*
+    process, so a staleness check based on it wrongly reports the lock as
+    live. ``flock`` sidesteps the problem entirely: it is held by the open
+    file description, not by a PID we write and compare, so it is released by
+    the kernel the moment the holding process exits or its fd closes,
+    regardless of what PID gets reused afterwards.
+    """
     lock_path = root / LOCK_FILENAME
     key = os.path.abspath(lock_path)
     with _held_locks_guard:
         if key in _held_locks:
             return None
-        for _attempt in range(2):
-            try:
-                fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
-            except FileExistsError:
-                if not _lock_is_stale(lock_path):
-                    return None
-                try:
-                    lock_path.unlink()
-                except OSError:
-                    return None
-                continue
-            except OSError as exc:
-                logger.error("Could not create dropzone lock %s: %s", lock_path, exc)
-                return None
-            with os.fdopen(fd, "w") as handle:
-                handle.write(str(os.getpid()))
-            _held_locks.add(key)
-            return lock_path
-    return None
+        try:
+            handle = open(lock_path, "w")
+        except OSError as exc:
+            logger.error("Could not open dropzone lock %s: %s", lock_path, exc)
+            return None
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            handle.close()
+            return None
+        handle.write(str(os.getpid()))
+        handle.flush()
+        _held_locks.add(key)
+        return _DropzoneLock(path=lock_path, handle=handle)
 
 
-def _lock_is_stale(lock_path: Path) -> bool:
-    try:
-        pid = int(lock_path.read_text(encoding="utf-8").strip())
-    except (OSError, ValueError):
-        return True
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return True
-    return False
-
-
-def _release_lock(lock_path: Path | None) -> None:
-    if lock_path is None:
+def _release_lock(lock: "_DropzoneLock | None") -> None:
+    if lock is None:
         return
     with _held_locks_guard:
-        _held_locks.discard(os.path.abspath(lock_path))
+        _held_locks.discard(os.path.abspath(lock.path))
         try:
-            lock_path.unlink()
+            fcntl.flock(lock.handle.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            pass
+        try:
+            lock.handle.close()
+        except OSError:
+            pass
+        try:
+            lock.path.unlink()
         except OSError:
             pass
