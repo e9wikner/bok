@@ -57,6 +57,15 @@ export function useIntakeWorkspace(params?: {
   });
 }
 
+export function useDropzoneStatus() {
+  return useQuery({
+    queryKey: ["dropzone-status"],
+    queryFn: () => api.getDropzoneStatus(),
+    staleTime: 30 * 1000,
+    refetchInterval: 60 * 1000,
+  });
+}
+
 export function useIntakeDetail(kind?: IntakeKind, id?: string) {
   return useQuery({
     queryKey: ["intake-detail", kind, id],

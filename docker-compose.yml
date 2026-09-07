@@ -6,12 +6,17 @@ services:
       - "8000:8000"
     volumes:
       - bokfoering-data:/app/data
+      # Folder-based intake. Point DROPZONE_HOST_DIR at the same host directory
+      # Syncthing shares; the mount is harmless while DROPZONE_ENABLED is false.
+      - ${DROPZONE_HOST_DIR:-./dropzone}:/app/data/dropzone
     environment:
       - DEBUG=False
       - BOKFOERING_API_KEY=${BOKFOERING_API_KEY:-dev-key-change-in-production}
       - AUTH_USERNAME=${AUTH_USERNAME:-admin}
       - AUTH_PASSWORD=${AUTH_PASSWORD:-admin}
       - DATABASE_URL=sqlite:////app/data/bokfoering.db
+      - DROPZONE_ENABLED=${DROPZONE_ENABLED:-false}
+      - DROPZONE_DIR=/app/data/dropzone
     command: sh -c "python main.py --init-db && python main.py --host 0.0.0.0 --port 8000"
     restart: unless-stopped
     healthcheck:

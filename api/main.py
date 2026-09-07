@@ -5,9 +5,12 @@ import sys
 
 sys.setrecursionlimit(3000)  # Increase for Pydantic v2 schema generation
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config import settings
+from services import dropzone
 
 # Import routers
 from api.routes import (
@@ -41,6 +44,22 @@ from api.routes import (
     payroll,
 )
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Run folder pickup alongside the API when it is enabled.
+
+    The scanner is a thread in this process rather than a second container:
+    `db.Database` already hands out thread-local SQLite connections with WAL on,
+    so a worker thread needs no new infrastructure.
+    """
+    dropzone.start_background_scanner()
+    try:
+        yield
+    finally:
+        dropzone.stop_background_scanner()
+
+
 # Create app
 app = FastAPI(
     title=settings.api_title,
@@ -49,6 +68,7 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
+    lifespan=lifespan,
 )
 
 # Add CORS middleware

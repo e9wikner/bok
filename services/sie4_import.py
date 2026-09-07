@@ -653,7 +653,14 @@ class SIE4Importer:
             current_start = period_end + timedelta(days=1)
 
     def _import_data(self, data: SIEData, fiscal_year_id: Optional[str] = None) -> bool:
-        """Import parsed SIE data."""
+        """Import parsed SIE data.
+
+        Returns False when any account or voucher failed, with the reason in
+        ``self.errors``. A partial import is *not* rolled back: the vouchers
+        already written are posted, and posted vouchers are immutable under
+        BFL. Callers must therefore read False as "this file landed
+        incompletely, reconcile it" rather than as "nothing happened, retry".
+        """
         success = True
         if self.fiscal_year_resolution:
             resolved_id = self.fiscal_year_resolution["id"]
@@ -671,6 +678,8 @@ class SIE4Importer:
         for account in data.accounts:
             if self._import_account(account):
                 self.imported["accounts"] += 1
+            else:
+                success = False
 
         # Import SRU mappings if present and fiscal_year_id provided
         if data.sru_mappings and fiscal_year_id:
@@ -680,11 +689,15 @@ class SIE4Importer:
         if data.opening_balances:
             if self._import_opening_balances(data, fiscal_year_id):
                 self.imported["vouchers"] += 1
+            else:
+                success = False
 
         # Import vouchers
         for voucher in data.vouchers:
             if self._import_voucher(voucher, fiscal_year_id):
                 self.imported["vouchers"] += 1
+            else:
+                success = False
 
         return success
 

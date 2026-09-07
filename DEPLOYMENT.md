@@ -257,6 +257,130 @@ Blunt varning: kör inte `docker compose down -v`, ta inte bort Docker-volymer
 och radera aldrig `bokfoering-data` som del av en normal uppdatering. Normala
 uppdateringar ska använda `up -d --build` följt av verifiering, inte volymradering.
 
+## Valfritt: synkad mapp (Syncthing) som intag
+
+Filer som läggs i en synkad mapp plockas upp av sig själva — ingen webbläsare,
+ingen uppladdningsknapp. Mappen blir samtidigt statusvyn: en tom `Kvitton/`
+betyder att allt ligger i systemet. Webbläsaruppladdningen finns kvar som andra
+väg in.
+
+Funktionen är avstängd som standard. `DROPZONE_ENABLED=false` lämnar nuvarande
+beteende helt orört.
+
+### 1. Mappstruktur på servern
+
+Skapa mappen som Syncthing ska dela och lägg upp skelettet:
+
+```bash
+mkdir -p /opt/docker/bok/dropzone/{Kvitton,Leverantörsfakturor,Kundfakturor,Utlägg,Övrigt}
+mkdir -p "/opt/docker/bok/dropzone/Kontoutdrag/1930 Företagskonto"
+mkdir -p /opt/docker/bok/dropzone/SIE4-import
+```
+
+Mappkontraktet:
+
+```text
+Bokföring/                     ← Syncthings delade mapp
+  Kvitton/                     → kvitto
+  Leverantörsfakturor/         → leverantörsfaktura
+  Kundfakturor/                → kundfaktura
+  Utlägg/                      → utlägg/ersättning
+  Övrigt/                      → annat
+  Kontoutdrag/
+    1930 Företagskonto/        → kontoutdrag för konto 1930
+    1630 Skattekonto/          → kontoutdrag för konto 1630
+  SIE4-import/                 → hel årsexport i SIE4-format, bokförs direkt
+  _Inläst/2026-09/             ← hit flyttas inlästa filer
+  _Problem/                    ← hit flyttas avvisade filer, med .txt som förklarar
+```
+
+Mappnamnen matchas oberoende av versaler och av hur `å ä ö` är lagrade, så en
+mapp skapad på en Mac fungerar lika bra som en skapad på servern. En fil i
+mappens rot eller i en okänd mapp läses in utan typ — agenten klassificerar den.
+En `.txt` är alltid sidodata, aldrig underlag.
+
+**Kontoutdrag.** Ledande token i mappnamnet är kontokoden, resten är en etikett
+som ignoreras: `Kontoutdrag/1930/`, `Kontoutdrag/1930 Företagskonto/` och
+`Kontoutdrag/1930-Företagskonto/` är likvärdiga. `Bank/` accepteras som alias.
+Att lägga till `Kontoutdrag/1630 Skattekonto/` kräver ingen kodändring och ingen
+konfiguration — bara att konto 1630 finns i kontoplanen och är ett tillgångs-
+eller skuldkonto. Saknas kontot säger intagssidan till innan något lagts där.
+
+**SIE4-import.** `SIE4-import/` tar emot hela årsexporter (`.se`, `.si`, `.sie`,
+`.sie4`) och är den enda mappen som skriver verifikationer direkt i stället för
+att lägga ett underlag i kö för agenten. Eftersom bokförda verifikationer är
+oföränderliga enligt BFL importeras en fil **bara till ett tomt räkenskapsår**.
+Innehåller året redan verifikationer flyttas filen till `_Problem/` med en
+förklaring — vill man ändå importera får man göra det manuellt under Import i
+webbgränssnittet, efter avstämning. Räkenskapsåret läses ur filens `#RAR 0`-rad
+och skapas med perioder om det inte redan finns; konton skapas ur `#KONTO`.
+Andra filtyper än SIE4 avvisas här i stället för att läsas in som underlag.
+Filer med `.txt` fungerar som sidodata även i den här mappen, så en SIE4-fil får
+inte sparas som `.txt`.
+
+**Valfri sidodata.** `_meddelande.txt` i en mapp blir meddelande till agenten för
+alla filer i mappen och ligger kvar. `<filnamn>.txt` bredvid en fil blir just den
+filens förklaring och flyttas med filen.
+
+### 2. Slå på hämtningen
+
+Lägg till i `.env.production`:
+
+```bash
+DROPZONE_ENABLED=true
+DROPZONE_HOST_DIR=/opt/docker/bok/dropzone
+```
+
+Starta om och verifiera:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.local.yml up -d --build
+curl -fsS -H "Authorization: Bearer ${API_KEY}" \
+  http://localhost:8000/api/v1/intake/dropzone/status
+```
+
+Utan `--env-file .env.production` läser Compose bara sin default-`.env`, och då
+faller `DROPZONE_ENABLED` tillbaka till `false` och `DROPZONE_HOST_DIR` till
+`./dropzone` — mappen monteras fel och ingenting hämtas, trots att variablerna
+är satta ovan.
+
+Scannern är en tråd i API-processen och tar ett låsfil-lås i mappen, så bara en
+scanner går även om fler startas. Den raderar aldrig någon fil — den flyttar.
+Filer som fortfarande skrivs läses inte förrän de lagt sig.
+
+Containern kör som root med flit: filerna i bind-mounten skrivs av värdens
+Syncthing-användare och måste kunna läsas och flyttas. Lägg inte till en
+`USER`-rad i `Dockerfile` — då slutar mapphämtningen fungera.
+
+### 3. Syncthing
+
+1. Installera Syncthing på servern och på de enheter som ska lägga filer i
+   mappen (laptop, telefon).
+2. Dela **en** mapp — den katalog `DROPZONE_HOST_DIR` pekar på.
+3. Sätt serverns kopia till **Send & Receive**. Det är nödvändigt: flyttarna in
+   i `_Inläst/` måste propagera ut igen, annars töms aldrig inkorgen på de andra
+   enheterna.
+4. Foton: ställ in kameran på "Mest kompatibla", eller exportera som JPEG. HEIC
+   stöds inte — en HEIC-fil hamnar i `_Problem/` med en notering om hur den
+   rättas.
+
+**Ska `_Inläst/` synkas?** Behåll den i den delade mappen så att servern har ett
+riktigt arkiv, och låt utrymmesbegränsade enheter utesluta den med en rad i sin
+`.stignore`. Det är ett val per enhet, inte per mapp — varje enhet bestämmer
+själv.
+
+### 4. Kontrollera att hämtningen lever
+
+Det klassiska felläget för mappbaserade system är att scannern dör tyst: filerna
+hopar sig i `Kvitton/`, man utgår från att de ligger i kö, och två månader senare
+är ingenting bokfört. En stoppad scanner och en nyss släppt fil ser likadana ut i
+mappen.
+
+Intagssidan visar därför när hämtningen senast kördes och varnar när den slutat.
+Samma uppgifter finns i `GET /api/v1/intake/dropzone/status`, tillsammans med
+antal väntande filer, antal filer i `_Problem/` och mappar under `Kontoutdrag/`
+vars kontokod är okänd.
+
 ## Säkerhetskopiering
 
 Den viktiga bokföringsdatan ligger i `/app/data` i den persistenta Docker-volymen

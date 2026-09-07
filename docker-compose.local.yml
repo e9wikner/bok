@@ -18,8 +18,13 @@ services:
       JWT_SECRET: "${JWT_SECRET:-dev-jwt-secret-change-in-production}"
       CORS_ORIGINS: "${CORS_ORIGINS:-*}"
       DEBUG: "${DEBUG:-False}"
+      DROPZONE_ENABLED: "${DROPZONE_ENABLED:-false}"
+      DROPZONE_DIR: "/app/data/dropzone"
     volumes:
       - bokfoering-data:/app/data
+      # Folder-based intake. Point DROPZONE_HOST_DIR at the same host directory
+      # Syncthing shares; the mount is harmless while DROPZONE_ENABLED is false.
+      - ${DROPZONE_HOST_DIR:-./dropzone}:/app/data/dropzone
     command: sh -c "python main.py --init-db && python main.py --host 0.0.0.0 --port 8000"
     restart: unless-stopped
     healthcheck:
