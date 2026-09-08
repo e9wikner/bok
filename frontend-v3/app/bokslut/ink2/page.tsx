@@ -71,7 +71,8 @@ const TAB_ICONS = {
 const TAB_INTROS: Record<TabType, { title: string; description: string }> = {
   ink2: {
     title: "INK2 - Huvudblankett",
-    description: "Underlag och summeringar enligt huvudblanketten.",
+    description:
+      "Underlag och summeringar enligt huvudblanketten. Huvudblanketten ingår inte i SRU-filen — den fylls i och signeras i Skatteverkets e-tjänst, som hämtar p. 1.1/1.2 från p. 4.15/4.16 i INK2S. Siffrorna nedan är vad som ska stå där.",
   },
   ink2r: {
     title: "INK2R - Räkenskapsschema",

@@ -11,78 +11,39 @@ from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 
 from db.database import get_db
+from domain.sru_fields import (
+    BALANCE_ASSET_FIELDS,
+    BALANCE_EQUITY_LIABILITY_FIELDS,
+    COST_FIELDS,
+    CREDIT_FIELDS,
+    DERIVED_RESULT_ACCOUNTS,
+    EXPENSE_FIELDS,
+    INCOME_FIELDS,
+    default_account_mappings,
+    field_labels,
+)
 
 
-# Default BAS2026 account to SRU field mappings (fallback when no SIE4 SRU data)
-DEFAULT_SRU_MAPPINGS = {
-    # Anläggningstillgångar (Balance Sheet - Assets)
-    "7201": list(range(1000, 1100)),  # Immateriella anläggningstillgångar
-    "7214": list(range(1100, 1200)),  # Byggnader och mark
-    "7215": list(range(1200, 1300)),  # Maskiner och inventarier
-    "7233": list(range(1300, 1400)),  # Övriga långfristiga värdepappersinnehav
-    
-    # Omsättningstillgångar
-    "7241": list(range(1400, 1500)),  # Varulager
-    "7251": list(range(1500, 1600)),  # Kundfordringar
-    "7261": list(range(1600, 1700)),  # Övriga fordringar
-    "7263": list(range(1700, 1800)),  # Förutbetalda kostnader
-    "7271": list(range(1800, 1900)),  # Övriga kortfristiga placeringar
-    "7281": list(range(1900, 2000)),  # Likvida medel
-    
-    # Eget kapital och skulder
-    "7301": list(range(2000, 2100)),  # Eget kapital
-    "7302": [2091, 2099],             # Resultat
-    "7321": list(range(2100, 2200)),  # Obeskattade reserver
-    "7350": list(range(2200, 2300)),  # Avsättningar
-    "7365": list(range(2300, 2400)),  # Långfristiga skulder
-    "7368": list(range(2400, 2500)),  # Leverantörsskulder
-    "7369": list(range(2500, 2600)),  # Skatteskulder
-    "7370": list(range(2600, 3000)),  # Övriga kortfristiga skulder
-    
-    # Resultaträkning
-    "7410": list(range(3000, 3800)),  # Nettoomsättning
-    "7413": list(range(3900, 4000)),  # Övriga rörelseintäkter
-    "7511": list(range(4000, 5000)),  # Material och varor
-    "7513": list(range(5000, 7000)),  # Övriga externa kostnader
-    "7514": list(range(7000, 7700)),  # Personalkostnader
-    "7515": list(range(7800, 8000)),  # Avskrivningar
-    "7517": list(range(8000, 8200)),  # Övriga rörelsekostnader
-    "7416/7520": list(range(8200, 8300)),  # Resultat från övriga finansiella anläggningstillgångar
-    "7417": list(range(8300, 8400)),  # Ränteintäkter
-    "7522": list(range(8400, 8500)),  # Räntekostnader
-    "7528": [8910, 8911, 8912, 8913, 8914, 8915, 8916, 8917, 8918, 8919],  # Skatt på årets resultat
-}
+# The account-to-field table lives in domain/sru_fields.py so that the export
+# and the on-screen declaration cannot disagree about what a field code means.
+DEFAULT_SRU_MAPPINGS: Dict[str, List[int]] = default_account_mappings()
 
-
-CREDIT_BALANCE_FIELDS = {
-    "7301",  # Eget kapital
-    "7302",  # Balanserat resultat/årets resultat
-    "7321",  # Obeskattade reserver
-    "7350",  # Avsättningar
-    "7365",  # Långfristiga skulder
-    "7368",  # Leverantörsskulder
-    "7369",  # Skatteskulder
-    "7370",  # Övriga kortfristiga skulder
-    "7410",  # Nettoomsättning
-    "7413",  # Övriga rörelseintäkter
-    "7416",  # Skattefria intäkter/justeringsintäkter
-    "7417",  # Finansiella intäkter i iOrdning-SRU
-    "7420",  # Bokslutsdispositioner/intäktsjusteringar
-    "7525",  # Resultat från övriga värdepapper
-}
-
-ALWAYS_POSITIVE_FIELDS = {
-    "7511",  # Material och varor
-    "7513",  # Övriga externa kostnader
-    "7514",  # Personalkostnader
-    "7515",  # Av- och nedskrivningar
-    "7520",  # Övriga rörelsekostnader
-    "7522",  # Räntekostnader och liknande resultatposter
-    "7528",  # Skatt på årets resultat i importerad iOrdning-SRU
-}
+# Ledger balances are debit-positive öre. Credit-balance fields (equity,
+# liabilities, income) are negated, cost fields reported as absolute amounts,
+# so every INK2R box holds the positive figure the form asks for.
+CREDIT_BALANCE_FIELDS = set(CREDIT_FIELDS)
+ALWAYS_POSITIVE_FIELDS = set(COST_FIELDS)
 
 INK2S_DERIVED_FIELDS = {"7650", "7651", "7653", "7754", "7654", "7670"}
 INK2R_ZERO_EXPORT_FIELDS = {"7321", "7370"}
+
+
+def _is_derived_result_account(account_code: str) -> bool:
+    """Whether an account holds the year's result (BAS 899x), not an INK2R row."""
+    try:
+        return int(account_code) in DERIVED_RESULT_ACCOUNTS
+    except ValueError:
+        return False
 
 
 @dataclass
@@ -134,7 +95,7 @@ class SRUExportService:
         
         Returns {account_code: sru_field} dictionary.
         First checks database for imported SIE4 mappings,
-        then falls back to default BAS2026 mappings.
+        then falls back to the BAS coupling table in domain/sru_fields.py.
         """
         db = get_db()
         mappings = {}
@@ -159,7 +120,7 @@ class SRUExportService:
             )
             return mappings
 
-        # Fill with default BAS2026 mappings only when there is no imported
+        # Fill with the default BAS mappings only when there is no imported
         # SIE4 mapping. Imported SRU data is form-software specific and must be
         # treated as authoritative to avoid exporting accounts iOrdning left out.
         default_count = 0
@@ -172,7 +133,7 @@ class SRUExportService:
         
         if default_count > 0:
             self.warnings.append(
-                f"Using {default_count} default BAS2026 SRU mappings"
+                f"Using {default_count} default BAS SRU mappings"
             )
         
         return mappings
@@ -291,22 +252,41 @@ class SRUExportService:
         # Calculate SRU fields
         fields = {}
         
-        # Group accounts by resolved SRU field and sum balances. Imported SIE
-        # files may contain alternatives such as "7416/7520"; pick the field
-        # that makes the converted SRU value positive for the account balance.
-        field_balances: Dict[str, List[Dict]] = {}
+        # Group accounts by the mapping they carry, then resolve alternatives
+        # such as "7416/7520". BAS splits those rows on the sign of the *net*
+        # balance of the whole row ("Om netto +/-"), not account by account, so
+        # the grouping has to happen before the field is picked.
+        mapped_balances: Dict[str, List[Dict]] = {}
+        unmapped_accounts: List[str] = []
         for account_code, account_data in account_balances.items():
-            sru_field = sru_mappings.get(account_code)
-            if sru_field:
-                sru_field = self._resolve_sru_field(sru_field, account_data["balance"])
-                if sru_field not in field_balances:
-                    field_balances[sru_field] = []
-                field_balances[sru_field].append({
-                    "code": account_code,
-                    "name": account_data["name"],
-                    "balance": account_data["balance"],
-                })
-        
+            mapping = sru_mappings.get(account_code)
+            if not mapping:
+                # 899x carries the year's result, which is derived from the
+                # result rows below rather than mapped, so it is not missing.
+                if (
+                    account_data["balance"] != 0
+                    and not _is_derived_result_account(account_code)
+                ):
+                    unmapped_accounts.append(account_code)
+                continue
+            mapped_balances.setdefault(mapping, []).append({
+                "code": account_code,
+                "name": account_data["name"],
+                "balance": account_data["balance"],
+            })
+
+        field_balances: Dict[str, List[Dict]] = {}
+        for mapping, accounts in mapped_balances.items():
+            net_balance = sum(a["balance"] for a in accounts)
+            sru_field = self._resolve_sru_field(mapping, net_balance)
+            field_balances.setdefault(sru_field, []).extend(accounts)
+
+        if unmapped_accounts:
+            self.warnings.append(
+                "Konton med saldo saknar SRU-fält och ingår inte i deklarationen: "
+                + ", ".join(sorted(unmapped_accounts))
+            )
+
         # Create SRU field values
         field_descriptions = self._get_field_descriptions()
         
@@ -411,8 +391,8 @@ class SRUExportService:
     
     def _calculate_derived_fields(self, fields: Dict[str, SRUFieldValue]):
         """Calculate derived/summary fields from base fields."""
-        income_fields = ["7410", "7411", "7412", "7413", "7414", "7415", "7423", "7416", "7417", "7419", "7420", "7421", "7422"]
-        expense_fields = ["7510", "7511", "7512", "7513", "7514", "7515", "7516", "7517", "7518", "7519", "7530", "7520", "7521", "7522", "7524", "7525", "7526", "7527", "7528"]
+        income_fields = list(INCOME_FIELDS)
+        expense_fields = list(EXPENSE_FIELDS)
 
         result = sum(fields[f].value for f in income_fields if f in fields) - sum(
             fields[f].value for f in expense_fields if f in fields
@@ -537,73 +517,36 @@ class SRUExportService:
         add("7670", taxable_result, ["7650", "7651", "7653", "7754", "7654"], {"7754": -1})
         
     def _validate_balance_sheet(self, fields: Dict[str, SRUFieldValue]):
-        """Validate that balance sheet balances (assets = liabilities + equity)."""
-        if "7450" not in fields or "7550" not in fields:
+        """Warn when INK2R's assets do not match equity plus liabilities.
+
+        The year's result may or may not have been closed to 2099 yet, so the
+        two sides legitimately differ by exactly the result until it has been.
+        Any other difference means accounts are missing from the declaration.
+        """
+        def total(field_numbers) -> int:
+            return sum(
+                fields[field_number].value
+                for field_number in field_numbers
+                if field_number in fields
+            )
+
+        assets = total(BALANCE_ASSET_FIELDS)
+        equity_and_liabilities = total(BALANCE_EQUITY_LIABILITY_FIELDS)
+        result = total(["7450"]) - total(["7550"])
+        difference = assets - equity_and_liabilities
+
+        if difference in (0, result):
             return
 
-        tillgangar = fields.get("7450", SRUFieldValue("7450", "", 0, [])).value
-        ek_skulder = fields.get("7550", SRUFieldValue("7550", "", 0, [])).value
-        skillnad = fields.get("7670", SRUFieldValue("7670", "", 0, [])).value
-        
-        if skillnad != 0:
-            self.warnings.append(
-                f"BALANSPOSTER STÄMMER INTE: Tillgångar ({tillgangar}) ≠ EK+Skulder ({ek_skulder}). "
-                f"Skillnad: {skillnad} SEK"
-            )
-        else:
-            self.warnings.append(
-                f"Balansräkning OK: Tillgångar = EK+Skulder = {tillgangar} SEK"
-            )
-    
+        self.warnings.append(
+            f"BALANSRÄKNINGEN STÄMMER INTE: tillgångar ({assets}) - "
+            f"eget kapital och skulder ({equity_and_liabilities}) = {difference} SEK, "
+            f"vilket varken är noll eller årets resultat ({result} SEK)"
+        )
+
     def _get_field_descriptions(self) -> Dict[str, str]:
         """Get human-readable descriptions for SRU fields."""
-        return {
-            # Balansräkning - Tillgångar
-            "7201": "Koncessioner, patent, licenser, varumärken, hyresrätter, goodwill och liknande rättigheter",
-            "7214": "Byggnader och mark",
-            "7215": "Maskiner, inventarier och övriga materiella anläggningstillgångar",
-            "7233": "Ägarintresse i övriga företag och andra långfristiga värdepappersinnehav",
-            "7241": "Råvaror och förnödenheter",
-            "7251": "Kundfordringar",
-            "7261": "Övriga fordringar",
-            "7263": "Förutbetalda kostnader och upplupna intäkter",
-            "7271": "Övriga kortfristiga placeringar",
-            "7281": "Likvida medel",
-            
-            # Balansräkning - Eget kapital och skulder
-            "7301": "Eget kapital",
-            "7302": "Balanserat resultat/Årets resultat",
-            "7321": "Obeskattade reserver",
-            "7350": "Avsättningar",
-            "7365": "Långfristiga skulder",
-            "7368": "Leverantörsskulder",
-            "7369": "Skatteskulder",
-            "7370": "Övriga kortfristiga skulder",
-            "7550": "Årets resultat, förlust",
-            
-            # Resultaträkning
-            "7410": "Nettoomsättning",
-            "7413": "Övriga rörelseintäkter",
-            "7416": "Resultat från övriga finansiella anläggningstillgångar",
-            "7417": "Övriga ränteintäkter och liknande resultatposter",
-            "7511": "Material och varor",
-            "7513": "Övriga externa kostnader",
-            "7514": "Personalkostnader",
-            "7515": "Av- och nedskrivningar",
-            "7517": "Övriga rörelsekostnader",
-            "7520": "Resultat från övriga finansiella anläggningstillgångar",
-            "7522": "Räntekostnader och liknande resultatposter",
-            "7528": "Skatt på årets resultat",
-            "7450": "Årets resultat, vinst",
-
-            # INK2S - Skattemässiga justeringar
-            "7650": "Årets resultat, vinst",
-            "7651": "Skatt på årets resultat",
-            "7653": "Andra bokförda kostnader som inte ska dras av",
-            "7754": "Andra bokförda intäkter som inte ska tas upp",
-            "7654": "Schablonintäkt på kvarvarande periodiseringsfonder",
-            "7670": "Överskott av näringsverksamhet",
-        }
+        return field_labels()
     
     def generate_info_sru(self, declaration: SRUDeclaration) -> str:
         """
@@ -642,8 +585,15 @@ class SRUExportService:
     def generate_blanketter_sru(self, declaration: SRUDeclaration) -> str:
         """
         Generate BLANKETTER.SRU file content.
-        
-        This file contains the actual declaration data.
+
+        The file holds INK2R and INK2S, which is the whole of what SRU accepts
+        for an INK2 filing. Page 1 of INK2 — the main form with 1.1 Överskott
+        av näringsverksamhet and the property and payroll-tax bases — has no
+        blankett in the SRU specification: it is signed and filed in
+        Skatteverket's e-tjänst, which pre-fills 1.1/1.2 from 4.15/4.16 in the
+        INK2S below. The figures to check there are on the INK2 tab of the
+        declaration page. See SKV 269, "Deklarationsblanketter": when the rest
+        is filed electronically, page 1 of INK2 is filed separately.
         """
         lines = []
         timestamp = datetime.now().strftime("%Y%m%d %H%M%S")
@@ -697,13 +647,6 @@ class SRUExportService:
         
         return "\r\n".join(lines) + "\r\n"
 
-    def _format_fiscal_year_period(self, declaration: SRUDeclaration) -> str:
-        """Format fiscal year period for the INK2 main form."""
-        return (
-            f"{declaration.fiscal_year_start[:6]}-"
-            f"{declaration.fiscal_year_end[4:8]}"
-        )
-    
     def export_sru_zip(
         self, fiscal_year_id: str
     ) -> Tuple[bytes, str, List[str], List[str]]:

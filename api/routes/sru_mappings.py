@@ -13,6 +13,38 @@ from db.database import get_db
 from repositories.period_repo import PeriodRepository
 
 router = APIRouter(prefix="/api/v1/fiscal-years", tags=["sru-mappings"])
+sru_fields_router = APIRouter(prefix="/api/v1/sru-fields", tags=["sru-mappings"])
+
+
+class SRUFieldResponse(BaseModel):
+    """One selectable SRU field, as printed in the BAS coupling table."""
+
+    code: str
+    row: str
+    label: str
+    section: str
+    accounts: str
+
+
+@sru_fields_router.get("", response_model=List[SRUFieldResponse])
+async def list_sru_fields(actor: str = Depends(get_current_actor)):
+    """List the INK2R fields an account can be mapped to.
+
+    Served from ``domain.sru_fields`` so the picker cannot offer a code whose
+    meaning differs from the one the SRU export writes.
+    """
+    from domain.sru_fields import INK2R_ROWS, account_ranges_label
+
+    return [
+        {
+            "code": row.mapping_key,
+            "row": row.row,
+            "label": row.label,
+            "section": row.section,
+            "accounts": account_ranges_label(row),
+        }
+        for row in INK2R_ROWS
+    ]
 
 
 class SRUMappingCreate(BaseModel):
