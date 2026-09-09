@@ -125,24 +125,45 @@ API client is in `frontend-v3/lib/api.ts` (Axios). Server state is managed with 
 
 ### Live Deployment
 
-A live instance is deployed at **https://q.stefanwikner.se** and auto-updates every 5 minutes (cron pulls from main and rebuilds containers).
+The canonical instance runs on the home server **hubbabubba** as two rootless
+Podman quadlets — `bok-api` and `bok-frontend` — under the `e9wikner` account's
+`systemd --user` instance. LAN HTTP only, no reverse proxy, `Network=host`.
+There is no auto-update cron: deploys are explicit.
+
+**Deploy** (as `e9wikner` on the box, no sudo):
+
+```bash
+deploy/hubbabubba/deploy.sh              # pull, build, install quadlets, restart, health-check
+deploy/hubbabubba/deploy.sh --no-build   # quadlet + restart only
+deploy/hubbabubba/deploy.sh --force-build
+```
+
+It pulls `main` from GitHub over HTTPS into `/srv/appdata/bok/src` and only
+rebuilds when the source changed. Full details, one-time setup and rollback:
+`deploy/hubbabubba/README.md`.
 
 **Endpoints for verifying deployment status:**
 
-- `GET https://q.stefanwikner.se/health` — API health check, returns `{"status": "ok", "commit": "<sha>"}` (no auth required)
-- `GET https://q.stefanwikner.se/api/v1/accounts` — list accounts (requires `Authorization: Bearer <API_KEY>` header)
-- `https://q.stefanwikner.se` — frontend UI
+- `GET http://hubbabubba:8000/health` — API health check, returns `{"status": "ok", "commit": "<sha>"}` (no auth required)
+- `GET http://hubbabubba:8000/api/v1/accounts` — list accounts (requires `Authorization: Bearer <API_KEY>` header)
+- `GET http://hubbabubba:8000/api/v1/intake/dropzone/status` — folder-intake scanner status
+- `http://hubbabubba:3000` — frontend UI (proxies `/health` to the API)
 
-**Architecture on the server (`/opt/docker/bok`):**
+**State on the server:**
 
-- App containers via `docker-compose.local.yml` — API on port 8000, frontend on port 3000
-- Nginx reverse proxy via `proxy/docker-compose.proxy.yml` — SSL termination, routes `/api/` and `/health` to API, everything else to frontend
-- SSL certificates managed by certbot container with automatic renewal
+- `/srv/appdata/bok/data` — SQLite database, mounted at `/app/data`
+- `/srv/appdata/bok/dropzone` — the `Bokforing` SMB share the intake scanner watches, mounted at `/app/dropzone`
+- `/srv/appdata/bok/bok.env` — secrets, mode 600, not in git
 
-**Deployment scripts (run locally on the server):**
+```bash
+systemctl --user status bok-api.service bok-frontend.service
+journalctl --user -u bok-api -f
+```
 
-- `./deploy-local.sh` — pull latest code, rebuild and restart app containers
-- `./proxy/setup-proxy.sh` — set up or restart the nginx proxy with SSL
+**Retired:** the Docker Compose deployment on `q.stefanwikner.se`
+(`deploy-local.sh`, `docker-compose.local.yml`, `proxy/`, `DEPLOYMENT.md`).
+Those files are still in the repo but are not the live path — don't deploy
+through them.
 
 ### CI/CD
 
