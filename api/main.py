@@ -135,6 +135,7 @@ app.include_router(audit.router)
 
 # SRU Mappings (INK2 Tax Declaration)
 app.include_router(sru_mappings.router)
+app.include_router(sru_mappings.sru_fields_router)
 
 # Company metadata
 app.include_router(company_info.router)

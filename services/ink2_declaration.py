@@ -8,6 +8,7 @@ logic locally.
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
+from domain.sru_fields import EXPENSE_FIELDS, INCOME_FIELDS, INK2R_ROWS
 from services.sru_export import SRUDeclaration, SRUExportService, SRUFieldValue
 
 
@@ -80,104 +81,29 @@ INK2_SECTIONS = (
 )
 
 
-INK2R_SECTIONS = (
+def _ink2r_sections() -> tuple[DeclarationSectionDefinition, ...]:
+    """Build the INK2R tab from the canonical field table.
+
+    Rows, labels and field codes come from ``domain.sru_fields`` — the same
+    table the SRU export maps accounts through — so the declaration on screen
+    and the file sent to Skatteverket can never label a code differently.
+    """
+    sections: list[tuple[str, list[DeclarationRowDefinition]]] = []
+    for row in INK2R_ROWS:
+        if not sections or sections[-1][0] != row.section:
+            sections.append((row.section, []))
+        sections[-1][1].append(
+            DeclarationRowDefinition(row.row, row.label, row.field_codes, row.sign)
+        )
+    return tuple(
+        DeclarationSectionDefinition(title, tuple(rows)) for title, rows in sections
+    )
+
+
+INK2R_SECTIONS = _ink2r_sections() + (
     DeclarationSectionDefinition(
-        "Tillgångar / Anläggningstillgångar",
+        "Årets resultat",
         (
-            DeclarationRowDefinition("2.1", "Koncessioner, patent, licenser, varumärken, hyresrätter, goodwill och liknande rättigheter", ("7201",)),
-            DeclarationRowDefinition("2.2", "Förskott avseende immateriella anläggningstillgångar", ("7202",)),
-            DeclarationRowDefinition("2.3", "Byggnader och mark", ("7214",)),
-            DeclarationRowDefinition("2.4", "Maskiner, inventarier och övriga materiella anläggningstillgångar", ("7215",)),
-            DeclarationRowDefinition("2.5", "Förbättringsutgifter på annans fastighet", ("7216",)),
-            DeclarationRowDefinition("2.6", "Pågående nyanläggningar och förskott avseende materiella anläggningstillgångar", ("7217",)),
-            DeclarationRowDefinition("2.7", "Andelar i koncernföretag", ("7230",)),
-            DeclarationRowDefinition("2.8", "Andelar i intresseföretag och gemensamt styrda företag", ("7231",)),
-            DeclarationRowDefinition("2.9", "Ägarintresse i övriga företag och andra långfristiga värdepappersinnehav", ("7233",)),
-            DeclarationRowDefinition("2.10", "Fordringar hos koncern-, intresse- och gemensamt styrda företag", ("7232",)),
-            DeclarationRowDefinition("2.11", "Lån till delägare eller närstående", ("7234",)),
-            DeclarationRowDefinition("2.12", "Fordringar hos övriga företag som det finns ett ägarintresse i och andra långfristiga fordringar", ("7235",)),
-        ),
-    ),
-    DeclarationSectionDefinition(
-        "Omsättningstillgångar",
-        (
-            DeclarationRowDefinition("2.13", "Råvaror och förnödenheter", ("7241",)),
-            DeclarationRowDefinition("2.14", "Varor under tillverkning", ("7242",)),
-            DeclarationRowDefinition("2.15", "Färdiga varor och handelsvaror", ("7243",)),
-            DeclarationRowDefinition("2.16", "Övriga lagertillgångar", ("7244",)),
-            DeclarationRowDefinition("2.17", "Pågående arbeten för annans räkning", ("7245",)),
-            DeclarationRowDefinition("2.18", "Förskott till leverantörer", ("7246",)),
-            DeclarationRowDefinition("2.19", "Kundfordringar", ("7251",)),
-            DeclarationRowDefinition("2.20", "Fordringar hos koncern-, intresse- och gemensamt styrda företag", ("7252",)),
-            DeclarationRowDefinition("2.21", "Fordringar hos övriga företag som det finns ett ägarintresse i och övriga fordringar", ("7261",)),
-            DeclarationRowDefinition("2.22", "Upparbetad men ej fakturerad intäkt", ("7262",)),
-            DeclarationRowDefinition("2.23", "Förutbetalda kostnader och upplupna intäkter", ("7263",)),
-            DeclarationRowDefinition("2.24", "Andelar i koncernföretag", ("7270",)),
-            DeclarationRowDefinition("2.25", "Övriga kortfristiga placeringar", ("7271",)),
-            DeclarationRowDefinition("2.26", "Kassa, bank och redovisningsmedel", ("7281",)),
-        ),
-    ),
-    DeclarationSectionDefinition("Eget kapital", (DeclarationRowDefinition("2.27", "Bundet eget kapital", ("7301",)), DeclarationRowDefinition("2.28", "Fritt eget kapital", ("7302",)))),
-    DeclarationSectionDefinition(
-        "Obeskattade reserver och avsättningar",
-        (
-            DeclarationRowDefinition("2.29", "Periodiseringsfonder", ("7321",)),
-            DeclarationRowDefinition("2.30", "Ackumulerade överavskrivningar", ("7322",)),
-            DeclarationRowDefinition("2.31", "Övriga obeskattade reserver", ("7323",)),
-            DeclarationRowDefinition("2.32", "Avsättningar för pensioner och liknande förpliktelser enligt lagen (1967:531) om tryggande av pensionsutfästelser m.m.", ("7331",)),
-            DeclarationRowDefinition("2.33", "Övriga avsättningar för pensioner och liknande förpliktelser", ("7332",)),
-            DeclarationRowDefinition("2.34", "Övriga avsättningar", ("7333",)),
-        ),
-    ),
-    DeclarationSectionDefinition(
-        "Skulder",
-        (
-            DeclarationRowDefinition("2.35", "Obligationslån", ("7350",)),
-            DeclarationRowDefinition("2.36", "Checkräkningskredit", ("7351",)),
-            DeclarationRowDefinition("2.37", "Övriga skulder till kreditinstitut", ("7352",)),
-            DeclarationRowDefinition("2.38", "Skulder till koncern-, intresse- och gemensamt styrda företag", ("7353",)),
-            DeclarationRowDefinition("2.39", "Skulder till övriga företag som det finns ett ägarintresse i och övriga skulder", ("7354",)),
-            DeclarationRowDefinition("2.40", "Checkräkningskredit", ("7360",)),
-            DeclarationRowDefinition("2.41", "Övriga skulder till kreditinstitut", ("7361",)),
-            DeclarationRowDefinition("2.42", "Förskott från kunder", ("7362",)),
-            DeclarationRowDefinition("2.43", "Pågående arbeten för annans räkning", ("7363",)),
-            DeclarationRowDefinition("2.44", "Fakturerad men ej upparbetad intäkt", ("7364",)),
-            DeclarationRowDefinition("2.45", "Leverantörsskulder", ("7365",)),
-            DeclarationRowDefinition("2.46", "Växelskulder", ("7366",)),
-            DeclarationRowDefinition("2.47", "Skulder till koncern-, intresse- och gemensamt styrda företag", ("7367",)),
-            DeclarationRowDefinition("2.48", "Skulder till övriga företag som det finns ett ägarintresse i och övriga skulder", ("7369",)),
-            DeclarationRowDefinition("2.49", "Skatteskulder", ("7368",)),
-            DeclarationRowDefinition("2.50", "Upplupna kostnader och förutbetalda intäkter", ("7370",)),
-        ),
-    ),
-    DeclarationSectionDefinition(
-        "Resultaträkning",
-        (
-            DeclarationRowDefinition("3.1", "Nettoomsättning", ("7410",), "+"),
-            DeclarationRowDefinition("3.2", "Förändring av lager av produkter i arbete, färdiga varor och pågående arbete för annans räkning", ("7411", "7510"), "+"),
-            DeclarationRowDefinition("3.3", "Aktiverat arbete för egen räkning", ("7412",), "+"),
-            DeclarationRowDefinition("3.4", "Övriga rörelseintäkter", ("7413",), "+"),
-            DeclarationRowDefinition("3.5", "Råvaror och förnödenheter", ("7511",), "-"),
-            DeclarationRowDefinition("3.6", "Handelsvaror", ("7512",), "-"),
-            DeclarationRowDefinition("3.7", "Övriga externa kostnader", ("7513",), "-"),
-            DeclarationRowDefinition("3.8", "Personalkostnader", ("7514",), "-"),
-            DeclarationRowDefinition("3.9", "Av- och nedskrivningar av materiella och immateriella anläggningstillgångar", ("7515",), "-"),
-            DeclarationRowDefinition("3.10", "Nedskrivningar av omsättningstillgångar utöver normala nedskrivningar", ("7516",), "-"),
-            DeclarationRowDefinition("3.11", "Övriga rörelsekostnader", ("7517",), "-"),
-            DeclarationRowDefinition("3.12", "Resultat från andelar i koncernföretag", ("7414", "7518"), "+"),
-            DeclarationRowDefinition("3.13", "Resultat från andelar i intresseföretag och gemensamt styrda företag", ("7415", "7519"), "+"),
-            DeclarationRowDefinition("3.14", "Resultat från övriga företag som det finns ett ägarintresse i", ("7423", "7530"), "+"),
-            DeclarationRowDefinition("3.15", "Resultat från övriga finansiella anläggningstillgångar", ("7416", "7520"), "+"),
-            DeclarationRowDefinition("3.16", "Övriga ränteintäkter och liknande resultatposter", ("7417",), "+"),
-            DeclarationRowDefinition("3.17", "Nedskrivningar av finansiella anläggningstillgångar och kortfristiga placeringar", ("7521",), "-"),
-            DeclarationRowDefinition("3.18", "Räntekostnader och liknande resultatposter", ("7522",), "-"),
-            DeclarationRowDefinition("3.19", "Lämnade koncernbidrag", ("7524",), "-"),
-            DeclarationRowDefinition("3.20", "Mottagna koncernbidrag", ("7419",), "+"),
-            DeclarationRowDefinition("3.21", "Återföring av periodiseringsfond", ("7420",), "+"),
-            DeclarationRowDefinition("3.22", "Avsättning till periodiseringsfond", ("7525",), "-"),
-            DeclarationRowDefinition("3.23", "Förändring av överavskrivningar", ("7421", "7526"), "+"),
-            DeclarationRowDefinition("3.24", "Övriga bokslutsdispositioner", ("7422", "7527"), "+"),
-            DeclarationRowDefinition("3.25", "Skatt på årets resultat", ("7528",), "-"),
             DeclarationRowDefinition("3.26", "Årets resultat, vinst (flyttas till p. 4.1)", ("7450",), "(+) ="),
             DeclarationRowDefinition("3.27", "Årets resultat, förlust (flyttas till p. 4.2)", ("7550",), "(-) ="),
         ),
@@ -261,8 +187,8 @@ SECTIONS_BY_TAB = {
     "ink2s": INK2S_SECTIONS,
 }
 
-INCOME_RESULT_FIELDS = ("7410", "7411", "7412", "7413", "7414", "7415", "7423", "7416", "7417", "7419", "7420", "7421", "7422")
-EXPENSE_RESULT_FIELDS = ("7510", "7511", "7512", "7513", "7514", "7515", "7516", "7517", "7518", "7519", "7530", "7520", "7521", "7522", "7524", "7525", "7526", "7527", "7528")
+INCOME_RESULT_FIELDS = INCOME_FIELDS
+EXPENSE_RESULT_FIELDS = EXPENSE_FIELDS
 
 
 class INK2DeclarationService:

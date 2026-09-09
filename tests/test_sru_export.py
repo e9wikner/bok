@@ -42,7 +42,7 @@ class TestSRUExportService:
         # Check specific mappings
         assert mappings["1920"] == "7281"  # Bankkonto -> Likvida medel
         assert mappings["3010"] == "7410"  # Försäljning -> Nettoomsättning
-        assert mappings["1500"] == "7251"  # Kundfordringar -> Kundfordringar
+        assert mappings["1510"] == "7251"  # Kundfordringar -> Kundfordringar
         assert mappings["1630"] == "7261"  # Skattekonto -> Övriga fordringar
 
     def test_get_sru_mappings_prefers_db_over_defaults(self, service, mock_db):
@@ -374,33 +374,44 @@ class TestSRUFieldDescriptions:
 class TestSRUValidation:
     """Test SRU validation logic."""
 
-    def test_balance_sheet_validation_warning(self):
-        """Test that imbalance generates warning."""
-        from services.sru_export import SRUExportService, SRUFieldValue
+    def _service_with(self, fields):
+        from services.sru_export import SRUExportService
 
         service = SRUExportService()
-        fields = {
-            "7450": SRUFieldValue("7450", "Summa tillgångar", 100000, []),
-            "7550": SRUFieldValue("7550", "Summa EK+Skulder", 90000, []),
-            "7670": SRUFieldValue("7670", "Skillnad", 10000, []),
-        }
-
         service._validate_balance_sheet(fields)
+        return service
 
-        assert len(service.warnings) > 0
-        assert any("BALANSPOSTER STÄMMER INTE" in w for w in service.warnings)
+    def test_balanced_sheet_is_silent(self):
+        """Assets equal equity and liabilities once the result is closed."""
+        from services.sru_export import SRUFieldValue
 
-    def test_balance_sheet_validation_ok(self):
-        """Test that balanced sheet shows OK."""
-        from services.sru_export import SRUExportService, SRUFieldValue
+        service = self._service_with({
+            "7251": SRUFieldValue("7251", "Kundfordringar", 100000, []),
+            "7302": SRUFieldValue("7302", "Fritt eget kapital", 100000, []),
+        })
 
-        service = SRUExportService()
-        fields = {
-            "7450": SRUFieldValue("7450", "Summa tillgångar", 100000, []),
-            "7550": SRUFieldValue("7550", "Summa EK+Skulder", 100000, []),
-            "7670": SRUFieldValue("7670", "Skillnad", 0, []),
-        }
+        assert service.warnings == []
 
-        service._validate_balance_sheet(fields)
+    def test_open_result_is_not_reported_as_imbalance(self):
+        """Before the result is closed to 2099 the two sides differ by it."""
+        from services.sru_export import SRUFieldValue
 
-        assert any("Balansräkning OK" in w for w in service.warnings)
+        service = self._service_with({
+            "7251": SRUFieldValue("7251", "Kundfordringar", 100000, []),
+            "7301": SRUFieldValue("7301", "Bundet eget kapital", 50000, []),
+            "7450": SRUFieldValue("7450", "Årets resultat, vinst", 50000, []),
+        })
+
+        assert service.warnings == []
+
+    def test_real_imbalance_generates_warning(self):
+        """A difference that is neither zero nor the result means accounts are missing."""
+        from services.sru_export import SRUFieldValue
+
+        service = self._service_with({
+            "7251": SRUFieldValue("7251", "Kundfordringar", 100000, []),
+            "7301": SRUFieldValue("7301", "Bundet eget kapital", 50000, []),
+            "7450": SRUFieldValue("7450", "Årets resultat, vinst", 10000, []),
+        })
+
+        assert any("BALANSRÄKNINGEN STÄMMER INTE" in w for w in service.warnings)

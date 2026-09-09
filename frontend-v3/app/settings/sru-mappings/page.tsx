@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -67,43 +67,16 @@ interface SRUPreview {
   };
 }
 
-// Common SRU fields with descriptions used by the app's INK2 export.
-const SRU_FIELDS = [
-  { code: "7201", description: "Koncessioner, patent, licenser, varumärken, hyresrätter, goodwill och liknande rättigheter", bas: "1000-1099" },
-  { code: "7214", description: "Byggnader och mark", bas: "1100-1199" },
-  { code: "7215", description: "Maskiner, inventarier och övriga materiella anläggningstillgångar", bas: "1200-1299" },
-  { code: "7233", description: "Ägarintresse i övriga företag och andra långfristiga värdepappersinnehav", bas: "1300-1399" },
-  { code: "7241", description: "Råvaror och förnödenheter", bas: "1400-1499" },
-  { code: "7251", description: "Kundfordringar", bas: "1500-1599" },
-  { code: "7261", description: "Övriga fordringar", bas: "1600-1699" },
-  { code: "7263", description: "Förutbetalda kostnader och upplupna intäkter", bas: "1700-1799" },
-  { code: "7271", description: "Övriga kortfristiga placeringar", bas: "1800-1899" },
-  { code: "7281", description: "Likvida medel", bas: "1900-1999" },
-  { code: "7301", description: "Eget kapital", bas: "2000-2089" },
-  { code: "7302", description: "Balanserat resultat/Årets resultat", bas: "2091, 2099" },
-  { code: "7321", description: "Obeskattade reserver", bas: "2100-2199" },
-  { code: "7350", description: "Avsättningar", bas: "2200-2299" },
-  { code: "7365", description: "Långfristiga skulder", bas: "2300-2399" },
-  { code: "7368", description: "Leverantörsskulder", bas: "2400-2499" },
-  { code: "7369", description: "Skatteskulder", bas: "2500-2599" },
-  { code: "7370", description: "Övriga kortfristiga skulder", bas: "2600-2999" },
-  { code: "7410", description: "Nettoomsättning", bas: "3000-3799" },
-  { code: "7413", description: "Övriga rörelseintäkter", bas: "3900-3999" },
-  { code: "7511", description: "Material och varor", bas: "4000-4999" },
-  { code: "7513", description: "Övriga externa kostnader", bas: "5000-6999" },
-  { code: "7514", description: "Personalkostnader", bas: "7000-7699" },
-  { code: "7515", description: "Av- och nedskrivningar", bas: "7800-7999" },
-  { code: "7517", description: "Övriga rörelsekostnader", bas: "8000-8199" },
-  { code: "7416/7520", description: "Resultat från övriga finansiella anläggningstillgångar", bas: "8200-8299" },
-  { code: "7416", description: "Resultat från övriga finansiella anläggningstillgångar", bas: "8200-8299" },
-  { code: "7520", description: "Resultat från övriga finansiella anläggningstillgångar", bas: "8200-8299" },
-  { code: "7417", description: "Övriga ränteintäkter och liknande resultatposter", bas: "8300-8399" },
-  { code: "7522", description: "Räntekostnader och liknande resultatposter", bas: "8400-8499" },
-  { code: "7528", description: "Skatt på årets resultat", bas: "8910-8919" },
-];
-
-const getFieldDescription = (fieldCode?: string | null) =>
-  SRU_FIELDS.find((field) => field.code === fieldCode)?.description;
+// The selectable INK2R fields come from the backend (GET /api/v1/sru-fields),
+// which serves the same BAS coupling table the SRU export maps accounts
+// through. Keeping a copy here is what let the field codes drift apart before.
+interface SRUField {
+  code: string;
+  row: string;
+  label: string;
+  section: string;
+  accounts: string;
+}
 
 export default function SRUMappingsPage() {
   const [fiscalYears, setFiscalYears] = useState<FiscalYear[]>([]);
@@ -112,6 +85,7 @@ export default function SRUMappingsPage() {
   const [mappings, setMappings] = useState<Record<string, string>>({});
   const [originalMappings, setOriginalMappings] = useState<Record<string, string>>({});
   const [defaultMappings, setDefaultMappings] = useState<Record<string, string>>({});
+  const [sruFields, setSruFields] = useState<SRUField[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [previewing, setPreviewing] = useState(false);
@@ -120,9 +94,18 @@ export default function SRUMappingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Load fiscal years on mount
+  const getFieldDescription = useCallback(
+    (fieldCode?: string | null) => sruFields.find((field) => field.code === fieldCode)?.label,
+    [sruFields],
+  );
+
+  // Load fiscal years and the INK2R field list on mount
   useEffect(() => {
     loadFiscalYears();
+    api
+      .getSRUFields()
+      .then(setSruFields)
+      .catch(() => setError("Kunde inte ladda SRU-fältlistan"));
   }, []);
 
   // Load accounts and mappings when fiscal year changes
@@ -559,16 +542,16 @@ export default function SRUMappingsPage() {
                               ) : (
                                 <option value="__none__">Ingen mappning</option>
                               )}
-                              {SRU_FIELDS.map((field) => (
+                              {sruFields.map((field) => (
                                 <option key={field.code} value={field.code}>
-                                  {field.code} - {field.description} ({field.bas})
+                                  {field.row} {field.code} - {field.label} (BAS {field.accounts})
                                 </option>
                               ))}
                             </select>
                           </td>
                           <td className="px-4 py-3 text-muted-foreground">
                             {standardMapping && standardDescription ? (
-                              <span title={`BAS ${SRU_FIELDS.find(f => f.code === standardMapping)?.bas || ""}`}>
+                              <span title={`BAS ${sruFields.find((f) => f.code === standardMapping)?.accounts || ""}`}>
                                 {standardMapping} - {standardDescription}
                               </span>
                             ) : (

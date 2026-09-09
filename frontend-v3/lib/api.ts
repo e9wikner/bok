@@ -1026,6 +1026,11 @@ export const api = {
   },
 
   // SRU Mappings
+  getSRUFields: async () => {
+    const { data } = await apiClient.get(`/api/v1/sru-fields`);
+    return data;
+  },
+
   getSRUMappings: async (fiscalYearId: string) => {
     const { data } = await apiClient.get(`/api/v1/fiscal-years/${fiscalYearId}/sru-mappings`);
     return data;
