@@ -20,6 +20,8 @@
 # Options:
 #   --no-build     skip the image builds, just re-render quadlets and restart
 #   --force-build  build even if the source did not change
+#   --no-pull      deploy the checkout in $SRC as it stands, without git pull
+#                  (for trying a commit before it is pushed; always rebuilds)
 #
 set -euo pipefail
 
@@ -32,11 +34,13 @@ QUADLET_DIR=${XDG_CONFIG_HOME:-$HOME/.config}/containers/systemd
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 BUILD=auto
+PULL=yes
 for arg in "$@"; do
   case "$arg" in
     --no-build)    BUILD=no ;;
     --force-build) BUILD=force ;;
-    -h|--help)     sed -n '2,20p' "$0"; exit 0 ;;
+    --no-pull)     PULL=no ;;
+    -h|--help)     sed -n '2,24p' "$0"; exit 0 ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -123,7 +127,11 @@ done
 
 # ── source ──────────────────────────────────────────────────────────────
 changed=1
-if [ -d "$SRC/.git" ]; then
+if [ "$PULL" = no ]; then
+  [ -d "$SRC/.git" ] || fail "--no-pull needs an existing checkout at $SRC"
+  echo "==> --no-pull: deploying $SRC as-is at $(git -C "$SRC" rev-parse --short HEAD)"
+  git -C "$SRC" --no-pager log -1 --oneline
+elif [ -d "$SRC/.git" ]; then
   echo "==> updating $SRC"
   before=$(git -C "$SRC" rev-parse HEAD)
   git -C "$SRC" pull --ff-only
