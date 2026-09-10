@@ -86,6 +86,7 @@ const TAB_INTROS: Record<TabType, { title: string; description: string }> = {
 
 export default function Ink2Page() {
   const [activeTab, setActiveTab] = useState<TabType>("ink2");
+  const [showAccountNames, setShowAccountNames] = useState(false);
   const [selectedYear, setSelectedYear] = useState<string>("");
   const [declaration, setDeclaration] = useState<INK2Declaration | null>(null);
   const [loading, setLoading] = useState(false);
@@ -186,6 +187,9 @@ export default function Ink2Page() {
                         title={account.name}
                       >
                         <span>{account.account}</span>
+                        {showAccountNames && account.name && (
+                          <span className="max-w-[16rem] truncate font-sans text-foreground/80">{account.name}</span>
+                        )}
                         <span className={account.value < 0 ? "text-destructive" : "text-emerald-600"}>
                           {formatAmount(account.value, { showSign: true })}
                         </span>
@@ -253,7 +257,7 @@ export default function Ink2Page() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto max-w-6xl space-y-6 p-4 lg:p-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Inkomstdeklaration 2</h1>
@@ -261,7 +265,27 @@ export default function Ink2Page() {
             Webbaserad rapport med samma fält, rubriker och indelning som Skatteverkets INK2-blankett.
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={showAccountNames}
+            onClick={() => setShowAccountNames((value) => !value)}
+            className="flex items-center gap-2 rounded-lg border bg-background px-3 py-2 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/60"
+          >
+            <span
+              className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+                showAccountNames ? "bg-primary" : "bg-muted-foreground/30"
+              }`}
+            >
+              <span
+                className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                  showAccountNames ? "translate-x-4" : "translate-x-0"
+                }`}
+              />
+            </span>
+            <span className="whitespace-nowrap">Kontonamn</span>
+          </button>
           {fiscalYears.length > 0 && (
             <div className="flex items-center gap-2 rounded-lg border bg-background px-3 py-2 shadow-sm">
               <Calendar className="h-4 w-4 text-muted-foreground" />
