@@ -116,27 +116,29 @@ class SRUExportService:
         
         if db_mappings:
             mappings.update(db_mappings)
+            # A saved year-specific mapping is a deliberate deviation from the
+            # BAS coupling table (typically from a SIE4 #SRU import), so it is
+            # worth surfacing which accounts no longer follow the standard.
             self.warnings.append(
-                f"Using {len(db_mappings)} SRU mappings from imported SIE4 file"
+                f"Årsspecifik SRU-mappning används för {len(db_mappings)} "
+                "konton i stället för standardmappningen (BAS-kopplingstabellen)."
             )
             return mappings
 
         # Fill with the default BAS mappings only when there is no imported
         # SIE4 mapping. Imported SRU data is form-software specific and must be
         # treated as authoritative to avoid exporting accounts iOrdning left out.
-        default_count = 0
+        #
+        # Using the standard mapping is the normal, expected path and is not
+        # flagged. The genuine risk -- an account that carries a balance but
+        # maps to no field -- is reported from calculate_sru_fields() once the
+        # balances are known.
         for sru_field, account_ranges in DEFAULT_SRU_MAPPINGS.items():
             for account_num in account_ranges:
                 account_code = str(account_num)
                 if account_code not in mappings:
                     mappings[account_code] = sru_field
-                    default_count += 1
-        
-        if default_count > 0:
-            self.warnings.append(
-                f"Using {default_count} default BAS SRU mappings"
-            )
-        
+
         return mappings
     
     def calculate_account_balances(
