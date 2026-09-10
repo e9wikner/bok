@@ -7,6 +7,7 @@ Generates INFO.SRU and BLANKETTER.SRU files for electronic tax filing.
 import io
 import zipfile
 from datetime import datetime
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 
@@ -316,7 +317,7 @@ class SRUExportService:
         self._calculate_ink2s_fields(fields)
         
         # Validate balance sheet
-        self._validate_balance_sheet(fields)
+        self._validate_balance_sheet(field_balances, account_balances)
         
         return SRUDeclaration(
             fiscal_year_id=fiscal_year_id,
@@ -371,14 +372,35 @@ class SRUExportService:
             "name": row["name"],
         }
 
-    def _to_sru_value(self, sru_field: str, balance_ore: int) -> int:
-        """Convert internal debit-positive öre balance to SRU SEK value."""
-        value_sek = int(balance_ore / 100)
+    def _sru_signed_ore(self, sru_field: str, balance_ore: int) -> int:
+        """Apply the SRU sign convention to a debit-positive öre balance.
+
+        Credit-balance boxes (equity, liabilities, income) are negated so the
+        form shows the positive figure it asks for; cost boxes are reported as
+        absolute amounts. Nothing is rounded here - callers that need whole
+        kronor divide afterwards, so this can also be summed at full öre
+        precision when the rounding must not creep in.
+        """
+        value = balance_ore
         if sru_field in CREDIT_BALANCE_FIELDS:
-            value_sek = -value_sek
+            value = -value
         if sru_field in ALWAYS_POSITIVE_FIELDS:
-            value_sek = abs(value_sek)
-        return value_sek
+            value = abs(value)
+        return value
+
+    def _to_sru_value(self, sru_field: str, balance_ore: int) -> int:
+        """Convert internal debit-positive öre balance to a whole-krona SRU value.
+
+        Skatteverket wants whole kronor rounded the ordinary way (0,50 upward),
+        not truncated: truncating understated every figure by up to a krona and
+        pushed the balance sheet's two sides apart. Öre are exact here, so the
+        rounding is done in ``Decimal`` to avoid binary-float tie surprises.
+        """
+        signed_ore = self._sru_signed_ore(sru_field, balance_ore)
+        krona = (Decimal(signed_ore) / 100).quantize(
+            Decimal("1"), rounding=ROUND_HALF_UP
+        )
+        return int(krona)
 
     def _resolve_sru_field(self, sru_field: str, balance_ore: int) -> str:
         """Resolve imported slash alternatives like 7416/7520 for one account."""
@@ -516,32 +538,62 @@ class SRUExportService:
         )
         add("7670", taxable_result, ["7650", "7651", "7653", "7754", "7654"], {"7754": -1})
         
-    def _validate_balance_sheet(self, fields: Dict[str, SRUFieldValue]):
+    def _validate_balance_sheet(
+        self,
+        field_balances: Dict[str, List[Dict]],
+        account_balances: Dict[str, Dict],
+    ):
         """Warn when INK2R's assets do not match equity plus liabilities.
 
-        The year's result may or may not have been closed to 2099 yet, so the
-        two sides legitimately differ by exactly the result until it has been.
-        Any other difference means accounts are missing from the declaration.
+        Worked out in öre, straight from the ledger balances, before any box is
+        rounded to whole kronor. Double-entry then guarantees the check is
+        exact: assets minus equity and liabilities is either zero (once the
+        year's result has been closed to 2099) or exactly the year's result
+        (until it has been). Rounding each box on its own would let the two
+        sides drift a krona or two apart on a ledger that actually balances, so
+        the comparison deliberately stays at öre precision.
+
+        Any real difference means an account with a balance is mapped to a
+        field that lies on neither side of the balance sheet nor in the result
+        - a hole in the coupling table. A completely unmapped account is
+        reported separately.
         """
-        def total(field_numbers) -> int:
+        asset_fields = set(BALANCE_ASSET_FIELDS)
+        equity_liability_fields = set(BALANCE_EQUITY_LIABILITY_FIELDS)
+        income_fields = set(INCOME_FIELDS)
+        expense_fields = set(EXPENSE_FIELDS)
+
+        def side_total(wanted) -> int:
             return sum(
-                fields[field_number].value
-                for field_number in field_numbers
-                if field_number in fields
+                self._sru_signed_ore(
+                    sru_field, sum(a["balance"] for a in accounts)
+                )
+                for sru_field, accounts in field_balances.items()
+                if sru_field in wanted
             )
 
-        assets = total(BALANCE_ASSET_FIELDS)
-        equity_and_liabilities = total(BALANCE_EQUITY_LIABILITY_FIELDS)
-        result = total(["7450"]) - total(["7550"])
+        assets = side_total(asset_fields)
+        equity_and_liabilities = side_total(equity_liability_fields)
+        closed_result = -sum(
+            data["balance"]
+            for code, data in account_balances.items()
+            if _is_derived_result_account(code)
+        )
+        result = (
+            side_total(income_fields)
+            - side_total(expense_fields)
+            + closed_result
+        )
         difference = assets - equity_and_liabilities
 
         if difference in (0, result):
             return
 
         self.warnings.append(
-            f"BALANSRÄKNINGEN STÄMMER INTE: tillgångar ({assets}) - "
-            f"eget kapital och skulder ({equity_and_liabilities}) = {difference} SEK, "
-            f"vilket varken är noll eller årets resultat ({result} SEK)"
+            "BALANSRÄKNINGEN STÄMMER INTE: tillgångar "
+            f"({round(assets / 100)}) - eget kapital och skulder "
+            f"({round(equity_and_liabilities / 100)}) = {difference / 100:.2f} SEK, "
+            f"vilket varken är noll eller årets resultat ({result / 100:.2f} SEK)"
         )
 
     def _get_field_descriptions(self) -> Dict[str, str]:

@@ -222,8 +222,14 @@ class TestSRUExportService:
         """Test that cost fields are emitted as absolute values."""
         assert service._to_sru_value("7513", 100000) == 1000
         assert service._to_sru_value("7513", -100000) == 1000
-        assert service._to_sru_value("7513", 13174174) == 131741
         assert service._to_sru_value("7528", 11497500) == 114975
+
+    def test_sru_values_are_rounded_to_whole_kronor_not_truncated(self, service):
+        """Skatteverket wants ordinary rounding (0,50 upward), not truncation."""
+        assert service._to_sru_value("7513", 13174174) == 131742  # 131 741,74
+        assert service._to_sru_value("7513", 13174100) == 131741  # 131 741,00
+        assert service._to_sru_value("7410", -12345650) == 123457  # 123 456,50 up
+        assert service._to_sru_value("7251", 12345649) == 123456  # 123 456,49 down
 
     def test_resolve_slash_sru_mapping_uses_positive_export_side(self, service):
         """Test that imported iOrdning slash mappings resolve to real SRU fields."""
@@ -374,44 +380,88 @@ class TestSRUFieldDescriptions:
 class TestSRUValidation:
     """Test SRU validation logic."""
 
-    def _service_with(self, fields):
+    def _service_with(self, field_ore, derived_result_ore=0):
+        """Run the balance-sheet check on raw ledger balances.
+
+        ``field_ore`` maps an SRU field code to the net debit-positive öre
+        balance of the accounts behind it (negative for credit-normal boxes),
+        exactly as it reaches the check before anything is rounded to kronor.
+        """
         from services.sru_export import SRUExportService
 
+        field_balances = {
+            field: [{"code": "0000", "name": field, "balance": ore}]
+            for field, ore in field_ore.items()
+        }
+        account_balances = {}
+        if derived_result_ore:
+            account_balances["8999"] = {
+                "name": "Årets resultat",
+                "balance": derived_result_ore,
+            }
+
         service = SRUExportService()
-        service._validate_balance_sheet(fields)
+        service._validate_balance_sheet(field_balances, account_balances)
         return service
 
     def test_balanced_sheet_is_silent(self):
         """Assets equal equity and liabilities once the result is closed."""
-        from services.sru_export import SRUFieldValue
-
         service = self._service_with({
-            "7251": SRUFieldValue("7251", "Kundfordringar", 100000, []),
-            "7302": SRUFieldValue("7302", "Fritt eget kapital", 100000, []),
+            "7251": 1_000_000,    # kundfordringar (debit)
+            "7302": -1_000_000,   # fritt eget kapital (credit)
         })
 
         assert service.warnings == []
 
     def test_open_result_is_not_reported_as_imbalance(self):
         """Before the result is closed to 2099 the two sides differ by it."""
-        from services.sru_export import SRUFieldValue
-
         service = self._service_with({
-            "7251": SRUFieldValue("7251", "Kundfordringar", 100000, []),
-            "7301": SRUFieldValue("7301", "Bundet eget kapital", 50000, []),
-            "7450": SRUFieldValue("7450", "Årets resultat, vinst", 50000, []),
+            "7251": 1_000_000,    # assets
+            "7301": -500_000,     # bundet eget kapital
+            "7410": -500_000,     # nettoomsättning: a 5 000 kr profit
         })
 
         assert service.warnings == []
 
-    def test_real_imbalance_generates_warning(self):
-        """A difference that is neither zero nor the result means accounts are missing."""
-        from services.sru_export import SRUFieldValue
+    def test_open_result_carried_on_899x_is_not_an_imbalance(self):
+        """The result may sit on 8999 after the P&L is closed but before 2099."""
+        service = self._service_with(
+            {
+                "7251": 1_000_000,   # assets
+                "7301": -500_000,    # equity
+            },
+            derived_result_ore=-500_000,  # 8999 credit = 5 000 kr profit
+        )
 
+        assert service.warnings == []
+
+    def test_real_imbalance_generates_warning(self):
+        """An account mapped to a field on neither side breaks the identity."""
         service = self._service_with({
-            "7251": SRUFieldValue("7251", "Kundfordringar", 100000, []),
-            "7301": SRUFieldValue("7301", "Bundet eget kapital", 50000, []),
-            "7450": SRUFieldValue("7450", "Årets resultat, vinst", 10000, []),
+            "7251": 1_000_000,    # assets
+            "7302": -1_000_025,   # equity absorbs the contra entry...
+            "7650": 25,           # ...of 25 öre parked on an INK2S-only field
         })
 
         assert any("BALANSRÄKNINGEN STÄMMER INTE" in w for w in service.warnings)
+
+    def test_sub_krona_balances_do_not_warn(self):
+        """Öre that per-box rounding would drop must not trip the check."""
+        service = self._service_with({
+            "7251": 10_050,       # 100.50 kr
+            "7281": 20_070,       # 200.70 kr
+            "7302": -30_120,      # -301.20 kr, balances to the öre
+        })
+
+        assert service.warnings == []
+
+    def test_check_is_exact_to_the_ore(self):
+        """A 250-öre hole is reported even though every box rounds to the krona."""
+        service = self._service_with({
+            "7251": 1_000_000,
+            "7302": -1_000_250,
+            "7650": 250,
+        })
+
+        assert service.warnings
+        assert "-2.50 SEK" in service.warnings[0]
