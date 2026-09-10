@@ -257,7 +257,7 @@ export default function Ink2Page() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto max-w-6xl space-y-6 p-4 lg:p-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Inkomstdeklaration 2</h1>
@@ -279,8 +279,8 @@ export default function Ink2Page() {
               }`}
             >
               <span
-                className={`absolute top-0.5 h-4 w-4 rounded-full bg-background shadow transition-transform ${
-                  showAccountNames ? "translate-x-4" : "translate-x-0.5"
+                className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                  showAccountNames ? "translate-x-4" : "translate-x-0"
                 }`}
               />
             </span>
