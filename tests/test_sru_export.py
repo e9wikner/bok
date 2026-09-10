@@ -60,6 +60,28 @@ class TestSRUExportService:
         # DB mapping should take precedence
         assert mappings["1920"] == "9999"
 
+    def test_standard_mapping_adds_no_warning(self, service, mock_db):
+        """Falling back to the BAS coupling table is the normal path, not a warning."""
+        mock_db.execute.return_value.fetchall.return_value = []
+
+        service.get_sru_mappings("fy-123")
+
+        assert service.warnings == []
+
+    def test_year_specific_mapping_is_flagged_in_swedish(self, service, mock_db):
+        """A saved year-specific mapping is a deliberate deviation worth surfacing."""
+        mock_row = Mock()
+        mock_row.__getitem__ = lambda self, key: {
+            "code": "1920",
+            "sru_field": "9999",
+        }[key]
+        mock_db.execute.return_value.fetchall.return_value = [mock_row]
+
+        service.get_sru_mappings("fy-123")
+
+        assert len(service.warnings) == 1
+        assert "Årsspecifik SRU-mappning" in service.warnings[0]
+
     def test_calculate_account_balances_carries_forward_opening_for_balance_accounts(self):
         """Balance accounts use closing balance, while result accounts stay in fiscal year."""
         db = sqlite3.connect(":memory:")
