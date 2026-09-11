@@ -6,8 +6,9 @@ two rootless Podman quadlets — `bok-api` and `bok-frontend` — under the
 proxy. Same model as the other stacks on that box (Home Assistant, MQTT,
 Telldus); see `docs/podman.md` in the `hubbabubba` repo for the rationale.
 
-It **replaces** the Docker Compose deployment on `q.stefanwikner.se`
-(`../../DEPLOYMENT.md`), which is retired once this is confirmed working.
+It replaced the earlier Docker Compose deployment on a rented host, which has
+been retired and removed from the repo. The `docker-compose.yml` at the root is
+now for local and development use only.
 
 Everything here runs **as `e9wikner`, on the box, with no sudo** — after a
 one-time setup that does need an admin shell.

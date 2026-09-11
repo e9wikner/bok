@@ -1,3 +1,9 @@
+# Docker Compose deployment. Defaults suit localhost; for a LAN server set
+# NEXT_PUBLIC_API_URL so the browser reaches the API directly, e.g.
+#   NEXT_PUBLIC_API_URL=http://myhost:8000 docker compose up -d --build
+# The live instance on hubbabubba runs Podman quadlets instead — see
+# deploy/hubbabubba/README.md.
+
 services:
   bokfoering-api:
     build: .
@@ -6,14 +12,16 @@ services:
       - "8000:8000"
     volumes:
       - bokfoering-data:/app/data
-      # Folder-based intake. Point DROPZONE_HOST_DIR at the same host directory
-      # Syncthing shares; the mount is harmless while DROPZONE_ENABLED is false.
+      # Folder-based intake. Point DROPZONE_HOST_DIR at the host directory that
+      # receives files; the mount is harmless while DROPZONE_ENABLED is false.
       - ${DROPZONE_HOST_DIR:-./dropzone}:/app/data/dropzone
     environment:
-      - DEBUG=False
+      - DEBUG=${DEBUG:-False}
       - BOKFOERING_API_KEY=${BOKFOERING_API_KEY:-dev-key-change-in-production}
       - AUTH_USERNAME=${AUTH_USERNAME:-admin}
       - AUTH_PASSWORD=${AUTH_PASSWORD:-admin}
+      - JWT_SECRET=${JWT_SECRET:-dev-jwt-secret-change-in-production}
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
       - DATABASE_URL=sqlite:////app/data/bokfoering.db
       - DROPZONE_ENABLED=${DROPZONE_ENABLED:-false}
       - DROPZONE_DIR=/app/data/dropzone
@@ -26,12 +34,14 @@ services:
       retries: 5
 
   frontend:
-    build: ./frontend-v3
+    build:
+      context: ./frontend-v3
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     container_name: bokfoering-frontend
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
       - BACKEND_URL=http://bokfoering-api:8000
     restart: unless-stopped
     depends_on:

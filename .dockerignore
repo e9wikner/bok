@@ -22,7 +22,6 @@ bokfoering.db
 README.md
 .vscode
 .idea
-proxy/certbot/
 frontend-v3/node_modules/
 frontend-v3/.next/
 frontend-v3/out/

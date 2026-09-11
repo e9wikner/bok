@@ -1,374 +1,82 @@
-# Bokföringssystem API
+# Bok — bokföringssystem
 
-Egenbyggt bokföringssystem med REST API för svenska aktiebolag. Uppfyller alla krav enligt Bokföringslagen (BFL) och BFNAR 2013:2.
+Egenbyggt bokföringssystem för svenska aktiebolag: FastAPI-backend med dubbel
+bokföring och oföränderligt revisionsspår, Next.js-frontend för granskning, och
+ett agent-API så att en LLM-agent kan sköta löpande bokföring medan backend
+upprätthåller de formella kraven.
 
-**Licens:** MIT License — Fri att använda, modifiera och hosta för ditt eget företag. Se [LICENSE](LICENSE) för detaljer.
+Följer Bokföringslagen (BFL) och BFNAR 2013:2, använder BAS 2026 som kontoplan
+och genererar K2-årsredovisning.
 
-## Quick Start
+**Licens:** MIT — fri att använda, modifiera och hosta för ditt eget företag. Se
+[LICENSE](LICENSE).
+
+## Kom igång
 
 ```bash
-# Lokal utveckling
 git clone https://github.com/e9wikner/bok.git
 cd bok
-docker-compose up --build
-
-# API: http://localhost:8000/docs
+docker compose up --build
+# API:      http://localhost:8000   (dokumentation på /docs)
 # Frontend: http://localhost:3000
 ```
 
-## Lokal produktionsdrift
-
-Rekommenderad ägardrift är LAN/lokal server med Docker Compose. Börja i
-[DEPLOYMENT.md](DEPLOYMENT.md); den guiden täcker `.env.production`, starka
-hemligheter, `docker-compose.local.yml`, uppdateringar, säkerhetskopiering,
-återställning, rollback, felsökning och valfri publik domän med HTTPS.
-
-Kort kommandoväg efter att `.env.production` har skapats och hemligheterna är
-bytta:
+Utan containrar:
 
 ```bash
-docker compose --env-file .env.production -f docker-compose.local.yml up -d --build
-```
-
-Publik domän med HTTPS är valfri och beskrivs separat i `DEPLOYMENT.md`.
-
-För agentintegration används tills vidare `BOKFOERING_API_KEY`. Skicka
-entrypoint-länken `GET /api/v1/agent-instructions/entrypoint` till agenten så
-hämtar den själv startup-instruktioner, auth-check och workflow-länkar.
-
-### Agent bootstrap-skill
-
-Den setup-only skillen finns kanoniskt i
-`.agents/skills/bok-connect/SKILL.md` och exponeras för Claude Code via
-`.claude/skills/bok-connect`. Den löser host, hämtar den publika entrypointen,
-verifierar `POST /api/v1/agent/test/ping` och stannar före bokföringsloopen.
-OpenCode läser inte `.opencode/skills/`, så ingen sådan symlink skapas.
-API-anropen går genom `scripts/bok-curl`, som löser adress via `BOK_API_URL` och
-sätter bearer-headern utan att nyckeln behöver skrivas ut.
-Drift- och åtkomstreglerna finns i
-[`docs/to_agent/01_drift_och_atkomst.md`](docs/to_agent/01_drift_och_atkomst.md).
-
-## Teknikstack
-
-### Backend
-- **Språk:** Python 3.10+
-- **Ramverk:** FastAPI
-- **Databas:** SQLite + migreringar
-- **Övrigt:** Pydantic, SQLAlchemy, Alembic
-
-### Frontend
-- **Frontend:** Next.js 16 (React 18 + TypeScript)
-- **Styling:** Tailwind CSS
-- **State:** React Query + hooks
-- **Mörkt läge:** Inbyggt stöd
-- **Port:** 3000 (Docker) / 3000 (localhost)
-
-## Huvudfunktioner
-
-### ✅ Fas 1: Grundbokföring
-- Append-only lagring av verifikationer (varaktighet – oföränderlighetskrav)
-- Periodlåsning (oåterkallelig enligt BFL)
-- Dubbel bokföring med automatisk validering
-- Korrigeringsverifikationer (B-serie)
-- Huvudboksuttag
-- Komplett revisionsspår
-
-### ✅ Fas 2: Fakturering & Moms
-- Kundfakturahantering (utkast → skickad → betald)
-- Automatisk momsberäkning (MP1 25%, MP2 12%, MP3 6%, MF 0%)
-- Betalningsregistrering med flera metoder
-- Kreditfakturor
-- **Autobokföring:** Fakturor skapar automatiskt bokföringsverifikationer
-- Betalningsbevakning och statusuppdateringar
-
-### ✅ Fas 3: Rapporter & K2
-- **K2-årsredovisningsgenerering** (för små företag)
-- Autoberäkning av resultaträkning
-- Autoberäkning av balansräkning
-- Autoberäkning av kassaflödesanalys
-- JSON-export för myndighetsinlämning
-- Rapportstatusbevakning (utkast → slutlig → inlämnad)
-
-### ✅ Fas 4: Agentintegration
-- Publik, maskinläsbar agent-entrypoint för startup-instruktioner
-- Auth-check via `POST /api/v1/agent/test/ping` med `BOKFOERING_API_KEY`
-- FastAPI-genererad schema via `/openapi.json`
-- Direktpostning av agentverifikationer med källmaterial- och bankinput-spårbarhet
-- Agentkö för pending intake, processing-status och felrapportering
-- Agentoperationsloggning och revisionsspår
-
-### ✅ SIE4 Import & Export
-- **SIE4 Import:** Importera bokföringsdata från andra system
-  - Stöd för Windows-1252 och ISO-8859-1 teckenkodning
-  - Automatisk kontoskapning vid import
-  - Validering av SIE4-format före import
-  - `#RAR 0` styr räkenskapsåret automatiskt när `fiscal_year_id` utelämnas
-  - Explicit `fiscal_year_id` måste matcha filens exakta start- och slutdatum
-- **SIE4 Export:** Exportera till SIE4-format för andra bokföringsprogram
-  - Alla obligatoriska SIE4-sektioner: #FLAGGA, #FORMAT, #GEN, #PROGRAM, #SIETYP, #FNAMN, #FORGN, #ADRESS, #RAR, #KPTYP, #KONTO, #SRU, #IB, #UB, #RES, #PSALDO, #VER, #TRANS
-  - Automatisk beräkning av IB (ingående balans), UB (utgående balans), RES (resultat) och PSALDO (periodsaldon)
-  - Windows-1252 teckenkodning med CRLF radbrytningar
-  - Filnedladdning eller JSON-svar
-  - Export → Import roundtrip verifierad
-
-### ✅ PDF Export (Fakturor & Rapporter)
-Professionell PDF-export för alla företagsdokument med svenska termer och format:
-
-**Fakturor:**
-- Professionell layout med företagslogga och info
-- Svenska termer (Fakturadatum, Förfallodatum, Summa, etc.)
-- QR-kod för Swish-betalning
-- Momsspecifikation per momskod (MP1 25%, MP2 12%, MP3 6%, MF 0%)
-- Betalningsinstruktioner (Swish, bankgiro, plusgiro, IBAN)
-- Footer med organisationsnummer, momsregistreringsnummer, F-skatt
-
-**Rapporter:**
-- Resultaträkning (P&L) – PDF
-- Balansräkning – PDF
-- K2-årsredovisning – PDF
-- Huvudbok per konto – PDF
-- Alla med logotyp, datum, period
-
-**Teknik:**
-- Jinja2 template engine med professionella HTML-mallar
-- WeasyPrint för HTML→PDF rendering
-- HTML-fallback för utveckling (kräver inte WeasyPrint)
-- Konfigurerbar företagsinformation via API-parametrar
-
-**API-endpoints:**
-- `GET /api/v1/export/pdf/invoice/{id}` – Faktura-PDF
-- `GET /api/v1/export/pdf/general-ledger/{account_code}?period_id=...` – Huvudbok-PDF
-- `GET /api/v1/export/pdf/income-statement/{period_id}` – Resultaträkning-PDF
-- `GET /api/v1/export/pdf/balance-sheet/{period_id}` – Balansräkning-PDF
-- `GET /api/v1/export/pdf/k2-report/{fiscal_year_id}` – K2-årsredovisning-PDF
-- `GET /api/v1/export/pdf/.../html` – HTML-fallback för alla ovan
-
-### Agentinstruktioner för bokföring och fakturering
-Systemets agentstöd bygger på ett levande Markdown-dokument med generella
-bokförings- och faktureringsinstruktioner. Agenten läser instruktionerna ungefär
-som en `AGENTS.md`-fil, hämtar historiska verifikationer, fakturor och
-korrigeringar via API:t och skapar därefter verifikationer eller fakturautkast.
-
-**Hur det fungerar:**
-1. Agenten läser aktuella bokförings- eller faktureringsinstruktioner från backend.
-2. Agenten läser tidigare postade verifikationer, fakturor, artiklar och korrigeringar via API:t.
-3. Agenten uppdaterar instruktionerna när historiken visar bättre generell vägledning.
-4. Agenten skapar och postar verifikationer direkt, eller skapar fakturautkast för granskning.
-5. Användaren granskar i frontend och rättar fel i efterhand.
-6. Fakturautkast bokförs först när användaren skapar PDF och markerar fakturan som skickad.
-
-**Principer:**
-- Backend fattar inte bokföringsbeslutet, men validerar formella krav.
-- Agenten använder Markdown-instruktioner och historik som kontext.
-- Postade verifikationer ändras inte direkt; fel rättas med korrigeringsverifikation.
-- Frontend är en mänsklig gransknings- och korrigeringsyta.
-
-**API-endpoints:**
-- `GET /api/v1/agent-instructions/entrypoint` – Publik startup-instruktion för agenten
-- `GET /api/v1/agent-instructions/accounting` – Läs aktivt instruktionsdokument
-- `PUT /api/v1/agent-instructions/accounting` – Uppdatera instruktioner och skapa ny version
-- `GET /api/v1/agent-instructions/accounting/versions` – Versionshistorik
-- `GET/PUT /api/v1/agent-instructions/invoicing` – Faktureringsinstruktioner
-- `POST /api/v1/invoice-drafts` – Agenten skapar fakturautkast
-- `PUT /api/v1/invoice-drafts/{id}` – Uppdatera fakturautkast
-- `POST /api/v1/invoice-drafts/{id}/send` – Skapa faktura, PDF-länk och bokföringsverifikation
-- `POST /api/v1/agent/vouchers` – Agenten skapar och postar verifikation direkt
-- `POST /api/v1/vouchers/{id}/correct` – Skapa postad B-serie-korrigering
-- `GET /api/v1/accounting-corrections` – Lista korrigeringar för agentens inlärning
-
-## Projektstruktur
-
-```
-bokfoering-api/
-├── db/
-│   ├── migrations/
-│   │   ├── 001_initial_schema.sql       # Fas 1: Core tables
-│   │   ├── 002_add_invoices.sql         # Fas 2: Invoice tables
-│   │   ├── 003_add_reports_and_k2.sql   # Fas 3 & 4: Reports + Agent
-│   │   ├── 004_add_company_info.sql     # Company metadata
-│   │   ├── 005_add_bank_and_categorization.sql  # Bank integration
-│   │   ├── 006_add_learning_rules.sql   # Correction history table
-│   │   ├── 013_add_agent_instructions.sql # Agent instruction versions
-│   │   ├── 014_add_posted_voucher_immutability_triggers.sql
-│   │   └── 015_drop_legacy_ai_rules.sql # Removes old rule/pattern tables
-│   └── database.py
-├── domain/
-│   ├── models.py                # Voucher, Account, Period
-│   ├── invoice_models.py        # Invoice, Payment, CreditNote
-│   ├── validation.py            # Voucher business rules
-│   ├── invoice_validation.py    # Invoice rules & VAT
-│   └── types.py                 # Enums
-├── services/
-│   ├── ledger.py                # Fas 1: Core accounting
-│   ├── invoice.py               # Fas 2: Invoicing
-│   ├── k2_report.py             # Fas 3: K2 report generation
-│   ├── sie4_import.py           # SIE4: Parser & import
-│   ├── sie4_export.py           # SIE4: Filgenerering & export
-│   ├── pdf_export.py            # PDF: Fakturor & rapporter
-│   ├── categorization.py        # Regelbaserad transaktionskategorisering
-│   ├── bank_integration.py      # Bankintegration
-│   ├── compliance.py            # BFL compliance
-│   └── vat_report.py            # Momsdeklaration
-├── templates/
-│   └── pdf/                     # Jinja2-mallar för PDF
-│       ├── base.html            # Grundmall med header/footer
-│       ├── invoice.html         # Fakturamall
-│       ├── income_statement.html
-│       ├── balance_sheet.html
-│       ├── trial_balance.html
-│       ├── general_ledger.html
-│       └── k2_report.html
-├── api/
-│   ├── routes/
-│   │   ├── vouchers.py          # Fas 1: Voucher endpoints
-│   │   ├── accounts.py          # Account management
-│   │   ├── periods.py           # Period management
-│   │   ├── reports.py           # Trial balance, ledger, audit
-│   │   ├── invoices.py          # Fas 2: Invoice endpoints
-│   │   ├── k2_reports.py        # Fas 3: K2 report endpoints
-│   │   ├── agent.py             # Fas 4: Agent integration
-│   │   ├── agent_instructions.py # Agent instruction documents
-│   │   ├── accounting_corrections.py # Agent-readable corrections
-│   │   ├── import_sie4.py       # SIE4: Import endpoints
-│   │   ├── export_sie4.py       # SIE4: Export endpoints
-│   │   ├── export_pdf.py        # PDF: Fakturor & rapporter
-│   │   ├── bank.py              # Bankintegration
-│   │   ├── compliance.py        # BFL compliance
-│   │   └── vat.py               # Momsdeklaration
-│   ├── schemas.py               # Pydantic models
-│   ├── deps.py                  # Dependency injection
-│   └── main.py                  # FastAPI app
-├── repositories/
-│   ├── voucher_repo.py
-│   ├── agent_instruction_repo.py
-│   ├── account_repo.py
-│   ├── period_repo.py
-│   ├── invoice_repo.py
-│   └── audit_repo.py
-├── config.py
-├── main.py                      # CLI entrypoint
-└── requirements.txt
-```
-
-## Snabbstart
-
-### Docker (Rekommenderad)
-```bash
-docker-compose up --build
-# API Server: http://localhost:8000
-# API Docs: http://localhost:8000/docs
-# Frontend: http://localhost:3000
-# Streamlit (old): http://localhost:8501
-# Test data: TestCorp AB (auto-seeded)
-```
-
-### Local Setup - Backend
-```bash
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-python main.py --init-db --seed
+python main.py --init-db --seed     # engångsinit med testdata
 python main.py
-# Then visit http://localhost:8000/docs
+
+cd frontend-v3 && npm install && npm run dev
 ```
 
-### Lokal installation - Frontend
+## API-referens
+
+Backend genererar sin egen referens. Det finns ingen handskriven
+endpoint-dokumentation att hålla i synk:
+
+- `http://localhost:8000/docs` — interaktiv Swagger UI
+- `http://localhost:8000/openapi.json` — maskinläsbart schema
+
+## Agentintegration
+
+Agenten får två saker: adressen till instansen och `BOKFOERING_API_KEY`. Resten
+hämtar den själv.
+
 ```bash
-cd frontend-v3
-npm install
-npm run dev
-# Besök sedan http://localhost:3000
+curl -fsS "$BOK_API_URL/api/v1/agent-instructions/entrypoint"   # publik, ingen auth
+curl -fsS -X POST "$BOK_API_URL/api/v1/agent/test/ping" \
+  -H "Authorization: Bearer $BOKFOERING_API_KEY"                # auth-kontroll
 ```
 
-### Miljövariabler
+Entrypointen innehåller startup-instruktioner, auth-check och länkar vidare in i
+arbetsflödet. Driftreglerna agenten läser finns i
+[`docs/to_agent/`](docs/to_agent/) — de serveras av API:t, så de är en del av
+systemets beteende och inte bara dokumentation.
+
+För Claude Code och liknande finns en setup-only skill i
+`.agents/skills/bok-connect/SKILL.md` (exponerad som `.claude/skills/bok-connect`).
+API-anropen går genom `scripts/bok-curl`, som löser adressen ur `BOK_API_URL` och
+sätter bearer-headern utan att nyckeln skrivs ut.
+
+## Drift
+
+Den skarpa instansen kör som två rootless Podman-quadlets på hemservern
+`hubbabubba`. Se [`deploy/hubbabubba/README.md`](deploy/hubbabubba/README.md)
+för installation, deploy, mappintag över SMB och rollback.
+
+Docker Compose (`docker-compose.yml`) är den andra vägen, avsedd för lokal drift
+och utveckling. Fjärrdeploy från en arbetsstation stöds inte — skriv ett eget
+skript om du behöver det.
+
+## Utveckling
+
 ```bash
-# Backend
-export BOKFOERING_API_KEY=dev-key-change-in-production
-export DATABASE_URL=sqlite:///bokfoering.db
-
-# Frontend
-export NEXT_PUBLIC_API_URL=http://localhost:8000
+pytest tests/ -v
+black . && isort . && flake8 && mypy .
+cd frontend-v3 && npm run lint
 ```
 
-## Dokumentation
-
-### Kärndokumentation
-- **[API.md](API.md)** - Komplett endpoint-referens med exempel
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Systemdesign & dataflöde
-- **[FAS3_FAS4.md](FAS3_FAS4.md)** - K2-rapporter & agentintegration
-
-### Frontend
-- **[frontend-v3/README.md](frontend-v3/README.md)** - Frontend-guide
-  - Arkitektur & komponenter
-  - Routes & sidor
-  - AI-inlärningsarbetsflöde
-  - Utvecklingsguide
-  - Deploymentsinstruktioner
-
-### Deployment
-- **[DEPLOYMENT.md](DEPLOYMENT.md)** - kanonisk guide för LAN/lokal server med
-  `docker-compose.local.yml`, `.env.production`, uppdateringar,
-  säkerhetskopiering, återställning, rollback, felsökning och valfri publik
-  domän/HTTPS via `docker-compose.prod.yml`.
-
-## Reglering och Compliance
-
-✅ **BFL (Bokföringslagen)**
-- Varaktighet: Bokförda verifikationer oföränderliga
-- Grundbokföring: Kronologisk journal
-- Huvudbokföring: Systematisk huvudbok
-- Verifikationer: Nummerade, fullständigt detaljerade
-- Rättelser: Endast via korrigeringsverifikationer
-- Systemdokumentation: Automatiskt loggad
-
-✅ **BFNAR 2013:2**
-- Vägledning för bokföring
-- Systemdokumentation
-- Behandlingshistorik (revisionsspår)
-
-✅ **BAS 2026**
-- Standard kontoplan
-- Kontotypklassificering
-- Momskodsmappning
-
-✅ **K2 Årsredovisning**
-- Generering av resultaträkning
-- Generering av balansräkning
-- Obligatoriska noter & upplysningar
-
-✅ **Mervärdesskattelagen (VAT)**
-- 4 momskoder (MP1-MP3, MF)
-- Automatisk beräkning
-- Momsuppdelningsrapportering
-
-## Fas 5: Bankintegration & AI-Automatisering
-
-### 🏦 Bankintegration
-- Bankanslutningshantering (manuell + Open Banking redo)
-- Transaktionsimport (JSON API + Svensk bank CSV)
-- Transaktionsdeduplicering (baserat på external_id)
-- Synkroniseringsstatusbevakning
-
-### 🤖 Auto-kategorisering
-- Agentstyrd bokföring baserad på levande Markdown-instruktioner
-- Agenten läser historiska verifikationer och korrigeringar via API:t
-- Direktpostning av agentverifikationer med backendvalidering
-- Rättelser sker via B-serie och blir ny inlärningsdata
-- Äldre regel-/mönsteranalys används som beslutsunderlag, inte som hårt facit
-
-### ✅ BFL Compliance-kontroll
-- 8 automatiserade compliance-kontroller:
-  - Bokföringstillfällighet (BFL 5 kap 2§)
-  - Periodavslutningsdeadlines
-  - Verifikationsnummerluckor (BFL 5 kap 6§)
-  - Råbalansnoggrannhet
-  - Momsdeklarationsdeadlines
-  - Obokförda transaktionsbackloggar
-  - Saknade verifikationsbilagor
-  - Flagging av ovanligt stora transaktioner
-- Ärendelifecykel: öppen → kvitterad → löst / falskt positiv
-
-### 🧾 Momsdeklarationer
-- Generering av månadsvisa och kvartalsvisa momsdeklarationer
-- SKV 4700 formatmappning (Ruta 05-49)
-- Automatisk beräkning från bokförda verifikationer
-- Försäljningsuppdelning efter momssats (25%, 12%, 6%, undantagen)
-- Nettomoms att betala/få tillbaka beräkning
+Arkitektur, invarianter och konventioner: [AGENTS.md](AGENTS.md).
