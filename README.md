@@ -36,6 +36,18 @@ För agentintegration används tills vidare `BOKFOERING_API_KEY`. Skicka
 entrypoint-länken `GET /api/v1/agent-instructions/entrypoint` till agenten så
 hämtar den själv startup-instruktioner, auth-check och workflow-länkar.
 
+### Agent bootstrap-skill
+
+Den setup-only skillen finns kanoniskt i
+`.agents/skills/bok-connect/SKILL.md` och exponeras för Claude Code via
+`.claude/skills/bok-connect`. Den löser host, hämtar den publika entrypointen,
+verifierar `POST /api/v1/agent/test/ping` och stannar före bokföringsloopen.
+OpenCode läser inte `.opencode/skills/`, så ingen sådan symlink skapas.
+API-anropen går genom `scripts/bok-curl`, som löser adress via `BOK_API_URL` och
+sätter bearer-headern utan att nyckeln behöver skrivas ut.
+Drift- och åtkomstreglerna finns i
+[`docs/to_agent/01_drift_och_atkomst.md`](docs/to_agent/01_drift_och_atkomst.md).
+
 ## Teknikstack
 
 ### Backend

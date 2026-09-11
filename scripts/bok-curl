@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# bok-curl - curl-wrapper mot Bok REST-API.
+#
+# Loser bade host och nyckel sjalv, sa att agenten bara behover ange metod och
+# sokvag och nyckeln aldrig behover klistras in eller skrivas ut.
+#
+#   bok-curl GET  /api/v1/accounts
+#   bok-curl POST /api/v1/agent/test/ping
+#   bok-curl POST /api/v1/agent/vouchers body.json
+#
+# Host:   BOK_API_URL, annars http://localhost:8000
+# Nyckel: BOKFOERING_API_KEY, annars BOK_ENV_FILE (default
+#         /srv/appdata/bok/bok.env, hubbabubbas placering)
+set -euo pipefail
+
+BASE=${BOK_API_URL:-http://localhost:8000}
+ENV_FILE=${BOK_ENV_FILE:-/srv/appdata/bok/bok.env}
+
+key=${BOKFOERING_API_KEY:-}
+if [ -z "$key" ] && [ -r "$ENV_FILE" ]; then
+  key=$(sed -n 's/^BOKFOERING_API_KEY=//p' "$ENV_FILE" | head -1 | sed 's/^["'"'"']//; s/["'"'"']$//')
+fi
+if [ -z "$key" ]; then
+  echo "bok-curl: ingen nyckel - satt BOKFOERING_API_KEY eller lagg den i $ENV_FILE" >&2
+  exit 1
+fi
+
+method=${1:?anvandning: bok-curl <METOD> <SOKVAG> [json-fil]}
+path=${2:?anvandning: bok-curl <METOD> <SOKVAG> [json-fil]}
+shift 2
+
+args=(-sS -m 60 -X "$method" "$BASE$path" -H "Authorization: Bearer $key")
+if [ $# -gt 0 ] && [ -n "${1:-}" ]; then
+  args+=(-H 'Content-Type: application/json' --data-binary "@$1")
+fi
+
+curl "${args[@]}" -w '\n[http %{http_code}]\n'

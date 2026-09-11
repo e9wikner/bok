@@ -36,6 +36,22 @@ Agentnyckel-endpoints under `/api/v1/agent/keys/*` är endast platshållare till
 separat persistent agentnyckelhantering finns. Använd den API-nyckel som lämnas
 vid uppstart.
 
+### Wrappern `scripts/bok-curl`
+
+I repot finns `scripts/bok-curl`, som sätter bearer-headern åt agenten så att
+nyckelvärdet aldrig behöver läsas in eller skrivas ut:
+
+```text
+scripts/bok-curl <METOD> <SÖKVÄG> [json-fil]
+```
+
+Wrappern löser adressen från `BOK_API_URL` och faller tillbaka på
+`http://localhost:8000`. Nyckeln hämtas från `BOKFOERING_API_KEY` i miljön, och
+i andra hand ur env-filen `BOK_ENV_FILE`. Standardvärdet
+`/srv/appdata/bok/bok.env` är serverns placering, inte ett krav — med nyckeln i
+miljön fungerar wrappern även utanför servern. Saknas båda källorna avbryter
+wrappern utan att skriva ut något nyckelvärde.
+
 ## Hälsokontroll
 
 Kontrollera först att backend svarar:
