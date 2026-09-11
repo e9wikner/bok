@@ -48,4 +48,6 @@ unreachable or wrong host from a bad key.
 
 Read the entrypoint; do not duplicate its bookkeeping loop here. This skill
 ends after bootstrap and must not scan intake, post vouchers, or start
-bookkeeping. Return only non-secret status and the next documented action.
+bookkeeping. Return only non-secret status and the next documented action, in
+Swedish — this skill, `docs/to_agent/`, and the system it bootstraps are all
+Swedish-language.
