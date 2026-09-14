@@ -1,13 +1,14 @@
 """API routes for invoices (Fas 2)."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
 from datetime import date
 from typing import List, Optional
 
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
+
 from api.deps import get_current_actor
-from domain.validation import ValidationError
 from domain.invoice_validation import ValidationError as InvoiceValidationError
+from domain.validation import ValidationError
 from services.invoice import InvoiceService
 
 router = APIRouter(prefix="/api/v1/invoices", tags=["invoices"])
@@ -15,6 +16,7 @@ router = APIRouter(prefix="/api/v1/invoices", tags=["invoices"])
 
 class InvoiceRowRequest(BaseModel):
     """Request model for invoice row."""
+
     description: str
     quantity: int = Field(..., gt=0)
     unit_price: int = Field(..., ge=0, description="Unit price in öre")
@@ -24,6 +26,7 @@ class InvoiceRowRequest(BaseModel):
 
 class CreateInvoiceRequest(BaseModel):
     """Request model for creating an invoice."""
+
     customer_name: str = Field(..., min_length=1)
     invoice_date: date
     due_date: date
@@ -35,6 +38,7 @@ class CreateInvoiceRequest(BaseModel):
 
 class PreviewInvoiceRequest(BaseModel):
     """Request model for previewing invoice totals without saving."""
+
     rows: List[InvoiceRowRequest] = Field(..., min_length=1)
 
 
@@ -69,7 +73,7 @@ async def create_invoice(
 ):
     """
     Create new invoice (Faktura).
-    
+
     Request body should include invoice rows:
     ```json
     {
@@ -86,9 +90,9 @@ async def create_invoice(
     """
     try:
         service = InvoiceService()
-        
+
         rows_data = [r.model_dump() for r in request.rows]
-        
+
         invoice = service.create_invoice(
             customer_name=request.customer_name,
             invoice_date=request.invoice_date,
@@ -97,9 +101,9 @@ async def create_invoice(
             customer_org_number=request.customer_org_number,
             customer_email=request.customer_email,
             description=request.description,
-            created_by=actor
+            created_by=actor,
         )
-        
+
         return {
             "id": invoice.id,
             "invoice_number": invoice.invoice_number,
@@ -111,21 +115,17 @@ async def create_invoice(
             "amount_inc_vat": invoice.amount_inc_vat,
             "status": invoice.status,
             "rows_count": len(invoice.rows),
-            "created_at": invoice.created_at
+            "created_at": invoice.created_at,
         }
-    
+
     except (ValidationError, InvoiceValidationError) as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": str(e),
-                "code": getattr(e, "code", "validation_error")
-            }
+            detail={"error": str(e), "code": getattr(e, "code", "validation_error")},
         )
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
 
 
@@ -151,7 +151,9 @@ async def list_invoices(
 
         total = len(invoices)
         summary = _invoice_summary(invoices)
-        page_invoices = invoices[offset : offset + limit] if limit is not None else invoices
+        page_invoices = (
+            invoices[offset : offset + limit] if limit is not None else invoices
+        )
         page_total = sum(inv.amount_inc_vat for inv in page_invoices)
 
         return {
@@ -164,8 +166,7 @@ async def list_invoices(
         }
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
 
 
@@ -210,13 +211,12 @@ async def get_invoice(invoice_id: str):
     try:
         service = InvoiceService()
         invoice = service.invoices.get(invoice_id)
-        
+
         if not invoice:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Invoice not found"
+                status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found"
             )
-        
+
         return {
             "id": invoice.id,
             "invoice_number": invoice.invoice_number,
@@ -242,21 +242,20 @@ async def get_invoice(invoice_id: str):
                     "revenue_account": r.revenue_account,
                     "amount_ex_vat": r.amount_ex_vat,
                     "vat_amount": r.vat_amount,
-                    "amount_inc_vat": r.amount_inc_vat
+                    "amount_inc_vat": r.amount_inc_vat,
                 }
                 for r in invoice.rows
             ],
             "created_at": invoice.created_at,
             "sent_at": invoice.sent_at,
-            "voucher_id": invoice.voucher_id
+            "voucher_id": invoice.voucher_id,
         }
-    
+
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
 
 
@@ -269,28 +268,28 @@ async def send_invoice(
     try:
         service = InvoiceService()
         invoice = service.send_invoice(invoice_id, actor=actor)
-        
+
         return {
             "id": invoice.id,
             "invoice_number": invoice.invoice_number,
             "status": invoice.status,
-            "sent_at": invoice.sent_at
+            "sent_at": invoice.sent_at,
         }
-    
+
     except (ValidationError, InvoiceValidationError) as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": str(e), "code": getattr(e, "code", "validation_error")}
+            detail={"error": str(e), "code": getattr(e, "code", "validation_error")},
         )
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
 
 
 class BookInvoiceRequest(BaseModel):
     """Request model for booking an invoice."""
+
     period_id: str
 
 
@@ -302,35 +301,33 @@ async def book_invoice(
 ):
     """
     Auto-book invoice to accounting system.
-    
+
     Creates a double-entry voucher:
     - Debit: Customer receivables (1510)
     - Credit: Revenue + VAT
     """
     try:
         service = InvoiceService()
-        voucher_id = service.create_booking_for_invoice(invoice_id, request.period_id, actor=actor)
-        
-        return {
-            "invoice_id": invoice_id,
-            "voucher_id": voucher_id,
-            "status": "booked"
-        }
-    
+        voucher_id = service.create_booking_for_invoice(
+            invoice_id, request.period_id, actor=actor
+        )
+
+        return {"invoice_id": invoice_id, "voucher_id": voucher_id, "status": "booked"}
+
     except (ValidationError, InvoiceValidationError) as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": str(e), "code": getattr(e, "code", "validation_error")}
+            detail={"error": str(e), "code": getattr(e, "code", "validation_error")},
         )
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
 
 
 class RegisterPaymentRequest(BaseModel):
     """Request model for registering a payment."""
+
     amount: int = Field(..., gt=0, description="Payment amount in öre")
     payment_date: date
     payment_method: str
@@ -347,7 +344,7 @@ async def register_payment(
 ):
     """
     Register payment for invoice.
-    
+
     If period_id provided, auto-creates payment voucher.
     """
     try:
@@ -360,11 +357,11 @@ async def register_payment(
             reference=request.reference,
             notes=request.notes,
             period_id=request.period_id,
-            actor=actor
+            actor=actor,
         )
-        
+
         invoice = service.invoices.get(invoice_id)
-        
+
         return {
             "payment_id": payment.id,
             "invoice_id": invoice_id,
@@ -373,23 +370,23 @@ async def register_payment(
             "method": request.payment_method,
             "invoice_status": invoice.status,
             "remaining_amount": invoice.remaining_amount(),
-            "voucher_id": payment.voucher_id
+            "voucher_id": payment.voucher_id,
         }
-    
+
     except (ValidationError, InvoiceValidationError) as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": str(e), "code": getattr(e, "code", "validation_error")}
+            detail={"error": str(e), "code": getattr(e, "code", "validation_error")},
         )
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
 
 
 class CreateCreditNoteRequest(BaseModel):
     """Request model for creating a credit note."""
+
     amount_ex_vat: int = Field(..., gt=0, description="Credit amount ex VAT in öre")
     reason: str = Field(..., min_length=1)
     credit_date: date
@@ -404,7 +401,7 @@ async def create_credit_note(
 ):
     """
     Create credit note (Kreditfaktura).
-    
+
     If period_id provided, auto-creates credit voucher.
     """
     try:
@@ -415,9 +412,9 @@ async def create_credit_note(
             reason=request.reason,
             credit_date=request.credit_date,
             period_id=request.period_id,
-            actor=actor
+            actor=actor,
         )
-        
+
         return {
             "credit_note_id": credit.id,
             "credit_note_number": credit.credit_note_number,
@@ -427,16 +424,15 @@ async def create_credit_note(
             "vat_amount": credit.vat_amount,
             "amount_inc_vat": credit.amount_inc_vat,
             "credit_date": request.credit_date,
-            "voucher_id": credit.voucher_id
+            "voucher_id": credit.voucher_id,
         }
-    
+
     except (ValidationError, InvoiceValidationError) as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": str(e), "code": getattr(e, "code", "validation_error")}
+            detail={"error": str(e), "code": getattr(e, "code", "validation_error")},
         )
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )

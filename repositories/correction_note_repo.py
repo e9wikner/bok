@@ -1,8 +1,8 @@
 """Repository for voucher correction notes."""
 
+import uuid
 from datetime import datetime
 from typing import List, Optional
-import uuid
 
 from db.database import db
 from domain.models import CorrectionNote
@@ -176,6 +176,8 @@ class CorrectionNoteRepository:
                 datetime.fromisoformat(row["updated_at"]) if row["updated_at"] else None
             ),
             resolved_at=(
-                datetime.fromisoformat(row["resolved_at"]) if row["resolved_at"] else None
+                datetime.fromisoformat(row["resolved_at"])
+                if row["resolved_at"]
+                else None
             ),
         )

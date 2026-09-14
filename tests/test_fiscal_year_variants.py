@@ -3,6 +3,7 @@
 from datetime import date
 
 import pytest
+
 from domain.validation import ValidationError
 from repositories.account_repo import AccountRepository
 from repositories.period_repo import PeriodRepository
@@ -245,14 +246,12 @@ def test_sie4_import_reuses_existing_matching_fiscal_year(test_db):
 
 def test_sie4_import_requires_rar_zero_interval(test_db):
     importer = SIE4Importer(api_url="http://test", api_key="test")
-    data = importer.parser.parse_content(
-        """#FLAGGA 0
+    data = importer.parser.parse_content("""#FLAGGA 0
 #FORMAT PC8
 #PROGRAM "Test" 1.0
 #FNAMN "Test AB"
 #KONTO 1930 "Företagskonto"
-"""
-    )
+""")
 
     with pytest.raises(ValidationError) as exc:
         importer.resolve_fiscal_year(data)

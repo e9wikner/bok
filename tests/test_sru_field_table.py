@@ -25,7 +25,6 @@ from domain.sru_fields import (
 from services.ink2_declaration import INK2R_SECTIONS
 from services.sru_export import DEFAULT_SRU_MAPPINGS
 
-
 # The four codes issue #44 found shifted by one row, plus their neighbours.
 SKATTEVERKET_LIABILITY_CODES = {
     "7365": "Leverantörsskulder",

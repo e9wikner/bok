@@ -12,12 +12,12 @@ For development: Supports manual CSV import and mock data
 
 import csv
 import io
-import uuid
 import json
-from datetime import date, datetime
 import re
-from typing import List, Dict, Optional, Tuple
+import uuid
 from dataclasses import dataclass, field
+from datetime import date, datetime
+from typing import Dict, List, Optional, Tuple
 
 from db.database import db
 from domain.validation import ValidationError
@@ -26,6 +26,7 @@ from domain.validation import ValidationError
 @dataclass
 class BankConnection:
     """Represents a connected bank account."""
+
     id: str
     provider: str
     bank_name: str
@@ -41,6 +42,7 @@ class BankConnection:
 @dataclass
 class BankTransaction:
     """A transaction imported from the bank."""
+
     id: str
     bank_connection_id: str
     external_id: Optional[str] = None
@@ -87,35 +89,51 @@ class BankIntegrationService:
         sync_from_date: Optional[date] = None,
     ) -> BankConnection:
         """Register a new bank connection.
-        
+
         In production, this would initiate OAuth flow with Tink/Plaid.
         For now, creates a connection record for manual import.
         """
         conn_id = str(uuid.uuid4())
-        
+
         with db.transaction():
             db.execute(
                 """INSERT INTO bank_connections 
                    (id, provider, bank_name, account_number, iban, currency, status, sync_from_date)
                    VALUES (?, ?, ?, ?, ?, ?, 'active', ?)""",
-                (conn_id, provider, bank_name, account_number, iban, currency,
-                 sync_from_date.isoformat() if sync_from_date else None)
+                (
+                    conn_id,
+                    provider,
+                    bank_name,
+                    account_number,
+                    iban,
+                    currency,
+                    sync_from_date.isoformat() if sync_from_date else None,
+                ),
             )
-        
+
         return BankConnection(
-            id=conn_id, provider=provider, bank_name=bank_name,
-            account_number=account_number, iban=iban, currency=currency,
-            status="active", sync_from_date=sync_from_date
+            id=conn_id,
+            provider=provider,
+            bank_name=bank_name,
+            account_number=account_number,
+            iban=iban,
+            currency=currency,
+            status="active",
+            sync_from_date=sync_from_date,
         )
 
     def get_connections(self) -> List[BankConnection]:
         """List all bank connections."""
-        rows = db.execute("SELECT * FROM bank_connections ORDER BY created_at DESC").fetchall()
+        rows = db.execute(
+            "SELECT * FROM bank_connections ORDER BY created_at DESC"
+        ).fetchall()
         return [self._row_to_connection(r) for r in rows]
 
     def get_connection(self, connection_id: str) -> Optional[BankConnection]:
         """Get a specific bank connection."""
-        row = db.execute("SELECT * FROM bank_connections WHERE id = ?", (connection_id,)).fetchone()
+        row = db.execute(
+            "SELECT * FROM bank_connections WHERE id = ?", (connection_id,)
+        ).fetchone()
         return self._row_to_connection(row) if row else None
 
     def import_transactions(
@@ -125,7 +143,7 @@ class BankIntegrationService:
         return_details: bool = False,
     ) -> Tuple[int, int] | Tuple[int, int, list[str], list[str]]:
         """Import transactions from bank data.
-        
+
         Args:
             connection_id: Bank connection to import for
             transactions: List of transaction dicts with keys:
@@ -136,7 +154,7 @@ class BankIntegrationService:
                 - counterpart_name (optional): Name of counterpart
                 - counterpart_account (optional): Account of counterpart
                 - reference (optional): Payment reference
-        
+
         Returns:
             Tuple of (imported_count, skipped_count)
         """
@@ -144,7 +162,9 @@ class BankIntegrationService:
         if not connection:
             raise ValidationError("connection_not_found", "Bank connection not found")
         if connection.status != "active":
-            raise ValidationError("connection_inactive", f"Connection status: {connection.status}")
+            raise ValidationError(
+                "connection_inactive", f"Connection status: {connection.status}"
+            )
 
         imported = 0
         skipped = 0
@@ -155,13 +175,13 @@ class BankIntegrationService:
             for tx_data in transactions:
                 tx_id = str(uuid.uuid4())
                 external_id = tx_data.get("external_id", tx_id)
-                
+
                 # Check for duplicates
                 existing = db.execute(
                     "SELECT id FROM bank_transactions WHERE bank_connection_id = ? AND external_id = ?",
-                    (connection_id, external_id)
+                    (connection_id, external_id),
                 ).fetchone()
-                
+
                 if existing:
                     skipped += 1
                     skipped_external_ids.append(external_id)
@@ -185,12 +205,21 @@ class BankIntegrationService:
                         amount, currency, description, counterpart_name, counterpart_account,
                         reference, category_code, raw_data, status)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')""",
-                    (tx_id, connection_id, external_id, tx_date,
-                     tx_data.get("booking_date"), amount, connection.currency,
-                     tx_data.get("description"), tx_data.get("counterpart_name"),
-                     tx_data.get("counterpart_account"), tx_data.get("reference"),
-                     tx_data.get("category_code"),
-                     json.dumps(tx_data) if tx_data else None)
+                    (
+                        tx_id,
+                        connection_id,
+                        external_id,
+                        tx_date,
+                        tx_data.get("booking_date"),
+                        amount,
+                        connection.currency,
+                        tx_data.get("description"),
+                        tx_data.get("counterpart_name"),
+                        tx_data.get("counterpart_account"),
+                        tx_data.get("reference"),
+                        tx_data.get("category_code"),
+                        json.dumps(tx_data) if tx_data else None,
+                    ),
                 )
                 imported += 1
                 imported_transaction_ids.append(tx_id)
@@ -198,7 +227,7 @@ class BankIntegrationService:
             # Update last sync timestamp
             db.execute(
                 "UPDATE bank_connections SET last_sync_at = ?, updated_at = ? WHERE id = ?",
-                (datetime.now().isoformat(), datetime.now().isoformat(), connection_id)
+                (datetime.now().isoformat(), datetime.now().isoformat(), connection_id),
             )
 
         if return_details:
@@ -239,7 +268,9 @@ class BankIntegrationService:
 
     def get_transaction(self, tx_id: str) -> Optional[BankTransaction]:
         """Get a single transaction."""
-        row = db.execute("SELECT * FROM bank_transactions WHERE id = ?", (tx_id,)).fetchone()
+        row = db.execute(
+            "SELECT * FROM bank_transactions WHERE id = ?", (tx_id,)
+        ).fetchone()
         return self._row_to_transaction(row) if row else None
 
     def get_pending_count(self) -> int:
@@ -276,7 +307,7 @@ class BankIntegrationService:
         params.append(tx_id)
         db.execute(
             f"UPDATE bank_transactions SET {', '.join(updates)} WHERE id = ?",
-            tuple(params)
+            tuple(params),
         )
         db.commit()
 
@@ -290,7 +321,7 @@ class BankIntegrationService:
         delimiter: str | None = None,
     ) -> CsvImportResult:
         """Import transactions from Swedish bank CSV format.
-        
+
         Supports common Swedish bank CSV exports (SEB, Nordea, Handelsbanken, Swedbank).
         """
         detected = self._detect_csv_format(
@@ -305,12 +336,14 @@ class BankIntegrationService:
             delimiter=detected["delimiter"],
         )
         transactions = []
-        
+
         for row_number, row in enumerate(reader, start=2):
             # Parse amount (Swedish format: "1 234,56" or "-1234.56")
             amount_str = row.get(detected["amount"], "0")
             date_str = row.get(detected["date"], "")
-            if detected.get("skip_incomplete_rows") and (not amount_str.strip() or not date_str.strip()):
+            if detected.get("skip_incomplete_rows") and (
+                not amount_str.strip() or not date_str.strip()
+            ):
                 continue
             amount_str = self._normalize_amount(amount_str)
             try:
@@ -321,7 +354,7 @@ class BankIntegrationService:
                     "Bank CSV row contains an invalid amount",
                     f"row={row_number}, amount={row.get(detected['amount'], '')}",
                 )
-            
+
             # Parse date
             if not date_str:
                 raise ValidationError(
@@ -329,35 +362,49 @@ class BankIntegrationService:
                     "Bank CSV row is missing a transaction date",
                     f"row={row_number}",
                 )
-            booking_date = row.get(detected["booking_date"]) if detected.get("booking_date") else None
+            booking_date = (
+                row.get(detected["booking_date"])
+                if detected.get("booking_date")
+                else None
+            )
             description_parts = [
                 row.get(column, "").strip()
                 for column in detected["description"]
                 if row.get(column, "").strip()
             ]
             description = " - ".join(description_parts)
-            
-            transactions.append({
-                "external_id": f"csv-{date_str}-{amount_str}-{description}",
-                "date": date_str,
-                "booking_date": booking_date,
-                "amount": amount,
-                "description": description,
-                "counterpart_name": row.get(detected["counterpart_name"], "")
-                if detected.get("counterpart_name")
-                else row.get("Mottagare", row.get("Motpart", "")),
-                "counterpart_account": row.get(detected["counterpart_account"], "")
-                if detected.get("counterpart_account")
-                else row.get("Motpartskonto", ""),
-                "reference": row.get(detected["reference"], "")
-                if detected.get("reference")
-                else row.get("Referens", row.get("OCR", "")),
-            })
-        
-        imported, skipped, imported_ids, skipped_external_ids = self.import_transactions(
-            connection_id,
-            transactions,
-            return_details=True,
+
+            transactions.append(
+                {
+                    "external_id": f"csv-{date_str}-{amount_str}-{description}",
+                    "date": date_str,
+                    "booking_date": booking_date,
+                    "amount": amount,
+                    "description": description,
+                    "counterpart_name": (
+                        row.get(detected["counterpart_name"], "")
+                        if detected.get("counterpart_name")
+                        else row.get("Mottagare", row.get("Motpart", ""))
+                    ),
+                    "counterpart_account": (
+                        row.get(detected["counterpart_account"], "")
+                        if detected.get("counterpart_account")
+                        else row.get("Motpartskonto", "")
+                    ),
+                    "reference": (
+                        row.get(detected["reference"], "")
+                        if detected.get("reference")
+                        else row.get("Referens", row.get("OCR", ""))
+                    ),
+                }
+            )
+
+        imported, skipped, imported_ids, skipped_external_ids = (
+            self.import_transactions(
+                connection_id,
+                transactions,
+                return_details=True,
+            )
         )
         return CsvImportResult(
             imported_count=imported,
@@ -391,9 +438,19 @@ class BankIntegrationService:
                     "booking_date": None,
                     "amount": amount_column,
                     "description": [description_column],
-                    "counterpart_name": "Mottagare" if "Mottagare" in headers else "Motpart" if "Motpart" in headers else None,
-                    "counterpart_account": "Motpartskonto" if "Motpartskonto" in headers else None,
-                    "reference": "Referens" if "Referens" in headers else "OCR" if "OCR" in headers else None,
+                    "counterpart_name": (
+                        "Mottagare"
+                        if "Mottagare" in headers
+                        else "Motpart" if "Motpart" in headers else None
+                    ),
+                    "counterpart_account": (
+                        "Motpartskonto" if "Motpartskonto" in headers else None
+                    ),
+                    "reference": (
+                        "Referens"
+                        if "Referens" in headers
+                        else "OCR" if "OCR" in headers else None
+                    ),
                 }
 
         known_formats = [
@@ -404,9 +461,19 @@ class BankIntegrationService:
                 "booking_date": None,
                 "amount": "Belopp",
                 "description": ["Text"],
-                "counterpart_name": "Mottagare" if "Mottagare" in headers else "Motpart" if "Motpart" in headers else None,
-                "counterpart_account": "Motpartskonto" if "Motpartskonto" in headers else None,
-                "reference": "Referens" if "Referens" in headers else "OCR" if "OCR" in headers else None,
+                "counterpart_name": (
+                    "Mottagare"
+                    if "Mottagare" in headers
+                    else "Motpart" if "Motpart" in headers else None
+                ),
+                "counterpart_account": (
+                    "Motpartskonto" if "Motpartskonto" in headers else None
+                ),
+                "reference": (
+                    "Referens"
+                    if "Referens" in headers
+                    else "OCR" if "OCR" in headers else None
+                ),
                 "required": {"Datum", "Belopp", "Text"},
             },
             {
@@ -417,9 +484,20 @@ class BankIntegrationService:
                 "amount": "Belopp",
                 "description": ["Meddelande"],
                 "counterpart_name": "Motpart" if "Motpart" in headers else None,
-                "counterpart_account": "Motpartskonto" if "Motpartskonto" in headers else None,
-                "reference": "Referens" if "Referens" in headers else "OCR" if "OCR" in headers else None,
-                "required": {"Bokföringsdag", "Transaktionsdag", "Belopp", "Meddelande"},
+                "counterpart_account": (
+                    "Motpartskonto" if "Motpartskonto" in headers else None
+                ),
+                "reference": (
+                    "Referens"
+                    if "Referens" in headers
+                    else "OCR" if "OCR" in headers else None
+                ),
+                "required": {
+                    "Bokföringsdag",
+                    "Transaktionsdag",
+                    "Belopp",
+                    "Meddelande",
+                },
             },
             {
                 "format": "skatteverket_skattekonto",
@@ -454,7 +532,9 @@ class BankIntegrationService:
             },
         ]
         for mapping in known_formats:
-            if mapping["delimiter"] == selected_delimiter and mapping["required"].issubset(headers):
+            if mapping["delimiter"] == selected_delimiter and mapping[
+                "required"
+            ].issubset(headers):
                 detected = dict(mapping)
                 detected.pop("required")
                 detected["csv_content"] = csv_content
@@ -479,7 +559,13 @@ class BankIntegrationService:
             {"Datum", "Belopp", "Text"},
             {"Bokföringsdag", "Transaktionsdag", "Belopp", "Meddelande"},
             {"Bokföringsdatum", "Text", "Belopp", "Saldo"},
-            {"Bokföringsdatum", "Transaktionsdatum", "Transaktionstyp", "Meddelande", "Belopp"},
+            {
+                "Bokföringsdatum",
+                "Transaktionsdatum",
+                "Transaktionstyp",
+                "Meddelande",
+                "Belopp",
+            },
         )
         for index, line in enumerate(lines):
             row = next(csv.reader([line], delimiter=delimiter), [])
@@ -518,7 +604,7 @@ class BankIntegrationService:
             LEFT JOIN bank_transactions bt ON bt.bank_connection_id = bc.id
             GROUP BY bc.id
         """).fetchall()
-        
+
         return {
             "connections": [dict(r) for r in rows],
             "total_pending": sum(r["pending"] or 0 for r in rows),
@@ -533,9 +619,21 @@ class BankIntegrationService:
             iban=row["iban"],
             currency=row["currency"],
             status=row["status"],
-            last_sync_at=datetime.fromisoformat(row["last_sync_at"]) if row["last_sync_at"] else None,
-            sync_from_date=date.fromisoformat(row["sync_from_date"]) if row["sync_from_date"] else None,
-            created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else datetime.now(),
+            last_sync_at=(
+                datetime.fromisoformat(row["last_sync_at"])
+                if row["last_sync_at"]
+                else None
+            ),
+            sync_from_date=(
+                date.fromisoformat(row["sync_from_date"])
+                if row["sync_from_date"]
+                else None
+            ),
+            created_at=(
+                datetime.fromisoformat(row["created_at"])
+                if row["created_at"]
+                else datetime.now()
+            ),
         )
 
     def _row_to_transaction(self, row) -> BankTransaction:
@@ -544,7 +642,9 @@ class BankIntegrationService:
             bank_connection_id=row["bank_connection_id"],
             external_id=row["external_id"],
             transaction_date=date.fromisoformat(row["transaction_date"]),
-            booking_date=date.fromisoformat(row["booking_date"]) if row["booking_date"] else None,
+            booking_date=(
+                date.fromisoformat(row["booking_date"]) if row["booking_date"] else None
+            ),
             amount=row["amount"],
             currency=row["currency"],
             description=row["description"],
@@ -557,7 +657,17 @@ class BankIntegrationService:
             matched_voucher_id=row["matched_voucher_id"],
             suggested_account_code=row["suggested_account_code"],
             suggested_confidence=row["suggested_confidence"] or 0.0,
-            categorized_at=datetime.fromisoformat(row["categorized_at"]) if row["categorized_at"] else None,
-            booked_at=datetime.fromisoformat(row["booked_at"]) if row["booked_at"] else None,
-            created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else datetime.now(),
+            categorized_at=(
+                datetime.fromisoformat(row["categorized_at"])
+                if row["categorized_at"]
+                else None
+            ),
+            booked_at=(
+                datetime.fromisoformat(row["booked_at"]) if row["booked_at"] else None
+            ),
+            created_at=(
+                datetime.fromisoformat(row["created_at"])
+                if row["created_at"]
+                else datetime.now()
+            ),
         )

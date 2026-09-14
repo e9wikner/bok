@@ -48,7 +48,12 @@ async def list_employees(
 ):
     service = PayrollService()
     employees = service.employees.list_all(active_only=active_only, search=search)
-    return {"employees": [_employee_to_dict(e, service.settings.get_for_employee(e.id)) for e in employees]}
+    return {
+        "employees": [
+            _employee_to_dict(e, service.settings.get_for_employee(e.id))
+            for e in employees
+        ]
+    }
 
 
 @router.post("/employees", response_model=dict, status_code=status.HTTP_201_CREATED)
@@ -87,7 +92,9 @@ async def update_employee(
             request.active,
             actor=actor,
         )
-        return _employee_to_dict(employee, service.settings.get_for_employee(employee.id))
+        return _employee_to_dict(
+            employee, service.settings.get_for_employee(employee.id)
+        )
     except ValidationError as exc:
         raise _validation_http(exc)
 
@@ -191,7 +198,11 @@ async def delete_payroll_run(
 @router.get("/runs/{payroll_run_id}/payslips", response_model=dict)
 async def list_payslips(payroll_run_id: str):
     service = PayrollService()
-    return {"payslips": [_payslip_to_dict(p) for p in service.payslips.list_for_run(payroll_run_id)]}
+    return {
+        "payslips": [
+            _payslip_to_dict(p) for p in service.payslips.list_for_run(payroll_run_id)
+        ]
+    }
 
 
 @router.get("/payslips/{payslip_id}", response_model=dict)
@@ -199,7 +210,9 @@ async def get_payslip(payslip_id: str):
     service = PayrollService()
     payslip = service.payslips.get(payslip_id)
     if not payslip:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payslip not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Payslip not found"
+        )
     return _payslip_to_dict(payslip)
 
 
@@ -233,7 +246,9 @@ async def book_payslip(
         raise _validation_http(exc)
 
 
-def _employee_to_dict(employee: Employee, setting: Optional[EmployeeSalarySetting]) -> dict:
+def _employee_to_dict(
+    employee: Employee, setting: Optional[EmployeeSalarySetting]
+) -> dict:
     payload = {
         "id": employee.id,
         "name": employee.name,

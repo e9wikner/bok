@@ -1,14 +1,17 @@
 """Pydantic schemas for API requests/responses."""
 
-from pydantic import BaseModel, Field
-from datetime import date as DateType, datetime as DateTimeType
-from typing import Optional, List
+from datetime import date as DateType
+from datetime import datetime as DateTimeType
+from typing import List, Optional
 
+from pydantic import BaseModel, Field
 
 # Voucher Schemas
 
+
 class VoucherRowRequest(BaseModel):
     """Request model for voucher row."""
+
     account: str = Field(..., description="Account code (e.g., '1510')")
     debit: int = Field(0, description="Debit amount in öre (1 kr = 100)")
     credit: int = Field(0, description="Credit amount in öre (1 kr = 100)")
@@ -17,6 +20,7 @@ class VoucherRowRequest(BaseModel):
 
 class VoucherRowResponse(BaseModel):
     """Response model for voucher row."""
+
     id: str
     voucher_id: str
     account: str
@@ -29,8 +33,11 @@ class VoucherRowResponse(BaseModel):
 
 class CreateVoucherRequest(BaseModel):
     """Request to create new voucher."""
+
     series: str = Field("A", description="Voucher series (A=normal, B=correction)")
-    number: Optional[int] = Field(None, description="Voucher number (auto-assigned if omitted)")
+    number: Optional[int] = Field(
+        None, description="Voucher number (auto-assigned if omitted)"
+    )
     date: DateType = Field(..., description="Voucher date")
     period_id: str = Field(..., description="Period ID")
     description: str = Field(..., description="Voucher description")
@@ -40,6 +47,7 @@ class CreateVoucherRequest(BaseModel):
 
 class UpdateVoucherRequest(BaseModel):
     """Request to update voucher rows in-place."""
+
     description: Optional[str] = Field(None, description="Updated description")
     rows: List[VoucherRowRequest] = Field(..., description="Updated accounting rows")
     reason: Optional[str] = Field(None, description="Reason for the change")
@@ -47,42 +55,62 @@ class UpdateVoucherRequest(BaseModel):
 
 class CorrectVoucherRequest(BaseModel):
     """Request to correct a posted voucher with a B-series correction."""
-    corrected_rows: List[VoucherRowRequest] = Field(..., description="Intended corrected accounting rows")
+
+    corrected_rows: List[VoucherRowRequest] = Field(
+        ..., description="Intended corrected accounting rows"
+    )
     reason: Optional[str] = Field(None, description="Reason for the correction")
 
 
 class CreateCorrectionNoteRequest(BaseModel):
     """Request to create a correction note for a posted voucher."""
-    note_text: str = Field(..., description="User explanation of what should be corrected")
+
+    note_text: str = Field(
+        ..., description="User explanation of what should be corrected"
+    )
 
 
 class CorrectionDraftRequest(BaseModel):
     """Request to create a draft B-series correction voucher."""
-    correction_rows: List[VoucherRowRequest] = Field(..., description="Draft correction rows")
+
+    correction_rows: List[VoucherRowRequest] = Field(
+        ..., description="Draft correction rows"
+    )
 
 
 class SuggestCorrectionNoteRequest(BaseModel):
     """Request to link a correction note to a draft B-series suggestion."""
-    correction_rows: List[VoucherRowRequest] = Field(..., description="Suggested correction rows")
+
+    correction_rows: List[VoucherRowRequest] = Field(
+        ..., description="Suggested correction rows"
+    )
 
 
 class ApproveCorrectionNoteRequest(BaseModel):
     """Request to approve a suggested correction note."""
-    rows: Optional[List[VoucherRowRequest]] = Field(None, description="Optional edited draft rows")
+
+    rows: Optional[List[VoucherRowRequest]] = Field(
+        None, description="Optional edited draft rows"
+    )
 
 
 class DismissCorrectionNoteRequest(BaseModel):
     """Request to dismiss a pending or suggested correction note."""
+
     reason: Optional[str] = Field(None, description="Reason for dismissing the note")
 
 
 class RejectCorrectionNoteRequest(BaseModel):
     """Request for an agent to reject a correction note."""
-    rejection_reason: str = Field(..., description="Why no correction could be suggested")
+
+    rejection_reason: str = Field(
+        ..., description="Why no correction could be suggested"
+    )
 
 
 class CorrectionNoteResponse(BaseModel):
     """Response model for a correction note."""
+
     id: str
     voucher_id: str
     note_text: str
@@ -97,6 +125,7 @@ class CorrectionNoteResponse(BaseModel):
 
 class VoucherResponse(BaseModel):
     """Response model for voucher."""
+
     id: str
     series: str
     number: int
@@ -117,11 +146,15 @@ class VoucherResponse(BaseModel):
 
 # Account Schemas
 
+
 class CreateAccountRequest(BaseModel):
     """Request to create a new account."""
+
     code: str = Field(..., description="Account code (e.g., '1930')")
     name: str = Field(..., description="Account name")
-    account_type: str = Field(..., description="Account type (asset, liability, equity, revenue, expense)")
+    account_type: str = Field(
+        ..., description="Account type (asset, liability, equity, revenue, expense)"
+    )
     vat_code: Optional[str] = Field(None, description="VAT code if applicable")
     sru_code: Optional[str] = Field(None, description="SRU code for tax reporting")
     active: bool = Field(True, description="Whether account is active")
@@ -129,6 +162,7 @@ class CreateAccountRequest(BaseModel):
 
 class AccountResponse(BaseModel):
     """Response model for account."""
+
     code: str
     name: str
     account_type: str
@@ -139,14 +173,17 @@ class AccountResponse(BaseModel):
 
 class AccountListResponse(BaseModel):
     """Response with list of accounts."""
+
     accounts: List[AccountResponse]
     total: int
 
 
 # Period Schemas
 
+
 class PeriodResponse(BaseModel):
     """Response model for period."""
+
     id: str
     fiscal_year_id: str
     year: int
@@ -161,6 +198,7 @@ class PeriodResponse(BaseModel):
 
 class FiscalYearResponse(BaseModel):
     """Response model for fiscal year."""
+
     id: str
     start_date: DateType
     end_date: DateType
@@ -171,8 +209,10 @@ class FiscalYearResponse(BaseModel):
 
 # Report Schemas
 
+
 class TrialBalanceRow(BaseModel):
     """Row in trial balance."""
+
     account_code: str
     debit: int
     credit: int
@@ -181,6 +221,7 @@ class TrialBalanceRow(BaseModel):
 
 class TrialBalanceResponse(BaseModel):
     """Trial balance report."""
+
     period_id: str
     period: str
     as_of: DateType
@@ -191,6 +232,7 @@ class TrialBalanceResponse(BaseModel):
 
 class AccountLedgerRow(BaseModel):
     """Row in account ledger."""
+
     date: DateType
     voucher_series: str
     voucher_number: str
@@ -202,6 +244,7 @@ class AccountLedgerRow(BaseModel):
 
 class AccountLedgerResponse(BaseModel):
     """Account ledger report."""
+
     account_code: str
     account_name: str
     period_id: str
@@ -211,8 +254,10 @@ class AccountLedgerResponse(BaseModel):
 
 # Audit Schemas
 
+
 class AuditLogEntryResponse(BaseModel):
     """Audit log entry."""
+
     id: str
     entity_type: str
     entity_id: str
@@ -224,6 +269,7 @@ class AuditLogEntryResponse(BaseModel):
 
 class AuditHistoryResponse(BaseModel):
     """Audit history."""
+
     entity_type: str
     entity_id: str
     entries: List[AuditLogEntryResponse]
@@ -231,8 +277,10 @@ class AuditHistoryResponse(BaseModel):
 
 # Error Schemas
 
+
 class ErrorResponse(BaseModel):
     """Error response."""
+
     error: str
     code: str
     details: Optional[str] = None

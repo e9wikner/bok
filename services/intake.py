@@ -1,9 +1,9 @@
 """Service for voucher source material intake."""
 
-from pathlib import Path
 import hashlib
 import sqlite3
 import uuid
+from pathlib import Path
 
 from config import settings
 from db.database import db
@@ -30,7 +30,9 @@ class DuplicateIntakeSourceError(IntakeError):
         details = f"sha256={sha256}"
         if existing_id:
             details += f", existing_id={existing_id}"
-        super().__init__("duplicate_intake_source", "This source file was already uploaded", details)
+        super().__init__(
+            "duplicate_intake_source", "This source file was already uploaded", details
+        )
         self.sha256 = sha256
         self.existing_id = existing_id
 
@@ -39,7 +41,9 @@ class IntakeNotFoundError(IntakeError):
     """Raised when an intake source is not found."""
 
     def __init__(self, source_id: str):
-        super().__init__("intake_not_found", "Intake source not found", f"source_id={source_id}")
+        super().__init__(
+            "intake_not_found", "Intake source not found", f"source_id={source_id}"
+        )
 
 
 class IntakeValidationError(IntakeError):

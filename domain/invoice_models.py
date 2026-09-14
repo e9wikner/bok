@@ -2,12 +2,13 @@
 
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Optional, List
 from enum import Enum
+from typing import List, Optional
 
 
 class InvoiceStatus(str, Enum):
     """Invoice lifecycle status."""
+
     DRAFT = "draft"
     SENT = "sent"
     PARTIALLY_PAID = "partially_paid"
@@ -19,6 +20,7 @@ class InvoiceStatus(str, Enum):
 @dataclass
 class InvoiceRow:
     """Row in an invoice."""
+
     id: str
     invoice_id: str
     description: str
@@ -35,6 +37,7 @@ class InvoiceRow:
 @dataclass
 class Invoice:
     """Faktura (customer invoice)."""
+
     id: str
     invoice_number: str  # e.g., "2026001"
     customer_name: str
@@ -53,34 +56,42 @@ class Invoice:
     created_at: datetime = field(default_factory=datetime.now)
     created_by: str = "system"
     sent_at: Optional[datetime] = None
-    
+
     def is_draft(self) -> bool:
         """Check if invoice is still draft."""
         return self.status == InvoiceStatus.DRAFT
-    
+
     def is_sent(self) -> bool:
         """Check if invoice has been sent."""
-        return self.status in [InvoiceStatus.SENT, InvoiceStatus.PARTIALLY_PAID, InvoiceStatus.PAID, InvoiceStatus.OVERDUE]
-    
+        return self.status in [
+            InvoiceStatus.SENT,
+            InvoiceStatus.PARTIALLY_PAID,
+            InvoiceStatus.PAID,
+            InvoiceStatus.OVERDUE,
+        ]
+
     def is_paid(self) -> bool:
         """Check if invoice is fully paid."""
         return self.status == InvoiceStatus.PAID
-    
+
     def remaining_amount(self) -> int:
         """Get remaining amount to pay (in öre)."""
         return self.amount_inc_vat - self.paid_amount
-    
+
     def is_overdue(self, as_of_date: Optional[date] = None) -> bool:
         """Check if invoice is overdue."""
         check_date = as_of_date or date.today()
-        return (self.due_date < check_date and 
-                self.status != InvoiceStatus.PAID and 
-                self.status != InvoiceStatus.CANCELLED)
+        return (
+            self.due_date < check_date
+            and self.status != InvoiceStatus.PAID
+            and self.status != InvoiceStatus.CANCELLED
+        )
 
 
 @dataclass
 class Payment:
     """Payment for an invoice."""
+
     id: str
     invoice_id: str
     amount: int  # In öre
@@ -96,6 +107,7 @@ class Payment:
 @dataclass
 class CreditNote:
     """Kreditfaktura (credit note / refund)."""
+
     id: str
     credit_note_number: str
     invoice_id: str  # Reference to original invoice

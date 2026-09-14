@@ -4,14 +4,16 @@ Detta test verifierar att fixen för auto-skapande av perioder fungerar,
 så att verifikat från flera månader importeras korrekt.
 """
 
-import pytest
 from datetime import date
+
+import pytest
+
 from services.sie4_import import SIE4Parser
 
 
 def test_multi_period_voucher_import():
     """Testa import av verifikat över flera perioder utan att perioder finns."""
-    
+
     # SIE4-fil med verifikat från 3 olika månader
     sie4_content = """#FLAGGA 0
 #FORMAT PC8
@@ -47,15 +49,17 @@ def test_multi_period_voucher_import():
 
     parser = SIE4Parser()
     data = parser.parse_content(sie4_content)
-    
+
     # Verifiera att alla 3 verifikat parsades
     assert len(data.vouchers) == 3, f"Expected 3 vouchers, got {len(data.vouchers)}"
-    
+
     # Verifiera att verifikaten har olika datum (olika perioder)
     dates = [v.date for v in data.vouchers]
     assert len(set(dates)) == 3, "Vouchers should have 3 different dates"
-    
-    print(f"✅ Successfully parsed {len(data.vouchers)} vouchers across {len(set(dates))} different months")
+
+    print(
+        f"✅ Successfully parsed {len(data.vouchers)} vouchers across {len(set(dates))} different months"
+    )
 
 
 def test_pc8_import_preserves_swedish_characters(tmp_path):

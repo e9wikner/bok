@@ -1,14 +1,15 @@
 """Tests for SRU export functionality."""
 
-import pytest
 import sqlite3
 from datetime import date
 from decimal import Decimal
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 
 from services.sru_export import (
-    SRUExportService,
     DEFAULT_SRU_MAPPINGS,
+    SRUExportService,
     export_sru_for_fiscal_year,
 )
 
@@ -25,7 +26,7 @@ class TestSRUExportService:
     @pytest.fixture
     def service(self, mock_db):
         """Create SRU export service with mocked DB."""
-        with patch('services.sru_export.get_db', return_value=mock_db):
+        with patch("services.sru_export.get_db", return_value=mock_db):
             service = SRUExportService()
             yield service
 
@@ -38,7 +39,7 @@ class TestSRUExportService:
 
         # Should have many mappings from defaults
         assert len(mappings) > 100  # Default mappings cover many accounts
-        
+
         # Check specific mappings
         assert mappings["1920"] == "7281"  # Bankkonto -> Likvida medel
         assert mappings["3010"] == "7410"  # Försäljning -> Nettoomsättning
@@ -51,7 +52,7 @@ class TestSRUExportService:
         mock_row = Mock()
         mock_row.__getitem__ = lambda self, key: {
             "code": "1920",
-            "sru_field": "9999"  # Custom field
+            "sru_field": "9999",  # Custom field
         }[key]
         mock_db.execute.return_value.fetchall.return_value = [mock_row]
 
@@ -82,12 +83,13 @@ class TestSRUExportService:
         assert len(service.warnings) == 1
         assert "Årsspecifik SRU-mappning" in service.warnings[0]
 
-    def test_calculate_account_balances_carries_forward_opening_for_balance_accounts(self):
+    def test_calculate_account_balances_carries_forward_opening_for_balance_accounts(
+        self,
+    ):
         """Balance accounts use closing balance, while result accounts stay in fiscal year."""
         db = sqlite3.connect(":memory:")
         db.row_factory = sqlite3.Row
-        db.executescript(
-            """
+        db.executescript("""
             CREATE TABLE fiscal_years (id TEXT PRIMARY KEY, start_date DATE, end_date DATE);
             CREATE TABLE accounts (code TEXT PRIMARY KEY, name TEXT, account_type TEXT);
             CREATE TABLE vouchers (
@@ -114,8 +116,7 @@ class TestSRUExportService:
             INSERT INTO voucher_rows VALUES ('paid', '1500', 0, 4800000);
             INSERT INTO voucher_rows VALUES ('prior', '3010', 0, 10000000);
             INSERT INTO voucher_rows VALUES ('sent', '3010', 0, 9200000);
-            """
-        )
+            """)
 
         with patch("services.sru_export.get_db", return_value=db):
             balances = SRUExportService().calculate_account_balances("fy-2026")
@@ -153,17 +154,23 @@ class TestSRUExportService:
                 "7513": SRUFieldValue("7513", "Kostnader", 50000, ["5000", "6000"]),
                 "7650": SRUFieldValue("7650", "Årets resultat", 25000, ["7450"]),
                 "7321": SRUFieldValue("7321", "Periodiseringsfonder", 0, ["2121"]),
-            }
+            },
         )
 
         content = service.generate_blanketter_sru(declaration)
-        ink2r_part = content.split("#BLANKETT INK2R-2025P4", 1)[1].split("#BLANKETTSLUT", 1)[0]
-        ink2s_part = content.split("#BLANKETT INK2S-2025P4", 1)[1].split("#BLANKETTSLUT", 1)[0]
+        ink2r_part = content.split("#BLANKETT INK2R-2025P4", 1)[1].split(
+            "#BLANKETTSLUT", 1
+        )[0]
+        ink2s_part = content.split("#BLANKETT INK2S-2025P4", 1)[1].split(
+            "#BLANKETTSLUT", 1
+        )[0]
 
         assert "#BLANKETT INK2-2025P4" not in content
         assert "#BLANKETT INK2R-2025P4" in content
         assert "#BLANKETT INK2S-2025P4" in content
-        assert content.index("#BLANKETT INK2R-2025P4") < content.index("#BLANKETT INK2S-2025P4")
+        assert content.index("#BLANKETT INK2R-2025P4") < content.index(
+            "#BLANKETT INK2S-2025P4"
+        )
         assert "#IDENTITET 5568194731" in content
         assert "#UPPGIFT 7011 20250101" in content  # Fiscal year start
         assert "#UPPGIFT 7012 20251231" in content  # Fiscal year end
@@ -186,7 +193,7 @@ class TestSRUExportService:
             "start_date": "2025-01-01",
             "end_date": "2025-12-31",
         }[key]
-        
+
         # Mock company
         mock_company = Mock()
         mock_company.__getitem__ = lambda self, key: {
@@ -197,7 +204,12 @@ class TestSRUExportService:
         mock_ib_count = Mock()
         mock_ib_count.__getitem__ = lambda self, key: {"count": 0}[key]
 
-        mock_db.execute.return_value.fetchone.side_effect = [mock_fy, mock_company, mock_fy, mock_ib_count]
+        mock_db.execute.return_value.fetchone.side_effect = [
+            mock_fy,
+            mock_company,
+            mock_fy,
+            mock_ib_count,
+        ]
         mock_db.execute.return_value.fetchall.return_value = []
 
         zip_bytes, filename, errors, warnings = service.export_sru_zip("fy-123")
@@ -230,7 +242,9 @@ class TestSRUExportService:
         # All keys should be strings
         for field, accounts in DEFAULT_SRU_MAPPINGS.items():
             assert isinstance(field, str)
-            assert all(len(part) == 4 for part in field.split("/"))  # 4-digit field codes, optionally as alternatives
+            assert all(
+                len(part) == 4 for part in field.split("/")
+            )  # 4-digit field codes, optionally as alternatives
             assert isinstance(accounts, list)
             assert all(isinstance(a, int) for a in accounts)
 
@@ -289,12 +303,63 @@ class TestSRUExportService:
         from services.sru_export import SRUFieldValue
 
         fields = {
-            "7450": SRUFieldValue("7450", "Årets resultat", 561232, ["8999"], [{"account": "8999", "name": "Årets resultat", "value": 561232}]),
-            "7528": SRUFieldValue("7528", "Skatt på årets resultat", 114975, ["8910"], [{"account": "8910", "name": "Skatt på årets resultat", "value": 114975}]),
-            "7522": SRUFieldValue("7522", "Andra ej avdragsgilla kostnader", 270, ["8423"], [{"account": "8423", "name": "Räntekostnader", "value": 270}]),
-            "7416": SRUFieldValue("7416", "Skattefria intäkter", 120000, ["8226"], [{"account": "8226", "name": "Resultat värdepapper", "value": 120000}]),
-            "7417": SRUFieldValue("7417", "Skattefria intäkter", 2069, ["8310", "8314"], [{"account": "8310", "name": "Ränteintäkter", "value": 2000}, {"account": "8314", "name": "Skattefri ränta", "value": 69}]),
-            "7420": SRUFieldValue("7420", "Periodiseringsfond", 190000, ["8819"], [{"account": "8819", "name": "Återföring periodiseringsfond", "value": 190000}]),
+            "7450": SRUFieldValue(
+                "7450",
+                "Årets resultat",
+                561232,
+                ["8999"],
+                [{"account": "8999", "name": "Årets resultat", "value": 561232}],
+            ),
+            "7528": SRUFieldValue(
+                "7528",
+                "Skatt på årets resultat",
+                114975,
+                ["8910"],
+                [
+                    {
+                        "account": "8910",
+                        "name": "Skatt på årets resultat",
+                        "value": 114975,
+                    }
+                ],
+            ),
+            "7522": SRUFieldValue(
+                "7522",
+                "Andra ej avdragsgilla kostnader",
+                270,
+                ["8423"],
+                [{"account": "8423", "name": "Räntekostnader", "value": 270}],
+            ),
+            "7416": SRUFieldValue(
+                "7416",
+                "Skattefria intäkter",
+                120000,
+                ["8226"],
+                [{"account": "8226", "name": "Resultat värdepapper", "value": 120000}],
+            ),
+            "7417": SRUFieldValue(
+                "7417",
+                "Skattefria intäkter",
+                2069,
+                ["8310", "8314"],
+                [
+                    {"account": "8310", "name": "Ränteintäkter", "value": 2000},
+                    {"account": "8314", "name": "Skattefri ränta", "value": 69},
+                ],
+            ),
+            "7420": SRUFieldValue(
+                "7420",
+                "Periodiseringsfond",
+                190000,
+                ["8819"],
+                [
+                    {
+                        "account": "8819",
+                        "name": "Återföring periodiseringsfond",
+                        "value": 190000,
+                    }
+                ],
+            ),
         }
 
         service._calculate_ink2s_fields(fields)
@@ -305,14 +370,22 @@ class TestSRUExportService:
         assert fields["7754"].value == 122069
         assert fields["7654"].value == 3724
         assert fields["7670"].value == 558132
-        assert fields["7651"].source_account_values == [{"account": "8910", "name": "Skatt på årets resultat", "value": 114975}]
+        assert fields["7651"].source_account_values == [
+            {"account": "8910", "name": "Skatt på årets resultat", "value": 114975}
+        ]
         assert fields["7754"].source_account_values == [
             {"account": "8226", "name": "Resultat värdepapper", "value": 120000},
             {"account": "8310", "name": "Ränteintäkter", "value": 2000},
             {"account": "8314", "name": "Skattefri ränta", "value": 69},
         ]
-        assert fields["7654"].source_account_values == [{"account": "8819", "name": "Återföring periodiseringsfond", "value": 3724}]
-        assert {"account": "8226", "name": "Resultat värdepapper", "value": -120000} in fields["7670"].source_account_values
+        assert fields["7654"].source_account_values == [
+            {"account": "8819", "name": "Återföring periodiseringsfond", "value": 3724}
+        ]
+        assert {
+            "account": "8226",
+            "name": "Resultat värdepapper",
+            "value": -120000,
+        } in fields["7670"].source_account_values
 
 
 class TestSIE4ParserSRU:
@@ -323,11 +396,11 @@ class TestSIE4ParserSRU:
         from services.sie4_import import SIE4Parser
 
         parser = SIE4Parser()
-        
+
         # Standard format
-        result = parser._parse_sru_mapping('1920 7281')
+        result = parser._parse_sru_mapping("1920 7281")
         assert result == {"account": "1920", "field": "7281"}
-        
+
         # Quoted format
         result = parser._parse_sru_mapping('"1920" "7281"')
         assert result == {"account": "1920", "field": "7281"}
@@ -428,20 +501,24 @@ class TestSRUValidation:
 
     def test_balanced_sheet_is_silent(self):
         """Assets equal equity and liabilities once the result is closed."""
-        service = self._service_with({
-            "7251": 1_000_000,    # kundfordringar (debit)
-            "7302": -1_000_000,   # fritt eget kapital (credit)
-        })
+        service = self._service_with(
+            {
+                "7251": 1_000_000,  # kundfordringar (debit)
+                "7302": -1_000_000,  # fritt eget kapital (credit)
+            }
+        )
 
         assert service.warnings == []
 
     def test_open_result_is_not_reported_as_imbalance(self):
         """Before the result is closed to 2099 the two sides differ by it."""
-        service = self._service_with({
-            "7251": 1_000_000,    # assets
-            "7301": -500_000,     # bundet eget kapital
-            "7410": -500_000,     # nettoomsättning: a 5 000 kr profit
-        })
+        service = self._service_with(
+            {
+                "7251": 1_000_000,  # assets
+                "7301": -500_000,  # bundet eget kapital
+                "7410": -500_000,  # nettoomsättning: a 5 000 kr profit
+            }
+        )
 
         assert service.warnings == []
 
@@ -449,8 +526,8 @@ class TestSRUValidation:
         """The result may sit on 8999 after the P&L is closed but before 2099."""
         service = self._service_with(
             {
-                "7251": 1_000_000,   # assets
-                "7301": -500_000,    # equity
+                "7251": 1_000_000,  # assets
+                "7301": -500_000,  # equity
             },
             derived_result_ore=-500_000,  # 8999 credit = 5 000 kr profit
         )
@@ -459,31 +536,37 @@ class TestSRUValidation:
 
     def test_real_imbalance_generates_warning(self):
         """An account mapped to a field on neither side breaks the identity."""
-        service = self._service_with({
-            "7251": 1_000_000,    # assets
-            "7302": -1_000_025,   # equity absorbs the contra entry...
-            "7650": 25,           # ...of 25 öre parked on an INK2S-only field
-        })
+        service = self._service_with(
+            {
+                "7251": 1_000_000,  # assets
+                "7302": -1_000_025,  # equity absorbs the contra entry...
+                "7650": 25,  # ...of 25 öre parked on an INK2S-only field
+            }
+        )
 
         assert any("BALANSRÄKNINGEN STÄMMER INTE" in w for w in service.warnings)
 
     def test_sub_krona_balances_do_not_warn(self):
         """Öre that per-box rounding would drop must not trip the check."""
-        service = self._service_with({
-            "7251": 10_050,       # 100.50 kr
-            "7281": 20_070,       # 200.70 kr
-            "7302": -30_120,      # -301.20 kr, balances to the öre
-        })
+        service = self._service_with(
+            {
+                "7251": 10_050,  # 100.50 kr
+                "7281": 20_070,  # 200.70 kr
+                "7302": -30_120,  # -301.20 kr, balances to the öre
+            }
+        )
 
         assert service.warnings == []
 
     def test_check_is_exact_to_the_ore(self):
         """A 250-öre hole is reported even though every box rounds to the krona."""
-        service = self._service_with({
-            "7251": 1_000_000,
-            "7302": -1_000_250,
-            "7650": 250,
-        })
+        service = self._service_with(
+            {
+                "7251": 1_000_000,
+                "7302": -1_000_250,
+                "7650": 250,
+            }
+        )
 
         assert service.warnings
         assert "-2.50 SEK" in service.warnings[0]

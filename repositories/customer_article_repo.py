@@ -1,8 +1,8 @@
 """Repositories for customers and articles."""
 
+import uuid
 from datetime import datetime
 from typing import List, Optional
-import uuid
 
 from db.database import db
 from domain.invoice_draft_models import Article, Customer
@@ -53,7 +53,9 @@ class CustomerRepository:
 
     @staticmethod
     def get(customer_id: str) -> Optional[Customer]:
-        row = db.execute("SELECT * FROM customers WHERE id = ?", (customer_id,)).fetchone()
+        row = db.execute(
+            "SELECT * FROM customers WHERE id = ?", (customer_id,)
+        ).fetchone()
         return CustomerRepository._row_to_customer(row) if row else None
 
     @staticmethod
@@ -64,7 +66,9 @@ class CustomerRepository:
         return CustomerRepository._row_to_customer(row) if row else None
 
     @staticmethod
-    def list_all(active_only: bool = True, search: Optional[str] = None) -> List[Customer]:
+    def list_all(
+        active_only: bool = True, search: Optional[str] = None
+    ) -> List[Customer]:
         clauses = []
         params = []
         if active_only:
@@ -74,7 +78,9 @@ class CustomerRepository:
             like = f"%{search}%"
             params.extend([like, like])
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
-        rows = db.execute(f"SELECT * FROM customers{where} ORDER BY name", tuple(params)).fetchall()
+        rows = db.execute(
+            f"SELECT * FROM customers{where} ORDER BY name", tuple(params)
+        ).fetchall()
         return [CustomerRepository._row_to_customer(row) for row in rows]
 
     @staticmethod
@@ -143,7 +149,9 @@ class ArticleRepository:
 
     @staticmethod
     def get(article_id: str) -> Optional[Article]:
-        row = db.execute("SELECT * FROM articles WHERE id = ?", (article_id,)).fetchone()
+        row = db.execute(
+            "SELECT * FROM articles WHERE id = ?", (article_id,)
+        ).fetchone()
         return ArticleRepository._row_to_article(row) if row else None
 
     @staticmethod
@@ -154,13 +162,17 @@ class ArticleRepository:
         return ArticleRepository._row_to_article(row) if row else None
 
     @staticmethod
-    def list_all(active_only: bool = True, search: Optional[str] = None) -> List[Article]:
+    def list_all(
+        active_only: bool = True, search: Optional[str] = None
+    ) -> List[Article]:
         clauses = []
         params = []
         if active_only:
             clauses.append("active = 1")
         if search:
-            clauses.append("(article_number LIKE ? OR name LIKE ? OR description LIKE ?)")
+            clauses.append(
+                "(article_number LIKE ? OR name LIKE ? OR description LIKE ?)"
+            )
             like = f"%{search}%"
             params.extend([like, like, like])
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""

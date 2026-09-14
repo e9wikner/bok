@@ -5,11 +5,12 @@ Each thread gets its own connection, which is required for SQLite
 with FastAPI/uvicorn (which may use multiple threads).
 """
 
-import sqlite3
 import os
+import sqlite3
 import threading
-from pathlib import Path
 from contextlib import contextmanager
+from pathlib import Path
+
 from config import settings
 
 
@@ -30,12 +31,14 @@ class Database:
 
     def _get_connection(self) -> sqlite3.Connection:
         """Get thread-local database connection."""
-        conn = getattr(self._local, 'connection', None)
+        conn = getattr(self._local, "connection", None)
         if conn is None:
             conn = sqlite3.connect(self.db_path)
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA foreign_keys = ON")
-            conn.execute("PRAGMA journal_mode = WAL")  # Better concurrent read performance
+            conn.execute(
+                "PRAGMA journal_mode = WAL"
+            )  # Better concurrent read performance
             self._local.connection = conn
         return conn
 
@@ -45,7 +48,7 @@ class Database:
 
     def disconnect(self) -> None:
         """Disconnect current thread's connection."""
-        conn = getattr(self._local, 'connection', None)
+        conn = getattr(self._local, "connection", None)
         if conn is not None:
             conn.close()
             self._local.connection = None
@@ -60,13 +63,13 @@ class Database:
 
     def commit(self) -> None:
         """Commit current thread's transaction."""
-        conn = getattr(self._local, 'connection', None)
+        conn = getattr(self._local, "connection", None)
         if conn is not None:
             conn.commit()
 
     def rollback(self) -> None:
         """Rollback current thread's transaction."""
-        conn = getattr(self._local, 'connection', None)
+        conn = getattr(self._local, "connection", None)
         if conn is not None:
             conn.rollback()
 
@@ -124,7 +127,7 @@ class Database:
                 # Record migration version (migration file may have already inserted it)
                 conn.execute(
                     "INSERT OR IGNORE INTO schema_version (version) VALUES (?)",
-                    (version,)
+                    (version,),
                 )
                 conn.commit()
 
@@ -137,10 +140,10 @@ db = Database()
 
 def get_db():
     """Get database connection for dependency injection.
-    
+
     Usage:
         from db.database import get_db
-        
+
         @router.get("/items")
         def list_items(db = Depends(get_db)):
             cursor = db.execute("SELECT * FROM items")

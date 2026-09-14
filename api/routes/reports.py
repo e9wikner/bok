@@ -1,12 +1,14 @@
 """Reports endpoints (income statement, balance sheet, trial balance)"""
 
-from fastapi import APIRouter, Query
+from datetime import date as date_type
+from datetime import datetime
 from typing import Optional
-from datetime import datetime, date as date_type
 
-from repositories.voucher_repo import VoucherRepository
+from fastapi import APIRouter, Query
+
 from repositories.account_repo import AccountRepository
 from repositories.period_repo import PeriodRepository
+from repositories.voucher_repo import VoucherRepository
 
 router = APIRouter(prefix="/api/v1/reports", tags=["reports"])
 
@@ -41,7 +43,9 @@ def _ören_to_kr(amount: int) -> float:
     return round(amount / 100, 2)
 
 
-def _period_label(year: Optional[int], month: Optional[int], fiscal_year_id: Optional[str]) -> str:
+def _period_label(
+    year: Optional[int], month: Optional[int], fiscal_year_id: Optional[str]
+) -> str:
     if fiscal_year_id:
         fy = PeriodRepository.get_fiscal_year(fiscal_year_id)
         if fy:
@@ -105,53 +109,55 @@ async def get_income_statement(
     month: Optional[int] = Query(None),
 ):
     """Get income statement (resultaträkning) for a specific period.
-    
+
     Revenue (intäkter) = credit - debit on accounts 3000-3999
     Costs (kostnader) = debit - credit on accounts 4000-7999
     Profit = revenue - costs
-    
+
     All amounts returned in ören (divide by 100 for kronor).
     """
-    vouchers = _filter_posted_vouchers(fiscal_year_id=fiscal_year_id, year=year, month=month)
-    
-    revenue = 0      # Intäkter (3000-3999) - normally credited
-    costs = 0        # Kostnader (4000-7999) - normally debited
-    financial = 0    # Finansiella poster (8000-8999)
-    
+    vouchers = _filter_posted_vouchers(
+        fiscal_year_id=fiscal_year_id, year=year, month=month
+    )
+
+    revenue = 0  # Intäkter (3000-3999) - normally credited
+    costs = 0  # Kostnader (4000-7999) - normally debited
+    financial = 0  # Finansiella poster (8000-8999)
+
     revenue_details = {}  # Per-account breakdown
     cost_details = {}
     financial_details = {}
-    
+
     for voucher in vouchers:
         for row in voucher.rows:
             account = int(row.account_code) if row.account_code.isdigit() else 0
             debit = row.debit or 0
             credit = row.credit or 0
-            
+
             if 3000 <= account <= 3999:
                 # Revenue: credit increases, debit decreases
                 amount = credit - debit
                 revenue += amount
                 key = row.account_code
                 revenue_details[key] = revenue_details.get(key, 0) + amount
-                
+
             elif 4000 <= account <= 7999:
                 # Costs: debit increases, credit decreases
                 amount = debit - credit
                 costs += amount
                 key = row.account_code
                 cost_details[key] = cost_details.get(key, 0) + amount
-                
+
             elif 8000 <= account <= 8999:
                 # Financial items
                 amount = debit - credit  # expenses positive, income negative
                 financial += amount
                 key = row.account_code
                 financial_details[key] = financial_details.get(key, 0) + amount
-    
+
     # Look up account names
     all_accounts = AccountRepository.get_all_as_dict()
-    
+
     def _format_details(details):
         return [
             {
@@ -162,10 +168,10 @@ async def get_income_statement(
             for code, amount in sorted(details.items())
             if amount != 0
         ]
-    
+
     operating_profit = revenue - costs
     profit_before_tax = operating_profit - financial
-    
+
     return {
         "revenue": revenue,
         "costs": costs,
@@ -205,7 +211,9 @@ async def get_balance_sheet(
     """
     vouchers, _ = VoucherRepository.list_all(status="posted")
     target_year = year
-    fiscal_year = PeriodRepository.get_fiscal_year(fiscal_year_id) if fiscal_year_id else None
+    fiscal_year = (
+        PeriodRepository.get_fiscal_year(fiscal_year_id) if fiscal_year_id else None
+    )
     if as_of_date and not year:
         target_year = date_type.fromisoformat(as_of_date).year
 
@@ -423,43 +431,47 @@ async def get_general_ledger(
     month: Optional[int] = Query(None),
 ):
     """Get general ledger (huvudbok) for a specific account.
-    
+
     Returns all transactions for the account with running balance.
     """
-    vouchers = _filter_posted_vouchers(fiscal_year_id=fiscal_year_id, year=year, month=month)
-    
+    vouchers = _filter_posted_vouchers(
+        fiscal_year_id=fiscal_year_id, year=year, month=month
+    )
+
     # Sort by date
     vouchers.sort(key=lambda v: _parse_voucher_date(v))
-    
+
     # Look up account info
     all_accounts = AccountRepository.get_all_as_dict()
     account = all_accounts.get(account_code)
     account_name = account.name if account else account_code
-    
+
     # Collect transactions for this account
     transactions = []
     running_balance = 0
-    
+
     for voucher in vouchers:
         for row in voucher.rows:
             if row.account_code == account_code:
                 debit = row.debit or 0
                 credit = row.credit or 0
-                running_balance += (debit - credit)
-                
-                transactions.append({
-                    "date": _parse_voucher_date(voucher).isoformat(),
-                    "voucher_id": voucher.id,
-                    "voucher_number": f"{voucher.series.value}{voucher.number}",
-                    "description": row.description or voucher.description,
-                    "debit": debit,
-                    "credit": credit,
-                    "balance": running_balance,
-                })
-    
+                running_balance += debit - credit
+
+                transactions.append(
+                    {
+                        "date": _parse_voucher_date(voucher).isoformat(),
+                        "voucher_id": voucher.id,
+                        "voucher_number": f"{voucher.series.value}{voucher.number}",
+                        "description": row.description or voucher.description,
+                        "debit": debit,
+                        "credit": credit,
+                        "balance": running_balance,
+                    }
+                )
+
     total_debit = sum(t["debit"] for t in transactions)
     total_credit = sum(t["credit"] for t in transactions)
-    
+
     return {
         "account_code": account_code,
         "account_name": account_name,

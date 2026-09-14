@@ -4,9 +4,10 @@ Exporterar bokföringsdata till SIE4-format som kan importeras
 i andra bokföringsprogram (Fortnox, Visma, etc.).
 """
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
-from typing import Optional
 
 from api.deps import get_current_actor
 from services.sie4_export import SIE4Exporter
@@ -16,9 +17,7 @@ router = APIRouter(prefix="/api/v1/export", tags=["export"])
 
 @router.get("/sie4", status_code=status.HTTP_200_OK)
 async def export_sie4(
-    fiscal_year_id: str = Query(
-        ..., description="ID för räkenskapsåret att exportera"
-    ),
+    fiscal_year_id: str = Query(..., description="ID för räkenskapsåret att exportera"),
     company_name: Optional[str] = Query(
         None, description="Företagsnamn (valfritt, hämtas annars från systemet)"
     ),
@@ -31,7 +30,8 @@ async def export_sie4(
         pattern="^(PC8|ASCII)$",
     ),
     download: bool = Query(
-        True, description="True = returnera som filnedladdning, False = returnera som JSON"
+        True,
+        description="True = returnera som filnedladdning, False = returnera som JSON",
     ),
     actor: str = Depends(get_current_actor),
 ):
@@ -68,11 +68,10 @@ async def export_sie4(
         if download:
             # Generera filnamn
             from repositories.period_repo import PeriodRepository
+
             fy = PeriodRepository.get_fiscal_year(fiscal_year_id)
             if fy:
-                filename = exporter.get_filename(
-                    company_name or "Export", fy
-                )
+                filename = exporter.get_filename(company_name or "Export", fy)
             else:
                 filename = "export.si"
 
@@ -113,9 +112,7 @@ async def export_sie4(
 
 @router.post("/sie4", status_code=status.HTTP_200_OK)
 async def export_sie4_post(
-    fiscal_year_id: str = Query(
-        ..., description="ID för räkenskapsåret att exportera"
-    ),
+    fiscal_year_id: str = Query(..., description="ID för räkenskapsåret att exportera"),
     company_name: Optional[str] = Query(None),
     org_number: Optional[str] = Query(None),
     format: str = Query("PC8", pattern="^(PC8|ASCII)$"),
@@ -137,11 +134,10 @@ async def export_sie4_post(
         )
 
         from repositories.period_repo import PeriodRepository
+
         fy = PeriodRepository.get_fiscal_year(fiscal_year_id)
         filename = (
-            exporter.get_filename(company_name or "Export", fy)
-            if fy
-            else "export.si"
+            exporter.get_filename(company_name or "Export", fy) if fy else "export.si"
         )
 
         return Response(

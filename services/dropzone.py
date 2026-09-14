@@ -22,10 +22,6 @@ exactly as they do for a browser upload. It never deletes anything: every file
 either stays put or is moved.
 """
 
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from fnmatch import fnmatch
-from pathlib import Path
 import fcntl
 import logging
 import mimetypes
@@ -35,6 +31,10 @@ import shutil
 import threading
 import time
 import unicodedata
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from fnmatch import fnmatch
+from pathlib import Path
 
 from config import settings
 from domain.types import IntakeSourceType
@@ -576,8 +576,8 @@ class DropzoneScanner:
     # --- disposal ------------------------------------------------------
 
     def _archive(self, path: Path) -> Path:
-        destination = (
-            self._reserved_dir(INGESTED_DIR_NAME) / datetime.now().strftime("%Y-%m")
+        destination = self._reserved_dir(INGESTED_DIR_NAME) / datetime.now().strftime(
+            "%Y-%m"
         )
         return self._move_with_sidecar(path, destination)
 
@@ -664,7 +664,11 @@ class DropzoneScanner:
             if folder_key(statement_root.name) not in STATEMENT_FOLDERS:
                 continue
             for folder in sorted(statement_root.iterdir()):
-                if not folder.is_dir() or folder.is_symlink() or _is_ignored(folder.name):
+                if (
+                    not folder.is_dir()
+                    or folder.is_symlink()
+                    or _is_ignored(folder.name)
+                ):
                     continue
                 if not _is_usable_statement_folder(folder.name):
                     unknown.append(f"{statement_root.name}/{folder.name}")
@@ -677,7 +681,9 @@ class DropzoneScanner:
             "enabled": settings.dropzone_enabled,
             "dropzone_dir": str(self.root),
             "scan_interval_seconds": settings.dropzone_scan_interval_seconds,
-            "last_scan_at": state.last_scan_at.isoformat() if state.last_scan_at else None,
+            "last_scan_at": (
+                state.last_scan_at.isoformat() if state.last_scan_at else None
+            ),
             "last_scan_duration_ms": state.last_scan_duration_ms,
             "pending_file_count": len(self.pending_files()),
             "ingested_total": _count_files(self._reserved_dir(INGESTED_DIR_NAME)),
@@ -867,7 +873,11 @@ def _find_sidecar(folder: Path, name: str) -> Path | None:
     except OSError:
         return None
     for entry in entries:
-        if entry.is_file() and not entry.is_symlink() and folder_key(entry.name) == wanted:
+        if (
+            entry.is_file()
+            and not entry.is_symlink()
+            and folder_key(entry.name) == wanted
+        ):
             return entry
     return None
 

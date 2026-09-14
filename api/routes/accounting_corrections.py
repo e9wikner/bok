@@ -6,7 +6,9 @@ from api.deps import get_current_actor
 from repositories.accounting_correction_repo import AccountingCorrectionRepository
 from repositories.voucher_repo import VoucherRepository
 
-router = APIRouter(prefix="/api/v1/accounting-corrections", tags=["accounting-corrections"])
+router = APIRouter(
+    prefix="/api/v1/accounting-corrections", tags=["accounting-corrections"]
+)
 
 
 @router.get("", response_model=dict)
@@ -39,12 +41,16 @@ async def list_accounting_corrections(
                     "created_at": history.created_at,
                     "original_data": history.original_data,
                     "corrected_data": history.corrected_data,
-                    "original_voucher": _voucher_to_response(original).model_dump()
-                    if original
-                    else None,
-                    "correction_voucher": _voucher_to_response(corrected).model_dump()
-                    if corrected
-                    else None,
+                    "original_voucher": (
+                        _voucher_to_response(original).model_dump()
+                        if original
+                        else None
+                    ),
+                    "correction_voucher": (
+                        _voucher_to_response(corrected).model_dump()
+                        if corrected
+                        else None
+                    ),
                 }
             )
         return {"total": len(corrections), "corrections": corrections}

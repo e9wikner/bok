@@ -1,6 +1,7 @@
 """Application configuration."""
 
 import os
+
 from pydantic_settings import BaseSettings
 
 
@@ -57,9 +58,7 @@ class Settings(BaseSettings):
         if self.cors_origins.strip() == "*":
             return ["*"]
         return [
-            origin.strip()
-            for origin in self.cors_origins.split(",")
-            if origin.strip()
+            origin.strip() for origin in self.cors_origins.split(",") if origin.strip()
         ]
 
     model_config = {

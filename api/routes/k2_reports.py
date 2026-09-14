@@ -3,8 +3,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from api.deps import get_current_actor
-from services.k2_report import K2ReportService
 from repositories.period_repo import PeriodRepository
+from services.k2_report import K2ReportService
 
 router = APIRouter(prefix="/api/v1/reports", tags=["reports-k2"])
 
@@ -21,12 +21,12 @@ async def generate_k2_report(
 ):
     """
     Generate K2 annual report for fiscal year.
-    
+
     Creates complete financial statements:
     - Income Statement (Resultaträkning)
     - Balance Sheet (Balansräkning)
     - Cash Flow Statement
-    
+
     All figures calculated automatically from posted vouchers.
     """
     try:
@@ -35,10 +35,9 @@ async def generate_k2_report(
         fy = period_repo.get_fiscal_year(fiscal_year_id)
         if not fy:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Fiscal year not found"
+                status_code=status.HTTP_404_NOT_FOUND, detail="Fiscal year not found"
             )
-        
+
         # Generate report
         service = K2ReportService()
         report = service.generate_report(
@@ -49,7 +48,7 @@ async def generate_k2_report(
             average_employees=average_employees,
             significant_events=significant_events,
         )
-        
+
         return {
             "id": report["id"],
             "fiscal_year_id": fiscal_year_id,
@@ -60,13 +59,12 @@ async def generate_k2_report(
             "balance_sheet": report["balance_sheet"],
             "cash_flow": report["cash_flow"],
         }
-    
+
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
 
 
@@ -78,7 +76,7 @@ async def get_k2_report(report_id: str):
     return {
         "id": report_id,
         "status": "draft",
-        "message": "Report details would be retrieved from database"
+        "message": "Report details would be retrieved from database",
     }
 
 
@@ -92,7 +90,7 @@ async def finalize_k2_report(
         "id": report_id,
         "status": "finalized",
         "finalized_at": "2026-03-21T10:00:00",
-        "message": "Report finalized and ready for review"
+        "message": "Report finalized and ready for review",
     }
 
 
@@ -103,7 +101,7 @@ async def export_k2_json(report_id: str):
         "version": "1.0",
         "report_id": report_id,
         "format": "K2-JSON",
-        "message": "JSON export ready for submission"
+        "message": "JSON export ready for submission",
     }
 
 
@@ -111,13 +109,13 @@ async def export_k2_json(report_id: str):
 async def get_grundbok(period_id: str):
     """
     Get Grundbok (basic accounting journal) - transactions in registration order.
-    
+
     Required by BFL §5 kap 1.
     """
     return {
         "period_id": period_id,
         "report_type": "grundbok",
-        "description": "All transactions in chronological order"
+        "description": "All transactions in chronological order",
     }
 
 
@@ -125,14 +123,14 @@ async def get_grundbok(period_id: str):
 async def get_huvudbok(account_code: str, period_id: str):
     """
     Get Huvudbok (general ledger) - transactions in systematic order.
-    
+
     Required by BFL §5 kap 1.
     """
     return {
         "account_code": account_code,
         "period_id": period_id,
         "report_type": "huvudbok",
-        "description": "All transactions for account in systematic order"
+        "description": "All transactions for account in systematic order",
     }
 
 
@@ -140,7 +138,7 @@ async def get_huvudbok(account_code: str, period_id: str):
 async def get_verifikation_summary(period_id: str):
     """
     Get summary of all verifikationer (vouchers) in period.
-    
+
     Includes count, total amounts, VAT breakdown.
     """
     return {
@@ -153,5 +151,5 @@ async def get_verifikation_summary(period_id: str):
             "mp2_12": 0,
             "mp3_6": 0,
             "mf_0": 0,
-        }
+        },
     }

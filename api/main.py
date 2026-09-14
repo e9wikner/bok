@@ -9,40 +9,40 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from config import settings
-from services import dropzone
 
 # Import routers
 from api.routes import (
-    vouchers,
+    accounting_corrections,
     accounts,
-    periods,
-    reports,
-    invoices,
-    customers,
-    articles,
-    invoice_drafts,
-    k2_reports,
     agent,
     agent_instructions,
-    import_sie4,
-    import_csv,
-    export_sie4,
-    export_pdf,
-    export_sru,
-    compliance,
-    vat,
-    accounting_corrections,
-    intake,
-    bank_inputs,
+    articles,
     attachments,
-    auth,
     audit,
-    sru_mappings,
+    auth,
+    bank_inputs,
     company_info,
-    tax_ink2,
+    compliance,
+    customers,
+    export_pdf,
+    export_sie4,
+    export_sru,
+    import_csv,
+    import_sie4,
+    intake,
+    invoice_drafts,
+    invoices,
+    k2_reports,
     payroll,
+    periods,
+    reports,
+    sru_mappings,
+    tax_ink2,
+    vat,
+    vouchers,
 )
+from config import settings
+from services import dropzone
 
 
 @asynccontextmanager

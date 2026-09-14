@@ -14,6 +14,7 @@ router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 # Request / Response schemas
 # ------------------------------------------------------------------
 
+
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -37,6 +38,7 @@ class MeResponse(BaseModel):
 # Dependency: extract JWT from Authorization header
 # ------------------------------------------------------------------
 
+
 def get_bearer_token(authorization: Optional[str] = Header(None)) -> str:
     """Extract token from 'Authorization: Bearer <token>' header."""
     if not authorization:
@@ -58,6 +60,7 @@ def get_bearer_token(authorization: Optional[str] = Header(None)) -> str:
 # ------------------------------------------------------------------
 # Endpoints
 # ------------------------------------------------------------------
+
 
 @router.post("/login", response_model=LoginResponse)
 async def login(body: LoginRequest):

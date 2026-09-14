@@ -5,6 +5,7 @@ from datetime import date
 from typing import Dict, List, Optional
 
 from domain.payroll_models import Employee, EmployeeSalarySetting, PayrollRun, Payslip
+from domain.types import AuditAction
 from domain.validation import ValidationError
 from repositories.account_repo import AccountRepository
 from repositories.audit_repo import AuditRepository
@@ -17,8 +18,6 @@ from repositories.payroll_repo import (
 from repositories.period_repo import PeriodRepository
 from services.bank_integration import BankIntegrationService
 from services.ledger import LedgerService
-from domain.types import AuditAction
-
 
 PAYROLL_ACCOUNTS = {
     "1930": ("Företagskonto", "asset"),
@@ -51,7 +50,9 @@ class PayrollService:
     ) -> Employee:
         if not name.strip():
             raise ValidationError("invalid_employee", "Employee name is required")
-        employee = self.employees.create(name.strip(), personal_number, email, bank_account)
+        employee = self.employees.create(
+            name.strip(), personal_number, email, bank_account
+        )
         self.audit.log(
             "employee",
             employee.id,
@@ -100,17 +101,25 @@ class PayrollService:
         if not employee:
             raise ValidationError("employee_not_found", "Employee not found")
         if gross_monthly_salary < 0 or preliminary_tax < 0:
-            raise ValidationError("invalid_salary", "Salary and tax must be non-negative")
+            raise ValidationError(
+                "invalid_salary", "Salary and tax must be non-negative"
+            )
         if preliminary_tax > gross_monthly_salary:
-            raise ValidationError("invalid_salary", "Preliminary tax cannot exceed gross salary")
+            raise ValidationError(
+                "invalid_salary", "Preliminary tax cannot exceed gross salary"
+            )
         if payment_day < 1 or payment_day > 31:
             raise ValidationError("invalid_payment_day", "Payment day must be 1-31")
         if employer_fee_rate_bp is None and employer_fee_amount is None:
             employer_fee_amount = 0
         if employer_fee_rate_bp is not None and employer_fee_rate_bp < 0:
-            raise ValidationError("invalid_employer_fee", "Employer fee rate must be non-negative")
+            raise ValidationError(
+                "invalid_employer_fee", "Employer fee rate must be non-negative"
+            )
         if employer_fee_amount is not None and employer_fee_amount < 0:
-            raise ValidationError("invalid_employer_fee", "Employer fee amount must be non-negative")
+            raise ValidationError(
+                "invalid_employer_fee", "Employer fee amount must be non-negative"
+            )
 
         setting = self.settings.upsert(
             employee_id,
@@ -187,13 +196,17 @@ class PayrollService:
             raise ValidationError("payroll_run_not_found", "Payroll run not found")
         return self._validate_run(run, include_existing_payslips=True)
 
-    def generate_payslips(self, payroll_run_id: str, actor: str = "system") -> List[Payslip]:
+    def generate_payslips(
+        self, payroll_run_id: str, actor: str = "system"
+    ) -> List[Payslip]:
         run = self.runs.get(payroll_run_id)
         if not run:
             raise ValidationError("payroll_run_not_found", "Payroll run not found")
         existing = self.payslips.list_for_run(payroll_run_id)
         if existing:
-            raise ValidationError("payslips_already_generated", "Payslips already generated")
+            raise ValidationError(
+                "payslips_already_generated", "Payslips already generated"
+            )
 
         validation = self._validate_run(run, include_existing_payslips=False)
         if not validation["valid"]:
@@ -274,11 +287,18 @@ class PayrollService:
 
         tx = self.bank.get_transaction(bank_transaction_id)
         if not tx:
-            raise ValidationError("bank_transaction_not_found", "Bank transaction not found")
+            raise ValidationError(
+                "bank_transaction_not_found", "Bank transaction not found"
+            )
         if tx.status == "booked" or tx.matched_voucher_id:
-            raise ValidationError("bank_transaction_already_booked", "Bank transaction is already booked")
+            raise ValidationError(
+                "bank_transaction_already_booked", "Bank transaction is already booked"
+            )
         if tx.amount >= 0:
-            raise ValidationError("invalid_bank_transaction", "Payroll payment must be a negative bank transaction")
+            raise ValidationError(
+                "invalid_bank_transaction",
+                "Payroll payment must be a negative bank transaction",
+            )
         if abs(tx.amount) != payslip.net_salary:
             raise ValidationError(
                 "payroll_amount_mismatch",
@@ -367,7 +387,9 @@ class PayrollService:
         ]
 
     def _voucher_description(self, payslip: Payslip) -> str:
-        employee_name = payslip.employee.name if payslip.employee else payslip.employee_id
+        employee_name = (
+            payslip.employee.name if payslip.employee else payslip.employee_id
+        )
         return f"Lön {employee_name} {payslip.period_year}-{payslip.period_month:02d}"
 
     def _find_period_for_date(self, target_date: date):
@@ -439,7 +461,9 @@ class PayrollService:
                         "message": f"{employee_name} har 0 kr i arbetsgivaravgift.",
                     }
                 )
-            prepared.append({"setting": setting, "employee": employee, "employer_fee": employer_fee})
+            prepared.append(
+                {"setting": setting, "employee": employee, "employer_fee": employer_fee}
+            )
 
         return {
             "valid": not errors,

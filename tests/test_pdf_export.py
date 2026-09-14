@@ -1,8 +1,9 @@
 """Tests for PDF export functionality."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import patch, MagicMock
 
 from api.main import app
 
@@ -23,7 +24,9 @@ def test_pdf_export_invoice_endpoint_exists(client):
 
 def test_pdf_export_income_statement_endpoint_exists(client):
     """Test that income statement PDF export endpoint exists."""
-    with patch("services.pdf_export.PDFExportService.export_income_statement") as mock_export:
+    with patch(
+        "services.pdf_export.PDFExportService.export_income_statement"
+    ) as mock_export:
         mock_export.return_value = b"fake pdf content"
         response = client.get("/api/v1/export/pdf/income-statement/test-period")
         assert response.status_code in [200, 404]
@@ -31,7 +34,9 @@ def test_pdf_export_income_statement_endpoint_exists(client):
 
 def test_pdf_export_balance_sheet_endpoint_exists(client):
     """Test that balance sheet PDF export endpoint exists."""
-    with patch("services.pdf_export.PDFExportService.export_balance_sheet") as mock_export:
+    with patch(
+        "services.pdf_export.PDFExportService.export_balance_sheet"
+    ) as mock_export:
         mock_export.return_value = b"fake pdf content"
         response = client.get("/api/v1/export/pdf/balance-sheet/test-period")
         assert response.status_code in [200, 404]
@@ -39,9 +44,13 @@ def test_pdf_export_balance_sheet_endpoint_exists(client):
 
 def test_pdf_export_general_ledger_endpoint_exists(client):
     """Test that general ledger PDF export endpoint exists."""
-    with patch("services.pdf_export.PDFExportService.export_general_ledger") as mock_export:
+    with patch(
+        "services.pdf_export.PDFExportService.export_general_ledger"
+    ) as mock_export:
         mock_export.return_value = b"fake pdf content"
-        response = client.get("/api/v1/export/pdf/general-ledger/1930?period_id=test-period")
+        response = client.get(
+            "/api/v1/export/pdf/general-ledger/1930?period_id=test-period"
+        )
         assert response.status_code in [200, 404]
 
 

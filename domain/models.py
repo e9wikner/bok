@@ -2,21 +2,23 @@
 
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Optional, List
+from typing import List, Optional
+
 from domain.types import (
-    VoucherStatus,
-    VoucherSeries,
     AccountType,
     AuditAction,
     BankInputStatus,
-    IntakeStatus,
     IntakeSourceType,
+    IntakeStatus,
+    VoucherSeries,
+    VoucherStatus,
 )
 
 
 @dataclass
 class FiscalYear:
     """Räkenskapsår (accounting year)."""
+
     id: str
     start_date: date
     end_date: date
@@ -32,6 +34,7 @@ class FiscalYear:
 @dataclass
 class Period:
     """Redovisningsperiod (accounting period - typically monthly)."""
+
     id: str
     fiscal_year_id: str
     year: int
@@ -51,6 +54,7 @@ class Period:
 @dataclass
 class Account:
     """Konto (chart of accounts - BAS 2026)."""
+
     code: str  # e.g., "1510"
     name: str
     account_type: AccountType
@@ -61,16 +65,26 @@ class Account:
 
     def is_debit_account(self) -> bool:
         """Check if account normally has debit balance (assets, expenses)."""
-        return self.account_type in [AccountType.ASSET, AccountType.EXPENSE, AccountType.VAT_IN]
+        return self.account_type in [
+            AccountType.ASSET,
+            AccountType.EXPENSE,
+            AccountType.VAT_IN,
+        ]
 
     def is_credit_account(self) -> bool:
         """Check if account normally has credit balance (liabilities, equity, revenue)."""
-        return self.account_type in [AccountType.LIABILITY, AccountType.EQUITY, AccountType.REVENUE, AccountType.VAT_OUT]
+        return self.account_type in [
+            AccountType.LIABILITY,
+            AccountType.EQUITY,
+            AccountType.REVENUE,
+            AccountType.VAT_OUT,
+        ]
 
 
 @dataclass
 class VoucherRow:
     """Konteringsrad (accounting row in a voucher)."""
+
     id: str
     voucher_id: str
     account_code: str
@@ -95,6 +109,7 @@ class VoucherRow:
 @dataclass
 class Voucher:
     """Verifikation (accounting voucher - BFL §5 kap 6)."""
+
     id: str
     series: VoucherSeries  # A or B (B for corrections)
     number: int
@@ -104,7 +119,9 @@ class Voucher:
     status: VoucherStatus = VoucherStatus.DRAFT
     fiscal_year_id: Optional[str] = None
     rows: List[VoucherRow] = field(default_factory=list)
-    correction_of: Optional[str] = None  # Reference to original voucher if this is a correction
+    correction_of: Optional[str] = (
+        None  # Reference to original voucher if this is a correction
+    )
     created_at: datetime = field(default_factory=datetime.now)
     created_by: str = "system"
     posted_at: Optional[datetime] = None
@@ -139,6 +156,7 @@ class Voucher:
 @dataclass
 class AuditLogEntry:
     """Behandlingshistorik (audit log entry)."""
+
     id: str
     entity_type: str  # voucher, period, account, etc
     entity_id: str
@@ -151,6 +169,7 @@ class AuditLogEntry:
 @dataclass
 class VoucherAttachment:
     """Verifikationsbilag (voucher attachment)."""
+
     id: str
     voucher_id: str
     filename: str
@@ -164,6 +183,7 @@ class VoucherAttachment:
 @dataclass
 class IntakeSource:
     """Uploaded voucher source material before a voucher exists."""
+
     id: str
     source_type: Optional[IntakeSourceType]
     status: IntakeStatus
@@ -183,6 +203,7 @@ class IntakeSource:
 @dataclass
 class IntakeProcessingAttempt:
     """Agent processing attempt for an intake source."""
+
     id: str
     intake_source_id: str
     status: IntakeStatus
@@ -197,6 +218,7 @@ class IntakeProcessingAttempt:
 @dataclass
 class VoucherIntakeSource:
     """Traceability link between a posted voucher and intake source material."""
+
     id: str
     voucher_id: str
     intake_source_id: str
@@ -208,6 +230,7 @@ class VoucherIntakeSource:
 @dataclass
 class BankInput:
     """Uploaded bank CSV source material before agent voucher posting."""
+
     id: str
     bank_connection_id: str
     status: BankInputStatus
@@ -228,6 +251,7 @@ class BankInput:
 @dataclass
 class BankInputTransactionLink:
     """Traceability link between a bank input and imported bank transaction."""
+
     id: str
     bank_input_id: str
     bank_transaction_id: str
@@ -237,6 +261,7 @@ class BankInputTransactionLink:
 @dataclass
 class VoucherBankInput:
     """Traceability link between a posted voucher and uploaded bank input."""
+
     id: str
     voucher_id: str
     bank_input_id: str
@@ -247,6 +272,7 @@ class VoucherBankInput:
 @dataclass
 class VoucherBankTransaction:
     """Traceability link between a posted voucher and used bank transaction."""
+
     id: str
     voucher_id: str
     bank_transaction_id: str
@@ -257,12 +283,15 @@ class VoucherBankTransaction:
 @dataclass
 class CorrectionHistory:
     """Historik över bokföringskorrigeringar."""
+
     id: str
     original_voucher_id: str
     corrected_voucher_id: Optional[str] = None
     original_data: Optional[dict] = None
     corrected_data: Optional[dict] = None
-    change_type: Optional[str] = None  # 'account', 'amount', 'description', 'vat_code', 'multiple'
+    change_type: Optional[str] = (
+        None  # 'account', 'amount', 'description', 'vat_code', 'multiple'
+    )
     was_successful: Optional[bool] = None
     corrected_by: Optional[str] = None
     correction_reason: Optional[str] = None
@@ -272,6 +301,7 @@ class CorrectionHistory:
 @dataclass
 class CorrectionNote:
     """User correction note driving an agent-suggested B-series draft."""
+
     id: str
     voucher_id: str
     note_text: str
@@ -291,6 +321,7 @@ class IdempotencyKey:
     Not accounting material: these rows protect vouchers, they are not vouchers.
     The audit trail is `audit_log`, never this table.
     """
+
     key: str
     endpoint: str
     request_fingerprint: str

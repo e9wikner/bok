@@ -7,6 +7,7 @@ from fastapi import status as http_status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
+from api.deps import get_current_actor, get_idempotency_key, get_ledger_service
 from api.schemas import (
     ApproveCorrectionNoteRequest,
     CorrectionDraftRequest,
@@ -21,22 +22,23 @@ from api.schemas import (
     VoucherResponse,
     VoucherRowResponse,
 )
-from api.deps import get_current_actor, get_idempotency_key, get_ledger_service
 from db.database import db
 from domain.validation import ValidationError
-from services.idempotency import IdempotencyOutcome, IdempotencyService
-from services.ledger import LedgerService
+from repositories.account_repo import AccountRepository
 from repositories.accounting_correction_repo import AccountingCorrectionRepository
 from repositories.audit_repo import AuditRepository
-from repositories.account_repo import AccountRepository
 from repositories.bank_input_repo import BankInputRepository
 from repositories.intake_repo import IntakeRepository
 from services.correction_notes import CorrectionNoteError, CorrectionNoteService
+from services.idempotency import IdempotencyOutcome, IdempotencyService
+from services.ledger import LedgerService
 
 router = APIRouter(prefix="/api/v1/vouchers", tags=["vouchers"])
 
 
-@router.get("/{voucher_id}/correction-notes", response_model=list[CorrectionNoteResponse])
+@router.get(
+    "/{voucher_id}/correction-notes", response_model=list[CorrectionNoteResponse]
+)
 async def list_correction_notes(
     voucher_id: str,
     actor: str = Depends(get_current_actor),
@@ -208,7 +210,10 @@ async def dismiss_correction_note(
         )
 
 
-@router.post("/{voucher_id}/correction-notes/{note_id}/reject", response_model=CorrectionNoteResponse)
+@router.post(
+    "/{voucher_id}/correction-notes/{note_id}/reject",
+    response_model=CorrectionNoteResponse,
+)
 async def reject_correction_note(
     voucher_id: str,
     note_id: str,
@@ -345,7 +350,9 @@ async def get_voucher_source_context(
         bank_input = bank_repo.get_bank_input(link.bank_input_id)
         if not bank_input:
             continue
-        transaction_ids_for_input = set(bank_repo.list_transaction_ids_for_input(bank_input.id))
+        transaction_ids_for_input = set(
+            bank_repo.list_transaction_ids_for_input(bank_input.id)
+        )
         transaction_ids = [
             tx_link.bank_transaction_id
             for tx_link in voucher_transaction_links
@@ -888,9 +895,11 @@ def _voucher_to_response(voucher) -> VoucherResponse:
                 voucher_id=row.voucher_id,
                 account=row.account_code,
                 account_code=row.account_code,
-                account_name=account_names[row.account_code].name
-                if row.account_code in account_names
-                else None,
+                account_name=(
+                    account_names[row.account_code].name
+                    if row.account_code in account_names
+                    else None
+                ),
                 debit=row.debit,
                 credit=row.credit,
                 description=row.description,

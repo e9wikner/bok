@@ -1,11 +1,13 @@
 """API routes for agent integration (Fas 4)."""
 
+from datetime import date as DateType
+from datetime import datetime, timezone
+from typing import Literal, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from typing import Literal, Optional
-from datetime import date as DateType, datetime, timezone
 
 from api.deps import get_current_actor, get_idempotency_key
 from api.schemas import VoucherRowRequest
@@ -13,10 +15,10 @@ from config import settings
 from db.database import db
 from domain.validation import ValidationError
 from repositories.correction_note_repo import CorrectionNoteRepository
-from services.idempotency import IdempotencyOutcome, IdempotencyService
-from services.ledger import LedgerService
-from services.intake import IntakeError, IntakeService
 from services.bank_inputs import BankInputError, BankInputService
+from services.idempotency import IdempotencyOutcome, IdempotencyService
+from services.intake import IntakeError, IntakeService
+from services.ledger import LedgerService
 
 AGENT_VOUCHER_ENDPOINT = "POST /api/v1/agent/vouchers"
 
@@ -53,12 +55,12 @@ async def seed_demo_data(
     """Seed demo/test data (idempotent - safe to call multiple times)."""
     try:
         from scripts.seed_test_data import seed_test_company
+
         seed_test_company()
         return {"status": "ok", "message": "Demo data seeded successfully"}
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
 
 
@@ -189,9 +191,11 @@ def _create_and_post_voucher(
                 "posted_directly": True,
                 "reasoning_summary": request.reasoning_summary,
                 "intake_source_ids": intake_source_ids,
-                "processing_attempt_id": processing_attempt_ids[0]
-                if len(processing_attempt_ids) == 1
-                else None,
+                "processing_attempt_id": (
+                    processing_attempt_ids[0]
+                    if len(processing_attempt_ids) == 1
+                    else None
+                ),
                 "processing_attempt_ids": processing_attempt_ids,
                 "bank_input_ids": bank_input_ids,
                 "bank_transaction_ids": bank_transaction_ids,
@@ -232,7 +236,9 @@ def _create_and_post_voucher(
     except BankInputError as exc:
         raise _bank_input_http_error(exc) from exc
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
+        )
 
 
 @router.get("/intake/pending", response_model=dict)
@@ -292,7 +298,9 @@ async def list_pending_intake_sources(
         key=_agent_queue_timestamp,
     )
     return {
-        "total": queue["total"] + bank_queue["total"] + correction_note_repo.count_pending(),
+        "total": queue["total"]
+        + bank_queue["total"]
+        + correction_note_repo.count_pending(),
         "limit": limit,
         "offset": offset,
         "correction_history_url": "/api/v1/accounting-corrections",
@@ -360,7 +368,11 @@ def _attempt_to_response(attempt) -> dict:
 def _intake_http_error(exc: IntakeError) -> HTTPException:
     if exc.code in {"intake_not_found", "voucher_not_found"}:
         status_code = status.HTTP_404_NOT_FOUND
-    elif exc.code in {"intake_not_processable", "intake_already_linked", "voucher_not_posted"}:
+    elif exc.code in {
+        "intake_not_processable",
+        "intake_already_linked",
+        "voucher_not_posted",
+    }:
         status_code = status.HTTP_409_CONFLICT
     else:
         status_code = status.HTTP_400_BAD_REQUEST
@@ -371,7 +383,11 @@ def _intake_http_error(exc: IntakeError) -> HTTPException:
 
 
 def _bank_input_http_error(exc: BankInputError) -> HTTPException:
-    if exc.code in {"bank_input_not_found", "bank_connection_not_found", "bank_transaction_not_found"}:
+    if exc.code in {
+        "bank_input_not_found",
+        "bank_connection_not_found",
+        "bank_transaction_not_found",
+    }:
         status_code = status.HTTP_404_NOT_FOUND
     elif exc.code in {
         "bank_input_not_processed",
@@ -428,7 +444,7 @@ async def get_agent_operations_log(
         "operations": [],
         "total": 0,
         "limit": limit,
-        "message": "Agent operation log (for audit trail)"
+        "message": "Agent operation log (for audit trail)",
     }
 
 
@@ -438,7 +454,7 @@ async def test_agent_connectivity(
 ):
     """
     Test agent connectivity.
-    
+
     Simple ping endpoint to verify API key and connection.
     """
     return {

@@ -155,8 +155,12 @@ def test_book_payslip_rejects_wrong_bank_transaction(ledger_service):
         ],
     )
     txs = bank.get_transactions(connection_id=connection.id)
-    wrong_amount = next(tx for tx in txs if tx.external_id == "wrong-salary-anna-2026-03")
-    positive = next(tx for tx in txs if tx.external_id == "positive-salary-anna-2026-03")
+    wrong_amount = next(
+        tx for tx in txs if tx.external_id == "wrong-salary-anna-2026-03"
+    )
+    positive = next(
+        tx for tx in txs if tx.external_id == "positive-salary-anna-2026-03"
+    )
 
     with pytest.raises(ValidationError, match="payroll_amount_mismatch"):
         payroll.match_bank_transaction_and_book(payslip.id, wrong_amount.id)
@@ -167,7 +171,9 @@ def test_book_payslip_rejects_wrong_bank_transaction(ledger_service):
 
 def test_payslip_html_contains_salary_amounts(ledger_service):
     _, payslip = _setup_payslip(ledger_service)
-    html = PDFExportService(company=CompanyInfo(name="Test AB")).export_payslip_html(payslip.id)
+    html = PDFExportService(company=CompanyInfo(name="Test AB")).export_payslip_html(
+        payslip.id
+    )
 
     assert "Lönespecifikation" in html
     assert "Anna Andersson" in html

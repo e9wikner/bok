@@ -12,7 +12,6 @@ import pytest_asyncio
 from api.main import app
 from config import settings
 
-
 ENTRYPOINT_PATH = "/api/v1/agent-instructions/entrypoint"
 DRIFT_DOC_PATH = Path("docs/to_agent/01_drift_och_atkomst.md")
 PROCESS_DOC_PATH = Path("docs/to_agent/02_bokforingsprocess.md")
@@ -75,7 +74,9 @@ async def test_agent_entrypoint_is_public_without_auth(async_client):
 
 
 @pytest.mark.asyncio
-async def test_agent_entrypoint_contains_expected_links_and_workflow_paths(async_client):
+async def test_agent_entrypoint_contains_expected_links_and_workflow_paths(
+    async_client,
+):
     data = await _entrypoint(async_client)
     serialized = json.dumps(data)
 
@@ -84,7 +85,9 @@ async def test_agent_entrypoint_contains_expected_links_and_workflow_paths(async
 
     assert data["links"]["openapi"] == "/openapi.json"
     assert data["workflow_endpoints"]["ping"]["path"] == "/api/v1/agent/test/ping"
-    assert data["workflow_endpoints"]["post_voucher"]["path"] == "/api/v1/agent/vouchers"
+    assert (
+        data["workflow_endpoints"]["post_voucher"]["path"] == "/api/v1/agent/vouchers"
+    )
 
 
 @pytest.mark.asyncio
@@ -215,7 +218,9 @@ def test_agent_process_doc_requires_an_idempotency_key_on_posting():
 
 
 @pytest.mark.asyncio
-async def test_agent_entrypoint_excludes_sensitive_or_company_state_fields(async_client):
+async def test_agent_entrypoint_excludes_sensitive_or_company_state_fields(
+    async_client,
+):
     serialized = json.dumps(await _entrypoint(async_client))
 
     for forbidden in [

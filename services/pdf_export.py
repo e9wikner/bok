@@ -4,12 +4,12 @@ Uses WeasyPrint + Jinja2 for HTML→PDF rendering with Swedish templates.
 Falls back gracefully if WeasyPrint is not available (requires system libraries).
 """
 
+import base64
 import io
 import os
-import base64
-from datetime import datetime
-from typing import Optional, Dict, Any
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Dict, Optional
 
 import qrcode
 from jinja2 import Environment, FileSystemLoader
@@ -17,23 +17,25 @@ from jinja2 import Environment, FileSystemLoader
 # WeasyPrint is optional - requires system libraries (pango, etc.)
 try:
     from weasyprint import HTML
+
     WEASYPRINT_AVAILABLE = True
 except (ImportError, OSError):
     WEASYPRINT_AVAILABLE = False
     HTML = None  # type: ignore
 
-from services.ledger import LedgerService
+from repositories.period_repo import PeriodRepository
 from services.invoice import InvoiceService
 from services.k2_report import K2ReportService
+from services.ledger import LedgerService
 from services.payroll import PayrollService
-from repositories.period_repo import PeriodRepository
-
 
 # --- Company info dataclass ---
+
 
 @dataclass
 class CompanyInfo:
     """Company information for document headers/footers."""
+
     name: str = "Mitt Företag AB"
     org_number: str = ""
     vat_number: str = ""
@@ -90,23 +92,24 @@ def vat_label(code: str) -> str:
 
 # --- QR code generation ---
 
+
 def generate_swish_qr(
     payee: str,
     amount_ore: int,
     message: str = "",
 ) -> str:
     """Generate Swish-compatible QR code as base64 PNG.
-    
+
     Uses the Swish C2B format.
     """
     amount_kr = amount_ore / 100
     # Swish QR payload format
     payload = f"C{payee};{amount_kr:.2f};{message}"
-    
+
     qr = qrcode.QRCode(version=1, box_size=6, border=2)
     qr.add_data(payload)
     qr.make(fit=True)
-    
+
     img = qr.make_image(fill_color="black", back_color="white")
     buf = io.BytesIO()
     img.save(buf, format="PNG")
@@ -116,17 +119,17 @@ def generate_swish_qr(
 
 # --- PDF Engine ---
 
+
 class PDFEngine:
     """Jinja2 + WeasyPrint PDF rendering engine.
-    
+
     Falls back to HTML output if WeasyPrint is not available.
     """
-    
+
     def __init__(self, template_dir: Optional[str] = None):
         if template_dir is None:
             template_dir = os.path.join(
-                os.path.dirname(os.path.dirname(__file__)),
-                "templates", "pdf"
+                os.path.dirname(os.path.dirname(__file__)), "templates", "pdf"
             )
         self.env = Environment(
             loader=FileSystemLoader(template_dir),
@@ -135,7 +138,7 @@ class PDFEngine:
         # Register custom filters
         self.env.filters["format_sek"] = format_sek
         self.env.filters["vat_label"] = vat_label
-    
+
     def render_pdf(self, template_name: str, context: Dict[str, Any]) -> bytes:
         """Render a template to PDF bytes."""
         if not WEASYPRINT_AVAILABLE:
@@ -148,7 +151,7 @@ class PDFEngine:
         html_str = template.render(**context)
         pdf_bytes = HTML(string=html_str).write_pdf()
         return pdf_bytes
-    
+
     def render_html(self, template_name: str, context: Dict[str, Any]) -> str:
         """Render a template to HTML string (for debugging)."""
         template = self.env.get_template(template_name)
@@ -157,9 +160,10 @@ class PDFEngine:
 
 # --- PDF Export Service ---
 
+
 class PDFExportService:
     """High-level PDF export for invoices and reports."""
-    
+
     def __init__(self, company: Optional[CompanyInfo] = None):
         self.engine = PDFEngine()
         self.company = company or CompanyInfo()
@@ -167,21 +171,21 @@ class PDFExportService:
         self.invoice_service = InvoiceService()
         self.payroll_service = PayrollService()
         self.period_repo = PeriodRepository()
-    
+
     # ---- Invoice PDF ----
-    
+
     def export_invoice(self, invoice_id: str) -> bytes:
         """Generate PDF for a single invoice."""
         invoice = self.invoice_service.invoices.get(invoice_id)
         if not invoice:
             raise ValueError(f"Faktura {invoice_id} hittades inte")
-        
+
         # Calculate VAT summary by code
         vat_summary: Dict[str, int] = {}
         for row in invoice.rows:
             code = row.vat_code
             vat_summary[code] = vat_summary.get(code, 0) + row.vat_amount
-        
+
         # Generate QR code for Swish payment if available
         qr_code_data = None
         if self.company.swish:
@@ -190,7 +194,7 @@ class PDFExportService:
                 amount_ore=invoice.amount_inc_vat,
                 message=invoice.invoice_number,
             )
-        
+
         context = {
             "company": self.company,
             "invoice": invoice,
@@ -210,36 +214,38 @@ class PDFExportService:
         context = self.payroll_service.get_payslip_context(payslip_id)
         context["company"] = self.company
         return self.engine.render_html("payslip.html", context)
-    
+
     # ---- Trial Balance PDF ----
-    
+
     def export_trial_balance(self, period_id: str) -> bytes:
         """Generate trial balance (råbalans) PDF."""
         period = self.period_repo.get_period(period_id)
         if not period:
             raise ValueError(f"Period {period_id} hittades inte")
-        
+
         balances = self.ledger.get_trial_balance(period_id)
         all_accounts = self.ledger.accounts.get_all_as_dict()
-        
+
         rows = []
         total_debit = 0
         total_credit = 0
-        
+
         for code in sorted(balances.keys()):
             bal = balances[code]
             account = all_accounts.get(code)
             account_name = account.name if account else code
-            rows.append({
-                "account_code": code,
-                "account_name": account_name,
-                "debit": bal["debit"],
-                "credit": bal["credit"],
-                "balance": bal["debit"] - bal["credit"],
-            })
+            rows.append(
+                {
+                    "account_code": code,
+                    "account_name": account_name,
+                    "debit": bal["debit"],
+                    "credit": bal["credit"],
+                    "balance": bal["debit"] - bal["credit"],
+                }
+            )
             total_debit += bal["debit"]
             total_credit += bal["credit"]
-        
+
         context = {
             "company": self.company,
             "period": f"{period.year}-{period.month:02d}",
@@ -249,22 +255,22 @@ class PDFExportService:
             "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         }
         return self.engine.render_pdf("trial_balance.html", context)
-    
+
     # ---- Account Ledger (Huvudbok) PDF ----
-    
+
     def export_general_ledger(self, account_code: str, period_id: str) -> bytes:
         """Generate general ledger (huvudbok) PDF for one account."""
         account = self.ledger.accounts.get(account_code)
         if not account:
             raise ValueError(f"Konto {account_code} hittades inte")
-        
+
         period = self.period_repo.get_period(period_id)
         if not period:
             raise ValueError(f"Period {period_id} hittades inte")
-        
+
         ledger_rows = self.ledger.get_account_ledger(account_code, period_id)
         ending_balance = ledger_rows[-1]["balance"] if ledger_rows else 0
-        
+
         context = {
             "company": self.company,
             "account_code": account_code,
@@ -275,18 +281,18 @@ class PDFExportService:
             "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         }
         return self.engine.render_pdf("general_ledger.html", context)
-    
+
     # ---- Income Statement (Resultaträkning) PDF ----
-    
+
     def export_income_statement(self, period_id: str) -> bytes:
         """Generate income statement (resultaträkning) PDF."""
         period = self.period_repo.get_period(period_id)
         if not period:
             raise ValueError(f"Period {period_id} hittades inte")
-        
+
         balances = self.ledger.get_trial_balance(period_id)
         all_accounts = self.ledger.accounts.get_all_as_dict()
-        
+
         revenue_rows = []
         expense_rows = []
         financial_income_rows = []
@@ -295,20 +301,20 @@ class PDFExportService:
         total_expenses = 0
         total_fin_income = 0
         total_fin_expense = 0
-        
+
         for code in sorted(balances.keys()):
             account = all_accounts.get(code)
             if not account:
                 continue
             bal = balances[code]
             net = bal["credit"] - bal["debit"]  # Revenue is credit-positive
-            
+
             row_data = {
                 "account_code": code,
                 "account_name": account.name,
                 "amount": net,
             }
-            
+
             # BAS plan classification
             if code.startswith("3"):  # Intäkter (3xxx)
                 revenue_rows.append(row_data)
@@ -326,10 +332,10 @@ class PDFExportService:
                     row_data["amount"] = bal["debit"] - bal["credit"]
                     financial_expense_rows.append(row_data)
                     total_fin_expense += row_data["amount"]
-        
+
         operating_result = total_revenue - total_expenses
         result_after_financial = operating_result + total_fin_income - total_fin_expense
-        
+
         context = {
             "company": self.company,
             "period_start": period.start_date.isoformat(),
@@ -347,34 +353,35 @@ class PDFExportService:
             "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         }
         return self.engine.render_pdf("income_statement.html", context)
-    
+
     # ---- Balance Sheet (Balansräkning) PDF ----
-    
+
     def export_balance_sheet(self, period_id: str) -> bytes:
         """Generate balance sheet (balansräkning) PDF with 3 columns: IB, Förändring, UB."""
-        from repositories.voucher_repo import VoucherRepository
         from repositories.account_repo import AccountRepository
-        
+        from repositories.voucher_repo import VoucherRepository
+
         period = self.period_repo.get_period(period_id)
         if not period:
             raise ValueError(f"Period {period_id} hittades inte")
-        
+
         target_year = period.year
-        
+
         # Get all vouchers
         vouchers, _ = VoucherRepository.list_all(status="posted")
-        
+
         # Separate IB vouchers from regular vouchers for the target year
         ib_vouchers = []
         regular_vouchers = []
         prior_vouchers = []
-        
+
         for voucher in vouchers:
             voucher_date = voucher.date
             if isinstance(voucher_date, str):
                 from datetime import date as date_type
+
                 voucher_date = date_type.fromisoformat(voucher_date)
-            
+
             if voucher_date.year == target_year:
                 if voucher.series.value == "IB":
                     ib_vouchers.append(voucher)
@@ -382,13 +389,13 @@ class PDFExportService:
                     regular_vouchers.append(voucher)
             elif voucher_date.year < target_year:
                 prior_vouchers.append(voucher)
-        
+
         all_accounts = AccountRepository.get_all_as_dict()
-        
+
         # Calculate opening balances from IB vouchers, or from prior year totals
         opening_balances = {}
         source_vouchers = ib_vouchers if ib_vouchers else prior_vouchers
-        
+
         for voucher in source_vouchers:
             for row in voucher.rows:
                 code = row.account_code
@@ -396,7 +403,7 @@ class PDFExportService:
                     opening_balances[code] = {"debit": 0, "credit": 0}
                 opening_balances[code]["debit"] += row.debit or 0
                 opening_balances[code]["credit"] += row.credit or 0
-        
+
         # Calculate changes from regular vouchers
         change_balances = {}
         for voucher in regular_vouchers:
@@ -406,7 +413,7 @@ class PDFExportService:
                     change_balances[code] = {"debit": 0, "credit": 0}
                 change_balances[code]["debit"] += row.debit or 0
                 change_balances[code]["credit"] += row.credit or 0
-        
+
         # Helper functions
         def _get_net(balances, code, is_liability=False):
             """Get net balance for an account."""
@@ -415,7 +422,7 @@ class PDFExportService:
             bal = balances[code]
             net = bal["debit"] - bal["credit"]
             return -net if is_liability else net
-        
+
         def _calc_category(balances, ranges, is_liability=False):
             """Calculate total for a category range."""
             total = 0
@@ -430,7 +437,7 @@ class PDFExportService:
                 except ValueError:
                     continue
             return total
-        
+
         # Category ranges
         asset_ranges = [(1000, 1999)]
         liability_ranges = [(2000, 2999)]
@@ -439,10 +446,10 @@ class PDFExportService:
         equity_ranges = [(2000, 2099)]
         long_term_liability_ranges = [(2100, 2199)]
         current_liability_ranges = [(2200, 2999)]
-        
+
         # Build account rows with 3 columns
         all_codes = set(opening_balances.keys()) | set(change_balances.keys())
-        
+
         def _build_rows(codes, ranges, is_liability=False):
             """Build account rows with opening, change, and closing balances."""
             rows = []
@@ -453,53 +460,69 @@ class PDFExportService:
                         continue
                 except ValueError:
                     continue
-                
+
                 opening = _get_net(opening_balances, code, is_liability)
                 change = _get_net(change_balances, code, is_liability)
                 closing = opening + change
-                
+
                 if opening != 0 or change != 0 or closing != 0:
                     acct = all_accounts.get(code)
-                    rows.append({
-                        "account_code": code,
-                        "account_name": acct.name if acct else code,
-                        "opening_balance": opening,
-                        "change": change,
-                        "closing_balance": closing,
-                    })
+                    rows.append(
+                        {
+                            "account_code": code,
+                            "account_name": acct.name if acct else code,
+                            "opening_balance": opening,
+                            "change": change,
+                            "closing_balance": closing,
+                        }
+                    )
             return rows
-        
+
         # Build category rows
         fixed_asset_rows = _build_rows(all_codes, fixed_asset_ranges, False)
         current_asset_rows = _build_rows(all_codes, current_asset_ranges, False)
         equity_rows = _build_rows(all_codes, equity_ranges, True)
-        liability_rows = _build_rows(all_codes, long_term_liability_ranges + current_liability_ranges, True)
-        
+        liability_rows = _build_rows(
+            all_codes, long_term_liability_ranges + current_liability_ranges, True
+        )
+
         # Calculate totals
-        total_fixed_opening = _calc_category(opening_balances, fixed_asset_ranges, False)
+        total_fixed_opening = _calc_category(
+            opening_balances, fixed_asset_ranges, False
+        )
         total_fixed_change = _calc_category(change_balances, fixed_asset_ranges, False)
         total_fixed_closing = total_fixed_opening + total_fixed_change
-        
-        total_current_opening = _calc_category(opening_balances, current_asset_ranges, False)
-        total_current_change = _calc_category(change_balances, current_asset_ranges, False)
+
+        total_current_opening = _calc_category(
+            opening_balances, current_asset_ranges, False
+        )
+        total_current_change = _calc_category(
+            change_balances, current_asset_ranges, False
+        )
         total_current_closing = total_current_opening + total_current_change
-        
+
         total_assets_opening = total_fixed_opening + total_current_opening
         total_assets_change = total_fixed_change + total_current_change
         total_assets_closing = total_assets_opening + total_assets_change
-        
+
         total_equity_opening = _calc_category(opening_balances, equity_ranges, True)
         total_equity_change = _calc_category(change_balances, equity_ranges, True)
         total_equity_closing = total_equity_opening + total_equity_change
-        
-        total_liab_opening = _calc_category(opening_balances, long_term_liability_ranges + current_liability_ranges, True)
-        total_liab_change = _calc_category(change_balances, long_term_liability_ranges + current_liability_ranges, True)
+
+        total_liab_opening = _calc_category(
+            opening_balances,
+            long_term_liability_ranges + current_liability_ranges,
+            True,
+        )
+        total_liab_change = _calc_category(
+            change_balances, long_term_liability_ranges + current_liability_ranges, True
+        )
         total_liab_closing = total_liab_opening + total_liab_change
-        
+
         total_eq_liab_opening = total_equity_opening + total_liab_opening
         total_eq_liab_change = total_equity_change + total_liab_change
         total_eq_liab_closing = total_eq_liab_opening + total_eq_liab_change
-        
+
         context = {
             "company": self.company,
             "balance_date": period.end_date.isoformat(),
@@ -536,9 +559,9 @@ class PDFExportService:
             "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         }
         return self.engine.render_pdf("balance_sheet.html", context)
-    
+
     # ---- K2 Report PDF ----
-    
+
     def export_k2_report(
         self,
         fiscal_year_id: str,
@@ -552,7 +575,7 @@ class PDFExportService:
         fy = self.period_repo.get_fiscal_year(fiscal_year_id)
         if not fy:
             raise ValueError(f"Räkenskapsår {fiscal_year_id} hittades inte")
-        
+
         # Generate K2 data via existing service
         k2_service = K2ReportService()
         report = k2_service.generate_report(
@@ -563,49 +586,65 @@ class PDFExportService:
             average_employees=average_employees,
             significant_events=significant_events,
         )
-        
+
         # Build sections for template
         income_statement_sections = []
         balance_sheet_sections = []
-        
+
         if "income_statement" in report:
             is_data = report["income_statement"]
             # Revenue section
             rev_rows = []
             for item in is_data.get("revenue_items", []):
-                rev_rows.append({"label": item.get("name", ""), "amount": item.get("amount", 0)})
-            income_statement_sections.append({
-                "title": "Rörelseintäkter",
-                "rows": rev_rows,
-                "total": is_data.get("total_revenue", 0),
-                "total_label": "Summa rörelseintäkter",
-            })
+                rev_rows.append(
+                    {"label": item.get("name", ""), "amount": item.get("amount", 0)}
+                )
+            income_statement_sections.append(
+                {
+                    "title": "Rörelseintäkter",
+                    "rows": rev_rows,
+                    "total": is_data.get("total_revenue", 0),
+                    "total_label": "Summa rörelseintäkter",
+                }
+            )
             # Expense section
             exp_rows = []
             for item in is_data.get("expense_items", []):
-                exp_rows.append({"label": item.get("name", ""), "amount": item.get("amount", 0)})
-            income_statement_sections.append({
-                "title": "Rörelsekostnader",
-                "rows": exp_rows,
-                "total": is_data.get("total_expenses", 0),
-                "total_label": "Summa rörelsekostnader",
-            })
-        
+                exp_rows.append(
+                    {"label": item.get("name", ""), "amount": item.get("amount", 0)}
+                )
+            income_statement_sections.append(
+                {
+                    "title": "Rörelsekostnader",
+                    "rows": exp_rows,
+                    "total": is_data.get("total_expenses", 0),
+                    "total_label": "Summa rörelsekostnader",
+                }
+            )
+
         if "balance_sheet" in report:
             bs_data = report["balance_sheet"]
             for section_name in ["assets", "equity_and_liabilities"]:
                 section_data = bs_data.get(section_name, {})
                 rows = []
                 for item in section_data.get("items", []):
-                    rows.append({"label": item.get("name", ""), "amount": item.get("amount", 0)})
-                title = "Tillgångar" if section_name == "assets" else "Eget kapital och skulder"
-                balance_sheet_sections.append({
-                    "title": title,
-                    "rows": rows,
-                    "total": section_data.get("total", 0),
-                    "total_label": f"Summa {title.lower()}",
-                })
-        
+                    rows.append(
+                        {"label": item.get("name", ""), "amount": item.get("amount", 0)}
+                    )
+                title = (
+                    "Tillgångar"
+                    if section_name == "assets"
+                    else "Eget kapital och skulder"
+                )
+                balance_sheet_sections.append(
+                    {
+                        "title": title,
+                        "rows": rows,
+                        "total": section_data.get("total", 0),
+                        "total_label": f"Summa {title.lower()}",
+                    }
+                )
+
         context = {
             "company": CompanyInfo(name=company_name, org_number=org_number),
             "fiscal_year_start": fy.start_date.isoformat(),
@@ -630,12 +669,12 @@ class PDFExportService:
         invoice = self.invoice_service.invoices.get(invoice_id)
         if not invoice:
             raise ValueError(f"Faktura {invoice_id} hittades inte")
-        
+
         vat_summary: Dict[str, int] = {}
         for row in invoice.rows:
             code = row.vat_code
             vat_summary[code] = vat_summary.get(code, 0) + row.vat_amount
-        
+
         qr_code_data = None
         if self.company.swish:
             qr_code_data = generate_swish_qr(
@@ -643,7 +682,7 @@ class PDFExportService:
                 amount_ore=invoice.amount_inc_vat,
                 message=invoice.invoice_number,
             )
-        
+
         context = {
             "company": self.company,
             "invoice": invoice,
@@ -657,28 +696,30 @@ class PDFExportService:
         period = self.period_repo.get_period(period_id)
         if not period:
             raise ValueError(f"Period {period_id} hittades inte")
-        
+
         balances = self.ledger.get_trial_balance(period_id)
         all_accounts = self.ledger.accounts.get_all_as_dict()
-        
+
         rows = []
         total_debit = 0
         total_credit = 0
-        
+
         for code in sorted(balances.keys()):
             bal = balances[code]
             account = all_accounts.get(code)
             account_name = account.name if account else code
-            rows.append({
-                "account_code": code,
-                "account_name": account_name,
-                "debit": bal["debit"],
-                "credit": bal["credit"],
-                "balance": bal["debit"] - bal["credit"],
-            })
+            rows.append(
+                {
+                    "account_code": code,
+                    "account_name": account_name,
+                    "debit": bal["debit"],
+                    "credit": bal["credit"],
+                    "balance": bal["debit"] - bal["credit"],
+                }
+            )
             total_debit += bal["debit"]
             total_credit += bal["credit"]
-        
+
         context = {
             "company": self.company,
             "period": f"{period.year}-{period.month:02d}",

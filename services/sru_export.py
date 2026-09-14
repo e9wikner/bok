@@ -6,10 +6,10 @@ Generates INFO.SRU and BLANKETTER.SRU files for electronic tax filing.
 
 import io
 import zipfile
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Dict, List, Optional, Tuple
-from dataclasses import dataclass
 
 from db.database import get_db
 from domain.sru_fields import (
@@ -23,7 +23,6 @@ from domain.sru_fields import (
     default_account_mappings,
     field_labels,
 )
-
 
 # The account-to-field table lives in domain/sru_fields.py so that the export
 # and the on-screen declaration cannot disagree about what a field code means.
@@ -50,6 +49,7 @@ def _is_derived_result_account(account_code: str) -> bool:
 @dataclass
 class SRUFieldValue:
     """Value for a single SRU field."""
+
     field_number: str
     description: str
     value: int  # In SEK (not öre)
@@ -60,11 +60,12 @@ class SRUFieldValue:
 @dataclass
 class SRUDeclaration:
     """Complete SRU declaration data."""
+
     fiscal_year_id: str
     company_org_number: str
     company_name: str
     fiscal_year_start: str  # YYYYMMDD
-    fiscal_year_end: str    # YYYYMMDD
+    fiscal_year_end: str  # YYYYMMDD
     fields: Dict[str, SRUFieldValue]
     contact_name: Optional[str] = None
     address: Optional[str] = None
@@ -72,11 +73,11 @@ class SRUDeclaration:
     postort: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
-    
+
     def get_field(self, field_number: str) -> Optional[SRUFieldValue]:
         """Get value for a specific field."""
         return self.fields.get(field_number)
-    
+
     def get_field_value(self, field_number: str) -> int:
         """Get numeric value for a field (0 if not found)."""
         field = self.fields.get(field_number)
@@ -85,22 +86,22 @@ class SRUDeclaration:
 
 class SRUExportService:
     """Service for generating SRU export files."""
-    
+
     def __init__(self):
         self.errors: List[str] = []
         self.warnings: List[str] = []
-    
+
     def get_sru_mappings(self, fiscal_year_id: str) -> Dict[str, str]:
         """
         Get SRU mappings for a fiscal year.
-        
+
         Returns {account_code: sru_field} dictionary.
         First checks database for imported SIE4 mappings,
         then falls back to the BAS coupling table in domain/sru_fields.py.
         """
         db = get_db()
         mappings = {}
-        
+
         # First, get mappings from database (imported from SIE4)
         cursor = db.execute(
             """
@@ -109,11 +110,11 @@ class SRUExportService:
             JOIN accounts a ON m.account_code = a.code
             WHERE m.fiscal_year_id = ?
             """,
-            (fiscal_year_id,)
+            (fiscal_year_id,),
         )
-        
+
         db_mappings = {row["code"]: row["sru_field"] for row in cursor.fetchall()}
-        
+
         if db_mappings:
             mappings.update(db_mappings)
             # A saved year-specific mapping is a deliberate deviation from the
@@ -140,13 +141,11 @@ class SRUExportService:
                     mappings[account_code] = sru_field
 
         return mappings
-    
-    def calculate_account_balances(
-        self, fiscal_year_id: str
-    ) -> Dict[str, Dict]:
+
+    def calculate_account_balances(self, fiscal_year_id: str) -> Dict[str, Dict]:
         """
         Calculate closing balances for all accounts in fiscal year.
-        
+
         Returns {account_code: {id, name, balance, account_type}}.
         Balance is in öre (positive = debit, negative = credit).
         """
@@ -169,7 +168,7 @@ class SRUExportService:
             ).fetchone()["count"]
             > 0
         )
-        
+
         # Balance-sheet accounts need closing balance (UB). If there is no IB
         # voucher for the year, carry forward prior posted vouchers as opening.
         # Income-statement accounts must only use the selected fiscal year.
@@ -205,9 +204,9 @@ class SRUExportService:
                 1 if has_opening_balance else 0,
                 fiscal_year["end_date"],
                 fiscal_year_id,
-            )
+            ),
         )
-        
+
         accounts = {}
         for row in cursor.fetchall():
             accounts[row["code"]] = {
@@ -216,45 +215,44 @@ class SRUExportService:
                 "balance": row["balance"],  # In öre
                 "account_type": row["account_type"],
             }
-        
+
         return accounts
-    
+
     def calculate_sru_fields(self, fiscal_year_id: str) -> SRUDeclaration:
         """
         Calculate all SRU field values for a fiscal year.
-        
+
         This is the main calculation method that aggregates account balances
         into the SRU fields needed for INK2 declaration.
         """
         self.errors = []
         self.warnings = []
-        
+
         db = get_db()
-        
+
         # Get fiscal year info
         fiscal_year = db.execute(
-            "SELECT * FROM fiscal_years WHERE id = ?",
-            (fiscal_year_id,)
+            "SELECT * FROM fiscal_years WHERE id = ?", (fiscal_year_id,)
         ).fetchone()
-        
+
         if not fiscal_year:
             raise ValueError(f"Fiscal year {fiscal_year_id} not found")
-        
+
         # Get company info
         company = self._get_company_info(db)
-        
+
         if not company:
             raise ValueError("Company info not found")
-        
+
         # Get SRU mappings
         sru_mappings = self.get_sru_mappings(fiscal_year_id)
-        
+
         # Get account balances
         account_balances = self.calculate_account_balances(fiscal_year_id)
-        
+
         # Calculate SRU fields
         fields = {}
-        
+
         # Group accounts by the mapping they carry, then resolve alternatives
         # such as "7416/7520". BAS splits those rows on the sign of the *net*
         # balance of the whole row ("Om netto +/-"), not account by account, so
@@ -266,17 +264,18 @@ class SRUExportService:
             if not mapping:
                 # 899x carries the year's result, which is derived from the
                 # result rows below rather than mapped, so it is not missing.
-                if (
-                    account_data["balance"] != 0
-                    and not _is_derived_result_account(account_code)
+                if account_data["balance"] != 0 and not _is_derived_result_account(
+                    account_code
                 ):
                     unmapped_accounts.append(account_code)
                 continue
-            mapped_balances.setdefault(mapping, []).append({
-                "code": account_code,
-                "name": account_data["name"],
-                "balance": account_data["balance"],
-            })
+            mapped_balances.setdefault(mapping, []).append(
+                {
+                    "code": account_code,
+                    "name": account_data["name"],
+                    "balance": account_data["balance"],
+                }
+            )
 
         field_balances: Dict[str, List[Dict]] = {}
         for mapping, accounts in mapped_balances.items():
@@ -292,7 +291,7 @@ class SRUExportService:
 
         # Create SRU field values
         field_descriptions = self._get_field_descriptions()
-        
+
         for sru_field, accounts in field_balances.items():
             total_balance = sum(a["balance"] for a in accounts)
             value_sek = self._to_sru_value(sru_field, total_balance)
@@ -300,12 +299,14 @@ class SRUExportService:
             for account in accounts:
                 account_value = self._to_sru_value(sru_field, account["balance"])
                 if account_value != 0:
-                    source_account_values.append({
-                        "account": account["code"],
-                        "name": account["name"],
-                        "value": account_value,
-                    })
-            
+                    source_account_values.append(
+                        {
+                            "account": account["code"],
+                            "name": account["name"],
+                            "value": account_value,
+                        }
+                    )
+
             fields[sru_field] = SRUFieldValue(
                 field_number=sru_field,
                 description=field_descriptions.get(sru_field, "Okänd fältkod"),
@@ -313,14 +314,14 @@ class SRUExportService:
                 source_accounts=[a["account"] for a in source_account_values],
                 source_account_values=source_account_values,
             )
-        
+
         # Calculate derived fields
         self._calculate_derived_fields(fields)
         self._calculate_ink2s_fields(fields)
-        
+
         # Validate balance sheet
         self._validate_balance_sheet(field_balances, account_balances)
-        
+
         return SRUDeclaration(
             fiscal_year_id=fiscal_year_id,
             company_org_number=company["org_number"].replace("-", ""),
@@ -356,7 +357,9 @@ class SRUExportService:
             pass
 
         try:
-            row = db.execute("SELECT * FROM company_info ORDER BY id LIMIT 1").fetchone()
+            row = db.execute(
+                "SELECT * FROM company_info ORDER BY id LIMIT 1"
+            ).fetchone()
         except Exception:
             return {
                 "org_number": "0000000000",
@@ -412,7 +415,7 @@ class SRUExportService:
         first, second = [part.strip() for part in sru_field.split("/", 1)]
         first_value = self._to_sru_value(first, balance_ore)
         return first if first_value >= 0 else second
-    
+
     def _calculate_derived_fields(self, fields: Dict[str, SRUFieldValue]):
         """Calculate derived/summary fields from base fields."""
         income_fields = list(INCOME_FIELDS)
@@ -426,16 +429,24 @@ class SRUExportService:
                 field_number="7450",
                 description="Årets resultat, vinst",
                 value=result,
-                source_accounts=[f for f in income_fields + expense_fields if f in fields],
-                source_account_values=self._derived_source_account_values(fields, income_fields, expense_fields),
+                source_accounts=[
+                    f for f in income_fields + expense_fields if f in fields
+                ],
+                source_account_values=self._derived_source_account_values(
+                    fields, income_fields, expense_fields
+                ),
             )
         elif result < 0 and "7550" not in fields:
             fields["7550"] = SRUFieldValue(
                 field_number="7550",
                 description="Årets resultat, förlust",
                 value=abs(result),
-                source_accounts=[f for f in income_fields + expense_fields if f in fields],
-                source_account_values=self._derived_source_account_values(fields, income_fields, expense_fields),
+                source_accounts=[
+                    f for f in income_fields + expense_fields if f in fields
+                ],
+                source_account_values=self._derived_source_account_values(
+                    fields, income_fields, expense_fields
+                ),
             )
 
     def _derived_source_account_values(
@@ -453,25 +464,34 @@ class SRUExportService:
         for field_number in negative_fields:
             field = fields.get(field_number)
             for account in field.source_account_values or [] if field else []:
-                values.append({
-                    "account": account["account"],
-                    "name": account.get("name", ""),
-                    "value": -int(account["value"]),
-                })
+                values.append(
+                    {
+                        "account": account["account"],
+                        "name": account.get("name", ""),
+                        "value": -int(account["value"]),
+                    }
+                )
         return values
 
     def _calculate_ink2s_fields(self, fields: Dict[str, SRUFieldValue]):
         """Calculate INK2S tax adjustment fields from mapped INK2R fields."""
         descriptions = self._get_field_descriptions()
 
-        def source_account_values(source_fields: List[str], signs: Optional[Dict[str, int]] = None, override_value: Optional[int] = None) -> List[Dict[str, int | str]]:
+        def source_account_values(
+            source_fields: List[str],
+            signs: Optional[Dict[str, int]] = None,
+            override_value: Optional[int] = None,
+        ) -> List[Dict[str, int | str]]:
             values: List[Dict[str, int | str]] = []
             signs = signs or {}
             source_values: List[Tuple[str, Dict[str, int | str]]] = []
             for source_field in source_fields:
                 field = fields.get(source_field)
                 if field:
-                    source_values.extend((source_field, account_value) for account_value in field.source_account_values or [])
+                    source_values.extend(
+                        (source_field, account_value)
+                        for account_value in field.source_account_values or []
+                    )
 
             if override_value is not None and source_values:
                 total = sum(abs(int(account["value"])) for _, account in source_values)
@@ -483,51 +503,74 @@ class SRUExportService:
                     if index == len(source_values) - 1:
                         amount = override_value - allocated
                     else:
-                        amount = round(override_value * abs(int(account["value"])) / total)
+                        amount = round(
+                            override_value * abs(int(account["value"])) / total
+                        )
                         allocated += amount
                     if amount != 0:
-                        values.append({
-                            "account": account["account"],
-                            "name": account.get("name", ""),
-                            "value": amount * sign,
-                        })
+                        values.append(
+                            {
+                                "account": account["account"],
+                                "name": account.get("name", ""),
+                                "value": amount * sign,
+                            }
+                        )
                 return values
 
             for source_field in source_fields:
                 sign = signs.get(source_field, 1)
-                for _, account in [item for item in source_values if item[0] == source_field]:
+                for _, account in [
+                    item for item in source_values if item[0] == source_field
+                ]:
                     amount = int(account["value"]) * sign
                     if amount != 0:
-                        values.append({
-                            "account": account["account"],
-                            "name": account.get("name", ""),
-                            "value": amount,
-                        })
+                        values.append(
+                            {
+                                "account": account["account"],
+                                "name": account.get("name", ""),
+                                "value": amount,
+                            }
+                        )
             return values
 
-        def add(field_number: str, value: int, source_accounts: List[str], signs: Optional[Dict[str, int]] = None, override_source_value: Optional[int] = None):
+        def add(
+            field_number: str,
+            value: int,
+            source_accounts: List[str],
+            signs: Optional[Dict[str, int]] = None,
+            override_source_value: Optional[int] = None,
+        ):
             if value != 0:
                 fields[field_number] = SRUFieldValue(
                     field_number=field_number,
                     description=descriptions.get(field_number, "Okänd fältkod"),
                     value=value,
                     source_accounts=source_accounts,
-                    source_account_values=source_account_values(source_accounts, signs, override_source_value),
+                    source_account_values=source_account_values(
+                        source_accounts, signs, override_source_value
+                    ),
                 )
 
         accounting_profit = fields.get("7450")
         tax_expense = fields.get("7528")
         non_deductible_interest = fields.get("7522")
         tax_exempt_income = sum(
-            fields[f].value for f in ["7416", "7417"]
-            if f in fields
+            fields[f].value for f in ["7416", "7417"] if f in fields
         )
         periodiseringsfond_base = fields.get("7420")
-        standard_income = round(periodiseringsfond_base.value * 0.0196) if periodiseringsfond_base else 0
+        standard_income = (
+            round(periodiseringsfond_base.value * 0.0196)
+            if periodiseringsfond_base
+            else 0
+        )
 
         add("7650", accounting_profit.value if accounting_profit else 0, ["7450"])
         add("7651", tax_expense.value if tax_expense else 0, ["7528"])
-        add("7653", non_deductible_interest.value if non_deductible_interest else 0, ["7522"])
+        add(
+            "7653",
+            non_deductible_interest.value if non_deductible_interest else 0,
+            ["7522"],
+        )
         add("7754", tax_exempt_income, ["7416", "7417"])
         add("7654", standard_income, ["7420"], override_source_value=standard_income)
 
@@ -538,8 +581,13 @@ class SRUExportService:
             - tax_exempt_income
             + standard_income
         )
-        add("7670", taxable_result, ["7650", "7651", "7653", "7754", "7654"], {"7754": -1})
-        
+        add(
+            "7670",
+            taxable_result,
+            ["7650", "7651", "7653", "7754", "7654"],
+            {"7754": -1},
+        )
+
     def _validate_balance_sheet(
         self,
         field_balances: Dict[str, List[Dict]],
@@ -567,9 +615,7 @@ class SRUExportService:
 
         def side_total(wanted) -> int:
             return sum(
-                self._sru_signed_ore(
-                    sru_field, sum(a["balance"] for a in accounts)
-                )
+                self._sru_signed_ore(sru_field, sum(a["balance"] for a in accounts))
                 for sru_field, accounts in field_balances.items()
                 if sru_field in wanted
             )
@@ -581,11 +627,7 @@ class SRUExportService:
             for code, data in account_balances.items()
             if _is_derived_result_account(code)
         )
-        result = (
-            side_total(income_fields)
-            - side_total(expense_fields)
-            + closed_result
-        )
+        result = side_total(income_fields) - side_total(expense_fields) + closed_result
         difference = assets - equity_and_liabilities
 
         if difference in (0, result):
@@ -601,13 +643,14 @@ class SRUExportService:
     def _get_field_descriptions(self) -> Dict[str, str]:
         """Get human-readable descriptions for SRU fields."""
         return field_labels()
-    
+
     def generate_info_sru(self, declaration: SRUDeclaration) -> str:
         """
         Generate INFO.SRU file content.
-        
+
         This file contains metadata about the declaration.
         """
+
         def optional_attr(name: str) -> Optional[str]:
             value = getattr(declaration, name, None)
             return value if isinstance(value, str) and value else None
@@ -633,9 +676,9 @@ class SRUExportService:
         ]
         lines.extend(f"{prefix} {value}" for prefix, value in optional_lines if value)
         lines.append("#MEDIELEV_SLUT")
-        
+
         return "\r\n".join(lines) + "\r\n"
-    
+
     def generate_blanketter_sru(self, declaration: SRUDeclaration) -> str:
         """
         Generate BLANKETTER.SRU file content.
@@ -653,16 +696,18 @@ class SRUExportService:
         timestamp = datetime.now().strftime("%Y%m%d %H%M%S")
 
         # INK2R - Räkenskapsschema
-        lines.extend([
-            "#BLANKETT INK2R-2025P4",
-            f"#IDENTITET {declaration.company_org_number} {timestamp}",
-            "#SYSTEMINFO BOKAI 1.0",
-        ])
-        
+        lines.extend(
+            [
+                "#BLANKETT INK2R-2025P4",
+                f"#IDENTITET {declaration.company_org_number} {timestamp}",
+                "#SYSTEMINFO BOKAI 1.0",
+            ]
+        )
+
         # Add fiscal year dates
         lines.append(f"#UPPGIFT 7011 {declaration.fiscal_year_start}")
         lines.append(f"#UPPGIFT 7012 {declaration.fiscal_year_end}")
-        
+
         # Add all field values (sorted by field number)
         for field_number in sorted(declaration.fields.keys()):
             if field_number in INK2S_DERIVED_FIELDS:
@@ -670,16 +715,18 @@ class SRUExportService:
             field = declaration.fields[field_number]
             if field.value != 0 or field_number in INK2R_ZERO_EXPORT_FIELDS:
                 lines.append(f"#UPPGIFT {field_number} {field.value}")
-        
+
         lines.append("#BLANKETTSLUT")
-        
+
         # INK2S - Särskild blankett (Balansräkning)
-        lines.extend([
-            "#BLANKETT INK2S-2025P4",
-            f"#IDENTITET {declaration.company_org_number} {timestamp}",
-            "#SYSTEMINFO BOKAI 1.0",
-        ])
-        
+        lines.extend(
+            [
+                "#BLANKETT INK2S-2025P4",
+                f"#IDENTITET {declaration.company_org_number} {timestamp}",
+                "#SYSTEMINFO BOKAI 1.0",
+            ]
+        )
+
         # Add balance sheet fields to INK2S
         for field_number in ["7011", "7012"]:
             lines.append(
@@ -695,10 +742,10 @@ class SRUExportService:
 
         lines.append("#UPPGIFT 8041 X")
         lines.append("#UPPGIFT 8045 X")
-        
+
         lines.append("#BLANKETTSLUT")
         lines.append("#FIL_SLUT")
-        
+
         return "\r\n".join(lines) + "\r\n"
 
     def export_sru_zip(
@@ -706,48 +753,57 @@ class SRUExportService:
     ) -> Tuple[bytes, str, List[str], List[str]]:
         """
         Generate complete SRU export as ZIP file.
-        
+
         Returns: (zip_bytes, filename, errors, warnings)
         """
         self.errors = []
         self.warnings = []
-        
+
         try:
             # Calculate declaration data
             declaration = self.calculate_sru_fields(fiscal_year_id)
-            
+
             # Generate files
             info_sru = self.generate_info_sru(declaration)
             blanketter_sru = self.generate_blanketter_sru(declaration)
-            
+
             # Create ZIP
             zip_buffer = io.BytesIO()
-            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-                zip_file.writestr("INFO.SRU", info_sru.encode('utf-8-sig'))  # UTF-8 with BOM
-                zip_file.writestr("BLANKETTER.SRU", blanketter_sru.encode('utf-8-sig'))
-            
+            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                zip_file.writestr(
+                    "INFO.SRU", info_sru.encode("utf-8-sig")
+                )  # UTF-8 with BOM
+                zip_file.writestr("BLANKETTER.SRU", blanketter_sru.encode("utf-8-sig"))
+
             zip_bytes = zip_buffer.getvalue()
-            
+
             # Generate filename
-            safe_company_name = "".join(
-                c for c in declaration.company_name 
-                if c.isalnum() or c in (' ', '-', '_')
-            ).strip().replace(' ', '_')
+            safe_company_name = (
+                "".join(
+                    c
+                    for c in declaration.company_name
+                    if c.isalnum() or c in (" ", "-", "_")
+                )
+                .strip()
+                .replace(" ", "_")
+            )
             year = declaration.fiscal_year_end[:4]
             filename = f"{safe_company_name}_{year}_INK2_SRU.zip"
-            
+
             return zip_bytes, filename, self.errors, self.warnings
-            
+
         except Exception as e:
             self.errors.append(f"Export failed: {str(e)}")
             return b"", "", self.errors, self.warnings
 
 
 # Convenience function for API usage
-def export_sru_for_fiscal_year(fiscal_year_id: str) -> Tuple[bytes, str, List[str], List[str]]:
+def export_sru_for_fiscal_year(
+    fiscal_year_id: str,
+) -> Tuple[bytes, str, List[str], List[str]]:
     """
     Export SRU files for a fiscal year.
-    
+
     Returns: (zip_bytes, filename, errors, warnings)
     """
     service = SRUExportService()

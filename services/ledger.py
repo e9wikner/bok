@@ -1,20 +1,20 @@
 """Ledger service - core accounting logic."""
 
-from datetime import datetime, date
-from typing import List, Dict
+from datetime import date, datetime
+from typing import Dict, List
 
-from domain.models import Voucher, VoucherRow, Period
-from domain.types import VoucherStatus, VoucherSeries, AuditAction
+from domain.models import Period, Voucher, VoucherRow
+from domain.types import AuditAction, VoucherSeries, VoucherStatus
 from domain.validation import (
-    validate_complete_voucher,
-    VoucherValidator,
     PeriodValidator,
     ValidationError,
+    VoucherValidator,
+    validate_complete_voucher,
 )
-from repositories.voucher_repo import VoucherRepository
-from repositories.period_repo import PeriodRepository
 from repositories.account_repo import AccountRepository
 from repositories.audit_repo import AuditRepository
+from repositories.period_repo import PeriodRepository
+from repositories.voucher_repo import VoucherRepository
 
 
 class LedgerService:
@@ -460,7 +460,9 @@ class LedgerService:
         _commit: bool = True,
     ) -> None:
         try:
-            from repositories.accounting_correction_repo import AccountingCorrectionRepository
+            from repositories.accounting_correction_repo import (
+                AccountingCorrectionRepository,
+            )
 
             AccountingCorrectionRepository.create(
                 original_voucher_id=original.id,

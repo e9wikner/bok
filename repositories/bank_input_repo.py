@@ -1,8 +1,8 @@
 """Repository for uploaded bank inputs and bank source traceability."""
 
+import uuid
 from datetime import datetime
 from typing import Optional
-import uuid
 
 from db.database import db
 from domain.models import (
@@ -84,7 +84,9 @@ class BankInputRepository:
         return BankInputRepository._row_to_bank_input(row) if row else None
 
     @staticmethod
-    def list_by_status(status: str | None = None, limit: int = 100, offset: int = 0) -> list[BankInput]:
+    def list_by_status(
+        status: str | None = None, limit: int = 100, offset: int = 0
+    ) -> list[BankInput]:
         if status:
             rows = db.execute(
                 """
@@ -119,13 +121,11 @@ class BankInputRepository:
 
     @staticmethod
     def count_agent_relevant() -> int:
-        row = db.execute(
-            """
+        row = db.execute("""
             SELECT COUNT(*) AS count
             FROM bank_inputs
             WHERE status IN ('pending', 'processed', 'failed')
-            """
-        ).fetchone()
+            """).fetchone()
         return row["count"] if row else 0
 
     @staticmethod
@@ -367,7 +367,9 @@ class BankInputRepository:
             """,
             (voucher_id,),
         ).fetchall()
-        return [BankInputRepository._row_to_voucher_bank_transaction(row) for row in rows]
+        return [
+            BankInputRepository._row_to_voucher_bank_transaction(row) for row in rows
+        ]
 
     @staticmethod
     def _row_to_bank_input(row) -> BankInput:
@@ -386,9 +388,11 @@ class BankInputRepository:
             imported_count=row["imported_count"],
             skipped_count=row["skipped_count"],
             parse_error=row["parse_error"],
-            processed_at=BankInputRepository._parse_datetime(row["processed_at"])
-            if row["processed_at"]
-            else None,
+            processed_at=(
+                BankInputRepository._parse_datetime(row["processed_at"])
+                if row["processed_at"]
+                else None
+            ),
         )
 
     @staticmethod

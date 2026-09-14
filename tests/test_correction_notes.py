@@ -80,7 +80,9 @@ def _correction_rows():
 
 
 @pytest.mark.asyncio
-async def test_posted_voucher_can_receive_pending_correction_note(test_db, async_client):
+async def test_posted_voucher_can_receive_pending_correction_note(
+    test_db, async_client
+):
     _ensure_accounts()
     period = _period()
     original = await _create_voucher(async_client, period.id)
@@ -210,7 +212,9 @@ async def test_approving_suggested_note_posts_b_series_and_applies_note(
         headers=_headers(),
     )
     assert notes.status_code == 200
-    applied_note = next(item for item in notes.json() if item["id"] == suggested_note["id"])
+    applied_note = next(
+        item for item in notes.json() if item["id"] == suggested_note["id"]
+    )
     assert applied_note["status"] == "applied"
 
 

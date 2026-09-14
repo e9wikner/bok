@@ -2,9 +2,10 @@
 
 import logging
 import uuid
+from typing import Optional
 
 from fastapi import Depends, Header, HTTPException, status
-from typing import Optional
+
 from config import settings
 from services.auth import AuthService
 from services.ledger import LedgerService

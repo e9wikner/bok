@@ -70,12 +70,18 @@ async def create_invoice_draft(
             rows_data=[row.model_dump() for row in request.rows],
             agent_summary=request.agent_notes.summary,
             agent_confidence=request.agent_notes.confidence,
-            agent_warnings="\n".join(request.agent_notes.warnings) if request.agent_notes.warnings else None,
+            agent_warnings=(
+                "\n".join(request.agent_notes.warnings)
+                if request.agent_notes.warnings
+                else None
+            ),
             created_by=actor,
         )
         return _draft_to_dict(draft)
     except ValidationError as exc:
-        raise HTTPException(status_code=400, detail={"code": exc.code, "error": exc.message})
+        raise HTTPException(
+            status_code=400, detail={"code": exc.code, "error": exc.message}
+        )
 
 
 @router.get("", response_model=dict)
@@ -91,7 +97,9 @@ async def get_invoice_draft(draft_id: str):
     try:
         return _draft_to_dict(InvoiceDraftService().get_draft(draft_id))
     except ValidationError as exc:
-        raise HTTPException(status_code=404, detail={"code": exc.code, "error": exc.message})
+        raise HTTPException(
+            status_code=404, detail={"code": exc.code, "error": exc.message}
+        )
 
 
 @router.put("/{draft_id}", response_model=dict)
@@ -115,12 +123,18 @@ async def update_invoice_draft(
             rows_data=[row.model_dump() for row in request.rows],
             agent_summary=request.agent_notes.summary,
             agent_confidence=request.agent_notes.confidence,
-            agent_warnings="\n".join(request.agent_notes.warnings) if request.agent_notes.warnings else None,
+            agent_warnings=(
+                "\n".join(request.agent_notes.warnings)
+                if request.agent_notes.warnings
+                else None
+            ),
             actor=actor,
         )
         return _draft_to_dict(draft)
     except ValidationError as exc:
-        raise HTTPException(status_code=400, detail={"code": exc.code, "error": exc.message})
+        raise HTTPException(
+            status_code=400, detail={"code": exc.code, "error": exc.message}
+        )
 
 
 @router.post("/{draft_id}/send", response_model=dict)
@@ -145,7 +159,9 @@ async def send_invoice_draft(
             "pdf_url": result["pdf_url"],
         }
     except ValidationError as exc:
-        raise HTTPException(status_code=400, detail={"code": exc.code, "error": exc.message})
+        raise HTTPException(
+            status_code=400, detail={"code": exc.code, "error": exc.message}
+        )
 
 
 @router.post("/{draft_id}/reject", response_model=dict)
@@ -156,7 +172,9 @@ async def reject_invoice_draft(
     try:
         return _draft_to_dict(InvoiceDraftService().reject(draft_id, actor=actor))
     except ValidationError as exc:
-        raise HTTPException(status_code=400, detail={"code": exc.code, "error": exc.message})
+        raise HTTPException(
+            status_code=400, detail={"code": exc.code, "error": exc.message}
+        )
 
 
 def _draft_to_list_item(draft) -> dict:
@@ -173,9 +191,11 @@ def _draft_to_list_item(draft) -> dict:
         "agent_confidence": draft.agent_confidence,
         "approved_invoice_id": draft.approved_invoice_id,
         "approved_voucher_id": draft.approved_voucher_id,
-        "pdf_url": f"/api/v1/export/pdf/invoice/{draft.approved_invoice_id}"
-        if draft.approved_invoice_id
-        else None,
+        "pdf_url": (
+            f"/api/v1/export/pdf/invoice/{draft.approved_invoice_id}"
+            if draft.approved_invoice_id
+            else None
+        ),
         "created_at": draft.created_at,
         "row_count": len(draft.rows),
     }
@@ -192,12 +212,11 @@ def _draft_to_dict(draft) -> dict:
             "agent_notes": {
                 "summary": draft.agent_summary,
                 "confidence": draft.agent_confidence,
-                "warnings": draft.agent_warnings.splitlines() if draft.agent_warnings else [],
+                "warnings": (
+                    draft.agent_warnings.splitlines() if draft.agent_warnings else []
+                ),
             },
-            "rows": [
-                _draft_row_to_dict(row)
-                for row in draft.rows
-            ],
+            "rows": [_draft_row_to_dict(row) for row in draft.rows],
         }
     )
     return data
@@ -214,17 +233,17 @@ def _draft_row_to_dict(row) -> dict:
             article_number = article.article_number
             article_name = article.name
     return {
-                    "id": row.id,
-                    "article_id": row.article_id,
-                    "article_number": article_number,
-                    "article_name": article_name,
-                    "description": row.description,
-                    "quantity": row.quantity,
-                    "unit_price": row.unit_price,
-                    "vat_code": row.vat_code,
-                    "revenue_account": row.revenue_account,
-                    "amount_ex_vat": row.amount_ex_vat,
-                    "vat_amount": row.vat_amount,
-                    "amount_inc_vat": row.amount_inc_vat,
-                    "source_note": row.source_note,
+        "id": row.id,
+        "article_id": row.article_id,
+        "article_number": article_number,
+        "article_name": article_name,
+        "description": row.description,
+        "quantity": row.quantity,
+        "unit_price": row.unit_price,
+        "vat_code": row.vat_code,
+        "revenue_account": row.revenue_account,
+        "amount_ex_vat": row.amount_ex_vat,
+        "vat_amount": row.vat_amount,
+        "amount_inc_vat": row.amount_inc_vat,
+        "source_note": row.source_note,
     }

@@ -1,6 +1,7 @@
 """API routes for BFL compliance checking."""
 
 from typing import Optional
+
 from fastapi import APIRouter, Query
 
 from services.compliance import ComplianceService
@@ -13,7 +14,7 @@ compliance_service = ComplianceService()
 @router.post("/check")
 async def run_compliance_check():
     """Run all BFL compliance checks.
-    
+
     Checks for:
     - Booking timeliness (BFL 5 kap 2§)
     - Period closing (best practice)
@@ -23,7 +24,7 @@ async def run_compliance_check():
     - Unbooked bank transaction backlogs
     - Missing voucher attachments
     - Unusually large transactions
-    
+
     Returns summary with all open issues sorted by severity.
     """
     results = compliance_service.run_all_checks()
@@ -32,7 +33,9 @@ async def run_compliance_check():
 
 @router.get("/issues")
 async def list_issues(
-    severity: Optional[str] = Query(None, description="Filter by severity: critical, error, warning, info"),
+    severity: Optional[str] = Query(
+        None, description="Filter by severity: critical, error, warning, info"
+    ),
 ):
     """List all open compliance issues."""
     issues = compliance_service.get_open_issues(severity=severity)

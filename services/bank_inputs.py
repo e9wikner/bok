@@ -1,9 +1,9 @@
 """Service for uploaded bank input source material."""
 
-from pathlib import Path
 import hashlib
 import sqlite3
 import uuid
+from pathlib import Path
 
 from config import settings
 from db.database import db
@@ -38,7 +38,9 @@ class DuplicateBankInputError(BankInputError):
         details = f"sha256={sha256}"
         if existing_id:
             details += f", existing_id={existing_id}"
-        super().__init__("duplicate_bank_input", "This bank input was already uploaded", details)
+        super().__init__(
+            "duplicate_bank_input", "This bank input was already uploaded", details
+        )
         self.sha256 = sha256
         self.existing_id = existing_id
 
@@ -47,7 +49,11 @@ class BankInputNotFoundError(BankInputError):
     """Raised when a bank input cannot be found."""
 
     def __init__(self, bank_input_id: str):
-        super().__init__("bank_input_not_found", "Bank input not found", f"bank_input_id={bank_input_id}")
+        super().__init__(
+            "bank_input_not_found",
+            "Bank input not found",
+            f"bank_input_id={bank_input_id}",
+        )
 
 
 class BankConnectionNotFoundError(BankInputError):
@@ -155,7 +161,9 @@ class BankInputService:
             self._cleanup_stored_file(stored_path)
             if "sha256" in str(exc).lower() or "unique" in str(exc).lower():
                 existing = self.inputs.get_by_sha256(sha256)
-                raise DuplicateBankInputError(sha256, existing.id if existing else None) from exc
+                raise DuplicateBankInputError(
+                    sha256, existing.id if existing else None
+                ) from exc
             raise
         except Exception:
             if not bank_input_created:
@@ -172,7 +180,7 @@ class BankInputService:
         if not bank_connection_id.startswith(ACCOUNT_REFERENCE_PREFIX):
             return bank_connection_id
 
-        account_code = bank_connection_id[len(ACCOUNT_REFERENCE_PREFIX):].strip()
+        account_code = bank_connection_id[len(ACCOUNT_REFERENCE_PREFIX) :].strip()
         if not account_code:
             raise BankInputValidationError(
                 "missing_bank_connection_id",
@@ -184,7 +192,10 @@ class BankInputService:
             raise UnsupportedStatementAccountError(account)
 
         for connection in self.bank.get_connections():
-            if connection.account_number == account_code and connection.status == "active":
+            if (
+                connection.account_number == account_code
+                and connection.status == "active"
+            ):
                 return connection.id
 
         if not account or not account.active:
@@ -257,7 +268,9 @@ class BankInputService:
             "total": self.inputs.count_agent_relevant(),
             "limit": limit,
             "offset": offset,
-            "items": self.inputs.list_by_status(status=None, limit=limit, offset=offset),
+            "items": self.inputs.list_by_status(
+                status=None, limit=limit, offset=offset
+            ),
         }
 
     def agent_queue_items(self, limit: int = 100, offset: int = 0) -> dict:
@@ -286,7 +299,9 @@ class BankInputService:
                     "parse_error": bank_input.parse_error,
                     "transaction_ids": transaction_ids,
                     "transaction_count": len(transaction_ids),
-                    "match_signals": self.inputs.list_transaction_signals_for_input(bank_input.id),
+                    "match_signals": self.inputs.list_transaction_signals_for_input(
+                        bank_input.id
+                    ),
                 }
             )
         return {**queue, "items": items}
@@ -319,7 +334,9 @@ class BankInputService:
             transaction = self.bank.get_transaction(transaction_id)
             if not transaction:
                 raise BankTransactionNotFoundError(transaction_id)
-            linked_input_ids = set(self.inputs.list_input_ids_for_transaction(transaction_id))
+            linked_input_ids = set(
+                self.inputs.list_input_ids_for_transaction(transaction_id)
+            )
             if not linked_input_ids.intersection(input_id_set):
                 raise BankInputConflictError(
                     "bank_transaction_not_linked",
@@ -399,7 +416,9 @@ class BankInputService:
             "booked_transaction_count": len(bank_transaction_ids),
         }
 
-    def _process_persisted_input(self, bank_input: BankInput, content: bytes) -> BankInput:
+    def _process_persisted_input(
+        self, bank_input: BankInput, content: bytes
+    ) -> BankInput:
         try:
             csv_content = content.decode("utf-8-sig")
         except UnicodeDecodeError as exc:
@@ -477,7 +496,11 @@ class BankInputService:
 
     def _stored_path_for(self, bank_input_id: str, filename: str) -> Path:
         extension = Path(filename).suffix or ".csv"
-        return Path(settings.bank_input_dir) / bank_input_id / f"{bank_input_id}{extension}"
+        return (
+            Path(settings.bank_input_dir)
+            / bank_input_id
+            / f"{bank_input_id}{extension}"
+        )
 
     def _cleanup_stored_file(self, stored_path: Path) -> None:
         if stored_path.exists():

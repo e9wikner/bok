@@ -3,14 +3,14 @@
 from datetime import date, timedelta
 from typing import Dict, List, Optional
 
-from domain.invoice_validation import VATCalculator, ValidationError
+from domain.invoice_validation import ValidationError, VATCalculator
+from domain.types import AuditAction
 from repositories.account_repo import AccountRepository
+from repositories.audit_repo import AuditRepository
 from repositories.customer_article_repo import ArticleRepository, CustomerRepository
 from repositories.invoice_draft_repo import InvoiceDraftRepository
 from repositories.period_repo import PeriodRepository
-from repositories.audit_repo import AuditRepository
 from services.invoice import InvoiceService
-from domain.types import AuditAction
 
 
 class InvoiceDraftService:
@@ -42,16 +42,24 @@ class InvoiceDraftService:
             customer_name = customer_name or customer.name
             customer_org_number = customer_org_number or customer.org_number
             customer_email = customer_email or customer.email
-            due_date = due_date or invoice_date + timedelta(days=customer.payment_terms_days)
+            due_date = due_date or invoice_date + timedelta(
+                days=customer.payment_terms_days
+            )
 
         if not customer_name:
-            raise ValidationError("missing_customer", "Customer name or customer_id is required")
+            raise ValidationError(
+                "missing_customer", "Customer name or customer_id is required"
+            )
         if not due_date:
             due_date = invoice_date + timedelta(days=30)
         if due_date < invoice_date:
-            raise ValidationError("invalid_due_date", "Due date must be on or after invoice date")
+            raise ValidationError(
+                "invalid_due_date", "Due date must be on or after invoice date"
+            )
         if not rows_data:
-            raise ValidationError("missing_rows", "At least one invoice row is required")
+            raise ValidationError(
+                "missing_rows", "At least one invoice row is required"
+            )
 
         draft = self.drafts.create(
             customer_id=customer_id,
@@ -116,9 +124,13 @@ class InvoiceDraftService:
     ):
         draft = self.get_draft(draft_id)
         if draft.status == "sent":
-            raise ValidationError("draft_already_sent", "Sent invoice draft cannot be updated")
+            raise ValidationError(
+                "draft_already_sent", "Sent invoice draft cannot be updated"
+            )
         if draft.status == "rejected":
-            raise ValidationError("draft_rejected", "Rejected invoice draft cannot be updated")
+            raise ValidationError(
+                "draft_rejected", "Rejected invoice draft cannot be updated"
+            )
 
         normalized = self._normalize_draft_input(
             invoice_date=invoice_date,
@@ -171,7 +183,9 @@ class InvoiceDraftService:
         if draft.status == "sent":
             raise ValidationError("draft_already_sent", "Invoice draft is already sent")
         if draft.status == "rejected":
-            raise ValidationError("draft_rejected", "Rejected invoice draft cannot be sent")
+            raise ValidationError(
+                "draft_rejected", "Rejected invoice draft cannot be sent"
+            )
         if not draft.rows:
             raise ValidationError("missing_rows", "Invoice draft has no rows")
 
@@ -197,7 +211,9 @@ class InvoiceDraftService:
             created_by=actor,
         )
         invoice_service.send_invoice(invoice.id, actor=actor)
-        voucher_id = invoice_service.create_booking_for_invoice(invoice.id, period_id, actor=actor)
+        voucher_id = invoice_service.create_booking_for_invoice(
+            invoice.id, period_id, actor=actor
+        )
         self.drafts.mark_sent(draft.id, invoice.id, voucher_id)
 
         self.audit.log(
@@ -205,7 +221,11 @@ class InvoiceDraftService:
             entity_id=draft.id,
             action="sent",
             actor=actor,
-            payload={"invoice_id": invoice.id, "voucher_id": voucher_id, "period_id": period_id},
+            payload={
+                "invoice_id": invoice.id,
+                "voucher_id": voucher_id,
+                "period_id": period_id,
+            },
         )
         return {
             "draft": self.drafts.get(draft.id),
@@ -217,7 +237,9 @@ class InvoiceDraftService:
     def reject(self, draft_id: str, actor: str = "system"):
         draft = self.get_draft(draft_id)
         if draft.status == "sent":
-            raise ValidationError("draft_already_sent", "Sent invoice draft cannot be rejected")
+            raise ValidationError(
+                "draft_already_sent", "Sent invoice draft cannot be rejected"
+            )
         self.drafts.update_status(draft_id, "rejected")
         self.audit.log(
             entity_type="invoice_draft",
@@ -245,16 +267,24 @@ class InvoiceDraftService:
             customer_name = customer_name or customer.name
             customer_org_number = customer_org_number or customer.org_number
             customer_email = customer_email or customer.email
-            due_date = due_date or invoice_date + timedelta(days=customer.payment_terms_days)
+            due_date = due_date or invoice_date + timedelta(
+                days=customer.payment_terms_days
+            )
 
         if not customer_name:
-            raise ValidationError("missing_customer", "Customer name or customer_id is required")
+            raise ValidationError(
+                "missing_customer", "Customer name or customer_id is required"
+            )
         if not due_date:
             due_date = invoice_date + timedelta(days=30)
         if due_date < invoice_date:
-            raise ValidationError("invalid_due_date", "Due date must be on or after invoice date")
+            raise ValidationError(
+                "invalid_due_date", "Due date must be on or after invoice date"
+            )
         if not rows_data:
-            raise ValidationError("missing_rows", "At least one invoice row is required")
+            raise ValidationError(
+                "missing_rows", "At least one invoice row is required"
+            )
 
         return {
             "customer_id": customer_id,
@@ -267,23 +297,45 @@ class InvoiceDraftService:
         }
 
     def _normalize_row(self, row: Dict) -> Dict:
-        article = ArticleRepository.get(row["article_id"]) if row.get("article_id") else None
-        description = row.get("description") or (article.description if article else None) or (article.name if article else None)
+        article = (
+            ArticleRepository.get(row["article_id"]) if row.get("article_id") else None
+        )
+        description = (
+            row.get("description")
+            or (article.description if article else None)
+            or (article.name if article else None)
+        )
         quantity = int(row.get("quantity") or 0)
-        unit_price = int(row.get("unit_price") if row.get("unit_price") is not None else (article.unit_price if article else 0))
+        unit_price = int(
+            row.get("unit_price")
+            if row.get("unit_price") is not None
+            else (article.unit_price if article else 0)
+        )
         vat_code = row.get("vat_code") or (article.vat_code if article else "MP1")
-        revenue_account = row.get("revenue_account") or (article.revenue_account if article else "3010")
+        revenue_account = row.get("revenue_account") or (
+            article.revenue_account if article else "3010"
+        )
 
         if not description:
-            raise ValidationError("missing_description", "Invoice draft row description is required")
+            raise ValidationError(
+                "missing_description", "Invoice draft row description is required"
+            )
         if quantity <= 0:
-            raise ValidationError("invalid_quantity", "Invoice draft row quantity must be greater than zero")
+            raise ValidationError(
+                "invalid_quantity",
+                "Invoice draft row quantity must be greater than zero",
+            )
         if unit_price < 0:
-            raise ValidationError("invalid_unit_price", "Invoice draft row unit price must be non-negative")
+            raise ValidationError(
+                "invalid_unit_price",
+                "Invoice draft row unit price must be non-negative",
+            )
         if not VATCalculator.validate_vat_code(vat_code):
             raise ValidationError("invalid_vat_code", f"Invalid VAT code: {vat_code}")
         if not AccountRepository.get(revenue_account):
-            raise ValidationError("invalid_revenue_account", f"Account {revenue_account} does not exist")
+            raise ValidationError(
+                "invalid_revenue_account", f"Account {revenue_account} does not exist"
+            )
 
         amount_ex_vat = quantity * unit_price
         vat_amount = VATCalculator.calculate_vat(amount_ex_vat, vat_code)
@@ -304,7 +356,11 @@ class InvoiceDraftService:
     def _resolve_period_id(self, invoice_date: date) -> str:
         for fiscal_year in PeriodRepository.list_fiscal_years():
             if fiscal_year.start_date <= invoice_date <= fiscal_year.end_date:
-                period = PeriodRepository.get_period_by_date(fiscal_year.id, invoice_date)
+                period = PeriodRepository.get_period_by_date(
+                    fiscal_year.id, invoice_date
+                )
                 if period:
                     return period.id
-        raise ValidationError("period_not_found", "No accounting period found for invoice date")
+        raise ValidationError(
+            "period_not_found", "No accounting period found for invoice date"
+        )

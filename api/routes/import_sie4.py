@@ -40,13 +40,13 @@ async def import_sie4(
 ):
     """
     Import accounting data from SIE4 format file.
-    
-    SIE (Standard Import/Export) is the Swedish standard for 
+
+    SIE (Standard Import/Export) is the Swedish standard for
     exchanging accounting data between systems.
-    
+
     - **file**: SIE4 file (.si, .sie, or .txt extension)
     - **fiscal_year_id**: Optional target fiscal year (auto-detected if not provided)
-    
+
     Returns import statistics and any errors.
     """
     try:
@@ -148,7 +148,7 @@ async def validate_sie4(
 ):
     """
     Validate a SIE4 file without importing.
-    
+
     Returns parsing results and any validation errors.
     """
     try:
@@ -179,7 +179,9 @@ async def validate_sie4(
         for voucher in data.vouchers:
             total = sum(row.amount for row in voucher.rows)
             if total != 0:
-                errors.append(f"Voucher {voucher.series}{voucher.number} is unbalanced: {total}")
+                errors.append(
+                    f"Voucher {voucher.series}{voucher.number} is unbalanced: {total}"
+                )
 
         return {
             "valid": len(errors) == 0,
@@ -188,8 +190,14 @@ async def validate_sie4(
                 "org_number": data.company.org_number if data.company else None,
             },
             "fiscal_year": {
-                "start": data.fiscal_year_start.isoformat() if data.fiscal_year_start else None,
-                "end": data.fiscal_year_end.isoformat() if data.fiscal_year_end else None,
+                "start": (
+                    data.fiscal_year_start.isoformat()
+                    if data.fiscal_year_start
+                    else None
+                ),
+                "end": (
+                    data.fiscal_year_end.isoformat() if data.fiscal_year_end else None
+                ),
             },
             "statistics": {
                 "accounts": len(data.accounts),
