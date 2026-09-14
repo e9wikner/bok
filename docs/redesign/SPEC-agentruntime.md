@@ -4,18 +4,21 @@ Modul-id `agentruntime` i kapabilitetskartan (`ANALYS.md` §8). Beror på `idemp
 klar. Allt ovanför i byggordningen — `tradar`, `beslut`, `chattyta`, `flode-verifikationer` —
 beror på den här.
 
-Status: **Fas 1 — fem av sex frågor besvarade 2026-09-14 (se §12). §12.5 är omkullkastad:
-runtimen ska vara leverantörsoberoende, inte Anthropic-bunden.** Det ändrar §2, §4 och §6 och
-måste landa innan uppgifterna skrivs. Ingen kod, ingen `tasks/`-fil ännu.
+Status: **Fas 1 — alla sex frågor besvarade 2026-09-14 (se §12).** Runtimen är
+leverantörsoberoende: den går mot en OpenAI-/Anthropic-kompatibel gateway med beställarens egen
+nyckel, och modellen väljs per konversation. §2, §4, §5 och §6 är omskrivna efter det. Ingen kod,
+`tasks/plan.md` och `tasks/todo.md` skrivs härnäst.
 
 ---
 
 ## Antaganden
 
-1. **Agenten är Claude via Anthropics API.** Repot har ingen LLM i dag
-   (`grep -riE "openai|anthropic"` över `*.py` → 0 träffar, `requirements.txt` har ingen
-   klient). Valet är alltså inte en migrering utan ett första val. Ingen annan leverantör
-   förekommer i repot.
+1. **Agenten går mot en modellgateway, inte mot en enskild leverantör.** Repot har ingen LLM i
+   dag (`grep -riE "openai|anthropic"` över `*.py` → 0 träffar, `requirements.txt` har ingen
+   klient), så det här är ett första val och inte en migrering. Beslutet (§12.5) är att bok
+   använder beställarens nyckel hos **OpenCode Zen** — en gateway som serverar 60+ modeller från
+   flera leverantörer på en nyckel — och att **modellen väljs per konversation**, inte en gång i
+   konfigurationen.
 2. **Enbolag, en installation.** Runtimen behöver inte bära bolag i sin session.
 3. **Agenten postar med `Idempotency-Key`.** Modulen `idempotens` är förutsättningen, inte en
    trevlighet: en worker som kraschar mitt i ett pass ska kunna köra om utan att förorena
@@ -25,9 +28,11 @@ måste landa innan uppgifterna skrivs. Ingen kod, ingen `tasks/`-fil ännu.
    människan ur den slingan. Tråd, SSE och beslutskort byggs i `tradar`/`beslut` ovanpå samma
    sessionsmotor.
 5. **Bokföringsdata lämnar maskinen.** Underlag, kontoplan och verifikationstexter skickas till
-   Anthropics API. Det är ett verkligt beslut, inte en teknikalitet. Se §12.4.
+   gatewayen och vidare till den leverantör modellen tillhör. Det är ett verkligt beslut, inte en
+   teknikalitet, och det är bekräftat i §12.4. Med en gateway är det dessutom **två** parter per
+   anrop: gatewayen och modelleverantören bakom den.
 
-→ Punkt 1 och 5 är de dyra. Rätta mig där innan resten byggs.
+→ Punkt 1 och 5 är de dyra, och punkt 5 blev dyrare av punkt 1. De är bekräftade 2026-09-14.
 
 ---
 
@@ -51,8 +56,8 @@ bokföringssystem — det är en inkorg.
 
 ### Vad vi bygger
 
-En **worker i backend** som vaknar på intervall, tar ett underlag i taget ur kön, kör en
-Claude-session med bolagets bokföringskontext och ett litet, typat verktygsset, och antingen
+En **worker i backend** som startas per pass, tar ett underlag i taget ur kön, kör en
+LLM-session med bolagets bokföringskontext och ett litet, typat verktygsset, och antingen
 postar en verifikation eller registrerar ett dokumenterat avstående. Plus det läge om sig själv
 som `GET /api/v1/agent/status` behöver för att designens header ska kunna säga något sant.
 
@@ -81,24 +86,56 @@ om vad agenten gjorde, hur länge, och vad det kostade.
 Oförändrat i övrigt. Nytt:
 
 ```
-anthropic>=1.0          # officiell Python-SDK, inget annat sätt att nå API:t
+anthropic>=1.0          # Messages-protokollet
+openai>=2.0             # Chat Completions-protokollet
 ```
 
-Modell: **`claude-opus-5`** ($5 / $25 per miljon in/ut-token). Motiv: verktygsloopen fattar
-bokföringsbeslut med rättslig verkan, och de fallen är precis de där en billigare modell kostar
-mer — ett felaktigt konto rättas med B-serieverifikation, inte med en omkörning. `claude-sonnet-5`
-($2 / $10) är rätt val först om mätning visar att kvaliteten håller. Det är inte mitt beslut att
-ta i förväg, se §12.5.
+Två klientbibliotek, en nyckel, en gateway. Det ser ut som dubbelarbete och är det inte:
+**OpenCode Zen serverar olika modellfamiljer över olika protokoll på samma bas-URL**
+(`https://opencode.ai/zen/v1`), och båda SDK:erna tar en `base_url`, så ingen av dem används mot
+sin egen leverantör:
 
-Parametrar:
+| Protokoll | Väg | Modeller | SDK |
+|---|---|---|---|
+| Anthropic Messages | `/zen/v1/messages` | Claude (Opus, Sonnet, Haiku, Fable) | `anthropic` |
+| OpenAI Chat Completions | `/zen/v1/chat/completions` | GPT, Grok, Qwen, DeepSeek, Kimi, GLM, MiniMax | `openai` |
+| Google | `/zen/v1/models/<id>` | Gemini | **byggs inte i den här modulen** |
 
-- `thinking={"type": "adaptive"}` — modellen väljer själv djup per underlag. Ett kvitto på 250 kr
-  och en periodiserad leasingfaktura ska inte kosta lika mycket att tänka på.
-- `output_config={"effort": "high"}` — `xhigh`/`max` sparas till fall som mätning visar behöver
-  det. `low`/`medium` är rimliga för enkla kvitton om §12.5 landar i att differentiera.
-- `.stream()` med `get_final_message()` — inte för att någon läser strömmen i den här modulen
-  (det gör `tradar`), utan för att undvika HTTP-timeout på långa turer.
-- **Ingen** `budget_tokens`. Den är borttagen på Opus 5 och ger 400.
+Gemini-vägen är utelämnad med avsikt: den är ett tredje protokoll för en familj ingen bett om, och
+den kan läggas till som en tredje adapter utan att röra något annat.
+
+### Vad som skiljer sig mellan protokollen
+
+Det här är den verkliga kostnaden för leverantörsoberoendet, och den ska stå skriven innan någon
+bygger:
+
+| Förmåga | Messages-vägen | Chat Completions-vägen |
+|---|---|---|
+| Cache-brytpunkt (§6.6) | Explicit, och hela kostnadskalkylen bygger på den | Ingen explicit brytpunkt. Prefixcache kan finnas, men styrs inte av oss och kan inte verifieras med `cache_read_input_tokens` |
+| PDF som `document`-block (§6.3) | Ja | Nej. En PDF måste renderas till bild eller extraheras till text **innan** anropet |
+| Tänkande / `effort` | `thinking`, `output_config.effort` | Leverantörsspecifikt eller obefintligt |
+| Verktygsloopen | `stop_reason == "tool_use"`, `tool_use`-block | `finish_reason == "tool_calls"`, JSON-strängargument som måste parsas |
+| Vägran som eget utfall (§6.7) | `stop_reason == "refusal"` | Ingen egen kod — en vägran kommer som text |
+
+Konsekvens: **Messages-vägen byggs först och är standard.** Chat Completions-vägen byggs efter,
+med sina egna tester, och `LLMClient.capabilities` säger vad den saknar så att §6.6:s cachekrav
+och §6.3:s dokumentblock inte tyst antas finnas.
+
+### Modellen är per konversation
+
+Ingen `MODEL = ...` i koden. Modellen kommer in i sessionen som ett argument:
+
+- `LLM_DEFAULT_MODEL` i `config.py` är vad ett pass använder när ingen sagt något annat.
+- Ett manuellt startat pass (§12.3) tar modellen som parameter.
+- `tradar` lägger senare modellen på tråden — en konversation, en kontext, en modell — och skickar
+  in den samma väg. Runtimen behöver ingen ändring för det; `agent_runs.model` bär redan svaret.
+
+### Prislista, inte gissning
+
+`cost_ore` (§5) räknas ur `usage` och en prislista per **modell** i `config.py`, inte per
+leverantör. En modell utan prisrad får inte köra: passet vägrar starta med ett tydligt fel. Det är
+avsiktligt strängt — dygnstaket i §6.5 är en säkring, och en säkring som inte kan räkna är ingen
+säkring. Att lägga till en modell är att lägga till en rad med in-, ut- och cachepris.
 
 ---
 
@@ -107,21 +144,31 @@ Parametrar:
 Inga nya. Runtimen startar med API:t:
 
 ```bash
-AGENT_RUNTIME_ENABLED=true ANTHROPIC_API_KEY=... python main.py
+AGENT_RUNTIME_ENABLED=true \
+LLM_API_KEY=... \
+LLM_BASE_URL=https://opencode.ai/zen/v1 \
+LLM_DEFAULT_MODEL=opencode/claude-opus-5 \
+python main.py
+
 pytest tests/test_agent_runtime.py -v
 ```
 
 Avstängd som standard, som dropzonen. En utvecklare som kör `python main.py` ska inte råka
-starta en betald LLM-loop mot sin testdatabas.
+starta en betald LLM-loop mot sin testdatabas. `LLM_BASE_URL` har gatewayen som standardvärde men
+är konfigurerbar — pekar den på `api.anthropic.com` fungerar Messages-vägen lika bra med en
+Anthropic-nyckel, och det är den enklaste vägen ut om gatewayen ligger nere.
 
 ---
 
 ## 4. Projektstruktur
 
 ```
-services/agent_runtime.py      # AgentWorker + AgentRunner (tråd, flock, intervall, status)
+services/agent_runtime.py      # AgentWorker + AgentRunner (tråd, flock, start, status)
 services/agent_tools.py        # verktygsdefinitioner + utförare, ett verktyg per tillåten handling
-services/agent_session.py      # Claude-anropet: systemprompt, cache, verktygsloop, felhantering
+services/agent_session.py      # passet: systemprompt, verktygsloop, budget, felhantering
+services/llm/__init__.py       # LLMClient-protokollet + modellregistret (modell → protokoll, pris)
+services/llm/messages.py       # Anthropic Messages-adapter (standard)
+services/llm/chat.py           # OpenAI Chat Completions-adapter
 services/voucher_posting.py    # utbruten ur api/routes/agent.py — se §7
 repositories/agent_run_repo.py # all SQL för agent_runs / agent_run_events
 db/migrations/024_*.sql        # agent_runs, agent_run_events
@@ -130,7 +177,26 @@ tests/test_agent_runtime.py
 ```
 
 Lagren är de vanliga: ingen SQL utanför `repositories/`, inga HTTP-begrepp i `services/`.
-`services/agent_session.py` är det enda stället som importerar `anthropic`.
+
+**`services/llm/` är det enda stället som importerar `anthropic` eller `openai`.** Allt ovanför —
+sessionen, verktygen, workern, statusen — ser bara `LLMClient`. Det är den gränsen som gör
+leverantörsoberoendet till något annat än en `if`-sats: går den sönder, sprider sig ett
+protokollval upp i bokföringslogiken och en tredje leverantör blir en omskrivning i stället för en
+fil till.
+
+`LLMClient` är smalt med flit:
+
+```python
+class LLMClient(Protocol):
+    capabilities: LLMCapabilities   # cache_breakpoint, pdf_document_blocks, refusal_stop_reason
+    def run_turn(self, system, messages, tools, model, max_tokens) -> LLMTurn: ...
+
+# LLMTurn: text, tool_calls, stop ('tool_calls'|'end'|'refusal'|'max_tokens'), usage
+```
+
+`stop` är normaliserad. Att `refusal` bara finns på den ena vägen (§2) är adapterns problem, inte
+sessionens — men `capabilities` säger vilket som gäller, så §6.7 kan behandla en vägran som
+verklig vägran på Messages-vägen och som ett avstående utan kategori på den andra.
 
 ---
 
@@ -143,7 +209,8 @@ CREATE TABLE agent_runs (
     status        TEXT NOT NULL,         -- 'running' | 'completed' | 'failed' | 'abandoned'
     started_at    TIMESTAMP NOT NULL,
     finished_at   TIMESTAMP,
-    model         TEXT NOT NULL,
+    model         TEXT NOT NULL,         -- t.ex. 'opencode/claude-opus-5'
+    protocol      TEXT NOT NULL,         -- 'messages' | 'chat'
     input_tokens  INTEGER NOT NULL DEFAULT 0,
     output_tokens INTEGER NOT NULL DEFAULT 0,
     cache_read_tokens INTEGER NOT NULL DEFAULT 0,
@@ -176,8 +243,15 @@ inte. Händelseraderna finns för att `GET /agent/status` ska kunna visa vad age
 och för att `tradar` senare ska kunna rendera samma händelser som inlägg utan att runtimen får
 veta vad en tråd är.
 
-**Beloppen i ören, som allt annat i systemet.** `cost_ore` beräknas ur `response.usage` och
-prislistan i `config.py`, inte ur en gissning.
+**Beloppen i ören, som allt annat i systemet.** `cost_ore` beräknas ur `usage` och prislistan i
+`config.py`, inte ur en gissning. Prislistan slås upp på **modellen**, och en modell utan prisrad
+får inte köra (§2) — därför kan kolumnen vara `NOT NULL` utan att ljuga.
+
+**`model` och `protocol` står på körningen, inte i konfigurationen.** En kör som gick på
+`opencode/claude-opus-5` och en som gick på `opencode/gpt-5.5` ska gå att skilja åt i efterhand,
+och `cache_read_tokens = 0` betyder olika saker på de två vägarna (§2). Utan `protocol` på raden
+är den siffran oläsbar ett halvår senare. När `tradar` lägger modellen på tråden är det de här två
+kolumnerna som visar vad som faktiskt användes.
 
 ---
 
@@ -200,18 +274,24 @@ Exakt samma form som `DropzoneRunner` (`services/dropzone.py`), och det är avsi
 ### 6.2 Ett pass
 
 ```
-vakna på intervall
+passet startas (manuellt — §12.3)
   → finns en pågående kör med status='running' och en död tråd? markera 'abandoned', logga
+  → slå upp modellen: parametern, annars LLM_DEFAULT_MODEL
+       → ingen prisrad för modellen? vägra starta, tydligt fel (§2)
   → hämta kön: IntakeService, samma vy som GET /agent/intake/pending
-  → kön tom → sov vidare, skriv ingen agent_runs-rad
-  → skapa agent_runs-rad (status='running')
+  → kön tom → avsluta, skriv ingen agent_runs-rad
+  → skapa agent_runs-rad (status='running', model, protocol)
   → för varje post, en i taget:
        → markera posten 'processing'
-       → kör en Claude-session (§6.3) med posten som uppgift
+       → kör en session (§6.3) mot vald modell med posten som uppgift
        → utfallet är postning, avstående eller fel
        → budgettak nått (§6.5)? avsluta passet snyggt, resten ligger kvar i kön
   → status='completed', summera tokens och kostnad
 ```
+
+Intervallslingan finns i `AgentRunner` men startas inte av en timer i den här modulen (§12.3).
+Den som lägger på schemaläggningen senare ändrar `trigger` från `'manual'` till `'schedule'`,
+ingenting annat.
 
 En post i taget. Det är inte en optimering som väntar — det är hur `02_bokforingsprocess.md`
 redan instruerar agenten ("one item at a time" står också i entrypointens guardrails), och det är
@@ -219,7 +299,8 @@ vad som gör ett avbrott billigt: allt utom den pågående posten är redan klar
 
 ### 6.3 Sessionen
 
-Ett anrop per underlag, inte en session som lever över hela passet. Motivet är återställbarhet:
+Ett anrop per underlag, inte en session som lever över hela passet. Sessionen vet inte vilket
+protokoll den kör på — den ser `LLMClient` (§4) och frågar `capabilities` när svaret skiljer sig. Motivet är återställbarhet:
 en session som dör tar med sig allt den höll på med, och ett underlag som redan är bokfört ska
 inte bokföras om för att underlag sju kraschade.
 
@@ -233,9 +314,16 @@ inte bokföras om för att underlag sju kraschade.
 4. De senaste korrigeringarna — vad människan rättade sist är den starkaste signalen som finns.
 
 **Användarturen** (volatil, efter cachebrytpunkten): dagens datum, öppna perioder, och det
-aktuella underlaget — metadata plus filen som `document`-block för PDF, `image`-block för foto.
+aktuella underlaget — metadata plus filen. Hur filen bifogas beror på adaptern:
 
-**Verktygsloopen**: manuell `while stop_reason == "tool_use"`-loop, inte SDK:ns tool runner.
+- `capabilities.pdf_document_blocks` → PDF som `document`-block, foto som `image`-block.
+- Annars → PDF:en renderas till bild innan anropet. Går inte det, är underlaget ett **avstående**
+  med motiveringen att modellen inte kan läsa underlaget — aldrig en postning på gissad metadata.
+
+Det är skillnaden mellan vägarna som faktiskt biter i bokföringen, och därför är den ett testfall
+(§9) och inte en kommentar i koden.
+
+**Verktygsloopen**: manuell loop på `LLMTurn.stop == "tool_calls"`, inte SDK:ns tool runner.
 Skälet är att varje verktygsanrop ska passera en punkt där vi kan neka, logga och skriva en
 `agent_run_events`-rad innan det utförs. Det är samma argument som §6.4 gör för verktygsytan.
 
@@ -288,10 +376,20 @@ Taken avbryter aldrig mitt i en postning: de kontrolleras mellan underlag och me
 verktygsvarv, aldrig inuti `with db.transaction():`.
 
 Dygnstaket är en säkring, inte en budget. En loop som av något skäl börjar bränna token ska stanna
-av sig själv innan någon hinner läsa en faktura. Vad som händer **vid** taket — stanna helt, eller
-gå ned till en billigare modell — är §12.5.
+av sig själv innan någon hinner läsa en faktura. Vid taket **stannar** runtimen (§12.5) — den går
+aldrig ned till en billigare modell på egen hand. Ett tak som sänker kvaliteten i stället för att
+stoppa börjar bokföra sämre precis när det är som mest att göra, och med modellval per konversation
+är nedgraderingen dessutom beställarens beslut att ta, inte workerns.
 
-### 6.6 Cache
+Taket räknas i kronor över alla modeller i ett dygn, inte per modell. Det är samma nyckel som
+betalar.
+
+### 6.6 Cache — bara på Messages-vägen
+
+Gäller när `capabilities.cache_breakpoint` är sann. På Chat Completions-vägen finns ingen
+brytpunkt vi styr och ingen `cache_read_input_tokens` att mäta på: då är cachen inte en besparing
+vi räknar med, och kostnadsuppskattningen för ett pass blir därefter. Det ska synas i kalkylen
+innan någon väljer modell, inte upptäckas på fakturan.
 
 Systemprompten (instruktioner + kontoplan + korrigeringar) är samma bytes för varje underlag i ett
 pass och nästan samma mellan pass. Med en explicit brytpunkt sist i systemprompten läses den från
@@ -304,16 +402,18 @@ Tre fällor som tystar cachen och som ska testas, inte antas:
 - **Deterministisk ordning.** Kontoplan och korrigeringar sorteras; verktygslistan byggs i fast
   ordning. Ett `dict` som råkar itereras i annan ordning är samma sak som en ändrad prompt.
 - **Verifiera, gissa inte.** `usage.cache_read_input_tokens` ska vara > 0 från och med underlag
-  två i ett pass. Är den noll finns en tyst invaliderare, och det är ett testfall.
+  två i ett pass. Är den noll finns en tyst invaliderare, och det är ett testfall — på den väg där
+  siffran finns.
 
 ### 6.7 Felhantering
 
 | Fel | Svar |
 |---|---|
-| API nere, timeout, 5xx | SDK:n gör sina omförsök. Håller det i sig: underlaget tillbaka till `pending`, passet `failed`, exponentiell backoff |
-| 429 | Respektera `retry-after`, avsluta passet, ta om vid nästa intervall |
-| `stop_reason == "refusal"` | Registrera avstående med `stop_details.category`. Aldrig posta något efter en vägran |
-| `stop_reason == "max_tokens"` | Avstående `agent_output_truncated`. En avhuggen tur får aldrig tolkas som ett beslut |
+| Gateway nere, timeout, 5xx | SDK:n gör sina omförsök. Håller det i sig: underlaget tillbaka till `pending`, passet `failed`, exponentiell backoff |
+| 429 | Respektera `retry-after`, avsluta passet, ta om vid nästa start |
+| `stop == "refusal"` | Registrera avstående med kategorin. Aldrig posta något efter en vägran. Saknar adaptern egen vägrankod (§2) blir det ett avstående utan kategori — aldrig en postning |
+| `stop == "max_tokens"` | Avstående `agent_output_truncated`. En avhuggen tur får aldrig tolkas som ett beslut |
+| Modellen finns inte hos gatewayen (404 / `model_not_found`) | Passet startar inte. Ingen tyst nedgradering till en annan modell |
 | Verktyget kastar (`ValidationError`, `IntakeError`) | `tool_result` med `is_error: true` tillbaka till modellen. Den får rätta sig själv inom varvtaket |
 | `409 request_in_flight` från postningen | Någon annan håller nyckeln. Lämna underlaget, gå vidare |
 | `201` med `Idempotent-Replay: true` | Redan bokfört. **Kvitto, inte fel.** Uppdatera kön, gå vidare |
@@ -355,7 +455,8 @@ Ersätter `GET /api/v1/agent/operations/log`, som är en stubb som returnerar to
   "enabled": true,
   "running": true,
   "current_run": {
-    "id": "...", "started_at": "...", "trigger": "schedule",
+    "id": "...", "started_at": "...", "trigger": "manual",
+    "model": "opencode/claude-opus-5", "protocol": "messages",
     "items_seen": 7, "items_posted": 5, "items_abstained": 1,
     "current_source_id": "...", "current_activity": "las_kontoplan"
   },
@@ -370,15 +471,23 @@ Ersätter `GET /api/v1/agent/operations/log`, som är en stubb som returnerar to
 Auth som övriga agent-endpoints. `current_activity` är verktygsnamnet — designens header ska kunna
 skriva "läser kontoplanen" utan att uppfinna en egen vokabulär.
 
+`model` står i svaret därför att modellen är ett val per konversation (§2) och en människa som
+läser statusen ska se vilken som faktiskt körde. **Nyckeln står aldrig i svaret** — varken hel
+eller maskerad, och inte heller i `agent_run_events` (§12.6).
+
 ---
 
 ## 9. Teststrategi
 
 `tests/test_agent_runtime.py`. Testerna skrivs före implementationen, som i `idempotens`.
 
-**Anthropic-API:t anropas aldrig i tester.** En falsk klient returnerar förinspelade
-`Message`-objekt. Det som testas är loopen, verktygen, budgetarna och felvägarna — inte att
-modellen är klok. Ett test som kostar pengar körs inte i CI och är därför inte ett test.
+**Ingen LLM anropas i tester.** En falsk `LLMClient` returnerar förinspelade `LLMTurn`-objekt.
+Det som testas är loopen, verktygen, budgetarna och felvägarna — inte att modellen är klok. Ett
+test som kostar pengar körs inte i CI och är därför inte ett test.
+
+Att `LLMClient` är smalt (§4) är det som gör den falska klienten trivial. De två adaptrarna testas
+var för sig mot inspelade råsvar, så att protokollskillnaderna i §2 fångas i adapterlagret i
+stället för att läcka upp i sessionstesterna.
 
 | # | Fall | Förväntat |
 |---|---|---|
@@ -392,13 +501,17 @@ modellen är klok. Ett test som kostar pengar körs inte i CI och är därför i
 | 8 | Dygnstaket redan nått | Passet startar inte, ingen `agent_runs`-rad, loggat |
 | 9 | Kön tom | Ingen `agent_runs`-rad, inget API-anrop |
 | 10 | API kastar `APIConnectionError` | Underlaget tillbaka till `pending`, passet `failed`, backoff |
-| 11 | 429 med `retry-after` | Passet avslutas, nästa intervall försöker igen |
+| 11 | 429 med `retry-after` | Passet avslutas, nästa start försöker igen |
 | 12 | Tråden dödas mitt i ett pass, ny start | Föregående kör `abandoned`, ingen dubbelpostning |
 | 13 | Två workers, samma kö | `flock` släpper bara igenom en |
 | 14 | Systemprompten byggd två gånger med samma data | Byte för byte identisk (cachetest) |
 | 15 | Fem underlag i ett pass | `cache_read_input_tokens > 0` från och med nummer två |
 | 16 | `AGENT_RUNTIME_ENABLED=false` | Ingen tråd, `status.enabled=false`, inget API-anrop |
 | 17 | Verktygslistan | Innehåller inget verktyg som kan ändra eller radera en postad verifikation |
+| 18 | Samma pass, en gång per adapter | Samma verktygsanrop ger samma postning. Protokollet syns inte i utfallet |
+| 19 | Modell utan prisrad i `config.py` | Passet startar inte, ingen `agent_runs`-rad, tydligt fel |
+| 20 | Adapter utan `pdf_document_blocks`, PDF som inte kan renderas | Avstående med läsbar motivering, **ingen** postning på metadata |
+| 21 | Modellen valdes per kör | `agent_runs.model` och `.protocol` bär den valda modellen, inte standardvärdet |
 
 Testfall 17 är ingen formalitet. Det är den enda automatiska kontrollen av att append-only-regeln
 inte kan gå förlorad genom att någon lägger till ett bekvämt verktyg.
@@ -415,13 +528,15 @@ inte kan gå förlorad genom att någon lägger till ett bekvämt verktyg.
 - Idempotensnyckel på varje postning, härledd ur underlagets id.
 - Ett underlag i taget.
 - `black . && isort . && flake8 && mypy .` och hela `tests/` före commit. Jobboutputen läses,
-  inte bocken.
+  inte bocken. `black`/`isort`/`flake8` ska vara rena; `mypy` har 61 pre-existerande fel i repot
+  (eget spår, se `tasks/todo.md`) — modulens egna filer lägger inte till ett enda.
 
 **Fråga först**
 
 - Att låta runtimen skriva något annat än verifikationer och intagsutfall.
 - Att höja dygnstaket, eller ändra vad som händer vid det.
-- Att byta modell eller lägga till en andra modell.
+- Att lägga till en tredje adapter (t.ex. Gemini-vägen) eller ett protokoll till.
+- Att ändra vad som händer vid dygnstaket.
 - Varje ändring i `docs/to_agent/*.md`. Katalogen är runtime-innehåll och blir nu bokstavligen
   agentens systemprompt — en redigering där ändrar vad agenten gör, inte vad den läser om sig
   själv.
@@ -433,7 +548,9 @@ inte kan gå förlorad genom att någon lägger till ett bekvämt verktyg.
 - Posta efter en vägran, en avhuggen tur, eller ett verktygsfel som modellen inte rättat.
 - Låta en LLM-genererad sträng bli en verifikations `description` utan att den passerat
   `VoucherValidator` och spårbarhetskravet.
-- Anropa Anthropics API i ett test.
+- Anropa en riktig LLM i ett test.
+- Importera `anthropic` eller `openai` utanför `services/llm/`.
+- Nedgradera modellen automatiskt — vid taket, vid fel, eller för att spara pengar.
 - Två workers mot samma databas.
 
 ---
@@ -453,15 +570,20 @@ Modulen är klar när allt nedan är sant:
 7. Verktygslistan innehåller ingen väg att ändra eller radera postad bokföring, verifierat i test.
 8. Postningen går genom samma kod som `POST /api/v1/agent/vouchers`, och båda vägarna delar
    idempotens, validering och transaktion.
-9. Ingen testkörning träffar Anthropics API.
-10. `tests/` grön, `black`/`isort`/`flake8`/`mypy` rena — läst i jobboutput.
+9. Ingen testkörning träffar en riktig LLM, och `anthropic`/`openai` importeras ingenstans utanför
+   `services/llm/`.
+10. Samma pass går att köra på en Claude-modell och på en GPT-modell med samma nyckel, och
+    `agent_runs` visar vilken som användes.
+11. En modell utan prisrad stoppas innan passet börjar, inte efter.
+12. `tests/` grön och `black`/`isort`/`flake8` rena — läst i jobboutput. `mypy` lägger inte till
+    ett fel i modulens filer.
 
 ---
 
 ## 12. Beslut och öppna frågor
 
-Besvarade av beställaren 2026-09-14. Fem av sex är stängda; §12.5 är öppen igen i en annan form
-och blockerar uppgiftslistan.
+Besvarade av beställaren 2026-09-14. Alla sex är stängda. §12.5 blev inte ett modellval utan ett
+arkitekturkrav och skrev om §2, §4, §5 och §6.
 
 ### 12.1 In-process eller över eget HTTP? (§7) — **BESLUTAT: in-process**
 
@@ -526,15 +648,30 @@ inte att den aldrig får läsas av någon annan. Men det är ett beslut du ska t
 länge) som påverkar om något datahanteringsavtal behövs. **Detta är den fråga jag helst vill ha
 svar på innan något byggs.**
 
-### 12.5 Modellval — **OMKULLKASTAD: runtimen ska vara leverantörsoberoende**
+### 12.5 Modellval — **BESLUTAT: gateway med modell per konversation**
 
 Svar 2026-09-14: *"Jag vill kunna koppla vilken LLM-provider och modell jag vill. Exempelvis
-Opencode skall kunna köra detta."*
+Opencode skall kunna köra detta."* Förtydligat: beställarens nyckel hos OpenCode konfigureras i
+runtimen, och modellen väljs sedan **per konversation** — en konversation har en kontext och en
+modell.
 
-Det är inte ett val mellan Opus och Sonnet utan ett krav som ändrar §2, §4 och §6: specen är
-skriven mot Anthropics SDK och mot parametrar bara den har (`thinking`, `output_config.effort`,
-cache-prefixets ekonomi, `usage`-fälten som `cost_ore` räknas ur). Vad kravet kostar och exakt
-vilken form det tar är **den fråga som nu blockerar uppgiftslistan** — se §12.5b.
+Det var inte ett val mellan Opus och Sonnet utan ett arkitekturkrav. Två saker gör att det kostar
+mindre än det såg ut att göra:
+
+1. **OpenCode Zen talar båda protokollen på samma nyckel** — `/zen/v1/messages` för Claude-familjen
+   och `/zen/v1/chat/completions` för GPT, Grok, Qwen, DeepSeek m.fl. Anthropic-SDK:n tar en
+   `base_url`, så Messages-vägen — med cache, `thinking` och dokumentblock — överlever intakt. Det
+   är inte en minsta gemensamma nämnare, det är två vägar där den ena är den ursprungliga specens.
+2. **`agent_runs.model` fanns redan.** Modell per konversation kräver ingen ny tabell, bara att
+   modellen är ett argument hela vägen ned i stället för en konstant.
+
+Vad det ändå kostar, och som står skrivet i §2: Chat Completions-vägen har ingen cache-brytpunkt
+vi styr, ingen egen vägrankod, och inga PDF-dokumentblock. Ett pass på en GPT-modell är alltså
+dyrare per underlag än kalkylen i §6.6 antyder, och PDF-underlag måste renderas till bild först.
+Därför byggs Messages-vägen först och är standard.
+
+**Vid dygnstaket: stanna.** Runtimen nedgraderar aldrig modellen automatiskt — vid taket, vid fel
+eller för att spara pengar. Med modellval per konversation är det beställarens beslut.
 
 Den ursprungliga frågan, som underlag:
 
@@ -547,27 +684,16 @@ Relaterat: vad händer vid dygnstaket? Stanna, eller gå ned till en billigare m
 Jag föreslår **stanna** — ett tak som sänker kvaliteten i stället för att stoppa är ett tak som
 tyst börjar bokföra sämre när det är som mest att göra.
 
-### 12.5b Vad leverantörsoberoende betyder konkret — **ÖPPEN, blockerar uppgifterna**
+### 12.5b Formen: intern adapter, inte extern harness — **BESLUTAT**
 
-Tre former, med olika pris:
+Tre former stod öppna: intern adapter, extern harness (bok bygger ingen LLM-klient och Opencode
+kör modellen utifrån), eller båda. Beställarens förtydligande avgjorde: **bok kör anropen själv**
+med beställarens nyckel. Alltså intern adapter, `services/llm/` som enda import av ett SDK, och
+`LLMClient` som gräns.
 
-1. **Intern adapter.** `services/agent_session.py` blir ett tunt gränssnitt med en adapter per
-   leverantör, valda via `LLM_PROVIDER` / `LLM_MODEL` / `LLM_BASE_URL` / `LLM_API_KEY`. Störst
-   arbete i den här modulen, och den minsta gemensamma nämnaren blir OpenAI-kompatibel
-   verktygsanropsform — vilket betyder att `thinking`, `effort` och cache-ekonomin i §2 blir
-   valfria finesser i Anthropic-adaptern i stället för specens grundantagande. `cost_ore` behöver
-   en prislista per leverantör och modell i `config.py`, annars blir kostnadstaket en gissning.
-2. **Extern harness.** Bok bygger ingen egen LLM-klient alls. Runtimen blir en kö och ett
-   verktygs-API, och en harness utanför — Opencode, Claude Code, vad som helst — kör modellen och
-   anropar bok. Billigast för bok, men då finns ingen `AgentWorker` som kör av sig själv, och
-   `GET /agent/status` kan bara rapportera vad harnessen hunnit berätta.
-3. **Båda.** Intern adapter för det schemalagda passet, och verktygs-API:t hålls skarpt nog att en
-   extern harness kan köra samma sak. Dyrast, men det är den enda varianten där både "agenten
-   sköter sig själv" och "jag kör den med mitt eget verktyg" är sanna.
-
-Relaterat, och fortfarande obesvarat oavsett form: vad händer vid dygnstaket? Förslaget står kvar
-— **stanna**, inte gå ned till en billigare modell, eftersom ett tak som sänker kvaliteten börjar
-bokföra sämre precis när det är som mest att göra.
+Den externa vägen finns kvar oavsett — `/api/v1/agent/*` är kvar som det är, och en människa som
+vill köra ett pass med sitt eget verktyg kan fortfarande göra det, precis som i dag. Skillnaden är
+att bok inte behöver den vägen för att fungera.
 
 ### 12.6 Var bor nyckeln på hubbabubba? — **BESLUTAT: `bok.env`**
 
@@ -577,11 +703,10 @@ filrättigheterna som skydd. **Gräns som ska stå i implementationen:** nyckeln
 
 Underlaget:
 
-`ANTHROPIC_API_KEY` i `/srv/appdata/bok/bok.env`, som `BOKFOERING_API_KEY`? Det är det enkla svaret
+`ANTHROPIC_API_KEY` i `/srv/appdata/bok/bok.env`, som `BOKFOERING_API_KEY`? (Variabeln heter efter
+§12.5 `LLM_API_KEY` och bär OpenCode-nyckeln, men platsen är densamma.) Det är det enkla svaret
 och det som passar quadlet-uppsättningen. Bekräfta bara att den filens rättigheter är det skydd vi
 tänker oss, och att nyckeln aldrig ska hamna i `GET /agent/status` eller i `agent_run_events`.
-
----
 
 ---
 
@@ -591,3 +716,20 @@ När `agentruntime` är klar är `tradar` ett mycket mindre problem än det ser 
 sessionsmotorn, verktygsloopen, felhanteringen och kostnadskontrollen finns redan. `tradar` lägger
 till lagring per `view_key`, en andra ingång till sessionen (ett meddelande i stället för ett
 underlag), och SSE ovanpå `agent_run_events` — som är därför de raderna har ett `seq`.
+
+**Modellen per konversation landar i `tradar`, inte här.** Beslutet i §12.5 säger att en
+konversation har en kontext och en modell. Trådar finns inte i den här modulen, så runtimen tar
+modellen som ett argument och `agent_runs.model` bär svaret; `tradar` lägger kolumnen på tråden och
+skickar in den samma väg. Det som byggs nu är alltså hela mekaniken — bara inte platsen där
+människan klickar i sitt val.
+
+Två saker `tradar` ärver och som är värda att veta redan nu:
+
+- **Ett byte av modell mitt i en tråd ska vara synligt.** `agent_runs.model` och `.protocol` per
+  kör gör det möjligt utan en ny tabell.
+- **Protokollskillnaderna i §2 följer med upp.** En tråd på en Chat Completions-modell kan inte
+  läsa PDF-underlag direkt och har ingen cache-ekonomi. Det är en produktsanning som hör hemma i
+  gränssnittet, inte en detalj att dölja.
+
+Schemaläggningen (§12.3) är den andra kvarvarande biten: den läggs på när ett pass är mätt, och
+kräver inget mer än att `trigger` blir `'schedule'`.
