@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status as http_status
+from fastapi.encoders import jsonable_encoder
 
 from api.schemas import (
     ApproveCorrectionNoteRequest,
@@ -438,14 +439,36 @@ async def post_voucher(
         return _voucher_to_response(voucher)
 
     except ValidationError as e:
-        raise HTTPException(
-            status_code=http_status.HTTP_400_BAD_REQUEST,
-            detail={"error": e.message, "code": e.code, "details": e.details},
-        )
+        raise _posting_http_error(e, ledger, voucher_id)
     except Exception as e:
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
+
+
+def _posting_http_error(
+    exc: ValidationError,
+    ledger: LedgerService,
+    voucher_id: str,
+) -> HTTPException:
+    """Map a posting failure onto a status code (SPEC-idempotens §6).
+
+    `already_posted` is a conflict, not a bad request: the request was valid
+    and the ledger is simply already in the state it asked for. A client
+    retrying after a timeout has to be able to render the done state.
+    """
+    detail = {"error": exc.message, "code": exc.code, "details": exc.details}
+
+    if exc.code == "already_posted":
+        voucher = ledger.vouchers.get(voucher_id)
+        if voucher:
+            detail["voucher"] = jsonable_encoder(_voucher_to_response(voucher))
+        return HTTPException(status_code=http_status.HTTP_409_CONFLICT, detail=detail)
+
+    return HTTPException(
+        status_code=http_status.HTTP_400_BAD_REQUEST,
+        detail=detail,
+    )
 
 
 @router.post("/{voucher_id}/correct", response_model=VoucherResponse)

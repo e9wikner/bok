@@ -25,6 +25,7 @@ from repositories.idempotency_repo import IdempotencyRepository
 from repositories.period_repo import PeriodRepository
 from services.idempotency import IdempotencyOutcome, IdempotencyService
 from services.intake import IntakeService
+from services.ledger import LedgerService
 
 ENDPOINT = "POST /api/v1/agent/vouchers"
 
@@ -515,3 +516,56 @@ def test_replayed_body_is_the_stored_response(test_db):
 
     stored = IdempotencyRepository.get("k1", ENDPOINT).response_body
     assert json.loads(stored) == payload
+
+
+# --- T6: POST /vouchers/{id}/post on an already posted voucher -------------
+
+
+def _posted_voucher(period, amount: int = 12500):
+    """A posted A-series voucher, created through the service layer."""
+    ledger = LedgerService()
+    voucher = ledger.create_voucher(
+        series="A",
+        date=date.today(),
+        period_id=period.id,
+        description="Telefonutgift Fello",
+        rows_data=[
+            {"account": "1920", "debit": 0, "credit": amount},
+            {"account": "6200", "debit": amount, "credit": 0},
+        ],
+        created_by="api",
+    )
+    return ledger.post_voucher(voucher.id, actor="api")
+
+
+@pytest.mark.asyncio
+async def test_posting_a_posted_voucher_is_a_conflict(test_db, async_client):
+    """Test case 7: 409 with the whole voucher, so the client can show done."""
+    _ensure_accounts()
+    period = _period()
+    voucher = _posted_voucher(period)
+
+    response = await async_client.post(
+        f"/api/v1/vouchers/{voucher.id}/post", headers=_headers()
+    )
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["code"] == "already_posted"
+    assert detail["voucher"]["id"] == voucher.id
+    assert detail["voucher"]["status"] == "posted"
+    assert len(detail["voucher"]["rows"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_other_posting_errors_are_still_400(test_db, async_client):
+    """The status change is for `already_posted` alone, not for every error."""
+    _ensure_accounts()
+    _period()
+
+    response = await async_client.post(
+        "/api/v1/vouchers/does-not-exist/post", headers=_headers()
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "voucher_not_found"

@@ -45,12 +45,15 @@ Testerna skrivs **före** implementationen (§9). Ingen uppgift rör mer än 5 f
   - Filer: `api/routes/agent.py`, `tests/test_idempotency.py`
   - Obs: trådtestet får inte dela en connection mellan trådarna.
 
-- [ ] **T6 — `POST /vouchers/{id}/post`: `already_posted` 400 → 409**
+- [x] **T6 — `POST /vouchers/{id}/post`: `already_posted` 400 → 409**
   - Acceptans: 409 med `detail.code = "already_posted"` och hela verifikationen i `detail.voucher`.
     `domain/validation.py` orört — bara mappningen i rutten.
   - Verifiera: testfall 7.
   - Filer: `api/routes/vouchers.py`, `tests/test_idempotency.py`
   - Obs: verifierat i §12.3 att ingen konsument läser 400 här.
+  - Utfört: mappningen ligger i `_posting_http_error`, som tar båda konfliktkoderna (T6 och T7)
+    och lämnar allt annat på 400. Ett extra test håller `voucher_not_found` kvar på 400, så
+    statusbytet inte tyst breddas till nästa felkod.
 
 - [ ] **T7 — `period_locked`: 409 med vem och när**
   - Acceptans: 409 med `locked_at`, `locked_by` och `period_id`. Saknas `locked_by` svarar API:t
