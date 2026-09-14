@@ -119,16 +119,52 @@ Testerna skrivs **före** implementationen (§9). Ingen uppgift rör mer än 5 f
     bredvid `bank_input_contract`, plus en guardrail. Assertionen `"durable idempotency"` är
     skärpt till hela den nya, smalare meningen — inte borttagen.
 
-- [ ] **T11 — Regression och lint**
+- [x] **T11 — Regression och lint**
   - Acceptans: alla tio framgångskriterier i §11 uppfyllda.
   - Verifiera: `pytest tests/ -v` och `black . && isort . && flake8 && mypy .`. Läs jobboutputen
     i CI — bocken betyder inget (`continue-on-error: true`).
   - Filer: inga nya.
+  - Utfört: `pytest tests/` → **375 passade**, varav 37 i `tests/test_idempotency.py`.
+    Kriterium 1–9 är täckta av testfall 1–12 och gröna. Kriterium 10 krävde två egna commits,
+    därför att det aldrig varit sant i repot — se avvikelsen nedan.
 
 ---
 
 **Utanför scope:** fakturasändning och lönegodkännande (flöde 2 och 3), radering av nycklar
 (beslut §12.2), frontendtester (finns inte i repot), att göra headern obligatorisk (§10).
+
+---
+
+## Avvikelse från specen: kriterium 10 var ett repo-brett krav
+
+§11.10 säger `black`, `isort`, `flake8`, `mypy` rena. Det var inte sant på `main` heller, och inget
+av det kom från den här modulen: `black --check .` ville formatera om **91 av 115** spårade
+Python-filer, `flake8` gav **785** fynd, och de nya filerna (`services/idempotency.py`,
+`repositories/idempotency_repo.py`, `api/deps.py`, `tests/test_idempotency.py`) hade noll fel i
+någon av dem. Repot hade heller ingen verktygskonfiguration alls — CI bar flaggorna på
+kommandoraden, så ett naket `flake8` skannade `venv/`.
+
+Beslut 2026-09-14: städa repot först, i egna commits utan beteendeändring.
+
+- `2de6b84` — `pyproject.toml` + `.flake8` med CI:s inställningar, sedan `black .` och `isort .`
+  över hela repot. 91 filer omformaterade, 375 tester oförändrat gröna.
+- `2a88db8` — de 99 kvarvarande flake8-fynden. Alla var pre-existerande kod: oanvända importer,
+  f-strängar utan platshållare, blanksteg sist på rader inuti SQL-strängar, fyra nakna `except:`.
+  E226 och E402 är uteslutna i `.flake8` med skälet intill, inte tystade globalt.
+- CI kör nu de nakna kommandona och läser konfigurationen, så jobbet och AGENTS.md säger samma sak.
+
+**Kvar, som eget spår:** `mypy .` ger **61 fel i 23 filer** — `services/categorization.py` (7),
+`sru_export.py` (6), `sie4_import.py` (6), `bank_integration.py` (6) i topp. Åtta är mekaniska
+(implicit `Optional`); resten är verkliga typluckor i affärslogiken som kräver egna beslut. Ingen
+av dem ligger i en fil `idempotens` skrev. Beslut 2026-09-14: de blockerar inte modulen och tas
+som eget arbete, inte inuti `agentruntime`.
+
+---
+
+## Modulen är klar
+
+T1–T11 avbockade 2026-09-14. Nästa modul i byggordningen är `agentruntime`
+(`docs/redesign/SPEC-agentruntime.md`).
 
 ---
 
