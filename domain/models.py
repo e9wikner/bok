@@ -333,3 +333,48 @@ class IdempotencyKey:
     entity_id: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
     completed_at: Optional[datetime] = None
+
+
+@dataclass
+class AgentRun:
+    """One pass of the agent runtime over the intake queue.
+
+    Mirrors `agent_runs` (migration 024). `model` and `protocol` travel with
+    the run rather than living in config, because model selection is per
+    conversation (SPEC-agentruntime.md §2/§5).
+    """
+
+    id: str
+    trigger: str  # 'schedule' | 'manual' | 'thread'
+    status: str  # 'running' | 'completed' | 'failed' | 'abandoned'
+    started_at: datetime
+    model: str
+    protocol: str  # 'messages' | 'chat'
+    finished_at: Optional[datetime] = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cost_ore: int = 0
+    items_seen: int = 0
+    items_posted: int = 0
+    items_abstained: int = 0
+    last_error: Optional[str] = None
+
+
+@dataclass
+class AgentRunEvent:
+    """One row of `agent_run_events` — not the audit trail.
+
+    `audit_log` is the accounting audit trail and never changes; these rows
+    exist so `GET /agent/status` can show current activity and so `tradar`
+    can later render the same events as thread posts.
+    """
+
+    id: str
+    run_id: str
+    seq: int
+    kind: str  # 'item_started'|'tool_call'|'tool_result'|'posted'|'abstained'|'error'|'text'
+    payload_json: str
+    created_at: datetime
+    source_id: Optional[str] = None
+    voucher_id: Optional[str] = None
