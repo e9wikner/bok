@@ -5,7 +5,7 @@ Testerna skrivs **före** implementationen (§9). Ingen uppgift rör mer än 5 f
 
 ---
 
-- [ ] **T1 — Migration 023: nyckeltabell och `periods.locked_by`**
+- [x] **T1 — Migration 023: nyckeltabell och `periods.locked_by`**
   - Acceptans: `idempotency_keys` finns med `PRIMARY KEY (key, endpoint)` och
     `CHECK (state IN ('in_flight','completed'))`. `periods.locked_by` finns och är backfillad från
     `audit_log` (`entity_type='period' AND action='locked'`); saknas raden blir värdet `NULL`.
@@ -14,13 +14,13 @@ Testerna skrivs **före** implementationen (§9). Ingen uppgift rör mer än 5 f
   - Filer: `db/migrations/023_add_idempotency_and_lock_actor.sql`
   - Obs: ny fil. Redigera aldrig 001–022.
 
-- [ ] **T2 — `IdempotencyRepository`**
+- [x] **T2 — `IdempotencyRepository`**
   - Acceptans: `reserve` (commitar direkt, returnerar `False` vid `IntegrityError`), `get`,
     `complete` (`_commit`-flagga, default `True`). All SQL här, ingen någon annanstans.
   - Verifiera: `pytest tests/test_idempotency.py -v` — reservation, dubbelreservation, complete.
   - Filer: `repositories/idempotency_repo.py`, `tests/test_idempotency.py`
 
-- [ ] **T3 — `IdempotencyService`: fingerprint och uppspelning**
+- [x] **T3 — `IdempotencyService`: fingerprint och uppspelning**
   - Acceptans: sha256 över kanoniserad JSON (sorterade nycklar, inga blanksteg, UTF-8); `actor`
     ingår inte. Beslutslogiken i §6 steg 2 returnerar *domänutfall*, inte HTTP — inga
     HTTP-begrepp i `services/`.
@@ -29,13 +29,13 @@ Testerna skrivs **före** implementationen (§9). Ingen uppgift rör mer än 5 f
   - Obs: testfall 4 ska ge **två** verifikationer. Det är inte en bugg — idempotens är inte
     dubblettdetektering.
 
-- [ ] **T4 — Header-dependency**
+- [x] **T4 — Header-dependency**
   - Acceptans: `Idempotency-Key` läses som valfri header och valideras som UUID; saknas den
     returneras `None` och loggas `idempotency_key_missing`. Ingen rutt ändrar beteende ännu.
   - Verifiera: `pytest tests/test_idempotency.py -v` grön; `pytest tests/ -v` oförändrad.
   - Filer: `api/deps.py`, `tests/test_idempotency.py`
 
-- [ ] **T5 — `POST /agent/vouchers` kopplas på  ← hålet stängs här**
+- [x] **T5 — `POST /agent/vouchers` kopplas på  ← hålet stängs här**
   - Acceptans: reservationen commitas före arbetet; `complete` körs med `_commit=False` inuti det
     befintliga `with db.transaction():` (`api/routes/agent.py:87`). Uppspelat svar bär
     `Idempotent-Replay: true`. Utan header: gammal väg (beslut §12.1(c)).
@@ -76,13 +76,23 @@ Testerna skrivs **före** implementationen (§9). Ingen uppgift rör mer än 5 f
     mitt i lämnar ingen av de tre raderna kvar.
   - Filer: `api/routes/vouchers.py`, `services/ledger.py`, `tests/test_idempotency.py`
 
-- [ ] **T10 — Nyckelkravet i agentinstruktionerna**
+- [x] **T10 — Nyckelkravet i agentinstruktionerna**
   - Acceptans: `docs/to_agent/02_bokforingsprocess.md` beskriver `Idempotency-Key` som krav vid
     postning, med samma nyckel vid omförsök. `tests/test_agent_entrypoint.py` uppdateras medvetet.
   - Verifiera: testfall 12, `pytest tests/test_agent_entrypoint.py -v`.
-  - Filer: `docs/to_agent/02_bokforingsprocess.md`, `tests/test_agent_entrypoint.py`
+  - Filer: `docs/to_agent/02_bokforingsprocess.md`, `tests/test_agent_entrypoint.py`,
+    `api/routes/agent_instructions.py`
   - Obs: **runtime-innehåll**, inte dokumentation — serveras av
     `repositories/system_instructions.py`. Assertionen ska uppdateras, aldrig lättas.
+  - Utfört: doc fick avsnittet "Idempotensnyckel" (en händelse–en nyckel, omförsök med samma
+    nyckel, tabell över `201` / uppspelning / `422 idempotency_key_reuse` /
+    `409 request_in_flight` / `400 invalid_idempotency_key`).
+    **Tredje filen tillkom med avsikt:** entrypointen (`/agent-instructions/entrypoint`) påstod
+    `"Durable idempotency for agent operations is not implemented."` — nu falskt och serverat till
+    agenten vid varje start. Den raden är omskriven till att namnge vad som faktiskt saknas
+    (allt utom `/api/v1/agent/vouchers`), och ett `idempotency_contract`-block har lagts till
+    bredvid `bank_input_contract`, plus en guardrail. Assertionen `"durable idempotency"` är
+    skärpt till hela den nya, smalare meningen — inte borttagen.
 
 - [ ] **T11 — Regression och lint**
   - Acceptans: alla tio framgångskriterier i §11 uppfyllda.
@@ -94,3 +104,16 @@ Testerna skrivs **före** implementationen (§9). Ingen uppgift rör mer än 5 f
 
 **Utanför scope:** fakturasändning och lönegodkännande (flöde 2 och 3), radering av nycklar
 (beslut §12.2), frontendtester (finns inte i repot), att göra headern obligatorisk (§10).
+
+---
+
+## Avvikelse från specen: `release`
+
+`IdempotencyRepository.release(key, endpoint)` finns inte i specens §7 men krävs av testfall 6
+och framgångskriterium 4: reservationen commitas före arbetet, så ett avbrott mitt i skulle annars
+lämna en `in_flight`-rad kvar och låsa ute varje omförsök med `request_in_flight` för alltid.
+`release` raderar **bara** `in_flight`-rader — en `completed` nyckel skyddar en verklig postning
+och måste överleva. Det rör inte beslut §12.2, som gäller retention/städning.
+
+Kvarstående, medvetet: kraschar processen mellan reservation och commit ligger raden kvar som
+`in_flight` tills någon ger nycklarna en livslängd. Det är samma beslut som §12.2 sköt på framtiden.
