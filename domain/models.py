@@ -281,3 +281,23 @@ class CorrectionNote:
     created_by: str = "system"
     updated_at: Optional[datetime] = None
     resolved_at: Optional[datetime] = None
+
+
+@dataclass
+class IdempotencyKey:
+    """A client's claim on one irreversible write.
+
+    Not accounting material: these rows protect vouchers, they are not vouchers.
+    The audit trail is `audit_log`, never this table.
+    """
+    key: str
+    endpoint: str
+    request_fingerprint: str
+    state: str  # in_flight, completed
+    actor: str
+    response_status: Optional[int] = None
+    response_body: Optional[str] = None
+    entity_type: Optional[str] = None
+    entity_id: Optional[str] = None
+    created_at: datetime = field(default_factory=datetime.now)
+    completed_at: Optional[datetime] = None

@@ -391,6 +391,7 @@ async def test_agent_voucher_posts_and_links_single_intake_source(
             ],
         ),
         actor="api",
+        idempotency_key=None,
     )
 
     assert response["status"] == "posted"
@@ -458,6 +459,7 @@ async def test_voucher_source_context_correction_chain_includes_reason(
             ],
         ),
         actor="api",
+        idempotency_key=None,
     )
     correction = AccountingCorrectionRepository.create(
         original_voucher_id=response["id"],
@@ -504,6 +506,7 @@ async def test_agent_voucher_without_source_traceability_is_rejected(
                 ],
             ),
             actor="api",
+            idempotency_key=None,
         )
 
     assert exc_info.value.status_code == 400
@@ -539,12 +542,17 @@ async def test_agent_voucher_rejects_duplicate_intake_link(
             VoucherRowRequest(account="2610", debit=0, credit=2500),
         ],
     )
-    first = await create_and_post_agent_voucher(request, actor="api")
+    first = await create_and_post_agent_voucher(
+        request,
+        actor="api",
+        idempotency_key=None,
+    )
 
     with pytest.raises(HTTPException) as exc_info:
         await create_and_post_agent_voucher(
             request.model_copy(update={"description": "Duplicate booking attempt"}),
             actor="api",
+            idempotency_key=None,
         )
 
     assert exc_info.value.status_code == 409
@@ -590,6 +598,7 @@ async def test_agent_voucher_can_link_multiple_intake_sources(
             ],
         ),
         actor="api",
+        idempotency_key=None,
     )
 
     assert response["status"] == "posted"

@@ -1,19 +1,24 @@
 """API routes for agent integration (Fas 4)."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from typing import Literal, Optional
 from datetime import date as DateType, datetime, timezone
 
-from api.deps import get_current_actor
+from api.deps import get_current_actor, get_idempotency_key
 from api.schemas import VoucherRowRequest
 from config import settings
 from db.database import db
 from domain.validation import ValidationError
 from repositories.correction_note_repo import CorrectionNoteRepository
+from services.idempotency import IdempotencyOutcome, IdempotencyService
 from services.ledger import LedgerService
 from services.intake import IntakeError, IntakeService
 from services.bank_inputs import BankInputError, BankInputService
+
+AGENT_VOUCHER_ENDPOINT = "POST /api/v1/agent/vouchers"
 
 router = APIRouter(prefix="/api/v1/agent", tags=["agent-integration"])
 
@@ -61,8 +66,62 @@ async def seed_demo_data(
 async def create_and_post_agent_voucher(
     request: AgentVoucherRequest,
     actor: str = Depends(get_current_actor),
+    idempotency_key: Optional[str] = Depends(get_idempotency_key),
 ):
     """Create and post a voucher directly from an accounting agent."""
+    idempotency = IdempotencyService()
+    reserved = False
+
+    if idempotency_key:
+        outcome = idempotency.begin(
+            key=idempotency_key,
+            endpoint=AGENT_VOUCHER_ENDPOINT,
+            body=jsonable_encoder(request),
+            actor=actor,
+        )
+        if outcome.kind == IdempotencyOutcome.REPLAY:
+            return JSONResponse(
+                status_code=outcome.response_status or status.HTTP_201_CREATED,
+                content=outcome.response_payload,
+                headers={"Idempotent-Replay": "true"},
+            )
+        if outcome.kind == IdempotencyOutcome.MISMATCH:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "error": "Idempotency-Key already used for a different request",
+                    "code": "idempotency_key_reuse",
+                    "details": "The same key must carry the same request body",
+                    "original_fingerprint": outcome.original_fingerprint,
+                },
+            )
+        if outcome.kind == IdempotencyOutcome.IN_FLIGHT:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error": "A request with this Idempotency-Key is in flight",
+                    "code": "request_in_flight",
+                    "details": "Retry with the same key to get the stored response",
+                    "retry_after_ms": 500,
+                },
+            )
+        reserved = True
+
+    try:
+        return _create_and_post_voucher(request, actor, idempotency, idempotency_key)
+    except Exception:
+        if reserved and idempotency_key:
+            idempotency.release(idempotency_key, AGENT_VOUCHER_ENDPOINT)
+        raise
+
+
+def _create_and_post_voucher(
+    request: AgentVoucherRequest,
+    actor: str,
+    idempotency: IdempotencyService,
+    idempotency_key: Optional[str],
+) -> dict:
+    """Post the voucher, and the key that protects it, in one transaction."""
     intake = IntakeService()
     bank_inputs = BankInputService()
     intake_source_ids = _unique_preserve_order(request.intake_source_ids)
@@ -122,6 +181,36 @@ async def create_and_post_agent_voucher(
             )
             fiscal_year_id = voucher.fiscal_year_id
             voucher_series = voucher.series.value
+
+            from api.routes.vouchers import _voucher_to_response
+
+            response = _voucher_to_response(voucher).model_dump()
+            response["agent"] = {
+                "posted_directly": True,
+                "reasoning_summary": request.reasoning_summary,
+                "intake_source_ids": intake_source_ids,
+                "processing_attempt_id": processing_attempt_ids[0]
+                if len(processing_attempt_ids) == 1
+                else None,
+                "processing_attempt_ids": processing_attempt_ids,
+                "bank_input_ids": bank_input_ids,
+                "bank_transaction_ids": bank_transaction_ids,
+                "traceability": traceability,
+            }
+
+            # The key row must commit with the voucher. Written in its own
+            # transaction it leaves a window where the voucher is posted but
+            # the key is gone — exactly the hole this module closes.
+            if idempotency_key:
+                idempotency.complete(
+                    key=idempotency_key,
+                    endpoint=AGENT_VOUCHER_ENDPOINT,
+                    response_status=status.HTTP_201_CREATED,
+                    response_payload=jsonable_encoder(response),
+                    entity_type="voucher",
+                    entity_id=voucher.id,
+                    _commit=False,
+                )
         if fiscal_year_id and voucher_series != "IB":
             try:
                 from services.opening_balance import OpeningBalanceService
@@ -132,21 +221,6 @@ async def create_and_post_agent_voucher(
                 )
             except Exception:
                 pass
-        from api.routes.vouchers import _voucher_to_response
-
-        response = _voucher_to_response(voucher).model_dump()
-        response["agent"] = {
-            "posted_directly": True,
-            "reasoning_summary": request.reasoning_summary,
-            "intake_source_ids": intake_source_ids,
-            "processing_attempt_id": processing_attempt_ids[0]
-            if len(processing_attempt_ids) == 1
-            else None,
-            "processing_attempt_ids": processing_attempt_ids,
-            "bank_input_ids": bank_input_ids,
-            "bank_transaction_ids": bank_transaction_ids,
-            "traceability": traceability,
-        }
         return response
     except ValidationError as exc:
         raise HTTPException(

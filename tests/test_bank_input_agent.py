@@ -872,6 +872,7 @@ async def test_agent_bank_driven_posting_links_input_and_transaction(
             bank_transaction_ids=transaction_ids,
         ),
         actor="api",
+        idempotency_key=None,
     )
 
     assert response["status"] == "posted"
@@ -919,6 +920,7 @@ async def test_agent_bank_driven_posting_can_use_multiple_transactions(
             bank_transaction_ids=transaction_ids,
         ),
         actor="api",
+        idempotency_key=None,
     )
 
     assert response["status"] == "posted"
@@ -943,6 +945,7 @@ async def test_source_context_only_lists_transactions_linked_to_voucher(
             bank_transaction_ids=[transaction_ids[0]],
         ),
         actor="api",
+        idempotency_key=None,
     )
 
     source_context = await get_voucher_source_context(
@@ -971,6 +974,7 @@ async def test_agent_bank_driven_posting_deduplicates_transaction_ids(
             bank_transaction_ids=duplicated_ids,
         ),
         actor="api",
+        idempotency_key=None,
     )
 
     assert response["status"] == "posted"
@@ -1006,6 +1010,7 @@ async def test_agent_posting_rolls_back_voucher_when_traceability_link_fails(
         await create_and_post_agent_voucher(
             _agent_sale_request(test_period.id, bank_input_ids=[bank_input.id]),
             actor="api",
+            idempotency_key=None,
         )
 
     assert exc_info.value.detail["code"] == "forced_traceability_failure"
@@ -1037,6 +1042,7 @@ async def test_agent_posting_updates_next_year_opening_balances_after_commit(
     response = await create_and_post_agent_voucher(
         _agent_sale_request(test_period.id, bank_input_ids=[bank_input.id]),
         actor="api",
+        idempotency_key=None,
     )
 
     assert response["status"] == "posted"
@@ -1067,6 +1073,7 @@ async def test_agent_bank_driven_posting_can_link_ordinary_intake_source(
             intake_source_ids=[source.id],
         ),
         actor="api",
+        idempotency_key=None,
     )
 
     assert response["status"] == "posted"
@@ -1089,6 +1096,7 @@ async def test_agent_rejects_booked_bank_transaction_without_creating_voucher(
             bank_transaction_ids=transaction_ids,
         ),
         actor="api",
+        idempotency_key=None,
     )
     _, before_count = VoucherRepository.list_all()
 
@@ -1100,6 +1108,7 @@ async def test_agent_rejects_booked_bank_transaction_without_creating_voucher(
                 bank_transaction_ids=transaction_ids,
             ),
             actor="api",
+            idempotency_key=None,
         )
 
     assert first["status"] == "posted"
@@ -1122,6 +1131,7 @@ async def test_agent_rejects_matched_bank_transaction_without_creating_voucher(
             bank_transaction_ids=transaction_ids,
         ),
         actor="api",
+        idempotency_key=None,
     )
     db.execute(
         "UPDATE bank_transactions SET status = 'pending', matched_voucher_id = ? WHERE id = ?",
@@ -1138,6 +1148,7 @@ async def test_agent_rejects_matched_bank_transaction_without_creating_voucher(
                 bank_transaction_ids=transaction_ids,
             ),
             actor="api",
+            idempotency_key=None,
         )
 
     assert exc_info.value.status_code == 409
@@ -1165,6 +1176,7 @@ async def test_agent_rejects_unlinked_bank_transaction_before_voucher_creation(
                 bank_transaction_ids=other_transaction_ids,
             ),
             actor="api",
+            idempotency_key=None,
         )
 
     assert other_input.id != bank_input.id
