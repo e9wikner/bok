@@ -258,6 +258,7 @@ class VoucherRepository:
         series: str = "B",
         created_by: str = "system",
         period_id_override: str = None,
+        _commit: bool = True,
     ) -> Voucher:
         """Create correction voucher (B-series) for an original voucher.
 
@@ -304,7 +305,8 @@ class VoucherRepository:
                 now,
             ),
         )
-        db.commit()
+        if _commit:
+            db.commit()
 
         return Voucher(
             id=correction_id,

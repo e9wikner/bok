@@ -199,6 +199,7 @@ class LedgerService:
         original_voucher_id: str,
         correction_rows: List[Dict],
         actor: str = "system",
+        _commit: bool = True,
     ) -> Voucher:
         """Create correction voucher (B-series) for an original voucher."""
         original = self.vouchers.get(original_voucher_id)
@@ -228,6 +229,7 @@ class LedgerService:
             series="B",
             created_by=actor,
             period_id_override=target_period_id,
+            _commit=_commit,
         )
 
         # Get period and accounts for validation
@@ -242,6 +244,7 @@ class LedgerService:
                 debit=row_data.get("debit", 0),
                 credit=row_data.get("credit", 0),
                 description=row_data.get("description", "Correction"),
+                _commit=_commit,
             )
             correction.rows.append(row)
 
@@ -259,6 +262,7 @@ class LedgerService:
                 "original_series": original.series.value,
                 "original_number": original.number,
             },
+            _commit=_commit,
         )
 
         return correction
@@ -269,6 +273,7 @@ class LedgerService:
         corrected_rows: List[Dict],
         reason: str | None = None,
         actor: str = "system",
+        _commit: bool = True,
     ) -> Voucher:
         """Create and post a B-series correction for a posted voucher.
 
@@ -302,8 +307,9 @@ class LedgerService:
             original_voucher_id=original.id,
             correction_rows=correction_rows,
             actor=actor,
+            _commit=_commit,
         )
-        correction = self.post_voucher(correction.id, actor=actor)
+        correction = self.post_voucher(correction.id, actor=actor, _commit=_commit)
 
         self._record_correction_history(
             original=original,
@@ -311,6 +317,7 @@ class LedgerService:
             corrected_rows=corrected_rows,
             reason=reason,
             actor=actor,
+            _commit=_commit,
         )
         return correction
 
@@ -450,6 +457,7 @@ class LedgerService:
         corrected_rows: List[Dict],
         reason: str | None,
         actor: str,
+        _commit: bool = True,
     ) -> None:
         try:
             from repositories.accounting_correction_repo import AccountingCorrectionRepository
@@ -474,6 +482,7 @@ class LedgerService:
                 change_type="multiple",
                 corrected_by=actor,
                 correction_reason=reason,
+                _commit=_commit,
             )
         except Exception:
             pass

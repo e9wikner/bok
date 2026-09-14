@@ -92,6 +92,10 @@ def _voucher_count() -> int:
     return db.execute("SELECT COUNT(*) AS n FROM vouchers").fetchone()["n"]
 
 
+def _correction_history_count() -> int:
+    return db.execute("SELECT COUNT(*) AS n FROM correction_history").fetchone()["n"]
+
+
 def _key_rows() -> list[dict]:
     return [
         dict(row) for row in db.execute("SELECT * FROM idempotency_keys").fetchall()
@@ -658,3 +662,53 @@ async def test_the_lock_response_carries_the_actor(test_db, async_client):
 
     assert response.status_code == 200
     assert response.json()["locked_by"] == "api"
+
+
+# --- T8: _commit through the correction chain ------------------------------
+
+
+def test_correction_chain_rolls_back_as_one_unit(test_db):
+    """The chain must be runnable inside a caller's transaction."""
+    _ensure_accounts()
+    period = _period()
+    original = _posted_voucher(period)
+    ledger = LedgerService()
+
+    with pytest.raises(RuntimeError):
+        with db.transaction():
+            ledger.create_posted_correction(
+                original_voucher_id=original.id,
+                corrected_rows=[
+                    {"account": "1920", "debit": 0, "credit": 9900},
+                    {"account": "6200", "debit": 9900, "credit": 0},
+                ],
+                reason="Fel belopp",
+                actor="api",
+                _commit=False,
+            )
+            raise RuntimeError("simulated failure after the correction")
+
+    assert _voucher_count() == 1
+    assert _correction_history_count() == 0
+
+
+def test_correction_chain_still_commits_by_default(test_db):
+    """Default behaviour is unchanged, bit for bit."""
+    _ensure_accounts()
+    period = _period()
+    original = _posted_voucher(period)
+
+    correction = LedgerService().create_posted_correction(
+        original_voucher_id=original.id,
+        corrected_rows=[
+            {"account": "1920", "debit": 0, "credit": 9900},
+            {"account": "6200", "debit": 9900, "credit": 0},
+        ],
+        reason="Fel belopp",
+        actor="api",
+    )
+
+    assert correction.series.value == "B"
+    assert correction.status.value == "posted"
+    assert _voucher_count() == 2
+    assert _correction_history_count() == 1

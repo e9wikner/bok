@@ -67,7 +67,7 @@ Testerna skrivs **före** implementationen (§9). Ingen uppgift rör mer än 5 f
     `PeriodRepository.lock_period` tar nu `actor`, och `LedgerService.lock_period` skickar
     vidare den aktör som redan hamnade i `audit_log`.
 
-- [ ] **T8 — `_commit` genom korrigeringskedjan (gate för T9)**
+- [x] **T8 — `_commit` genom korrigeringskedjan (gate för T9)**
   - Acceptans: `VoucherRepository.create_correction` får `_commit: bool = True`;
     `services/ledger.create_correction` och `create_posted_correction` trådar flaggan vidare till
     `add_row`, `post`, `audit.log` och `AccountingCorrectionRepository.create`. Beteendet vid
@@ -76,6 +76,8 @@ Testerna skrivs **före** implementationen (§9). Ingen uppgift rör mer än 5 f
     `test_ledger.py`, `test_correction_notes.py`, `test_agent_accounting_workflow.py`.
   - Filer: `repositories/voucher_repo.py`, `services/ledger.py`
   - Obs: ingen annan ändring i korrigeringskedjan (§10 "fråga först"). Landas ensam.
+  - Utfört: exakt de metoder §12.4 räknade upp. Regressionsgrinden kördes före T9 påbörjades:
+    hela `tests/` grön (372 tester) utan ny funktionalitet.
 
 - [ ] **T9 — `POST /vouchers/{id}/correct` kopplas på**
   - Acceptans: rutten tar `Idempotency-Key`; B-verifikation, `accounting_corrections`-rad och
