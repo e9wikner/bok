@@ -7,7 +7,7 @@ beror på den här.
 Status: **Fas 1 — alla sex frågor besvarade 2026-09-14 (se §12).** Runtimen är
 leverantörsoberoende: den går mot en OpenAI-/Anthropic-kompatibel gateway med beställarens egen
 nyckel, och modellen väljs per konversation. §2, §4, §5 och §6 är omskrivna efter det. Ingen kod,
-`tasks/plan.md` och `tasks/todo.md` skrivs härnäst.
+`tasks/agentruntime/plan.md` och `tasks/agentruntime/todo.md` skrivs härnäst.
 
 ---
 
@@ -88,6 +88,7 @@ Oförändrat i övrigt. Nytt:
 ```
 anthropic>=1.0          # Messages-protokollet
 openai>=2.0             # Chat Completions-protokollet
+pypdf>=5.0              # textlagret ur en PDF, ren Python, inga systemberoenden
 ```
 
 Två klientbibliotek, en nyckel, en gateway. Det ser ut som dubbelarbete och är det inte:
@@ -112,14 +113,28 @@ bygger:
 | Förmåga | Messages-vägen | Chat Completions-vägen |
 |---|---|---|
 | Cache-brytpunkt (§6.6) | Explicit, och hela kostnadskalkylen bygger på den | Ingen explicit brytpunkt. Prefixcache kan finnas, men styrs inte av oss och kan inte verifieras med `cache_read_input_tokens` |
-| PDF som `document`-block (§6.3) | Ja | Nej. En PDF måste renderas till bild eller extraheras till text **innan** anropet |
+| PDF som `document`-block (§6.3) | Ja — men används bara som **reserv**, se nedan | Finns inte |
 | Tänkande / `effort` | `thinking`, `output_config.effort` | Leverantörsspecifikt eller obefintligt |
 | Verktygsloopen | `stop_reason == "tool_use"`, `tool_use`-block | `finish_reason == "tool_calls"`, JSON-strängargument som måste parsas |
 | Vägran som eget utfall (§6.7) | `stop_reason == "refusal"` | Ingen egen kod — en vägran kommer som text |
 
 Konsekvens: **Messages-vägen byggs först och är standard.** Chat Completions-vägen byggs efter,
 med sina egna tester, och `LLMClient.capabilities` säger vad den saknar så att §6.6:s cachekrav
-och §6.3:s dokumentblock inte tyst antas finnas.
+och §6.3:s reservväg inte tyst antas finnas.
+
+### PDF skickas som text, inte som bild
+
+Ett `document`-block är **inte** ett billigt sätt att skicka en faktura. API:t behandlar PDF:en som
+text *och* bild: den extraherade texten kostar 1 500–3 000 token per sida, och varje sida görs
+dessutom till en bild som kostar `⌈bredd/28⌉ × ⌈höjd/28⌉` visuella token — med taket 4 784 på
+Opus-klassens modeller, vilket en A4-sida i 200 dpi slår i. En sida kostar alltså grovt
+**6 000–7 800 token**.
+
+Samma sida som ren, extraherad text är för en normal leverantörsfaktura **några hundra token**.
+Det är en tiopotens, den gäller **båda** protokollen, och den betalas per underlag i varje pass.
+
+Därför: **texten först, alltid.** Ordningen står i §6.3. `pypdf` räcker och är ren Python —
+`pdf2image` kräver poppler i containern och PyMuPDF är AGPL-licensierat; ingetdera tas in.
 
 ### Modellen är per konversation
 
@@ -314,14 +329,32 @@ inte bokföras om för att underlag sju kraschade.
 4. De senaste korrigeringarna — vad människan rättade sist är den starkaste signalen som finns.
 
 **Användarturen** (volatil, efter cachebrytpunkten): dagens datum, öppna perioder, och det
-aktuella underlaget — metadata plus filen. Hur filen bifogas beror på adaptern:
+aktuella underlaget — metadata plus filen.
 
-- `capabilities.pdf_document_blocks` → PDF som `document`-block, foto som `image`-block.
-- Annars → PDF:en renderas till bild innan anropet. Går inte det, är underlaget ett **avstående**
-  med motiveringen att modellen inte kan läsa underlaget — aldrig en postning på gissad metadata.
+Intaget tar emot fem filtyper (`IntakeService.ALLOWED_MIME_TYPES`): `application/pdf` och fyra
+bildformat. Bilder går som `image`-block på båda vägarna, som i dag. PDF:er går i tur och ordning:
 
-Det är skillnaden mellan vägarna som faktiskt biter i bokföringen, och därför är den ett testfall
-(§9) och inte en kommentar i koden.
+| Steg | Villkor | Vad som skickas | Ungefärlig kostnad per sida |
+|---|---|---|---|
+| 1 | PDF:en har ett läsbart textlager | **Bara texten**, som text | några hundra token |
+| 2 | Steg 1 gav inget, eller siffrorna stämmer inte (se nedan), och `capabilities.pdf_document_blocks` | `document`-block — API:t renderar sidorna åt oss | 6 000–7 800 token |
+| 3 | Samma, men adaptern saknar dokumentblock | **Avstående** med motiveringen att underlaget inte är läsbart | 0 |
+
+Steg 1 är normalfallet: en leverantörsfaktura är nästan alltid en digitalt genererad PDF med
+textlager. Steg 2 är skannade papperskvitton. Att API:t rasteriserar åt oss i steg 2 är varför
+runtimen slipper `pdf2image` och poppler i containern — och varför en skannad PDF fungerar på
+Messages-vägen men inte på Chat-vägen.
+
+**Avstämningen är det som gör textvägen säker.** Extraherad text tappar layout: en tvåkolumnstabell
+kan komma ut i fel ordning, och då blir nettobelopp och moms utbytbara för den som bara läser
+siffror. Regeln är därför att agenten ska kunna belägga sin kontering i texten den fick:
+
+- beloppen den postar ska finnas **ordagrant** i den extraherade texten, och
+- netto + moms ska gå ihop med totalen.
+
+Går det inte ihop är det **inte** ett fel att gissa sig ur — det är steg 2. Den dyra vägen används
+alltså bara när den billiga inte håller, och aldrig som standard. Bokföringen avgör kostnaden,
+inte tvärtom.
 
 **Verktygsloopen**: manuell loop på `LLMTurn.stop == "tool_calls"`, inte SDK:ns tool runner.
 Skälet är att varje verktygsanrop ska passera en punkt där vi kan neka, logga och skriva en
@@ -510,8 +543,11 @@ stället för att läcka upp i sessionstesterna.
 | 17 | Verktygslistan | Innehåller inget verktyg som kan ändra eller radera en postad verifikation |
 | 18 | Samma pass, en gång per adapter | Samma verktygsanrop ger samma postning. Protokollet syns inte i utfallet |
 | 19 | Modell utan prisrad i `config.py` | Passet startar inte, ingen `agent_runs`-rad, tydligt fel |
-| 20 | Adapter utan `pdf_document_blocks`, PDF som inte kan renderas | Avstående med läsbar motivering, **ingen** postning på metadata |
-| 21 | Modellen valdes per kör | `agent_runs.model` och `.protocol` bär den valda modellen, inte standardvärdet |
+| 20 | PDF med textlager | Bara text skickas — **inget** dokumentblock, verifierat på det falska klientens mottagna innehåll |
+| 21 | PDF utan textlager, Messages-adapter | `document`-block skickas, postning som vanligt |
+| 22 | PDF utan textlager, Chat-adapter | Avstående med läsbar motivering, **ingen** postning på metadata |
+| 23 | Text där netto + moms inte går ihop med totalen | Eskalering till steg 2, och på Chat-vägen avstående — aldrig en postning på siffror som inte stämmer |
+| 24 | Modellen valdes per kör | `agent_runs.model` och `.protocol` bär den valda modellen, inte standardvärdet |
 
 Testfall 17 är ingen formalitet. Det är den enda automatiska kontrollen av att append-only-regeln
 inte kan gå förlorad genom att någon lägger till ett bekvämt verktyg.
@@ -529,7 +565,7 @@ inte kan gå förlorad genom att någon lägger till ett bekvämt verktyg.
 - Ett underlag i taget.
 - `black . && isort . && flake8 && mypy .` och hela `tests/` före commit. Jobboutputen läses,
   inte bocken. `black`/`isort`/`flake8` ska vara rena; `mypy` har 61 pre-existerande fel i repot
-  (eget spår, se `tasks/todo.md`) — modulens egna filer lägger inte till ett enda.
+  (eget spår, se `tasks/idempotens/todo.md`) — modulens egna filer lägger inte till ett enda.
 
 **Fråga först**
 
@@ -563,19 +599,21 @@ Modulen är klar när allt nedan är sant:
 2. En worker som dödas mitt i ett pass och startas om producerar **noll** dubbletter.
 3. Ett underlag som agenten inte kan avgöra blir ett avstående med läsbar motivering på posten —
    aldrig en gissad postning.
-4. `GET /api/v1/agent/status` svarar sant om pågående kör, ködjup, kostnad i dag och senaste fel.
+4. En PDF med textlager kostar några hundra token, inte några tusen: dokumentblock skickas bara
+   när texten saknas eller inte går ihop, och det är verifierat i test.
+5. `GET /api/v1/agent/status` svarar sant om pågående kör, ködjup, kostnad i dag och senaste fel.
    `operations/log`-stubben är borta.
-5. Dygnstaket stoppar passet, och det är verifierat i test — inte i produktion.
-6. `cache_read_input_tokens > 0` från andra underlaget i ett pass, mätt.
-7. Verktygslistan innehåller ingen väg att ändra eller radera postad bokföring, verifierat i test.
-8. Postningen går genom samma kod som `POST /api/v1/agent/vouchers`, och båda vägarna delar
+6. Dygnstaket stoppar passet, och det är verifierat i test — inte i produktion.
+7. `cache_read_input_tokens > 0` från andra underlaget i ett pass, mätt på Messages-vägen.
+8. Verktygslistan innehåller ingen väg att ändra eller radera postad bokföring, verifierat i test.
+9. Postningen går genom samma kod som `POST /api/v1/agent/vouchers`, och båda vägarna delar
    idempotens, validering och transaktion.
-9. Ingen testkörning träffar en riktig LLM, och `anthropic`/`openai` importeras ingenstans utanför
-   `services/llm/`.
-10. Samma pass går att köra på en Claude-modell och på en GPT-modell med samma nyckel, och
+10. Ingen testkörning träffar en riktig LLM, och `anthropic`/`openai` importeras ingenstans utanför
+    `services/llm/`.
+11. Samma pass går att köra på en Claude-modell och på en GPT-modell med samma nyckel, och
     `agent_runs` visar vilken som användes.
-11. En modell utan prisrad stoppas innan passet börjar, inte efter.
-12. `tests/` grön och `black`/`isort`/`flake8` rena — läst i jobboutput. `mypy` lägger inte till
+12. En modell utan prisrad stoppas innan passet börjar, inte efter.
+13. `tests/` grön och `black`/`isort`/`flake8` rena — läst i jobboutput. `mypy` lägger inte till
     ett fel i modulens filer.
 
 ---

@@ -4,7 +4,8 @@ Modul-id `idempotens` i kapabilitetskartan (`ANALYS.md` §8). Rotberoende — in
 kopplas till en knapp innan den här modulen är klar.
 
 Status: **Fas 1 godkänd 2026-09-12.** Alla fyra öppna frågor är besvarade (se §12). Plan och
-uppgifter ligger i `tasks/plan.md` och `tasks/todo.md`.
+uppgifter ligger i `tasks/idempotens/plan.md` och `tasks/idempotens/todo.md`.
+Modulen är **klar** 2026-09-14: T1–T11 avbockade.
 
 ---
 
