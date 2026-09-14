@@ -55,12 +55,17 @@ Testerna skrivs **före** implementationen (§9). Ingen uppgift rör mer än 5 f
     och lämnar allt annat på 400. Ett extra test håller `voucher_not_found` kvar på 400, så
     statusbytet inte tyst breddas till nästa felkod.
 
-- [ ] **T7 — `period_locked`: 409 med vem och när**
+- [x] **T7 — `period_locked`: 409 med vem och när**
   - Acceptans: 409 med `locked_at`, `locked_by` och `period_id`. Saknas `locked_by` svarar API:t
     `"okänd"` — ingen gissning, ingen krasch. Låsningen skriver `locked_by` framåt.
   - Verifiera: testfall 8 och 9.
   - Filer: `api/routes/periods.py`, `api/routes/vouchers.py`, `repositories/period_repo.py`,
     `tests/test_idempotency.py`
+  - Utfört: `locked_by` gick in i `Period` (`domain/models.py`) och `PeriodResponse`
+    (`api/schemas.py`) också — kolumnen fanns i migrationen men ingen läste den. Två filer mer
+    än listan, båda enradiga och utan dem hade svaret inte kunnat bära fältet.
+    `PeriodRepository.lock_period` tar nu `actor`, och `LedgerService.lock_period` skickar
+    vidare den aktör som redan hamnade i `audit_log`.
 
 - [ ] **T8 — `_commit` genom korrigeringskedjan (gate för T9)**
   - Acceptans: `VoucherRepository.create_correction` får `_commit: bool = True`;

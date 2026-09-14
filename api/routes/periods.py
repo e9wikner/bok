@@ -236,5 +236,6 @@ def _period_to_response(period) -> PeriodResponse:
         end_date=period.end_date,
         locked=period.locked,
         locked_at=period.locked_at,
+        locked_by=period.locked_by,
         created_at=period.created_at
     )

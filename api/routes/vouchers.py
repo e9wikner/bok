@@ -453,9 +453,9 @@ def _posting_http_error(
 ) -> HTTPException:
     """Map a posting failure onto a status code (SPEC-idempotens §6).
 
-    `already_posted` is a conflict, not a bad request: the request was valid
-    and the ledger is simply already in the state it asked for. A client
-    retrying after a timeout has to be able to render the done state.
+    Two of them are conflicts, not bad requests: the request was valid and the
+    ledger is simply already in a state that settles it. A client retrying
+    after a timeout has to be able to render the done state, not an error.
     """
     detail = {"error": exc.message, "code": exc.code, "details": exc.details}
 
@@ -463,6 +463,19 @@ def _posting_http_error(
         voucher = ledger.vouchers.get(voucher_id)
         if voucher:
             detail["voucher"] = jsonable_encoder(_voucher_to_response(voucher))
+        return HTTPException(status_code=http_status.HTTP_409_CONFLICT, detail=detail)
+
+    if exc.code == "period_locked":
+        voucher = ledger.vouchers.get(voucher_id)
+        period = ledger.periods.get_period(voucher.period_id) if voucher else None
+        if period:
+            detail["period_id"] = period.id
+            detail["locked_at"] = (
+                period.locked_at.isoformat() if period.locked_at else None
+            )
+            # A lock from before migration 023 has no recorded actor. The API
+            # says so rather than guessing who it was.
+            detail["locked_by"] = period.locked_by or "okänd"
         return HTTPException(status_code=http_status.HTTP_409_CONFLICT, detail=detail)
 
     return HTTPException(

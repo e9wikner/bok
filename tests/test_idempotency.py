@@ -569,3 +569,92 @@ async def test_other_posting_errors_are_still_400(test_db, async_client):
 
     assert response.status_code == 400
     assert response.json()["detail"]["code"] == "voucher_not_found"
+
+
+# --- T7: period_locked says who and when -----------------------------------
+
+
+@pytest.mark.asyncio
+async def test_posting_into_a_locked_period_names_the_locker(test_db, async_client):
+    """Test case 8."""
+    _ensure_accounts()
+    period = _period()
+    ledger = LedgerService()
+    voucher = ledger.create_voucher(
+        series="A",
+        date=date.today(),
+        period_id=period.id,
+        description="Telefonutgift Fello",
+        rows_data=[
+            {"account": "1920", "debit": 0, "credit": 12500},
+            {"account": "6200", "debit": 12500, "credit": 0},
+        ],
+        created_by="api",
+    )
+    PeriodRepository.lock_period(period.id, actor="stefan")
+
+    response = await async_client.post(
+        f"/api/v1/vouchers/{voucher.id}/post", headers=_headers()
+    )
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["code"] == "period_locked"
+    assert detail["period_id"] == period.id
+    assert detail["locked_by"] == "stefan"
+    assert detail["locked_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_a_lock_without_an_actor_is_reported_as_unknown(test_db, async_client):
+    """Test case 9: a historical gap shows as a gap — no guess, no crash."""
+    _ensure_accounts()
+    period = _period()
+    ledger = LedgerService()
+    voucher = ledger.create_voucher(
+        series="A",
+        date=date.today(),
+        period_id=period.id,
+        description="Telefonutgift Fello",
+        rows_data=[
+            {"account": "1920", "debit": 0, "credit": 12500},
+            {"account": "6200", "debit": 12500, "credit": 0},
+        ],
+        created_by="api",
+    )
+    PeriodRepository.lock_period(period.id, actor="stefan")
+    db.execute("UPDATE periods SET locked_by = NULL WHERE id = ?", (period.id,))
+    db.commit()
+
+    response = await async_client.post(
+        f"/api/v1/vouchers/{voucher.id}/post", headers=_headers()
+    )
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["code"] == "period_locked"
+    assert detail["locked_by"] == "okänd"
+
+
+def test_locking_a_period_records_the_actor(test_db):
+    """The lock writes `locked_by` going forward."""
+    _ensure_accounts()
+    period = _period()
+
+    locked = LedgerService().lock_period(period.id, actor="stefan")
+
+    assert locked.locked is True
+    assert locked.locked_by == "stefan"
+
+
+@pytest.mark.asyncio
+async def test_the_lock_response_carries_the_actor(test_db, async_client):
+    _ensure_accounts()
+    period = _period()
+
+    response = await async_client.post(
+        f"/api/v1/periods/{period.id}/lock", headers=_headers()
+    )
+
+    assert response.status_code == 200
+    assert response.json()["locked_by"] == "api"

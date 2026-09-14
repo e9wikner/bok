@@ -155,6 +155,7 @@ class PeriodResponse(BaseModel):
     end_date: DateType
     locked: bool
     locked_at: Optional[DateTimeType] = None
+    locked_by: Optional[str] = None
     created_at: DateTimeType
 
 

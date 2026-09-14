@@ -522,8 +522,8 @@ class LedgerService:
                 "all vouchers must be posted or deleted before locking",
             )
 
-        # Lock period
-        self.periods.lock_period(period_id)
+        # Lock period, recording who did it (SPEC-idempotens §5)
+        self.periods.lock_period(period_id, actor=actor)
 
         # Log
         self.audit.log(

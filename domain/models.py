@@ -40,6 +40,7 @@ class Period:
     end_date: date
     locked: bool = False
     locked_at: Optional[datetime] = None
+    locked_by: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
 
     def is_open(self) -> bool:

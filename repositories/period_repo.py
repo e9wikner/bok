@@ -130,6 +130,7 @@ class PeriodRepository:
             end_date=datetime.fromisoformat(row["end_date"]).date(),
             locked=bool(row["locked"]),
             locked_at=locked_at,
+            locked_by=row["locked_by"],
             created_at=datetime.fromisoformat(row["created_at"])
         )
     
@@ -160,6 +161,7 @@ class PeriodRepository:
             end_date=datetime.fromisoformat(row["end_date"]).date(),
             locked=bool(row["locked"]),
             locked_at=locked_at,
+            locked_by=row["locked_by"],
             created_at=datetime.fromisoformat(row["created_at"])
         )
     
@@ -187,6 +189,7 @@ class PeriodRepository:
                 end_date=datetime.fromisoformat(row["end_date"]).date(),
                 locked=bool(row["locked"]),
                 locked_at=locked_at,
+                locked_by=row["locked_by"],
                 created_at=datetime.fromisoformat(row["created_at"])
             ))
         return periods
@@ -211,15 +214,20 @@ class PeriodRepository:
                 end_date=datetime.fromisoformat(row["end_date"]).date(),
                 locked=bool(row["locked"]),
                 locked_at=locked_at,
+                locked_by=row["locked_by"],
                 created_at=datetime.fromisoformat(row["created_at"])
             ))
         return periods
     
     @staticmethod
-    def lock_period(period_id: str) -> bool:
-        """Lock period (irreversible - BFL varaktighet requirement)."""
-        sql = "UPDATE periods SET locked = 1, locked_at = ? WHERE id = ?"
-        db.execute(sql, (datetime.now(), period_id))
+    def lock_period(period_id: str, actor: Optional[str] = None) -> bool:
+        """Lock period (irreversible - BFL varaktighet requirement).
+
+        Records who locked it, so a later conflict can name them instead of
+        leaving the caller to dig through the audit log.
+        """
+        sql = "UPDATE periods SET locked = 1, locked_at = ?, locked_by = ? WHERE id = ?"
+        db.execute(sql, (datetime.now(), actor, period_id))
         db.commit()
         return True
     
