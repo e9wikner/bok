@@ -1,14 +1,11 @@
 """Tests for API endpoints."""
 
-import os
-import tempfile
 from datetime import date
 
 import pytest
 from fastapi.testclient import TestClient
 
 from config import settings
-from db.database import db
 from repositories.account_repo import AccountRepository
 from repositories.period_repo import PeriodRepository
 

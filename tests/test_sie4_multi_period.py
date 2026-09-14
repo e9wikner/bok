@@ -4,10 +4,6 @@ Detta test verifierar att fixen för auto-skapande av perioder fungerar,
 så att verifikat från flera månader importeras korrekt.
 """
 
-from datetime import date
-
-import pytest
-
 from services.sie4_import import SIE4Parser
 
 
@@ -34,7 +30,7 @@ def test_multi_period_voucher_import():
 #TRANS 3010 {} -10000 20260115
 }
 
-#VER A 2 20260220 "Försäljning feb" 
+#VER A 2 20260220 "Försäljning feb"
 {
 #TRANS 1930 {} 15000 20260220
 #TRANS 3010 {} -15000 20260220

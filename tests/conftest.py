@@ -7,7 +7,7 @@ from datetime import date
 import pytest
 
 from config import settings
-from db.database import Database, db
+from db.database import db
 from repositories.account_repo import AccountRepository
 from services.ledger import LedgerService
 

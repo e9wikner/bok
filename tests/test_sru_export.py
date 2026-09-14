@@ -1,8 +1,6 @@
 """Tests for SRU export functionality."""
 
 import sqlite3
-from datetime import date
-from decimal import Decimal
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -10,7 +8,6 @@ import pytest
 from services.sru_export import (
     DEFAULT_SRU_MAPPINGS,
     SRUExportService,
-    export_sru_for_fiscal_year,
 )
 
 

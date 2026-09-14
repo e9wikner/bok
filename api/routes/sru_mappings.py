@@ -114,7 +114,7 @@ async def list_sru_mappings(
 
     cursor = db.execute(
         """
-        SELECT 
+        SELECT
             m.id,
             m.fiscal_year_id,
             m.account_code as account_id,
@@ -323,7 +323,7 @@ async def create_sru_mapping(
         # Update existing
         db.execute(
             """
-            UPDATE account_sru_mappings 
+            UPDATE account_sru_mappings
             SET sru_field = ?, updated_at = ?
             WHERE fiscal_year_id = ? AND account_code = ?
             """,
@@ -406,7 +406,7 @@ async def get_accounts_by_sru_field(
 
     cursor = db.execute(
         """
-        SELECT 
+        SELECT
             a.code,
             a.name,
             a.account_type,
@@ -497,7 +497,7 @@ async def bulk_create_sru_mappings(
                 # Update
                 db.execute(
                     """
-                    UPDATE account_sru_mappings 
+                    UPDATE account_sru_mappings
                     SET sru_field = ?, updated_at = ?
                     WHERE fiscal_year_id = ? AND account_code = ?
                     """,

@@ -4,7 +4,6 @@ from datetime import date
 
 import pytest
 
-from domain.invoice_validation import ValidationError as InvoiceValidationError
 from domain.validation import ValidationError
 from repositories.account_repo import AccountRepository
 from services.invoice import InvoiceService

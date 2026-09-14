@@ -143,7 +143,7 @@ class ComplianceService:
         rows = db.execute(
             """
             SELECT COUNT(*) as cnt, MIN(transaction_date) as oldest
-            FROM bank_transactions 
+            FROM bank_transactions
             WHERE status IN ('pending', 'categorized')
             AND transaction_date < ?
         """,
@@ -182,9 +182,9 @@ class ComplianceService:
 
         rows = db.execute(
             """
-            SELECT id, year, month, end_date 
-            FROM periods 
-            WHERE locked = 0 
+            SELECT id, year, month, end_date
+            FROM periods
+            WHERE locked = 0
             AND end_date < ?
             ORDER BY end_date ASC
         """,
@@ -232,7 +232,7 @@ class ComplianceService:
 
         rows = db.execute("""
             SELECT series, MIN(number) as min_num, MAX(number) as max_num, COUNT(*) as cnt
-            FROM vouchers 
+            FROM vouchers
             WHERE status = 'posted'
             GROUP BY series
         """).fetchall()
@@ -266,8 +266,8 @@ class ComplianceService:
         issues = []
 
         row = db.execute("""
-            SELECT 
-                SUM(debit) as total_debit, 
+            SELECT
+                SUM(debit) as total_debit,
                 SUM(credit) as total_credit
             FROM voucher_rows vr
             JOIN vouchers v ON v.id = vr.voucher_id
@@ -359,7 +359,7 @@ class ComplianceService:
         try:
             row = db.execute("""
                 SELECT COUNT(*) as cnt
-                FROM bank_transactions 
+                FROM bank_transactions
                 WHERE status = 'pending'
             """).fetchone()
 
@@ -400,8 +400,8 @@ class ComplianceService:
                 WHERE v.status = 'posted'
                 AND va.id IS NULL
                 AND EXISTS (
-                    SELECT 1 FROM voucher_rows vr 
-                    WHERE vr.voucher_id = v.id 
+                    SELECT 1 FROM voucher_rows vr
+                    WHERE vr.voucher_id = v.id
                     AND (vr.debit > 50000 OR vr.credit > 50000)
                 )
             """).fetchone()
@@ -489,7 +489,7 @@ class ComplianceService:
     def _save_issue(self, issue: ComplianceIssue) -> None:
         """Save a compliance issue to the database."""
         db.execute(
-            """INSERT INTO compliance_checks 
+            """INSERT INTO compliance_checks
                (id, check_type, severity, status, entity_type, entity_id,
                 title, description, recommendation, deadline)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",

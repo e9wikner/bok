@@ -1,5 +1,14 @@
 [flake8]
-ignore = E203,E266,E501,W503
+# E203/W503 krockar med black. E266/E501 är repots egna val (se AGENTS.md).
+# E226 ligger i pycodestyles egen default-ignore och träffar bara uttryck inuti
+# f-strängar, som black inte formaterar — den är stil, inte fel.
+extend-ignore = E203,E226,E266,E501,W503
 exclude = venv,.git,__pycache__,frontend-v3,*.py.bak
 count = True
 statistics = True
+
+# sys.setrecursionlimit respektive sys.path.insert måste köra före importerna
+# i de här två filerna. Det är E402:s enda förekomst i repot.
+per-file-ignores =
+    api/main.py:E402
+    scripts/seed_test_data.py:E402

@@ -140,7 +140,7 @@ class PeriodRepository:
     def get_period_by_date(fiscal_year_id: str, target_date: date) -> Optional[Period]:
         """Get period containing the given date."""
         sql = """
-        SELECT * FROM periods 
+        SELECT * FROM periods
         WHERE fiscal_year_id = ? AND start_date <= ? AND end_date >= ?
         LIMIT 1
         """
@@ -171,7 +171,7 @@ class PeriodRepository:
     def list_periods(fiscal_year_id: str) -> List[Period]:
         """List all periods for a fiscal year."""
         sql = """
-        SELECT * FROM periods 
+        SELECT * FROM periods
         WHERE fiscal_year_id = ?
         ORDER BY year, month
         """

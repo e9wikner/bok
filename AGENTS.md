@@ -21,7 +21,7 @@ python main.py                         # serve on 127.0.0.1:8000
 
 pytest tests/ -v
 pytest tests/test_ledger.py::test_name
-black . && isort . && flake8 && mypy . # flake8 ignores E203, E266, E501, W503
+black . && isort . && flake8 && mypy . # config i pyproject.toml och .flake8
 
 # Frontend (port 3000)
 cd frontend-v3 && npm install && npm run dev

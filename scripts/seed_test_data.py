@@ -20,8 +20,6 @@ def seed_test_company():
 
     # Check if data already exists (idempotent seeding)
     print("\n0️⃣  Checking if test data already exists...")
-    from repositories.period_repo import PeriodRepository
-
     period_repo = PeriodRepository()
 
     # Try to find existing fiscal year for 2026
@@ -35,7 +33,7 @@ def seed_test_company():
         row = cursor.fetchone()
         if row:
             existing_fy = period_repo.get_fiscal_year(row["id"])
-    except:
+    except Exception:
         pass
 
     if existing_fy:
@@ -102,7 +100,7 @@ def seed_test_company():
         created_by="test-seed",
     )
     ledger.post_voucher(v1.id, actor="test-seed")
-    print(f"      ✓ Voucher A000001 posted (150,000 kr)")
+    print("      ✓ Voucher A000001 posted (150,000 kr)")
 
     # Transaction 2: Rent expense
     print("\n   📄 Transaction 2: Office rent payment")
@@ -128,7 +126,7 @@ def seed_test_company():
         created_by="test-seed",
     )
     ledger.post_voucher(v2.id, actor="test-seed")
-    print(f"      ✓ Voucher A000002 posted (500 kr)")
+    print("      ✓ Voucher A000002 posted (500 kr)")
 
     # Transaction 3: Another invoice
     print("\n   📄 Transaction 3: Another consulting invoice")
@@ -160,7 +158,7 @@ def seed_test_company():
         created_by="test-seed",
     )
     ledger.post_voucher(v3.id, actor="test-seed")
-    print(f"      ✓ Voucher A000003 posted (200,000 kr)")
+    print("      ✓ Voucher A000003 posted (200,000 kr)")
 
     # Transaction 4: Expense reimbursement
     print("\n   📄 Transaction 4: Travel expenses")
@@ -186,13 +184,13 @@ def seed_test_company():
         created_by="test-seed",
     )
     ledger.post_voucher(v4.id, actor="test-seed")
-    print(f"      ✓ Voucher A000004 posted (3,000 kr)")
+    print("      ✓ Voucher A000004 posted (3,000 kr)")
 
     # Get trial balance
     print("\n4️⃣  Calculating trial balance...")
     balances = ledger.get_trial_balance(march_period.id)
 
-    print(f"\n   Trial Balance as of 2026-03-31:")
+    print("\n   Trial Balance as of 2026-03-31:")
     total_debit = 0
     total_credit = 0
     for account_code in sorted(balances.keys()):
@@ -211,7 +209,7 @@ def seed_test_company():
     # Lock period
     print("\n5️⃣  Locking period...")
     ledger.lock_period(march_period.id, actor="test-seed")
-    print(f"   ✓ Period March 2026 locked (immutable)")
+    print("   ✓ Period March 2026 locked (immutable)")
 
     # Seed invoices (Fas 2)
     print("\n6️⃣  Creating sample invoices...")
@@ -262,7 +260,7 @@ def seed_test_company():
     invoice_service.create_booking_for_invoice(
         inv1.id, feb_period.id, actor="test-seed"
     )
-    print(f"      ✓ Invoice sent and auto-booked")
+    print("      ✓ Invoice sent and auto-booked")
 
     # Register partial payment
     inv1 = invoice_service.invoices.get(inv1.id)
@@ -279,14 +277,14 @@ def seed_test_company():
     print(f"      ✓ Payment registered: {payment_amount/100:,.0f} kr (50% of total)")
 
     print("\n✅ Test data seeded successfully!")
-    print(f"\n📊 Summary:")
-    print(f"   • Fiscal Year: 2026-01-01 to 2026-12-31")
-    print(f"   • Test Company: TestCorp AB")
-    print(f"   • Periods Created: 3 (Jan, Feb, Mar)")
-    print(f"   • Vouchers Posted: 4")
+    print("\n📊 Summary:")
+    print("   • Fiscal Year: 2026-01-01 to 2026-12-31")
+    print("   • Test Company: TestCorp AB")
+    print("   • Periods Created: 3 (Jan, Feb, Mar)")
+    print("   • Vouchers Posted: 4")
     print(f"   • Total Debits: {total_debit:,.2f} kr")
     print(f"   • Total Credits: {total_credit:,.2f} kr")
-    print(f"   • Status: March period locked ✓")
+    print("   • Status: March period locked ✓")
 
 
 if __name__ == "__main__":

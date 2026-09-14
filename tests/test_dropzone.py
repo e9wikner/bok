@@ -8,7 +8,6 @@ import pytest
 
 from api.routes.intake import get_dropzone_status
 from config import settings
-from db.database import db
 from domain.types import IntakeSourceType
 from repositories.account_repo import AccountRepository
 from repositories.bank_input_repo import BankInputRepository

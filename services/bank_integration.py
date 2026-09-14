@@ -97,7 +97,7 @@ class BankIntegrationService:
 
         with db.transaction():
             db.execute(
-                """INSERT INTO bank_connections 
+                """INSERT INTO bank_connections
                    (id, provider, bank_name, account_number, iban, currency, status, sync_from_date)
                    VALUES (?, ?, ?, ?, ?, ?, 'active', ?)""",
                 (
@@ -200,7 +200,7 @@ class BankIntegrationService:
                     tx_date = tx_date.isoformat()
 
                 db.execute(
-                    """INSERT INTO bank_transactions 
+                    """INSERT INTO bank_transactions
                        (id, bank_connection_id, external_id, transaction_date, booking_date,
                         amount, currency, description, counterpart_name, counterpart_account,
                         reference, category_code, raw_data, status)
@@ -591,7 +591,7 @@ class BankIntegrationService:
     def get_sync_summary(self) -> Dict:
         """Get summary of all bank syncs."""
         rows = db.execute("""
-            SELECT 
+            SELECT
                 bc.bank_name,
                 bc.status as connection_status,
                 bc.last_sync_at,

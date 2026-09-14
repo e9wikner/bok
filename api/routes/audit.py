@@ -4,7 +4,6 @@ from typing import Optional
 
 from fastapi import APIRouter, Query
 
-from domain.types import AuditAction
 from repositories.audit_repo import AuditRepository
 
 router = APIRouter(prefix="/api/v1/audit", tags=["audit"])

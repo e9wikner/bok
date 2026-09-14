@@ -437,7 +437,7 @@ class SIE4Parser:
         if len(parts) > 2:
             try:
                 date_val = self._parse_date(parts[2])
-            except:
+            except Exception:
                 pass
 
         if len(parts) > 3:
@@ -480,7 +480,7 @@ class SIE4Parser:
         try:
             # SIE uses negative for credit, positive for debit
             amount = self._parse_amount(parts[amount_idx])
-        except:
+        except Exception:
             return None
 
         # Beskrivning är fält 4 (efter datum) relativt objektlistan
@@ -495,7 +495,7 @@ class SIE4Parser:
         if qty_idx < len(parts) and parts[qty_idx] != "__OBJ__":
             try:
                 quantity = Decimal(self._parse_string(parts[qty_idx]).replace(",", "."))
-            except:
+            except Exception:
                 pass
 
         return SIEVoucherRow(

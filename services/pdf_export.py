@@ -439,8 +439,6 @@ class PDFExportService:
             return total
 
         # Category ranges
-        asset_ranges = [(1000, 1999)]
-        liability_ranges = [(2000, 2999)]
         fixed_asset_ranges = [(1200, 1299)]
         current_asset_ranges = [(1000, 1199), (1300, 1999)]
         equity_ranges = [(2000, 2099)]

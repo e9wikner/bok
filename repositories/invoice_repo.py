@@ -27,7 +27,7 @@ class InvoiceRepository:
         invoice_number = f"{invoice_date.strftime('%Y%m%d')}{InvoiceRepository._get_next_invoice_num(invoice_date.year)}"
 
         sql = """
-        INSERT INTO invoices (id, invoice_number, customer_name, customer_org_number, customer_email, 
+        INSERT INTO invoices (id, invoice_number, customer_name, customer_org_number, customer_email,
                              invoice_date, due_date, description, status, created_by, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)
         """
@@ -232,9 +232,9 @@ class InvoiceRepository:
     def update_paid_amount(invoice_id: str, payment_amount: int) -> bool:
         """Update cumulative paid amount."""
         sql = """
-        UPDATE invoices 
+        UPDATE invoices
         SET paid_amount = paid_amount + ?,
-            status = CASE 
+            status = CASE
                 WHEN paid_amount + ? >= amount_inc_vat THEN 'paid'
                 ELSE 'partially_paid'
             END
@@ -382,7 +382,7 @@ class CreditNoteRepository:
         amount_inc_vat = amount_ex_vat + vat_amount
 
         sql = """
-        INSERT INTO credit_notes (id, credit_note_number, invoice_id, reason, amount_ex_vat, 
+        INSERT INTO credit_notes (id, credit_note_number, invoice_id, reason, amount_ex_vat,
                                  vat_amount, amount_inc_vat, credit_date, created_by, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """

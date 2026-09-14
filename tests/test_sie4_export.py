@@ -9,9 +9,6 @@ Testar:
 """
 
 from datetime import date, datetime
-from unittest.mock import MagicMock, patch
-
-import pytest
 
 from domain.models import (
     Account,

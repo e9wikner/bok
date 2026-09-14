@@ -1,7 +1,5 @@
 """API routes for SRU export (INK2 tax declaration)."""
 
-from typing import Optional
-
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from api.deps import get_current_actor, verify_api_key

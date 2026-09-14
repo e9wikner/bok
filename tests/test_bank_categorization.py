@@ -3,7 +3,6 @@
 import os
 import tempfile
 import uuid
-from datetime import date, datetime
 
 import pytest
 
@@ -309,7 +308,7 @@ class TestCompliance:
 
         issue_id = str(uuid.uuid4())
         db.execute(
-            """INSERT INTO compliance_checks 
+            """INSERT INTO compliance_checks
                (id, check_type, severity, status, title, description)
                VALUES (?, 'test', 'warning', 'open', 'Test issue', 'Test description')""",
             (issue_id,),
@@ -325,7 +324,7 @@ class TestCompliance:
 
         issue_id = str(uuid.uuid4())
         db.execute(
-            """INSERT INTO compliance_checks 
+            """INSERT INTO compliance_checks
                (id, check_type, severity, status, title, description)
                VALUES (?, 'test2', 'error', 'open', 'Test 2', 'Desc 2')""",
             (issue_id,),
@@ -341,7 +340,7 @@ class TestCompliance:
 
         issue_id = str(uuid.uuid4())
         db.execute(
-            """INSERT INTO compliance_checks 
+            """INSERT INTO compliance_checks
                (id, check_type, severity, status, title, description)
                VALUES (?, 'test3', 'info', 'open', 'FP test', 'FP desc')""",
             (issue_id,),
@@ -358,7 +357,7 @@ class TestCompliance:
         for sev in ["critical", "error", "warning"]:
             issue_id = str(uuid.uuid4())
             db.execute(
-                """INSERT INTO compliance_checks 
+                """INSERT INTO compliance_checks
                    (id, check_type, severity, status, title, description)
                    VALUES (?, ?, ?, 'open', ?, 'Test')""",
                 (issue_id, f"test_{sev}", sev, f"Test {sev}"),

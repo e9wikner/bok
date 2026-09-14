@@ -253,7 +253,7 @@ class CategorizationService:
 
         with db.transaction():
             db.execute(
-                """INSERT INTO categorization_rules 
+                """INSERT INTO categorization_rules
                    (id, rule_type, priority, match_description, match_counterpart,
                     match_amount_min, match_amount_max, match_is_expense,
                     target_account_code, target_vat_code, target_description_template,
@@ -290,8 +290,8 @@ class CategorizationService:
         """Get categorization statistics."""
         total = db.execute("SELECT COUNT(*) as cnt FROM bank_transactions").fetchone()
         by_status = db.execute("""
-            SELECT status, COUNT(*) as cnt 
-            FROM bank_transactions 
+            SELECT status, COUNT(*) as cnt
+            FROM bank_transactions
             GROUP BY status
         """).fetchall()
 

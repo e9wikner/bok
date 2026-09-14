@@ -174,11 +174,11 @@ class SRUExportService:
         # Income-statement accounts must only use the selected fiscal year.
         cursor = db.execute(
             """
-            SELECT 
+            SELECT
                 a.code,
                 a.name,
                 a.account_type,
-                COALESCE(SUM(CASE 
+                COALESCE(SUM(CASE
                     WHEN v.id IS NULL THEN 0
                     WHEN CAST(a.code AS INTEGER) BETWEEN 1000 AND 2999 THEN
                         CASE

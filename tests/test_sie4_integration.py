@@ -12,12 +12,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from config import settings
-from db.database import db
 from repositories.account_repo import AccountRepository
 from repositories.period_repo import PeriodRepository
 from repositories.voucher_repo import VoucherRepository
 from services.sie4_export import SIE4Exporter
-from services.sie4_import import SIE4Parser, create_sample_sie4
+from services.sie4_import import SIE4Parser
 
 
 @pytest.fixture
@@ -146,7 +145,7 @@ class TestSIE4ExportIntegration:
         assert "#FORMAT PC8" in content
         assert '#FNAMN "Testföretag AB"' in content
         assert "#FORGN 556677-8899" in content
-        assert f"#RAR 0 20260101 20261231" in content
+        assert "#RAR 0 20260101 20261231" in content
 
         # Verifiera konton
         assert '#KONTO 1930 "Företagskonto"' in content
@@ -228,7 +227,7 @@ class TestSIE4ImportOpeningBalances:
             start_date=date(2026, 1, 1),
             end_date=date(2026, 12, 31),
         )
-        period = PeriodRepository.create_period(
+        PeriodRepository.create_period(
             fiscal_year_id=fy.id,
             year=2026,
             month=1,
@@ -289,7 +288,7 @@ class TestSIE4ImportOpeningBalances:
             start_date=date(2026, 1, 1),
             end_date=date(2026, 12, 31),
         )
-        period = PeriodRepository.create_period(
+        PeriodRepository.create_period(
             fiscal_year_id=fy.id,
             year=2026,
             month=1,
