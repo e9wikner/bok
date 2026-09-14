@@ -4,8 +4,9 @@ Modul-id `agentruntime` i kapabilitetskartan (`ANALYS.md` §8). Beror på `idemp
 klar. Allt ovanför i byggordningen — `tradar`, `beslut`, `chattyta`, `flode-verifikationer` —
 beror på den här.
 
-Status: **Fas 1 — utkast. Sex öppna frågor i §12 väntar på beslut.** Inga uppgifter skrivna,
-ingen kod. `tasks/plan.md` och `tasks/todo.md` skrivs först när §12 är besvarad.
+Status: **Fas 1 — fem av sex frågor besvarade 2026-09-14 (se §12). §12.5 är omkullkastad:
+runtimen ska vara leverantörsoberoende, inte Anthropic-bunden.** Det ändrar §2, §4 och §6 och
+måste landa innan uppgifterna skrivs. Ingen kod, ingen `tasks/`-fil ännu.
 
 ---
 
@@ -457,18 +458,27 @@ Modulen är klar när allt nedan är sant:
 
 ---
 
-## 12. Öppna frågor
+## 12. Beslut och öppna frågor
 
-Ingen av dem kan jag avgöra åt dig. De fyra första ändrar specen; de två sista ändrar kostnaden.
+Besvarade av beställaren 2026-09-14. Fem av sex är stängda; §12.5 är öppen igen i en annan form
+och blockerar uppgiftslistan.
 
-### 12.1 In-process eller över eget HTTP? (§7)
+### 12.1 In-process eller över eget HTTP? (§7) — **BESLUTAT: in-process**
 
-Rekommendation: **in-process**, med postningen utbruten till `services/voucher_posting.py` som en
+Beslut 2026-09-14: workern anropar servicelagret direkt. Postningen bryts ut till
+`services/voucher_posting.py` som en ensam gate-uppgift — flytta funktionen, ändra ingenting i
+den, hela sviten grön — innan något av runtimen byggs.
+
+Underlaget: rekommendationen var **in-process**, med postningen utbruten till `services/voucher_posting.py` som en
 ensam gate-uppgift först. Alternativet är att workern anropar sitt eget API över loopback — mindre
 kod nu, men då är runtimen dagens externa agent med en tråd runt, och varje postning tar en
 ASGI-hop genom en trådlokal SQLite-connection. Säg till om du hellre tar det.
 
-### 12.2 Får agenten posta själv, eller bara föreslå?
+### 12.2 Får agenten posta själv? — **BESLUTAT: ja, som i dag**
+
+Beslut 2026-09-14: dagens beteende behålls. Agenten postar när underlaget och konteringen är
+tillräckligt klara och avstår annars; modulen `beslut` inför det mänskliga steget för just de fall
+agenten avstår från. Underlaget:
 
 I dag postar den direkt: `02_bokforingsprocess.md` säger "Agenten får bokföra direkt via API:t när
 underlaget och konteringen är tillräckligt klara", och `POST /agent/vouchers` postar i samma
@@ -479,7 +489,17 @@ annars — och låta `beslut` införa det mänskliga steget för de fall agenten
 (allt blir förslag) betyder att kön aldrig töms utan en människa, vilket är precis det problem
 §1 beskriver.
 
-### 12.3 Hur ofta, och när?
+### 12.3 Hur ofta, och när? — **BESLUTAT: bara manuellt till att börja med**
+
+Beslut 2026-09-14: ingen schemaläggning i den här modulen. Passet startas manuellt — via
+kommando och en endpoint — tills vi har mätt vad ett pass kostar och hur bra det bokför.
+Intervallkörning läggs på när de siffrorna finns, och `agent_runs.trigger` bär redan `'manual'`
+respektive `'schedule'`, så tillägget kräver ingen schemaändring.
+
+Konsekvens för §6: nedräkningen och `flock`-slingan finns kvar som mekanism, men startas inte av
+en timer. `AGENT_RUNTIME_ENABLED` styr fortfarande om passet över huvud taget får köra.
+
+Underlaget:
 
 Dropzonen skannar på intervall. Ska bokföringspasset göra samma sak (säg var femtonde minut,
 dygnet runt), eller ska det vara sällan och schemalagt (en gång per natt)? Det första ger snabb
@@ -487,7 +507,14 @@ bokföring och en jämn kostnad; det andra ger billigare drift och en människa 
 Jag lutar åt **var femtonde minut med tomkö-kontroll först** — ett pass utan underlag kostar
 ingenting eftersom inget API-anrop görs.
 
-### 12.4 Bokföringsdata till Anthropics API — bekräftat?
+### 12.4 Bokföringsdata till LLM-leverantören — **BEKRÄFTAT**
+
+Beslut 2026-09-14: ja, bokföringsdata får lämna maskinen till den LLM-leverantör som är
+konfigurerad. Retentionsfrågan (vad leverantören sparar och hur länge, och om något
+datahanteringsavtal behövs) följer med leverantörsvalet i §12.5 och ska besvaras per leverantör,
+inte en gång för alla.
+
+Underlaget, skrivet när Anthropic var enda alternativet:
 
 Underlag (kvitton, fakturor, kontoutdrag), kontoplan, verifikationstexter och bolagets egna
 bokföringsinstruktioner skickas till Anthropics API. Det är leverantörsnamn, belopp,
@@ -499,9 +526,19 @@ inte att den aldrig får läsas av någon annan. Men det är ett beslut du ska t
 länge) som påverkar om något datahanteringsavtal behövs. **Detta är den fråga jag helst vill ha
 svar på innan något byggs.**
 
-### 12.5 Opus 5 överallt, eller differentierat?
+### 12.5 Modellval — **OMKULLKASTAD: runtimen ska vara leverantörsoberoende**
 
-`claude-opus-5` för allt är rekommendationen och specens utgångspunkt. Alternativ: `claude-sonnet-5`
+Svar 2026-09-14: *"Jag vill kunna koppla vilken LLM-provider och modell jag vill. Exempelvis
+Opencode skall kunna köra detta."*
+
+Det är inte ett val mellan Opus och Sonnet utan ett krav som ändrar §2, §4 och §6: specen är
+skriven mot Anthropics SDK och mot parametrar bara den har (`thinking`, `output_config.effort`,
+cache-prefixets ekonomi, `usage`-fälten som `cost_ore` räknas ur). Vad kravet kostar och exakt
+vilken form det tar är **den fråga som nu blockerar uppgiftslistan** — se §12.5b.
+
+Den ursprungliga frågan, som underlag:
+
+`claude-opus-5` för allt var rekommendationen och specens utgångspunkt. Alternativ: `claude-sonnet-5`
 ($2/$10) för enkla kvitton och Opus för resten. Två invändningar mot att differentiera nu: cachen
 är modellbunden, så två modeller i samma pass betalar prefixet två gånger, och vi har ingen mätning
 som säger att Sonnet räcker. Rätt ordning är att bygga på Opus, mäta, och sedan sänka — inte tvärtom.
@@ -510,11 +547,41 @@ Relaterat: vad händer vid dygnstaket? Stanna, eller gå ned till en billigare m
 Jag föreslår **stanna** — ett tak som sänker kvaliteten i stället för att stoppa är ett tak som
 tyst börjar bokföra sämre när det är som mest att göra.
 
-### 12.6 Var bor nyckeln på hubbabubba?
+### 12.5b Vad leverantörsoberoende betyder konkret — **ÖPPEN, blockerar uppgifterna**
+
+Tre former, med olika pris:
+
+1. **Intern adapter.** `services/agent_session.py` blir ett tunt gränssnitt med en adapter per
+   leverantör, valda via `LLM_PROVIDER` / `LLM_MODEL` / `LLM_BASE_URL` / `LLM_API_KEY`. Störst
+   arbete i den här modulen, och den minsta gemensamma nämnaren blir OpenAI-kompatibel
+   verktygsanropsform — vilket betyder att `thinking`, `effort` och cache-ekonomin i §2 blir
+   valfria finesser i Anthropic-adaptern i stället för specens grundantagande. `cost_ore` behöver
+   en prislista per leverantör och modell i `config.py`, annars blir kostnadstaket en gissning.
+2. **Extern harness.** Bok bygger ingen egen LLM-klient alls. Runtimen blir en kö och ett
+   verktygs-API, och en harness utanför — Opencode, Claude Code, vad som helst — kör modellen och
+   anropar bok. Billigast för bok, men då finns ingen `AgentWorker` som kör av sig själv, och
+   `GET /agent/status` kan bara rapportera vad harnessen hunnit berätta.
+3. **Båda.** Intern adapter för det schemalagda passet, och verktygs-API:t hålls skarpt nog att en
+   extern harness kan köra samma sak. Dyrast, men det är den enda varianten där både "agenten
+   sköter sig själv" och "jag kör den med mitt eget verktyg" är sanna.
+
+Relaterat, och fortfarande obesvarat oavsett form: vad händer vid dygnstaket? Förslaget står kvar
+— **stanna**, inte gå ned till en billigare modell, eftersom ett tak som sänker kvaliteten börjar
+bokföra sämre precis när det är som mest att göra.
+
+### 12.6 Var bor nyckeln på hubbabubba? — **BESLUTAT: `bok.env`**
+
+Beslut 2026-09-14: API-nyckeln bor i `/srv/appdata/bok/bok.env` bredvid `BOKFOERING_API_KEY`, med
+filrättigheterna som skydd. **Gräns som ska stå i implementationen:** nyckeln når aldrig
+`GET /agent/status` och aldrig `agent_run_events` — varken hel eller maskerad.
+
+Underlaget:
 
 `ANTHROPIC_API_KEY` i `/srv/appdata/bok/bok.env`, som `BOKFOERING_API_KEY`? Det är det enkla svaret
 och det som passar quadlet-uppsättningen. Bekräfta bara att den filens rättigheter är det skydd vi
 tänker oss, och att nyckeln aldrig ska hamna i `GET /agent/status` eller i `agent_run_events`.
+
+---
 
 ---
 
