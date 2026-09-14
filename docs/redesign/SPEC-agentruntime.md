@@ -6,8 +6,9 @@ beror på den här.
 
 Status: **Fas 1 — alla sex frågor besvarade 2026-09-14 (se §12).** Runtimen är
 leverantörsoberoende: den går mot en OpenAI-/Anthropic-kompatibel gateway med beställarens egen
-nyckel, och modellen väljs per konversation. §2, §4, §5 och §6 är omskrivna efter det. Ingen kod,
-`tasks/agentruntime/plan.md` och `tasks/agentruntime/todo.md` skrivs härnäst.
+nyckel, och modellen väljs per konversation. §2, §4, §5 och §6 är omskrivna efter det.
+Uppgifterna ligger i `tasks/agentruntime/plan.md` och `tasks/agentruntime/todo.md` (A1–A14).
+Ingen kod skriven ännu.
 
 ---
 
