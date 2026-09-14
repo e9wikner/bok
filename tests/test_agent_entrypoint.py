@@ -173,9 +173,12 @@ async def test_agent_entrypoint_discloses_unsupported_features(async_client):
     assert "persistent" in unsupported
     assert "credential lifecycle" in unsupported
     assert "generated tool-schema discovery" in unsupported
-    # Durable idempotency now exists, but only for the agent voucher endpoint.
-    # The disclosure narrowed with the implementation; it did not disappear.
-    assert "durable idempotency covers /api/v1/agent/vouchers only" in unsupported
+    # Durable idempotency now covers posting and correcting. The disclosure
+    # narrows as the implementation grows; it never disappears.
+    assert (
+        "durable idempotency covers /api/v1/agent/vouchers and "
+        "/api/v1/vouchers/{voucher_id}/correct" in unsupported
+    )
     assert "/api/v1/bank-transactions" in unsupported
 
 
@@ -186,7 +189,10 @@ async def test_agent_entrypoint_documents_idempotency_contract(async_client):
 
     assert contract["header"] == "Idempotency-Key"
     assert "UUID" in contract["value_format"]
-    assert contract["required_on"] == ["/api/v1/agent/vouchers"]
+    assert contract["required_on"] == [
+        "/api/v1/agent/vouchers",
+        "/api/v1/vouchers/{voucher_id}/correct",
+    ]
     assert contract["server_enforced"] is False
     assert "same key" in contract["retry_rule"]
     assert "Idempotent-Replay: true" in contract["retry_rule"]

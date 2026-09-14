@@ -712,3 +712,162 @@ def test_correction_chain_still_commits_by_default(test_db):
     assert correction.status.value == "posted"
     assert _voucher_count() == 2
     assert _correction_history_count() == 1
+
+
+# --- T9: POST /vouchers/{id}/correct --------------------------------------
+
+
+def _correction_body(amount: int = 9900):
+    return {
+        "corrected_rows": [
+            {"account": "1920", "debit": 0, "credit": amount},
+            {"account": "6200", "debit": amount, "credit": 0},
+        ],
+        "reason": "Fel belopp",
+    }
+
+
+@pytest.mark.asyncio
+async def test_correcting_twice_with_one_key_creates_one_correction(
+    test_db, async_client
+):
+    """Test case 10."""
+    _ensure_accounts()
+    period = _period()
+    original = _posted_voucher(period)
+    key = str(uuid.uuid4())
+
+    first = await async_client.post(
+        f"/api/v1/vouchers/{original.id}/correct",
+        headers=_headers(key),
+        json=_correction_body(),
+    )
+    second = await async_client.post(
+        f"/api/v1/vouchers/{original.id}/correct",
+        headers=_headers(key),
+        json=_correction_body(),
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json() == second.json()
+    assert first.headers.get("Idempotent-Replay") is None
+    assert second.headers.get("Idempotent-Replay") == "true"
+    assert _voucher_count() == 2
+    assert _correction_history_count() == 1
+
+
+@pytest.mark.asyncio
+async def test_an_aborted_correction_leaves_no_trace(
+    test_db, async_client, monkeypatch
+):
+    """Test case 11: B-voucher, history row and key row live or die together."""
+    _ensure_accounts()
+    period = _period()
+    original = _posted_voucher(period)
+    key = str(uuid.uuid4())
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("simulated failure after the correction")
+
+    monkeypatch.setattr(
+        "services.ledger.LedgerService._record_correction_history", explode
+    )
+
+    failed = await async_client.post(
+        f"/api/v1/vouchers/{original.id}/correct",
+        headers=_headers(key),
+        json=_correction_body(),
+    )
+    assert failed.status_code == 500
+    assert _voucher_count() == 1
+    assert _correction_history_count() == 0
+    assert _key_rows() == []
+
+    monkeypatch.undo()
+
+    retry = await async_client.post(
+        f"/api/v1/vouchers/{original.id}/correct",
+        headers=_headers(key),
+        json=_correction_body(),
+    )
+    assert retry.status_code == 200
+    assert _voucher_count() == 2
+
+
+@pytest.mark.asyncio
+async def test_an_abort_after_the_history_row_rolls_it_back_too(
+    test_db, async_client, monkeypatch
+):
+    """Test case 11, from the other end.
+
+    Failing before the history row is written proves nothing about rolling it
+    back. Here the B-series voucher and the history row are both already
+    written when the transaction throws.
+    """
+    _ensure_accounts()
+    period = _period()
+    original = _posted_voucher(period)
+    key = str(uuid.uuid4())
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("simulated failure after the history row")
+
+    monkeypatch.setattr("services.idempotency.IdempotencyService.complete", explode)
+
+    failed = await async_client.post(
+        f"/api/v1/vouchers/{original.id}/correct",
+        headers=_headers(key),
+        json=_correction_body(),
+    )
+
+    assert failed.status_code == 500
+    assert _voucher_count() == 1
+    assert _correction_history_count() == 0
+    assert _key_rows() == []
+
+
+@pytest.mark.asyncio
+async def test_the_same_correction_key_on_another_voucher_is_another_intent(
+    test_db, async_client
+):
+    """The key is scoped to the voucher being corrected, not to the path shape."""
+    _ensure_accounts()
+    period = _period()
+    first_original = _posted_voucher(period)
+    second_original = _posted_voucher(period, amount=7700)
+    key = str(uuid.uuid4())
+
+    first = await async_client.post(
+        f"/api/v1/vouchers/{first_original.id}/correct",
+        headers=_headers(key),
+        json=_correction_body(),
+    )
+    second = await async_client.post(
+        f"/api/v1/vouchers/{second_original.id}/correct",
+        headers=_headers(key),
+        json=_correction_body(),
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["id"] != second.json()["id"]
+    assert _correction_history_count() == 2
+
+
+@pytest.mark.asyncio
+async def test_correcting_without_a_key_still_works(test_db, async_client):
+    """Transition rule (c) holds here too."""
+    _ensure_accounts()
+    period = _period()
+    original = _posted_voucher(period)
+
+    response = await async_client.post(
+        f"/api/v1/vouchers/{original.id}/correct",
+        headers=_headers(),
+        json=_correction_body(),
+    )
+
+    assert response.status_code == 200
+    assert _key_rows() == []
+    assert _correction_history_count() == 1

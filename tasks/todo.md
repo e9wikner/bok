@@ -79,12 +79,27 @@ Testerna skrivs **före** implementationen (§9). Ingen uppgift rör mer än 5 f
   - Utfört: exakt de metoder §12.4 räknade upp. Regressionsgrinden kördes före T9 påbörjades:
     hela `tests/` grön (372 tester) utan ny funktionalitet.
 
-- [ ] **T9 — `POST /vouchers/{id}/correct` kopplas på**
+- [x] **T9 — `POST /vouchers/{id}/correct` kopplas på**
   - Acceptans: rutten tar `Idempotency-Key`; B-verifikation, `accounting_corrections`-rad och
     nyckelrad commitas i ett enda `with db.transaction():`.
   - Verifiera: testfall 10 och 11 — samma nyckel två gånger ger en B-verifikation; avbrott
     mitt i lämnar ingen av de tre raderna kvar.
   - Filer: `api/routes/vouchers.py`, `services/ledger.py`, `tests/test_idempotency.py`
+  - Utfört, med tre saker värda att veta:
+    1. **Endpointsträngen bär verifikationens id** — `POST /api/v1/vouchers/<id>/correct`, inte
+       mallen. Fingerprintet täcker bara bodyn, så med mallen hade samma nyckel mot en *annan*
+       verifikation spelat upp fel svar. Eget test.
+    2. **Öppningsbalansen flyttade ut ur transaktionen.** `post_voucher(_commit=False)` hoppar
+       över IB-triggern, så rutten kör den efter commit, best-effort — samma mönster som
+       `api/routes/agent.py`. Utan det hade korrigeringar tyst slutat uppdatera nästa års IB.
+    3. **`api/routes/agent_instructions.py` fick följa med.** Entrypointen påstod
+       `"Durable idempotency covers /api/v1/agent/vouchers only"`, vilket T9 gjorde falskt —
+       och det är runtime-innehåll som serveras agenten vid varje start. Meningen och
+       `required_on` namnger nu båda endpointerna, och assertionen i
+       `tests/test_agent_entrypoint.py` är skärpt till den nya meningen, inte lättad.
+  - Kvar: felsvarsmappningen för nycklar (422/409) är nu skriven två gånger, i `agent.py` och
+    `vouchers.py`. Den hör hemma i en delad hjälpare; ingen av de två uppgifterna ägde en
+    tredje fil att lägga den i.
 
 - [x] **T10 — Nyckelkravet i agentinstruktionerna**
   - Acceptans: `docs/to_agent/02_bokforingsprocess.md` beskriver `Idempotency-Key` som krav vid

@@ -1,8 +1,11 @@
 """API routes for vouchers."""
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status as http_status
 from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 
 from api.schemas import (
     ApproveCorrectionNoteRequest,
@@ -18,8 +21,10 @@ from api.schemas import (
     VoucherResponse,
     VoucherRowResponse,
 )
-from api.deps import get_ledger_service, get_current_actor
+from api.deps import get_current_actor, get_idempotency_key, get_ledger_service
+from db.database import db
 from domain.validation import ValidationError
+from services.idempotency import IdempotencyOutcome, IdempotencyService
 from services.ledger import LedgerService
 from repositories.accounting_correction_repo import AccountingCorrectionRepository
 from repositories.audit_repo import AuditRepository
@@ -490,17 +495,130 @@ async def correct_voucher(
     request: CorrectVoucherRequest,
     ledger: LedgerService = Depends(get_ledger_service),
     actor: str = Depends(get_current_actor),
+    idempotency_key: Optional[str] = Depends(get_idempotency_key),
 ):
-    """Correct a posted voucher by creating and posting a B-series correction."""
-    try:
-        rows_data = [r.model_dump() for r in request.corrected_rows]
-        correction = ledger.create_posted_correction(
-            original_voucher_id=voucher_id,
-            corrected_rows=rows_data,
-            reason=request.reason,
+    """Correct a posted voucher by creating and posting a B-series correction.
+
+    A correction is exactly what a caller repeats after a timeout, so the same
+    key twice must leave one B-series voucher behind (SPEC-idempotens §12.4).
+    """
+    idempotency = IdempotencyService()
+    endpoint = _correct_endpoint(voucher_id)
+    reserved = False
+
+    if idempotency_key:
+        outcome = idempotency.begin(
+            key=idempotency_key,
+            endpoint=endpoint,
+            body=jsonable_encoder(request),
             actor=actor,
         )
-        return _voucher_to_response(correction)
+        if outcome.kind == IdempotencyOutcome.REPLAY:
+            return JSONResponse(
+                status_code=outcome.response_status or http_status.HTTP_200_OK,
+                content=outcome.response_payload,
+                headers={"Idempotent-Replay": "true"},
+            )
+        if outcome.kind == IdempotencyOutcome.MISMATCH:
+            raise HTTPException(
+                status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "error": "Idempotency-Key already used for a different request",
+                    "code": "idempotency_key_reuse",
+                    "details": "The same key must carry the same request body",
+                    "original_fingerprint": outcome.original_fingerprint,
+                },
+            )
+        if outcome.kind == IdempotencyOutcome.IN_FLIGHT:
+            raise HTTPException(
+                status_code=http_status.HTTP_409_CONFLICT,
+                detail={
+                    "error": "A request with this Idempotency-Key is in flight",
+                    "code": "request_in_flight",
+                    "details": "Retry with the same key to get the stored response",
+                    "retry_after_ms": 500,
+                },
+            )
+        reserved = True
+
+    try:
+        return _correct_and_record(
+            voucher_id=voucher_id,
+            request=request,
+            ledger=ledger,
+            actor=actor,
+            idempotency=idempotency,
+            idempotency_key=idempotency_key,
+            endpoint=endpoint,
+        )
+    except Exception:
+        if reserved and idempotency_key:
+            idempotency.release(idempotency_key, endpoint)
+        raise
+
+
+def _correct_endpoint(voucher_id: str) -> str:
+    """The key is scoped to the voucher being corrected.
+
+    Two vouchers corrected under the same key are two intents, and the
+    fingerprint covers the body only — so the voucher id lives in the endpoint.
+    """
+    return f"POST /api/v1/vouchers/{voucher_id}/correct"
+
+
+def _correct_and_record(
+    voucher_id: str,
+    request: CorrectVoucherRequest,
+    ledger: LedgerService,
+    actor: str,
+    idempotency: IdempotencyService,
+    idempotency_key: Optional[str],
+    endpoint: str,
+) -> VoucherResponse:
+    """B-series voucher, correction history and key row, in one transaction."""
+    try:
+        rows_data = [r.model_dump() for r in request.corrected_rows]
+        fiscal_year_id = None
+        with db.transaction():
+            correction = ledger.create_posted_correction(
+                original_voucher_id=voucher_id,
+                corrected_rows=rows_data,
+                reason=request.reason,
+                actor=actor,
+                _commit=False,
+            )
+            response = _voucher_to_response(correction)
+            fiscal_year_id = correction.fiscal_year_id
+
+            # The key row commits with the correction. Written afterwards it
+            # would leave a window where the B-series voucher exists but the
+            # key does not — the hole this module closes.
+            if idempotency_key:
+                idempotency.complete(
+                    key=idempotency_key,
+                    endpoint=endpoint,
+                    response_status=http_status.HTTP_200_OK,
+                    response_payload=jsonable_encoder(response),
+                    entity_type="voucher",
+                    entity_id=correction.id,
+                    _commit=False,
+                )
+
+        # Posting inside a transaction skips the opening-balance trigger in
+        # LedgerService.post_voucher, so it runs here instead: after the
+        # commit and best-effort, as in api/routes/agent.py.
+        if fiscal_year_id:
+            try:
+                from services.opening_balance import OpeningBalanceService
+
+                OpeningBalanceService().update_opening_balances_for_next_year(
+                    fiscal_year_id,
+                    actor,
+                )
+            except Exception:
+                pass
+
+        return response
     except ValidationError as e:
         raise HTTPException(
             status_code=http_status.HTTP_400_BAD_REQUEST,
