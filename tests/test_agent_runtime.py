@@ -4,19 +4,36 @@ This file grows across tasks A3-A13 of tasks/agentruntime/todo.md. Each task
 gets its own section/class so the file stays navigable as it grows:
 
 - A3: AgentRunRepository (this file, first pass)
+- A4: services/llm/ protocol layer, model registry, config
 
 Per SPEC §9: no LLM is ever called from a test. A3 covers the storage layer
 only — creating a run, sequencing events, and the "running with no live
 thread" query the worker (A10) will later use to detect abandoned runs. The
 liveness decision itself is out of scope here; find_running() only needs to
 return what is marked 'running'.
+
+A4 covers pure typing, a table-driven model registry, and config plumbing —
+no network calls, no `anthropic`/`openai` imports. Test case 19 (a model
+with no price row must refuse to start) is proven here only at the registry
+level: `get_model_info` raises. The full "the pass refuses to start, no
+agent_runs row" behavior is A10's job.
 """
 
 import json
 
 import pytest
 
+from config import Settings
 from repositories.agent_run_repo import AgentRunRepository
+from services.llm import (
+    LLMCapabilities,
+    LLMTurn,
+    ModelInfo,
+    ToolCall,
+    UnknownModelError,
+    Usage,
+    get_model_info,
+)
 
 pytestmark = pytest.mark.usefixtures("test_db")
 
@@ -333,3 +350,149 @@ class TestCostToday:
 
     def test_sum_cost_today_ore_zero_with_no_runs(self):
         assert AgentRunRepository.sum_cost_today_ore() == 0
+
+
+# --- A4: services/llm/ protocol layer, model registry, config --------------
+
+
+class TestValueTypes:
+    def test_usage_constructs_with_expected_fields(self):
+        usage = Usage(input_tokens=100, output_tokens=50, cache_read_input_tokens=10)
+
+        assert usage.input_tokens == 100
+        assert usage.output_tokens == 50
+        assert usage.cache_read_input_tokens == 10
+
+    def test_tool_call_constructs_with_expected_fields(self):
+        call = ToolCall(id="call-1", name="posta_verifikation", arguments={"a": 1})
+
+        assert call.id == "call-1"
+        assert call.name == "posta_verifikation"
+        assert call.arguments == {"a": 1}
+
+    def test_llm_capabilities_constructs_with_expected_fields(self):
+        caps = LLMCapabilities(
+            cache_breakpoint=True,
+            pdf_document_blocks=True,
+            refusal_stop_reason=True,
+        )
+
+        assert caps.cache_breakpoint is True
+        assert caps.pdf_document_blocks is True
+        assert caps.refusal_stop_reason is True
+
+    def test_llm_turn_constructs_with_expected_fields(self):
+        usage = Usage(input_tokens=1, output_tokens=1, cache_read_input_tokens=0)
+        call = ToolCall(id="call-1", name="hamta_kontoplan", arguments={})
+
+        turn = LLMTurn(text="klart", tool_calls=[call], stop="tool_calls", usage=usage)
+
+        assert turn.text == "klart"
+        assert turn.tool_calls == [call]
+        assert turn.stop == "tool_calls"
+        assert turn.usage is usage
+
+    def test_llm_turn_stop_accepts_each_normalized_value(self):
+        usage = Usage(input_tokens=0, output_tokens=0, cache_read_input_tokens=0)
+
+        for stop in ("tool_calls", "end", "refusal", "max_tokens"):
+            turn = LLMTurn(text="", tool_calls=[], stop=stop, usage=usage)
+            assert turn.stop == stop
+
+
+class TestModelRegistry:
+    def test_known_claude_model_resolves_to_messages_protocol(self):
+        info = get_model_info("opencode/claude-opus-5")
+
+        assert isinstance(info, ModelInfo)
+        assert info.model == "opencode/claude-opus-5"
+        assert info.protocol == "messages"
+
+    def test_known_non_claude_model_resolves_to_chat_protocol(self):
+        info = get_model_info("opencode/gpt-5.5")
+
+        assert info.protocol == "chat"
+
+    def test_unknown_model_raises_unknown_model_error(self):
+        with pytest.raises(UnknownModelError):
+            get_model_info("opencode/does-not-exist")
+
+    def test_unknown_model_error_is_not_a_bare_exception_or_keyerror(self):
+        try:
+            get_model_info("opencode/does-not-exist")
+        except UnknownModelError as e:
+            assert type(e) is not Exception
+            assert not isinstance(e, KeyError)
+            assert e.model == "opencode/does-not-exist"
+        else:
+            pytest.fail("expected UnknownModelError")
+
+    def test_price_lookup_returns_price_row_with_expected_shape(self):
+        info = get_model_info("opencode/claude-opus-5")
+        price = info.price
+
+        assert price.input_ore_per_million_tokens > 0
+        assert price.output_ore_per_million_tokens > 0
+        assert price.cache_read_ore_per_million_tokens > 0
+        # cost_ore math (A9) depends on plausible relative magnitudes: output
+        # tokens cost at least as much as input tokens, and a cache read is
+        # cheaper than a fresh input token.
+        assert price.output_ore_per_million_tokens >= price.input_ore_per_million_tokens
+        assert (
+            price.cache_read_ore_per_million_tokens
+            <= price.input_ore_per_million_tokens
+        )
+
+    def test_price_lookup_for_known_chat_model_also_has_expected_shape(self):
+        info = get_model_info("opencode/gpt-5.5")
+        price = info.price
+
+        assert price.input_ore_per_million_tokens > 0
+        assert price.output_ore_per_million_tokens > 0
+        assert price.cache_read_ore_per_million_tokens > 0
+
+
+class TestAgentRuntimeConfig:
+    def test_agent_runtime_enabled_defaults_to_false(self):
+        assert Settings().agent_runtime_enabled is False
+
+    def test_agent_runtime_enabled_can_be_flipped_via_env_var(self, monkeypatch):
+        monkeypatch.setenv("AGENT_RUNTIME_ENABLED", "true")
+
+        assert Settings().agent_runtime_enabled is True
+
+    def test_llm_api_key_defaults_to_empty_string(self):
+        assert Settings().llm_api_key == ""
+
+    def test_llm_base_url_has_opencode_zen_default(self):
+        assert Settings().llm_base_url == "https://opencode.ai/zen/v1"
+
+    def test_llm_default_model_is_a_priced_claude_model(self):
+        # The default must itself resolve via get_model_info -- a default
+        # that isn't priced would violate SPEC §2 on day one.
+        info = get_model_info(Settings().llm_default_model)
+        assert info.protocol == "messages"
+
+    def test_the_four_caps_have_specs_stated_defaults(self):
+        settings = Settings()
+
+        assert settings.agent_max_tool_turns_per_item == 25
+        assert settings.agent_max_output_tokens_per_item == 32000
+        assert settings.agent_daily_budget_ore == 5000  # 50 kr, per SPEC §6.5/§8
+        assert settings.agent_max_items_per_pass == 20
+
+    def test_daily_budget_ore_can_be_flipped_via_env_var(self, monkeypatch):
+        monkeypatch.setenv("AGENT_DAILY_BUDGET_ORE", "1234")
+
+        assert Settings().agent_daily_budget_ore == 1234
+
+    def test_llm_api_key_never_appears_in_unknown_model_error(self, monkeypatch):
+        monkeypatch.setenv("LLM_API_KEY", "super-secret-key-should-never-leak")
+        settings_with_key = Settings()
+        assert settings_with_key.llm_api_key == "super-secret-key-should-never-leak"
+
+        try:
+            get_model_info("opencode/does-not-exist")
+        except UnknownModelError as e:
+            assert "super-secret-key-should-never-leak" not in repr(e)
+            assert "super-secret-key-should-never-leak" not in str(e)

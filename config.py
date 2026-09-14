@@ -52,6 +52,29 @@ class Settings(BaseSettings):
     debug: bool = os.getenv("DEBUG", "False").lower() == "true"
     cors_origins: str = os.getenv("CORS_ORIGINS", "*")
 
+    # Agent runtime (docs/redesign/SPEC-agentruntime.md) -- off by default, like
+    # the dropzone: running `python main.py` should never accidentally start a
+    # paid LLM loop against a developer's test database.
+    agent_runtime_enabled: bool = (
+        os.getenv("AGENT_RUNTIME_ENABLED", "False").lower() == "true"
+    )
+    # Never log, print, or otherwise surface this value -- see §12.6.
+    llm_api_key: str = os.getenv("LLM_API_KEY", "")
+    llm_base_url: str = os.getenv("LLM_BASE_URL", "https://opencode.ai/zen/v1")
+    llm_default_model: str = os.getenv("LLM_DEFAULT_MODEL", "opencode/claude-opus-5")
+
+    # The four caps (SPEC §6.5). Checked between source documents and between
+    # tool turns, never inside a `with db.transaction():`.
+    agent_max_tool_turns_per_item: int = int(
+        os.getenv("AGENT_MAX_TOOL_TURNS_PER_ITEM", "25")
+    )
+    agent_max_output_tokens_per_item: int = int(
+        os.getenv("AGENT_MAX_OUTPUT_TOKENS_PER_ITEM", "32000")
+    )
+    # 50 kr/day, expressed in öre (this codebase's amount convention).
+    agent_daily_budget_ore: int = int(os.getenv("AGENT_DAILY_BUDGET_ORE", "5000"))
+    agent_max_items_per_pass: int = int(os.getenv("AGENT_MAX_ITEMS_PER_PASS", "20"))
+
     @property
     def cors_origins_list(self) -> list[str]:
         """Return configured CORS origins as a list."""
