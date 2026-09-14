@@ -15,6 +15,7 @@ from config import settings
 
 ENTRYPOINT_PATH = "/api/v1/agent-instructions/entrypoint"
 DRIFT_DOC_PATH = Path("docs/to_agent/01_drift_och_atkomst.md")
+PROCESS_DOC_PATH = Path("docs/to_agent/02_bokforingsprocess.md")
 EXPECTED_PATHS = {
     "/api/v1/health",
     "/docs",
@@ -132,6 +133,8 @@ async def test_agent_entrypoint_prescribes_startup_order_and_guardrails(async_cl
     assert "intake_source_ids" in guidance
     assert "pending queue" in guidance
     assert "guidance" in guidance
+    assert "Idempotency-Key" in guidance
+    assert "Idempotent-Replay" in guidance
 
 
 @pytest.mark.asyncio
@@ -170,8 +173,39 @@ async def test_agent_entrypoint_discloses_unsupported_features(async_client):
     assert "persistent" in unsupported
     assert "credential lifecycle" in unsupported
     assert "generated tool-schema discovery" in unsupported
-    assert "durable idempotency" in unsupported
+    # Durable idempotency now exists, but only for the agent voucher endpoint.
+    # The disclosure narrowed with the implementation; it did not disappear.
+    assert "durable idempotency covers /api/v1/agent/vouchers only" in unsupported
     assert "/api/v1/bank-transactions" in unsupported
+
+
+@pytest.mark.asyncio
+async def test_agent_entrypoint_documents_idempotency_contract(async_client):
+    data = await _entrypoint(async_client)
+    contract = data["idempotency_contract"]
+
+    assert contract["header"] == "Idempotency-Key"
+    assert "UUID" in contract["value_format"]
+    assert contract["required_on"] == ["/api/v1/agent/vouchers"]
+    assert contract["server_enforced"] is False
+    assert "same key" in contract["retry_rule"]
+    assert "Idempotent-Replay: true" in contract["retry_rule"]
+    assert "new key" in contract["one_key_per_event"]
+    assert contract["conflicts"]["422"].startswith("idempotency_key_reuse")
+    assert contract["conflicts"]["409"].startswith("request_in_flight")
+    assert contract["conflicts"]["400"].startswith("invalid_idempotency_key")
+    assert "idempotency_key_missing" in contract["transition"]
+
+
+def test_agent_process_doc_requires_an_idempotency_key_on_posting():
+    text = PROCESS_DOC_PATH.read_text(encoding="utf-8")
+
+    assert "Idempotency-Key" in text
+    assert "Idempotent-Replay: true" in text
+    assert "idempotency_key_reuse" in text
+    assert "request_in_flight" in text
+    assert "En affärshändelse, en nyckel" in text
+    assert "Omförsök använder samma nyckel" in text
 
 
 @pytest.mark.asyncio
