@@ -18,11 +18,16 @@ Three things this module is deliberately *not*:
   tool call does and raises on failure; this module decides what a raised
   exception, or a successful `posta_verifikation`/`registrera_avstaende`
   call, means for the *session's outcome* (SPEC §6.7).
-- Not a cap enforcer. `max_tool_turns` is the one cap this task owns
-  (SPEC §6.5's "verktygsvarv per underlag", default
-  `config.settings.agent_max_tool_turns_per_item`). The other three caps
-  (output tokens per item, daily cost, items per pass) are checked *between*
-  sessions/items by A9 -- this module has no notion of them.
+- Mostly not a cap enforcer. `max_tool_turns` is the cap A8 owns (SPEC §6.5's
+  "verktygsvarv per underlag", default
+  `config.settings.agent_max_tool_turns_per_item`). A9 adds the one other cap
+  that has to live in this loop -- cumulative *output* tokens per item (SPEC
+  §6.5's "ut-token per underlag", default
+  `config.settings.agent_max_output_tokens_per_item`), since it can only be
+  measured turn by turn, right here. The remaining two caps (daily cost,
+  items per pass) are checked *between* sessions/items by A9/A10 in
+  `services/agent_runtime.py` and the future worker -- this module has no
+  notion of them.
 
 KNOWN LIMITATION -- extended thinking across turns: Anthropic's
 extended-thinking + tool-use flow can require preserving `thinking`/
@@ -385,6 +390,7 @@ def run_session(
     actor: str,
     max_tool_turns: Optional[int] = None,
     max_tokens_per_turn: int = DEFAULT_MAX_TOKENS_PER_TURN,
+    max_output_tokens: Optional[int] = None,
 ) -> SessionOutcome:
     """Run one LLM session for one intake source (SPEC §6.3, §6.7).
 
@@ -395,12 +401,29 @@ def run_session(
     passera en punkt där vi kan neka, logga...").
 
     `max_tool_turns` defaults to `config.settings.agent_max_tool_turns_per_item`
-    (SPEC §6.5's "verktygsvarv per underlag" cap, the one cap this task owns).
+    (SPEC §6.5's "verktygsvarv per underlag" cap).
+
+    `max_output_tokens` defaults to
+    `config.settings.agent_max_output_tokens_per_item` (SPEC §6.5's "ut-token
+    per underlag" cap, task A9). It is checked *between* turns -- once the
+    cumulative `usage.output_tokens` across every turn so far exceeds this
+    limit, the loop stops before requesting another turn and the session
+    returns `SessionOutcome(kind="abstained", reason="agent_output_limit")`.
+    A turn that itself reaches a terminal outcome (posts, abstains via
+    `registrera_avstaende`, refuses, is truncated, or ends with no tool
+    calls) is never overridden by this check -- the cap only ever cuts off
+    the *next* `run_turn` call, exactly like `max_tool_turns`, and it never
+    aborts mid-turn.
     """
     turn_limit = (
         max_tool_turns
         if max_tool_turns is not None
         else settings.agent_max_tool_turns_per_item
+    )
+    output_token_limit = (
+        max_output_tokens
+        if max_output_tokens is not None
+        else settings.agent_max_output_tokens_per_item
     )
 
     try:
@@ -536,6 +559,19 @@ def run_session(
             turns.append(SessionTurnRecord(turn=turn, executed_tool_calls=executed))
             messages.append(_assistant_message(turn))
             messages.append({"role": "user", "content": tool_result_blocks})
+
+            if usage.output_tokens > output_token_limit:
+                # SPEC §6.5's "ut-token per underlag" cap: this turn didn't
+                # itself post or abstain (handled above, before this point),
+                # so nothing is overridden -- the cap only prevents the next
+                # run_turn call from happening at all.
+                return SessionOutcome(
+                    kind="abstained",
+                    reason="agent_output_limit",
+                    usage=usage,
+                    turns=turns,
+                )
+
             continue
 
         # Defensive: no other `stop` value should exist given `StopReason`'s

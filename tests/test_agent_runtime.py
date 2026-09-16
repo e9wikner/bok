@@ -58,6 +58,11 @@ from services.agent_documents import (
     reconciliation_result,
     select_content_for_source,
 )
+from services.agent_runtime import (
+    DailyBudgetExhaustedError,
+    compute_cost_ore,
+    ensure_daily_budget_available,
+)
 from services.agent_session import (
     SessionOutcome,
     build_system_prompt,
@@ -1799,3 +1804,205 @@ class TestSessionUsageAccumulationAndCachePrompt:
         assert cache_read_seen[0] == 0
         assert cache_read_seen[1:] == [120, 130, 140, 150]
         assert all(value > 0 for value in cache_read_seen[1:])
+
+
+class TestSessionOutputTokenCap:
+    """SPEC §6.5's "ut-token per underlag" cap (task A9), enforced *between*
+    turns inside `run_session` -- the same loop `TestSessionTurnLimit`
+    exercises for the tool-turn cap, but tripped by cumulative
+    `usage.output_tokens` instead of a turn count.
+    """
+
+    def test_cumulative_output_tokens_exceeding_the_cap_stops_the_session(
+        self, tmp_path
+    ):
+        _ensure_agent_tool_accounts()
+        source = _agent_tool_intake_source(tmp_path)
+        harmless_call = ToolCall(id="call-1", name="las_kontoplan", arguments={})
+        client = FakeLLMClient(
+            [
+                LLMTurn(
+                    text="",
+                    tool_calls=[harmless_call],
+                    stop="tool_calls",
+                    usage=Usage(
+                        input_tokens=10, output_tokens=20_000, cache_read_input_tokens=0
+                    ),
+                )
+            ],
+            capabilities=_capabilities(True),
+        )
+
+        outcome = run_session(
+            client=client,
+            source=source,
+            file_bytes=b"%PDF-1.4 fake, no real text layer",
+            open_periods=[],
+            today=date.today(),
+            model="opencode/claude-opus-5",
+            actor="agent",
+            max_tool_turns=10,
+            max_output_tokens=25_000,
+        )
+
+        assert outcome.kind == "abstained"
+        assert outcome.reason == "agent_output_limit"
+        # Turn 1: cumulative output = 20,000 <= 25,000 -> loop continues.
+        # Turn 2: cumulative output = 40,000 > 25,000 -> loop stops here,
+        # never reaching turn 3 even though max_tool_turns=10 would allow it.
+        assert len(client.calls) == 2
+        assert outcome.usage.output_tokens == 40_000
+        assert _agent_tool_voucher_count() == 0
+
+    def test_a_turn_that_posts_is_never_overridden_by_the_output_cap(self, tmp_path):
+        """A turn whose own tool call already reached a terminal outcome
+        (here: posting) must win even if that same turn's usage pushes
+        cumulative output tokens over the cap -- the cap only ever prevents
+        a *further* run_turn call, it never un-does an outcome already
+        reached.
+        """
+        _ensure_agent_tool_accounts()
+        period = _agent_tool_period()
+        source = _agent_tool_intake_source(tmp_path)
+        posting_call = ToolCall(
+            id="call-1",
+            name="posta_verifikation",
+            arguments=_posta_verifikation_args(period.id, source.id),
+        )
+        client = FakeLLMClient(
+            [
+                LLMTurn(
+                    text="",
+                    tool_calls=[posting_call],
+                    stop="tool_calls",
+                    usage=Usage(
+                        input_tokens=10, output_tokens=99_999, cache_read_input_tokens=0
+                    ),
+                )
+            ],
+            capabilities=_capabilities(True),
+        )
+
+        outcome = run_session(
+            client=client,
+            source=source,
+            file_bytes=b"%PDF-1.4 fake, no real text layer",
+            open_periods=[period],
+            today=date.today(),
+            model="opencode/claude-opus-5",
+            actor="agent",
+            max_tool_turns=10,
+            max_output_tokens=1,
+        )
+
+        assert outcome.kind == "posted"
+        assert outcome.voucher_id
+        assert _agent_tool_voucher_count() == 1
+
+
+# --- A9: budget, cost and caps (services/agent_runtime.py) ------------------
+
+
+class TestComputeCostOre:
+    """`compute_cost_ore(model, usage) -> int`, against the seeded
+    `opencode/claude-opus-5` price row (input 15,000 / output 75,000 /
+    cache-read 1,500 öre per million tokens, `services/llm/__init__.py`).
+    """
+
+    def test_known_model_and_usage_computes_the_expected_ore_total(self):
+        usage = Usage(
+            input_tokens=100_000, output_tokens=2_000, cache_read_input_tokens=50_000
+        )
+
+        # input:      100,000 * 15,000 // 1,000,000 = 1,500
+        # output:       2,000 * 75,000 // 1,000,000 =   150
+        # cache read:  50,000 *  1,500 // 1,000,000 =    75
+        # total:                                       1,725
+        cost_ore = compute_cost_ore("opencode/claude-opus-5", usage)
+
+        assert cost_ore == 1725
+
+    def test_cache_read_tokens_are_priced_at_the_cache_rate_not_input_rate(self):
+        # Same 150,000 "cheap" tokens either way: all as fresh input, or
+        # split 100k input / 50k cache read. If cache reads were mispriced
+        # at the input rate, these two would cost exactly the same amount.
+        usage_all_input = Usage(
+            input_tokens=150_000, output_tokens=2_000, cache_read_input_tokens=0
+        )
+        usage_with_cache_read = Usage(
+            input_tokens=100_000, output_tokens=2_000, cache_read_input_tokens=50_000
+        )
+
+        cost_all_input = compute_cost_ore("opencode/claude-opus-5", usage_all_input)
+        cost_with_cache_read = compute_cost_ore(
+            "opencode/claude-opus-5", usage_with_cache_read
+        )
+
+        assert cost_all_input == 2400
+        assert cost_with_cache_read == 1725
+        assert cost_with_cache_read < cost_all_input
+
+    def test_unpriced_model_raises_unknown_model_error(self):
+        usage = Usage(input_tokens=100, output_tokens=100, cache_read_input_tokens=0)
+
+        with pytest.raises(UnknownModelError):
+            compute_cost_ore("opencode/does-not-exist", usage)
+
+
+class TestEnsureDailyBudgetAvailable:
+    """SPEC §9 test case 8: when the daily budget is already exhausted, the
+    check must raise -- called directly against a repository state seeded
+    through `AgentRunRepository`'s real `create`/`add_usage` methods, since
+    no worker exists yet to call this before a pass (that wiring is A10's
+    job; see `ensure_daily_budget_available`'s own docstring).
+    """
+
+    def test_case_8_raises_when_todays_spend_already_meets_the_budget(
+        self, monkeypatch
+    ):
+        monkeypatch.setattr(settings, "agent_daily_budget_ore", 1000)
+        run = AgentRunRepository.create(
+            trigger="manual", model="opencode/claude-opus-5", protocol="messages"
+        )
+        AgentRunRepository.add_usage(run.id, cost_ore=1000)
+
+        with pytest.raises(DailyBudgetExhaustedError) as exc_info:
+            ensure_daily_budget_available(AgentRunRepository)
+
+        assert exc_info.value.spent_ore == 1000
+        assert exc_info.value.budget_ore == 1000
+
+    def test_raises_when_todays_spend_exceeds_the_budget(self, monkeypatch):
+        monkeypatch.setattr(settings, "agent_daily_budget_ore", 1000)
+        run = AgentRunRepository.create(
+            trigger="manual", model="opencode/claude-opus-5", protocol="messages"
+        )
+        AgentRunRepository.add_usage(run.id, cost_ore=1500)
+
+        with pytest.raises(DailyBudgetExhaustedError) as exc_info:
+            ensure_daily_budget_available(AgentRunRepository)
+
+        assert exc_info.value.spent_ore == 1500
+        assert exc_info.value.budget_ore == 1000
+
+    def test_does_not_raise_when_well_under_budget(self, monkeypatch):
+        monkeypatch.setattr(settings, "agent_daily_budget_ore", 5000)
+        run = AgentRunRepository.create(
+            trigger="manual", model="opencode/claude-opus-5", protocol="messages"
+        )
+        AgentRunRepository.add_usage(run.id, cost_ore=100)
+
+        ensure_daily_budget_available(AgentRunRepository)  # must not raise
+
+    def test_no_runs_today_never_raises(self):
+        ensure_daily_budget_available(AgentRunRepository)  # must not raise
+
+    def test_default_argument_uses_the_real_repository(self, monkeypatch):
+        monkeypatch.setattr(settings, "agent_daily_budget_ore", 1000)
+        run = AgentRunRepository.create(
+            trigger="manual", model="opencode/claude-opus-5", protocol="messages"
+        )
+        AgentRunRepository.add_usage(run.id, cost_ore=1000)
+
+        with pytest.raises(DailyBudgetExhaustedError):
+            ensure_daily_budget_available()
