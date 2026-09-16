@@ -1,0 +1,38 @@
+{
+  "id": "msg_01ToolUseExample000000001",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-opus-5",
+  "content": [
+    {
+      "type": "thinking",
+      "thinking": "Fakturan har momssats 25%. Netto 800 + moms 200 = 1000, stämmer med totalen. Jag postar verifikationen.",
+      "signature": "sig_deadbeef0000000000000000000000000000000000000000000000000"
+    },
+    {
+      "type": "text",
+      "text": "Jag bokför fakturan mot 1510/3011/2610."
+    },
+    {
+      "type": "tool_use",
+      "id": "toolu_01PostaVerifikation0001",
+      "name": "posta_verifikation",
+      "input": {
+        "source_id": "src-123",
+        "rader": [
+          {"konto": "1510", "debet": 1000, "kredit": 0},
+          {"konto": "3011", "debet": 0, "kredit": 800},
+          {"konto": "2610", "debet": 0, "kredit": 200}
+        ]
+      }
+    }
+  ],
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 1450,
+    "output_tokens": 210,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0
+  }
+}

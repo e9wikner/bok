@@ -1,0 +1,256 @@
+"""Tests for `services/llm/messages.py`, the Anthropic Messages adapter (A5).
+
+Split out from `tests/test_agent_runtime.py` because these tests are
+fixture-heavy (`tests/fixtures/llm_messages/*.json`) and none of them touch
+the DB (`test_db` fixture) the rest of that file uses -- keeping them here
+avoids diluting that file's per-task section structure with a chunk of
+tests that don't share its setup. `pytest tests/ -v` picks this file up
+automatically like any other `test_*.py` module; no registration needed.
+
+Per SPEC §9: no real network call anywhere in this file. Fixtures are
+loaded and validated into the real `anthropic.types.Message` type so the
+normalization tests run against the SDK's actual response schema rather
+than a guess at its shape; `TestRunTurnWiring` stubs the Anthropic client
+instance directly instead of hitting the network.
+"""
+
+import json
+from pathlib import Path
+from typing import Any
+
+import pytest
+from anthropic.types import Message
+
+from services.llm import LLMCapabilities
+from services.llm.messages import MessagesClient, UnrecognizedStopReasonError
+
+FIXTURES_DIR = Path(__file__).parent / "fixtures" / "llm_messages"
+
+
+def _load_message(filename: str) -> Message:
+    with open(FIXTURES_DIR / filename, encoding="utf-8") as f:
+        raw = json.load(f)
+    return Message.model_validate(raw)
+
+
+def _contains_key(value: Any, key: str) -> bool:
+    """Recursively search a built-request-kwargs structure for `key`.
+
+    Used to prove `budget_tokens` is absent not just at the top level of
+    the kwargs dict but nested anywhere inside it (e.g. inside `thinking`).
+    """
+    if isinstance(value, dict):
+        if key in value:
+            return True
+        return any(_contains_key(v, key) for v in value.values())
+    if isinstance(value, list):
+        return any(_contains_key(v, key) for v in value)
+    return False
+
+
+# --- Request building -------------------------------------------------------
+
+
+class TestBuildRequestKwargs:
+    def _build(self) -> dict[str, Any]:
+        return MessagesClient.build_request_kwargs(
+            system="du är en bokföringsagent",
+            messages=[{"role": "user", "content": [{"type": "text", "text": "hej"}]}],
+            tools=[{"name": "las_kontoplan", "description": "...", "input_schema": {}}],
+            model="opencode/claude-opus-5",
+            max_tokens=4096,
+        )
+
+    def test_system_becomes_content_block_list_with_cache_control(self):
+        kwargs = self._build()
+
+        assert isinstance(kwargs["system"], list)
+        last_block = kwargs["system"][-1]
+        assert last_block["type"] == "text"
+        assert last_block["text"] == "du är en bokföringsagent"
+        assert last_block["cache_control"] == {"type": "ephemeral"}
+
+    def test_thinking_is_adaptive(self):
+        kwargs = self._build()
+
+        assert kwargs["thinking"] == {"type": "adaptive"}
+
+    def test_output_config_effort_is_high(self):
+        kwargs = self._build()
+
+        assert kwargs["output_config"] == {"effort": "high"}
+
+    def test_budget_tokens_never_appears_anywhere_in_the_built_kwargs(self):
+        kwargs = self._build()
+
+        assert not _contains_key(kwargs, "budget_tokens")
+
+    def test_messages_and_tools_pass_through_unchanged(self):
+        messages = [{"role": "user", "content": [{"type": "text", "text": "hej"}]}]
+        tools = [{"name": "las_kontoplan", "description": "...", "input_schema": {}}]
+
+        kwargs = MessagesClient.build_request_kwargs(
+            system="x", messages=messages, tools=tools, model="m", max_tokens=1
+        )
+
+        assert kwargs["messages"] is messages
+        assert kwargs["tools"] is tools
+
+    def test_model_and_max_tokens_pass_through(self):
+        kwargs = self._build()
+
+        assert kwargs["model"] == "opencode/claude-opus-5"
+        assert kwargs["max_tokens"] == 4096
+
+
+# --- Normalization against recorded fixtures --------------------------------
+
+
+class TestNormalizeMessage:
+    def test_tool_use_stop_maps_to_tool_calls_with_correct_arguments(self):
+        message = _load_message("tool_use_stop.json")
+
+        turn = MessagesClient.normalize_message(message)
+
+        assert turn.stop == "tool_calls"
+        assert len(turn.tool_calls) == 1
+        call = turn.tool_calls[0]
+        assert call.id == "toolu_01PostaVerifikation0001"
+        assert call.name == "posta_verifikation"
+        assert call.arguments["source_id"] == "src-123"
+        assert len(call.arguments["rader"]) == 3
+
+    def test_tool_use_stop_text_excludes_thinking_block(self):
+        message = _load_message("tool_use_stop.json")
+
+        turn = MessagesClient.normalize_message(message)
+
+        assert "bokför fakturan" in turn.text
+        # The fixture's thinking block reasons about VAT reconciliation --
+        # if it ever leaked into `text` this substring would show up there.
+        assert "momssats" not in turn.text
+
+    def test_end_turn_maps_to_end(self):
+        message = _load_message("end_turn.json")
+
+        turn = MessagesClient.normalize_message(message)
+
+        assert turn.stop == "end"
+        assert turn.tool_calls == []
+        assert "Klart" in turn.text
+
+    def test_refusal_maps_to_refusal(self):
+        message = _load_message("refusal_stop.json")
+
+        turn = MessagesClient.normalize_message(message)
+
+        assert turn.stop == "refusal"
+        assert turn.tool_calls == []
+
+    def test_max_tokens_maps_to_max_tokens(self):
+        message = _load_message("max_tokens_stop.json")
+
+        turn = MessagesClient.normalize_message(message)
+
+        assert turn.stop == "max_tokens"
+
+    def test_cache_hit_fixture_reports_positive_cache_read_tokens(self):
+        message = _load_message("cache_hit.json")
+
+        turn = MessagesClient.normalize_message(message)
+
+        assert turn.usage.cache_read_input_tokens > 0
+        assert turn.usage.cache_read_input_tokens == 8400
+
+    def test_absent_cache_read_tokens_normalizes_to_zero_not_error(self):
+        message = _load_message("end_turn.json")
+
+        turn = MessagesClient.normalize_message(message)
+
+        assert turn.usage.cache_read_input_tokens == 0
+
+    def test_usage_input_and_output_tokens_map_through(self):
+        message = _load_message("tool_use_stop.json")
+
+        turn = MessagesClient.normalize_message(message)
+
+        assert turn.usage.input_tokens == 1450
+        assert turn.usage.output_tokens == 210
+
+    def test_unrecognized_stop_reason_raises_rather_than_normalizing_silently(self):
+        message = _load_message("end_turn.json")
+        # "pause_turn" is a real value the installed SDK's StopReason type
+        # allows but this adapter deliberately does not map (see
+        # services/llm/messages.py's _STOP_REASON_MAP comment).
+        object.__setattr__(message, "stop_reason", "pause_turn")
+
+        with pytest.raises(UnrecognizedStopReasonError):
+            MessagesClient.normalize_message(message)
+
+
+# --- Capabilities ------------------------------------------------------------
+
+
+class TestCapabilities:
+    def test_capabilities_match_spec_for_messages_protocol(self):
+        assert MessagesClient.capabilities == LLMCapabilities(
+            cache_breakpoint=True,
+            pdf_document_blocks=True,
+            refusal_stop_reason=True,
+        )
+
+
+# --- run_turn wiring (stubbed client, no network) ---------------------------
+
+
+class _FakeStreamManager:
+    """Stands in for `anthropic.Anthropic(...).messages.stream(...)`'s
+    context-manager return value -- a `MessageStreamManager`."""
+
+    def __init__(self, final_message: Message) -> None:
+        self._final_message = final_message
+        self.entered = False
+
+    def __enter__(self) -> "_FakeStreamManager":
+        self.entered = True
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        return None
+
+    def get_final_message(self) -> Message:
+        return self._final_message
+
+
+class TestRunTurnWiring:
+    def test_run_turn_wires_build_stream_and_normalize_without_network(self):
+        client = MessagesClient(api_key="dummy-test-key", base_url="http://127.0.0.1:0")
+        fake_message = _load_message("tool_use_stop.json")
+        fake_stream = _FakeStreamManager(fake_message)
+
+        received_kwargs: dict[str, Any] = {}
+
+        def fake_stream_call(**kwargs: Any) -> _FakeStreamManager:
+            received_kwargs.update(kwargs)
+            return fake_stream
+
+        # Patch the instance's bound method rather than the real transport --
+        # proves run_turn calls .messages.stream(...) and never falls
+        # through to an actual HTTP call (there is no real API key or
+        # reachable host here, so a real call would hang or error, not
+        # silently pass).
+        client._client.messages.stream = fake_stream_call  # type: ignore[method-assign]
+
+        turn = client.run_turn(
+            system="systemprompt",
+            messages=[{"role": "user", "content": [{"type": "text", "text": "hej"}]}],
+            tools=[],
+            model="opencode/claude-opus-5",
+            max_tokens=1024,
+        )
+
+        assert fake_stream.entered is True
+        assert received_kwargs["model"] == "opencode/claude-opus-5"
+        assert received_kwargs["thinking"] == {"type": "adaptive"}
+        assert turn.stop == "tool_calls"
+        assert turn.tool_calls[0].name == "posta_verifikation"
