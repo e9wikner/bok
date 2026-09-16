@@ -275,6 +275,70 @@ class AuditHistoryResponse(BaseModel):
     entries: List[AuditLogEntryResponse]
 
 
+# Agent Runtime Schemas (GET /api/v1/agent/status, docs/redesign/SPEC-agentruntime.md §8)
+
+
+class AgentCurrentRunResponse(BaseModel):
+    """The in-progress `agent_runs` row, if any (SPEC §8's `current_run`).
+
+    `current_source_id`/`current_activity` come from the process-wide
+    `AgentWorker`, not from the `agent_runs` row itself -- see
+    `api/routes/agent.py`'s `GET /agent/status` for how coarse-grained
+    `current_activity` is (task A11).
+    """
+
+    id: str
+    started_at: str
+    trigger: str
+    model: str
+    protocol: str
+    items_seen: int
+    items_posted: int
+    items_abstained: int
+    current_source_id: Optional[str] = None
+    current_activity: Optional[str] = None
+
+
+class AgentLastRunResponse(BaseModel):
+    """The most recently finished `agent_runs` row (SPEC §8's `last_run`).
+
+    `last_error` here is this specific run's own `agent_runs.last_error`
+    column (e.g. why it failed) -- distinct from the response's top-level
+    `last_error`, which is the runner's own last in-thread failure and may
+    describe something that never got as far as an `agent_runs` row at all
+    (see `api/routes/agent.py`'s `GET /agent/status`).
+    """
+
+    id: str
+    started_at: str
+    finished_at: Optional[str] = None
+    trigger: str
+    model: str
+    protocol: str
+    items_seen: int
+    items_posted: int
+    items_abstained: int
+    status: str
+    cost_ore: int
+    last_error: Optional[str] = None
+
+
+class AgentStatusResponse(BaseModel):
+    """`GET /api/v1/agent/status` (SPEC §8). Never carries the LLM gateway's
+    API key setting (SPEC §12.6) -- see the route's docstring for the
+    guarantee and the test that pins it.
+    """
+
+    enabled: bool
+    running: bool
+    current_run: Optional[AgentCurrentRunResponse] = None
+    last_run: Optional[AgentLastRunResponse] = None
+    queue_depth: int
+    cost_today_ore: int
+    budget_today_ore: int
+    last_error: Optional[str] = None
+
+
 # Error Schemas
 
 

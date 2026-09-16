@@ -10,10 +10,19 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from api.deps import get_current_actor, get_idempotency_key
-from api.schemas import VoucherRowRequest
+from api.schemas import (
+    AgentCurrentRunResponse,
+    AgentLastRunResponse,
+    AgentStatusResponse,
+    VoucherRowRequest,
+)
 from config import settings
+from domain.models import AgentRun
 from domain.validation import ValidationError
+from repositories.agent_run_repo import AgentRunRepository
 from repositories.correction_note_repo import CorrectionNoteRepository
+from repositories.intake_repo import IntakeRepository
+from services.agent_runtime import get_runner, get_worker
 from services.bank_inputs import BankInputError, BankInputService
 from services.idempotency import IdempotencyOutcome, IdempotencyService
 from services.intake import IntakeError, IntakeService
@@ -320,18 +329,103 @@ def _bank_input_http_error(exc: BankInputError) -> HTTPException:
     )
 
 
-@router.get("/operations/log", response_model=dict)
-async def get_agent_operations_log(
-    limit: int = 100,
+def _run_core_fields(run: AgentRun) -> dict:
+    """Fields shared between `current_run` and `last_run` (SPEC §8)."""
+    return {
+        "id": run.id,
+        "started_at": run.started_at.isoformat(),
+        "trigger": run.trigger,
+        "model": run.model,
+        "protocol": run.protocol,
+        "items_seen": run.items_seen,
+        "items_posted": run.items_posted,
+        "items_abstained": run.items_abstained,
+    }
+
+
+@router.get("/status", response_model=AgentStatusResponse)
+async def get_agent_status(
     actor: str = Depends(get_current_actor),
 ):
-    """Get log of all agent operations for audit."""
-    return {
-        "operations": [],
-        "total": 0,
-        "limit": limit,
-        "message": "Agent operation log (for audit trail)",
-    }
+    """`GET /api/v1/agent/status` (SPEC-agentruntime.md §8).
+
+    Replaces the old `GET /agent/operations/log` stub, which always
+    returned an empty list. Read-only aggregation of independent sources --
+    no business logic lives here, per AGENTS.md's layering rule:
+
+    - `enabled`/`running` come from `AgentRunner.status()`
+      (`services.agent_runtime`) -- whether the background thread is
+      enabled/alive, not whether a pass happens to be running right now.
+    - `current_run` is `AgentRunRepository.get_current()`'s row (`None` if
+      no pass is in progress) plus `current_source_id`/`current_activity`
+      from the process-wide `AgentWorker`. That worker tracks exactly which
+      source it is on (`current_source_id`), but `current_activity` is
+      deliberately coarse -- `"processing"` while a session runs for that
+      source, `None` otherwise -- rather than the live tool name SPEC §8's
+      example shows (`"las_kontoplan"`): `services.agent_session.
+      run_session`'s manual tool-call loop (task A8) has no per-call hook to
+      report progress through without touching that loop, which this task's
+      instructions call out as a risk to the existing test suite. See
+      `AgentWorker.__init__`'s docstring for the same note from the
+      producer's side.
+    - `last_run` is `AgentRunRepository.get_last_completed_or_failed()`'s
+      row (`None` if no run has ever finished).
+    - `queue_depth` is `IntakeRepository.count_pending()` -- a plain
+      `COUNT(*)`, not `IntakeService().get_pending_queue()`, which would
+      materialize every pending row just to report how many there are.
+    - `cost_today_ore`/`budget_today_ore` are
+      `AgentRunRepository.sum_cost_today_ore()` and
+      `settings.agent_daily_budget_ore`.
+    - The top-level `last_error` is the runner's own last in-thread failure
+      (`AgentRunner.status()["last_error"]`) -- e.g. an `UnknownModelError`
+      or `DailyBudgetExhaustedError` raised before a pass could even create
+      its `agent_runs` row -- which `last_run.last_error` (that specific
+      finished run's own column) cannot show. Both are surfaced: neither is
+      dropped in favor of the other.
+
+    SPEC §12.6: the LLM gateway's API key setting is never read anywhere in
+    this function or in `AgentStatusResponse`/`AgentCurrentRunResponse`/
+    `AgentLastRunResponse` (`api/schemas.py`) -- `TestAgentStatusEndpoint` in
+    `tests/test_agent_runtime.py` pins this with a monkeypatched key value
+    and asserts it is absent from the serialized response body.
+    """
+    runner_status = get_runner().status()
+    worker = get_worker()
+
+    current_run_row = AgentRunRepository.get_current()
+    current_run = None
+    if current_run_row is not None:
+        current_run = AgentCurrentRunResponse(
+            **_run_core_fields(current_run_row),
+            current_source_id=worker.current_source_id,
+            current_activity=worker.current_activity,
+        )
+
+    last_run_row = AgentRunRepository.get_last_completed_or_failed()
+    last_run = None
+    if last_run_row is not None:
+        last_run = AgentLastRunResponse(
+            **_run_core_fields(last_run_row),
+            finished_at=(
+                last_run_row.finished_at.isoformat()
+                if last_run_row.finished_at
+                else None
+            ),
+            status=last_run_row.status,
+            cost_ore=last_run_row.cost_ore,
+            last_error=last_run_row.last_error,
+        )
+
+    return AgentStatusResponse(
+        enabled=runner_status["enabled"],
+        running=runner_status["running"],
+        current_run=current_run,
+        last_run=last_run,
+        queue_depth=IntakeRepository.count_pending(),
+        cost_today_ore=AgentRunRepository.sum_cost_today_ore(),
+        budget_today_ore=settings.agent_daily_budget_ore,
+        last_error=runner_status["last_error"],
+    )
 
 
 @router.post("/test/ping", response_model=dict)

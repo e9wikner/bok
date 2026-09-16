@@ -41,11 +41,14 @@ from calendar import monthrange
 from datetime import date
 from typing import Optional
 
+import httpx
 import pytest
+import pytest_asyncio
 from PIL import Image
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
+from api.main import app
 from config import Settings, settings
 from db.database import db
 from domain.models import IntakeSource
@@ -53,6 +56,7 @@ from domain.types import IntakeStatus
 from domain.validation import ValidationError
 from repositories.account_repo import AccountRepository
 from repositories.agent_run_repo import AgentRunRepository
+from repositories.intake_repo import IntakeRepository
 from repositories.period_repo import PeriodRepository
 from services.agent_documents import (
     DocumentUnreadableError,
@@ -2307,3 +2311,208 @@ class TestAgentRuntimeDisabledByDefault:
             runner.stop()
 
         assert agent_runtime_module.agent_runtime_status()["enabled"] is False
+
+
+class TestAgentWorkerProgressTracking:
+    """`AgentWorker.current_source_id`/`current_activity` (task A11's option
+    (a)): set for the duration of one item's session, cleared once it ends
+    -- see `AgentWorker.__init__`'s docstring for why `current_activity` is
+    the coarse `"processing"` rather than a live tool name.
+    """
+
+    def test_tracking_is_set_during_the_session_and_cleared_after(
+        self, agent_intake_dir, tmp_path
+    ):
+        _ensure_agent_tool_accounts()
+        period = _agent_tool_period()
+        source = _agent_tool_intake_source(tmp_path)
+        worker = AgentWorker()
+        observed: dict = {}
+
+        class _ObservingClient:
+            capabilities = _capabilities(True)
+
+            def run_turn(self, **kwargs):
+                # Captured mid-session, while run_pass_once is still
+                # blocked inside run_session -- this is the one point that
+                # actually proves the attributes are live during
+                # processing, not just before/after it.
+                observed["source_id"] = worker.current_source_id
+                observed["activity"] = worker.current_activity
+                return _posting_turn(period.id, source.id)
+
+        assert worker.current_source_id is None
+        assert worker.current_activity is None
+
+        run = worker.run_pass_once(client_factory=lambda model: _ObservingClient())
+
+        assert run is not None
+        assert run.status == "completed"
+        assert observed == {"source_id": source.id, "activity": "processing"}
+        # Cleared once the item (and the whole pass, here) is done.
+        assert worker.current_source_id is None
+        assert worker.current_activity is None
+
+
+# --- A11: GET /api/v1/agent/status (SPEC §8) --------------------------------
+
+
+@pytest_asyncio.fixture
+async def async_client():
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client
+
+
+def _seed_pending_intake_source(suffix: str) -> IntakeSource:
+    """A minimal `intake_sources` row with `status='pending'` -- enough for
+    `IntakeRepository.count_pending()` (SPEC §8's `queue_depth`); no actual
+    file on disk is needed since the status endpoint never reads one.
+    """
+    return IntakeRepository.create_source(
+        source_id=f"status-endpoint-source-{suffix}",
+        original_filename=f"kvitto-{suffix}.pdf",
+        mime_type="application/pdf",
+        size_bytes=10,
+        sha256=f"sha-{suffix}",
+        stored_path=f"/dev/null/status-endpoint-{suffix}",
+        uploaded_by="test",
+    )
+
+
+STATUS_URL = "/api/v1/agent/status"
+
+
+class TestAgentStatusEndpoint:
+    """SPEC §8, task A11."""
+
+    @pytest.mark.asyncio
+    async def test_no_pass_has_ever_run(self, async_client, auth_headers):
+        _seed_pending_intake_source("a")
+        _seed_pending_intake_source("b")
+
+        response = await async_client.get(STATUS_URL, headers=auth_headers)
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["current_run"] is None
+        assert body["last_run"] is None
+        assert body["queue_depth"] == 2
+        assert body["cost_today_ore"] == 0
+
+    @pytest.mark.asyncio
+    async def test_a_running_run_appears_as_current_run_not_last_run(
+        self, async_client, auth_headers
+    ):
+        run = AgentRunRepository.create(
+            trigger="manual", model="opencode/claude-opus-5", protocol="messages"
+        )
+
+        response = await async_client.get(STATUS_URL, headers=auth_headers)
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["last_run"] is None
+        assert body["current_run"] is not None
+        current = body["current_run"]
+        assert current["id"] == run.id
+        assert current["trigger"] == "manual"
+        assert current["model"] == "opencode/claude-opus-5"
+        assert current["protocol"] == "messages"
+        assert current["items_seen"] == 0
+        # No real pass is in flight for this seeded row (task A11's option
+        # (a) tracks the process-wide AgentWorker, not the DB row) -- both
+        # are None/absent rather than fabricated.
+        assert current["current_source_id"] is None
+        assert current["current_activity"] is None
+
+    @pytest.mark.asyncio
+    async def test_a_finished_run_appears_as_last_run_not_current_run(
+        self, async_client, auth_headers
+    ):
+        run = AgentRunRepository.create(
+            trigger="manual", model="opencode/claude-opus-5", protocol="messages"
+        )
+        AgentRunRepository.add_usage(run.id, cost_ore=1240)
+        AgentRunRepository.update_status(run.id, "completed")
+
+        response = await async_client.get(STATUS_URL, headers=auth_headers)
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["current_run"] is None
+        assert body["last_run"] is not None
+        last = body["last_run"]
+        assert last["id"] == run.id
+        assert last["status"] == "completed"
+        assert last["cost_ore"] == 1240
+        assert body["cost_today_ore"] == 1240
+
+    @pytest.mark.asyncio
+    async def test_budget_today_ore_reflects_the_setting(
+        self, async_client, auth_headers, monkeypatch
+    ):
+        monkeypatch.setattr(settings, "agent_daily_budget_ore", 9999)
+
+        response = await async_client.get(STATUS_URL, headers=auth_headers)
+
+        assert response.json()["budget_today_ore"] == 9999
+
+    @pytest.mark.asyncio
+    async def test_enabled_reflects_the_setting_true(
+        self, async_client, auth_headers, monkeypatch
+    ):
+        monkeypatch.setattr(settings, "agent_runtime_enabled", True)
+
+        response = await async_client.get(STATUS_URL, headers=auth_headers)
+
+        assert response.json()["enabled"] is True
+
+    @pytest.mark.asyncio
+    async def test_enabled_reflects_the_setting_false(
+        self, async_client, auth_headers, monkeypatch
+    ):
+        monkeypatch.setattr(settings, "agent_runtime_enabled", False)
+
+        response = await async_client.get(STATUS_URL, headers=auth_headers)
+
+        assert response.json()["enabled"] is False
+
+    @pytest.mark.asyncio
+    async def test_llm_api_key_never_appears_in_the_response(
+        self, async_client, auth_headers, monkeypatch
+    ):
+        secret = "super-secret-key-should-never-leak"
+        monkeypatch.setenv("LLM_API_KEY", secret)
+        monkeypatch.setattr(settings, "llm_api_key", secret)
+
+        # A running and a finished run, so current_run/last_run are both
+        # populated -- the fullest shape this response ever takes.
+        AgentRunRepository.create(
+            trigger="manual", model="opencode/claude-opus-5", protocol="messages"
+        )
+        finished = AgentRunRepository.create(
+            trigger="manual", model="opencode/claude-opus-5", protocol="messages"
+        )
+        AgentRunRepository.add_usage(finished.id, cost_ore=100)
+        AgentRunRepository.update_status(
+            finished.id, "failed", last_error="llm_connection_error: timed out"
+        )
+
+        response = await async_client.get(STATUS_URL, headers=auth_headers)
+
+        assert response.status_code == 200
+        assert secret not in response.text
+        # Sanity check the fixture actually took effect -- a `llm_api_key`
+        # that silently stayed empty would make the assertion above vacuous.
+        assert settings.llm_api_key == secret
+
+    @pytest.mark.asyncio
+    async def test_operations_log_route_no_longer_exists(
+        self, async_client, auth_headers
+    ):
+        response = await async_client.get(
+            "/api/v1/agent/operations/log", headers=auth_headers
+        )
+
+        assert response.status_code == 404

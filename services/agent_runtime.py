@@ -273,6 +273,22 @@ class AgentWorker:
     directly and deterministically by nearly every test in this module.
     """
 
+    def __init__(self) -> None:
+        #: Best-effort "what is this pass doing right now" snapshot for
+        #: `GET /agent/status` (SPEC §8, task A11). Deliberately coarse:
+        #: `services.agent_session.run_session` has no per-tool-call hook to
+        #: thread a callback through without touching its manual tool loop
+        #: (task A8), so `current_activity` only ever distinguishes "a
+        #: session is running for `current_source_id`" (`"processing"`) from
+        #: "idle between items" (`None`) -- it is not the literal tool name
+        #: the SPEC §8 example shows (`"las_kontoplan"`). `current_source_id`
+        #: *is* exact: it is set/cleared right here in `run_pass_once`, one
+        #: layer above `run_session`, so it costs nothing to get precisely
+        #: right. See `api/routes/agent.py`'s `GET /agent/status` docstring
+        #: for the same note from the consumer's side.
+        self.current_source_id: Optional[str] = None
+        self.current_activity: Optional[str] = None
+
     def _reap_abandoned_runs(self) -> None:
         """SPEC §6.2 step 1: any `agent_runs` row still `'running'` when a
         new pass begins is definitionally stale.
@@ -388,79 +404,93 @@ class AgentWorker:
                 )
                 return AgentRunRepository.get(run.id)
 
+            # `current_source_id`/`current_activity` (SPEC §8, task A11):
+            # set for the duration of this item's processing, cleared in the
+            # `finally` no matter how this iteration ends (posted, abstained,
+            # a connection/rate-limit error that ends the whole pass, or an
+            # unexpected exception) -- see `__init__`'s docstring for why
+            # `current_activity` is the coarse `"processing"` rather than a
+            # live tool name.
+            self.current_source_id = source.id
+            self.current_activity = "processing"
             try:
-                intake_service.record_processing(
-                    source.id,
-                    summary="Agent-pass bearbetar underlaget",
-                    actor="agent",
-                )
-            except Exception:
-                # Nice-to-have audit trail entry, not a correctness
-                # requirement (see this method's docstring point 7) --
-                # `record_attempt` only INSERTs an `intake_processing_
-                # attempts` row (repositories/intake_repo.py); it never
-                # touches `intake_sources.status`, so a failure here can
-                # never leave the source itself in a bad state.
-                logger.exception(
-                    "Agent run %s: could not record a processing attempt "
-                    "for source %s (non-fatal, continuing)",
-                    run.id,
-                    source.id,
-                )
+                try:
+                    intake_service.record_processing(
+                        source.id,
+                        summary="Agent-pass bearbetar underlaget",
+                        actor="agent",
+                    )
+                except Exception:
+                    # Nice-to-have audit trail entry, not a correctness
+                    # requirement (see this method's docstring point 7) --
+                    # `record_attempt` only INSERTs an `intake_processing_
+                    # attempts` row (repositories/intake_repo.py); it never
+                    # touches `intake_sources.status`, so a failure here can
+                    # never leave the source itself in a bad state.
+                    logger.exception(
+                        "Agent run %s: could not record a processing attempt "
+                        "for source %s (non-fatal, continuing)",
+                        run.id,
+                        source.id,
+                    )
 
-            file_bytes = intake_service.resolve_source_file(source).read_bytes()
+                file_bytes = intake_service.resolve_source_file(source).read_bytes()
 
-            try:
-                outcome = run_session(
-                    client=client,
-                    source=source,
-                    file_bytes=file_bytes,
-                    open_periods=open_periods,
-                    today=date.today(),
-                    model=resolved_model,
-                    actor="agent",
-                )
-            except LLMConnectionError as exc:
-                logger.error(
-                    "Agent run %s: connection error talking to the LLM " "gateway: %s",
-                    run.id,
-                    exc,
-                )
-                AgentRunRepository.update_status(
-                    run.id, "failed", last_error=f"llm_connection_error: {exc}"
-                )
-                # Investigated per this task's instructions: `IntakeService.
-                # record_processing` (called above) only writes a row to
-                # `intake_processing_attempts` via `IntakeRepository.
-                # record_attempt` -- it never runs an UPDATE against
-                # `intake_sources.status` (see `record_failed`, a few lines
-                # down in services/intake.py, for the method that *does*
-                # transition status, via `sources.update_status`).  So the
-                # source's queryable `status` column is still `'pending'`
-                # at this point, exactly as `record_processing`'s docstring
-                # ("leaving the source pending") says -- there is nothing to
-                # revert here. Writing a speculative revert-to-pending call
-                # would be a no-op at best and a second, unnecessary write
-                # at worst.
-                return AgentRunRepository.get(run.id)
-            except LLMRateLimitError as exc:
-                logger.error(
-                    "Agent run %s: rate limited by the LLM gateway "
-                    "(retry_after_seconds=%s)",
-                    run.id,
-                    exc.retry_after_seconds,
-                )
-                AgentRunRepository.update_status(
-                    run.id,
-                    "failed",
-                    last_error=(
-                        "llm_rate_limit_error: retry_after_seconds="
-                        f"{exc.retry_after_seconds}"
-                    ),
-                )
-                return AgentRunRepository.get(run.id)
+                try:
+                    outcome = run_session(
+                        client=client,
+                        source=source,
+                        file_bytes=file_bytes,
+                        open_periods=open_periods,
+                        today=date.today(),
+                        model=resolved_model,
+                        actor="agent",
+                    )
+                except LLMConnectionError as exc:
+                    logger.error(
+                        "Agent run %s: connection error talking to the LLM "
+                        "gateway: %s",
+                        run.id,
+                        exc,
+                    )
+                    AgentRunRepository.update_status(
+                        run.id, "failed", last_error=f"llm_connection_error: {exc}"
+                    )
+                    # Investigated per this task's instructions: `IntakeService.
+                    # record_processing` (called above) only writes a row to
+                    # `intake_processing_attempts` via `IntakeRepository.
+                    # record_attempt` -- it never runs an UPDATE against
+                    # `intake_sources.status` (see `record_failed`, a few lines
+                    # down in services/intake.py, for the method that *does*
+                    # transition status, via `sources.update_status`).  So the
+                    # source's queryable `status` column is still `'pending'`
+                    # at this point, exactly as `record_processing`'s docstring
+                    # ("leaving the source pending") says -- there is nothing to
+                    # revert here. Writing a speculative revert-to-pending call
+                    # would be a no-op at best and a second, unnecessary write
+                    # at worst.
+                    return AgentRunRepository.get(run.id)
+                except LLMRateLimitError as exc:
+                    logger.error(
+                        "Agent run %s: rate limited by the LLM gateway "
+                        "(retry_after_seconds=%s)",
+                        run.id,
+                        exc.retry_after_seconds,
+                    )
+                    AgentRunRepository.update_status(
+                        run.id,
+                        "failed",
+                        last_error=(
+                            "llm_rate_limit_error: retry_after_seconds="
+                            f"{exc.retry_after_seconds}"
+                        ),
+                    )
+                    return AgentRunRepository.get(run.id)
 
-            self._record_outcome(run.id, resolved_model, source, outcome)
+                self._record_outcome(run.id, resolved_model, source, outcome)
+            finally:
+                self.current_source_id = None
+                self.current_activity = None
 
         AgentRunRepository.update_status(run.id, "completed")
         logger.info("Agent run %s completed", run.id)
