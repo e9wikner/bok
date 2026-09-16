@@ -9,6 +9,9 @@ gets its own section/class so the file stays navigable as it grows:
 - A7: services/agent_tools.py -- verktygsytan, dispatcher, idempotensnyckel
 - A8: services/agent_session.py -- systemprompt, användartur, manuell
   verktygsloop, avståenden (SPEC §9 testfall 4, 5, 7, 14, 15)
+- A9: services/agent_runtime.py -- budget/cost/cap primitives (SPEC §9 #8)
+- A10: services/agent_runtime.py -- AgentWorker/AgentRunner, the pass
+  algorithm and its thread/flock lifecycle (SPEC §9 #9, 10, 11, 12, 13, 16, 24)
 
 Per SPEC §9: no LLM is ever called from a test. A3 covers the storage layer
 only — creating a run, sequencing events, and the "running with no live
@@ -59,7 +62,11 @@ from services.agent_documents import (
     select_content_for_source,
 )
 from services.agent_runtime import (
+    AgentRunner,
+    AgentWorker,
     DailyBudgetExhaustedError,
+    UnsupportedProtocolError,
+    build_llm_client,
     compute_cost_ore,
     ensure_daily_budget_available,
 )
@@ -78,6 +85,8 @@ from services.agent_tools import (
 from services.intake import IntakeService
 from services.llm import (
     LLMCapabilities,
+    LLMConnectionError,
+    LLMRateLimitError,
     LLMTurn,
     ModelInfo,
     ToolCall,
@@ -2006,3 +2015,295 @@ class TestEnsureDailyBudgetAvailable:
 
         with pytest.raises(DailyBudgetExhaustedError):
             ensure_daily_budget_available()
+
+
+# --- A10: AgentWorker / AgentRunner (SPEC §6.1/§6.2, §9 #9/10/11/12/13/16/24) -
+
+
+@pytest.fixture
+def agent_intake_dir(tmp_path):
+    """Isolated `settings.intake_dir` that stays overridden for the whole
+    test, unlike `_agent_tool_intake_source`'s own create-then-restore --
+    `AgentWorker.run_pass_once` calls `IntakeService().resolve_source_file`
+    well after the source is created, so the override has to still be in
+    effect at that point.
+    """
+    original = settings.intake_dir
+    settings.intake_dir = str(tmp_path / "intake")
+    yield
+    settings.intake_dir = original
+
+
+@pytest.fixture
+def agent_lock_dir(tmp_path):
+    """Isolated `settings.intake_dir` for `AgentRunner` lock tests -- the
+    lock file lives at `<intake_dir>/.agent_runtime.lock` (see
+    `services.agent_runtime._lock_path`).
+    """
+    original = settings.intake_dir
+    settings.intake_dir = str(tmp_path / "intake")
+    yield
+    settings.intake_dir = original
+
+
+def _posting_turn(
+    period_id: str, source_id: str, *, tool_call_id: str = "call-1"
+) -> LLMTurn:
+    return LLMTurn(
+        text="Bokför kvittot.",
+        tool_calls=[
+            ToolCall(
+                id=tool_call_id,
+                name="posta_verifikation",
+                arguments=_posta_verifikation_args(period_id, source_id),
+            )
+        ],
+        stop="tool_calls",
+        usage=Usage(input_tokens=100, output_tokens=50, cache_read_input_tokens=0),
+    )
+
+
+class TestAgentWorkerEmptyQueue:
+    """SPEC §9 test case 9."""
+
+    def test_case_9_empty_queue_returns_none_and_writes_no_row_or_llm_call(self):
+        calls: list[str] = []
+
+        def _factory(model: str):
+            calls.append(model)
+            raise AssertionError(
+                "client_factory must never be called on an empty queue"
+            )
+
+        before = db.execute("SELECT COUNT(*) AS n FROM agent_runs").fetchone()["n"]
+
+        run = AgentWorker().run_pass_once(client_factory=_factory)
+
+        after = db.execute("SELECT COUNT(*) AS n FROM agent_runs").fetchone()["n"]
+        assert run is None
+        assert calls == []
+        assert after == before
+
+
+class TestAgentWorkerConnectionError:
+    """SPEC §9 test case 10."""
+
+    def test_case_10_connection_error_fails_the_run_and_leaves_source_pending(
+        self, agent_intake_dir, tmp_path
+    ):
+        _ensure_agent_tool_accounts()
+        _agent_tool_period()
+        source = _agent_tool_intake_source(tmp_path)
+
+        class _RaisingClient:
+            capabilities = _capabilities(True)
+
+            def run_turn(self, **kwargs):
+                raise LLMConnectionError("Connection error talking to the gateway")
+
+        run = AgentWorker().run_pass_once(client_factory=lambda model: _RaisingClient())
+
+        assert run is not None
+        assert run.status == "failed"
+        assert run.last_error is not None
+        assert "llm_connection_error" in run.last_error
+
+        # Investigated per this task's instructions (services/intake.py's
+        # record_processing / repositories/intake_repo.py's record_attempt):
+        # record_processing only INSERTs an intake_processing_attempts row,
+        # it never UPDATEs intake_sources.status -- so the source's own
+        # queryable status is still 'pending' here, exactly as
+        # record_processing's docstring promises. Asserted explicitly,
+        # rather than assumed.
+        refreshed = IntakeService().get_source(source.id)
+        assert refreshed.status == IntakeStatus.PENDING
+
+
+class TestAgentWorkerRateLimitError:
+    """SPEC §9 test case 11."""
+
+    def test_case_11_rate_limit_error_fails_the_run_and_stops_the_pass(
+        self, agent_intake_dir, tmp_path
+    ):
+        _ensure_agent_tool_accounts()
+        _agent_tool_period()
+        _agent_tool_intake_source(tmp_path, name="kvitto-1.pdf")
+        _agent_tool_intake_source(tmp_path, name="kvitto-2.pdf")
+
+        class _RateLimitedClient:
+            capabilities = _capabilities(True)
+
+            def __init__(self):
+                self.calls = 0
+
+            def run_turn(self, **kwargs):
+                self.calls += 1
+                raise LLMRateLimitError("429 from the gateway", retry_after_seconds=7.5)
+
+        client = _RateLimitedClient()
+        run = AgentWorker().run_pass_once(client_factory=lambda model: client)
+
+        assert run is not None
+        assert run.status == "failed"
+        assert run.last_error is not None
+        assert "llm_rate_limit" in run.last_error
+        assert "7.5" in run.last_error
+        # The pass stops on the first rate limit -- the second seeded source
+        # is never attempted.
+        assert client.calls == 1
+
+
+class TestAgentWorkerAbandonedRunReaping:
+    """SPEC §9 test case 12."""
+
+    def test_case_12_stale_running_row_is_abandoned_and_the_new_pass_posts_normally(
+        self, agent_intake_dir, tmp_path
+    ):
+        _ensure_agent_tool_accounts()
+        period = _agent_tool_period()
+        source = _agent_tool_intake_source(tmp_path)
+
+        stale = AgentRunRepository.create(
+            trigger="manual", model="opencode/claude-opus-5", protocol="messages"
+        )
+
+        client = FakeLLMClient(
+            [_posting_turn(period.id, source.id)], _capabilities(True)
+        )
+        run = AgentWorker().run_pass_once(client_factory=lambda model: client)
+
+        refreshed_stale = AgentRunRepository.get(stale.id)
+        assert refreshed_stale.status == "abandoned"
+
+        assert run is not None
+        assert run.id != stale.id
+        assert run.status == "completed"
+        assert run.items_posted == 1
+        assert _agent_tool_voucher_count() == 1
+
+        # A7's idempotency guarantee, exercised again at this layer: the
+        # source is no longer pending (it is linked to the voucher just
+        # posted), so a second run_pass_once() call sees an empty queue --
+        # but replaying the *exact same* posta_verifikation call directly
+        # (as would happen if a worker crashed after posting but before
+        # updating the queue, SPEC §6.4) must replay, not double-post.
+        replay = execute_tool(
+            "posta_verifikation",
+            _posta_verifikation_args(period.id, source.id),
+            actor="agent",
+            capabilities=_capabilities(True),
+        )
+        assert replay.get("idempotent_replay") is True
+        assert _agent_tool_voucher_count() == 1
+
+        def _factory_must_not_be_called(model: str):
+            raise AssertionError("client_factory must not be called on an empty queue")
+
+        second_pass = AgentWorker().run_pass_once(
+            client_factory=_factory_must_not_be_called
+        )
+        assert second_pass is None
+
+
+class TestAgentWorkerModelSelection:
+    """SPEC §9 test case 24."""
+
+    def test_case_24_model_argument_overrides_the_default(
+        self, agent_intake_dir, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(settings, "llm_default_model", "opencode/claude-opus-5")
+        _ensure_agent_tool_accounts()
+        period = _agent_tool_period()
+        source = _agent_tool_intake_source(tmp_path)
+
+        client = FakeLLMClient(
+            [_posting_turn(period.id, source.id)], _capabilities(True)
+        )
+        factory_calls: list[str] = []
+
+        def _factory(model: str):
+            factory_calls.append(model)
+            return client
+
+        run = AgentWorker().run_pass_once(
+            model="opencode/claude-sonnet-5", client_factory=_factory
+        )
+
+        assert run is not None
+        assert run.model == "opencode/claude-sonnet-5"
+        assert run.protocol == get_model_info("opencode/claude-sonnet-5").protocol
+        assert factory_calls == ["opencode/claude-sonnet-5"]
+
+
+class TestBuildLlmClient:
+    """`build_llm_client`'s "messages" branch and its documented stand-in
+    for the not-yet-built "chat" protocol (task A12).
+    """
+
+    def test_messages_protocol_resolves_to_a_messages_client(self):
+        client = build_llm_client("opencode/claude-opus-5")
+
+        assert client.capabilities.cache_breakpoint is True
+        assert client.capabilities.pdf_document_blocks is True
+
+    def test_unsupported_protocol_raises_unsupported_protocol_error(self):
+        with pytest.raises(UnsupportedProtocolError) as exc_info:
+            build_llm_client("opencode/gpt-5.5")
+
+        assert exc_info.value.protocol == "chat"
+
+
+class TestAgentRunnerLockExclusivity:
+    """SPEC §9 test case 13 -- mirrors
+    `tests.test_dropzone.test_only_one_scanner_thread_takes_the_lock`.
+    """
+
+    def test_case_13_only_one_runner_takes_the_lock(self, agent_lock_dir, monkeypatch):
+        monkeypatch.setattr(settings, "agent_runtime_enabled", True)
+        first = AgentRunner(AgentWorker())
+        second = AgentRunner(AgentWorker())
+        try:
+            assert first.start() is True
+            assert second.start() is False
+        finally:
+            first.stop()
+            second.stop()
+
+        # The lock is released, so a later runner can take it.
+        third = AgentRunner(AgentWorker())
+        try:
+            assert third.start() is True
+        finally:
+            third.stop()
+
+
+class TestAgentRuntimeDisabledByDefault:
+    """SPEC §9 test case 16."""
+
+    def test_case_16_disabled_runtime_never_starts_or_calls_the_llm(
+        self, agent_lock_dir, monkeypatch
+    ):
+        monkeypatch.setenv("AGENT_RUNTIME_ENABLED", "false")
+        assert Settings().agent_runtime_enabled is False
+
+        monkeypatch.setattr(settings, "agent_runtime_enabled", False)
+
+        def _must_not_be_called(model):
+            raise AssertionError(
+                "build_llm_client must never be called when the runtime is disabled"
+            )
+
+        import services.agent_runtime as agent_runtime_module
+
+        monkeypatch.setattr(
+            agent_runtime_module, "build_llm_client", _must_not_be_called
+        )
+
+        runner = AgentRunner(AgentWorker())
+        try:
+            assert runner.start() is False
+            assert runner.running is False
+        finally:
+            runner.stop()
+
+        assert agent_runtime_module.agent_runtime_status()["enabled"] is False

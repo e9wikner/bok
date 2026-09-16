@@ -18,10 +18,12 @@ import json
 from pathlib import Path
 from typing import Any
 
+import anthropic
+import httpx2
 import pytest
 from anthropic.types import Message
 
-from services.llm import LLMCapabilities
+from services.llm import LLMCapabilities, LLMConnectionError, LLMRateLimitError
 from services.llm.messages import MessagesClient, UnrecognizedStopReasonError
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "llm_messages"
@@ -254,3 +256,66 @@ class TestRunTurnWiring:
         assert received_kwargs["thinking"] == {"type": "adaptive"}
         assert turn.stop == "tool_calls"
         assert turn.tool_calls[0].name == "posta_verifikation"
+
+
+# --- Error translation (SPEC §6.7, task A10) --------------------------------
+#
+# Real `anthropic` SDK exception types must never leak past this adapter --
+# `services/agent_runtime.py` isn't allowed to import `anthropic` (SPEC
+# §4/§10). These stub the SDK client to raise the *real* exception types
+# (constructed directly, no network) and assert `run_turn` translates them
+# into the protocol-agnostic `LLMConnectionError`/`LLMRateLimitError`.
+
+
+def _raise(exc: Exception):
+    def _fake_stream_call(**kwargs: Any):
+        raise exc
+
+    return _fake_stream_call
+
+
+class TestRunTurnErrorTranslation:
+    def _client(self) -> MessagesClient:
+        return MessagesClient(api_key="dummy-test-key", base_url="http://127.0.0.1:0")
+
+    def _call_run_turn(self, client: MessagesClient) -> None:
+        client.run_turn(
+            system="systemprompt",
+            messages=[{"role": "user", "content": [{"type": "text", "text": "hej"}]}],
+            tools=[],
+            model="opencode/claude-opus-5",
+            max_tokens=1024,
+        )
+
+    def test_api_connection_error_becomes_llm_connection_error(self):
+        client = self._client()
+        request = httpx2.Request("POST", "https://opencode.ai/zen/v1/messages")
+        sdk_exc = anthropic.APIConnectionError(request=request)
+        client._client.messages.stream = _raise(sdk_exc)  # type: ignore[method-assign]
+
+        with pytest.raises(LLMConnectionError):
+            self._call_run_turn(client)
+
+    def test_rate_limit_error_becomes_llm_rate_limit_error_with_retry_after(self):
+        client = self._client()
+        request = httpx2.Request("POST", "https://opencode.ai/zen/v1/messages")
+        response = httpx2.Response(429, request=request, headers={"retry-after": "12"})
+        sdk_exc = anthropic.RateLimitError("rate limited", response=response, body=None)
+        client._client.messages.stream = _raise(sdk_exc)  # type: ignore[method-assign]
+
+        with pytest.raises(LLMRateLimitError) as exc_info:
+            self._call_run_turn(client)
+
+        assert exc_info.value.retry_after_seconds == 12.0
+
+    def test_rate_limit_error_without_retry_after_header_carries_none(self):
+        client = self._client()
+        request = httpx2.Request("POST", "https://opencode.ai/zen/v1/messages")
+        response = httpx2.Response(429, request=request, headers={})
+        sdk_exc = anthropic.RateLimitError("rate limited", response=response, body=None)
+        client._client.messages.stream = _raise(sdk_exc)  # type: ignore[method-assign]
+
+        with pytest.raises(LLMRateLimitError) as exc_info:
+            self._call_run_turn(client)
+
+        assert exc_info.value.retry_after_seconds is None

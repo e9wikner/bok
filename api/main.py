@@ -42,21 +42,24 @@ from api.routes import (
     vouchers,
 )
 from config import settings
-from services import dropzone
+from services import agent_runtime, dropzone
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Run folder pickup alongside the API when it is enabled.
+    """Run folder pickup and the agent runtime alongside the API when
+    enabled.
 
-    The scanner is a thread in this process rather than a second container:
+    Both are threads in this process rather than a second container:
     `db.Database` already hands out thread-local SQLite connections with WAL on,
     so a worker thread needs no new infrastructure.
     """
     dropzone.start_background_scanner()
+    agent_runtime.start_agent_runtime()
     try:
         yield
     finally:
+        agent_runtime.stop_agent_runtime()
         dropzone.stop_background_scanner()
 
 

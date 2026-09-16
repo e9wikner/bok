@@ -30,12 +30,20 @@ so the adapter tests never need a network call (SPEC §9):
 network, and the one thing the tests stub out.
 """
 
-from typing import Any
+from typing import Any, Optional
 
 import anthropic
 from anthropic.types import Message
 
-from services.llm import LLMCapabilities, LLMTurn, StopReason, ToolCall, Usage
+from services.llm import (
+    LLMCapabilities,
+    LLMConnectionError,
+    LLMRateLimitError,
+    LLMTurn,
+    StopReason,
+    ToolCall,
+    Usage,
+)
 
 # Normalizes anthropic.types.StopReason -> services.llm.StopReason.
 #
@@ -106,8 +114,26 @@ class MessagesClient:
         max_tokens: int,
     ) -> LLMTurn:
         kwargs = self.build_request_kwargs(system, messages, tools, model, max_tokens)
-        with self._client.messages.stream(**kwargs) as stream:
-            final_message = stream.get_final_message()
+        try:
+            with self._client.messages.stream(**kwargs) as stream:
+                final_message = stream.get_final_message()
+        except anthropic.RateLimitError as exc:
+            # Checked before APIConnectionError: RateLimitError is an
+            # APIStatusError (a real HTTP response came back, just a 429),
+            # a wholly separate branch of the SDK's exception hierarchy from
+            # APIConnectionError -- but ordering it first here keeps the
+            # more specific SPEC §6.7 row ("429") visibly distinct from the
+            # generic connectivity row it's checked alongside.
+            raise LLMRateLimitError(
+                f"Rate limited by the Messages API (429): {exc.message}",
+                retry_after_seconds=_retry_after_seconds(exc),
+            ) from exc
+        except anthropic.APIConnectionError as exc:
+            # SPEC §6.7: "Gateway nere, timeout, 5xx" -- after the SDK's own
+            # retry policy (httpx-level) is exhausted, this is what surfaces.
+            raise LLMConnectionError(
+                f"Connection error talking to the Messages API: {exc.message}"
+            ) from exc
         return self.normalize_message(final_message)
 
     @staticmethod
@@ -203,3 +229,27 @@ class MessagesClient:
             stop=stop,
             usage=normalized_usage,
         )
+
+
+def _retry_after_seconds(exc: "anthropic.RateLimitError") -> Optional[float]:
+    """Read a `retry-after` value off a real `anthropic.RateLimitError`.
+
+    The SDK's exception carries the raw HTTP `response`, not a parsed
+    convenience field, so this reads the header directly. Confirmed against
+    the installed SDK: `RateLimitError.response` is the underlying
+    `httpx2.Response`, and its `headers` mapping is case-insensitive per
+    `httpx2`'s own contract, so `"retry-after"` matches the wire header
+    regardless of casing.
+
+    Anthropic sends this header as a plain integer/float number of seconds
+    (never an HTTP-date), but this parses defensively anyway: an absent or
+    unparseable header returns `None` -- "unknown", never a guessed `0` that
+    would look like "retry immediately".
+    """
+    header = exc.response.headers.get("retry-after")
+    if header is None:
+        return None
+    try:
+        return float(header)
+    except (TypeError, ValueError):
+        return None

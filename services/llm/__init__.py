@@ -18,7 +18,7 @@ one (SPEC §9).
 """
 
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Optional, Protocol
 
 # ---------------------------------------------------------------------------
 # Value types (SPEC §4)
@@ -107,6 +107,50 @@ class LLMClient(Protocol):
         model: str,
         max_tokens: int,
     ) -> LLMTurn: ...
+
+
+# ---------------------------------------------------------------------------
+# Protocol-agnostic errors (SPEC §6.7, task A10)
+# ---------------------------------------------------------------------------
+#
+# Real API connection failures and rate limits come back from each adapter's
+# own SDK as SDK-specific exception types (`anthropic.APIConnectionError`,
+# `anthropic.RateLimitError`, ...). Those types must never leak past
+# `services/llm/` -- `services/agent_runtime.py` is not allowed to import
+# `anthropic`/`openai` (SPEC §4/§10), so every adapter translates its own
+# SDK's connectivity/rate-limit errors into these two, protocol-agnostic
+# types before they leave this package. See `services/llm/messages.py`'s
+# `run_turn` for the Messages-protocol translation.
+
+
+class LLMConnectionError(Exception):
+    """A transient network/connectivity failure talking to the LLM gateway.
+
+    SPEC §6.7's "Gateway nere, timeout, 5xx" row, after the SDK's own retry
+    policy has been exhausted. A10's worker catches this, marks the
+    `agent_runs` row `status='failed'`, and stops the pass -- it never
+    retries within the same pass ("håller det i sig ... passet 'failed'").
+    """
+
+
+class LLMRateLimitError(Exception):
+    """A 429 from the LLM gateway.
+
+    SPEC §6.7's "429" row: "Respektera retry-after, avsluta passet, ta om
+    vid nästa start" -- no in-pass retry/sleep. `retry_after_seconds` is the
+    value read off the real SDK exception's `retry-after` header/attribute,
+    when the gateway sent one; `None` when it did not, which a caller must
+    treat as "unknown", not "zero".
+    """
+
+    def __init__(
+        self,
+        message: str = "Rate limited by the LLM gateway (429).",
+        *,
+        retry_after_seconds: Optional[float] = None,
+    ) -> None:
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
 
 
 # ---------------------------------------------------------------------------
