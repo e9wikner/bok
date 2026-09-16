@@ -17,7 +17,7 @@ from repositories.correction_note_repo import CorrectionNoteRepository
 from services.bank_inputs import BankInputError, BankInputService
 from services.idempotency import IdempotencyOutcome, IdempotencyService
 from services.intake import IntakeError, IntakeService
-from services.voucher_posting import post_agent_voucher
+from services.voucher_posting import VoucherPostingRequest, post_agent_voucher
 
 AGENT_VOUCHER_ENDPOINT = "POST /api/v1/agent/vouchers"
 
@@ -123,9 +123,20 @@ def _create_and_post_voucher(
     idempotency_key: Optional[str],
 ) -> dict:
     """Call the posting service and map its domain errors to HTTP."""
+    posting_request = VoucherPostingRequest(
+        date=request.date,
+        period_id=request.period_id,
+        description=request.description,
+        rows=[row.model_dump() for row in request.rows],
+        series=request.series,
+        reasoning_summary=request.reasoning_summary,
+        intake_source_ids=request.intake_source_ids,
+        bank_input_ids=request.bank_input_ids,
+        bank_transaction_ids=request.bank_transaction_ids,
+    )
     try:
         return post_agent_voucher(
-            request=request,
+            request=posting_request,
             actor=actor,
             idempotency=idempotency,
             idempotency_key=idempotency_key,

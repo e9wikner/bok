@@ -2,13 +2,23 @@
 
 Extracted from ``api/routes/agent.py::_create_and_post_voucher`` (see
 ``docs/redesign/SPEC-agentruntime.md`` §7) so that the HTTP route and the
-future agent-runtime tool (A7) share exactly the same posting code. This is
-pure orchestration: it raises domain exceptions (``ValidationError``,
-``IntakeError``, ``BankInputError``) on failure and returns the response
-dict on success, leaving HTTP-status mapping to the caller.
+agent-runtime tool (``services/agent_tools.py::posta_verifikation``, A7)
+share exactly the same posting code. This is pure orchestration: it raises
+domain exceptions (``ValidationError``, ``IntakeError``, ``BankInputError``)
+on failure and returns the response dict on success, leaving HTTP-status
+mapping to the caller.
+
+``VoucherPostingRequest`` is a plain dataclass, not the Pydantic
+``AgentVoucherRequest`` HTTP model — ``services/`` must never import from
+``api/routes/`` (CLAUDE.md's layering rule), and ``services/agent_tools.py``
+needs to construct one of these itself. ``api/routes/agent.py`` builds a
+``VoucherPostingRequest`` from its own ``AgentVoucherRequest`` before calling
+in.
 """
 
-from typing import TYPE_CHECKING, Optional
+from dataclasses import dataclass, field
+from datetime import date as DateType
+from typing import Optional
 
 from fastapi.encoders import jsonable_encoder
 
@@ -19,16 +29,35 @@ from services.idempotency import IdempotencyService
 from services.intake import IntakeService
 from services.ledger import LedgerService
 
-if TYPE_CHECKING:
-    from api.routes.agent import AgentVoucherRequest
-
 # Mirrors fastapi.status.HTTP_201_CREATED. Kept as a literal because
 # services/ must not import fastapi.status (no HTTP concepts down here).
 _HTTP_201_CREATED = 201
 
 
+@dataclass
+class VoucherPostingRequest:
+    """Plain, HTTP-agnostic mirror of ``api.routes.agent.AgentVoucherRequest``.
+
+    Same fields, same names, same values -- deliberately not a typed row
+    dataclass for ``rows``: it stays a ``list[dict]`` because that is exactly
+    what ``ledger.create_voucher(rows_data=...)`` already expects, and every
+    row-shaped caller in this codebase (``VoucherRowRequest.model_dump()``
+    included) already produces that shape.
+    """
+
+    date: DateType
+    period_id: str
+    description: str
+    rows: list[dict]
+    series: str = "A"
+    reasoning_summary: Optional[str] = None
+    intake_source_ids: list[str] = field(default_factory=list)
+    bank_input_ids: list[str] = field(default_factory=list)
+    bank_transaction_ids: list[str] = field(default_factory=list)
+
+
 def post_agent_voucher(
-    request: "AgentVoucherRequest",
+    request: VoucherPostingRequest,
     actor: str,
     idempotency: IdempotencyService,
     idempotency_key: Optional[str],
@@ -58,7 +87,7 @@ def post_agent_voucher(
             date=request.date,
             period_id=request.period_id,
             description=request.description,
-            rows_data=[row.model_dump() for row in request.rows],
+            rows_data=request.rows,
             created_by="agent",
             _commit=False,
         )

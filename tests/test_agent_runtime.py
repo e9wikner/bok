@@ -6,6 +6,7 @@ gets its own section/class so the file stays navigable as it grows:
 - A3: AgentRunRepository (this file, first pass)
 - A4: services/llm/ protocol layer, model registry, config
 - A6: services/agent_documents.py -- underlagsläsning, textlager, avstämning
+- A7: services/agent_tools.py -- verktygsytan, dispatcher, idempotensnyckel
 
 Per SPEC §9: no LLM is ever called from a test. A3 covers the storage layer
 only — creating a run, sequencing events, and the "running with no live
@@ -30,16 +31,23 @@ external renderer being installed. Full end-to-end session behavior (the
 import base64
 import io
 import json
+import uuid
+from calendar import monthrange
+from datetime import date
 
 import pytest
 from PIL import Image
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
-from config import Settings
+from config import Settings, settings
+from db.database import db
 from domain.models import IntakeSource
 from domain.types import IntakeStatus
+from domain.validation import ValidationError
+from repositories.account_repo import AccountRepository
 from repositories.agent_run_repo import AgentRunRepository
+from repositories.period_repo import PeriodRepository
 from services.agent_documents import (
     DocumentUnreadableError,
     ReconciliationState,
@@ -47,6 +55,13 @@ from services.agent_documents import (
     reconciliation_result,
     select_content_for_source,
 )
+from services.agent_tools import (
+    AGENT_TOOL_DEFINITIONS,
+    BOK_NAMESPACE,
+    derive_posting_idempotency_key,
+    execute_tool,
+)
+from services.intake import IntakeService
 from services.llm import (
     LLMCapabilities,
     LLMTurn,
@@ -830,3 +845,519 @@ class TestSelectContentForSource:
 
         with pytest.raises(DocumentUnreadableError):
             select_content_for_source(source, b"PK\x03\x04", _capabilities(True))
+
+
+# --- A7: services/agent_tools.py -- verktygsytan (SPEC §6.4, §9 #1/3/6/17) -
+
+
+def _ensure_agent_tool_accounts():
+    for code, name, account_type in [
+        ("1920", "Bankkonto", "asset"),
+        ("6200", "Tele och post", "expense"),
+    ]:
+        if not AccountRepository.exists(code):
+            AccountRepository.create(code, name, account_type)
+
+
+def _agent_tool_period():
+    today = date.today()
+    last_day = monthrange(today.year, today.month)[1]
+    fiscal_year = PeriodRepository.create_fiscal_year(
+        start_date=date(today.year, 1, 1),
+        end_date=date(today.year, 12, 31),
+    )
+    return PeriodRepository.create_period(
+        fiscal_year_id=fiscal_year.id,
+        year=today.year,
+        month=today.month,
+        start_date=date(today.year, today.month, 1),
+        end_date=date(today.year, today.month, last_day),
+    )
+
+
+def _agent_tool_intake_source(tmp_path, name: str = "telefon.pdf"):
+    original = settings.intake_dir
+    settings.intake_dir = str(tmp_path / "intake")
+    try:
+        return IntakeService().create_source_from_upload_content(
+            filename=name,
+            content_type="application/pdf",
+            content=f"%PDF-1.4 {name}".encode(),
+            explanation="Telefonutgift Fello",
+            source_type="receipt",
+            actor="api",
+        )
+    finally:
+        settings.intake_dir = original
+
+
+def _agent_tool_voucher_count() -> int:
+    return db.execute("SELECT COUNT(*) AS n FROM vouchers").fetchone()["n"]
+
+
+def _posta_verifikation_args(
+    period_id: str, source_id: str, amount: int = 12500
+) -> dict:
+    return {
+        "date": date.today().isoformat(),
+        "period_id": period_id,
+        "description": "Telefonutgift Fello",
+        "reasoning_summary": "Kvitto matchat mot underlag",
+        "intake_source_ids": [source_id],
+        "rows": [
+            {"account": "1920", "debit": 0, "credit": amount},
+            {"account": "6200", "debit": amount, "credit": 0},
+        ],
+    }
+
+
+_EXPECTED_TOOL_NAMES = [
+    "las_kontoplan",
+    "las_perioder",
+    "las_verifikationer",
+    "las_korrigeringar",
+    "las_underlag",
+    "hamta_underlagsfil",
+    "las_bankhandelser",
+    "posta_verifikation",
+    "registrera_avstaende",
+]
+
+
+class TestToolDefinitionsOrder:
+    """SPEC §6.6: the tool list is built in a fixed order because it sits in
+    the cached system-prompt prefix -- a reorder is a silent cache-buster.
+    """
+
+    def test_tool_order_matches_the_expected_list(self):
+        assert [t["name"] for t in AGENT_TOOL_DEFINITIONS] == _EXPECTED_TOOL_NAMES
+
+    def test_tool_order_is_stable_across_repeated_reads(self):
+        """Trivially true for a module-level constant -- the point is that a
+        future accidental reorder of the literal tuple in agent_tools.py is
+        caught by the same expected-list assertion, not that the list
+        magically changes between two reads in one process.
+        """
+        first_read = [t["name"] for t in AGENT_TOOL_DEFINITIONS]
+        second_read = [t["name"] for t in AGENT_TOOL_DEFINITIONS]
+        assert first_read == second_read == _EXPECTED_TOOL_NAMES
+
+    def test_every_definition_has_the_anthropic_tool_shape(self):
+        for tool in AGENT_TOOL_DEFINITIONS:
+            assert set(tool.keys()) == {"name", "description", "input_schema"}
+            assert isinstance(tool["input_schema"], dict)
+            assert tool["input_schema"].get("type") == "object"
+
+
+class TestAppendOnlyToolSurface:
+    """SPEC §9 test case 17 -- the only automatic check that the append-only
+    guarantee survives the agent's tool surface. This must break if someone
+    adds a "convenient" tool that can edit or delete a posted voucher.
+    """
+
+    def test_tool_names_are_exactly_the_nine_allowed_tools(self):
+        assert {t["name"] for t in AGENT_TOOL_DEFINITIONS} == set(_EXPECTED_TOOL_NAMES)
+        assert len(AGENT_TOOL_DEFINITIONS) == 9
+
+    def test_no_tool_name_contains_a_mutate_or_delete_verb(self):
+        forbidden_fragments = [
+            "uppdatera",
+            "andra",
+            "ändra",
+            "redigera",
+            "radera",
+            "ta_bort",
+            "delete",
+            "update",
+            "edit",
+            "patch",
+            "remove",
+        ]
+        for tool in AGENT_TOOL_DEFINITIONS:
+            lowered = tool["name"].lower()
+            for fragment in forbidden_fragments:
+                assert (
+                    fragment not in lowered
+                ), f"tool name {tool['name']!r} contains {fragment!r}"
+
+    def test_no_tool_description_implies_editing_or_deleting_a_posted_voucher(self):
+        forbidden_phrases = [
+            "ändra en postad",
+            "ändra postad",
+            "redigera en postad",
+            "radera en postad",
+            "radera verifikation",
+            "ta bort en postad",
+            "ta bort verifikation",
+            "update the voucher",
+            "edit the voucher",
+            "delete the voucher",
+            "modify a posted",
+        ]
+        for tool in AGENT_TOOL_DEFINITIONS:
+            haystack = tool["description"].lower()
+            for phrase in forbidden_phrases:
+                assert (
+                    phrase not in haystack
+                ), f"tool {tool['name']!r} description contains {phrase!r}"
+
+    def test_only_two_tools_are_documented_as_writing_anything(self):
+        write_tool_names = {"posta_verifikation", "registrera_avstaende"}
+        read_tool_names = set(_EXPECTED_TOOL_NAMES) - write_tool_names
+        for tool in AGENT_TOOL_DEFINITIONS:
+            if tool["name"] in read_tool_names:
+                assert (
+                    "skrivskyddat" in tool["description"].lower()
+                ), f"read tool {tool['name']!r} should say it is read-only"
+
+    def test_posta_verifikation_is_the_only_tool_that_touches_the_ledger(self):
+        description = next(
+            t["description"]
+            for t in AGENT_TOOL_DEFINITIONS
+            if t["name"] == "posta_verifikation"
+        )
+        assert "huvudboken" in description.lower()
+        for tool in AGENT_TOOL_DEFINITIONS:
+            if tool["name"] != "posta_verifikation":
+                assert "huvudboken" not in tool["description"].lower()
+
+
+class TestIdempotencyKeyDerivation:
+    """SPEC §6.4: uuid5(BOK_NAMESPACE, f"intake:{source_id}"), fixed and
+    deterministic -- the whole point is that a worker retry after a crash
+    reproduces the exact same key for the exact same intake source.
+    """
+
+    def test_same_source_id_derives_the_identical_key_every_time(self):
+        first = derive_posting_idempotency_key("src-42")
+        second = derive_posting_idempotency_key("src-42")
+        assert first == second
+
+    def test_different_source_ids_derive_different_keys(self):
+        assert derive_posting_idempotency_key(
+            "src-1"
+        ) != derive_posting_idempotency_key("src-2")
+
+    def test_key_matches_the_spec_formula_under_bok_namespace(self):
+        key = derive_posting_idempotency_key("src-1")
+        assert key == str(uuid.uuid5(BOK_NAMESPACE, "intake:src-1"))
+
+    def test_bok_namespace_is_a_fixed_uuid_constant(self):
+        assert isinstance(BOK_NAMESPACE, uuid.UUID)
+
+
+@pytest.mark.usefixtures("test_db")
+class TestPostaVerifikationTool:
+    """SPEC §9 test case 1, plus the worker-retry-after-a-crash story behind
+    case 2: repeated calls for the same source_id must derive the identical
+    idempotency key and replay rather than double-post.
+    """
+
+    def test_case_1_posts_a_voucher_for_a_pending_intake_source(self, tmp_path):
+        _ensure_agent_tool_accounts()
+        period = _agent_tool_period()
+        source = _agent_tool_intake_source(tmp_path)
+
+        result = execute_tool(
+            "posta_verifikation",
+            _posta_verifikation_args(period.id, source.id),
+            actor="agent",
+            capabilities=_capabilities(True),
+        )
+
+        assert result["status"] == "posted"
+        assert result["created_by"] == "agent"
+        assert _agent_tool_voucher_count() == 1
+
+        refreshed_source = IntakeService().get_source(source.id)
+        assert refreshed_source.status == IntakeStatus.PROCESSED
+
+    def test_repeated_calls_for_the_same_source_derive_the_same_key_and_replay(
+        self, tmp_path
+    ):
+        _ensure_agent_tool_accounts()
+        period = _agent_tool_period()
+        source = _agent_tool_intake_source(tmp_path)
+        args = _posta_verifikation_args(period.id, source.id)
+
+        first = execute_tool(
+            "posta_verifikation", args, actor="agent", capabilities=_capabilities(True)
+        )
+        key_before_retry = derive_posting_idempotency_key(source.id)
+        second = execute_tool(
+            "posta_verifikation", args, actor="agent", capabilities=_capabilities(True)
+        )
+        key_after_retry = derive_posting_idempotency_key(source.id)
+
+        assert key_before_retry == key_after_retry
+        assert second.get("idempotent_replay") is True
+        assert first["id"] == second["id"]
+        assert _agent_tool_voucher_count() == 1
+
+    def test_missing_traceability_raises_the_domain_validation_error(self, tmp_path):
+        """A tool call with no intake/bank source at all is a bad argument at
+        the domain level, not a bash-style crash -- ``ValidationError``
+        propagates unconverted (post_agent_voucher's own check)."""
+        _ensure_agent_tool_accounts()
+        period = _agent_tool_period()
+
+        with pytest.raises(ValidationError) as exc_info:
+            execute_tool(
+                "posta_verifikation",
+                {
+                    "date": date.today().isoformat(),
+                    "period_id": period.id,
+                    "description": "Telefonutgift Fello",
+                    "rows": [
+                        {"account": "1920", "debit": 0, "credit": 12500},
+                        {"account": "6200", "debit": 12500, "credit": 0},
+                    ],
+                },
+                actor="agent",
+                capabilities=_capabilities(True),
+            )
+        assert exc_info.value.code == "missing_source_traceability"
+
+
+@pytest.mark.usefixtures("test_db")
+class TestRegistreraAvstaendeTool:
+    """SPEC §9 test case 3: an abstention is recorded with a motivation and
+    never creates a voucher."""
+
+    def test_records_the_abstention_without_creating_a_voucher(self, tmp_path):
+        source = _agent_tool_intake_source(tmp_path)
+
+        result = execute_tool(
+            "registrera_avstaende",
+            {
+                "source_id": source.id,
+                "summary": "Kunde inte avgöra konteringen säkert",
+                "error_detail": (
+                    "Beloppen i den extraherade texten går inte ihop med " "totalsumman"
+                ),
+                "warnings": ["lag_confidence_ocr"],
+            },
+            actor="agent",
+            capabilities=_capabilities(True),
+        )
+
+        assert result["status"] == "failed"
+        assert result["error_detail"] == (
+            "Beloppen i den extraherade texten går inte ihop med totalsumman"
+        )
+        assert result["warnings"] == ["lag_confidence_ocr"]
+        assert _agent_tool_voucher_count() == 0
+
+        refreshed_source = IntakeService().get_source(source.id)
+        assert refreshed_source.status == IntakeStatus.FAILED
+
+
+@pytest.mark.usefixtures("test_db")
+class TestToolArgumentValidation:
+    """SPEC §9 test case 6: a malformed tool call raises a validation error
+    instead of proceeding."""
+
+    def test_missing_required_field_raises_validation_error(self):
+        with pytest.raises(ValidationError) as exc_info:
+            execute_tool(
+                "posta_verifikation",
+                {
+                    # "date" is missing entirely.
+                    "period_id": "p1",
+                    "description": "desc",
+                    "intake_source_ids": ["src-1"],
+                    "rows": [
+                        {"account": "1920", "debit": 0, "credit": 100},
+                        {"account": "6200", "debit": 100, "credit": 0},
+                    ],
+                },
+                actor="agent",
+                capabilities=_capabilities(True),
+            )
+        assert exc_info.value.code == "invalid_tool_arguments"
+
+    def test_wrong_type_raises_validation_error(self):
+        with pytest.raises(ValidationError) as exc_info:
+            execute_tool(
+                "las_kontoplan",
+                {"active_only": "not-a-recognizable-boolean"},
+                actor="agent",
+                capabilities=_capabilities(True),
+            )
+        assert exc_info.value.code == "invalid_tool_arguments"
+
+    def test_too_few_rows_raises_validation_error(self):
+        with pytest.raises(ValidationError):
+            execute_tool(
+                "posta_verifikation",
+                {
+                    "date": date.today().isoformat(),
+                    "period_id": "p1",
+                    "description": "desc",
+                    "intake_source_ids": ["src-1"],
+                    "rows": [{"account": "1920", "debit": 0, "credit": 100}],
+                },
+                actor="agent",
+                capabilities=_capabilities(True),
+            )
+
+    def test_unknown_tool_name_raises_validation_error(self):
+        with pytest.raises(ValidationError) as exc_info:
+            execute_tool(
+                "radera_verifikation",
+                {},
+                actor="agent",
+                capabilities=_capabilities(True),
+            )
+        assert exc_info.value.code == "unknown_tool"
+
+
+@pytest.mark.usefixtures("test_db")
+class TestHamtaUnderlagsfilTool:
+    """`hamta_underlagsfil` wired correctly to
+    ``services/agent_documents.select_content_for_source`` -- resolving the
+    stored file and reading its bytes itself, then delegating the actual
+    content-selection decision.
+    """
+
+    def test_wired_to_select_content_for_source_for_a_pdf_with_text_layer(
+        self, tmp_path
+    ):
+        original_intake_dir = settings.intake_dir
+        settings.intake_dir = str(tmp_path / "intake")
+        try:
+            pdf_bytes = _build_text_pdf_bytes(_CLEAN_INVOICE_LINES)
+            source = IntakeService().create_source_from_upload_content(
+                filename="faktura.pdf",
+                content_type="application/pdf",
+                content=pdf_bytes,
+                explanation="Faktura",
+                source_type="supplier_invoice",
+                actor="api",
+            )
+
+            block = execute_tool(
+                "hamta_underlagsfil",
+                {"source_id": source.id},
+                actor="agent",
+                capabilities=_capabilities(True),
+            )
+        finally:
+            settings.intake_dir = original_intake_dir
+
+        assert block["type"] == "text"
+        assert "Att betala: 1 250,00 kr" in block["text"]
+
+    def test_document_unreadable_error_propagates_rather_than_being_swallowed(
+        self, tmp_path
+    ):
+        original_intake_dir = settings.intake_dir
+        settings.intake_dir = str(tmp_path / "intake")
+        try:
+            pdf_bytes = _build_image_only_pdf_bytes()
+            source = IntakeService().create_source_from_upload_content(
+                filename="skannat_kvitto.pdf",
+                content_type="application/pdf",
+                content=pdf_bytes,
+                explanation="Skannat kvitto",
+                source_type="receipt",
+                actor="api",
+            )
+
+            with pytest.raises(DocumentUnreadableError) as exc_info:
+                execute_tool(
+                    "hamta_underlagsfil",
+                    {"source_id": source.id},
+                    actor="agent",
+                    capabilities=_capabilities(False),
+                )
+        finally:
+            settings.intake_dir = original_intake_dir
+
+        assert exc_info.value.source_id == source.id
+
+
+@pytest.mark.usefixtures("test_db")
+class TestReadOnlyTools:
+    """Light coverage for the remaining read tools -- each just needs to
+    prove it reaches its backing repository/service and returns a
+    JSON-serializable shape.
+    """
+
+    def test_las_kontoplan_returns_seeded_accounts(self):
+        _ensure_agent_tool_accounts()
+
+        result = execute_tool(
+            "las_kontoplan", {}, actor="agent", capabilities=_capabilities(True)
+        )
+
+        codes = {account["code"] for account in result}
+        assert {"1920", "6200"} <= codes
+
+    def test_las_perioder_returns_the_created_period_with_lock_fields(self):
+        period = _agent_tool_period()
+
+        result = execute_tool(
+            "las_perioder", {}, actor="agent", capabilities=_capabilities(True)
+        )
+
+        matching = next(p for p in result if p["id"] == period.id)
+        assert matching["locked"] is False
+        assert matching["locked_by"] is None
+
+    def test_las_verifikationer_filters_by_period(self, tmp_path):
+        _ensure_agent_tool_accounts()
+        period = _agent_tool_period()
+        source = _agent_tool_intake_source(tmp_path)
+        execute_tool(
+            "posta_verifikation",
+            _posta_verifikation_args(period.id, source.id),
+            actor="agent",
+            capabilities=_capabilities(True),
+        )
+
+        result = execute_tool(
+            "las_verifikationer",
+            {"period_id": period.id},
+            actor="agent",
+            capabilities=_capabilities(True),
+        )
+
+        assert result["total"] == 1
+        assert result["items"][0]["status"] == "posted"
+
+    def test_las_korrigeringar_returns_a_list(self):
+        result = execute_tool(
+            "las_korrigeringar", {}, actor="agent", capabilities=_capabilities(True)
+        )
+        assert isinstance(result, list)
+
+    def test_las_underlag_returns_the_pending_queue(self, tmp_path):
+        source = _agent_tool_intake_source(tmp_path)
+
+        result = execute_tool(
+            "las_underlag", {}, actor="agent", capabilities=_capabilities(True)
+        )
+
+        ids = {item["id"] for item in result["items"]}
+        assert source.id in ids
+
+    def test_las_underlag_returns_a_single_sources_metadata(self, tmp_path):
+        source = _agent_tool_intake_source(tmp_path)
+
+        result = execute_tool(
+            "las_underlag",
+            {"source_id": source.id},
+            actor="agent",
+            capabilities=_capabilities(True),
+        )
+
+        assert result["id"] == source.id
+        assert result["status"] == "pending"
+
+    def test_las_bankhandelser_returns_a_queue_shape(self):
+        result = execute_tool(
+            "las_bankhandelser", {}, actor="agent", capabilities=_capabilities(True)
+        )
+        assert "items" in result
+        assert "total" in result
