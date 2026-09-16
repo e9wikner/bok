@@ -237,6 +237,10 @@ async def get_agent_instruction_entrypoint():
                 "method": "POST",
                 "path": "/api/v1/vouchers/{voucher_id}/correction-notes/{note_id}/reject",
             },
+            "agent_status": {
+                "method": "GET",
+                "path": "/api/v1/agent/status",
+            },
         },
         "guardrails": [
             (
@@ -262,6 +266,11 @@ async def get_agent_instruction_entrypoint():
             ),
             "Keep voucher source material and bank statement/status inputs conceptually separate.",
             "If an item cannot be completed, record failed or warning context instead of guessing.",
+            (
+                "Bok's own internal runtime may also process the pending queue in "
+                "the background; GET /api/v1/agent/status reports on any activity, "
+                "including runs this external agent did not start."
+            ),
         ],
         "unsupported_features": [
             "Persistent per-agent credential lifecycle is not implemented; use the configured bearer credential.",

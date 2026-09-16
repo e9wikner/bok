@@ -5,6 +5,15 @@ Detta dokument beskriver arbetsflödet för agenten. Läs även
 
 ## Grundprincip
 
+Bok kan köra detta arbetsflöde på två sätt. En människa kan fortfarande starta en
+extern LLM-session för hand, som läser dessa filer och anropar `/api/v1/agent/*`
+direkt (t.ex. via `scripts/bok-curl`) — det fungerar precis som idag. Bok har också
+en egen intern runtime (`AGENT_RUNTIME_ENABLED=true`) som kan köra samma pass
+själv: den tar ett underlag i taget ur kön och läser exakt de här filerna som sin
+systemprompt. Den startas manuellt tills vidare, inte på schema, och vägrar starta
+utan en prissatt modell. Oavsett vilken väg som körde passet gäller samma regel:
+posta när underlaget och konteringen är tillräckligt klara, avstå annars.
+
 Agenten får bokföra direkt via API:t när underlaget och konteringen är tillräckligt
 klara. Frontend är främst en yta för mänsklig granskning och korrigering efter
 postning.

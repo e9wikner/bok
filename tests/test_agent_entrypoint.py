@@ -31,6 +31,7 @@ EXPECTED_PATHS = {
     "/api/v1/vouchers/{voucher_id}/correction-draft",
     "/api/v1/vouchers/{voucher_id}/correction-notes/{note_id}/suggest",
     "/api/v1/vouchers/{voucher_id}/correction-notes/{note_id}/reject",
+    "/api/v1/agent/status",
 }
 
 
@@ -88,6 +89,8 @@ async def test_agent_entrypoint_contains_expected_links_and_workflow_paths(
     assert (
         data["workflow_endpoints"]["post_voucher"]["path"] == "/api/v1/agent/vouchers"
     )
+    assert data["workflow_endpoints"]["agent_status"]["path"] == "/api/v1/agent/status"
+    assert data["workflow_endpoints"]["agent_status"]["method"] == "GET"
 
 
 @pytest.mark.asyncio
@@ -169,6 +172,21 @@ async def test_agent_entrypoint_documents_bank_input_transaction_source(async_cl
 
 
 @pytest.mark.asyncio
+async def test_agent_entrypoint_discloses_the_internal_runtime_status_endpoint(
+    async_client,
+):
+    data = await _entrypoint(async_client)
+    serialized = json.dumps(data)
+
+    assert "/api/v1/agent/status" in serialized
+    assert data["workflow_endpoints"]["agent_status"]["path"] == "/api/v1/agent/status"
+    guardrails = " ".join(str(item) for item in data["guardrails"])
+    assert "/api/v1/agent/status" in guardrails
+    assert "internal runtime" in guardrails
+    assert "runs this external agent did not start" in guardrails
+
+
+@pytest.mark.asyncio
 async def test_agent_entrypoint_discloses_unsupported_features(async_client):
     data = await _entrypoint(async_client)
     unsupported = " ".join(data["unsupported_features"]).lower()
@@ -215,6 +233,24 @@ def test_agent_process_doc_requires_an_idempotency_key_on_posting():
     assert "request_in_flight" in text
     assert "En affärshändelse, en nyckel" in text
     assert "Omförsök använder samma nyckel" in text
+
+
+def test_agent_process_doc_describes_the_internal_runtime_path():
+    text = PROCESS_DOC_PATH.read_text(encoding="utf-8")
+
+    assert "AGENT_RUNTIME_ENABLED=true" in text
+    assert "intern runtime" in text
+    assert "startas manuellt tills vidare" in text
+    assert "vägrar starta\nutan en prissatt modell" in text
+    assert (
+        "posta när underlaget och konteringen är tillräckligt klara, avstå annars"
+        in text
+    )
+    # The external, human-started path is still explicitly documented as
+    # working exactly as before (SPEC-agentruntime.md §12.5b) -- this note
+    # must not read as if it replaced that path.
+    assert "En människa kan fortfarande starta en" in text
+    assert "scripts/bok-curl" in text
 
 
 @pytest.mark.asyncio
