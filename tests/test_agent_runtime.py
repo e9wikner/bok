@@ -5,6 +5,7 @@ gets its own section/class so the file stays navigable as it grows:
 
 - A3: AgentRunRepository (this file, first pass)
 - A4: services/llm/ protocol layer, model registry, config
+- A6: services/agent_documents.py -- underlagsläsning, textlager, avstämning
 
 Per SPEC §9: no LLM is ever called from a test. A3 covers the storage layer
 only — creating a run, sequencing events, and the "running with no live
@@ -17,14 +18,35 @@ no network calls, no `anthropic`/`openai` imports. Test case 19 (a model
 with no price row must refuse to start) is proven here only at the registry
 level: `get_model_info` raises. The full "the pass refuses to start, no
 agent_runs row" behavior is A10's job.
+
+A6 covers SPEC §9 test cases 20-23 at the content-selection level: whether
+`select_content_for_source` picks text, a document block, or abstains, and
+the reconciliation heuristic that decides it, all against synthetic PDFs
+built in-process (no fixture files) so the tests don't depend on any
+external renderer being installed. Full end-to-end session behavior (the
+`hamta_underlagsfil` tool actually calling this) is A7/A8's job.
 """
 
+import base64
+import io
 import json
 
 import pytest
+from PIL import Image
+from pypdf import PdfWriter
+from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 from config import Settings
+from domain.models import IntakeSource
+from domain.types import IntakeStatus
 from repositories.agent_run_repo import AgentRunRepository
+from services.agent_documents import (
+    DocumentUnreadableError,
+    ReconciliationState,
+    extract_pdf_text,
+    reconciliation_result,
+    select_content_for_source,
+)
 from services.llm import (
     LLMCapabilities,
     LLMTurn,
@@ -496,3 +518,315 @@ class TestAgentRuntimeConfig:
         except UnknownModelError as e:
             assert "super-secret-key-should-never-leak" not in repr(e)
             assert "super-secret-key-should-never-leak" not in str(e)
+
+
+# --- A6: services/agent_documents.py -- underlagsläsning (SPEC §6.3) -------
+#
+# Synthetic PDFs are built in-process with `pypdf` alone -- no fixture files,
+# no external renderer (WeasyPrint needs system libraries not guaranteed to
+# be present; `services/pdf_export.py` already treats it as optional for
+# that reason). `_build_text_pdf_bytes` draws real text operators with a
+# base-14 Helvetica font (no embedding needed), so `pypdf.extract_text()`
+# gets a genuine text layer back -- this is "pypdf's own writer" per A6's
+# task note, used because it's simpler and more portable here than driving
+# WeasyPrint. `_build_image_only_pdf_bytes` uses Pillow to save a rasterized
+# image directly as a PDF, which has no text operators at all.
+
+
+def _build_text_pdf_bytes(lines: list[str]) -> bytes:
+    """Build a minimal, valid one-page PDF with `lines` as real text content
+    (BT/Tj operators against the standard Helvetica font) -- a genuine text
+    layer `pypdf.extract_text()` can read back, not an image of text.
+    """
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=595, height=842)  # A4 in points
+
+    font_dict = DictionaryObject()
+    font_dict[NameObject("/Type")] = NameObject("/Font")
+    font_dict[NameObject("/Subtype")] = NameObject("/Type1")
+    font_dict[NameObject("/BaseFont")] = NameObject("/Helvetica")
+    font_dict[NameObject("/Encoding")] = NameObject("/WinAnsiEncoding")
+    font_ref = writer._add_object(font_dict)
+
+    resources = DictionaryObject()
+    font_resource = DictionaryObject()
+    font_resource[NameObject("/F1")] = font_ref
+    resources[NameObject("/Font")] = font_resource
+    page[NameObject("/Resources")] = resources
+
+    def escape(line: str) -> str:
+        return line.replace("\\", r"\\").replace("(", r"\(").replace(")", r"\)")
+
+    content = ["BT", "/F1 12 Tf", "50 800 Td", "14 TL"]
+    for i, line in enumerate(lines):
+        if i > 0:
+            content.append("T*")
+        content.append(f"({escape(line)}) Tj")
+    content.append("ET")
+
+    stream = DecodedStreamObject()
+    stream.set_data("\n".join(content).encode("latin-1"))
+    page[NameObject("/Contents")] = writer._add_object(stream)
+
+    buf = io.BytesIO()
+    writer.write(buf)
+    return buf.getvalue()
+
+
+def _build_image_only_pdf_bytes() -> bytes:
+    """A valid PDF containing only a rasterized image, no text operators at
+    all -- e.g. a scanned receipt.
+    """
+    image = Image.new("RGB", (200, 100), color=(255, 255, 255))
+    buf = io.BytesIO()
+    image.save(buf, "PDF")
+    return buf.getvalue()
+
+
+_CLEAN_INVOICE_LINES = [
+    "Fakturanummer: 2026-0042",
+    "Nettobelopp: 1 000,00 kr",
+    "Moms 25%: 250,00 kr",
+    "Att betala: 1 250,00 kr",
+]
+
+_SCRAMBLED_INVOICE_LINES = [
+    "Fakturanummer: 2026-0043",
+    "Nettobelopp: 1 000,00 kr",
+    "Moms 25%: 250,00 kr",
+    # A two-column table read out of order: this total doesn't match
+    # net + vat, exactly the failure mode SPEC §6.3 warns about.
+    "Att betala: 5 000,00 kr",
+]
+
+_NO_LABELS_LINES = [
+    "Tack för ditt köp!",
+    "Kvitto #1234",
+    "Kaffe och bulle",
+]
+
+
+def _intake_source(mime_type: str, filename: str = "underlag.pdf") -> IntakeSource:
+    return IntakeSource(
+        id="src-1",
+        source_type=None,
+        status=IntakeStatus.PENDING,
+        original_filename=filename,
+        mime_type=mime_type,
+        size_bytes=0,
+        sha256="deadbeef",
+        stored_path="/tmp/does-not-matter-for-this-module",
+    )
+
+
+def _capabilities(pdf_document_blocks: bool) -> LLMCapabilities:
+    return LLMCapabilities(
+        cache_breakpoint=pdf_document_blocks,
+        pdf_document_blocks=pdf_document_blocks,
+        refusal_stop_reason=pdf_document_blocks,
+    )
+
+
+class TestPdfTextExtraction:
+    def test_extracts_embedded_text(self):
+        pdf_bytes = _build_text_pdf_bytes(_CLEAN_INVOICE_LINES)
+
+        text = extract_pdf_text(pdf_bytes)
+
+        assert "Nettobelopp: 1 000,00 kr" in text
+        assert "Att betala: 1 250,00 kr" in text
+
+    def test_returns_empty_string_for_image_only_pdf(self):
+        pdf_bytes = _build_image_only_pdf_bytes()
+
+        assert extract_pdf_text(pdf_bytes) == ""
+
+    def test_returns_empty_string_for_unparseable_bytes_rather_than_raising(self):
+        assert extract_pdf_text(b"not a pdf at all") == ""
+
+    def test_returns_empty_string_for_whitespace_only_text(self):
+        pdf_bytes = _build_text_pdf_bytes(["   ", "\t"])
+
+        assert extract_pdf_text(pdf_bytes) == ""
+
+
+class TestReconciliationHeuristic:
+    """SPEC §6.3's "Avstämningen": a labeled net/VAT/total breakdown must be
+    found *and* add up before extracted text is trusted -- absence of a
+    recognizable breakdown is not itself a failure (see
+    `ReconciliationState.NOT_APPLICABLE`'s docstring in
+    `services/agent_documents.py`).
+    """
+
+    def test_clean_invoice_text_reconciles(self):
+        result = reconciliation_result("\n".join(_CLEAN_INVOICE_LINES))
+
+        assert result.state == ReconciliationState.RECONCILES
+        assert result.checked is True
+        assert result.reconciles is True
+        assert result.net_ore == 100_000
+        assert result.vat_ore == 25_000
+        assert result.total_ore == 125_000
+
+    def test_scrambled_invoice_text_does_not_reconcile(self):
+        result = reconciliation_result("\n".join(_SCRAMBLED_INVOICE_LINES))
+
+        assert result.state == ReconciliationState.DOES_NOT_RECONCILE
+        assert result.checked is True
+        assert result.reconciles is False
+
+    def test_text_with_no_recognizable_labels_is_not_applicable(self):
+        result = reconciliation_result("\n".join(_NO_LABELS_LINES))
+
+        assert result.state == ReconciliationState.NOT_APPLICABLE
+        assert result.checked is False
+        assert result.reconciles is False
+        assert result.net_ore is None
+        assert result.vat_ore is None
+        assert result.total_ore is None
+
+    def test_multiple_vat_lines_are_summed(self):
+        text = "\n".join(
+            [
+                "Nettobelopp: 1 000,00 kr",
+                "Moms 12%: 60,00 kr",
+                "Moms 25%: 190,00 kr",
+                "Att betala: 1 250,00 kr",
+            ]
+        )
+
+        result = reconciliation_result(text)
+
+        assert result.state == ReconciliationState.RECONCILES
+        assert result.vat_ore == 25_000
+
+    def test_reconciles_within_one_ore_rounding_tolerance(self):
+        text = "\n".join(
+            [
+                "Nettobelopp: 1 000,00 kr",
+                "Moms 25%: 250,01 kr",
+                "Att betala: 1 250,00 kr",
+            ]
+        )
+
+        assert reconciliation_result(text).state == ReconciliationState.RECONCILES
+
+    def test_does_not_reconcile_beyond_tolerance(self):
+        text = "\n".join(
+            [
+                "Nettobelopp: 1 000,00 kr",
+                "Moms 25%: 250,02 kr",
+                "Att betala: 1 250,00 kr",
+            ]
+        )
+
+        assert (
+            reconciliation_result(text).state == ReconciliationState.DOES_NOT_RECONCILE
+        )
+
+    def test_empty_text_is_not_applicable(self):
+        assert reconciliation_result("").state == ReconciliationState.NOT_APPLICABLE
+
+
+class TestSelectContentForSource:
+    """SPEC §9 test cases 20-23, at this module's level."""
+
+    @pytest.mark.parametrize(
+        "mime_type", ["image/jpeg", "image/png", "image/gif", "image/webp"]
+    )
+    @pytest.mark.parametrize("pdf_document_blocks", [True, False])
+    def test_image_mime_types_always_return_an_image_block(
+        self, mime_type, pdf_document_blocks
+    ):
+        source = _intake_source(mime_type, filename="kvitto.jpg")
+        file_bytes = b"\xff\xd8\xff-not-real-image-bytes-but-that-is-fine-here"
+
+        block = select_content_for_source(
+            source, file_bytes, _capabilities(pdf_document_blocks)
+        )
+
+        assert block == {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": mime_type,
+                "data": base64.b64encode(file_bytes).decode("ascii"),
+            },
+        }
+
+    def test_case_20_pdf_with_text_layer_returns_only_a_text_block(self):
+        pdf_bytes = _build_text_pdf_bytes(_CLEAN_INVOICE_LINES)
+        source = _intake_source("application/pdf", filename="faktura.pdf")
+
+        block = select_content_for_source(source, pdf_bytes, _capabilities(True))
+
+        assert block["type"] == "text"
+        assert "Att betala: 1 250,00 kr" in block["text"]
+        # No document block anywhere in the result -- this is the whole
+        # point of §6.3's cost ordering.
+        assert block.get("source") is None
+
+    def test_case_21_pdf_without_text_layer_and_document_blocks_capability(self):
+        pdf_bytes = _build_image_only_pdf_bytes()
+        source = _intake_source("application/pdf", filename="skannat_kvitto.pdf")
+
+        block = select_content_for_source(source, pdf_bytes, _capabilities(True))
+
+        assert block["type"] == "document"
+        assert block["source"]["type"] == "base64"
+        assert block["source"]["media_type"] == "application/pdf"
+        # Byte-for-byte fidelity: what comes back must decode to exactly the
+        # original PDF, not a re-encoded or lossy copy.
+        assert base64.b64decode(block["source"]["data"]) == pdf_bytes
+
+    def test_case_22_pdf_without_text_layer_and_no_document_blocks_capability(self):
+        pdf_bytes = _build_image_only_pdf_bytes()
+        source = _intake_source("application/pdf", filename="skannat_kvitto.pdf")
+
+        with pytest.raises(DocumentUnreadableError) as exc_info:
+            select_content_for_source(source, pdf_bytes, _capabilities(False))
+
+        error = exc_info.value
+        assert error.source_id == source.id
+        assert isinstance(error.reason, str)
+        assert error.reason.strip() != ""
+
+    def test_case_23_non_reconciling_text_escalates_to_document_block_when_capable(
+        self,
+    ):
+        pdf_bytes = _build_text_pdf_bytes(_SCRAMBLED_INVOICE_LINES)
+        source = _intake_source("application/pdf", filename="skum_faktura.pdf")
+
+        # Mirrors case 21: untrustworthy text is never sent, the document
+        # block is, even though a text layer technically exists.
+        block = select_content_for_source(source, pdf_bytes, _capabilities(True))
+
+        assert block["type"] == "document"
+        assert base64.b64decode(block["source"]["data"]) == pdf_bytes
+
+    def test_case_23_non_reconciling_text_abstains_when_not_capable(self):
+        pdf_bytes = _build_text_pdf_bytes(_SCRAMBLED_INVOICE_LINES)
+        source = _intake_source("application/pdf", filename="skum_faktura.pdf")
+
+        # "på Chat-vägen avstående, aldrig en postning på siffror som inte
+        # stämmer" -- never pass the untrustworthy text through just because
+        # there's nowhere else for it to go.
+        with pytest.raises(DocumentUnreadableError) as exc_info:
+            select_content_for_source(source, pdf_bytes, _capabilities(False))
+
+        assert exc_info.value.reason.strip() != ""
+
+    def test_case_23_reconciliation_result_on_the_scrambled_pdfs_own_text(self):
+        pdf_bytes = _build_text_pdf_bytes(_SCRAMBLED_INVOICE_LINES)
+
+        text = extract_pdf_text(pdf_bytes)
+
+        assert (
+            reconciliation_result(text).state == ReconciliationState.DOES_NOT_RECONCILE
+        )
+
+    def test_unsupported_mime_type_abstains_rather_than_guessing(self):
+        source = _intake_source("application/zip", filename="oj.zip")
+
+        with pytest.raises(DocumentUnreadableError):
+            select_content_for_source(source, b"PK\x03\x04", _capabilities(True))
