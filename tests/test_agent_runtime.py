@@ -7,6 +7,8 @@ gets its own section/class so the file stays navigable as it grows:
 - A4: services/llm/ protocol layer, model registry, config
 - A6: services/agent_documents.py -- underlagsläsning, textlager, avstämning
 - A7: services/agent_tools.py -- verktygsytan, dispatcher, idempotensnyckel
+- A8: services/agent_session.py -- systemprompt, användartur, manuell
+  verktygsloop, avståenden (SPEC §9 testfall 4, 5, 7, 14, 15)
 
 Per SPEC §9: no LLM is ever called from a test. A3 covers the storage layer
 only — creating a run, sequencing events, and the "running with no live
@@ -34,6 +36,7 @@ import json
 import uuid
 from calendar import monthrange
 from datetime import date
+from typing import Optional
 
 import pytest
 from PIL import Image
@@ -54,6 +57,12 @@ from services.agent_documents import (
     extract_pdf_text,
     reconciliation_result,
     select_content_for_source,
+)
+from services.agent_session import (
+    SessionOutcome,
+    build_system_prompt,
+    build_user_turn,
+    run_session,
 )
 from services.agent_tools import (
     AGENT_TOOL_DEFINITIONS,
@@ -1361,3 +1370,432 @@ class TestReadOnlyTools:
         )
         assert "items" in result
         assert "total" in result
+
+
+# --- A8: services/agent_session.py -- sessionen (SPEC §6.3, §6.7, §9 #4/5/7/14/15)
+
+
+class FakeLLMClient:
+    """Structural `LLMClient` test double (SPEC §9): returns pre-programmed
+    `LLMTurn`s from a queue, never touching a network.
+
+    If more than one turn is queued, each call pops the next one off the
+    front; once only one is left, that same turn is returned forever -- this
+    is what lets `TestSessionTurnLimit` simulate a model that loops without
+    ever deciding anything, by queueing exactly one repeating turn.
+    """
+
+    def __init__(self, turns: list[LLMTurn], capabilities: LLMCapabilities):
+        self._turns = list(turns)
+        self.capabilities = capabilities
+        self.calls: list[dict] = []
+
+    def run_turn(
+        self,
+        system: str,
+        messages: list[dict],
+        tools: list[dict],
+        model: str,
+        max_tokens: int,
+    ) -> LLMTurn:
+        self.calls.append(
+            {
+                "system": system,
+                "messages": messages,
+                "tools": tools,
+                "model": model,
+                "max_tokens": max_tokens,
+            }
+        )
+        if len(self._turns) > 1:
+            return self._turns.pop(0)
+        return self._turns[0]
+
+
+def _run_test_session(
+    client: FakeLLMClient,
+    source: IntakeSource,
+    open_periods: Optional[list] = None,
+    max_tool_turns: Optional[int] = None,
+) -> SessionOutcome:
+    return run_session(
+        client=client,
+        source=source,
+        file_bytes=b"%PDF-1.4 fake, no real text layer",
+        open_periods=open_periods or [],
+        today=date.today(),
+        model="opencode/claude-opus-5",
+        actor="agent",
+        max_tool_turns=max_tool_turns,
+    )
+
+
+class TestBuildSystemPrompt:
+    """SPEC §9 test case 14, plus the deterministic-ordering half of §6.6."""
+
+    def test_case_14_identical_across_two_calls(self):
+        _ensure_agent_tool_accounts()
+
+        first = build_system_prompt()
+        second = build_system_prompt()
+
+        assert first == second
+
+    def test_kontoplan_section_is_sorted_by_code_not_creation_order(self):
+        AccountRepository.create("9999", "Sista kontot", "expense")
+        AccountRepository.create("1000", "Första kontot", "asset")
+
+        prompt = build_system_prompt()
+
+        assert prompt.index("1000  Första kontot") < prompt.index("9999  Sista kontot")
+
+    def test_includes_company_instructions_and_system_instructions(self):
+        prompt = build_system_prompt()
+
+        # The company's editable accounting instructions (default content,
+        # AgentInstructionRepository) and the read-only system instructions
+        # both land in the prompt, in that fixed order (SPEC §6.3).
+        assert "Bokföringsinstruktioner" in prompt
+        system_pos = prompt.find("Bokföringsprocess")
+        company_pos = prompt.find("Bokföringsinstruktioner")
+        assert system_pos != -1
+        assert company_pos != -1
+        assert system_pos < company_pos
+
+
+class TestBuildUserTurn:
+    def test_contains_todays_date_source_metadata_and_the_content_block(self, tmp_path):
+        source = _agent_tool_intake_source(tmp_path, name="kvitto.pdf")
+        content_block = {"type": "text", "text": "Nettobelopp: 100,00 kr"}
+        today = date(2026, 9, 16)
+
+        messages = build_user_turn(source, content_block, today, [])
+
+        assert len(messages) == 1
+        message = messages[0]
+        assert message["role"] == "user"
+        text_block = message["content"][0]
+        assert "2026-09-16" in text_block["text"]
+        assert source.original_filename in text_block["text"]
+        assert message["content"][-1] == content_block
+
+
+class TestSessionRefusal:
+    """SPEC §9 test case 4."""
+
+    def test_case_4_refusal_is_abstained_with_no_voucher(self, tmp_path):
+        _ensure_agent_tool_accounts()
+        source = _agent_tool_intake_source(tmp_path)
+        client = FakeLLMClient(
+            [
+                LLMTurn(
+                    text="Jag kan inte hjälpa till med det här.",
+                    tool_calls=[],
+                    stop="refusal",
+                    usage=Usage(10, 5, 0),
+                )
+            ],
+            capabilities=_capabilities(True),
+        )
+
+        outcome = _run_test_session(client, source)
+
+        assert outcome.kind == "abstained"
+        assert outcome.reason is not None
+        assert outcome.reason.startswith("agent_refusal:")
+        assert "kan inte hjälpa" in outcome.reason
+        assert outcome.voucher_id is None
+        assert _agent_tool_voucher_count() == 0
+        assert len(client.calls) == 1
+        assert outcome.usage == Usage(10, 5, 0)
+
+
+class TestSessionMaxTokens:
+    """SPEC §9 test case 5."""
+
+    def test_case_5_truncated_turn_is_abstained_with_no_voucher(self, tmp_path):
+        _ensure_agent_tool_accounts()
+        source = _agent_tool_intake_source(tmp_path)
+        client = FakeLLMClient(
+            [
+                LLMTurn(
+                    text="Jag börjar analysera under...",
+                    tool_calls=[],
+                    stop="max_tokens",
+                    usage=Usage(20, 32000, 0),
+                )
+            ],
+            capabilities=_capabilities(True),
+        )
+
+        outcome = _run_test_session(client, source)
+
+        assert outcome.kind == "abstained"
+        assert outcome.reason == "agent_output_truncated"
+        assert outcome.voucher_id is None
+        assert _agent_tool_voucher_count() == 0
+        assert len(client.calls) == 1
+
+
+class TestSessionNoOutcome:
+    """`stop == "end"` with no tool calls -- the model finished without ever
+    posting or abstaining. SPEC §1 requires every pass to end in one of
+    those two outcomes, so this must be its own explicit abstention, never a
+    silent no-op.
+    """
+
+    def test_end_with_no_tool_calls_is_an_explicit_abstention(self, tmp_path):
+        _ensure_agent_tool_accounts()
+        source = _agent_tool_intake_source(tmp_path)
+        client = FakeLLMClient(
+            [LLMTurn(text="Klart.", tool_calls=[], stop="end", usage=Usage(5, 5, 0))],
+            capabilities=_capabilities(True),
+        )
+
+        outcome = _run_test_session(client, source)
+
+        assert outcome.kind == "abstained"
+        assert outcome.reason == "agent_no_outcome"
+        assert _agent_tool_voucher_count() == 0
+
+
+class TestSessionTurnLimit:
+    """SPEC §9 test case 7."""
+
+    def test_case_7_turn_limit_reached_without_an_outcome(self, tmp_path):
+        _ensure_agent_tool_accounts()
+        source = _agent_tool_intake_source(tmp_path)
+        harmless_call = ToolCall(id="call-1", name="las_kontoplan", arguments={})
+        client = FakeLLMClient(
+            [
+                LLMTurn(
+                    text="",
+                    tool_calls=[harmless_call],
+                    stop="tool_calls",
+                    usage=Usage(5, 5, 0),
+                )
+            ],
+            capabilities=_capabilities(True),
+        )
+
+        outcome = _run_test_session(client, source, max_tool_turns=3)
+
+        assert outcome.kind == "abstained"
+        assert outcome.reason == "agent_turn_limit"
+        assert len(client.calls) == 3
+        assert _agent_tool_voucher_count() == 0
+        assert outcome.usage == Usage(15, 15, 0)
+
+
+class TestSessionPostingEndsImmediately:
+    """Edge case worth locking down: a successful `posta_verifikation` call
+    ends the session immediately, even if the same turn queued other tool
+    calls alongside it.
+    """
+
+    def test_posting_ends_the_session_with_no_further_tool_calls_executed(
+        self, tmp_path
+    ):
+        _ensure_agent_tool_accounts()
+        period = _agent_tool_period()
+        source = _agent_tool_intake_source(tmp_path)
+        posting_call = ToolCall(
+            id="call-1",
+            name="posta_verifikation",
+            arguments=_posta_verifikation_args(period.id, source.id),
+        )
+        harmless_call = ToolCall(id="call-2", name="las_kontoplan", arguments={})
+        client = FakeLLMClient(
+            [
+                LLMTurn(
+                    text="",
+                    tool_calls=[posting_call, harmless_call],
+                    stop="tool_calls",
+                    usage=Usage(1, 1, 0),
+                )
+            ],
+            capabilities=_capabilities(True),
+        )
+
+        outcome = _run_test_session(client, source, open_periods=[period])
+
+        assert outcome.kind == "posted"
+        assert outcome.voucher_id
+        assert outcome.tool_result is not None
+        assert outcome.tool_result["status"] == "posted"
+        assert _agent_tool_voucher_count() == 1
+        assert len(client.calls) == 1
+
+        assert len(outcome.turns) == 1
+        executed = outcome.turns[0].executed_tool_calls
+        assert len(executed) == 1
+        assert executed[0].tool_call.name == "posta_verifikation"
+        assert executed[0].ok is True
+
+
+class TestSessionToolErrorRetriesWithinBudget:
+    """A tool error is fed back as `is_error: true` and the loop continues --
+    confirms retries work within budget, per SPEC §6.7's "får rätta sig
+    själv inom varvtaket".
+    """
+
+    def test_tool_error_is_retried_and_the_second_attempt_succeeds(self, tmp_path):
+        _ensure_agent_tool_accounts()
+        period = _agent_tool_period()
+        source = _agent_tool_intake_source(tmp_path)
+
+        # No intake_source_ids/bank_input_ids/bank_transaction_ids at all ->
+        # post_agent_voucher raises ValidationError("missing_source_traceability")
+        # before anything is written (see TestPostaVerifikationTool above).
+        failing_call = ToolCall(
+            id="call-1",
+            name="posta_verifikation",
+            arguments={
+                "date": date.today().isoformat(),
+                "period_id": period.id,
+                "description": "Telefonutgift Fello",
+                "rows": [
+                    {"account": "1920", "debit": 0, "credit": 12500},
+                    {"account": "6200", "debit": 12500, "credit": 0},
+                ],
+            },
+        )
+        recovering_call = ToolCall(
+            id="call-2",
+            name="registrera_avstaende",
+            arguments={
+                "source_id": source.id,
+                "summary": "Kunde inte bokföra automatiskt",
+                "error_detail": "Underlaget saknar spårbarhet till en postning",
+            },
+        )
+        client = FakeLLMClient(
+            [
+                LLMTurn(
+                    text="",
+                    tool_calls=[failing_call],
+                    stop="tool_calls",
+                    usage=Usage(1, 1, 0),
+                ),
+                LLMTurn(
+                    text="",
+                    tool_calls=[recovering_call],
+                    stop="tool_calls",
+                    usage=Usage(1, 1, 0),
+                ),
+            ],
+            capabilities=_capabilities(True),
+        )
+
+        outcome = _run_test_session(
+            client, source, open_periods=[period], max_tool_turns=5
+        )
+
+        assert outcome.kind == "abstained"
+        assert outcome.reason == "Kunde inte bokföra automatiskt"
+        assert _agent_tool_voucher_count() == 0
+        assert len(client.calls) == 2
+
+        # The first turn's failure was fed back as an is_error tool_result,
+        # not swallowed or used to abort the session.
+        second_call_messages = client.calls[1]["messages"]
+        tool_result_message = second_call_messages[-1]
+        assert tool_result_message["role"] == "user"
+        assert tool_result_message["content"][0]["is_error"] is True
+
+        assert len(outcome.turns) == 2
+        assert outcome.turns[0].executed_tool_calls[0].ok is False
+        assert (
+            "missing_source_traceability"
+            in outcome.turns[0].executed_tool_calls[0].error
+        )
+        assert outcome.turns[1].executed_tool_calls[0].ok is True
+
+
+class TestSessionDocumentUnreadableShortCircuits:
+    """`DocumentUnreadableError` from content selection must short-circuit
+    before any `run_turn` call -- SPEC §6.3 step 3 costs zero tokens because
+    there is genuinely no API call, not a discarded one.
+    """
+
+    def test_no_run_turn_call_is_made_when_the_source_is_unreadable(self, tmp_path):
+        # `_agent_tool_intake_source` writes a fake, textless PDF body, and
+        # capabilities without pdf_document_blocks means there is no
+        # fallback -- select_content_for_source must raise.
+        source = _agent_tool_intake_source(tmp_path)
+        client = FakeLLMClient(
+            [
+                LLMTurn(
+                    text="should never be reached",
+                    tool_calls=[],
+                    stop="end",
+                    usage=Usage(999, 999, 0),
+                )
+            ],
+            capabilities=_capabilities(False),
+        )
+
+        outcome = _run_test_session(client, source)
+
+        assert outcome.kind == "abstained"
+        assert outcome.reason
+        assert outcome.usage == Usage(0, 0, 0)
+        assert client.calls == []
+        assert outcome.turns == []
+
+
+class TestSessionUsageAccumulationAndCachePrompt:
+    """SPEC §9 test case 15, at the session level: the exact same system
+    string must be sent on every call given the same underlying data, and
+    `usage.cache_read_input_tokens` must be reported/accumulated verbatim,
+    never recomputed or discarded.
+    """
+
+    def test_case_15_same_system_prompt_and_accumulated_cache_usage_per_item(
+        self, tmp_path
+    ):
+        _ensure_agent_tool_accounts()
+        period = _agent_tool_period()
+
+        systems_sent = []
+        cache_read_seen = []
+        for index, cache_read in enumerate([0, 120, 130, 140, 150]):
+            source = _agent_tool_intake_source(tmp_path, name=f"kvitto-{index}.pdf")
+            recovering_call = ToolCall(
+                id="call-1",
+                name="registrera_avstaende",
+                arguments={
+                    "source_id": source.id,
+                    "summary": "test",
+                    "error_detail": "test",
+                },
+            )
+            client = FakeLLMClient(
+                [
+                    LLMTurn(
+                        text="",
+                        tool_calls=[recovering_call],
+                        stop="tool_calls",
+                        usage=Usage(
+                            input_tokens=1000,
+                            output_tokens=50,
+                            cache_read_input_tokens=cache_read,
+                        ),
+                    )
+                ],
+                capabilities=_capabilities(True),
+            )
+
+            outcome = _run_test_session(client, source, open_periods=[period])
+
+            systems_sent.append(client.calls[0]["system"])
+            cache_read_seen.append(outcome.usage.cache_read_input_tokens)
+
+        # Same underlying DB state across every item in the pass -> byte
+        # for byte the same system string sent every single time.
+        assert len(set(systems_sent)) == 1
+
+        # Reported verbatim, never recomputed: exactly what the fake queued.
+        assert cache_read_seen[0] == 0
+        assert cache_read_seen[1:] == [120, 130, 140, 150]
+        assert all(value > 0 for value in cache_read_seen[1:])
