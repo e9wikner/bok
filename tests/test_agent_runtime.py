@@ -873,6 +873,30 @@ class TestSelectContentForSource:
         with pytest.raises(DocumentUnreadableError):
             select_content_for_source(source, b"PK\x03\x04", _capabilities(True))
 
+    def test_case_22_the_real_chat_client_capabilities_abstain_too(self):
+        """Closes the loop for test case 22: not just a hand-built
+        `LLMCapabilities(pdf_document_blocks=False)`, but A12's actual
+        `services.llm.chat.ChatClient.capabilities` object, produces the
+        same abstention.
+        """
+        from services.llm.chat import ChatClient
+
+        pdf_bytes = _build_image_only_pdf_bytes()
+        source = _intake_source("application/pdf", filename="skannat_kvitto.pdf")
+
+        with pytest.raises(DocumentUnreadableError):
+            select_content_for_source(source, pdf_bytes, ChatClient.capabilities)
+
+    def test_case_23_the_real_chat_client_capabilities_abstain_too(self):
+        """Same as above, for test case 23's non-reconciling-text scenario."""
+        from services.llm.chat import ChatClient
+
+        pdf_bytes = _build_text_pdf_bytes(_SCRAMBLED_INVOICE_LINES)
+        source = _intake_source("application/pdf", filename="skum_faktura.pdf")
+
+        with pytest.raises(DocumentUnreadableError):
+            select_content_for_source(source, pdf_bytes, ChatClient.capabilities)
+
 
 # --- A7: services/agent_tools.py -- verktygsytan (SPEC §6.4, §9 #1/3/6/17) -
 
@@ -2240,8 +2264,9 @@ class TestAgentWorkerModelSelection:
 
 
 class TestBuildLlmClient:
-    """`build_llm_client`'s "messages" branch and its documented stand-in
-    for the not-yet-built "chat" protocol (task A12).
+    """`build_llm_client`'s "messages" and "chat" branches (tasks A5/A12),
+    and `UnsupportedProtocolError` as the fallback for a genuinely unknown
+    third protocol.
     """
 
     def test_messages_protocol_resolves_to_a_messages_client(self):
@@ -2250,11 +2275,48 @@ class TestBuildLlmClient:
         assert client.capabilities.cache_breakpoint is True
         assert client.capabilities.pdf_document_blocks is True
 
-    def test_unsupported_protocol_raises_unsupported_protocol_error(self):
-        with pytest.raises(UnsupportedProtocolError) as exc_info:
-            build_llm_client("opencode/gpt-5.5")
+    def test_chat_protocol_resolves_to_a_chat_client(self, monkeypatch):
+        from services.llm.chat import ChatClient
 
-        assert exc_info.value.protocol == "chat"
+        # Unlike `anthropic.Anthropic`, the installed `openai` SDK's client
+        # raises at construction time on a falsy `api_key` with no
+        # `OPENAI_API_KEY` env var set (confirmed against the installed
+        # `openai>=2.0` package) -- `settings.llm_api_key` defaults to ""
+        # in tests (SPEC §4's key-never-logged config, A4), so this test
+        # needs a non-empty dummy key, same as the real gateway would
+        # require one.
+        monkeypatch.setattr(settings, "llm_api_key", "dummy-test-key")
+
+        client = build_llm_client("opencode/gpt-5.5")
+
+        assert isinstance(client, ChatClient)
+        assert client.capabilities.cache_breakpoint is False
+        assert client.capabilities.pdf_document_blocks is False
+        assert client.capabilities.refusal_stop_reason is False
+
+    def test_unsupported_protocol_raises_unsupported_protocol_error(self, monkeypatch):
+        # Every real model registered in services/llm/__init__.py resolves
+        # to "messages" or "chat" (SPEC §2's two built adapters) -- there is
+        # no real model id left to reach the fallback branch through
+        # get_model_info alone. Monkeypatching get_model_info to return a
+        # third, genuinely unhandled protocol (e.g. the Google/Gemini path
+        # SPEC §2 says is out of scope for this module) is the only way to
+        # exercise that branch.
+        import services.agent_runtime as agent_runtime_module
+
+        fake_info = ModelInfo(
+            model="some/gemini-model",
+            protocol="gemini",  # type: ignore[arg-type]
+            price=get_model_info("opencode/claude-opus-5").price,
+        )
+        monkeypatch.setattr(
+            agent_runtime_module, "get_model_info", lambda model: fake_info
+        )
+
+        with pytest.raises(UnsupportedProtocolError) as exc_info:
+            build_llm_client("some/gemini-model")
+
+        assert exc_info.value.protocol == "gemini"
 
 
 class TestAgentRunnerLockExclusivity:

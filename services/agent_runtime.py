@@ -174,23 +174,23 @@ def ensure_daily_budget_available(
 
 
 class UnsupportedProtocolError(Exception):
-    """Raised by `build_llm_client` for any protocol besides `"messages"`.
+    """Raised by `build_llm_client` for any protocol besides `"messages"`
+    or `"chat"`.
 
-    Deliberately narrow for now: `services/llm/chat.py` (the Chat Completions
-    adapter, task A12) does not exist yet, so this is the explicit,
-    documented stand-in until A12 lands -- not a placeholder that silently
-    falls back to something. When A12 lands, this factory gets a second
-    branch (`if protocol == "chat": ... return ChatClient(...)`), not a
-    redesign; this class then only ever fires for a genuinely unhandled
-    third protocol.
+    Both adapters `services.llm.__init__.ProtocolName` currently allows are
+    wired up in `build_llm_client` below (`"messages"` ->
+    `services.llm.messages.MessagesClient`, task A5; `"chat"` ->
+    `services.llm.chat.ChatClient`, task A12) -- this now only ever fires for
+    a genuinely unhandled third protocol (e.g. the Google/Gemini path SPEC
+    §2 explicitly says is out of scope for this module).
     """
 
     def __init__(self, protocol: str) -> None:
         super().__init__(
-            f"No LLM client factory wired up for protocol {protocol!r} yet. "
-            'Only "messages" (services.llm.messages.MessagesClient) is wired '
-            'in this build -- the "chat" adapter (services/llm/chat.py) '
-            "lands in task A12; see build_llm_client in services/agent_runtime.py."
+            f"No LLM client factory wired up for protocol {protocol!r}. "
+            'Only "messages" (services.llm.messages.MessagesClient) and '
+            '"chat" (services.llm.chat.ChatClient) are wired in this build -- '
+            "see build_llm_client in services/agent_runtime.py."
         )
         self.protocol = protocol
 
@@ -199,15 +199,16 @@ def build_llm_client(model: str) -> LLMClient:
     """Resolve `model` to its protocol and construct the matching adapter.
 
     Called once per pass by `AgentWorker.run_pass_once` (not once per item --
-    SPEC doesn't require a fresh client per item, and building one Anthropic
-    client per pass is cheaper and behaves identically since `MessagesClient`
-    carries no per-call state).
+    SPEC doesn't require a fresh client per item, and building one client per
+    pass is cheaper and behaves identically since neither adapter carries
+    per-call state).
 
-    The `services.llm.messages` import is deferred inside this function
-    (not at module level) so that importing `services/agent_runtime.py`
-    itself never pulls in `anthropic` -- only actually resolving a
-    Messages-protocol model does. This is what keeps
-    `grep -r "^import anthropic\\|^from anthropic" services/agent_runtime.py`
+    The `services.llm.messages`/`services.llm.chat` imports are deferred
+    inside this function (not at module level) so that importing
+    `services/agent_runtime.py` itself never pulls in `anthropic` or
+    `openai` -- only actually resolving a model on that protocol does. This
+    is what keeps
+    `grep -r "^import anthropic\\|^from anthropic\\|^import openai\\|^from openai" services/agent_runtime.py`
     empty, per SPEC §4/§10's "anthropic/openai importeras bara i
     services/llm/".
     """
@@ -218,6 +219,10 @@ def build_llm_client(model: str) -> LLMClient:
         return MessagesClient(
             api_key=settings.llm_api_key, base_url=settings.llm_base_url
         )
+    if protocol == "chat":
+        from services.llm.chat import ChatClient
+
+        return ChatClient(api_key=settings.llm_api_key, base_url=settings.llm_base_url)
     raise UnsupportedProtocolError(protocol)
 
 

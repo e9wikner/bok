@@ -32,6 +32,9 @@ PyJWT>=2.8.0
 # Agent runtime: Anthropic Messages protocol adapter (services/llm/messages.py)
 anthropic>=1.0
 
+# Agent runtime: OpenAI Chat Completions protocol adapter (services/llm/chat.py)
+openai>=2.0
+
 # Agent runtime: PDF text-layer extraction (services/agent_documents.py)
 pypdf>=5.0
 

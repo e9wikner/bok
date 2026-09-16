@@ -1,0 +1,22 @@
+{
+  "id": "chatcmpl-length-0001",
+  "object": "chat.completion",
+  "created": 1735600002,
+  "model": "opencode/gpt-5.5",
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "length",
+      "logprobs": null,
+      "message": {
+        "role": "assistant",
+        "content": "Jag bokför fakturan enligt underlaget och skapar en verifikation med föl"
+      }
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1200,
+    "completion_tokens": 8192,
+    "total_tokens": 9392
+  }
+}

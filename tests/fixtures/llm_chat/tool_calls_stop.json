@@ -1,0 +1,33 @@
+{
+  "id": "chatcmpl-tool-use-0001",
+  "object": "chat.completion",
+  "created": 1735600000,
+  "model": "opencode/gpt-5.5",
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "tool_calls",
+      "logprobs": null,
+      "message": {
+        "role": "assistant",
+        "content": "Jag bokför fakturan enligt underlaget.",
+        "tool_calls": [
+          {
+            "id": "call_PostaVerifikation0001",
+            "type": "function",
+            "function": {
+              "name": "posta_verifikation",
+              "arguments": "{\"source_id\": \"src-123\", \"rader\": [{\"konto\": \"1510\", \"debet\": 1000, \"kredit\": 0}, {\"konto\": \"3011\", \"debet\": 0, \"kredit\": 800}, {\"konto\": \"2610\", \"debet\": 0, \"kredit\": 200}]}"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1450,
+    "completion_tokens": 210,
+    "total_tokens": 1660,
+    "prompt_tokens_details": {"cached_tokens": 900}
+  }
+}
