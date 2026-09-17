@@ -20,6 +20,7 @@ from services.dropzone import (
     account_code_from_folder,
     mime_type_for,
 )
+from services.intake import IntakeService
 
 PDF_BYTES = b"%PDF-1.4 dropzone receipt"
 CSV_BYTES = (
@@ -1049,3 +1050,91 @@ def test_problem_note_timestamp_is_unambiguous(test_db, scanner, dropzone_dir):
     )
     parsed = datetime.fromisoformat(line.removeprefix("Tidpunkt: "))
     assert parsed.tzinfo is not None, f"no offset in {line!r}"
+
+
+# --- 17: agent abstentions -----------------------------------------------
+
+
+def _non_note_problem_files(root: Path) -> list[Path]:
+    return [p for p in _problem_files(root) if not p.name.endswith(".problem.txt")]
+
+
+def test_agent_failure_moves_the_archived_file_to_problem(
+    test_db, scanner, dropzone_dir
+):
+    """`POST .../failed` only touches the DB -- the scanner must catch up."""
+    _drop(dropzone_dir, "Kundfakturor/Faktura-101280.pdf")
+    scanner.scan_once()
+    source = _sources()[0]
+    assert _problem_files(dropzone_dir) == []
+
+    IntakeService().record_failed(
+        source_id=source.id,
+        summary="Faktura #101280 bokförs inte: redan bokförd som direktförsäljning",
+        error_detail="Betalningen är redan bokförd som direktförsäljning (A 14).",
+        actor="agent",
+        warnings=["Utgående moms 20 800 kr byter redovisningsperiod"],
+    )
+
+    result = scanner.scan_once()
+
+    assert result.problems == 1
+    assert _ingested_files(dropzone_dir) == []
+    assert [p.name for p in _non_note_problem_files(dropzone_dir)] == [
+        "Faktura-101280.pdf"
+    ]
+    note = next(
+        p for p in _problem_files(dropzone_dir) if p.name.endswith(".problem.txt")
+    ).read_text(encoding="utf-8")
+    assert "Faktura #101280 bokförs inte" in note
+    assert "Betalningen är redan bokförd som direktförsäljning (A 14)." in note
+    assert "Varningar:" in note
+    assert "- Utgående moms 20 800 kr byter redovisningsperiod" in note
+    assert f"Intagspost: {source.id}" in note
+    assert "Status: failed (agent)" in note
+
+
+def test_agent_failure_reconciliation_only_moves_the_file_once(
+    test_db, scanner, dropzone_dir
+):
+    _drop(dropzone_dir, "Kvitton/kvitto.pdf")
+    scanner.scan_once()
+    source = _sources()[0]
+    IntakeService().record_failed(
+        source_id=source.id,
+        summary="Kunde inte tolkas",
+        error_detail="Belopp saknas på kvittot.",
+        actor="agent",
+    )
+
+    first = scanner.scan_once()
+    second = scanner.scan_once()
+
+    assert first.problems == 1
+    assert second.problems == 0
+    assert len(_non_note_problem_files(dropzone_dir)) == 1
+
+
+def test_agent_failure_on_a_non_dropzone_upload_is_left_alone(
+    test_db, scanner, dropzone_dir
+):
+    """Only files that actually came from the dropzone should be moved."""
+    source = IntakeService().create_source_from_upload_content(
+        filename="webbupload.pdf",
+        content_type="application/pdf",
+        content=PDF_BYTES,
+        explanation=None,
+        source_type=None,
+        actor="api",
+    )
+    IntakeService().record_failed(
+        source_id=source.id,
+        summary="Kunde inte tolkas",
+        error_detail="Belopp saknas.",
+        actor="agent",
+    )
+
+    result = scanner.scan_once()
+
+    assert result.problems == 0
+    assert _problem_files(dropzone_dir) == []
