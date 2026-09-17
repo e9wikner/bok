@@ -6,7 +6,7 @@ Testfallsnumren nedan syftar på tabellen i §9.
 
 ---
 
-- [ ] **A1 — `services/voucher_posting.py` (gate: ren flytt, ingen ny funktionalitet)**
+- [x] **A1 — `services/voucher_posting.py` (gate: ren flytt, ingen ny funktionalitet)**
   - Acceptans: `_create_and_post_voucher` flyttad ur `api/routes/agent.py` med spårbarhetskontroll,
     `VoucherValidator`, transaktionen och idempotensskrivningen intakta. Rutten anropar servicen.
     Inga HTTP-begrepp följer med ned i `services/` — felen är domänutfall, mappningen stannar i rutten.
@@ -15,7 +15,7 @@ Testfallsnumren nedan syftar på tabellen i §9.
   - Filer: `services/voucher_posting.py`, `api/routes/agent.py`
   - Obs: landas ensam, som T8. Ändra ingenting i logiken — flytta den.
 
-- [ ] **A2 — Migration 024: `agent_runs` och `agent_run_events`**
+- [x] **A2 — Migration 024: `agent_runs` och `agent_run_events`**
   - Acceptans: båda tabellerna enligt §5, inklusive `protocol` på `agent_runs` och
     `UNIQUE (run_id, seq)` på händelserna. `cost_ore` är `NOT NULL DEFAULT 0` — det är sant eftersom
     en modell utan prisrad inte får köra (A4).
@@ -24,13 +24,13 @@ Testfallsnumren nedan syftar på tabellen i §9.
   - Filer: `db/migrations/024_add_agent_runs.sql`
   - Obs: ny fil. Redigera aldrig 001–023.
 
-- [ ] **A3 — `AgentRunRepository`**
+- [x] **A3 — `AgentRunRepository`**
   - Acceptans: skapa kör, uppdatera status, summera tokens och kostnad, lägga händelse med
     nästa `seq`, hitta körningar med `status='running'` utan levande tråd. All SQL här.
   - Verifiera: `pytest tests/test_agent_runtime.py -v` — skapa, händelsesekvens, övergiven kör.
   - Filer: `repositories/agent_run_repo.py`, `tests/test_agent_runtime.py`
 
-- [ ] **A4 — `services/llm/`: protokollet, modellregistret, prislistan, konfigurationen**
+- [x] **A4 — `services/llm/`: protokollet, modellregistret, prislistan, konfigurationen**
   - Acceptans: `LLMClient`, `LLMTurn`, `LLMCapabilities` enligt §4. Modellregistret svarar på
     modell → protokoll + pris. `config.py` får `AGENT_RUNTIME_ENABLED`, `LLM_API_KEY`,
     `LLM_BASE_URL` (standard `https://opencode.ai/zen/v1`), `LLM_DEFAULT_MODEL`, prislistan och
@@ -39,7 +39,7 @@ Testfallsnumren nedan syftar på tabellen i §9.
   - Filer: `services/llm/__init__.py`, `config.py`, `tests/test_agent_runtime.py`
   - Obs: nyckeln får aldrig loggas, aldrig hamna i status, aldrig i `agent_run_events` (§12.6).
 
-- [ ] **A5 — Messages-adaptern**
+- [x] **A5 — Messages-adaptern**
   - Acceptans: `services/llm/messages.py` bygger Anthropic-anropet mot `LLM_BASE_URL`, normaliserar
     svaret till `LLMTurn` (`stop`: `tool_calls` | `end` | `refusal` | `max_tokens`), och rapporterar
     `capabilities` med cache, dokumentblock och egen vägrankod.
@@ -49,7 +49,7 @@ Testfallsnumren nedan syftar på tabellen i §9.
   - Obs: `thinking={"type": "adaptive"}`, `output_config={"effort": "high"}`, **ingen**
     `budget_tokens` (den ger 400 på Opus 5). `.stream()` + `get_final_message()`.
 
-- [ ] **A6 — Underlagsläsning: textlagret först**
+- [x] **A6 — Underlagsläsning: textlagret först**
   - Acceptans: ordningen i §6.3 — textlager via `pypdf` → annars `document`-block om adaptern kan →
     annars avstående. Bilder går som `image`-block på båda vägarna. Avstämningsregeln finns som
     egen, testbar funktion: beloppen ordagrant i texten, netto + moms = totalen.
@@ -57,7 +57,7 @@ Testfallsnumren nedan syftar på tabellen i §9.
   - Filer: `services/agent_documents.py`, `requirements.txt`, `tests/test_agent_runtime.py`
   - Obs: `pdf2image` (poppler i containern) och PyMuPDF (AGPL) tas **inte** in.
 
-- [ ] **A7 — Verktygsytan**
+- [x] **A7 — Verktygsytan**
   - Acceptans: de nio verktygen i §6.4 med typade argument. `posta_verifikation` går genom A1:s
     service med nyckeln `uuid5(BOK_NAMESPACE, f"intake:{source_id}")`. Inget bash-, SQL-,
     filsystems- eller generellt HTTP-verktyg.
@@ -67,7 +67,7 @@ Testfallsnumren nedan syftar på tabellen i §9.
   - Obs: testfall 17 är append-only-regelns enda automatiska kontroll genom agentens yta. Det ska
     gå sönder om någon lägger till ett bekvämt verktyg.
 
-- [ ] **A8 — Sessionen**
+- [x] **A8 — Sessionen**
   - Acceptans: systemprompten enligt §6.3 (instruktionerna från
     `repositories/system_instructions.py`, bolagets egen instruktion, kontoplanen, senaste
     korrigeringarna — deterministiskt sorterade, **ingen tidsstämpel i prefixet**), användarturen
@@ -77,14 +77,14 @@ Testfallsnumren nedan syftar på tabellen i §9.
   - Filer: `services/agent_session.py`, `tests/test_agent_runtime.py`
   - Obs: ett anrop per underlag, inte en session över hela passet.
 
-- [ ] **A9 — Budget, kostnad och tak**
+- [x] **A9 — Budget, kostnad och tak**
   - Acceptans: de fyra taken i §6.5 kontrollerade **mellan** underlag och verktygsvarv, aldrig
     inuti `with db.transaction():`. `cost_ore` ur `usage` och prislistan. Vid dygnstaket: stanna,
     aldrig nedgradera modell.
   - Verifiera: testfall 8.
   - Filer: `services/agent_session.py`, `services/agent_runtime.py`, `tests/test_agent_runtime.py`
 
-- [ ] **A10 — Workern**
+- [x] **A10 — Workern**
   - Acceptans: `AgentWorker`/`AgentRunner` enligt §6.1 — bakgrundstråd startad i `lifespan`,
     avstängd som standard, **`flock` på låsfil** (inte PID-fil, av skälet i `services/dropzone.py`),
     `stop()` med `Event` och join. Passet startas manuellt (§12.3); `trigger='manual'`.
@@ -93,7 +93,7 @@ Testfallsnumren nedan syftar på tabellen i §9.
   - Filer: `services/agent_runtime.py`, `api/main.py`, `tests/test_agent_runtime.py`
   - Obs: en tom kö ska inte skriva en `agent_runs`-rad och inte göra ett API-anrop.
 
-- [ ] **A11 — `GET /api/v1/agent/status`**
+- [x] **A11 — `GET /api/v1/agent/status`**
   - Acceptans: svaret i §8, med `model` och `protocol` på pågående kör.
     `GET /agent/operations/log`-stubben tas bort. Nyckeln finns inte i svaret, varken hel eller
     maskerad.
@@ -101,7 +101,7 @@ Testfallsnumren nedan syftar på tabellen i §9.
     `operations/log` (samma kontroll som §12.3 i `idempotens`).
   - Filer: `api/routes/agent.py`, `api/schemas.py`, `tests/test_agent_runtime.py`
 
-- [ ] **A12 — Chat Completions-adaptern**
+- [x] **A12 — Chat Completions-adaptern**
   - Acceptans: `services/llm/chat.py` mot samma `LLMClient`. `finish_reason == "tool_calls"`,
     JSON-strängargument parsas med `json.loads` — aldrig strängmatchning. `capabilities` säger
     nej till cache, dokumentblock och egen vägrankod.
@@ -109,7 +109,7 @@ Testfallsnumren nedan syftar på tabellen i §9.
     ett avstående, aldrig en gissning.
   - Filer: `services/llm/chat.py`, `tests/test_agent_runtime.py`
 
-- [ ] **A13 — Agentinstruktionerna**
+- [x] **A13 — Agentinstruktionerna**
   - Acceptans: `docs/to_agent/*.md` och `/agent-instructions/entrypoint` beskriver runtimen som den
     faktiskt blev — att bok kör passet själv, att `operations/log` är ersatt av `status`, och att
     avstående är utfallet när underlaget inte går att belägga.
@@ -119,7 +119,7 @@ Testfallsnumren nedan syftar på tabellen i §9.
   - Obs: runtime-innehåll, inte dokumentation. Katalogen blir nu bokstavligen agentens systemprompt
     (§6.3) — en redigering där ändrar vad agenten *gör*.
 
-- [ ] **A14 — Regression och lint**
+- [x] **A14 — Regression och lint**
   - Acceptans: alla tretton framgångskriterier i §11 uppfyllda.
   - Verifiera: `pytest tests/ -v` och `black . && isort . && flake8 && mypy .`.
     `black`/`isort`/`flake8` ska vara **rena**; `mypy` har 61 pre-existerande fel i repot
