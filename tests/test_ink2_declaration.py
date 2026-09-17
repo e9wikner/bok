@@ -1,4 +1,4 @@
-from services.ink2_declaration import INK2DeclarationService, INK2R_SECTIONS
+from services.ink2_declaration import INK2R_SECTIONS, INK2DeclarationService
 from services.sru_export import SRUDeclaration, SRUFieldValue
 
 
@@ -33,8 +33,12 @@ def test_declaration_row_sums_sru_fields_and_filters_zero_source_accounts():
     )
 
     service = INK2DeclarationService()
-    definition = next(section for section in INK2R_SECTIONS if section.title == "Resultaträkning")
-    section = service._build_section(definition, declaration, accounting_result=0, taxable_result=0)
+    definition = next(
+        section for section in INK2R_SECTIONS if section.title == "Resultaträkning"
+    )
+    section = service._build_section(
+        definition, declaration, accounting_result=0, taxable_result=0
+    )
     row = next(row for row in section["rows"] if row["code"] == "3.15")
 
     assert row["value"] == 140

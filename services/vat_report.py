@@ -136,7 +136,11 @@ class VatReportService:
         """
 
         fiscal_year = next(
-            (fy for fy in PeriodRepository.list_fiscal_years() if fy.start_date.year == year),
+            (
+                fy
+                for fy in PeriodRepository.list_fiscal_years()
+                if fy.start_date.year == year
+            ),
             None,
         )
         if fiscal_year:
@@ -158,7 +162,11 @@ class VatReportService:
         """Calculate annual VAT declaration without saving it."""
 
         fiscal_year = next(
-            (fy for fy in PeriodRepository.list_fiscal_years() if fy.start_date.year == year),
+            (
+                fy
+                for fy in PeriodRepository.list_fiscal_years()
+                if fy.start_date.year == year
+            ),
             None,
         )
         start = fiscal_year.start_date if fiscal_year else date(year, 1, 1)
@@ -173,9 +181,11 @@ class VatReportService:
     def get_declaration(self, decl_id: str) -> Optional[VatDeclaration]:
         """Get a specific VAT declaration."""
 
-        row = get_db().execute(
-            "SELECT * FROM vat_declarations WHERE id = ?", (decl_id,)
-        ).fetchone()
+        row = (
+            get_db()
+            .execute("SELECT * FROM vat_declarations WHERE id = ?", (decl_id,))
+            .fetchone()
+        )
         return self._row_to_declaration(row) if row else None
 
     def list_declarations(self, year: Optional[int] = None) -> List[VatDeclaration]:
@@ -296,7 +306,9 @@ class VatReportService:
     def export_pdf(self, decl: VatDeclaration) -> bytes:
         """Export declaration as PDF."""
 
-        company = CompanyInfo(name=decl.company_name or "Företag", org_number=decl.org_number)
+        company = CompanyInfo(
+            name=decl.company_name or "Företag", org_number=decl.org_number
+        )
         engine = PDFEngine()
         context = {
             "company": company,
@@ -322,7 +334,8 @@ class VatReportService:
             period_year=start.year,
             period_month=period_month,
             period_quarter=period_quarter,
-            period_code=period_code or self._period_code(start.year, period_month, period_quarter),
+            period_code=period_code
+            or self._period_code(start.year, period_month, period_quarter),
             company_name=company.get("name", ""),
             org_number=company.get("org_number", ""),
             start_date=start,
@@ -402,8 +415,7 @@ class VatReportService:
         """Save VAT declaration to database."""
 
         db = get_db()
-        db.execute(
-            """CREATE TABLE IF NOT EXISTS vat_declarations (
+        db.execute("""CREATE TABLE IF NOT EXISTS vat_declarations (
                 id TEXT PRIMARY KEY,
                 period_year INTEGER NOT NULL,
                 period_month INTEGER NOT NULL,
@@ -419,8 +431,7 @@ class VatReportService:
                 vat_to_pay INTEGER DEFAULT 0,
                 status TEXT DEFAULT 'draft',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )"""
-        )
+            )""")
         db.execute(
             """INSERT OR REPLACE INTO vat_declarations
                (id, period_year, period_month, period_quarter,
@@ -462,12 +473,16 @@ class VatReportService:
             vat_in=row["vat_in"] or 0,
             vat_to_pay=row["vat_to_pay"] or 0,
             status=row["status"],
-            created_at=datetime.fromisoformat(row["created_at"])
-            if row["created_at"]
-            else datetime.now(),
-            period_code=f"{row['period_year']}{row['period_month']:02d}"
-            if row["period_month"]
-            else f"{row['period_year']} Q{row['period_quarter']}",
+            created_at=(
+                datetime.fromisoformat(row["created_at"])
+                if row["created_at"]
+                else datetime.now()
+            ),
+            period_code=(
+                f"{row['period_year']}{row['period_month']:02d}"
+                if row["period_month"]
+                else f"{row['period_year']} Q{row['period_quarter']}"
+            ),
         )
 
     def _read_company_info(self) -> Dict[str, str]:

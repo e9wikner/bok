@@ -1,0 +1,32 @@
+{
+  "id": "chatcmpl-malformed-0001",
+  "object": "chat.completion",
+  "created": 1735600003,
+  "model": "opencode/gpt-5.5",
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "tool_calls",
+      "logprobs": null,
+      "message": {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_Malformed0001",
+            "type": "function",
+            "function": {
+              "name": "posta_verifikation",
+              "arguments": "{source_id: not-valid-json,,,"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 500,
+    "completion_tokens": 30,
+    "total_tokens": 530
+  }
+}

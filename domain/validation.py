@@ -1,11 +1,13 @@
 """Business rule validation."""
 
 from typing import Optional
-from domain.models import Voucher, Period, FiscalYear
+
+from domain.models import FiscalYear, Period, Voucher
 
 
 class ValidationError(Exception):
     """Business validation error."""
+
     def __init__(self, code: str, message: str, details: Optional[str] = None):
         self.code = code
         self.message = message
@@ -25,7 +27,7 @@ class VoucherValidator:
             raise ValidationError(
                 code="balance_error",
                 message=f"Voucher rows do not balance: debit={total_debit} credit={total_credit}",
-                details="total debit must equal total credit"
+                details="total debit must equal total credit",
             )
 
     @staticmethod
@@ -35,7 +37,7 @@ class VoucherValidator:
             raise ValidationError(
                 code="insufficient_rows",
                 message="Voucher must have at least 2 rows",
-                details="minimum 2 accounting rows required"
+                details="minimum 2 accounting rows required",
             )
 
     @staticmethod
@@ -46,7 +48,7 @@ class VoucherValidator:
                 raise ValidationError(
                     code="account_not_found",
                     message=f"Account {row.account_code} does not exist",
-                    details=f"account_code={row.account_code}"
+                    details=f"account_code={row.account_code}",
                 )
 
     @staticmethod
@@ -58,7 +60,7 @@ class VoucherValidator:
                 raise ValidationError(
                     code="inactive_account",
                     message=f"Account {row.account_code} is inactive",
-                    details=f"account_code={row.account_code}"
+                    details=f"account_code={row.account_code}",
                 )
 
     @staticmethod
@@ -68,7 +70,7 @@ class VoucherValidator:
             raise ValidationError(
                 code="period_locked",
                 message=f"Period {period.id} is locked - cannot post vouchers",
-                details="period is immutable after locking"
+                details="period is immutable after locking",
             )
 
         if not (period.start_date <= voucher.date <= period.end_date):
@@ -78,14 +80,14 @@ class VoucherValidator:
                     f"Voucher date {voucher.date.isoformat()} is outside period "
                     f"{period.start_date.isoformat()} - {period.end_date.isoformat()}"
                 ),
-                details=f"period_id={period.id}"
+                details=f"period_id={period.id}",
             )
 
         if voucher.posted_at is not None:
             raise ValidationError(
                 code="already_posted",
                 message="Voucher is already posted (immutable)",
-                details="voucher.status is already 'posted'"
+                details="voucher.status is already 'posted'",
             )
 
     @staticmethod
@@ -95,7 +97,7 @@ class VoucherValidator:
             raise ValidationError(
                 code="immutable_voucher",
                 message="Cannot edit posted voucher - must create correction voucher",
-                details="voucher.status is 'posted' - use correction voucher (B-series)"
+                details="voucher.status is 'posted' - use correction voucher (B-series)",
             )
 
     @staticmethod
@@ -105,7 +107,7 @@ class VoucherValidator:
             raise ValidationError(
                 code="no_rows",
                 message="Voucher has no accounting rows",
-                details="add at least 2 rows before posting"
+                details="add at least 2 rows before posting",
             )
 
 
@@ -119,7 +121,7 @@ class PeriodValidator:
             raise ValidationError(
                 code="already_locked",
                 message="Period is already locked",
-                details="period cannot be locked twice"
+                details="period cannot be locked twice",
             )
 
     @staticmethod
@@ -129,7 +131,7 @@ class PeriodValidator:
             raise ValidationError(
                 code="period_locked",
                 message="Period is locked - cannot add vouchers",
-                details="period is immutable after locking"
+                details="period is immutable after locking",
             )
 
 
@@ -143,7 +145,7 @@ class FiscalYearValidator:
             raise ValidationError(
                 code="already_locked",
                 message="Fiscal year is already locked",
-                details="fiscal_year cannot be locked twice"
+                details="fiscal_year cannot be locked twice",
             )
 
 

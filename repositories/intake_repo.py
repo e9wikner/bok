@@ -1,9 +1,9 @@
 """Repository for intake source material and voucher traceability."""
 
-from datetime import datetime
 import json
-from typing import Optional, List
 import uuid
+from datetime import datetime
+from typing import List, Optional
 
 from db.database import db
 from domain.models import IntakeProcessingAttempt, IntakeSource, VoucherIntakeSource

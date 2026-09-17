@@ -1,0 +1,15 @@
+# Verktygskonfiguration. Enda syftet är att `black`, `isort` och `mypy` ska
+# betyda samma sak lokalt som i .github/workflows/tests.yml — CI skickar i dag
+# flaggorna på kommandoraden, så ett naket `black .` gav ett annat svar än
+# jobbet. flake8 läser inte den här filen; dess inställningar ligger i `.flake8`.
+
+[tool.black]
+extend-exclude = "/(venv|frontend-v3/node_modules)/"
+
+[tool.isort]
+profile = "black"
+skip_glob = ["venv/*", "frontend-v3/node_modules/*"]
+
+[tool.mypy]
+ignore_missing_imports = true
+exclude = "^(venv|frontend-v3)/"

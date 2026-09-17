@@ -1,10 +1,10 @@
 """Tests for bank integration, categorization, and compliance services."""
 
-import pytest
-import tempfile
 import os
+import tempfile
 import uuid
-from datetime import date, datetime
+
+import pytest
 
 from db.database import db
 from services.bank_integration import BankIntegrationService
@@ -17,20 +17,20 @@ def setup_db():
     """Set up a fresh test database for each test."""
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
-    
+
     # Patch global db
     old_path = db.db_path
     db.db_path = path
     # Reset thread-local connection
-    db._local = __import__('threading').local()
-    
+    db._local = __import__("threading").local()
+
     db.init_db()
-    
+
     yield db
-    
+
     db.disconnect()
     db.db_path = old_path
-    db._local = __import__('threading').local()
+    db._local = __import__("threading").local()
     if os.path.exists(path):
         os.remove(path)
 
@@ -54,27 +54,39 @@ class TestBankIntegration:
         service = BankIntegrationService()
         service.create_connection(provider="manual", bank_name="SEB")
         service.create_connection(provider="manual", bank_name="Nordea")
-        
+
         connections = service.get_connections()
         assert len(connections) == 2
 
     def test_import_transactions(self):
         service = BankIntegrationService()
         conn = service.create_connection(provider="manual", bank_name="SEB")
-        
+
         transactions = [
-            {"date": "2026-01-15", "amount": -500.0, "description": "TELIA MOBILRÄKNING",
-             "external_id": "tx-001"},
-            {"date": "2026-01-16", "amount": 10000.0, "description": "Swish betalning från kund",
-             "external_id": "tx-002"},
-            {"date": "2026-01-17", "amount": -2500.0, "description": "Hyra lokal januari",
-             "external_id": "tx-003"},
+            {
+                "date": "2026-01-15",
+                "amount": -500.0,
+                "description": "TELIA MOBILRÄKNING",
+                "external_id": "tx-001",
+            },
+            {
+                "date": "2026-01-16",
+                "amount": 10000.0,
+                "description": "Swish betalning från kund",
+                "external_id": "tx-002",
+            },
+            {
+                "date": "2026-01-17",
+                "amount": -2500.0,
+                "description": "Hyra lokal januari",
+                "external_id": "tx-003",
+            },
         ]
-        
+
         imported, skipped = service.import_transactions(conn.id, transactions)
         assert imported == 3
         assert skipped == 0
-        
+
         # Test deduplication
         imported2, skipped2 = service.import_transactions(conn.id, transactions)
         assert imported2 == 0
@@ -83,47 +95,56 @@ class TestBankIntegration:
     def test_get_transactions(self):
         service = BankIntegrationService()
         conn = service.create_connection(provider="manual", bank_name="Handelsbanken")
-        
-        service.import_transactions(conn.id, [
-            {"date": "2026-02-01", "amount": -100.0, "description": "Test expense"},
-            {"date": "2026-02-02", "amount": 200.0, "description": "Test income"},
-        ])
-        
+
+        service.import_transactions(
+            conn.id,
+            [
+                {"date": "2026-02-01", "amount": -100.0, "description": "Test expense"},
+                {"date": "2026-02-02", "amount": 200.0, "description": "Test income"},
+            ],
+        )
+
         all_tx = service.get_transactions()
         assert len(all_tx) == 2
-        
+
         pending = service.get_transactions(status="pending")
         assert len(pending) == 2
 
     def test_csv_import(self):
         service = BankIntegrationService()
         conn = service.create_connection(provider="manual", bank_name="Swedbank")
-        
+
         csv_content = """Datum;Belopp;Text;Mottagare
 2026-01-10;-350,50;Circle K bensin;Circle K
 2026-01-11;5000,00;Swish från kund;Johan AB
 2026-01-12;-1200,00;Telia faktura;Telia"""
-        
+
         result = service.import_csv(conn.id, csv_content)
         assert result.imported_count == 3
 
     def test_pending_count(self):
         service = BankIntegrationService()
         conn = service.create_connection(provider="manual", bank_name="Test")
-        
-        service.import_transactions(conn.id, [
-            {"date": "2026-01-01", "amount": -100.0, "description": "Test"},
-        ])
-        
+
+        service.import_transactions(
+            conn.id,
+            [
+                {"date": "2026-01-01", "amount": -100.0, "description": "Test"},
+            ],
+        )
+
         assert service.get_pending_count() == 1
 
     def test_sync_summary(self):
         service = BankIntegrationService()
         conn = service.create_connection(provider="manual", bank_name="Test")
-        service.import_transactions(conn.id, [
-            {"date": "2026-01-01", "amount": -100.0, "description": "Test"},
-        ])
-        
+        service.import_transactions(
+            conn.id,
+            [
+                {"date": "2026-01-01", "amount": -100.0, "description": "Test"},
+            ],
+        )
+
         summary = service.get_sync_summary()
         assert summary["total_pending"] == 1
         assert len(summary["connections"]) == 1
@@ -136,13 +157,18 @@ class TestCategorization:
         """Helper to create a transaction and return it."""
         bank = BankIntegrationService()
         conn = bank.create_connection(provider="manual", bank_name="Test")
-        bank.import_transactions(conn.id, [{
-            "date": "2026-01-15",
-            "amount": amount,
-            "description": description,
-            "counterpart_name": counterpart,
-            "external_id": str(uuid.uuid4()),
-        }])
+        bank.import_transactions(
+            conn.id,
+            [
+                {
+                    "date": "2026-01-15",
+                    "amount": amount,
+                    "description": description,
+                    "counterpart_name": counterpart,
+                    "external_id": str(uuid.uuid4()),
+                }
+            ],
+        )
         return bank.get_transactions(status="pending")[0]
 
     def test_categorize_telecom(self):
@@ -205,14 +231,37 @@ class TestCategorization:
         bank = BankIntegrationService()
         cat = CategorizationService()
         conn = bank.create_connection(provider="manual", bank_name="Test")
-        
-        bank.import_transactions(conn.id, [
-            {"date": "2026-01-01", "amount": -500.0, "description": "Telia telefon", "external_id": "b1"},
-            {"date": "2026-01-02", "amount": -15000.0, "description": "Hyra lokal", "external_id": "b2"},
-            {"date": "2026-01-03", "amount": 8000.0, "description": "Swish betalning", "external_id": "b3"},
-            {"date": "2026-01-04", "amount": -300.0, "description": "Random obscure text", "external_id": "b4"},
-        ])
-        
+
+        bank.import_transactions(
+            conn.id,
+            [
+                {
+                    "date": "2026-01-01",
+                    "amount": -500.0,
+                    "description": "Telia telefon",
+                    "external_id": "b1",
+                },
+                {
+                    "date": "2026-01-02",
+                    "amount": -15000.0,
+                    "description": "Hyra lokal",
+                    "external_id": "b2",
+                },
+                {
+                    "date": "2026-01-03",
+                    "amount": 8000.0,
+                    "description": "Swish betalning",
+                    "external_id": "b3",
+                },
+                {
+                    "date": "2026-01-04",
+                    "amount": -300.0,
+                    "description": "Random obscure text",
+                    "external_id": "b4",
+                },
+            ],
+        )
+
         results = cat.categorize_pending()
         assert results["total"] == 4
         assert results["categorized"] >= 3
@@ -228,7 +277,7 @@ class TestCategorization:
             priority=10,
         )
         assert rule_id is not None
-        
+
         rules = cat.get_rules()
         custom = [r for r in rules if r.id == rule_id]
         assert len(custom) == 1
@@ -256,65 +305,65 @@ class TestCompliance:
 
     def test_acknowledge_and_resolve(self):
         service = ComplianceService()
-        
+
         issue_id = str(uuid.uuid4())
         db.execute(
-            """INSERT INTO compliance_checks 
+            """INSERT INTO compliance_checks
                (id, check_type, severity, status, title, description)
                VALUES (?, 'test', 'warning', 'open', 'Test issue', 'Test description')""",
-            (issue_id,)
+            (issue_id,),
         )
         db.commit()
-        
+
         service.acknowledge_issue(issue_id)
         issues = service.get_open_issues()
         assert not any(i.id == issue_id for i in issues)
 
     def test_resolve_issue(self):
         service = ComplianceService()
-        
+
         issue_id = str(uuid.uuid4())
         db.execute(
-            """INSERT INTO compliance_checks 
+            """INSERT INTO compliance_checks
                (id, check_type, severity, status, title, description)
                VALUES (?, 'test2', 'error', 'open', 'Test 2', 'Desc 2')""",
-            (issue_id,)
+            (issue_id,),
         )
         db.commit()
-        
+
         service.resolve_issue(issue_id, resolved_by="test")
         issues = service.get_open_issues()
         assert not any(i.id == issue_id for i in issues)
 
     def test_false_positive(self):
         service = ComplianceService()
-        
+
         issue_id = str(uuid.uuid4())
         db.execute(
-            """INSERT INTO compliance_checks 
+            """INSERT INTO compliance_checks
                (id, check_type, severity, status, title, description)
                VALUES (?, 'test3', 'info', 'open', 'FP test', 'FP desc')""",
-            (issue_id,)
+            (issue_id,),
         )
         db.commit()
-        
+
         service.mark_false_positive(issue_id)
         issues = service.get_open_issues()
         assert not any(i.id == issue_id for i in issues)
 
     def test_severity_filter(self):
         service = ComplianceService()
-        
+
         for sev in ["critical", "error", "warning"]:
             issue_id = str(uuid.uuid4())
             db.execute(
-                """INSERT INTO compliance_checks 
+                """INSERT INTO compliance_checks
                    (id, check_type, severity, status, title, description)
                    VALUES (?, ?, ?, 'open', ?, 'Test')""",
-                (issue_id, f"test_{sev}", sev, f"Test {sev}")
+                (issue_id, f"test_{sev}", sev, f"Test {sev}"),
             )
         db.commit()
-        
+
         critical = service.get_open_issues(severity="critical")
         assert len(critical) == 1
         assert critical[0].severity == "critical"

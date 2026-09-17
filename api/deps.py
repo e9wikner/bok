@@ -1,10 +1,16 @@
 """Dependency injection for FastAPI."""
 
-from fastapi import Depends, Header, HTTPException, status
+import logging
+import uuid
 from typing import Optional
+
+from fastapi import Depends, Header, HTTPException, status
+
 from config import settings
 from services.auth import AuthService
 from services.ledger import LedgerService
+
+logger = logging.getLogger(__name__)
 
 
 async def verify_api_key(authorization: Optional[str] = Header(None)) -> str:
@@ -53,3 +59,30 @@ async def get_ledger_service() -> LedgerService:
 async def get_current_actor(api_key: str = Depends(verify_api_key)) -> str:
     """Get current actor (user) from API key."""
     return "api"
+
+
+async def get_idempotency_key(
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+) -> Optional[str]:
+    """Read the optional Idempotency-Key header.
+
+    Transition rule (c) in SPEC-idempotens §8: the header is optional for now.
+    A call without one runs the old way and is logged, so the gap is visible
+    before the key becomes mandatory.
+    """
+    if idempotency_key is None:
+        logger.info("idempotency_key_missing")
+        return None
+
+    try:
+        uuid.UUID(idempotency_key)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "Idempotency-Key must be a UUID",
+                "code": "invalid_idempotency_key",
+                "details": f"received={idempotency_key}",
+            },
+        )
+    return idempotency_key

@@ -131,7 +131,9 @@ def _bank_input_to_dict(bank_input: BankInput) -> dict:
         "imported_count": bank_input.imported_count,
         "skipped_count": bank_input.skipped_count,
         "parse_error": bank_input.parse_error,
-        "processed_at": bank_input.processed_at.isoformat() if bank_input.processed_at else None,
+        "processed_at": (
+            bank_input.processed_at.isoformat() if bank_input.processed_at else None
+        ),
     }
 
 
@@ -175,9 +177,13 @@ def _connection_display_name(conn) -> str:
     return conn.bank_name
 
 
-def _merge_manual_account_options(connections: list[BankConnection]) -> list[BankConnection]:
+def _merge_manual_account_options(
+    connections: list[BankConnection],
+) -> list[BankConnection]:
     """Add chart-of-accounts options without duplicating live connections."""
-    seen_account_numbers = {conn.account_number for conn in connections if conn.account_number}
+    seen_account_numbers = {
+        conn.account_number for conn in connections if conn.account_number
+    }
     connections.extend(
         manual_connection
         for manual_connection in _manual_account_connections()

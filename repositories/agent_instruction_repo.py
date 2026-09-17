@@ -1,11 +1,10 @@
 """Repository for versioned agent instruction documents."""
 
+import uuid
 from datetime import datetime
 from typing import Dict, List, Optional
-import uuid
 
 from db.database import db
-
 
 DEFAULT_ACCOUNTING_INSTRUCTIONS = """# Bokföringsinstruktioner
 

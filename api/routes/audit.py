@@ -1,10 +1,10 @@
 """Audit log API routes."""
 
-from fastapi import APIRouter, Query
 from typing import Optional
 
+from fastapi import APIRouter, Query
+
 from repositories.audit_repo import AuditRepository
-from domain.types import AuditAction
 
 router = APIRouter(prefix="/api/v1/audit", tags=["audit"])
 

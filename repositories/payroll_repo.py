@@ -1,8 +1,8 @@
 """Payroll repositories."""
 
+import uuid
 from datetime import date, datetime
 from typing import List, Optional
-import uuid
 
 from db.database import db
 from domain.payroll_models import Employee, EmployeeSalarySetting, PayrollRun, Payslip
@@ -33,15 +33,21 @@ class EmployeeRepository:
             (employee_id, name, personal_number, email, bank_account, now, now),
         )
         db.commit()
-        return Employee(employee_id, name, personal_number, email, bank_account, True, now, now)
+        return Employee(
+            employee_id, name, personal_number, email, bank_account, True, now, now
+        )
 
     @staticmethod
     def get(employee_id: str) -> Optional[Employee]:
-        row = db.execute("SELECT * FROM employees WHERE id = ?", (employee_id,)).fetchone()
+        row = db.execute(
+            "SELECT * FROM employees WHERE id = ?", (employee_id,)
+        ).fetchone()
         return EmployeeRepository._row_to_employee(row) if row else None
 
     @staticmethod
-    def list_all(active_only: bool = False, search: Optional[str] = None) -> List[Employee]:
+    def list_all(
+        active_only: bool = False, search: Optional[str] = None
+    ) -> List[Employee]:
         sql = "SELECT * FROM employees WHERE 1=1"
         params = []
         if active_only:
@@ -69,7 +75,15 @@ class EmployeeRepository:
             """UPDATE employees
                SET name = ?, personal_number = ?, email = ?, bank_account = ?, active = ?, updated_at = ?
                WHERE id = ?""",
-            (name, personal_number, email, bank_account, int(active), datetime.now(), employee_id),
+            (
+                name,
+                personal_number,
+                email,
+                bank_account,
+                int(active),
+                datetime.now(),
+                employee_id,
+            ),
         )
         db.commit()
         return EmployeeRepository.get(employee_id)
@@ -150,12 +164,10 @@ class SalarySettingRepository:
 
     @staticmethod
     def list_active() -> List[EmployeeSalarySetting]:
-        rows = db.execute(
-            """SELECT s.* FROM employee_salary_settings s
+        rows = db.execute("""SELECT s.* FROM employee_salary_settings s
                JOIN employees e ON e.id = s.employee_id
                WHERE s.active = 1 AND e.active = 1
-               ORDER BY e.name"""
-        ).fetchall()
+               ORDER BY e.name""").fetchall()
         return [SalarySettingRepository._row_to_setting(row) for row in rows]
 
     @staticmethod
@@ -176,7 +188,9 @@ class SalarySettingRepository:
 
 class PayrollRunRepository:
     @staticmethod
-    def create(year: int, month: int, payment_date: date, created_by: str = "system") -> PayrollRun:
+    def create(
+        year: int, month: int, payment_date: date, created_by: str = "system"
+    ) -> PayrollRun:
         run_id = str(uuid.uuid4())
         now = datetime.now()
         db.execute(
@@ -189,7 +203,9 @@ class PayrollRunRepository:
 
     @staticmethod
     def get(run_id: str) -> Optional[PayrollRun]:
-        row = db.execute("SELECT * FROM payroll_runs WHERE id = ?", (run_id,)).fetchone()
+        row = db.execute(
+            "SELECT * FROM payroll_runs WHERE id = ?", (run_id,)
+        ).fetchone()
         return PayrollRunRepository._row_to_run(row) if row else None
 
     @staticmethod
@@ -223,7 +239,9 @@ class PayrollRunRepository:
                 (status, generated_at, run_id),
             )
         else:
-            db.execute("UPDATE payroll_runs SET status = ? WHERE id = ?", (status, run_id))
+            db.execute(
+                "UPDATE payroll_runs SET status = ? WHERE id = ?", (status, run_id)
+            )
         db.commit()
 
     @staticmethod
@@ -236,7 +254,11 @@ class PayrollRunRepository:
             status=row["status"],
             created_at=_dt(row["created_at"]),
             created_by=row["created_by"],
-            generated_at=datetime.fromisoformat(row["generated_at"]) if row["generated_at"] else None,
+            generated_at=(
+                datetime.fromisoformat(row["generated_at"])
+                if row["generated_at"]
+                else None
+            ),
         )
 
 
@@ -282,7 +304,9 @@ class PayslipRepository:
 
     @staticmethod
     def get(payslip_id: str) -> Optional[Payslip]:
-        row = db.execute("SELECT * FROM payslips WHERE id = ?", (payslip_id,)).fetchone()
+        row = db.execute(
+            "SELECT * FROM payslips WHERE id = ?", (payslip_id,)
+        ).fetchone()
         return PayslipRepository._row_to_payslip(row) if row else None
 
     @staticmethod
@@ -310,7 +334,9 @@ class PayslipRepository:
         return PayslipRepository.get(payslip_id)
 
     @staticmethod
-    def link_booking(payslip_id: str, bank_transaction_id: str, voucher_id: str) -> Optional[Payslip]:
+    def link_booking(
+        payslip_id: str, bank_transaction_id: str, voucher_id: str
+    ) -> Optional[Payslip]:
         db.execute(
             "UPDATE payslips SET status = 'booked', bank_transaction_id = ?, voucher_id = ? WHERE id = ?",
             (bank_transaction_id, voucher_id, payslip_id),
@@ -334,7 +360,11 @@ class PayslipRepository:
             net_salary=row["net_salary"],
             total_employer_cost=row["total_employer_cost"],
             status=row["status"],
-            pdf_sent_at=datetime.fromisoformat(row["pdf_sent_at"]) if row["pdf_sent_at"] else None,
+            pdf_sent_at=(
+                datetime.fromisoformat(row["pdf_sent_at"])
+                if row["pdf_sent_at"]
+                else None
+            ),
             bank_transaction_id=row["bank_transaction_id"],
             voucher_id=row["voucher_id"],
             created_at=_dt(row["created_at"]),

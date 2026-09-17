@@ -1,9 +1,9 @@
 """Repository for accounting correction history."""
 
-from datetime import datetime
 import json
-from typing import Optional, List
 import uuid
+from datetime import datetime
+from typing import List, Optional
 
 from db.database import db
 from domain.models import CorrectionHistory
@@ -115,9 +115,11 @@ class AccountingCorrectionRepository:
             original_data=original_data,
             corrected_data=corrected_data,
             change_type=row["change_type"],
-            was_successful=bool(row["was_successful"])
-            if row["was_successful"] is not None
-            else None,
+            was_successful=(
+                bool(row["was_successful"])
+                if row["was_successful"] is not None
+                else None
+            ),
             corrected_by=row["corrected_by"],
             correction_reason=row["correction_reason"],
             created_at=datetime.fromisoformat(row["created_at"]),

@@ -1,0 +1,33 @@
+{
+  "id": "msg_01CacheHitExample0000000001",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-opus-5",
+  "content": [
+    {
+      "type": "text",
+      "text": "Jag bokför även detta underlag mot 1510/3011/2610."
+    },
+    {
+      "type": "tool_use",
+      "id": "toolu_01PostaVerifikation0002",
+      "name": "posta_verifikation",
+      "input": {
+        "source_id": "src-124",
+        "rader": [
+          {"konto": "1510", "debet": 500, "kredit": 0},
+          {"konto": "3011", "debet": 0, "kredit": 400},
+          {"konto": "2610", "debet": 0, "kredit": 100}
+        ]
+      }
+    }
+  ],
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 120,
+    "output_tokens": 180,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 8400
+  }
+}

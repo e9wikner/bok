@@ -1,11 +1,12 @@
 """API routes for VAT (moms) declarations."""
 
 from typing import Optional
+
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 
-from services.vat_report import VatReportService
 from domain.validation import ValidationError
+from services.vat_report import VatReportService
 
 router = APIRouter(prefix="/api/v1/vat", tags=["vat"])
 
@@ -18,10 +19,10 @@ async def generate_monthly_declaration(
     month: int = Query(..., ge=1, le=12, description="Month (1-12)"),
 ):
     """Generate a monthly VAT declaration (momsdeklaration).
-    
+
     Collects all VAT-related transactions from posted vouchers for the
     given period and calculates the SKV 4700 form values.
-    
+
     Returns:
     - Sales by VAT rate (25%, 12%, 6%, exempt)
     - Output VAT (utgående moms)

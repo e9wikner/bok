@@ -18,7 +18,9 @@ class AuthService:
             "sub": username,
             "exp": expire,
         }
-        return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+        return jwt.encode(
+            payload, settings.jwt_secret, algorithm=settings.jwt_algorithm
+        )
 
     def verify_jwt(self, token: str) -> dict:
         """Decode and validate a JWT. Raises HTTP 401 on any error."""

@@ -9,12 +9,12 @@ Stödjer alla obligatoriska sektioner: #FLAGGA, #FORMAT, #GEN, #PROGRAM,
 Filen kodas i Windows-1252 med \\r\\n radbrytningar (SIE4-standard).
 """
 
-from datetime import datetime
-from typing import List, Dict, Optional, Tuple
 from collections import defaultdict
+from datetime import datetime
+from typing import Dict, List, Optional, Tuple
 
 from db.database import db
-from domain.models import Account, Voucher, FiscalYear, Period
+from domain.models import Account, FiscalYear, Period, Voucher
 from domain.types import AccountType, VoucherSeries
 
 
@@ -51,7 +51,7 @@ class SIE4ExportData:
 
 class SIE4Exporter:
     """Exporterar bokföringsdata till SIE4-format.
-    
+
     Användning:
         exporter = SIE4Exporter()
         content = exporter.export(fiscal_year_id="...")
@@ -73,16 +73,16 @@ class SIE4Exporter:
         format_type: str = "PC8",
     ) -> bytes:
         """Exportera ett räkenskapsår till SIE4-format.
-        
+
         Args:
             fiscal_year_id: ID för räkenskapsåret att exportera
             company_name: Företagsnamn (om None, hämtas från settings/db)
             org_number: Organisationsnummer (om None, hämtas från settings/db)
             format_type: "PC8" (Windows-1252) eller "ASCII"
-            
+
         Returns:
             bytes: SIE4-filinnehåll kodat i Windows-1252
-            
+
         Raises:
             ValueError: Om räkenskapsåret inte hittas
         """
@@ -146,9 +146,7 @@ class SIE4Exporter:
         data.vouchers = self._get_vouchers_for_fiscal_year(fiscal_year_id)
 
         # Årets IB-verifikation (utkast eller postad) — filens #IB-rader
-        data.opening_balance_voucher = self._get_opening_balance_voucher(
-            fiscal_year_id
-        )
+        data.opening_balance_voucher = self._get_opening_balance_voucher(fiscal_year_id)
 
         # Beräkna saldon
         self._calculate_balances(data)
@@ -158,12 +156,14 @@ class SIE4Exporter:
     def _get_fiscal_year(self, fiscal_year_id: str) -> Optional[FiscalYear]:
         """Hämta räkenskapsår från databasen."""
         from repositories.period_repo import PeriodRepository
+
         return PeriodRepository.get_fiscal_year(fiscal_year_id)
 
     def _get_previous_fiscal_year(self, current_fy: FiscalYear) -> Optional[FiscalYear]:
         """Hämta närmast föregående räkenskapsår (det med senast slutdatum
         före innevarande års start)."""
         from repositories.period_repo import PeriodRepository
+
         fiscal_years = PeriodRepository.list_fiscal_years()
         prior = [fy for fy in fiscal_years if fy.end_date < current_fy.start_date]
         if not prior:
@@ -199,21 +199,23 @@ class SIE4Exporter:
     def _get_accounts(self) -> List[Account]:
         """Hämta alla aktiva konton."""
         from repositories.account_repo import AccountRepository
+
         return AccountRepository.list_all(active_only=False)
 
     def _get_periods(self, fiscal_year_id: str) -> List[Period]:
         """Hämta perioder för räkenskapsåret."""
         from repositories.period_repo import PeriodRepository
+
         return PeriodRepository.list_periods(fiscal_year_id)
 
     def _get_vouchers_for_fiscal_year(self, fiscal_year_id: str) -> List[Voucher]:
         """Hämta alla bokförda verifikationer för ett räkenskapsår.
-        
+
         Hämtar verifikationer via perioder kopplade till räkenskapsåret.
         Batch-hämtar för prestanda.
         """
-        from repositories.voucher_repo import VoucherRepository
         from repositories.period_repo import PeriodRepository
+        from repositories.voucher_repo import VoucherRepository
 
         periods = PeriodRepository.list_periods(fiscal_year_id)
         vouchers = []
@@ -227,9 +229,7 @@ class SIE4Exporter:
         vouchers.sort(key=lambda v: (v.date, v.series.value, v.number))
         return vouchers
 
-    def _get_opening_balance_voucher(
-        self, fiscal_year_id: str
-    ) -> Optional[Voucher]:
+    def _get_opening_balance_voucher(self, fiscal_year_id: str) -> Optional[Voucher]:
         """Hämta räkenskapsårets IB-verifikation (serie "IB"), oavsett status.
 
         SIE4-importen skapar den ur filens #IB-rader men lämnar den som utkast
@@ -277,7 +277,7 @@ class SIE4Exporter:
 
     def _calculate_balances(self, data: SIE4ExportData) -> None:
         """Beräkna IB, UB, RES och PSALDO.
-        
+
         Affärsregler:
         - IB (Ingående Balans): årets IB-verifikation, annars föregående års
           utgående ställning, annars 0 — bara balanskonton (klass 1-2)
@@ -315,10 +315,9 @@ class SIE4Exporter:
         # IB: årets egen IB-verifikation, annars föregående års slutställning.
         if data.opening_balance_voucher is not None:
             for row in data.opening_balance_voucher.rows:
-                data.opening_balances[row.account_code] = (
-                    data.opening_balances.get(row.account_code, 0)
-                    + (row.debit - row.credit)
-                )
+                data.opening_balances[row.account_code] = data.opening_balances.get(
+                    row.account_code, 0
+                ) + (row.debit - row.credit)
         elif data.previous_fiscal_year:
             for code, balance in self._closing_position(
                 data.previous_fiscal_year.id, data.accounts
@@ -360,7 +359,7 @@ class SIE4Exporter:
         for period in sorted_periods:
             period_key = (period.year, period.month)
             movements = period_movements.get(period_key, {})
-            
+
             # Uppdatera ackumulerat saldo
             for code, mov in movements.items():
                 accumulated[code] = accumulated.get(code, 0) + mov
@@ -380,9 +379,7 @@ class SIE4Exporter:
             if period_data:
                 data.period_balances[period_key] = period_data
 
-    def _find_account(
-        self, accounts: List[Account], code: str
-    ) -> Optional[Account]:
+    def _find_account(self, accounts: List[Account], code: str) -> Optional[Account]:
         """Hitta konto i listan."""
         for acc in accounts:
             if acc.code == code:
@@ -391,7 +388,7 @@ class SIE4Exporter:
 
     def _is_balance_account(self, account: Account) -> bool:
         """Kontrollera om kontot är ett balanskonto (klass 1-2).
-        
+
         Balansposter: Tillgångar (1xxx), Skulder (2xxx), Eget kapital (2xxx)
         Resultatposter: Intäkter (3xxx), Kostnader (4xxx-8xxx)
         """
@@ -409,7 +406,7 @@ class SIE4Exporter:
 
     def _generate_content(self, data: SIE4ExportData, format_type: str) -> str:
         """Generera SIE4-filinnehåll som textsträng.
-        
+
         Sektionsordning enligt SIE4-specifikationen:
         1. Flagga och format
         2. Program och generering
@@ -431,12 +428,8 @@ class SIE4Exporter:
 
         # Generering
         gen_date = datetime.now().strftime("%Y%m%d")
-        lines.append(
-            f'#GEN {gen_date} "{self.PROGRAM_NAME}" "{self.PROGRAM_VERSION}"'
-        )
-        lines.append(
-            f'#PROGRAM "{self.PROGRAM_NAME}" "{self.PROGRAM_VERSION}"'
-        )
+        lines.append(f'#GEN {gen_date} "{self.PROGRAM_NAME}" "{self.PROGRAM_VERSION}"')
+        lines.append(f'#PROGRAM "{self.PROGRAM_NAME}" "{self.PROGRAM_VERSION}"')
         lines.append("#SIETYP 4")
 
         # Företagsinformation
@@ -495,32 +488,26 @@ class SIE4Exporter:
             lines.append("")
             for code in sorted(data.opening_balances.keys()):
                 balance = data.opening_balances[code]
-                lines.append(
-                    f"#IB 0 {code} {self._format_amount(balance)}"
-                )
+                lines.append(f"#IB 0 {code} {self._format_amount(balance)}")
 
         # Utgående balanser (UB) - årsnr 0 = aktuellt år
         if data.closing_balances:
             lines.append("")
             for code in sorted(data.closing_balances.keys()):
                 balance = data.closing_balances[code]
-                lines.append(
-                    f"#UB 0 {code} {self._format_amount(balance)}"
-                )
+                lines.append(f"#UB 0 {code} {self._format_amount(balance)}")
 
         # Resultat (RES) - årsnr 0 = aktuellt år
         if data.result_balances:
             lines.append("")
             for code in sorted(data.result_balances.keys()):
                 balance = data.result_balances[code]
-                lines.append(
-                    f"#RES 0 {code} {self._format_amount(balance)}"
-                )
+                lines.append(f"#RES 0 {code} {self._format_amount(balance)}")
 
         # Periodsaldon (PSALDO)
         if data.period_balances:
             lines.append("")
-            for (year, month) in sorted(data.period_balances.keys()):
+            for year, month in sorted(data.period_balances.keys()):
                 period_str = f"{year}{month:02d}"
                 for code in sorted(data.period_balances[(year, month)].keys()):
                     balance = data.period_balances[(year, month)][code]
@@ -530,9 +517,7 @@ class SIE4Exporter:
 
         # Verifikationer (IB-verifikationen skrivs inte ut som #VER — den
         # ingående ställningen ligger redan i #IB-raderna ovan).
-        ver_vouchers = [
-            v for v in data.vouchers if v.series != VoucherSeries.IB
-        ]
+        ver_vouchers = [v for v in data.vouchers if v.series != VoucherSeries.IB]
         if ver_vouchers:
             lines.append("")
             for voucher in ver_vouchers:
@@ -560,7 +545,7 @@ class SIE4Exporter:
 
     def _format_amount(self, amount_ore: int) -> str:
         """Formatera belopp i öre till SIE4-format (kronor med decimaler).
-        
+
         Exempel: 12500 öre → "125.00", -50000 öre → "-500.00"
         """
         kr = amount_ore / 100
@@ -571,23 +556,23 @@ class SIE4Exporter:
 
     def _escape(self, text: str) -> str:
         """Escapea text för SIE4-format.
-        
+
         Dubbla citattecken inuti strängar ersätts med dubbla citattecken.
         """
         if not text:
             return ""
         return text.replace('"', '""')
 
-    def get_filename(
-        self, company_name: str, fiscal_year: FiscalYear
-    ) -> str:
+    def get_filename(self, company_name: str, fiscal_year: FiscalYear) -> str:
         """Generera filnamn för SIE4-filen.
-        
+
         Format: Företagsnamn_ÅÅÅÅ.si
         """
         # Rensa företagsnamn för filnamn (ASCII only)
         safe_name = "".join(
-            c for c in company_name if (c.isascii() and c.isalnum()) or c in (" ", "-", "_")
+            c
+            for c in company_name
+            if (c.isascii() and c.isalnum()) or c in (" ", "-", "_")
         ).strip()
         safe_name = safe_name.replace(" ", "_")
         year = fiscal_year.start_date.year

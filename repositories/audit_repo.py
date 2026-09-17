@@ -1,9 +1,10 @@
 """Audit repository - data access for audit logs."""
 
-from typing import List, Optional
-from datetime import datetime
-import uuid
 import json
+import uuid
+from datetime import datetime
+from typing import List, Optional
+
 from db.database import db
 from domain.models import AuditLogEntry
 from domain.types import AuditAction
@@ -11,7 +12,7 @@ from domain.types import AuditAction
 
 class AuditRepository:
     """Manage audit logs (Behandlingshistorik)."""
-    
+
     @staticmethod
     def log(
         entity_type: str,
@@ -29,11 +30,13 @@ class AuditRepository:
         """
         now = datetime.now()
         payload_json = json.dumps(payload) if payload else None
-        
-        db.execute(sql, (log_id, entity_type, entity_id, action, actor, payload_json, now))
+
+        db.execute(
+            sql, (log_id, entity_type, entity_id, action, actor, payload_json, now)
+        )
         if _commit:
             db.commit()
-        
+
         return AuditLogEntry(
             id=log_id,
             entity_type=entity_type,
@@ -41,9 +44,9 @@ class AuditRepository:
             action=AuditAction(action),
             actor=actor,
             payload=payload,
-            timestamp=now
+            timestamp=now,
         )
-    
+
     @staticmethod
     def get_history(entity_type: str, entity_id: str) -> List[AuditLogEntry]:
         """Get audit history for an entity."""
@@ -54,24 +57,26 @@ class AuditRepository:
         """
         cursor = db.execute(sql, (entity_type, entity_id))
         entries = []
-        
+
         for row in cursor.fetchall():
             payload = None
             if row["payload"]:
                 payload = json.loads(row["payload"])
-            
-            entries.append(AuditLogEntry(
-                id=row["id"],
-                entity_type=row["entity_type"],
-                entity_id=row["entity_id"],
-                action=AuditAction(row["action"]),
-                actor=row["actor"],
-                payload=payload,
-                timestamp=datetime.fromisoformat(row["timestamp"])
-            ))
-        
+
+            entries.append(
+                AuditLogEntry(
+                    id=row["id"],
+                    entity_type=row["entity_type"],
+                    entity_id=row["entity_id"],
+                    action=AuditAction(row["action"]),
+                    actor=row["actor"],
+                    payload=payload,
+                    timestamp=datetime.fromisoformat(row["timestamp"]),
+                )
+            )
+
         return entries
-    
+
     @staticmethod
     def list_recent(limit: int = 100) -> List[AuditLogEntry]:
         """Get recent audit log entries."""
@@ -82,20 +87,22 @@ class AuditRepository:
         """
         cursor = db.execute(sql, (limit,))
         entries = []
-        
+
         for row in cursor.fetchall():
             payload = None
             if row["payload"]:
                 payload = json.loads(row["payload"])
-            
-            entries.append(AuditLogEntry(
-                id=row["id"],
-                entity_type=row["entity_type"],
-                entity_id=row["entity_id"],
-                action=AuditAction(row["action"]),
-                actor=row["actor"],
-                payload=payload,
-                timestamp=datetime.fromisoformat(row["timestamp"])
-            ))
-        
+
+            entries.append(
+                AuditLogEntry(
+                    id=row["id"],
+                    entity_type=row["entity_type"],
+                    entity_id=row["entity_id"],
+                    action=AuditAction(row["action"]),
+                    actor=row["actor"],
+                    payload=payload,
+                    timestamp=datetime.fromisoformat(row["timestamp"]),
+                )
+            )
+
         return entries

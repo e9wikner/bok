@@ -50,7 +50,9 @@ class CorrectionNoteService:
                 "An active correction note already exists for this voucher",
             )
         if not note_text.strip():
-            raise CorrectionNoteError("validation_error", "Correction note text is required")
+            raise CorrectionNoteError(
+                "validation_error", "Correction note text is required"
+            )
         return self.notes.create(voucher_id, note_text.strip(), actor)
 
     def create_draft(
@@ -209,10 +211,14 @@ class CorrectionNoteService:
             raise CorrectionNoteError("voucher_not_found", "Voucher not found")
         return voucher
 
-    def _require_note_for_voucher(self, note_id: str, voucher_id: str) -> CorrectionNote:
+    def _require_note_for_voucher(
+        self, note_id: str, voucher_id: str
+    ) -> CorrectionNote:
         note = self.notes.get(note_id)
         if not note or note.voucher_id != voucher_id:
-            raise CorrectionNoteError("correction_note_not_found", "Correction note not found")
+            raise CorrectionNoteError(
+                "correction_note_not_found", "Correction note not found"
+            )
         return note
 
     def _require_draft(self, voucher_id: str) -> Voucher:

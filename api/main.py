@@ -9,54 +9,57 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from config import settings
-from services import dropzone
 
 # Import routers
 from api.routes import (
-    vouchers,
+    accounting_corrections,
     accounts,
-    periods,
-    reports,
-    invoices,
-    customers,
-    articles,
-    invoice_drafts,
-    k2_reports,
     agent,
     agent_instructions,
-    import_sie4,
-    import_csv,
-    export_sie4,
-    export_pdf,
-    export_sru,
-    compliance,
-    vat,
-    accounting_corrections,
-    intake,
-    bank_inputs,
+    articles,
     attachments,
-    auth,
     audit,
-    sru_mappings,
+    auth,
+    bank_inputs,
     company_info,
-    tax_ink2,
+    compliance,
+    customers,
+    export_pdf,
+    export_sie4,
+    export_sru,
+    import_csv,
+    import_sie4,
+    intake,
+    invoice_drafts,
+    invoices,
+    k2_reports,
     payroll,
+    periods,
+    reports,
+    sru_mappings,
+    tax_ink2,
+    vat,
+    vouchers,
 )
+from config import settings
+from services import agent_runtime, dropzone
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Run folder pickup alongside the API when it is enabled.
+    """Run folder pickup and the agent runtime alongside the API when
+    enabled.
 
-    The scanner is a thread in this process rather than a second container:
+    Both are threads in this process rather than a second container:
     `db.Database` already hands out thread-local SQLite connections with WAL on,
     so a worker thread needs no new infrastructure.
     """
     dropzone.start_background_scanner()
+    agent_runtime.start_agent_runtime()
     try:
         yield
     finally:
+        agent_runtime.stop_agent_runtime()
         dropzone.stop_background_scanner()
 
 

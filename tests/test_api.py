@@ -1,14 +1,13 @@
 """Tests for API endpoints."""
 
+from datetime import date
+
 import pytest
 from fastapi.testclient import TestClient
-from datetime import date
-import tempfile
-import os
-from db.database import db
+
+from config import settings
 from repositories.account_repo import AccountRepository
 from repositories.period_repo import PeriodRepository
-from config import settings
 
 
 @pytest.fixture
@@ -23,8 +22,9 @@ def client(test_db):
     for code, name, acc_type in accounts:
         if not AccountRepository.exists(code):
             AccountRepository.create(code, name, acc_type)
-    
+
     from api.main import app
+
     return TestClient(app)
 
 
@@ -43,7 +43,8 @@ def period_id(test_db):
     )
     period = PeriodRepository.create_period(
         fiscal_year_id=fy.id,
-        year=2026, month=3,
+        year=2026,
+        month=3,
         start_date=date(2026, 3, 1),
         end_date=date(2026, 3, 31),
     )
@@ -235,7 +236,7 @@ def test_post_voucher(client, auth_headers, period_id):
         },
     )
     voucher_id = resp.json()["id"]
-    
+
     # Post
     resp = client.post(f"/api/v1/vouchers/{voucher_id}/post", headers=auth_headers)
     assert resp.status_code == 200

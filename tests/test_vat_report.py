@@ -7,8 +7,7 @@ from services.vat_report import VatReportService
 def test_yearly_vat_declaration_matches_eskd_and_excludes_settlement_voucher():
     db = sqlite3.connect(":memory:")
     db.row_factory = sqlite3.Row
-    db.executescript(
-        """
+    db.executescript("""
         CREATE TABLE company_info (key TEXT PRIMARY KEY, value TEXT);
         CREATE TABLE accounts (code TEXT PRIMARY KEY, name TEXT);
         CREATE TABLE vouchers (
@@ -39,8 +38,7 @@ def test_yearly_vat_declaration_matches_eskd_and_excludes_settlement_voucher():
         INSERT INTO voucher_rows VALUES ('settlement', '2610', 28483000, 0);
         INSERT INTO voucher_rows VALUES ('settlement', '2640', 0, 1508480);
         INSERT INTO voucher_rows VALUES ('settlement', '2650', 0, 26974520);
-        """
-    )
+        """)
 
     with patch("services.vat_report.get_db", return_value=db), patch(
         "services.vat_report.PeriodRepository.list_fiscal_years", return_value=[]

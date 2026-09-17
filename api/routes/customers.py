@@ -39,7 +39,9 @@ async def create_customer(
         customer = CustomerService().create_customer(**request.model_dump())
         return _customer_to_dict(customer)
     except ValidationError as exc:
-        raise HTTPException(status_code=400, detail={"code": exc.code, "error": exc.message})
+        raise HTTPException(
+            status_code=400, detail={"code": exc.code, "error": exc.message}
+        )
 
 
 def _customer_to_dict(customer) -> dict:

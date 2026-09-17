@@ -5,6 +5,15 @@ Detta dokument beskriver arbetsflödet för agenten. Läs även
 
 ## Grundprincip
 
+Bok kan köra detta arbetsflöde på två sätt. En människa kan fortfarande starta en
+extern LLM-session för hand, som läser dessa filer och anropar `/api/v1/agent/*`
+direkt (t.ex. via `scripts/bok-curl`) — det fungerar precis som idag. Bok har också
+en egen intern runtime (`AGENT_RUNTIME_ENABLED=true`) som kan köra samma pass
+själv: den tar ett underlag i taget ur kön och läser exakt de här filerna som sin
+systemprompt. Den startas manuellt tills vidare, inte på schema, och vägrar starta
+utan en prissatt modell. Oavsett vilken väg som körde passet gäller samma regel:
+posta när underlaget och konteringen är tillräckligt klara, avstå annars.
+
 Agenten får bokföra direkt via API:t när underlaget och konteringen är tillräckligt
 klara. Frontend är främst en yta för mänsklig granskning och korrigering efter
 postning.
@@ -52,6 +61,7 @@ Använd huvudendpointen:
 ```http
 POST /api/v1/agent/vouchers
 Authorization: Bearer <BOKFOERING_API_KEY>
+Idempotency-Key: 6f1a2c34-8b5d-4e77-9c01-2a3b4c5d6e7f
 Content-Type: application/json
 
 {
@@ -95,8 +105,40 @@ Efter postning:
 - kontrollera att API-svarets `agent.intake_source_ids`, `agent.bank_input_ids`
   och `agent.bank_transaction_ids` innehåller de intagsposter som behandlades
 - notera voucher-id i arbetsloggen
-- gör inte om samma postning om svaret är oklart; läs först verifikationslistan
-  eller använd idempotensflöde när det är lämpligt
+- gör aldrig om en postning utan idempotensnyckel; skicka i stället om samma
+  anrop med samma `Idempotency-Key` (se nedan)
+
+## Idempotensnyckel
+
+Varje postning ska bära headern `Idempotency-Key` med ett UUID som agenten
+genererar **innan** anropet och skriver i arbetsloggen tillsammans med
+underlaget. Nyckeln är det enda som skiljer ett omförsök från en ny
+affärshändelse — utan den finns ingen väg tillbaka från ett tappat svar.
+
+Regler:
+
+- **En affärshändelse, en nyckel.** Ny händelse ska alltid ha en ny nyckel.
+- **Omförsök använder samma nyckel.** Tappat svar, timeout, nätverksfel eller
+  omkörning av ett avbrutet pass: skicka om exakt samma anrop med exakt samma
+  nyckel. Ingen andra verifikation skapas.
+- **Ändra aldrig bodyn vid omförsök.** Nyckeln är bunden till anropets innehåll.
+
+Svar att känna igen:
+
+| Läge | Svar |
+|------|------|
+| Ny nyckel | `201` med verifikationen |
+| Samma nyckel, samma body, redan postad | `201` med den ursprungliga verifikationen och headern `Idempotent-Replay: true` — postningen är klar, gör inget mer |
+| Samma nyckel, annan body | `422`, kod `idempotency_key_reuse` — nyckeln hör till en annan postning. Använd en ny nyckel för den nya händelsen |
+| Samma nyckel, anrop pågår | `409`, kod `request_in_flight` — vänta en halv sekund och försök igen med samma nyckel |
+| Nyckeln inte ett UUID | `400`, kod `invalid_idempotency_key` |
+
+En uppspelning (`Idempotent-Replay: true`) är ett **kvitto, inte ett fel**. Den
+betyder att verifikationen redan ligger i boken. Posta inte om den, och skapa
+ingen korrigering för den.
+
+Ett anrop helt utan header går fortfarande igenom, men utan skydd mot
+dubbelpostning. Headern blir obligatorisk i en kommande version.
 
 ## Korrigera fel
 

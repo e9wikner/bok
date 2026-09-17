@@ -8,7 +8,12 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from api.deps import get_current_actor
-from domain.models import BankInput, IntakeProcessingAttempt, IntakeSource, VoucherIntakeSource
+from domain.models import (
+    BankInput,
+    IntakeProcessingAttempt,
+    IntakeSource,
+    VoucherIntakeSource,
+)
 from domain.types import BankInputStatus, IntakeStatus
 from repositories.bank_input_repo import BankInputRepository
 from repositories.intake_repo import IntakeRepository
@@ -30,6 +35,7 @@ MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 class UpdateAgentGuidanceRequest(BaseModel):
     """Request to update agent guidance for an intake source."""
+
     agent_guidance: str | None = None
 
 
@@ -96,7 +102,9 @@ async def list_intake_workspace(
             offset=bank_offset,
         )
         total += bank_repo.count_by_status(status=status)
-        items.extend(_workspace_bank_item(bank_input, bank_repo) for bank_input in bank_inputs)
+        items.extend(
+            _workspace_bank_item(bank_input, bank_repo) for bank_input in bank_inputs
+        )
 
     items.sort(key=lambda item: item["uploaded_at"])
     page_items = items if kind is not None else items[offset : offset + limit]
@@ -136,7 +144,10 @@ async def get_intake_workspace_detail(
     if kind not in VALID_WORKSPACE_KINDS:
         raise HTTPException(
             status_code=http_status.HTTP_404_NOT_FOUND,
-            detail={"error": "Unsupported intake workspace item kind", "code": "intake_kind_not_found"},
+            detail={
+                "error": "Unsupported intake workspace item kind",
+                "code": "intake_kind_not_found",
+            },
         )
 
     if kind == "voucher_source":
@@ -168,7 +179,9 @@ async def get_intake_workspace_detail(
         )
     return {
         **_workspace_bank_item(bank_input, bank_repo),
-        "processed_at": bank_input.processed_at.isoformat() if bank_input.processed_at else None,
+        "processed_at": (
+            bank_input.processed_at.isoformat() if bank_input.processed_at else None
+        ),
         "voucher_links": [
             _bank_input_link_to_dict(link)
             for link in bank_repo.list_voucher_links_for_input(bank_input.id)

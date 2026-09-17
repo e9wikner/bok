@@ -12,9 +12,9 @@ import pytest_asyncio
 from api.main import app
 from config import settings
 
-
 ENTRYPOINT_PATH = "/api/v1/agent-instructions/entrypoint"
 DRIFT_DOC_PATH = Path("docs/to_agent/01_drift_och_atkomst.md")
+PROCESS_DOC_PATH = Path("docs/to_agent/02_bokforingsprocess.md")
 EXPECTED_PATHS = {
     "/api/v1/health",
     "/docs",
@@ -31,6 +31,7 @@ EXPECTED_PATHS = {
     "/api/v1/vouchers/{voucher_id}/correction-draft",
     "/api/v1/vouchers/{voucher_id}/correction-notes/{note_id}/suggest",
     "/api/v1/vouchers/{voucher_id}/correction-notes/{note_id}/reject",
+    "/api/v1/agent/status",
 }
 
 
@@ -74,7 +75,9 @@ async def test_agent_entrypoint_is_public_without_auth(async_client):
 
 
 @pytest.mark.asyncio
-async def test_agent_entrypoint_contains_expected_links_and_workflow_paths(async_client):
+async def test_agent_entrypoint_contains_expected_links_and_workflow_paths(
+    async_client,
+):
     data = await _entrypoint(async_client)
     serialized = json.dumps(data)
 
@@ -83,7 +86,11 @@ async def test_agent_entrypoint_contains_expected_links_and_workflow_paths(async
 
     assert data["links"]["openapi"] == "/openapi.json"
     assert data["workflow_endpoints"]["ping"]["path"] == "/api/v1/agent/test/ping"
-    assert data["workflow_endpoints"]["post_voucher"]["path"] == "/api/v1/agent/vouchers"
+    assert (
+        data["workflow_endpoints"]["post_voucher"]["path"] == "/api/v1/agent/vouchers"
+    )
+    assert data["workflow_endpoints"]["agent_status"]["path"] == "/api/v1/agent/status"
+    assert data["workflow_endpoints"]["agent_status"]["method"] == "GET"
 
 
 @pytest.mark.asyncio
@@ -132,6 +139,8 @@ async def test_agent_entrypoint_prescribes_startup_order_and_guardrails(async_cl
     assert "intake_source_ids" in guidance
     assert "pending queue" in guidance
     assert "guidance" in guidance
+    assert "Idempotency-Key" in guidance
+    assert "Idempotent-Replay" in guidance
 
 
 @pytest.mark.asyncio
@@ -163,6 +172,21 @@ async def test_agent_entrypoint_documents_bank_input_transaction_source(async_cl
 
 
 @pytest.mark.asyncio
+async def test_agent_entrypoint_discloses_the_internal_runtime_status_endpoint(
+    async_client,
+):
+    data = await _entrypoint(async_client)
+    serialized = json.dumps(data)
+
+    assert "/api/v1/agent/status" in serialized
+    assert data["workflow_endpoints"]["agent_status"]["path"] == "/api/v1/agent/status"
+    guardrails = " ".join(str(item) for item in data["guardrails"])
+    assert "/api/v1/agent/status" in guardrails
+    assert "internal runtime" in guardrails
+    assert "runs this external agent did not start" in guardrails
+
+
+@pytest.mark.asyncio
 async def test_agent_entrypoint_discloses_unsupported_features(async_client):
     data = await _entrypoint(async_client)
     unsupported = " ".join(data["unsupported_features"]).lower()
@@ -170,12 +194,69 @@ async def test_agent_entrypoint_discloses_unsupported_features(async_client):
     assert "persistent" in unsupported
     assert "credential lifecycle" in unsupported
     assert "generated tool-schema discovery" in unsupported
-    assert "durable idempotency" in unsupported
+    # Durable idempotency now covers posting and correcting. The disclosure
+    # narrows as the implementation grows; it never disappears.
+    assert (
+        "durable idempotency covers /api/v1/agent/vouchers and "
+        "/api/v1/vouchers/{voucher_id}/correct" in unsupported
+    )
     assert "/api/v1/bank-transactions" in unsupported
 
 
 @pytest.mark.asyncio
-async def test_agent_entrypoint_excludes_sensitive_or_company_state_fields(async_client):
+async def test_agent_entrypoint_documents_idempotency_contract(async_client):
+    data = await _entrypoint(async_client)
+    contract = data["idempotency_contract"]
+
+    assert contract["header"] == "Idempotency-Key"
+    assert "UUID" in contract["value_format"]
+    assert contract["required_on"] == [
+        "/api/v1/agent/vouchers",
+        "/api/v1/vouchers/{voucher_id}/correct",
+    ]
+    assert contract["server_enforced"] is False
+    assert "same key" in contract["retry_rule"]
+    assert "Idempotent-Replay: true" in contract["retry_rule"]
+    assert "new key" in contract["one_key_per_event"]
+    assert contract["conflicts"]["422"].startswith("idempotency_key_reuse")
+    assert contract["conflicts"]["409"].startswith("request_in_flight")
+    assert contract["conflicts"]["400"].startswith("invalid_idempotency_key")
+    assert "idempotency_key_missing" in contract["transition"]
+
+
+def test_agent_process_doc_requires_an_idempotency_key_on_posting():
+    text = PROCESS_DOC_PATH.read_text(encoding="utf-8")
+
+    assert "Idempotency-Key" in text
+    assert "Idempotent-Replay: true" in text
+    assert "idempotency_key_reuse" in text
+    assert "request_in_flight" in text
+    assert "En affärshändelse, en nyckel" in text
+    assert "Omförsök använder samma nyckel" in text
+
+
+def test_agent_process_doc_describes_the_internal_runtime_path():
+    text = PROCESS_DOC_PATH.read_text(encoding="utf-8")
+
+    assert "AGENT_RUNTIME_ENABLED=true" in text
+    assert "intern runtime" in text
+    assert "startas manuellt tills vidare" in text
+    assert "vägrar starta\nutan en prissatt modell" in text
+    assert (
+        "posta när underlaget och konteringen är tillräckligt klara, avstå annars"
+        in text
+    )
+    # The external, human-started path is still explicitly documented as
+    # working exactly as before (SPEC-agentruntime.md §12.5b) -- this note
+    # must not read as if it replaced that path.
+    assert "En människa kan fortfarande starta en" in text
+    assert "scripts/bok-curl" in text
+
+
+@pytest.mark.asyncio
+async def test_agent_entrypoint_excludes_sensitive_or_company_state_fields(
+    async_client,
+):
     serialized = json.dumps(await _entrypoint(async_client))
 
     for forbidden in [

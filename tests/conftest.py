@@ -1,13 +1,15 @@
 """Test configuration and fixtures."""
 
-import pytest
-import tempfile
 import os
+import tempfile
 from datetime import date
+
+import pytest
+
 from config import settings
-from db.database import Database, db
-from services.ledger import LedgerService
+from db.database import db
 from repositories.account_repo import AccountRepository
+from services.ledger import LedgerService
 
 
 @pytest.fixture
@@ -62,8 +64,7 @@ def ledger_service(test_db):
 def fiscal_year(ledger_service):
     """Create a test fiscal year."""
     return ledger_service.periods.create_fiscal_year(
-        start_date=date(2026, 1, 1),
-        end_date=date(2026, 12, 31)
+        start_date=date(2026, 1, 1), end_date=date(2026, 12, 31)
     )
 
 
@@ -75,5 +76,5 @@ def test_period(ledger_service, fiscal_year):
         year=2026,
         month=3,
         start_date=date(2026, 3, 1),
-        end_date=date(2026, 3, 31)
+        end_date=date(2026, 3, 31),
     )

@@ -1,0 +1,22 @@
+{
+  "id": "chatcmpl-stop-0001",
+  "object": "chat.completion",
+  "created": 1735600001,
+  "model": "opencode/gpt-5.5",
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "stop",
+      "logprobs": null,
+      "message": {
+        "role": "assistant",
+        "content": "Jag kan tyvärr inte hjälpa till med det här underlaget."
+      }
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 900,
+    "completion_tokens": 40,
+    "total_tokens": 940
+  }
+}

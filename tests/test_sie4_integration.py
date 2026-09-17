@@ -6,16 +6,17 @@ Testar hela flödet:
 - API-endpoints för export
 """
 
+from datetime import date
+
 import pytest
 from fastapi.testclient import TestClient
-from datetime import date
-from db.database import db
+
+from config import settings
 from repositories.account_repo import AccountRepository
 from repositories.period_repo import PeriodRepository
 from repositories.voucher_repo import VoucherRepository
 from services.sie4_export import SIE4Exporter
-from services.sie4_import import SIE4Parser, create_sample_sie4
-from config import settings
+from services.sie4_import import SIE4Parser
 
 
 @pytest.fixture
@@ -144,7 +145,7 @@ class TestSIE4ExportIntegration:
         assert "#FORMAT PC8" in content
         assert '#FNAMN "Testföretag AB"' in content
         assert "#FORGN 556677-8899" in content
-        assert f"#RAR 0 20260101 20261231" in content
+        assert "#RAR 0 20260101 20261231" in content
 
         # Verifiera konton
         assert '#KONTO 1930 "Företagskonto"' in content
@@ -189,9 +190,9 @@ class TestSIE4ExportIntegration:
         # Kontrollera att alla verifikationer balanserar
         for v in parsed.vouchers:
             total = sum(r.amount for r in v.rows)
-            assert total == 0, (
-                f"Verifikation {v.series}{v.number} balanserar inte: {total}"
-            )
+            assert (
+                total == 0
+            ), f"Verifikation {v.series}{v.number} balanserar inte: {total}"
 
     def test_export_bytes_encoding(self, fiscal_year_with_data):
         """Testa att export genererar korrekt Windows-1252 bytes."""
@@ -226,7 +227,7 @@ class TestSIE4ImportOpeningBalances:
             start_date=date(2026, 1, 1),
             end_date=date(2026, 12, 31),
         )
-        period = PeriodRepository.create_period(
+        PeriodRepository.create_period(
             fiscal_year_id=fy.id,
             year=2026,
             month=1,
@@ -287,7 +288,7 @@ class TestSIE4ImportOpeningBalances:
             start_date=date(2026, 1, 1),
             end_date=date(2026, 12, 31),
         )
-        period = PeriodRepository.create_period(
+        PeriodRepository.create_period(
             fiscal_year_id=fy.id,
             year=2026,
             month=1,
@@ -325,9 +326,9 @@ class TestSIE4ImportOpeningBalances:
             headers=auth_headers,
             params={"fiscal_year_id": fy.id},
         )
-        first_ib = [
-            v for v in vouchers_resp.json()["vouchers"] if v["series"] == "IB"
-        ][0]
+        first_ib = [v for v in vouchers_resp.json()["vouchers"] if v["series"] == "IB"][
+            0
+        ]
         assert first_ib["status"] == "posted"
 
         # Andra importen försöker skriva en annan IB till samma räkenskapsår
@@ -395,8 +396,11 @@ class TestSIE4ImportOpeningBalances:
         )
         for month, last in [(1, 31), (3, 31)]:
             PeriodRepository.create_period(
-                fiscal_year_id=fy.id, year=2026, month=month,
-                start_date=date(2026, month, 1), end_date=date(2026, month, last),
+                fiscal_year_id=fy.id,
+                year=2026,
+                month=month,
+                start_date=date(2026, month, 1),
+                end_date=date(2026, month, last),
             )
 
         # #IB har en post (2890) som ingen verifikation under året rör.
@@ -437,8 +441,8 @@ class TestSIE4ImportOpeningBalances:
         assert "#IB 0 2890 -150000.00" in content
 
         # UB = IB + rörelse, utan dubbelräkning av IB-verifikationen.
-        assert "#UB 0 1930 190000.00" in content   # 200000 - 10000
-        assert "#UB 0 2081 -50000.00" in content   # oförändrat
+        assert "#UB 0 1930 190000.00" in content  # 200000 - 10000
+        assert "#UB 0 2081 -50000.00" in content  # oförändrat
         assert "#UB 0 2890 -150000.00" in content  # oförändrat
         assert "#RES 0 5010 10000.00" in content
 
@@ -446,9 +450,7 @@ class TestSIE4ImportOpeningBalances:
         assert "#VER IB" not in content
         assert "#VER A 1" in content
 
-    def test_all_zero_opening_balance_is_not_a_failure(
-        self, client, auth_headers
-    ):
+    def test_all_zero_opening_balance_is_not_a_failure(self, client, auth_headers):
         """En startårsexport har #IB-rader men alla är 0. Det ska inte flagga
         importen som ofullständig (och i dropzonen skicka filen till _Problem/).
         """
@@ -463,8 +465,11 @@ class TestSIE4ImportOpeningBalances:
             start_date=date(2026, 1, 1), end_date=date(2026, 12, 31)
         )
         PeriodRepository.create_period(
-            fiscal_year_id=fy.id, year=2026, month=1,
-            start_date=date(2026, 1, 1), end_date=date(2026, 1, 31),
+            fiscal_year_id=fy.id,
+            year=2026,
+            month=1,
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 31),
         )
 
         sie4 = """#FLAGGA 0
@@ -490,7 +495,8 @@ class TestSIE4ImportOpeningBalances:
         assert resp.json()["success"] is True
 
         vouchers = client.get(
-            "/api/v1/vouchers", headers=auth_headers,
+            "/api/v1/vouchers",
+            headers=auth_headers,
             params={"fiscal_year_id": fy.id},
         ).json()["vouchers"]
         assert not [v for v in vouchers if v["series"] == "IB"]

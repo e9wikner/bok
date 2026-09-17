@@ -1,8 +1,8 @@
 """Repository for agent-created invoice drafts."""
 
+import uuid
 from datetime import datetime
 from typing import List, Optional
-import uuid
 
 from db.database import db
 from domain.invoice_draft_models import InvoiceDraft, InvoiceDraftRow
@@ -205,7 +205,9 @@ class InvoiceDraftRepository:
 
     @staticmethod
     def get(draft_id: str) -> Optional[InvoiceDraft]:
-        row = db.execute("SELECT * FROM invoice_drafts WHERE id = ?", (draft_id,)).fetchone()
+        row = db.execute(
+            "SELECT * FROM invoice_drafts WHERE id = ?", (draft_id,)
+        ).fetchone()
         if not row:
             return None
         rows = db.execute(
@@ -225,7 +227,9 @@ class InvoiceDraftRepository:
             params.append(status)
         sql += " ORDER BY invoice_date DESC, created_at DESC"
         rows = db.execute(sql, tuple(params)).fetchall()
-        return [draft for row in rows if (draft := InvoiceDraftRepository.get(row["id"]))]
+        return [
+            draft for row in rows if (draft := InvoiceDraftRepository.get(row["id"]))
+        ]
 
     @staticmethod
     def mark_sent(draft_id: str, invoice_id: str, voucher_id: str) -> None:

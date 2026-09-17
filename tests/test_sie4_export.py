@@ -8,16 +8,18 @@ Testar:
 - Felhantering
 """
 
-import pytest
 from datetime import date, datetime
-from unittest.mock import patch, MagicMock
 
-from services.sie4_export import SIE4Exporter, SIE4ExportData
-from services.sie4_import import SIE4Parser
 from domain.models import (
-    Account, Voucher, VoucherRow, FiscalYear, Period,
+    Account,
+    FiscalYear,
+    Period,
+    Voucher,
+    VoucherRow,
 )
-from domain.types import AccountType, VoucherStatus, VoucherSeries
+from domain.types import AccountType, VoucherSeries, VoucherStatus
+from services.sie4_export import SIE4ExportData, SIE4Exporter
+from services.sie4_import import SIE4Parser
 
 
 def _make_fiscal_year(
@@ -30,9 +32,7 @@ def _make_fiscal_year(
     )
 
 
-def _make_period(
-    period_id, fiscal_year_id, year, month, start_d, end_d
-) -> Period:
+def _make_period(period_id, fiscal_year_id, year, month, start_d, end_d) -> Period:
     return Period(
         id=period_id,
         fiscal_year_id=fiscal_year_id,
@@ -71,7 +71,9 @@ def _make_voucher(
     )
 
 
-def _make_row(row_id, voucher_id, account_code, debit=0, credit=0, desc=None) -> VoucherRow:
+def _make_row(
+    row_id, voucher_id, account_code, debit=0, credit=0, desc=None
+) -> VoucherRow:
     return VoucherRow(
         id=row_id,
         voucher_id=voucher_id,
@@ -95,7 +97,9 @@ class TestSIE4ExporterContent:
         data.accounts = [
             _make_account("1930", "Företagskonto", AccountType.ASSET, sru_code="1940"),
             _make_account("2081", "Aktieägartillskott", AccountType.EQUITY),
-            _make_account("3010", "Försäljning tjänster", AccountType.REVENUE, sru_code="3610"),
+            _make_account(
+                "3010", "Försäljning tjänster", AccountType.REVENUE, sru_code="3610"
+            ),
             _make_account("5010", "Lokalhyra", AccountType.EXPENSE),
         ]
         data.sru_codes = {"1930": "1940", "3010": "3610"}
@@ -107,16 +111,22 @@ class TestSIE4ExporterContent:
         # Verifikation 1: Startkapital (jan)
         v1_rows = [
             _make_row("r1", "v1", "1930", debit=20000000, credit=0, desc="Insättning"),
-            _make_row("r2", "v1", "2081", debit=0, credit=20000000, desc="Aktieägartillskott"),
+            _make_row(
+                "r2", "v1", "2081", debit=0, credit=20000000, desc="Aktieägartillskott"
+            ),
         ]
-        v1 = _make_voucher("v1", "A", 1, date(2026, 1, 15), "p1", "Startkapital", v1_rows)
+        v1 = _make_voucher(
+            "v1", "A", 1, date(2026, 1, 15), "p1", "Startkapital", v1_rows
+        )
 
         # Verifikation 2: Försäljning (feb)
         v2_rows = [
             _make_row("r3", "v2", "1930", debit=10000000, credit=0, desc="Betalning"),
             _make_row("r4", "v2", "3010", debit=0, credit=10000000, desc="Försäljning"),
         ]
-        v2 = _make_voucher("v2", "A", 2, date(2026, 2, 1), "p2", "Försäljning feb", v2_rows)
+        v2 = _make_voucher(
+            "v2", "A", 2, date(2026, 2, 1), "p2", "Försäljning feb", v2_rows
+        )
 
         data.vouchers = [v1, v2]
 

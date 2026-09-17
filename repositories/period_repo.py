@@ -1,15 +1,16 @@
 """Period repository - data access for periods and fiscal years."""
 
-from typing import Optional, List
-from datetime import datetime, date
 import uuid
+from datetime import date, datetime
+from typing import List, Optional
+
 from db.database import db
-from domain.models import Period, FiscalYear
+from domain.models import FiscalYear, Period
 
 
 class PeriodRepository:
     """Manage periods and fiscal years."""
-    
+
     @staticmethod
     def create_fiscal_year(
         start_date: date,
@@ -24,14 +25,11 @@ class PeriodRepository:
         now = datetime.now()
         db.execute(sql, (fy_id, start_date, end_date, now))
         db.commit()
-        
+
         return FiscalYear(
-            id=fy_id,
-            start_date=start_date,
-            end_date=end_date,
-            created_at=now
+            id=fy_id, start_date=start_date, end_date=end_date, created_at=now
         )
-    
+
     @staticmethod
     def create_period(
         fiscal_year_id: str,
@@ -47,9 +45,11 @@ class PeriodRepository:
         VALUES (?, ?, ?, ?, ?, ?, 0, ?)
         """
         now = datetime.now()
-        db.execute(sql, (period_id, fiscal_year_id, year, month, start_date, end_date, now))
+        db.execute(
+            sql, (period_id, fiscal_year_id, year, month, start_date, end_date, now)
+        )
         db.commit()
-        
+
         return Period(
             id=period_id,
             fiscal_year_id=fiscal_year_id,
@@ -57,30 +57,30 @@ class PeriodRepository:
             month=month,
             start_date=start_date,
             end_date=end_date,
-            created_at=now
+            created_at=now,
         )
-    
+
     @staticmethod
     def get_fiscal_year(fy_id: str) -> Optional[FiscalYear]:
         """Get fiscal year by ID."""
         sql = "SELECT * FROM fiscal_years WHERE id = ? LIMIT 1"
         cursor = db.execute(sql, (fy_id,))
         row = cursor.fetchone()
-        
+
         if not row:
             return None
-        
+
         locked_at = row["locked_at"]
         if locked_at:
             locked_at = datetime.fromisoformat(locked_at)
-        
+
         return FiscalYear(
             id=row["id"],
             start_date=datetime.fromisoformat(row["start_date"]).date(),
             end_date=datetime.fromisoformat(row["end_date"]).date(),
             locked=bool(row["locked"]),
             locked_at=locked_at,
-            created_at=datetime.fromisoformat(row["created_at"])
+            created_at=datetime.fromisoformat(row["created_at"]),
         )
 
     @staticmethod
@@ -89,38 +89,40 @@ class PeriodRepository:
         sql = "SELECT * FROM fiscal_years ORDER BY start_date DESC"
         cursor = db.execute(sql)
         rows = cursor.fetchall()
-        
+
         fiscal_years = []
         for row in rows:
             locked_at = row["locked_at"]
             if locked_at:
                 locked_at = datetime.fromisoformat(locked_at)
-            
-            fiscal_years.append(FiscalYear(
-                id=row["id"],
-                start_date=datetime.fromisoformat(row["start_date"]).date(),
-                end_date=datetime.fromisoformat(row["end_date"]).date(),
-                locked=bool(row["locked"]),
-                locked_at=locked_at,
-                created_at=datetime.fromisoformat(row["created_at"])
-            ))
-        
+
+            fiscal_years.append(
+                FiscalYear(
+                    id=row["id"],
+                    start_date=datetime.fromisoformat(row["start_date"]).date(),
+                    end_date=datetime.fromisoformat(row["end_date"]).date(),
+                    locked=bool(row["locked"]),
+                    locked_at=locked_at,
+                    created_at=datetime.fromisoformat(row["created_at"]),
+                )
+            )
+
         return fiscal_years
-    
+
     @staticmethod
     def get_period(period_id: str) -> Optional[Period]:
         """Get period by ID."""
         sql = "SELECT * FROM periods WHERE id = ? LIMIT 1"
         cursor = db.execute(sql, (period_id,))
         row = cursor.fetchone()
-        
+
         if not row:
             return None
-        
+
         locked_at = row["locked_at"]
         if locked_at:
             locked_at = datetime.fromisoformat(locked_at)
-        
+
         return Period(
             id=row["id"],
             fiscal_year_id=row["fiscal_year_id"],
@@ -130,27 +132,28 @@ class PeriodRepository:
             end_date=datetime.fromisoformat(row["end_date"]).date(),
             locked=bool(row["locked"]),
             locked_at=locked_at,
-            created_at=datetime.fromisoformat(row["created_at"])
+            locked_by=row["locked_by"],
+            created_at=datetime.fromisoformat(row["created_at"]),
         )
-    
+
     @staticmethod
     def get_period_by_date(fiscal_year_id: str, target_date: date) -> Optional[Period]:
         """Get period containing the given date."""
         sql = """
-        SELECT * FROM periods 
+        SELECT * FROM periods
         WHERE fiscal_year_id = ? AND start_date <= ? AND end_date >= ?
         LIMIT 1
         """
         cursor = db.execute(sql, (fiscal_year_id, target_date, target_date))
         row = cursor.fetchone()
-        
+
         if not row:
             return None
-        
+
         locked_at = row["locked_at"]
         if locked_at:
             locked_at = datetime.fromisoformat(locked_at)
-        
+
         return Period(
             id=row["id"],
             fiscal_year_id=row["fiscal_year_id"],
@@ -160,14 +163,15 @@ class PeriodRepository:
             end_date=datetime.fromisoformat(row["end_date"]).date(),
             locked=bool(row["locked"]),
             locked_at=locked_at,
-            created_at=datetime.fromisoformat(row["created_at"])
+            locked_by=row["locked_by"],
+            created_at=datetime.fromisoformat(row["created_at"]),
         )
-    
+
     @staticmethod
     def list_periods(fiscal_year_id: str) -> List[Period]:
         """List all periods for a fiscal year."""
         sql = """
-        SELECT * FROM periods 
+        SELECT * FROM periods
         WHERE fiscal_year_id = ?
         ORDER BY year, month
         """
@@ -177,20 +181,23 @@ class PeriodRepository:
             locked_at = row["locked_at"]
             if locked_at:
                 locked_at = datetime.fromisoformat(locked_at)
-            
-            periods.append(Period(
-                id=row["id"],
-                fiscal_year_id=row["fiscal_year_id"],
-                year=row["year"],
-                month=row["month"],
-                start_date=datetime.fromisoformat(row["start_date"]).date(),
-                end_date=datetime.fromisoformat(row["end_date"]).date(),
-                locked=bool(row["locked"]),
-                locked_at=locked_at,
-                created_at=datetime.fromisoformat(row["created_at"])
-            ))
+
+            periods.append(
+                Period(
+                    id=row["id"],
+                    fiscal_year_id=row["fiscal_year_id"],
+                    year=row["year"],
+                    month=row["month"],
+                    start_date=datetime.fromisoformat(row["start_date"]).date(),
+                    end_date=datetime.fromisoformat(row["end_date"]).date(),
+                    locked=bool(row["locked"]),
+                    locked_at=locked_at,
+                    locked_by=row["locked_by"],
+                    created_at=datetime.fromisoformat(row["created_at"]),
+                )
+            )
         return periods
-    
+
     @staticmethod
     def list_all_periods() -> List[Period]:
         """List all periods across all fiscal years."""
@@ -201,28 +208,35 @@ class PeriodRepository:
             locked_at = row["locked_at"]
             if locked_at:
                 locked_at = datetime.fromisoformat(locked_at)
-            
-            periods.append(Period(
-                id=row["id"],
-                fiscal_year_id=row["fiscal_year_id"],
-                year=row["year"],
-                month=row["month"],
-                start_date=datetime.fromisoformat(row["start_date"]).date(),
-                end_date=datetime.fromisoformat(row["end_date"]).date(),
-                locked=bool(row["locked"]),
-                locked_at=locked_at,
-                created_at=datetime.fromisoformat(row["created_at"])
-            ))
+
+            periods.append(
+                Period(
+                    id=row["id"],
+                    fiscal_year_id=row["fiscal_year_id"],
+                    year=row["year"],
+                    month=row["month"],
+                    start_date=datetime.fromisoformat(row["start_date"]).date(),
+                    end_date=datetime.fromisoformat(row["end_date"]).date(),
+                    locked=bool(row["locked"]),
+                    locked_at=locked_at,
+                    locked_by=row["locked_by"],
+                    created_at=datetime.fromisoformat(row["created_at"]),
+                )
+            )
         return periods
-    
+
     @staticmethod
-    def lock_period(period_id: str) -> bool:
-        """Lock period (irreversible - BFL varaktighet requirement)."""
-        sql = "UPDATE periods SET locked = 1, locked_at = ? WHERE id = ?"
-        db.execute(sql, (datetime.now(), period_id))
+    def lock_period(period_id: str, actor: Optional[str] = None) -> bool:
+        """Lock period (irreversible - BFL varaktighet requirement).
+
+        Records who locked it, so a later conflict can name them instead of
+        leaving the caller to dig through the audit log.
+        """
+        sql = "UPDATE periods SET locked = 1, locked_at = ?, locked_by = ? WHERE id = ?"
+        db.execute(sql, (datetime.now(), actor, period_id))
         db.commit()
         return True
-    
+
     @staticmethod
     def lock_fiscal_year(fy_id: str) -> bool:
         """Lock fiscal year."""

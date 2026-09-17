@@ -11,17 +11,18 @@ It uses deterministic rules:
 
 import re
 import uuid
-from datetime import datetime
-from typing import List, Dict, Optional
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Dict, List, Optional
 
 from db.database import db
-from services.bank_integration import BankTransaction, BankIntegrationService
+from services.bank_integration import BankIntegrationService, BankTransaction
 
 
 @dataclass
 class CategorizationResult:
     """Result of categorizing a transaction."""
+
     account_code: str
     account_name: Optional[str] = None
     vat_code: Optional[str] = None
@@ -34,6 +35,7 @@ class CategorizationResult:
 @dataclass
 class CategorizationRule:
     """A rule for automatic categorization."""
+
     id: str
     rule_type: str
     priority: int
@@ -58,9 +60,11 @@ class CategorizationService:
     def __init__(self):
         self.bank_service = BankIntegrationService()
 
-    def categorize_transaction(self, transaction: BankTransaction) -> Optional[CategorizationResult]:
+    def categorize_transaction(
+        self, transaction: BankTransaction
+    ) -> Optional[CategorizationResult]:
         """Categorize a single bank transaction.
-        
+
         Tries deterministic rules in priority order and returns the first match.
         """
         is_expense = transaction.amount < 0
@@ -116,7 +120,7 @@ class CategorizationService:
                 # Get account name
                 account_row = db.execute(
                     "SELECT name FROM accounts WHERE code = ?",
-                    (rule.target_account_code,)
+                    (rule.target_account_code,),
                 ).fetchone()
 
                 best_match = CategorizationResult(
@@ -134,15 +138,15 @@ class CategorizationService:
 
     def categorize_pending(self, auto_book: bool = False) -> Dict:
         """Categorize all pending bank transactions.
-        
+
         Args:
             auto_book: If True, automatically create vouchers for high-confidence matches
-            
+
         Returns:
             Summary of categorization results
         """
         pending = self.bank_service.get_transactions(status="pending")
-        
+
         results = {
             "total": len(pending),
             "categorized": 0,
@@ -155,10 +159,10 @@ class CategorizationService:
 
         for tx in pending:
             result = self.categorize_transaction(tx)
-            
+
             if result:
                 results["categorized"] += 1
-                
+
                 if result.confidence >= 0.8:
                     results["high_confidence"] += 1
                     status = "categorized"
@@ -177,7 +181,7 @@ class CategorizationService:
                 if result.rule_id:
                     db.execute(
                         "UPDATE categorization_rules SET times_used = times_used + 1, updated_at = ? WHERE id = ?",
-                        (datetime.now().isoformat(), result.rule_id)
+                        (datetime.now().isoformat(), result.rule_id),
                     )
                     db.commit()
 
@@ -194,25 +198,29 @@ class CategorizationService:
                         # Don't fail batch on single booking error
                         pass
 
-                results["details"].append({
-                    "transaction_id": tx.id,
-                    "description": tx.description,
-                    "amount_sek": tx.amount / 100,
-                    "suggested_account": result.account_code,
-                    "account_name": result.account_name,
-                    "confidence": result.confidence,
-                    "status": status,
-                })
+                results["details"].append(
+                    {
+                        "transaction_id": tx.id,
+                        "description": tx.description,
+                        "amount_sek": tx.amount / 100,
+                        "suggested_account": result.account_code,
+                        "account_name": result.account_name,
+                        "confidence": result.confidence,
+                        "status": status,
+                    }
+                )
             else:
                 results["uncategorized"] += 1
-                results["details"].append({
-                    "transaction_id": tx.id,
-                    "description": tx.description,
-                    "amount_sek": tx.amount / 100,
-                    "suggested_account": None,
-                    "confidence": 0,
-                    "status": "pending",
-                })
+                results["details"].append(
+                    {
+                        "transaction_id": tx.id,
+                        "description": tx.description,
+                        "amount_sek": tx.amount / 100,
+                        "suggested_account": None,
+                        "confidence": 0,
+                        "status": "pending",
+                    }
+                )
 
         return results
 
@@ -231,27 +239,41 @@ class CategorizationService:
     ) -> str:
         """Add a new categorization rule."""
         rule_id = str(uuid.uuid4())
-        
+
         is_expense_int = None
         if match_is_expense is not None:
             is_expense_int = 1 if match_is_expense else 0
 
-        amount_min = int(match_amount_min * 100) if match_amount_min is not None else None
-        amount_max = int(match_amount_max * 100) if match_amount_max is not None else None
+        amount_min = (
+            int(match_amount_min * 100) if match_amount_min is not None else None
+        )
+        amount_max = (
+            int(match_amount_max * 100) if match_amount_max is not None else None
+        )
 
         with db.transaction():
             db.execute(
-                """INSERT INTO categorization_rules 
+                """INSERT INTO categorization_rules
                    (id, rule_type, priority, match_description, match_counterpart,
                     match_amount_min, match_amount_max, match_is_expense,
                     target_account_code, target_vat_code, target_description_template,
                     confidence, source)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1.0, 'manual')""",
-                (rule_id, rule_type, priority, match_description, match_counterpart,
-                 amount_min, amount_max, is_expense_int,
-                 target_account_code, target_vat_code, target_description_template)
+                (
+                    rule_id,
+                    rule_type,
+                    priority,
+                    match_description,
+                    match_counterpart,
+                    amount_min,
+                    amount_max,
+                    is_expense_int,
+                    target_account_code,
+                    target_vat_code,
+                    target_description_template,
+                ),
             )
-        
+
         return rule_id
 
     def get_rules(self, include_inactive: bool = False) -> List[CategorizationRule]:
@@ -260,7 +282,7 @@ class CategorizationService:
         if not include_inactive:
             sql += " WHERE active = 1"
         sql += " ORDER BY priority ASC, times_used DESC"
-        
+
         rows = db.execute(sql).fetchall()
         return [self._row_to_rule(r) for r in rows]
 
@@ -268,38 +290,43 @@ class CategorizationService:
         """Get categorization statistics."""
         total = db.execute("SELECT COUNT(*) as cnt FROM bank_transactions").fetchone()
         by_status = db.execute("""
-            SELECT status, COUNT(*) as cnt 
-            FROM bank_transactions 
+            SELECT status, COUNT(*) as cnt
+            FROM bank_transactions
             GROUP BY status
         """).fetchall()
-        
+
         rules = db.execute("""
             SELECT source, COUNT(*) as cnt, SUM(times_used) as total_uses
             FROM categorization_rules WHERE active = 1
             GROUP BY source
         """).fetchall()
-        
+
         return {
             "transactions": {
                 "total": total["cnt"] if total else 0,
                 "by_status": {r["status"]: r["cnt"] for r in by_status},
             },
             "rules": {
-                "by_source": {r["source"]: {"count": r["cnt"], "total_uses": r["total_uses"] or 0} for r in rules},
-            }
+                "by_source": {
+                    r["source"]: {"count": r["cnt"], "total_uses": r["total_uses"] or 0}
+                    for r in rules
+                },
+            },
         }
 
-    def _auto_book_transaction(self, tx: BankTransaction, result: CategorizationResult) -> Optional[str]:
+    def _auto_book_transaction(
+        self, tx: BankTransaction, result: CategorizationResult
+    ) -> Optional[str]:
         """Create a voucher from a categorized bank transaction.
-        
+
         Uses the ledger service to create a proper double-entry voucher.
         """
         from services.ledger import LedgerService
-        
+
         ledger = LedgerService()
         amount = abs(tx.amount)
         is_expense = tx.amount < 0
-        
+
         # Determine the period
         period = ledger.periods.find_period_for_date(tx.transaction_date)
         if not period or not period.is_open():
@@ -307,16 +334,18 @@ class CategorizationService:
 
         # Build voucher rows
         rows = []
-        
+
         if is_expense:
             # Expense: Debit expense account, Credit bank account (1930)
-            rows.append({
-                "account_code": result.account_code,
-                "debit": amount,
-                "credit": 0,
-                "description": result.description,
-            })
-            
+            rows.append(
+                {
+                    "account_code": result.account_code,
+                    "debit": amount,
+                    "credit": 0,
+                    "description": result.description,
+                }
+            )
+
             # Add VAT row if applicable
             if result.vat_code and result.vat_code != "MF":
                 vat_rates = {"MP1": 0.25, "MP2": 0.12, "MP3": 0.06}
@@ -325,35 +354,43 @@ class CategorizationService:
                     # Recalculate: amount includes VAT
                     net_amount = int(amount / (1 + vat_rate))
                     vat_amount = amount - net_amount
-                    
+
                     # Adjust expense row
                     rows[0]["debit"] = net_amount
-                    
+
                     # Add VAT row (ingående moms)
-                    vat_account = {"MP1": "2640", "MP2": "2640", "MP3": "2640"}.get(result.vat_code, "2640")
-                    rows.append({
-                        "account_code": vat_account,
-                        "debit": vat_amount,
-                        "credit": 0,
-                        "description": f"Ingående moms {int(vat_rate*100)}%",
-                    })
-            
+                    vat_account = {"MP1": "2640", "MP2": "2640", "MP3": "2640"}.get(
+                        result.vat_code, "2640"
+                    )
+                    rows.append(
+                        {
+                            "account_code": vat_account,
+                            "debit": vat_amount,
+                            "credit": 0,
+                            "description": f"Ingående moms {int(vat_rate*100)}%",
+                        }
+                    )
+
             # Credit bank account
-            rows.append({
-                "account_code": "1930",  # Företagskonto
-                "debit": 0,
-                "credit": amount,
-                "description": result.description,
-            })
+            rows.append(
+                {
+                    "account_code": "1930",  # Företagskonto
+                    "debit": 0,
+                    "credit": amount,
+                    "description": result.description,
+                }
+            )
         else:
             # Income: Debit bank account (1930), Credit revenue account
-            rows.append({
-                "account_code": "1930",
-                "debit": amount,
-                "credit": 0,
-                "description": result.description,
-            })
-            
+            rows.append(
+                {
+                    "account_code": "1930",
+                    "debit": amount,
+                    "credit": 0,
+                    "description": result.description,
+                }
+            )
+
             # Add VAT row if applicable
             if result.vat_code and result.vat_code != "MF":
                 vat_rates = {"MP1": 0.25, "MP2": 0.12, "MP3": 0.06}
@@ -361,37 +398,47 @@ class CategorizationService:
                 if vat_rate > 0:
                     net_amount = int(amount / (1 + vat_rate))
                     vat_amount = amount - net_amount
-                    
+
                     # Revenue (net)
-                    rows.append({
-                        "account_code": result.account_code,
-                        "debit": 0,
-                        "credit": net_amount,
-                        "description": result.description,
-                    })
-                    
+                    rows.append(
+                        {
+                            "account_code": result.account_code,
+                            "debit": 0,
+                            "credit": net_amount,
+                            "description": result.description,
+                        }
+                    )
+
                     # Utgående moms
-                    vat_account = {"MP1": "2610", "MP2": "2620", "MP3": "2630"}.get(result.vat_code, "2610")
-                    rows.append({
-                        "account_code": vat_account,
-                        "debit": 0,
-                        "credit": vat_amount,
-                        "description": f"Utgående moms {int(vat_rate*100)}%",
-                    })
+                    vat_account = {"MP1": "2610", "MP2": "2620", "MP3": "2630"}.get(
+                        result.vat_code, "2610"
+                    )
+                    rows.append(
+                        {
+                            "account_code": vat_account,
+                            "debit": 0,
+                            "credit": vat_amount,
+                            "description": f"Utgående moms {int(vat_rate*100)}%",
+                        }
+                    )
                 else:
-                    rows.append({
+                    rows.append(
+                        {
+                            "account_code": result.account_code,
+                            "debit": 0,
+                            "credit": amount,
+                            "description": result.description,
+                        }
+                    )
+            else:
+                rows.append(
+                    {
                         "account_code": result.account_code,
                         "debit": 0,
                         "credit": amount,
                         "description": result.description,
-                    })
-            else:
-                rows.append({
-                    "account_code": result.account_code,
-                    "debit": 0,
-                    "credit": amount,
-                    "description": result.description,
-                })
+                    }
+                )
 
         voucher = ledger.create_voucher(
             series="A",
@@ -401,10 +448,10 @@ class CategorizationService:
             rows_data=rows,
             created_by="auto-categorization",
         )
-        
+
         # Auto-post the voucher
         ledger.post_voucher(voucher.id)
-        
+
         return voucher.id
 
     def _get_active_rules(self) -> List[CategorizationRule]:

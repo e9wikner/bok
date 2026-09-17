@@ -1,14 +1,13 @@
 """Tests for folder-based intake (the Syncthing dropzone)."""
 
-from pathlib import Path
 import os
 import unicodedata
+from pathlib import Path
 
 import pytest
 
 from api.routes.intake import get_dropzone_status
 from config import settings
-from db.database import db
 from domain.types import IntakeSourceType
 from repositories.account_repo import AccountRepository
 from repositories.bank_input_repo import BankInputRepository
@@ -24,8 +23,7 @@ from services.dropzone import (
 
 PDF_BYTES = b"%PDF-1.4 dropzone receipt"
 CSV_BYTES = (
-    "Datum;Beskrivning;Belopp;Saldo\n"
-    "2026-09-01;Kaffe;-45,00;1000,00\n"
+    "Datum;Beskrivning;Belopp;Saldo\n" "2026-09-01;Kaffe;-45,00;1000,00\n"
 ).encode("utf-8")
 
 
@@ -92,7 +90,9 @@ def _statement_account(code: str = "1930", name: str = "Företagskonto") -> None
 # --- 1: receipt folder -------------------------------------------------
 
 
-def test_pdf_in_kvitton_becomes_a_receipt_and_is_archived(test_db, scanner, dropzone_dir):
+def test_pdf_in_kvitton_becomes_a_receipt_and_is_archived(
+    test_db, scanner, dropzone_dir
+):
     _drop(dropzone_dir, "Kvitton/kvitto-taxi.pdf")
 
     result = scanner.scan_once()
@@ -113,7 +113,9 @@ def test_pdf_in_kvitton_becomes_a_receipt_and_is_archived(test_db, scanner, drop
 # --- 2: unknown folder -------------------------------------------------
 
 
-def test_file_in_unknown_folder_is_ingested_without_a_type(test_db, scanner, dropzone_dir):
+def test_file_in_unknown_folder_is_ingested_without_a_type(
+    test_db, scanner, dropzone_dir
+):
     _drop(dropzone_dir, "Diverse/underlag.pdf")
 
     scanner.scan_once()
@@ -124,7 +126,9 @@ def test_file_in_unknown_folder_is_ingested_without_a_type(test_db, scanner, dro
     assert _problem_files(dropzone_dir) == []
 
 
-def test_file_in_dropzone_root_is_ingested_without_a_type(test_db, scanner, dropzone_dir):
+def test_file_in_dropzone_root_is_ingested_without_a_type(
+    test_db, scanner, dropzone_dir
+):
     _drop(dropzone_dir, "underlag.pdf")
 
     scanner.scan_once()
@@ -195,14 +199,18 @@ def test_repeated_statements_reuse_one_connection(test_db, scanner, dropzone_dir
     assert len(connections) == 1
 
 
-def test_statement_for_missing_account_explains_how_to_fix_it(test_db, scanner, dropzone_dir):
+def test_statement_for_missing_account_explains_how_to_fix_it(
+    test_db, scanner, dropzone_dir
+):
     _drop(dropzone_dir, "Kontoutdrag/1630 Skattekonto/utdrag.csv", CSV_BYTES)
 
     result = scanner.scan_once()
 
     assert result.problems == 1
     assert not (dropzone_dir / "Kontoutdrag/1630 Skattekonto/utdrag.csv").exists()
-    note = next(p for p in _problem_files(dropzone_dir) if p.name.endswith(".problem.txt"))
+    note = next(
+        p for p in _problem_files(dropzone_dir) if p.name.endswith(".problem.txt")
+    )
     text = note.read_text(encoding="utf-8")
     assert "Konto 1630 finns inte i kontoplanen" in text
     assert "Lägg upp kontot i kontoplanen först" in text
@@ -230,7 +238,9 @@ def test_statement_for_revenue_account_is_rejected(test_db, scanner, dropzone_di
     scanner.scan_once()
 
     assert BankInputRepository().list_by_status(status=None, limit=10, offset=0) == []
-    note = next(p for p in _problem_files(dropzone_dir) if p.name.endswith(".problem.txt"))
+    note = next(
+        p for p in _problem_files(dropzone_dir) if p.name.endswith(".problem.txt")
+    )
     text = note.read_text(encoding="utf-8")
     assert "inte ett tillgångs- eller skuldkonto" in text
 
@@ -240,16 +250,22 @@ def test_statement_without_account_folder_is_rejected(test_db, scanner, dropzone
 
     scanner.scan_once()
 
-    note = next(p for p in _problem_files(dropzone_dir) if p.name.endswith(".problem.txt"))
+    note = next(
+        p for p in _problem_files(dropzone_dir) if p.name.endswith(".problem.txt")
+    )
     assert "undermapp som börjar med kontokoden" in note.read_text(encoding="utf-8")
 
 
-def test_statement_folder_without_account_code_is_rejected(test_db, scanner, dropzone_dir):
+def test_statement_folder_without_account_code_is_rejected(
+    test_db, scanner, dropzone_dir
+):
     _drop(dropzone_dir, "Kontoutdrag/Företagskontot/utdrag.csv", CSV_BYTES)
 
     scanner.scan_once()
 
-    note = next(p for p in _problem_files(dropzone_dir) if p.name.endswith(".problem.txt"))
+    note = next(
+        p for p in _problem_files(dropzone_dir) if p.name.endswith(".problem.txt")
+    )
     assert "börjar inte med en kontokod" in note.read_text(encoding="utf-8")
 
 
@@ -367,7 +383,9 @@ def test_oversized_file_is_moved_to_problem(test_db, scanner, dropzone_dir):
 
 
 def test_folder_message_becomes_agent_guidance(test_db, scanner, dropzone_dir):
-    _write(dropzone_dir, "Kvitton/_meddelande.txt", "Allt här är betalt med företagskort.")
+    _write(
+        dropzone_dir, "Kvitton/_meddelande.txt", "Allt här är betalt med företagskort."
+    )
     _drop(dropzone_dir, "Kvitton/kvitto.pdf")
 
     scanner.scan_once()
@@ -528,7 +546,9 @@ def test_unexpected_failure_leaves_the_file_and_the_scanner_alive(
 # --- 14: reserved folders ----------------------------------------------
 
 
-def test_ingested_and_problem_folders_are_never_rescanned(test_db, scanner, dropzone_dir):
+def test_ingested_and_problem_folders_are_never_rescanned(
+    test_db, scanner, dropzone_dir
+):
     _drop(dropzone_dir, f"{INGESTED_DIR_NAME}/2026-08/gammalt.pdf")
     _drop(dropzone_dir, f"{PROBLEM_DIR_NAME}/avvisat.pdf", PDF_BYTES + b" avvisat")
 
@@ -543,10 +563,14 @@ def test_ingested_and_problem_folders_are_never_rescanned(test_db, scanner, drop
 # --- bounded work ------------------------------------------------------
 
 
-def test_scan_processes_at_most_the_configured_batch(test_db, dropzone_dir, storage_dirs):
+def test_scan_processes_at_most_the_configured_batch(
+    test_db, dropzone_dir, storage_dirs
+):
     bounded = DropzoneScanner(quiet_seconds=0, max_files_per_scan=2)
     for index in range(5):
-        _drop(dropzone_dir, f"Kvitton/kvitto-{index}.pdf", PDF_BYTES + str(index).encode())
+        _drop(
+            dropzone_dir, f"Kvitton/kvitto-{index}.pdf", PDF_BYTES + str(index).encode()
+        )
 
     assert bounded.scan_once().ingested == 2
     assert len(_sources()) == 2
@@ -560,7 +584,9 @@ def test_failing_files_still_count_against_the_batch(
 ):
     bounded = DropzoneScanner(quiet_seconds=0, max_files_per_scan=2)
     for index in range(4):
-        _drop(dropzone_dir, f"Kvitton/kvitto-{index}.pdf", PDF_BYTES + str(index).encode())
+        _drop(
+            dropzone_dir, f"Kvitton/kvitto-{index}.pdf", PDF_BYTES + str(index).encode()
+        )
 
     def explode(self, path, filename, mime_type, content, route):
         raise RuntimeError("boom")
@@ -764,7 +790,9 @@ def test_duplicate_bank_input_is_also_tidied_away(test_db, scanner, dropzone_dir
 
     assert result.ingested == 1
     assert result.problems == 0
-    assert len(BankInputRepository().list_by_status(status=None, limit=10, offset=0)) == 1
+    assert (
+        len(BankInputRepository().list_by_status(status=None, limit=10, offset=0)) == 1
+    )
     assert len(_ingested_files(dropzone_dir)) == 2
 
 

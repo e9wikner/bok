@@ -1,8 +1,8 @@
 """Tests for intake source storage and processing APIs."""
 
-from datetime import date
 import hashlib
 import inspect
+from datetime import date
 from io import BytesIO
 from pathlib import Path
 
@@ -17,13 +17,14 @@ from api.routes.agent import (
     record_intake_failed,
 )
 from api.routes.intake import (
+    UpdateAgentGuidanceRequest,
     delete_intake_source,
     get_intake_source_file,
-    upload_intake_source,
+    get_intake_workspace_detail,
+    list_intake_workspace,
     update_intake_agent_guidance,
-    UpdateAgentGuidanceRequest,
+    upload_intake_source,
 )
-from api.routes.intake import get_intake_workspace_detail, list_intake_workspace
 from api.routes.vouchers import get_voucher_source_context
 from api.schemas import VoucherRowRequest
 from config import settings
@@ -32,13 +33,13 @@ from domain.types import IntakeSourceType, IntakeStatus
 from repositories.accounting_correction_repo import AccountingCorrectionRepository
 from repositories.intake_repo import IntakeRepository
 from repositories.voucher_repo import VoucherRepository
-from services.ledger import LedgerService
 from services.intake import (
     DuplicateIntakeSourceError,
     IntakeConflictError,
     IntakeFileAccessError,
     IntakeService,
 )
+from services.ledger import LedgerService
 
 
 @pytest.fixture
@@ -208,7 +209,9 @@ async def test_intake_upload_download_pending_and_soft_delete_api(
 
     with pytest.raises(HTTPException) as exc_info:
         await upload_intake_source(
-            file=_UploadFile("huge.pdf", "application/pdf", b"x" * (10 * 1024 * 1024 + 1)),
+            file=_UploadFile(
+                "huge.pdf", "application/pdf", b"x" * (10 * 1024 * 1024 + 1)
+            ),
             explanation=None,
             source_type="receipt",
             actor="api",
@@ -391,6 +394,7 @@ async def test_agent_voucher_posts_and_links_single_intake_source(
             ],
         ),
         actor="api",
+        idempotency_key=None,
     )
 
     assert response["status"] == "posted"
@@ -458,6 +462,7 @@ async def test_voucher_source_context_correction_chain_includes_reason(
             ],
         ),
         actor="api",
+        idempotency_key=None,
     )
     correction = AccountingCorrectionRepository.create(
         original_voucher_id=response["id"],
@@ -471,7 +476,9 @@ async def test_voucher_source_context_correction_chain_includes_reason(
         ledger=LedgerService(),
         actor="api",
     )
-    assert source_context["correction_chain"][0]["original_voucher_id"] == response["id"]
+    assert (
+        source_context["correction_chain"][0]["original_voucher_id"] == response["id"]
+    )
     assert source_context["correction_chain"][0]["correction_voucher_id"] == (
         correction.corrected_voucher_id
     )
@@ -504,6 +511,7 @@ async def test_agent_voucher_without_source_traceability_is_rejected(
                 ],
             ),
             actor="api",
+            idempotency_key=None,
         )
 
     assert exc_info.value.status_code == 400
@@ -539,12 +547,17 @@ async def test_agent_voucher_rejects_duplicate_intake_link(
             VoucherRowRequest(account="2610", debit=0, credit=2500),
         ],
     )
-    first = await create_and_post_agent_voucher(request, actor="api")
+    first = await create_and_post_agent_voucher(
+        request,
+        actor="api",
+        idempotency_key=None,
+    )
 
     with pytest.raises(HTTPException) as exc_info:
         await create_and_post_agent_voucher(
             request.model_copy(update={"description": "Duplicate booking attempt"}),
             actor="api",
+            idempotency_key=None,
         )
 
     assert exc_info.value.status_code == 409
@@ -590,6 +603,7 @@ async def test_agent_voucher_can_link_multiple_intake_sources(
             ],
         ),
         actor="api",
+        idempotency_key=None,
     )
 
     assert response["status"] == "posted"

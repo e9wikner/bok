@@ -10,10 +10,10 @@ Documentation: https://www.sie.se/sie4_format.pdf
 import re
 import uuid
 from calendar import monthrange
-from datetime import date, timedelta
-from typing import List, Dict, Optional
 from dataclasses import dataclass
+from datetime import date, timedelta
 from decimal import Decimal
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -198,7 +198,9 @@ class SIE4Parser:
                 elif line.startswith("#FORGN ") or line.startswith("#ORGNR "):
                     if not data.company:
                         data.company = SIECompany()
-                    data.company.org_number = self._parse_org_number(line.split(" ", 1)[1])
+                    data.company.org_number = self._parse_org_number(
+                        line.split(" ", 1)[1]
+                    )
 
                 elif line.startswith("#FADRESS ") or line.startswith("#ADRESS "):
                     if not data.company:
@@ -435,7 +437,7 @@ class SIE4Parser:
         if len(parts) > 2:
             try:
                 date_val = self._parse_date(parts[2])
-            except:
+            except Exception:
                 pass
 
         if len(parts) > 3:
@@ -478,7 +480,7 @@ class SIE4Parser:
         try:
             # SIE uses negative for credit, positive for debit
             amount = self._parse_amount(parts[amount_idx])
-        except:
+        except Exception:
             return None
 
         # Beskrivning är fält 4 (efter datum) relativt objektlistan
@@ -493,7 +495,7 @@ class SIE4Parser:
         if qty_idx < len(parts) and parts[qty_idx] != "__OBJ__":
             try:
                 quantity = Decimal(self._parse_string(parts[qty_idx]).replace(",", "."))
-            except:
+            except Exception:
                 pass
 
         return SIEVoucherRow(
@@ -569,9 +571,7 @@ class SIE4Importer:
             )
 
         requested = (
-            PeriodRepository.get_fiscal_year(fiscal_year_id)
-            if fiscal_year_id
-            else None
+            PeriodRepository.get_fiscal_year(fiscal_year_id) if fiscal_year_id else None
         )
         if fiscal_year_id and not requested:
             raise ValidationError(
@@ -798,7 +798,14 @@ class SIE4Importer:
                             (id, fiscal_year_id, account_code, sru_field, created_at, updated_at)
                         VALUES (?, ?, ?, ?, ?, ?)
                         """,
-                        (str(uuid.uuid4()), fiscal_year_id, account_code, sru_field, now, now),
+                        (
+                            str(uuid.uuid4()),
+                            fiscal_year_id,
+                            account_code,
+                            sru_field,
+                            now,
+                            now,
+                        ),
                     )
                 db.commit()
                 imported_count += 1
@@ -983,9 +990,7 @@ class SIE4Importer:
             self.errors.append(f"Failed to import opening balance voucher: {str(e)}")
             return False
 
-    def _find_existing_ib_voucher(
-        self, fiscal_year_id: Optional[str]
-    ):
+    def _find_existing_ib_voucher(self, fiscal_year_id: Optional[str]):
         """Find existing IB voucher for a fiscal year."""
         from repositories.voucher_repo import VoucherRepository
 

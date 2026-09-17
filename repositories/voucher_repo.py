@@ -1,11 +1,12 @@
 """Voucher repository - data access for vouchers."""
 
-from typing import Optional, List, Dict
-from datetime import datetime, date
 import uuid
+from datetime import date, datetime
+from typing import Dict, List, Optional
+
 from db.database import db
 from domain.models import Voucher, VoucherRow
-from domain.types import VoucherStatus, VoucherSeries
+from domain.types import VoucherSeries, VoucherStatus
 
 
 class VoucherRepository:
@@ -130,9 +131,9 @@ class VoucherRepository:
             period_id=row["period_id"],
             description=row["description"],
             status=VoucherStatus(row["status"]),
-            fiscal_year_id=row["fiscal_year_id"]
-            if "fiscal_year_id" in row.keys()
-            else None,
+            fiscal_year_id=(
+                row["fiscal_year_id"] if "fiscal_year_id" in row.keys() else None
+            ),
             rows=rows,
             correction_of=row["correction_of"],
             created_at=datetime.fromisoformat(row["created_at"]),
@@ -258,6 +259,7 @@ class VoucherRepository:
         series: str = "B",
         created_by: str = "system",
         period_id_override: str = None,
+        _commit: bool = True,
     ) -> Voucher:
         """Create correction voucher (B-series) for an original voucher.
 
@@ -304,7 +306,8 @@ class VoucherRepository:
                 now,
             ),
         )
-        db.commit()
+        if _commit:
+            db.commit()
 
         return Voucher(
             id=correction_id,

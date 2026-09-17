@@ -1,17 +1,22 @@
 """API routes for periods and fiscal years."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
 from datetime import date, timedelta
 
-from api.schemas import PeriodResponse, FiscalYearResponse
-from api.deps import get_ledger_service, get_current_actor
+from fastapi import APIRouter, Depends, HTTPException, status
+
+from api.deps import get_current_actor, get_ledger_service
+from api.schemas import FiscalYearResponse, PeriodResponse
 from domain.validation import ValidationError
 from services.ledger import LedgerService
 
 router = APIRouter(prefix="/api/v1", tags=["periods"])
 
 
-@router.post("/fiscal-years", response_model=FiscalYearResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/fiscal-years",
+    response_model=FiscalYearResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_fiscal_year(
     start_date: date,
     end_date: date,
@@ -19,52 +24,49 @@ async def create_fiscal_year(
 ):
     """
     Create fiscal year with automatic monthly periods.
-    
+
     Example: 2026-01-01 to 2026-12-31
     """
     try:
         if start_date >= end_date:
-            raise ValidationError(
-                "invalid_dates",
-                "start_date must be before end_date"
-            )
-        
+            raise ValidationError("invalid_dates", "start_date must be before end_date")
+
         fiscal_year = ledger.periods.create_fiscal_year(start_date, end_date)
-        
+
         # Create monthly periods clipped to the fiscal year's actual dates.
         # This supports shortened/extended fiscal years that start or end in
         # the middle of a calendar month.
         from calendar import monthrange
+
         current_start = start_date
         while current_start <= end_date:
             year = current_start.year
             month = current_start.month
-            
+
             # Get last day of month
             _, last_day = monthrange(year, month)
             period_end = min(date(year, month, last_day), end_date)
-            
+
             ledger.periods.create_period(
                 fiscal_year_id=fiscal_year.id,
                 year=year,
                 month=month,
                 start_date=current_start,
-                end_date=period_end
+                end_date=period_end,
             )
-            
+
             current_start = period_end + timedelta(days=1)
-        
+
         return _fiscal_year_to_response(fiscal_year)
-    
+
     except ValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": e.message, "code": e.code, "details": e.details}
+            detail={"error": e.message, "code": e.code, "details": e.details},
         )
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
 
 
@@ -77,12 +79,11 @@ async def list_fiscal_years(
         fiscal_years = ledger.periods.list_fiscal_years()
         return {
             "total": len(fiscal_years),
-            "fiscal_years": [_fiscal_year_to_response(fy) for fy in fiscal_years]
+            "fiscal_years": [_fiscal_year_to_response(fy) for fy in fiscal_years],
         }
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
 
 
@@ -96,20 +97,20 @@ async def get_fiscal_year(
         fy = ledger.periods.get_fiscal_year(fy_id)
         if not fy:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Fiscal year not found"
+                status_code=status.HTTP_404_NOT_FOUND, detail="Fiscal year not found"
             )
         return _fiscal_year_to_response(fy)
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
 
 
-@router.post("/periods", response_model=PeriodResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/periods", response_model=PeriodResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_period(
     fiscal_year_id: str,
     year: int,
@@ -120,7 +121,7 @@ async def create_period(
 ):
     """
     Create a single period for a fiscal year.
-    
+
     Used by SIE4 import when importing vouchers for months that don't have periods yet.
     """
     try:
@@ -129,13 +130,12 @@ async def create_period(
             year=year,
             month=month,
             start_date=start_date,
-            end_date=end_date
+            end_date=end_date,
         )
         return _period_to_response(period)
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
 
 
@@ -153,12 +153,11 @@ async def list_periods(
         return {
             "fiscal_year_id": fiscal_year_id,
             "total": len(periods),
-            "periods": [_period_to_response(p) for p in periods]
+            "periods": [_period_to_response(p) for p in periods],
         }
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
 
 
@@ -172,16 +171,14 @@ async def get_period(
         period = ledger.periods.get_period(period_id)
         if not period:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Period not found"
+                status_code=status.HTTP_404_NOT_FOUND, detail="Period not found"
             )
         return _period_to_response(period)
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
 
 
@@ -193,23 +190,22 @@ async def lock_period(
 ):
     """
     Lock period (irreversible - BFL varaktighet requirement).
-    
+
     All draft vouchers must be posted or deleted before locking.
     Once locked, no new vouchers can be added to this period.
     """
     try:
         period = ledger.lock_period(period_id, actor=actor)
         return _period_to_response(period)
-    
+
     except ValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": e.message, "code": e.code, "details": e.details}
+            detail={"error": e.message, "code": e.code, "details": e.details},
         )
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
 
 
@@ -221,7 +217,7 @@ def _fiscal_year_to_response(fy) -> FiscalYearResponse:
         end_date=fy.end_date,
         locked=fy.locked,
         locked_at=fy.locked_at,
-        created_at=fy.created_at
+        created_at=fy.created_at,
     )
 
 
@@ -236,5 +232,6 @@ def _period_to_response(period) -> PeriodResponse:
         end_date=period.end_date,
         locked=period.locked,
         locked_at=period.locked_at,
-        created_at=period.created_at
+        locked_by=period.locked_by,
+        created_at=period.created_at,
     )

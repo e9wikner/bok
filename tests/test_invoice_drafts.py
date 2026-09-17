@@ -117,7 +117,9 @@ def test_agent_invoice_draft_can_be_updated_sent_and_booked(test_db):
     assert booked.status == "sent"
     assert booked.approved_invoice_id
     assert booked.approved_voucher_id
-    assert result["pdf_url"] == f"/api/v1/export/pdf/invoice/{booked.approved_invoice_id}"
+    assert (
+        result["pdf_url"] == f"/api/v1/export/pdf/invoice/{booked.approved_invoice_id}"
+    )
 
     invoice = InvoiceRepository.get(booked.approved_invoice_id)
     assert invoice.voucher_id == booked.approved_voucher_id
@@ -129,9 +131,15 @@ def test_agent_invoice_draft_can_be_updated_sent_and_booked(test_db):
     assert voucher.status == VoucherStatus.POSTED
     assert sum(row.debit for row in voucher.rows) == 1800000
     assert sum(row.credit for row in voucher.rows) == 1800000
-    assert any(row.account_code == "1510" and row.debit == 1800000 for row in voucher.rows)
-    assert any(row.account_code == "3010" and row.credit == 1440000 for row in voucher.rows)
-    assert any(row.account_code == "2610" and row.credit == 360000 for row in voucher.rows)
+    assert any(
+        row.account_code == "1510" and row.debit == 1800000 for row in voucher.rows
+    )
+    assert any(
+        row.account_code == "3010" and row.credit == 1440000 for row in voucher.rows
+    )
+    assert any(
+        row.account_code == "2610" and row.credit == 360000 for row in voucher.rows
+    )
 
 
 def test_invoice_draft_send_rejects_terminal_statuses(test_db):

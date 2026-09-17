@@ -1,9 +1,9 @@
 """Tests for bank input storage, upload APIs, and agent bank context."""
 
+import hashlib
 from datetime import date
 from io import BytesIO
 from pathlib import Path
-import hashlib
 
 import pytest
 from fastapi import HTTPException
@@ -27,8 +27,8 @@ from config import settings
 from db.database import db
 from domain.types import BankInputStatus
 from repositories.account_repo import AccountRepository
-from repositories.intake_repo import IntakeRepository
 from repositories.bank_input_repo import BankInputRepository
+from repositories.intake_repo import IntakeRepository
 from repositories.voucher_repo import VoucherRepository
 from services.bank_inputs import (
     BankInputConflictError,
@@ -109,7 +109,9 @@ LANSFORSAKRINGAR_CSV = """"Kontonummer";"Kontonamn";"";"Saldo";"Tillgängligt be
 """
 
 
-def _agent_sale_request(period_id: str, amount: int = 10000, **kwargs) -> AgentVoucherRequest:
+def _agent_sale_request(
+    period_id: str, amount: int = 10000, **kwargs
+) -> AgentVoucherRequest:
     return AgentVoucherRequest(
         date=date(2026, 3, 1),
         period_id=period_id,
@@ -196,7 +198,9 @@ def test_bank_input_upload_requires_active_connection(test_db, bank_input_dir):
     assert getattr(exc_info.value, "code") == "bank_connection_not_found"
 
     conn = _active_connection()
-    db.execute("UPDATE bank_connections SET status = 'expired' WHERE id = ?", (conn.id,))
+    db.execute(
+        "UPDATE bank_connections SET status = 'expired' WHERE id = ?", (conn.id,)
+    )
     db.commit()
 
     with pytest.raises(Exception) as exc_info:
@@ -221,7 +225,9 @@ async def test_bank_input_connections_selector_returns_active_display_fields(tes
         iban="SE999",
         currency="SEK",
     )
-    db.execute("UPDATE bank_connections SET status = 'expired' WHERE id = ?", (inactive.id,))
+    db.execute(
+        "UPDATE bank_connections SET status = 'expired' WHERE id = ?", (inactive.id,)
+    )
     db.commit()
 
     response = await list_bank_input_connections(actor="api")
@@ -236,14 +242,18 @@ async def test_bank_input_connections_selector_returns_active_display_fields(tes
     assert all(item["id"].startswith("account:") for item in items[1:])
     assert "account:1930" in [item["id"] for item in items]
 
-    route_paths = [route.path for route in list_bank_input_connections.__globals__["router"].routes]
+    route_paths = [
+        route.path for route in list_bank_input_connections.__globals__["router"].routes
+    ]
     assert route_paths.index("/api/v1/bank-inputs/connections") < route_paths.index(
         "/api/v1/bank-inputs/{bank_input_id}"
     )
 
 
 @pytest.mark.asyncio
-async def test_bank_input_connections_selector_seeds_manual_options_from_active_accounts(test_db):
+async def test_bank_input_connections_selector_seeds_manual_options_from_active_accounts(
+    test_db,
+):
     if not AccountRepository.exists("1630"):
         AccountRepository.create("1630", "Skattekonto", "asset")
     if not AccountRepository.exists("1510"):
@@ -263,14 +273,16 @@ async def test_bank_input_connections_selector_seeds_manual_options_from_active_
     assert "1930" in account_numbers
     assert "2440" in account_numbers
     assert "8999" not in account_numbers
-    assert next(item for item in items if item["account_number"] == "1630")["display_name"] == (
-        "1630 - Skattekonto"
-    )
+    assert next(item for item in items if item["account_number"] == "1630")[
+        "display_name"
+    ] == ("1630 - Skattekonto")
     assert all(item["status"] == "active" for item in items)
 
 
 @pytest.mark.asyncio
-async def test_bank_input_connections_selector_merges_live_connections_and_manual_options(test_db):
+async def test_bank_input_connections_selector_merges_live_connections_and_manual_options(
+    test_db,
+):
     if not AccountRepository.exists("1630"):
         AccountRepository.create("1630", "Skattekonto", "asset")
 
@@ -285,7 +297,9 @@ async def test_bank_input_connections_selector_merges_live_connections_and_manua
 
 
 @pytest.mark.asyncio
-async def test_bank_input_connections_selector_deduplicates_live_connection_account_numbers(test_db):
+async def test_bank_input_connections_selector_deduplicates_live_connection_account_numbers(
+    test_db,
+):
     if not AccountRepository.exists("1930"):
         AccountRepository.create("1930", "Företagskonto", "asset")
 
@@ -318,7 +332,9 @@ def test_bank_input_service_rejects_non_csv(test_db, bank_input_dir):
     assert getattr(exc_info.value, "code") == "unsupported_bank_input_file"
 
 
-def test_bank_input_service_rejects_outside_root_stored_path(test_db, bank_input_dir, tmp_path):
+def test_bank_input_service_rejects_outside_root_stored_path(
+    test_db, bank_input_dir, tmp_path
+):
     conn = _active_connection()
     content = b"Datum;Belopp;Text\n2026-03-01;-100,00;Bankavgift"
     service = BankInputService()
@@ -401,7 +417,9 @@ def test_bank_input_service_rejects_deleting_processed_upload(test_db, bank_inpu
     assert BankInputRepository.get_bank_input(bank_input.id) is not None
 
 
-def test_bank_input_upload_records_duplicate_transaction_skip_count(test_db, bank_input_dir):
+def test_bank_input_upload_records_duplicate_transaction_skip_count(
+    test_db, bank_input_dir
+):
     conn = _active_connection()
 
     bank_input = BankInputService().create_from_upload_content(
@@ -554,7 +572,9 @@ async def test_bank_input_upload_rejects_non_balance_sheet_account(
 
 
 @pytest.mark.asyncio
-async def test_bank_input_connections_selector_omits_non_balance_sheet_accounts(test_db):
+async def test_bank_input_connections_selector_omits_non_balance_sheet_accounts(
+    test_db,
+):
     AccountRepository.create("3016", "Försäljning tjänster", "revenue")
     AccountRepository.create("5011", "Förbrukningsmaterial", "expense")
     if not AccountRepository.exists("2440"):
@@ -693,7 +713,9 @@ async def test_bank_input_upload_resolves_active_account_option_to_manual_connec
 
 
 @pytest.mark.asyncio
-async def test_bank_input_upload_rejects_inactive_account_option(test_db, bank_input_dir):
+async def test_bank_input_upload_rejects_inactive_account_option(
+    test_db, bank_input_dir
+):
     AccountRepository.create("8999", "Inaktivt konto", "expense", active=False)
 
     with pytest.raises(HTTPException) as exc_info:
@@ -810,7 +832,10 @@ async def test_intake_workspace_returns_voucher_sources_and_bank_inputs_with_fil
     assert "stored_path" not in repr(workspace)
 
     failed = await list_intake_workspace(status="failed", actor="api")
-    assert {item["id"] for item in failed["items"]} == {failed_source.id, failed_bank.id}
+    assert {item["id"] for item in failed["items"]} == {
+        failed_source.id,
+        failed_bank.id,
+    }
     assert {item["status"] for item in failed["items"]} == {"failed"}
 
     only_sources = await list_intake_workspace(kind="voucher_source", actor="api")
@@ -872,6 +897,7 @@ async def test_agent_bank_driven_posting_links_input_and_transaction(
             bank_transaction_ids=transaction_ids,
         ),
         actor="api",
+        idempotency_key=None,
     )
 
     assert response["status"] == "posted"
@@ -881,7 +907,9 @@ async def test_agent_bank_driven_posting_links_input_and_transaction(
     assert response["agent"]["traceability"]["bank_transaction_link_count"] == 1
 
     input_links = BankInputRepository.list_inputs_for_voucher(response["id"])
-    transaction_links = BankInputRepository.list_transactions_for_voucher(response["id"])
+    transaction_links = BankInputRepository.list_transactions_for_voucher(
+        response["id"]
+    )
     assert [link.bank_input_id for link in input_links] == [bank_input.id]
     assert [link.bank_transaction_id for link in transaction_links] == transaction_ids
 
@@ -919,6 +947,7 @@ async def test_agent_bank_driven_posting_can_use_multiple_transactions(
             bank_transaction_ids=transaction_ids,
         ),
         actor="api",
+        idempotency_key=None,
     )
 
     assert response["status"] == "posted"
@@ -943,6 +972,7 @@ async def test_source_context_only_lists_transactions_linked_to_voucher(
             bank_transaction_ids=[transaction_ids[0]],
         ),
         actor="api",
+        idempotency_key=None,
     )
 
     source_context = await get_voucher_source_context(
@@ -953,7 +983,9 @@ async def test_source_context_only_lists_transactions_linked_to_voucher(
     bank_source = source_context["source_material"][0]
     assert bank_source["transaction_ids"] == [transaction_ids[0]]
     assert bank_source["transaction_count"] == 1
-    assert source_context["processing_notes"][0]["transaction_ids"] == [transaction_ids[0]]
+    assert source_context["processing_notes"][0]["transaction_ids"] == [
+        transaction_ids[0]
+    ]
 
 
 @pytest.mark.asyncio
@@ -971,14 +1003,19 @@ async def test_agent_bank_driven_posting_deduplicates_transaction_ids(
             bank_transaction_ids=duplicated_ids,
         ),
         actor="api",
+        idempotency_key=None,
     )
 
     assert response["status"] == "posted"
     assert response["agent"]["bank_transaction_ids"] == [transaction_ids[0]]
     assert response["agent"]["traceability"]["bank_transaction_link_count"] == 1
     assert response["agent"]["traceability"]["booked_transaction_count"] == 1
-    transaction_links = BankInputRepository.list_transactions_for_voucher(response["id"])
-    assert [link.bank_transaction_id for link in transaction_links] == [transaction_ids[0]]
+    transaction_links = BankInputRepository.list_transactions_for_voucher(
+        response["id"]
+    )
+    assert [link.bank_transaction_id for link in transaction_links] == [
+        transaction_ids[0]
+    ]
 
 
 @pytest.mark.asyncio
@@ -1006,6 +1043,7 @@ async def test_agent_posting_rolls_back_voucher_when_traceability_link_fails(
         await create_and_post_agent_voucher(
             _agent_sale_request(test_period.id, bank_input_ids=[bank_input.id]),
             actor="api",
+            idempotency_key=None,
         )
 
     assert exc_info.value.detail["code"] == "forced_traceability_failure"
@@ -1037,6 +1075,7 @@ async def test_agent_posting_updates_next_year_opening_balances_after_commit(
     response = await create_and_post_agent_voucher(
         _agent_sale_request(test_period.id, bank_input_ids=[bank_input.id]),
         actor="api",
+        idempotency_key=None,
     )
 
     assert response["status"] == "posted"
@@ -1067,13 +1106,20 @@ async def test_agent_bank_driven_posting_can_link_ordinary_intake_source(
             intake_source_ids=[source.id],
         ),
         actor="api",
+        idempotency_key=None,
     )
 
     assert response["status"] == "posted"
     assert response["agent"]["intake_source_ids"] == [source.id]
     assert response["agent"]["processing_attempt_ids"]
-    assert IntakeRepository.list_links_for_voucher(response["id"])[0].intake_source_id == source.id
-    assert BankInputRepository.list_inputs_for_voucher(response["id"])[0].bank_input_id == bank_input.id
+    assert (
+        IntakeRepository.list_links_for_voucher(response["id"])[0].intake_source_id
+        == source.id
+    )
+    assert (
+        BankInputRepository.list_inputs_for_voucher(response["id"])[0].bank_input_id
+        == bank_input.id
+    )
 
 
 @pytest.mark.asyncio
@@ -1089,6 +1135,7 @@ async def test_agent_rejects_booked_bank_transaction_without_creating_voucher(
             bank_transaction_ids=transaction_ids,
         ),
         actor="api",
+        idempotency_key=None,
     )
     _, before_count = VoucherRepository.list_all()
 
@@ -1100,6 +1147,7 @@ async def test_agent_rejects_booked_bank_transaction_without_creating_voucher(
                 bank_transaction_ids=transaction_ids,
             ),
             actor="api",
+            idempotency_key=None,
         )
 
     assert first["status"] == "posted"
@@ -1122,6 +1170,7 @@ async def test_agent_rejects_matched_bank_transaction_without_creating_voucher(
             bank_transaction_ids=transaction_ids,
         ),
         actor="api",
+        idempotency_key=None,
     )
     db.execute(
         "UPDATE bank_transactions SET status = 'pending', matched_voucher_id = ? WHERE id = ?",
@@ -1138,6 +1187,7 @@ async def test_agent_rejects_matched_bank_transaction_without_creating_voucher(
                 bank_transaction_ids=transaction_ids,
             ),
             actor="api",
+            idempotency_key=None,
         )
 
     assert exc_info.value.status_code == 409
@@ -1165,6 +1215,7 @@ async def test_agent_rejects_unlinked_bank_transaction_before_voucher_creation(
                 bank_transaction_ids=other_transaction_ids,
             ),
             actor="api",
+            idempotency_key=None,
         )
 
     assert other_input.id != bank_input.id

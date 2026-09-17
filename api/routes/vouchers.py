@@ -1,8 +1,13 @@
 """API routes for vouchers."""
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status as http_status
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 
+from api.deps import get_current_actor, get_idempotency_key, get_ledger_service
 from api.schemas import (
     ApproveCorrectionNoteRequest,
     CorrectionDraftRequest,
@@ -17,20 +22,23 @@ from api.schemas import (
     VoucherResponse,
     VoucherRowResponse,
 )
-from api.deps import get_ledger_service, get_current_actor
+from db.database import db
 from domain.validation import ValidationError
-from services.ledger import LedgerService
+from repositories.account_repo import AccountRepository
 from repositories.accounting_correction_repo import AccountingCorrectionRepository
 from repositories.audit_repo import AuditRepository
-from repositories.account_repo import AccountRepository
 from repositories.bank_input_repo import BankInputRepository
 from repositories.intake_repo import IntakeRepository
 from services.correction_notes import CorrectionNoteError, CorrectionNoteService
+from services.idempotency import IdempotencyOutcome, IdempotencyService
+from services.ledger import LedgerService
 
 router = APIRouter(prefix="/api/v1/vouchers", tags=["vouchers"])
 
 
-@router.get("/{voucher_id}/correction-notes", response_model=list[CorrectionNoteResponse])
+@router.get(
+    "/{voucher_id}/correction-notes", response_model=list[CorrectionNoteResponse]
+)
 async def list_correction_notes(
     voucher_id: str,
     actor: str = Depends(get_current_actor),
@@ -202,7 +210,10 @@ async def dismiss_correction_note(
         )
 
 
-@router.post("/{voucher_id}/correction-notes/{note_id}/reject", response_model=CorrectionNoteResponse)
+@router.post(
+    "/{voucher_id}/correction-notes/{note_id}/reject",
+    response_model=CorrectionNoteResponse,
+)
 async def reject_correction_note(
     voucher_id: str,
     note_id: str,
@@ -339,7 +350,9 @@ async def get_voucher_source_context(
         bank_input = bank_repo.get_bank_input(link.bank_input_id)
         if not bank_input:
             continue
-        transaction_ids_for_input = set(bank_repo.list_transaction_ids_for_input(bank_input.id))
+        transaction_ids_for_input = set(
+            bank_repo.list_transaction_ids_for_input(bank_input.id)
+        )
         transaction_ids = [
             tx_link.bank_transaction_id
             for tx_link in voucher_transaction_links
@@ -438,14 +451,49 @@ async def post_voucher(
         return _voucher_to_response(voucher)
 
     except ValidationError as e:
-        raise HTTPException(
-            status_code=http_status.HTTP_400_BAD_REQUEST,
-            detail={"error": e.message, "code": e.code, "details": e.details},
-        )
+        raise _posting_http_error(e, ledger, voucher_id)
     except Exception as e:
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
+
+
+def _posting_http_error(
+    exc: ValidationError,
+    ledger: LedgerService,
+    voucher_id: str,
+) -> HTTPException:
+    """Map a posting failure onto a status code (SPEC-idempotens §6).
+
+    Two of them are conflicts, not bad requests: the request was valid and the
+    ledger is simply already in a state that settles it. A client retrying
+    after a timeout has to be able to render the done state, not an error.
+    """
+    detail = {"error": exc.message, "code": exc.code, "details": exc.details}
+
+    if exc.code == "already_posted":
+        voucher = ledger.vouchers.get(voucher_id)
+        if voucher:
+            detail["voucher"] = jsonable_encoder(_voucher_to_response(voucher))
+        return HTTPException(status_code=http_status.HTTP_409_CONFLICT, detail=detail)
+
+    if exc.code == "period_locked":
+        voucher = ledger.vouchers.get(voucher_id)
+        period = ledger.periods.get_period(voucher.period_id) if voucher else None
+        if period:
+            detail["period_id"] = period.id
+            detail["locked_at"] = (
+                period.locked_at.isoformat() if period.locked_at else None
+            )
+            # A lock from before migration 023 has no recorded actor. The API
+            # says so rather than guessing who it was.
+            detail["locked_by"] = period.locked_by or "okänd"
+        return HTTPException(status_code=http_status.HTTP_409_CONFLICT, detail=detail)
+
+    return HTTPException(
+        status_code=http_status.HTTP_400_BAD_REQUEST,
+        detail=detail,
+    )
 
 
 @router.post("/{voucher_id}/correct", response_model=VoucherResponse)
@@ -454,17 +502,130 @@ async def correct_voucher(
     request: CorrectVoucherRequest,
     ledger: LedgerService = Depends(get_ledger_service),
     actor: str = Depends(get_current_actor),
+    idempotency_key: Optional[str] = Depends(get_idempotency_key),
 ):
-    """Correct a posted voucher by creating and posting a B-series correction."""
-    try:
-        rows_data = [r.model_dump() for r in request.corrected_rows]
-        correction = ledger.create_posted_correction(
-            original_voucher_id=voucher_id,
-            corrected_rows=rows_data,
-            reason=request.reason,
+    """Correct a posted voucher by creating and posting a B-series correction.
+
+    A correction is exactly what a caller repeats after a timeout, so the same
+    key twice must leave one B-series voucher behind (SPEC-idempotens §12.4).
+    """
+    idempotency = IdempotencyService()
+    endpoint = _correct_endpoint(voucher_id)
+    reserved = False
+
+    if idempotency_key:
+        outcome = idempotency.begin(
+            key=idempotency_key,
+            endpoint=endpoint,
+            body=jsonable_encoder(request),
             actor=actor,
         )
-        return _voucher_to_response(correction)
+        if outcome.kind == IdempotencyOutcome.REPLAY:
+            return JSONResponse(
+                status_code=outcome.response_status or http_status.HTTP_200_OK,
+                content=outcome.response_payload,
+                headers={"Idempotent-Replay": "true"},
+            )
+        if outcome.kind == IdempotencyOutcome.MISMATCH:
+            raise HTTPException(
+                status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "error": "Idempotency-Key already used for a different request",
+                    "code": "idempotency_key_reuse",
+                    "details": "The same key must carry the same request body",
+                    "original_fingerprint": outcome.original_fingerprint,
+                },
+            )
+        if outcome.kind == IdempotencyOutcome.IN_FLIGHT:
+            raise HTTPException(
+                status_code=http_status.HTTP_409_CONFLICT,
+                detail={
+                    "error": "A request with this Idempotency-Key is in flight",
+                    "code": "request_in_flight",
+                    "details": "Retry with the same key to get the stored response",
+                    "retry_after_ms": 500,
+                },
+            )
+        reserved = True
+
+    try:
+        return _correct_and_record(
+            voucher_id=voucher_id,
+            request=request,
+            ledger=ledger,
+            actor=actor,
+            idempotency=idempotency,
+            idempotency_key=idempotency_key,
+            endpoint=endpoint,
+        )
+    except Exception:
+        if reserved and idempotency_key:
+            idempotency.release(idempotency_key, endpoint)
+        raise
+
+
+def _correct_endpoint(voucher_id: str) -> str:
+    """The key is scoped to the voucher being corrected.
+
+    Two vouchers corrected under the same key are two intents, and the
+    fingerprint covers the body only — so the voucher id lives in the endpoint.
+    """
+    return f"POST /api/v1/vouchers/{voucher_id}/correct"
+
+
+def _correct_and_record(
+    voucher_id: str,
+    request: CorrectVoucherRequest,
+    ledger: LedgerService,
+    actor: str,
+    idempotency: IdempotencyService,
+    idempotency_key: Optional[str],
+    endpoint: str,
+) -> VoucherResponse:
+    """B-series voucher, correction history and key row, in one transaction."""
+    try:
+        rows_data = [r.model_dump() for r in request.corrected_rows]
+        fiscal_year_id = None
+        with db.transaction():
+            correction = ledger.create_posted_correction(
+                original_voucher_id=voucher_id,
+                corrected_rows=rows_data,
+                reason=request.reason,
+                actor=actor,
+                _commit=False,
+            )
+            response = _voucher_to_response(correction)
+            fiscal_year_id = correction.fiscal_year_id
+
+            # The key row commits with the correction. Written afterwards it
+            # would leave a window where the B-series voucher exists but the
+            # key does not — the hole this module closes.
+            if idempotency_key:
+                idempotency.complete(
+                    key=idempotency_key,
+                    endpoint=endpoint,
+                    response_status=http_status.HTTP_200_OK,
+                    response_payload=jsonable_encoder(response),
+                    entity_type="voucher",
+                    entity_id=correction.id,
+                    _commit=False,
+                )
+
+        # Posting inside a transaction skips the opening-balance trigger in
+        # LedgerService.post_voucher, so it runs here instead: after the
+        # commit and best-effort, as in api/routes/agent.py.
+        if fiscal_year_id:
+            try:
+                from services.opening_balance import OpeningBalanceService
+
+                OpeningBalanceService().update_opening_balances_for_next_year(
+                    fiscal_year_id,
+                    actor,
+                )
+            except Exception:
+                pass
+
+        return response
     except ValidationError as e:
         raise HTTPException(
             status_code=http_status.HTTP_400_BAD_REQUEST,
@@ -734,9 +895,11 @@ def _voucher_to_response(voucher) -> VoucherResponse:
                 voucher_id=row.voucher_id,
                 account=row.account_code,
                 account_code=row.account_code,
-                account_name=account_names[row.account_code].name
-                if row.account_code in account_names
-                else None,
+                account_name=(
+                    account_names[row.account_code].name
+                    if row.account_code in account_names
+                    else None
+                ),
                 debit=row.debit,
                 credit=row.credit,
                 description=row.description,

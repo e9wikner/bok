@@ -1,12 +1,13 @@
 """API routes for PDF export of invoices and financial reports."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import Response
 from typing import Optional
 
-from repositories.period_repo import PeriodRepository
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
+
 from domain.validation import ValidationError
-from services.pdf_export import PDFExportService, CompanyInfo
+from repositories.period_repo import PeriodRepository
+from services.pdf_export import CompanyInfo, PDFExportService
 
 router = APIRouter(prefix="/api/v1/export/pdf", tags=["export-pdf"])
 
@@ -73,6 +74,7 @@ def _resolve_period_id(fiscal_year_id: str, month: Optional[int] = None) -> str:
 
 # ---- Invoice PDF ----
 
+
 @router.get("/invoice/{invoice_id}")
 async def export_invoice_pdf(
     invoice_id: str,
@@ -80,7 +82,7 @@ async def export_invoice_pdf(
 ):
     """
     Exportera faktura som PDF.
-    
+
     Genererar professionell faktura-PDF med:
     - Företagslogga och information
     - Svenska termer (Fakturadatum, Förfallodatum, etc.)
@@ -141,6 +143,7 @@ async def export_payslip_html(
 
 # ---- General Ledger PDF ----
 
+
 @router.get("/general-ledger/{account_code}")
 async def export_general_ledger_pdf(
     account_code: str,
@@ -149,7 +152,7 @@ async def export_general_ledger_pdf(
 ):
     """
     Exportera huvudbok per konto som PDF.
-    
+
     Visar alla transaktioner för ett specifikt konto under given period.
     """
     try:
@@ -166,6 +169,7 @@ async def export_general_ledger_pdf(
 
 # ---- Income Statement PDF ----
 
+
 @router.get("/income-statement/{period_id}")
 async def export_income_statement_pdf(
     period_id: str,
@@ -173,7 +177,7 @@ async def export_income_statement_pdf(
 ):
     """
     Exportera resultaträkning som PDF.
-    
+
     Visar intäkter, kostnader och resultat för given period.
     """
     try:
@@ -199,7 +203,9 @@ async def export_income_statement_pdf_for_fiscal_year(
         period_id = _resolve_period_id(fiscal_year_id, month)
         pdf_bytes = pdf_service.export_income_statement(period_id)
         suffix = f"{month:02d}" if month else "helaar"
-        return _pdf_response(pdf_bytes, f"resultatrakning_{fiscal_year_id}_{suffix}.pdf")
+        return _pdf_response(
+            pdf_bytes, f"resultatrakning_{fiscal_year_id}_{suffix}.pdf"
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except Exception as e:
@@ -211,6 +217,7 @@ async def export_income_statement_pdf_for_fiscal_year(
 
 # ---- Balance Sheet PDF ----
 
+
 @router.get("/balance-sheet/{period_id}")
 async def export_balance_sheet_pdf(
     period_id: str,
@@ -218,7 +225,7 @@ async def export_balance_sheet_pdf(
 ):
     """
     Exportera balansräkning som PDF.
-    
+
     Visar tillgångar, eget kapital och skulder per balansdatum.
     """
     try:
@@ -256,6 +263,7 @@ async def export_balance_sheet_pdf_for_fiscal_year(
 
 # ---- K2 Report PDF ----
 
+
 @router.get("/k2-report/{fiscal_year_id}")
 async def export_k2_report_pdf(
     fiscal_year_id: str,
@@ -268,7 +276,7 @@ async def export_k2_report_pdf(
 ):
     """
     Exportera K2-årsredovisning som PDF.
-    
+
     Komplett årsredovisning enligt K2-regelverket med:
     - Förvaltningsberättelse
     - Resultaträkning
@@ -295,6 +303,7 @@ async def export_k2_report_pdf(
 
 
 # ---- HTML Export (Fallback) ----
+
 
 def _html_response(html_str: str, filename: str) -> Response:
     """Wrap HTML in a downloadable response."""

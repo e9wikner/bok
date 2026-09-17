@@ -41,7 +41,9 @@ async def create_article(
         article = ArticleService().create_article(**request.model_dump())
         return _article_to_dict(article)
     except ValidationError as exc:
-        raise HTTPException(status_code=400, detail={"code": exc.code, "error": exc.message})
+        raise HTTPException(
+            status_code=400, detail={"code": exc.code, "error": exc.message}
+        )
 
 
 def _article_to_dict(article) -> dict:
