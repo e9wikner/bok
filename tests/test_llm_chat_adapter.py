@@ -26,7 +26,7 @@ from typing import Any
 
 import openai
 import pytest
-from openai.types.chat import ChatCompletion
+from openai.types.chat import ChatCompletion, ChatCompletionChunk
 
 from services.llm import (
     LLMCapabilities,
@@ -39,6 +39,7 @@ from services.llm.chat import (
     MalformedToolArgumentsError,
     UnrecognizedFinishReasonError,
     UnsupportedContentBlockError,
+    _ChatStreamDispatcher,
 )
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "llm_chat"
@@ -468,6 +469,9 @@ class TestCapabilities:
             cache_breakpoint=False,
             pdf_document_blocks=False,
             refusal_stop_reason=False,
+            # SPEC-tradar.md §12.1 / task T5: both adapters stream, each
+            # through its own SDK's streaming helper.
+            streaming=True,
         )
 
 
@@ -759,3 +763,140 @@ class TestOpenaiImportBoundary:
                 offenders.append(str(path.relative_to(repo_root)))
 
         assert offenders == []
+
+
+# --- T5 (SPEC-tradar.md §12.1): streaming hooks ------------------------------
+#
+# `on_text`/`on_tool_call` on `run_turn`, and the pure dispatcher behind
+# them. These live here rather than in `tests/test_tradar.py` because they
+# assert against this SDK's own event types, and SPEC §4/§10's import
+# boundary allows that in this file alone (see `TestOpenaiImportBoundary`
+# for the check that enforces it).
+
+
+class _StubChunkEvent:
+    """Stands in for the SDK's `ChunkEvent` -- the dispatcher reads only
+    `.type` and `.chunk`, and the real event type is not constructible
+    without a full stream state."""
+
+    type = "chunk"
+
+    def __init__(self, chunk: ChatCompletionChunk) -> None:
+        self.chunk = chunk
+
+
+class TestChatAdapterStreamDispatch:
+    """The same, for the Chat Completions protocol."""
+
+    @staticmethod
+    def _chunk_event(content=None, tool_calls=None, index: int = 0):
+        delta: dict = {}
+        if content is not None:
+            delta["content"] = content
+        if tool_calls is not None:
+            delta["tool_calls"] = tool_calls
+        chunk = ChatCompletionChunk.model_validate(
+            {
+                "id": "chatcmpl-1",
+                "object": "chat.completion.chunk",
+                "created": 1,
+                "model": "opencode/gpt-5.5",
+                "choices": [{"index": index, "delta": delta, "finish_reason": None}],
+            }
+        )
+
+        return _StubChunkEvent(chunk)
+
+    def test_content_deltas_reach_on_text(self):
+        dispatcher = _ChatStreamDispatcher(on_text=(seen := []).append)
+
+        dispatcher.dispatch(self._chunk_event(content="Jag "))
+        dispatcher.dispatch(self._chunk_event(content="bokför."))
+
+        assert seen == ["Jag ", "bokför."]
+
+    def test_a_tool_call_is_announced_once_not_per_argument_fragment(self):
+        """The wire sends the name on the first chunk of a call and then
+        streams its arguments. `SkriverIndikator` must not flicker through
+        the same name a dozen times."""
+        dispatcher = _ChatStreamDispatcher(on_tool_call=(seen := []).append)
+        first = [
+            {
+                "index": 0,
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "posta_verifikation", "arguments": ""},
+            }
+        ]
+        rest = [{"index": 0, "function": {"arguments": '{"perio'}}]
+
+        dispatcher.dispatch(self._chunk_event(tool_calls=first))
+        dispatcher.dispatch(self._chunk_event(tool_calls=rest))
+        dispatcher.dispatch(self._chunk_event(tool_calls=rest))
+
+        assert seen == ["posta_verifikation"]
+
+    def test_two_different_tool_calls_are_both_announced(self):
+        dispatcher = _ChatStreamDispatcher(on_tool_call=(seen := []).append)
+
+        dispatcher.dispatch(
+            self._chunk_event(
+                tool_calls=[
+                    {
+                        "index": 0,
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": "las_kontoplan", "arguments": ""},
+                    }
+                ]
+            )
+        )
+        dispatcher.dispatch(
+            self._chunk_event(
+                tool_calls=[
+                    {
+                        "index": 1,
+                        "id": "c2",
+                        "type": "function",
+                        "function": {"name": "las_perioder", "arguments": ""},
+                    }
+                ]
+            )
+        )
+
+        assert seen == ["las_kontoplan", "las_perioder"]
+
+    def test_a_usage_only_chunk_with_no_choices_is_ignored(self):
+        """`stream_options={"include_usage": True}` appends a final chunk
+        that carries usage and an empty `choices` list."""
+        dispatcher = _ChatStreamDispatcher(on_text=(seen := []).append)
+        chunk = ChatCompletionChunk.model_validate(
+            {
+                "id": "chatcmpl-1",
+                "object": "chat.completion.chunk",
+                "created": 1,
+                "model": "opencode/gpt-5.5",
+                "choices": [],
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 2,
+                    "total_tokens": 12,
+                },
+            }
+        )
+
+        dispatcher.dispatch(_StubChunkEvent(chunk))
+
+        assert seen == []
+
+    def test_non_chunk_events_are_ignored(self):
+        dispatcher = _ChatStreamDispatcher(
+            on_text=(seen := []).append, on_tool_call=seen.append
+        )
+
+        class _Other:
+            type = "content.done"
+
+        dispatcher.dispatch(_Other())
+
+        assert seen == []

@@ -375,11 +375,38 @@ class AgentLastRunResponse(BaseModel):
 
 
 class AgentStatusResponse(BaseModel):
-    """`GET /api/v1/agent/status` (SPEC §8). Never carries the LLM gateway's
-    API key setting (SPEC §12.6) -- see the route's docstring for the
-    guarantee and the test that pins it.
+    """`GET /api/v1/agent/status` (SPEC-agentruntime §8, SPEC-tradar.md §7).
+
+    Never carries the LLM gateway's API key setting (SPEC-agentruntime
+    §12.6) -- see the route's docstring for the guarantee and the test that
+    pins it.
+
+    The four fields `datakontrakt.md` §7 asks for -- `state`, `since`,
+    `current_task`, `paused_reason` -- were added by SPEC-tradar.md T12.
+    The pre-existing fields were **not** removed alongside them: this
+    endpoint already has a consumer, and `enabled`/`running` answer a
+    different question than `state` does (is the machinery on, versus what
+    is it doing).
+
+    The mode is **global, not per view** (SPEC-tradar.md §7): one worker,
+    one flock, one budget.
     """
 
+    #: One of `arbetar` / `postar` / `pausad` / `vilande`
+    #: (`services.agent_runtime.agent_state`). `komponenter.md`'s
+    #: `AgentStatus` names the first three; the fourth is the ordinary case
+    #: of nothing happening, which the design draws as no indicator at all.
+    state: str
+    #: When the current state began: the running pass's `started_at`, or
+    #: `None` when nothing is running. What `AgentStatus` renders as "sedan".
+    since: Optional[DateTimeType] = None
+    #: The live tool name, e.g. `posta_verifikation` -- what
+    #: `SkriverIndikator` says instead of being "en anonym spinner". `None`
+    #: between items. Possible only since T5's streaming hook.
+    current_task: Optional[str] = None
+    #: Why the agent is paused, for as long as it is paused -- "inte bara i
+    #: felinlägget" (`komponenter.md`). `None` when it is not.
+    paused_reason: Optional[str] = None
     enabled: bool
     running: bool
     current_run: Optional[AgentCurrentRunResponse] = None
@@ -388,6 +415,119 @@ class AgentStatusResponse(BaseModel):
     cost_today_ore: int
     budget_today_ore: int
     last_error: Optional[str] = None
+
+
+# Thread Schemas (SPEC-tradar.md §1, §6.2 — `datakontrakt.md` §1)
+
+
+class ThreadPostResponse(BaseModel):
+    """One post in a thread, in the shape `datakontrakt.md` §1 asks for:
+    "Varje inlägg bär `id`, `created_at`, `actor` (`agent` eller användarens
+    namn) och valfria `traces[]` (spårchipsen)."
+
+    `seq` is the cursor a client passes back as `?since=` — dense and
+    ascending per thread, so "what I missed" is a comparison, not a guess.
+    `body` is the type's own payload; the eight shapes are SPEC-tradar.md
+    §6.2's table and are deliberately not eight Pydantic models here, since
+    the client renders one component per `type` and the server would gain
+    nothing but a second place to keep them in step.
+    """
+
+    id: str
+    seq: int
+    type: str
+    actor: str
+    created_at: DateTimeType
+    body: dict
+    traces: Optional[List[dict]] = None
+    run_id: Optional[str] = None
+
+
+class ThreadResponse(BaseModel):
+    """`GET /api/v1/threads/{view_key}` — posts in order, oldest first.
+
+    `fiscal_year_id` says which year's thread this is: one thread per view
+    and fiscal year (decision §12.3), so a client that wants an older one
+    asks for it by id. `archive_fiscal_year_ids` is what it may ask for,
+    newest first — the thread resets at the turn of the year, and older ones
+    are reachable rather than gone.
+
+    `thread_id` is `None` when nothing has been said in this view this year
+    yet. That is an empty thread, not an error: a thread is created by the
+    first message, and a `GET` is a pure read that creates nothing.
+    """
+
+    view_key: str
+    thread_id: Optional[str] = None
+    fiscal_year_id: Optional[str] = None
+    model: Optional[str] = None
+    posts: List[ThreadPostResponse] = Field(default_factory=list)
+    cursor: int = 0
+    archive_fiscal_year_ids: List[str] = Field(default_factory=list)
+
+
+class ThreadModelRequest(BaseModel):
+    """`PUT /api/v1/threads/{view_key}/model` — the human's model choice.
+
+    Decision §12.4: `threads.model` is where the choice is stored, and
+    `agent_runs.model`/`.protocol` per run is what makes a switch mid-thread
+    visible afterwards, without a new table.
+    """
+
+    model: str = Field(..., min_length=1)
+
+
+class ThreadModelResponse(BaseModel):
+    """What a thread's model can and cannot do (§12.4).
+
+    The protocol differences travel up and are **shown**: a thread on a Chat
+    Completions model cannot read a PDF underlag directly and has no cache
+    economy. "Det är en produktsanning, inte en detalj att dölja."
+    """
+
+    thread_id: str
+    view_key: str
+    model: str
+    protocol: str
+    reads_pdf_documents: bool
+    has_cache_economy: bool
+    streams: bool
+    limitations: List[str] = Field(default_factory=list)
+
+
+class ThreadMessageRequest(BaseModel):
+    """`POST /api/v1/threads/{view_key}/messages` — `{ text, attachments[] }`.
+
+    `attachments` are ids of intake sources already uploaded through
+    `POST /api/v1/intake`, never the bytes themselves: the file already has a
+    path, a hash and an audit trail there, and a second copy inside a thread
+    post would have none of those (SPEC-tradar.md §6.2, "Base64 kommer
+    aldrig in i ett inlägg").
+
+    This is also the **decision channel**. `README.md`: "Beslutskortets
+    primärknapp är aldrig den enda vägen: samma beslut ska gå att uttrycka i
+    text i chattfältet."
+    """
+
+    text: str = Field(..., min_length=1)
+    attachments: List[str] = Field(default_factory=list)
+
+
+class ThreadMessageResponse(BaseModel):
+    """What `POST .../messages` answers with, **before** the agent has said
+    anything (SPEC-tradar.md §6.1 step 2).
+
+    The human's own reply must stand in the thread before the agent has
+    begun; the answer arrives over the stream. `cursor` is where a client
+    should subscribe from to see exactly what follows and nothing it already
+    has.
+    """
+
+    thread_id: str
+    view_key: str
+    fiscal_year_id: str
+    posts: List[ThreadPostResponse]
+    cursor: int
 
 
 # Error Schemas

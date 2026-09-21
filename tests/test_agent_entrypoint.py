@@ -253,6 +253,47 @@ def test_agent_process_doc_describes_the_internal_runtime_path():
     assert "scripts/bok-curl" in text
 
 
+def test_agent_process_doc_distinguishes_a_thread_reply_from_an_abstention():
+    """SPEC-tradar.md §11/T13: the one thing the thread path changed about
+    what the agent *does*.
+
+    A turn that ends with no tool call is an unresolved outcome for a
+    document (`agent_no_outcome`) and a perfectly good *answer* in a thread.
+    This directory is literally the system prompt, and it is shared byte for
+    byte by both entry points (test case 12), so it has to name both -- a
+    model reading only the document rule would treat answering a question as
+    a failure and reach for `registrera_avstaende` to close the turn.
+    """
+    text = PROCESS_DOC_PATH.read_text(encoding="utf-8")
+
+    # Both entry points are named, and each one's outcomes with it.
+    assert "Ett underlagspass ur kön" in text
+    assert "Ett meddelande i en tråd" in text
+    assert "ett rent svar ett fullgott utfall" in text
+    assert "oavslutat utfall" in text
+
+    # And the misuse the distinction exists to prevent is called out.
+    assert "inte för att avsluta ett samtal" in text
+    assert "Ett samtalssvar i en tråd är inte ett" in text
+
+
+def test_agent_process_doc_keeps_the_ledger_rules_identical_on_both_paths():
+    """The threshold for posting does not move because a human asked.
+
+    SPEC-tradar.md antagande 4: "En agent som postar från ett chattsvar går
+    samma väg som en agent som postar från ett underlag." If this ever reads
+    as two different standards, the thread has become a softer way into the
+    general ledger.
+    """
+    text = PROCESS_DOC_PATH.read_text(encoding="utf-8")
+
+    assert "Tröskeln för att posta är densamma oavsett vem" in text
+    assert "samma verktyg, samma skrivväg till" in text
+    assert "samma immutabilitet" in text
+    # Unchanged, and still stated unconditionally.
+    assert "Postade verifikationer är immutabla" in text
+
+
 @pytest.mark.asyncio
 async def test_agent_entrypoint_excludes_sensitive_or_company_state_fields(
     async_client,

@@ -84,6 +84,19 @@ def derive_posting_idempotency_key(source_id: str) -> str:
     return str(uuid.uuid5(BOK_NAMESPACE, f"intake:{source_id}"))
 
 
+def derive_thread_posting_idempotency_key(thread_id: str, post_id: str) -> str:
+    """``uuid5(BOK_NAMESPACE, f"thread:{thread_id}:{post_id}")`` --
+    SPEC-tradar.md §6.4.
+
+    The second namespace beside ``intake:{source_id}``, and the same idea:
+    one intent, one key. The key hangs on the **triggering user post**, never
+    on the time -- two presses of the same message derive the same key and
+    therefore get ``409`` with the voucher that already exists, instead of two
+    postings in a book that cannot be tidied up afterwards.
+    """
+    return str(uuid.uuid5(BOK_NAMESPACE, f"thread:{thread_id}:{post_id}"))
+
+
 class PostingConflictError(Exception):
     """Raised when ``posta_verifikation``'s idempotency key is already
     claimed (SPEC §6.7).
@@ -335,14 +348,22 @@ def _bank_input_dict(bank_input: BankInput) -> dict:
 
 
 def _run_las_kontoplan(
-    args: LasKontoplanArgs, *, actor: str, capabilities: LLMCapabilities
+    args: LasKontoplanArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
 ) -> list[dict]:
     accounts = AccountRepository.list_all(active_only=args.active_only)
     return [_account_dict(account) for account in accounts]
 
 
 def _run_las_perioder(
-    args: LasPerioderArgs, *, actor: str, capabilities: LLMCapabilities
+    args: LasPerioderArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
 ) -> list[dict]:
     if args.fiscal_year_id:
         periods = PeriodRepository.list_periods(args.fiscal_year_id)
@@ -354,7 +375,11 @@ def _run_las_perioder(
 
 
 def _run_las_verifikationer(
-    args: LasVerifikationerArgs, *, actor: str, capabilities: LLMCapabilities
+    args: LasVerifikationerArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
 ) -> dict:
     if args.period_id:
         all_vouchers = VoucherRepository.list_for_period(
@@ -370,7 +395,11 @@ def _run_las_verifikationer(
 
 
 def _run_las_korrigeringar(
-    args: LasKorrigeringarArgs, *, actor: str, capabilities: LLMCapabilities
+    args: LasKorrigeringarArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
 ) -> list[dict]:
     entries = AccountingCorrectionRepository.list(
         limit=args.limit, voucher_id=args.voucher_id
@@ -379,7 +408,11 @@ def _run_las_korrigeringar(
 
 
 def _run_las_underlag(
-    args: LasUnderlagArgs, *, actor: str, capabilities: LLMCapabilities
+    args: LasUnderlagArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
 ) -> dict:
     intake = IntakeService()
     if args.source_id:
@@ -394,7 +427,11 @@ def _run_las_underlag(
 
 
 def _run_hamta_underlagsfil(
-    args: HamtaUnderlagsfilArgs, *, actor: str, capabilities: LLMCapabilities
+    args: HamtaUnderlagsfilArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
 ) -> ContentBlock:
     intake = IntakeService()
     source = intake.get_source(args.source_id)
@@ -408,7 +445,11 @@ def _run_hamta_underlagsfil(
 
 
 def _run_las_bankhandelser(
-    args: LasBankhandelserArgs, *, actor: str, capabilities: LLMCapabilities
+    args: LasBankhandelserArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
 ) -> dict:
     bank_inputs = BankInputService()
     if args.bank_input_id:
@@ -416,7 +457,12 @@ def _run_las_bankhandelser(
     return bank_inputs.agent_queue_items(limit=args.limit, offset=args.offset)
 
 
-def _post_voucher(args: PostaVerifikationArgs, *, actor: str) -> dict:
+def _post_voucher(
+    args: PostaVerifikationArgs,
+    *,
+    actor: str,
+    idempotency_key: Optional[str] = None,
+) -> dict:
     request = VoucherPostingRequest(
         date=args.date,
         period_id=args.period_id,
@@ -429,8 +475,7 @@ def _post_voucher(args: PostaVerifikationArgs, *, actor: str) -> dict:
         bank_transaction_ids=args.bank_transaction_ids,
     )
 
-    idempotency_key: Optional[str] = None
-    if args.intake_source_ids:
+    if idempotency_key is None and args.intake_source_ids:
         # SPEC §6.4's uuid5 formula assumes exactly one primary intake
         # source per posting ("En post i taget", §6.2): the first id drives
         # the key even when more are listed for traceability (e.g. a
@@ -440,6 +485,13 @@ def _post_voucher(args: PostaVerifikationArgs, *, actor: str) -> dict:
         # exactly one posting intent per tool call, and the first source is
         # its anchor.
         idempotency_key = derive_posting_idempotency_key(args.intake_source_ids[0])
+    # An explicit key wins over the derived one: a thread posting's key is
+    # `thread:{thread_id}:{post_id}` (SPEC-tradar.md §6.4), hung on the user
+    # post that triggered it, and that is the tighter guarantee -- it holds
+    # whether or not the model happened to list an intake source. The
+    # source-level protection is not lost by it: an intake source can only
+    # ever be linked to one voucher (`IntakeService._ensure_can_record_
+    # outcome`), whichever key the posting travelled under.
 
     idempotency = IdempotencyService()
     reserved = False
@@ -482,13 +534,21 @@ def _post_voucher(args: PostaVerifikationArgs, *, actor: str) -> dict:
 
 
 def _run_posta_verifikation(
-    args: PostaVerifikationArgs, *, actor: str, capabilities: LLMCapabilities
+    args: PostaVerifikationArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
 ) -> dict:
-    return _post_voucher(args, actor=actor)
+    return _post_voucher(args, actor=actor, idempotency_key=idempotency_key)
 
 
 def _run_registrera_avstaende(
-    args: RegistreraAvstaendeArgs, *, actor: str, capabilities: LLMCapabilities
+    args: RegistreraAvstaendeArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
 ) -> dict:
     attempt = IntakeService().record_failed(
         source_id=args.source_id,
@@ -606,8 +666,22 @@ def execute_tool(
     *,
     actor: str,
     capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
 ) -> Any:
     """Validate and run one model-requested tool call.
+
+    ``idempotency_key`` is the caller's own key for a posting made during
+    this session, and only ``posta_verifikation`` reads it -- the thread
+    path passes ``thread:{thread_id}:{post_id}`` (SPEC-tradar.md §6.4), the
+    document path passes nothing and lets the key be derived from the intake
+    source. It is handed to every handler rather than branched on here, so
+    that the dispatcher stays a table lookup with no special case in it.
+
+    **This adds no tool.** ``AGENT_TOOL_DEFINITIONS`` is unchanged, byte for
+    byte, including ``_TOOL_SPECS``' order (SPEC-agentruntime §6.6: the tool
+    list is part of the cached prefix). The key is how the *caller*
+    identifies its posting intent; it is not something a model can ask for,
+    and it is not in any tool's ``input_schema``.
 
     Returns a JSON-serializable result on success. Raises on failure --
     either ``domain.validation.ValidationError`` (unknown tool name, or
@@ -635,4 +709,9 @@ def execute_tool(
             message=f"Invalid arguments for tool {name!r}",
             details=str(exc),
         ) from exc
-    return handler(parsed_args, actor=actor, capabilities=capabilities)
+    return handler(
+        parsed_args,
+        actor=actor,
+        capabilities=capabilities,
+        idempotency_key=idempotency_key,
+    )

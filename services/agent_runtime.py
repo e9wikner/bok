@@ -279,18 +279,16 @@ class AgentWorker:
     """
 
     def __init__(self) -> None:
-        #: Best-effort "what is this pass doing right now" snapshot for
-        #: `GET /agent/status` (SPEC §8, task A11). Deliberately coarse:
-        #: `services.agent_session.run_session` has no per-tool-call hook to
-        #: thread a callback through without touching its manual tool loop
-        #: (task A8), so `current_activity` only ever distinguishes "a
-        #: session is running for `current_source_id`" (`"processing"`) from
-        #: "idle between items" (`None`) -- it is not the literal tool name
-        #: the SPEC §8 example shows (`"las_kontoplan"`). `current_source_id`
-        #: *is* exact: it is set/cleared right here in `run_pass_once`, one
-        #: layer above `run_session`, so it costs nothing to get precisely
-        #: right. See `api/routes/agent.py`'s `GET /agent/status` docstring
-        #: for the same note from the consumer's side.
+        #: "What is this pass doing right now" for `GET /agent/status`
+        #: (SPEC §8, task A11). `current_activity` starts out as the coarse
+        #: `"processing"` when an item's session begins and is then replaced
+        #: by the literal tool name as each tool call starts -- exactly the
+        #: `"las_kontoplan"` SPEC §8's example shows. A11 could not do that:
+        #: the loop had no per-tool-call hook to thread a callback through.
+        #: SPEC-tradar.md T5 added one (`on_tool_call`), and
+        #: `run_pass_once` passes it straight into `run_session` below.
+        #: `current_source_id` was always exact -- it is set and cleared one
+        #: layer above `run_session`. Both are `None` between items.
         self.current_source_id: Optional[str] = None
         self.current_activity: Optional[str] = None
 
@@ -450,6 +448,7 @@ class AgentWorker:
                         today=date.today(),
                         model=resolved_model,
                         actor="agent",
+                        on_tool_call=self._note_tool_call,
                     )
                 except LLMConnectionError as exc:
                     logger.error(
@@ -500,6 +499,16 @@ class AgentWorker:
         AgentRunRepository.update_status(run.id, "completed")
         logger.info("Agent run %s completed", run.id)
         return AgentRunRepository.get(run.id)
+
+    def _note_tool_call(self, tool_name: str) -> None:
+        """`on_tool_call` for the document pass: report the live tool name.
+
+        Deliberately no text hook alongside it. `GET /agent/status` shows
+        what the agent is *doing*, and a document pass has no one watching
+        it write; accumulating its prose here would be a second copy of what
+        `agent_run_events` already stores, kept in memory for nobody.
+        """
+        self.current_activity = tool_name
 
     def _record_outcome(
         self,
@@ -823,12 +832,21 @@ class AgentRunner:
                 self._pass_in_progress = False
 
     def status(self) -> dict:
-        """Snapshot for the status endpoint. A11 (not built yet) composes
-        the full `GET /agent/status` payload (SPEC §8) on top of this plus
-        `AgentRunRepository.get_current()`/`get_last_completed_or_failed()`/
-        `sum_cost_today_ore()` -- this just exposes what only `AgentRunner`
-        itself knows: whether it's enabled/running and what its last
-        in-thread pass attempt did.
+        """Snapshot for the status endpoint (SPEC-agentruntime §8).
+
+        `api/routes/agent.py` composes the full `GET /agent/status` payload
+        on top of this plus `AgentRunRepository.get_current()`/
+        `get_last_completed_or_failed()`/`sum_cost_today_ore()` -- this just
+        exposes what only `AgentRunner` itself knows: whether it's
+        enabled/running and what its last in-thread pass attempt did.
+
+        `paused_reason` is here rather than derived at the endpoint because
+        `AgentRunner` is the only thing that knows *why* it is not running:
+        whether the switch is off, or the flock is held by another process.
+        SPEC-tradar.md §7 requires it to stay put for as long as the agent
+        is paused, "inte bara i felinlägget" -- so it is computed from
+        current state on every call, never remembered from an event that has
+        already scrolled past.
         """
         return {
             "enabled": settings.agent_runtime_enabled,
@@ -836,7 +854,31 @@ class AgentRunner:
             "pass_in_progress": self._pass_in_progress,
             "last_run_id": self._last_run_id,
             "last_error": self._last_error,
+            "paused_reason": self.paused_reason(),
         }
+
+    def paused_reason(self) -> Optional[str]:
+        """Why the agent is paused, or `None` when it is not.
+
+        Three states, in the order they are decided:
+
+        1. The switch is off (`AGENT_RUNTIME_ENABLED=false`) -- deliberate,
+           and the most common reason on a developer's machine.
+        2. The switch is on but the thread is not alive -- the flock is held
+           by another process, or `start()` was never called.
+        3. Otherwise not paused.
+
+        Deliberately not "the daily budget is spent": that is a cap on
+        spending, not a pause of the agent, and the endpoint reports it
+        separately as `cost_today_ore`/`budget_today_ore` -- conflating them
+        would make a budget that resets at midnight look like a fault
+        somebody has to clear.
+        """
+        if not settings.agent_runtime_enabled:
+            return "agent_runtime_disabled"
+        if not self.running:
+            return "agent_runtime_not_started"
+        return None
 
 
 _worker = AgentWorker()
@@ -866,3 +908,38 @@ def stop_agent_runtime() -> None:
 def agent_runtime_status() -> dict:
     """Status of the agent runtime, for the status endpoint (A11)."""
     return _runner.status()
+
+
+#: The three named modes `komponenter.md`'s `AgentStatus` shows, and the only
+#: values `AgentStatusResponse.state` ever takes (SPEC-tradar.md §7).
+AGENT_STATE_WORKING = "arbetar"
+AGENT_STATE_POSTING = "postar"
+AGENT_STATE_PAUSED = "pausad"
+AGENT_STATE_IDLE = "vilande"
+
+
+def agent_state(current_activity: Optional[str], paused_reason: Optional[str]) -> str:
+    """Which of the named modes the agent is in right now (§7).
+
+    `komponenter.md` names three -- "Agenten arbetar", "Agenten postar",
+    "Agenten pausad" -- and the interface needs a fourth for the ordinary
+    case of nothing happening, which the design draws as no indicator at
+    all rather than as a mode.
+
+    "Postar" is `posta_verifikation` specifically, not any tool call: it is
+    the one activity that changes the books, and it is what the design's
+    example (`Postar verifikation A-118…`) is about. Telling it apart from
+    "arbetar" is possible only because T5's hook reports the live tool name.
+
+    **The agent mode is global, not per view** (§7, and the design's own
+    open question 2): there is one worker, one flock and one budget. A mode
+    per page would be an invention in the interface with nothing behind it
+    in the system.
+    """
+    if paused_reason is not None:
+        return AGENT_STATE_PAUSED
+    if current_activity == "posta_verifikation":
+        return AGENT_STATE_POSTING
+    if current_activity is not None:
+        return AGENT_STATE_WORKING
+    return AGENT_STATE_IDLE

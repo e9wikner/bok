@@ -22,7 +22,7 @@ from domain.validation import ValidationError
 from repositories.agent_run_repo import AgentRunRepository
 from repositories.correction_note_repo import CorrectionNoteRepository
 from repositories.intake_repo import IntakeRepository
-from services.agent_runtime import get_runner, get_worker
+from services.agent_runtime import agent_state, get_runner, get_worker
 from services.bank_inputs import BankInputError, BankInputService
 from services.idempotency import IdempotencyOutcome, IdempotencyService
 from services.intake import IntakeError, IntakeService
@@ -359,15 +359,26 @@ async def get_agent_status(
     - `current_run` is `AgentRunRepository.get_current()`'s row (`None` if
       no pass is in progress) plus `current_source_id`/`current_activity`
       from the process-wide `AgentWorker`. That worker tracks exactly which
-      source it is on (`current_source_id`), but `current_activity` is
-      deliberately coarse -- `"processing"` while a session runs for that
-      source, `None` otherwise -- rather than the live tool name SPEC §8's
-      example shows (`"las_kontoplan"`): `services.agent_session.
-      run_session`'s manual tool-call loop (task A8) has no per-call hook to
-      report progress through without touching that loop, which this task's
-      instructions call out as a risk to the existing test suite. See
-      `AgentWorker.__init__`'s docstring for the same note from the
-      producer's side.
+      source it is on (`current_source_id`), and since SPEC-tradar.md's T5
+      `current_activity` is the **live tool name** (`"las_kontoplan"`,
+      `"posta_verifikation"`) rather than the coarse `"processing"` A11 had
+      to settle for -- the tool loop had no per-call hook then, and now it
+      does (`on_tool_call`). See `AgentWorker.__init__`'s docstring for the
+      same note from the producer's side.
+    - `state`, `since`, `current_task` and `paused_reason` are
+      `datakontrakt.md` §7's four fields, added by SPEC-tradar.md T12.
+      `state` is one of the three named modes in `komponenter.md`'s
+      `AgentStatus` plus `vilande` for nothing-happening;
+      `services.agent_runtime.agent_state` decides it. `paused_reason` is
+      recomputed from current state on every call, so it stays put for as
+      long as the agent is paused rather than appearing once in an error and
+      then vanishing (SPEC-tradar.md §7).
+    - The agent mode is **global, not per view** (SPEC-tradar.md §7): one
+      worker, one flock, one budget. A mode per page would be an invention
+      in the interface with nothing behind it in the system.
+    - The fields that were already here are untouched -- this endpoint has a
+      consumer, and `enabled`/`running` answer a different question than
+      `state` does.
     - `last_run` is `AgentRunRepository.get_last_completed_or_failed()`'s
       row (`None` if no run has ever finished).
     - `queue_depth` is `IntakeRepository.count_pending()` -- a plain
@@ -416,7 +427,12 @@ async def get_agent_status(
             last_error=last_run_row.last_error,
         )
 
+    paused_reason = runner_status["paused_reason"]
     return AgentStatusResponse(
+        state=agent_state(worker.current_activity, paused_reason),
+        since=current_run_row.started_at if current_run_row else None,
+        current_task=worker.current_activity,
+        paused_reason=paused_reason,
         enabled=runner_status["enabled"],
         running=runner_status["running"],
         current_run=current_run,

@@ -21,10 +21,15 @@ from typing import Any
 import anthropic
 import httpx2
 import pytest
-from anthropic.types import Message
+from anthropic.lib.streaming._types import TextEvent, ThinkingEvent
+from anthropic.types import Message, RawContentBlockStartEvent
 
 from services.llm import LLMCapabilities, LLMConnectionError, LLMRateLimitError
-from services.llm.messages import MessagesClient, UnrecognizedStopReasonError
+from services.llm.messages import (
+    MessagesClient,
+    UnrecognizedStopReasonError,
+    dispatch_stream_event,
+)
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "llm_messages"
 
@@ -199,6 +204,9 @@ class TestCapabilities:
             cache_breakpoint=True,
             pdf_document_blocks=True,
             refusal_stop_reason=True,
+            # SPEC-tradar.md §12.1 / task T5: both adapters stream, each
+            # through its own SDK's streaming helper.
+            streaming=True,
         )
 
 
@@ -319,3 +327,189 @@ class TestRunTurnErrorTranslation:
             self._call_run_turn(client)
 
         assert exc_info.value.retry_after_seconds is None
+
+
+# --- T5 (SPEC-tradar.md §12.1): streaming hooks ------------------------------
+#
+# `on_text`/`on_tool_call` on `run_turn`, and the pure dispatcher behind
+# them. These live here rather than in `tests/test_tradar.py` because they
+# assert against this SDK's own event types, and SPEC §4/§10's import
+# boundary allows that in this file alone (see `TestOpenaiImportBoundary`
+# for the check that enforces it).
+
+
+class TestMessagesAdapterStreamDispatch:
+    """Test case 9 — against recorded raw events, validated through the real
+    SDK's own schema, so the fixtures are checked rather than guessed. No
+    network call (SPEC §9)."""
+
+    @staticmethod
+    def _text_event(text: str, snapshot: str):
+        return TextEvent.model_validate(
+            {"type": "text", "text": text, "snapshot": snapshot}
+        )
+
+    @staticmethod
+    def _tool_use_start_event(name: str):
+        return RawContentBlockStartEvent.model_validate(
+            {
+                "type": "content_block_start",
+                "index": 1,
+                "content_block": {
+                    "type": "tool_use",
+                    "id": "toolu_01PostaVerifikation0001",
+                    "name": name,
+                    "input": {},
+                },
+            }
+        )
+
+    @staticmethod
+    def _text_block_start_event():
+        return RawContentBlockStartEvent.model_validate(
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "text", "text": ""},
+            }
+        )
+
+    def test_case_9_on_text_is_called_once_per_increment(self):
+        seen: list = []
+
+        for text, snapshot in (
+            ("Jag ", "Jag "),
+            ("bokför ", "Jag bokför "),
+            ("den.", "Jag bokför den."),
+        ):
+            dispatch_stream_event(self._text_event(text, snapshot), on_text=seen.append)
+
+        assert seen == ["Jag ", "bokför ", "den."]
+
+    def test_the_delta_is_sent_not_the_accumulated_snapshot(self):
+        """`message.delta` on the wire is an increment. Sending the snapshot
+        would make the client render the whole answer once per character."""
+        seen: list = []
+
+        dispatch_stream_event(
+            self._text_event("den.", "Jag bokför den."), on_text=seen.append
+        )
+
+        assert seen == ["den."]
+
+    def test_a_tool_use_block_start_announces_the_tool_name(self):
+        seen: list = []
+
+        dispatch_stream_event(
+            self._tool_use_start_event("posta_verifikation"), on_tool_call=seen.append
+        )
+
+        assert seen == ["posta_verifikation"]
+
+    def test_a_text_block_start_is_not_a_tool_call(self):
+        seen: list = []
+
+        dispatch_stream_event(self._text_block_start_event(), on_tool_call=seen.append)
+
+        assert seen == []
+
+    def test_a_missing_hook_is_not_an_error(self):
+        """Either hook may be absent; dispatching must not care."""
+        dispatch_stream_event(self._text_event("hej", "hej"))
+        dispatch_stream_event(self._tool_use_start_event("las_kontoplan"))
+
+    def test_thinking_is_never_delivered_as_text(self):
+        """The model's internal reasoning is not its answer — the same line
+        `normalize_message` already draws."""
+        seen: list = []
+        event = ThinkingEvent.model_validate(
+            {
+                "type": "thinking",
+                "thinking": "momsen är 25%",
+                "snapshot": "momsen är 25%",
+            }
+        )
+
+        dispatch_stream_event(event, on_text=seen.append)
+
+        assert seen == []
+
+
+class TestMessagesAdapterRunTurnStreams:
+    """The wiring between the hooks and the stream, with the SDK stubbed —
+    the pattern `tests/test_llm_messages_adapter.py` already uses."""
+
+    @staticmethod
+    def _client_with_events(events: list, final_message_fixture: str = "end_turn.json"):
+        final_message = _load_message(final_message_fixture)
+
+        class _FakeStream:
+            def __init__(self):
+                self.iterated = False
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc_info):
+                return None
+
+            def __iter__(self):
+                self.iterated = True
+                return iter(events)
+
+            def get_final_message(self):
+                return final_message
+
+        fake = _FakeStream()
+        client = MessagesClient(api_key="dummy-test-key", base_url="http://127.0.0.1:0")
+
+        def _stream(**kwargs: Any) -> "_FakeStream":
+            return fake
+
+        # Patching the instance's bound method, exactly as
+        # `TestRunTurnWiring` above does -- a named function rather than a
+        # lambda so the one `type: ignore` sits on the assignment itself.
+        client._client.messages.stream = _stream  # type: ignore[method-assign,assignment]
+        return client, fake
+
+    def test_case_9_hooks_receive_increments_during_the_turn(self):
+        events = [
+            TestMessagesAdapterStreamDispatch._text_event("Jag ", "Jag "),
+            TestMessagesAdapterStreamDispatch._text_event("bokför.", "Jag bokför."),
+            TestMessagesAdapterStreamDispatch._tool_use_start_event("las_kontoplan"),
+        ]
+        client, fake = self._client_with_events(events)
+        text_seen: list = []
+        tools_seen: list = []
+
+        turn = client.run_turn(
+            system="s",
+            messages=[],
+            tools=[],
+            model="opencode/claude-opus-5",
+            max_tokens=1024,
+            on_text=text_seen.append,
+            on_tool_call=tools_seen.append,
+        )
+
+        assert fake.iterated is True
+        assert text_seen == ["Jag ", "bokför."]
+        assert tools_seen == ["las_kontoplan"]
+        # The complete turn still comes back, unchanged by the streaming.
+        assert turn.stop == "end"
+
+    def test_without_hooks_the_stream_is_not_iterated(self):
+        """No reason to walk a stream nobody is listening to — and it keeps
+        the unstreamed path exactly as it was."""
+        client, fake = self._client_with_events([])
+
+        turn = client.run_turn(
+            system="s",
+            messages=[],
+            tools=[],
+            model="opencode/claude-opus-5",
+            max_tokens=1024,
+        )
+
+        assert fake.iterated is False
+        assert turn.stop == "end"

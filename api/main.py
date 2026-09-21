@@ -39,6 +39,7 @@ from api.routes import (
     reports,
     sru_mappings,
     tax_ink2,
+    threads,
     vat,
     vouchers,
 )
@@ -152,6 +153,9 @@ app.include_router(payroll.router)
 
 # Sidöversikt (header counters for the three pages)
 app.include_router(overview.router)
+
+# Tråd per vy (chatten hör till vyn, inte till appen)
+app.include_router(threads.router)
 
 
 @app.get("/health", tags=["health"])

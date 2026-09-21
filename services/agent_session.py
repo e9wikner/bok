@@ -46,7 +46,7 @@ scope. No test in this module is affected: every test drives a fake
 import json
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any, Literal, Optional
+from typing import Any, Callable, Literal, Optional
 
 from config import settings
 from domain.models import Account, CorrectionHistory, IntakeSource, Period
@@ -57,7 +57,14 @@ from repositories.system_instructions import get_system_instructions
 from services.agent_documents import ContentBlock, DocumentUnreadableError
 from services.agent_documents import select_content_for_source as _select_content
 from services.agent_tools import AGENT_TOOL_DEFINITIONS, execute_tool
-from services.llm import LLMClient, LLMTurn, ToolCall, Usage
+from services.llm import (
+    LLMClient,
+    LLMTurn,
+    StreamTextHook,
+    StreamToolCallHook,
+    ToolCall,
+    Usage,
+)
 
 # ---------------------------------------------------------------------------
 # System prompt (SPEC §6.3, stable/cacheable -- see SPEC §6.6)
@@ -259,25 +266,32 @@ class SessionTurnRecord:
 
 @dataclass
 class SessionOutcome:
-    """The result of one `run_session` call.
+    """The result of one session, on either entry point.
 
-    `kind` is always one of "posted" / "abstained" / "failed" -- there is no
-    fourth, ambiguous state. `reason` carries the abstention/failure
-    motivation or code (e.g. "agent_refusal: ...", "agent_output_truncated",
-    "agent_no_outcome", "agent_turn_limit"); it is `None` only for "posted".
-    `voucher_id`/`tool_result` are set on a successful posting;
-    `tool_result` is also set when the outcome came from a successful
-    `registrera_avstaende` call. `usage` is accumulated across every LLM
-    turn actually made in this session (zero if content selection aborted
-    before any call -- SPEC §6.3 step 3).
+    `kind` is always one of "posted" / "abstained" / "answered" / "failed" --
+    there is no fifth, ambiguous state. `reason` carries the
+    abstention/failure motivation or code (e.g. "agent_refusal: ...",
+    "agent_output_truncated", "agent_no_outcome", "agent_turn_limit"); it is
+    `None` for "posted" and for "answered". `voucher_id`/`tool_result` are
+    set on a successful posting; `tool_result` is also set when the outcome
+    came from a successful `registrera_avstaende` call. `usage` is
+    accumulated across every LLM turn actually made in this session (zero if
+    content selection aborted before any call -- SPEC §6.3 step 3).
+
+    "answered" only ever comes from the thread entry point
+    (SPEC-tradar.md §11): a turn that ends with no tool call is a *reply*
+    there, and an unresolved outcome on the document path. `text` is that
+    reply, and is empty on every other kind -- the document path's own
+    assistant text lives in `turns`, where it always did.
     """
 
-    kind: Literal["posted", "abstained", "failed"]
+    kind: Literal["posted", "abstained", "answered", "failed"]
     reason: Optional[str] = None
     voucher_id: Optional[str] = None
     tool_result: Optional[dict] = None
     usage: Usage = field(default_factory=_zero_usage)
     turns: list[SessionTurnRecord] = field(default_factory=list)
+    text: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -380,63 +394,114 @@ _POSTING_TOOL = "posta_verifikation"
 _ABSTENTION_TOOL = "registrera_avstaende"
 
 
-def run_session(
+@dataclass(frozen=True)
+class TerminalPolicy:
+    """What a turn that reached no tool call *means* (SPEC-tradar.md §11).
+
+    The loop below is shared by both entry points, and this is the only
+    thing that differs between them. Five of §11's six rows are identical on
+    both paths -- a refusal, a truncated turn, a posting, an abstention and
+    the turn limit all mean the same thing whether a document or a person
+    started the session -- so they are not in here. The sixth is:
+
+        `stop == "end"` with no tool calls
+          - document path: `abstained: agent_no_outcome`. SPEC-agentruntime
+            §1 requires every pass over an item to end in a posting or a
+            documented abstention, so a bare "end" is an unresolved outcome.
+          - thread path: an **answer**. A bare "end" is precisely what an
+            ordinary conversational reply looks like.
+
+    A frozen dataclass rather than a bare string so a third entry point, if
+    one ever appears, adds a named policy here instead of another `if` in
+    the loop.
+    """
+
+    #: Only for logs and error text; never branched on.
+    name: str
+    #: What a bare `end` means: "abstain" (document) or "answer" (thread).
+    bare_end: Literal["abstain", "answer"]
+
+
+#: The document path's policy -- byte for byte the behaviour `run_session`
+#: had before the loop was extracted (SPEC-tradar.md T4: a pure refactoring).
+DOCUMENT_POLICY = TerminalPolicy(name="document", bare_end="abstain")
+
+#: The thread path's policy (SPEC-tradar.md §11). A bare `end` is a reply.
+THREAD_POLICY = TerminalPolicy(name="thread", bare_end="answer")
+
+
+def run_tool_loop(
     client: LLMClient,
-    source: IntakeSource,
-    file_bytes: bytes,
-    open_periods: list[Period],
-    today: date,
+    *,
+    system_prompt: str,
+    messages: list[dict],
+    tools: list[dict],
     model: str,
     actor: str,
-    max_tool_turns: Optional[int] = None,
+    policy: TerminalPolicy,
+    turn_limit: int,
     max_tokens_per_turn: int = DEFAULT_MAX_TOKENS_PER_TURN,
     max_output_tokens: Optional[int] = None,
+    on_text: Optional[StreamTextHook] = None,
+    on_tool_call: Optional[StreamToolCallHook] = None,
+    posting_idempotency_key: Optional[str] = None,
+    check_between_turns: Optional[Callable[[], Optional[str]]] = None,
 ) -> SessionOutcome:
-    """Run one LLM session for one intake source (SPEC §6.3, §6.7).
+    """The manual tool loop, shared by both entry points.
 
-    Manual loop on `LLMTurn.stop == "tool_calls"` -- never the SDK's own tool
-    runner -- so every tool call passes through `services.agent_tools.
-    execute_tool` where it can be logged and its result or error turned into
-    an explicit `tool_result` block (SPEC §6.3: "varje verktygsanrop ska
-    passera en punkt där vi kan neka, logga...").
+    Extracted from `run_session` unchanged (SPEC-tradar.md §11, task T4):
+    every branch below is the one that was inline there, with `policy`
+    deciding the single row of §11's table where the two paths differ. Never
+    the SDK's own tool runner -- every tool call passes through
+    `services.agent_tools.execute_tool`, where it can be logged and its
+    result or error turned into an explicit `tool_result` block
+    (SPEC-agentruntime §6.3).
 
-    `max_tool_turns` defaults to `config.settings.agent_max_tool_turns_per_item`
-    (SPEC §6.5's "verktygsvarv per underlag" cap).
+    `messages` is mutated as the conversation grows, exactly as before; the
+    caller owns the list it passes in.
 
     `max_output_tokens` defaults to
-    `config.settings.agent_max_output_tokens_per_item` (SPEC §6.5's "ut-token
-    per underlag" cap, task A9). It is checked *between* turns -- once the
-    cumulative `usage.output_tokens` across every turn so far exceeds this
-    limit, the loop stops before requesting another turn and the session
-    returns `SessionOutcome(kind="abstained", reason="agent_output_limit")`.
-    A turn that itself reaches a terminal outcome (posts, abstains via
-    `registrera_avstaende`, refuses, is truncated, or ends with no tool
-    calls) is never overridden by this check -- the cap only ever cuts off
-    the *next* `run_turn` call, exactly like `max_tool_turns`, and it never
-    aborts mid-turn.
+    `config.settings.agent_max_output_tokens_per_item` and is checked
+    *between* turns: a turn that itself reached a terminal outcome is never
+    overridden by it, and it never aborts mid-turn. `turn_limit` is the
+    other per-session cap. Neither the daily budget nor the items-per-pass
+    cap is known here -- both are checked between sessions, one layer up,
+    and never inside a `with db.transaction():`.
+
+    `on_text`/`on_tool_call` are forwarded to the adapter only when it says
+    it can stream (`LLMCapabilities.streaming`, SPEC-tradar.md §12.1). An
+    adapter that cannot is never handed a callback it would silently drop:
+    the turn comes back complete, just without deltas (test case 10). The
+    hooks are passed as keyword arguments only when they exist, so an
+    adapter or a double written before they did is called exactly as it
+    always was.
+
+    `posting_idempotency_key` is handed to `execute_tool` and read only by
+    `posta_verifikation` -- the thread path names its own key
+    (`thread:{thread_id}:{post_id}`, SPEC-tradar.md §6.4), the document path
+    passes nothing and lets the key be derived from the intake source. No
+    tool is added by it (SPEC-tradar.md §8.2).
+
+    `check_between_turns` is called between tool turns and returns a reason
+    to stop, or `None` to continue. It exists so a caller can enforce a cap
+    this module has no notion of -- the daily budget, for a thread turn that
+    is a pass of its own -- at the one place where stopping is safe. It is a
+    plain string rather than an exception type so that this module stays
+    ignorant of `services.agent_runtime`, which imports *it*. There is no
+    `with db.transaction():` anywhere in this module, so "between turns" is
+    never inside one (SPEC-agentruntime §6.5, test case 30).
     """
-    turn_limit = (
-        max_tool_turns
-        if max_tool_turns is not None
-        else settings.agent_max_tool_turns_per_item
-    )
     output_token_limit = (
         max_output_tokens
         if max_output_tokens is not None
         else settings.agent_max_output_tokens_per_item
     )
-
-    try:
-        content_block = _select_content(
-            source, file_bytes, capabilities=client.capabilities
-        )
-    except DocumentUnreadableError as exc:
-        # SPEC §6.3 step 3: genuinely no LLM call happens here -- zero usage,
-        # not a discarded call. See §2/§6.3's cost table.
-        return SessionOutcome(kind="abstained", reason=exc.reason, usage=_zero_usage())
-
-    system_prompt = build_system_prompt()
-    messages: list[dict] = build_user_turn(source, content_block, today, open_periods)
+    stream_hooks: dict[str, Any] = {}
+    if getattr(client.capabilities, "streaming", False):
+        if on_text is not None:
+            stream_hooks["on_text"] = on_text
+        if on_tool_call is not None:
+            stream_hooks["on_tool_call"] = on_tool_call
 
     usage = _zero_usage()
     turns: list[SessionTurnRecord] = []
@@ -445,9 +510,10 @@ def run_session(
         turn = client.run_turn(
             system=system_prompt,
             messages=messages,
-            tools=AGENT_TOOL_DEFINITIONS,
+            tools=tools,
             model=model,
             max_tokens=max_tokens_per_turn,
+            **stream_hooks,
         )
         usage = _add_usage(usage, turn.usage)
 
@@ -472,12 +538,13 @@ def run_session(
             )
 
         if turn.stop == "end":
-            # Per `StopReason`'s contract "end" never carries tool calls; the
-            # model finished without ever calling posta_verifikation or
-            # registrera_avstaende. SPEC §1 requires every pass over an item
-            # to end in one of those two outcomes, so a bare "end" is itself
-            # an unresolved outcome, never a silent no-op.
+            # Per `StopReason`'s contract "end" never carries tool calls.
+            # The two paths part here, and only here -- see `TerminalPolicy`.
             turns.append(SessionTurnRecord(turn=turn))
+            if policy.bare_end == "answer":
+                return SessionOutcome(
+                    kind="answered", text=turn.text, usage=usage, turns=turns
+                )
             return SessionOutcome(
                 kind="abstained", reason="agent_no_outcome", usage=usage, turns=turns
             )
@@ -493,6 +560,7 @@ def run_session(
                         tool_call.arguments,
                         actor=actor,
                         capabilities=client.capabilities,
+                        idempotency_key=posting_idempotency_key,
                     )
                 except Exception as exc:  # noqa: BLE001 -- SPEC §6.7: any
                     # tool exception becomes an is_error tool_result and the
@@ -530,6 +598,7 @@ def run_session(
                         tool_result=result,
                         usage=usage,
                         turns=turns,
+                        text=turn.text,
                     )
 
                 if tool_call.name == _ABSTENTION_TOOL:
@@ -547,6 +616,7 @@ def run_session(
                         tool_result=result,
                         usage=usage,
                         turns=turns,
+                        text=turn.text,
                     )
 
                 tool_result_blocks.append(
@@ -572,6 +642,20 @@ def run_session(
                     turns=turns,
                 )
 
+            if check_between_turns is not None:
+                stop_reason = check_between_turns()
+                if stop_reason is not None:
+                    # Same shape and same place as the output-token cap
+                    # above: this turn already reached no terminal outcome,
+                    # so nothing is overridden -- only the *next* run_turn
+                    # call is prevented, and never mid-turn.
+                    return SessionOutcome(
+                        kind="abstained",
+                        reason=stop_reason,
+                        usage=usage,
+                        turns=turns,
+                    )
+
             continue
 
         # Defensive: no other `stop` value should exist given `StopReason`'s
@@ -586,7 +670,66 @@ def run_session(
             turns=turns,
         )
 
-    # Turn budget exhausted without reaching posted/abstained (test case 7).
+    # Turn budget exhausted without reaching a terminal outcome (test case 7).
     return SessionOutcome(
         kind="abstained", reason="agent_turn_limit", usage=usage, turns=turns
+    )
+
+
+def run_session(
+    client: LLMClient,
+    source: IntakeSource,
+    file_bytes: bytes,
+    open_periods: list[Period],
+    today: date,
+    model: str,
+    actor: str,
+    max_tool_turns: Optional[int] = None,
+    max_tokens_per_turn: int = DEFAULT_MAX_TOKENS_PER_TURN,
+    max_output_tokens: Optional[int] = None,
+    on_text: Optional[StreamTextHook] = None,
+    on_tool_call: Optional[StreamToolCallHook] = None,
+) -> SessionOutcome:
+    """Run one LLM session for one intake source (SPEC §6.3, §6.7).
+
+    A thin wrapper around `run_tool_loop` since SPEC-tradar.md T4: this
+    function owns what is specific to a *document* -- selecting the content
+    block for the source, building the user turn out of its metadata, and
+    the `DOCUMENT_POLICY` that makes a bare `end` an `agent_no_outcome`
+    abstention -- and the loop itself is shared with the thread entry point.
+    The behaviour is unchanged by that extraction (test case 7).
+
+    `max_tool_turns` defaults to `config.settings.agent_max_tool_turns_per_item`
+    (SPEC §6.5's "verktygsvarv per underlag" cap), `max_output_tokens` to
+    `config.settings.agent_max_output_tokens_per_item` ("ut-token per
+    underlag", checked between turns by the loop).
+    """
+    turn_limit = (
+        max_tool_turns
+        if max_tool_turns is not None
+        else settings.agent_max_tool_turns_per_item
+    )
+
+    try:
+        content_block = _select_content(
+            source, file_bytes, capabilities=client.capabilities
+        )
+    except DocumentUnreadableError as exc:
+        # SPEC §6.3 step 3: genuinely no LLM call happens here -- zero usage,
+        # not a discarded call. See §2/§6.3's cost table.
+        return SessionOutcome(kind="abstained", reason=exc.reason, usage=_zero_usage())
+
+    return run_tool_loop(
+        client,
+        system_prompt=build_system_prompt(),
+        messages=build_user_turn(source, content_block, today, open_periods),
+        tools=AGENT_TOOL_DEFINITIONS,
+        model=model,
+        actor=actor,
+        policy=DOCUMENT_POLICY,
+        turn_limit=turn_limit,
+        max_tokens_per_turn=max_tokens_per_turn,
+        max_output_tokens=max_output_tokens,
+        on_text=on_text,
+        on_tool_call=on_tool_call,
     )

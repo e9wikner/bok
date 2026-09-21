@@ -238,11 +238,24 @@ class AgentRunRepository:
         return row["total"]
 
     @staticmethod
-    def list_events(run_id: str) -> List[AgentRunEvent]:
-        rows = db.execute(
-            "SELECT * FROM agent_run_events WHERE run_id = ? ORDER BY seq ASC",
-            (run_id,),
-        ).fetchall()
+    def list_events(
+        run_id: str, since_seq: Optional[int] = None
+    ) -> List[AgentRunEvent]:
+        """Events for one run, oldest first.
+
+        `since_seq` is exclusive: it returns only what came after that
+        marker. `agent_run_events.seq` is the cursor form `tradar` follows
+        (SPEC-tradar.md §2) -- a caller that has already seen up to `n` asks
+        for `since_seq=n` and gets what it missed, nothing it already has.
+        Omitting it returns the whole run, exactly as before.
+        """
+        sql = "SELECT * FROM agent_run_events WHERE run_id = ?"
+        params: tuple = (run_id,)
+        if since_seq is not None:
+            sql += " AND seq > ?"
+            params = (run_id, since_seq)
+        sql += " ORDER BY seq ASC"
+        rows = db.execute(sql, params).fetchall()
         return [AgentRunRepository._row_to_event(row) for row in rows]
 
     @staticmethod

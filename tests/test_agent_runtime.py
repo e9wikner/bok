@@ -39,7 +39,7 @@ import json
 import uuid
 from calendar import monthrange
 from datetime import date
-from typing import Optional
+from typing import Callable, Optional
 
 import httpx
 import pytest
@@ -1439,7 +1439,15 @@ class FakeLLMClient:
         tools: list[dict],
         model: str,
         max_tokens: int,
+        on_text: Optional[Callable[[str], None]] = None,
+        on_tool_call: Optional[Callable[[str], None]] = None,
     ) -> LLMTurn:
+        # `on_text`/`on_tool_call` are SPEC-tradar.md T5's streaming hooks.
+        # This double accepts them so it still satisfies `LLMClient`
+        # structurally, and calls `on_tool_call` because `AgentWorker` now
+        # reports the live tool name through it -- but it never streams
+        # text: a document pass has nobody watching it write, and
+        # `AgentWorker` passes no `on_text` at all.
         self.calls.append(
             {
                 "system": system,
@@ -1449,9 +1457,11 @@ class FakeLLMClient:
                 "max_tokens": max_tokens,
             }
         )
-        if len(self._turns) > 1:
-            return self._turns.pop(0)
-        return self._turns[0]
+        turn = self._turns.pop(0) if len(self._turns) > 1 else self._turns[0]
+        if on_tool_call is not None:
+            for tool_call in turn.tool_calls:
+                on_tool_call(tool_call.name)
+        return turn
 
 
 def _run_test_session(

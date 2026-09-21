@@ -75,6 +75,17 @@ class Settings(BaseSettings):
     agent_daily_budget_ore: int = int(os.getenv("AGENT_DAILY_BUDGET_ORE", "5000"))
     agent_max_items_per_pass: int = int(os.getenv("AGENT_MAX_ITEMS_PER_PASS", "20"))
 
+    # The thread window (SPEC-tradar.md §6.3, open question 1). A token
+    # budget, not a number of posts: a `draft` post and an `agent_text`
+    # differ by an order of magnitude in size, so counting posts would give
+    # two very different context sizes the same name. What does not fit is
+    # left out -- never summarized (§6.3: an LLM summary of earlier
+    # bookkeeping conversation, used as the basis for a posting, is exactly
+    # the second-hand text ANALYS.md §7 warns about).
+    agent_thread_window_tokens: int = int(
+        os.getenv("AGENT_THREAD_WINDOW_TOKENS", "12000")
+    )
+
     @property
     def cors_origins_list(self) -> list[str]:
         """Return configured CORS origins as a list."""

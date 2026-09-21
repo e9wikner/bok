@@ -18,7 +18,7 @@ one (SPEC §9).
 """
 
 from dataclasses import dataclass
-from typing import Any, Literal, Optional, Protocol
+from typing import Any, Callable, Literal, Optional, Protocol
 
 # ---------------------------------------------------------------------------
 # Value types (SPEC §4)
@@ -67,6 +67,17 @@ class LLMTurn:
     usage: Usage
 
 
+#: Called with each text increment as the model produces it
+#: (SPEC-tradar.md §12.1). What becomes a `message.delta` on the stream.
+StreamTextHook = Callable[[str], None]
+
+#: Called with a tool's name as the model starts asking for it
+#: (SPEC-tradar.md §12.1). What lets `SkriverIndikator` say "Postar
+#: verifikation A-118..." instead of being "en anonym spinner", and what
+#: gives `AgentWorker.current_activity` something better than "processing".
+StreamToolCallHook = Callable[[str], None]
+
+
 @dataclass(frozen=True)
 class LLMCapabilities:
     """What an adapter can and cannot do (SPEC §2, §4).
@@ -86,6 +97,15 @@ class LLMCapabilities:
     #: SPEC §6.7). Without it, a refusal is indistinguishable from ordinary
     #: text and must be treated as an uncategorized abstention.
     refusal_stop_reason: bool
+    #: Delivers text/tool-call increments through `run_turn`'s `on_text` /
+    #: `on_tool_call` hooks (SPEC-tradar.md §12.1). Both shipped adapters
+    #: can, each through its own SDK's streaming helper. Defaulted to
+    #: `False` so an adapter that has not been taught to stream says so by
+    #: omission rather than by silently accepting hooks it never calls: a
+    #: caller gated on this simply never passes them, and gets a complete
+    #: turn without deltas (test case 10). A protocol difference that is
+    #: shown, not one that is hidden.
+    streaming: bool = False
 
 
 class LLMClient(Protocol):
@@ -106,6 +126,8 @@ class LLMClient(Protocol):
         tools: list[dict[str, Any]],
         model: str,
         max_tokens: int,
+        on_text: Optional[StreamTextHook] = None,
+        on_tool_call: Optional[StreamToolCallHook] = None,
     ) -> LLMTurn: ...
 
 

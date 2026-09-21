@@ -382,3 +382,49 @@ class AgentRunEvent:
     created_at: datetime
     source_id: Optional[str] = None
     voucher_id: Optional[str] = None
+
+
+@dataclass
+class Thread:
+    """One conversation, bound to a view and a fiscal year (SPEC-tradar.md §4).
+
+    `README.md`: "Chatten hör till vyn, inte till appen." `view_key` is the
+    view and nothing else — no company prefix (decision §12.2, single-tenant).
+    One thread per `(view_key, fiscal_year_id)` (decision §12.3), pinned by a
+    unique constraint in migration 025 rather than by convention here.
+
+    `model` is where the human's model choice is stored; a run takes it as an
+    argument and `agent_runs.model`/`.protocol` per run is what makes a change
+    mid-thread visible afterwards (§12.4).
+    """
+
+    id: str
+    view_key: str
+    fiscal_year_id: str
+    model: str
+    created_at: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class ThreadPost:
+    """One post in a thread — what the human saw, in the order she saw it.
+
+    Not the audit trail: `audit_log` is (SPEC-tradar.md antagande 5). Nothing
+    here is ever modified or deleted; a correction is a new post. A streaming
+    `agent_text` is written once, when the turn is done — the deltas along the
+    way only travel over SSE and are never stored per character (§4).
+
+    `body` carries the type's payload (the shape per type is §6.2), `traces`
+    the `SparChip` row, and `run_id` binds an agent post to the run that
+    produced it.
+    """
+
+    id: str
+    thread_id: str
+    seq: int
+    type: str  # one of THREAD_POST_TYPES
+    actor: str  # 'agent' or the user's name
+    body: dict
+    created_at: datetime = field(default_factory=datetime.now)
+    traces: Optional[List[dict]] = None
+    run_id: Optional[str] = None
