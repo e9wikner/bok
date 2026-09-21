@@ -274,3 +274,82 @@ def test_listing_does_not_add_sql_calls_per_voucher(
     assert (
         marginal <= per_voucher_before_o2
     ), f"{marginal} SQL calls per listed voucher, was {per_voucher_before_o2}"
+
+
+# ---------------------------------------------------------------------------
+# O3 — ?missing_attachment=true&sort_by=age
+# ---------------------------------------------------------------------------
+
+
+def test_missing_attachment_filter_selects_both_ways(client, auth_headers, period_id):
+    """Testfall 6: true gives only those without, false only those with."""
+    without = _posted_voucher(client, auth_headers, period_id, date(2026, 3, 10))
+    with_file = _posted_voucher(client, auth_headers, period_id, date(2026, 3, 11))
+    _attach(with_file)
+
+    missing = _list_vouchers(client, auth_headers, missing_attachment="true")
+    assert [v["id"] for v in missing["vouchers"]] == [without]
+    assert missing["total"] == 1
+
+    complete = _list_vouchers(client, auth_headers, missing_attachment="false")
+    assert [v["id"] for v in complete["vouchers"]] == [with_file]
+    assert complete["total"] == 1
+
+    unfiltered = _list_vouchers(client, auth_headers)
+    assert unfiltered["total"] == 2
+
+
+def test_sort_by_age_gives_oldest_first(client, auth_headers, fiscal_year_id):
+    """Testfall 7: ?sort_by=age is oldest first."""
+    days = [date(2026, 1, 20), date(2026, 3, 15), date(2026, 9, 2)]
+    ids = [
+        _posted_voucher(client, auth_headers, _period_for(fiscal_year_id, d), d)
+        for d in days
+    ]
+
+    listed = _list_vouchers(client, auth_headers, sort_by="age")
+    assert [v["id"] for v in listed["vouchers"]] == ids
+
+    ages = [v["age_days"] for v in listed["vouchers"]]
+    assert ages == sorted(ages, reverse=True)
+
+
+def test_missing_attachment_filter_honoured_with_period_id(
+    client, auth_headers, fiscal_year_id
+):
+    """Testfall 8: the filter behaves the same in the period_id branch."""
+    march = _period_for(fiscal_year_id, date(2026, 3, 1))
+    without = _posted_voucher(client, auth_headers, march, date(2026, 3, 10))
+    with_file = _posted_voucher(client, auth_headers, march, date(2026, 3, 11))
+    _attach(with_file)
+
+    scoped = _list_vouchers(
+        client, auth_headers, period_id=march, missing_attachment="true"
+    )
+    assert [v["id"] for v in scoped["vouchers"]] == [without]
+    assert scoped["total"] == 1
+
+    scoped_complete = _list_vouchers(
+        client, auth_headers, period_id=march, missing_attachment="false"
+    )
+    assert [v["id"] for v in scoped_complete["vouchers"]] == [with_file]
+
+
+def test_draft_without_attachment_is_never_missing_attachment(
+    client, auth_headers, period_id
+):
+    """Testfall 9: a draft without attachment is a draft, not a complement."""
+    posted = _posted_voucher(client, auth_headers, period_id, date(2026, 3, 10))
+    draft = _create_voucher(client, auth_headers, period_id, date(2026, 3, 11))
+
+    missing = _list_vouchers(client, auth_headers, missing_attachment="true")
+    assert [v["id"] for v in missing["vouchers"]] == [posted]
+
+    # Nor on the other side of the filter: the flag is about posted vouchers.
+    complete = _list_vouchers(client, auth_headers, missing_attachment="false")
+    assert draft not in [v["id"] for v in complete["vouchers"]]
+
+    scoped = _list_vouchers(
+        client, auth_headers, period_id=period_id, missing_attachment="true"
+    )
+    assert [v["id"] for v in scoped["vouchers"]] == [posted]

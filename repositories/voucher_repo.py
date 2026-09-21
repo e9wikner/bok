@@ -192,14 +192,19 @@ class VoucherRepository:
         limit: Optional[int] = None,
         offset: int = 0,
         sort_by: Optional[str] = None,
-        sort_order: str = "desc",
+        sort_order: Optional[str] = None,
         fiscal_year_id: Optional[str] = None,
         exclude_series: Optional[List[str]] = None,
+        missing_attachment: Optional[bool] = None,
     ) -> tuple[List[Voucher], int]:
         """List all vouchers across all periods.
 
         Returns (vouchers, total_count) to support pagination.
         When *search* is given, filters on description (LIKE) or voucher number.
+        *missing_attachment* selects posted vouchers with (False) or without
+        (True) a linked attachment; a draft is neither (SPEC-oversikt.md §6.4).
+        *sort_order* defaults to descending, except for ``sort_by="age"`` where
+        oldest first is what the caller asked for.
         """
         where_clauses = []
         params: list = []
@@ -222,15 +227,27 @@ class VoucherRepository:
             like = f"%{search}%"
             params.extend([like, like])
 
+        if missing_attachment is not None:
+            # The flag only means something on a posted voucher: a draft
+            # without an attachment is a draft, not a complement to chase.
+            negation = "" if missing_attachment else "NOT "
+            where_clauses.append(
+                f"(status = 'posted' AND {negation}{MISSING_ATTACHMENT_SQL})"
+            )
+
         where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
 
         # Total count
         count_sql = f"SELECT COUNT(*) as cnt FROM vouchers{where_sql}"
         total = db.execute(count_sql, tuple(params)).fetchone()["cnt"]
 
-        # Sorting
-        allowed_sort = {"date", "number"}
+        # Sorting. The whitelist is the boundary against SQL injection in
+        # ORDER BY - it stays a whitelist. "age" sorts on the same column as
+        # "date"; what differs is that it defaults to oldest first.
+        allowed_sort = {"date", "number", "age"}
         sort_col = sort_by if sort_by in allowed_sort else "date"
+        if sort_order is None:
+            sort_order = "asc" if sort_col == "age" else "desc"
         sort_dir = "ASC" if sort_order == "asc" else "DESC"
         if sort_col == "number":
             order_clause = f"series {sort_dir}, number {sort_dir}"

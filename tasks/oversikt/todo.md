@@ -27,7 +27,7 @@ Testfallsnumren nedan syftar på tabellen i §7.
   - Obs: `list_all` gör redan N+1 (`voucher_repo.py:224-229` hämtar `id` och kallar `get()` per
     rad). Laga det om det faller ut naturligt — gör det under inga omständigheter värre.
 
-- [ ] **O3 — `?missing_attachment=true&sort_by=age`**
+- [x] **O3 — `?missing_attachment=true&sort_by=age`**
   - Acceptans: filtret följer `where_clauses`/`params`-mönstret i `voucher_repo.py:165-230`.
     `age` läggs till i sorterings**vitlistan** på `voucher_repo.py:208` — vitlistan är gränsen
     mot SQL-injektion i `ORDER BY` och ska förbli en vitlista. `missing_attachment` gäller bara
@@ -88,3 +88,14 @@ Uttrycken ligger som `MISSING_ATTACHMENT_SQL` och `AGE_DAYS_SQL` på modulnivå 
 N+1:et i `list_all` (`SELECT id` + `get()` per rad) finns kvar. Det blev inte värre, och det
 föll inte ut naturligt att laga det här — det kräver att `get()`:s radhämtning skrivs om till en
 enda join, vilket är en större ändring än modulen har mandat för.
+
+## Avvikelse från specen: `period_id`-grenens tysta sortering
+
+`missing_attachment` hedras i **båda** grenarna av `api/routes/vouchers.py` — i
+`period_id`-grenen som ett Python-filter på samma predikat, med samma innebörd (bara postade).
+Ingen tyst ignorering.
+
+Kvar, pre-existerande och inte fördjupat: `period_id`-grenen ignorerar fortfarande tyst
+`limit`, `offset`, `search` och `sort_*`. `sort_by=age` beter sig där som `date` och `number`
+redan gör. Att laga det är en egen uppgift — den gren som ska svara på `total` korrekt måste
+sluta filtrera i Python, och det rör fler anropare än den här modulen.

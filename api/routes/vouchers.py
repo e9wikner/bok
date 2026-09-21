@@ -692,8 +692,14 @@ async def list_vouchers(
     search: str = Query(None, description="Search in description or voucher number"),
     limit: int = Query(None, description="Max vouchers to return (pagination)"),
     offset: int = Query(0, description="Number of vouchers to skip (pagination)"),
-    sort_by: str = Query(None, description="Sort by: date or number"),
-    sort_order: str = Query("desc", description="Sort direction: asc or desc"),
+    sort_by: str = Query(None, description="Sort by: date, number or age"),
+    sort_order: str = Query(
+        None, description="Sort direction: asc or desc (age defaults to asc)"
+    ),
+    missing_attachment: bool = Query(
+        None,
+        description="true: only posted vouchers without attachment, false: only with",
+    ),
     exclude_series: str = Query(
         None, description="Comma-separated list of series to exclude (e.g., 'IB')"
     ),
@@ -706,6 +712,8 @@ async def list_vouchers(
     If period_id is omitted, returns vouchers from all periods.
     Supports server-side search on description and voucher number.
     Use exclude_series to hide special vouchers like opening balances (IB).
+    Use missing_attachment=true with sort_by=age for the vouchers that still
+    need a receipt, oldest first.
     """
     try:
         status_filter = voucher_status if voucher_status != "all" else None
@@ -722,6 +730,16 @@ async def list_vouchers(
                 vouchers = [
                     v for v in vouchers if v.series.value not in exclude_series_list
                 ]
+            # Same meaning as the SQL branch below: the flag only applies to
+            # posted vouchers. Silently ignoring it here would hand a view that
+            # asked for "missing attachment" the whole ledger back.
+            if missing_attachment is not None:
+                vouchers = [
+                    v
+                    for v in vouchers
+                    if v.status.value == "posted"
+                    and bool(v.missing_attachment) is missing_attachment
+                ]
             total = len(vouchers)
         else:
             vouchers, total = ledger.vouchers.list_all(
@@ -733,6 +751,7 @@ async def list_vouchers(
                 sort_order=sort_order,
                 fiscal_year_id=fiscal_year_id,
                 exclude_series=exclude_series_list,
+                missing_attachment=missing_attachment,
             )
 
         return {
