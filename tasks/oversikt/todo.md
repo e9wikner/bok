@@ -6,7 +6,7 @@ Testfallsnumren nedan syftar på tabellen i §7.
 
 ---
 
-- [ ] **O1 — laga `_check_missing_attachments` (gate: buggfix, ingen ny yta)**
+- [x] **O1 — laga `_check_missing_attachments` (gate: buggfix, ingen ny yta)**
   - Acceptans: joinen går mot `attachments`, inte mot `voucher_attachments` som inte finns.
     Den nakna `except Exception: pass` är borta — ett trasigt schema ska synas. Tröskeln
     `> 50000` är öre = 500 kr och matchar titeln; den lämnas orörd. Sväljen på

@@ -391,39 +391,40 @@ class ComplianceService:
         """
         issues = []
 
-        # Count vouchers over a certain amount without attachments
-        try:
-            row = db.execute("""
-                SELECT COUNT(DISTINCT v.id) as cnt
-                FROM vouchers v
-                LEFT JOIN voucher_attachments va ON va.voucher_id = v.id
-                WHERE v.status = 'posted'
-                AND va.id IS NULL
-                AND EXISTS (
-                    SELECT 1 FROM voucher_rows vr
-                    WHERE vr.voucher_id = v.id
-                    AND (vr.debit > 50000 OR vr.credit > 50000)
-                )
-            """).fetchone()
+        # Count vouchers over a certain amount without attachments.
+        # The table is `attachments` (001_initial_schema.sql); the threshold is
+        # in öre, so > 50000 is > 500 SEK. A broken schema must surface, not
+        # be swallowed — this check was silent for its entire life.
+        row = db.execute("""
+            SELECT COUNT(*) as cnt
+            FROM vouchers v
+            WHERE v.status = 'posted'
+            AND NOT EXISTS (
+                SELECT 1 FROM attachments a WHERE a.voucher_id = v.id
+            )
+            AND EXISTS (
+                SELECT 1 FROM voucher_rows vr
+                WHERE vr.voucher_id = v.id
+                AND (vr.debit > 50000 OR vr.credit > 50000)
+            )
+        """).fetchone()
 
-            if row and row["cnt"] > 0:
-                issues.append(
-                    ComplianceIssue(
-                        id=str(uuid.uuid4()),
-                        check_type="missing_attachments",
-                        severity="info",
-                        status="open",
-                        title=f"📎 {row['cnt']} verifikationer >500 SEK saknar underlag",
-                        description=(
-                            f"Det finns {row['cnt']} bokförda verifikationer med belopp över 500 SEK "
-                            f"som saknar bifogat underlag (kvitto/faktura). "
-                            f"Enligt BFL bör verifikationer styrkas med underlag."
-                        ),
-                        recommendation="Bifoga kvitton eller fakturor till relevanta verifikationer.",
-                    )
+        if row and row["cnt"] > 0:
+            issues.append(
+                ComplianceIssue(
+                    id=str(uuid.uuid4()),
+                    check_type="missing_attachments",
+                    severity="info",
+                    status="open",
+                    title=f"📎 {row['cnt']} verifikationer >500 SEK saknar underlag",
+                    description=(
+                        f"Det finns {row['cnt']} bokförda verifikationer med belopp över 500 SEK "
+                        f"som saknar bifogat underlag (kvitto/faktura). "
+                        f"Enligt BFL bör verifikationer styrkas med underlag."
+                    ),
+                    recommendation="Bifoga kvitton eller fakturor till relevanta verifikationer.",
                 )
-        except Exception:
-            pass  # attachments table might not exist
+            )
 
         return issues
 
