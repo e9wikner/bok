@@ -88,7 +88,7 @@ Konsekvens för planeringen: `POST /threads/{view_key}/messages` är inte ett CR
 | 3 | Idempotensnyckel på utkast | **Saknas helt** | Inga `Idempotency-Key` någonstans. Kritiskt: utan den ger dubbeltryck två verifikationer i en append-only-bok som inte kan städas. |
 | 4 | `period_locked` som eget fel | Delvis | Låsning finns (`POST /periods/{id}/lock`), men felet kommer inte typat med vem/när. Flöde 1:s svåra fall kräver det. |
 | 5 | `POST /payroll/runs/{id}/approve` med fyra spår | **2 av 4 spår existerar inte** | `payslips` och `voucher` finns. `payment_file` (betalfil, `cancellable_until`) och `agi` — 0 träffar på `betalfil\|payment_file\|agi\|bankgiro\|pain.001` i `services/payroll.py`. Flöde 2 är ritat mot funktioner som inte finns. |
-| 6 | `GET /vouchers?missing_attachment=true` | Billigare än det låter | Logiken finns redan i `services/compliance.py:359` (`_check_missing_attachments`). Saknas som queryparam + persistent flagga på verifikationen. |
+| 6 | `GET /vouchers?missing_attachment=true` | **Saknas — och kontrollen är död kod** | Rättat 2026-09-21: `_check_missing_attachments` joinar mot `voucher_attachments`, en tabell som inte finns, och sväljer felet — den har aldrig gett en issue. Flaggan kan inte heller bli en kolumn: migration 014 avbryter varje `UPDATE` på postat. Se `SPEC-oversikt.md` §2–§3. |
 | 7 | `POST /intake/{id}/interpret` | **Saknas** | Utläsning av leverantör/datum/belopp/moms + matchning mot bankhändelse med `hypothesis`. Det är en LLM-uppgift → hör ihop med §4. |
 | 8 | `GET /agent/status` | **Saknas** | Kan inte finnas förrän agenten har ett liv att rapportera om. |
 | 9 | `GET /overview` | **Saknas** | Enkel aggregering. Låg risk, hög effekt (headern blinkar annars). |
@@ -186,8 +186,8 @@ Besvarade: agentens hemvist, scope, frontendstrategi (se toppen av dokumentet).
 
 Kvar innan modulspecarna skrivs:
 
-1. **Sidorna utan hemvist** (§8b). Blockerar `skal`, ingen annan modul.
-2. **Enbolag bekräftat?** `view_key` bär bolaget från dag ett eller inte alls.
-3. **Förslagschips: ja eller nej?** (§6.1)
-4. **Var går gränsen för agentens text?** Den får aldrig bli en verifikations `description` utan mänskligt beslut — men var exakt går linjen?
-5. Designens tre egna: trådlängd över årsskiften, agentläge globalt eller per sida, tröskeln för beslutskort kontra val.
+1. **Sidorna utan hemvist** (§8b). Blockerar `skal`, ingen annan modul. **Kvar.**
+2. ~~**Enbolag bekräftat?** `view_key` bär bolaget från dag ett eller inte alls.~~ **Besvarad 2026-09-21: enbolag.** `view_key` är bara vyn. `SPEC-tradar.md` §12.2.
+3. **Förslagschips: ja eller nej?** (§6.1) **Kvar** — hör till `skal`/`chattyta`.
+4. **Var går gränsen för agentens text?** Den får aldrig bli en verifikations `description` utan mänskligt beslut — men var exakt går linjen? **Delvis besvarad:** agentens text lagras som `thread_posts`, aldrig som `description`, och ett fönster som inte ryms utelämnas i stället för att sammanfattas (`SPEC-tradar.md` §4, §6.3). Var gränsen går vid ett *mänskligt godkänt* förslag hör till `beslut`.
+5. Designens tre egna: ~~trådlängd över årsskiften~~ (**besvarad: en tråd per räkenskapsår**, `SPEC-tradar.md` §12.3), ~~agentläge globalt eller per sida~~ (**besvarad: globalt**, `SPEC-tradar.md` §7), tröskeln för beslutskort kontra val (**kvar** — hör till `beslut`).
