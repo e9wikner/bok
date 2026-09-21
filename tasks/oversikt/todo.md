@@ -51,7 +51,7 @@ Testfallsnumren nedan syftar på tabellen i §7.
   - Obs: minsta mallen är `api/routes/compliance.py`. `overdue_invoices` finns färdigräknad i
     `api/routes/invoices.py:182` — återanvänd predikatet, skriv inte ett andra.
 
-- [ ] **O5 — regression och lint**
+- [x] **O5 — regression och lint**
   - Acceptans: alla nio framgångskriterier i §8 uppfyllda. Ingen migration, ingen ny tabell,
     ingen ny kolumn, ingen ändrad trigger.
   - Verifiera: `pytest tests/ -v` och `black . && isort . && flake8 && mypy .`.
@@ -132,3 +132,39 @@ så de två filerna behövde inte röras alls.
   aktuella perioden — det som ligger närmast `today`, annars det senaste.
 - **Tomt bolag.** Utan räkenskapsår är `fiscal_year` och `period_state` `null`, och de tre
   sidorna finns ändå med nollställda räknare. Headern kan ritas dag ett.
+
+## Modulen är klar
+
+O1–O5 avbockade 2026-09-21. De nio framgångskriterierna i spec §8, verifierade:
+
+1. `_check_missing_attachments` joinar mot `attachments` och ger issues mot riktiga data — ✅
+   (testfall 1, 2).
+2. Ingen naken `except Exception: pass` kvar i funktionen — ✅. Den som finns kvar på
+   `services/compliance.py:381` är `_check_unbooked_bank_transactions`, som specen säger att inte
+   röra.
+3. `missing_attachment` och `age_days` finns på `VoucherResponse`, härledda i SQL, aldrig
+   lagrade — ✅ (testfall 4, 5).
+4. `?missing_attachment=true&sort_by=age` fungerar och ignorerar inte tyst något — ✅
+   (testfall 6–9). `period_id`-grenens tysta `limit`/`offset`/`search`/`sort_*` är pre-existerande
+   och oförändrad; se avvikelsen ovan.
+5. `GET /api/v1/overview` ger tre sidor med fyra räknare var i ett anrop — ✅ (testfall 10–14).
+6. `open_decisions` och `payroll_waiting` står som approximationer i koden, med `beslut`
+   respektive lönens fyra spår namngivna — ✅ (`services/overview.py`).
+7. Ingen migration, ingen ny tabell, ingen ny kolumn, ingen ändrad trigger — ✅.
+   `git diff main -- db/` är tom; senaste migrationen är fortfarande `024`.
+8. SQL-anrop per listad verifikation: 3,0 före O2 och 3,0 efter — ✅ (testfall 15).
+9. `pytest tests/ -v`: **588 gröna** (572 före modulen, 16 nya). `black`, `isort` och `flake8`
+   rena över hela repot. `mypy .` ger **61 fel i 23 filer** — exakt det pre-existerande antalet
+   från `tasks/idempotens/todo.md`; noll i modulens egna filer.
+
+Nästa modul i byggordningen är `tradar` (`docs/redesign/SPEC-tradar.md`, T1–T14). `skal` kan
+börja parallellt nu när sidräknarna finns i ett anrop.
+
+## Kvar att nämna för beställaren
+
+- **O1 väcker en kontroll som varit tyst sedan den skrevs.** Första `POST /compliance/check` mot
+  riktiga data kan ge ett `missing_attachments`-issue som räknar varje postad verifikation över
+  500 kr utan bilaga sedan bolagets start. Det är rätt utfall, inte ett fel — men det syns i
+  gränssnittet första gången någon kör kontrollen.
+- **Trösklarna för `age_days`** (gult, rött) är inte satta. Servern skickar bara talet; färgen är
+  ett designbeslut som inte är taget (öppen fråga 3).

@@ -4,7 +4,8 @@ Modul-id `oversikt` i kapabilitetskartan (`ANALYS.md` §8). Beror på ingenting.
 den här — headern kan inte ritas förrän sidräknarna finns i ett anrop.
 
 Status: **Fas 1 — skriven 2026-09-21.** Uppgifterna ligger i `tasks/oversikt/plan.md` och
-`tasks/oversikt/todo.md` (O1–O5). Ingen kod skriven ännu.
+`tasks/oversikt/todo.md` (O1–O5). Modulen är **klar** 2026-09-21: O1–O5 avbockade,
+avvikelserna och besluten står sist i `todo.md`.
 
 ---
 
