@@ -178,7 +178,9 @@ Beslutet att **ersätta** `frontend-v3` betyder att 24 sidor ska rymmas i 3. Des
 | `invoices/customers`, `invoices/articles`, `invoices/drafts`, `invoices/new` | Fakturering | Men flöde 3 är ur scope — behålls de som formulär? |
 | `vouchers/new`, `vouchers/intake` | Böcker · Verifikationer | Ersätts de av chatten, eller finns de kvar som manuell väg? |
 
-Tre vägar: (a) en fjärde sida "Inställningar" utanför designen, (b) sidorna behålls som egna rutter utanför skalet, (c) de utgår och funktionen flyttas till agenten. Det här är ett designbeslut som inte är taget, och det blockerar `skal`-specen — inte de andra nio.
+Tre vägar: (a) en fjärde sida "Inställningar" utanför designen, (b) sidorna behålls som egna rutter utanför skalet, (c) de utgår och funktionen flyttas till agenten.
+
+**Beslutat 2026-09-21: väg (b).** Skalet byggs bredvid, bakom flagga; de 24 sidorna står orörda och tas bort vy för vy när motsvarigheten är klar. Det är samma motdrag som §7 redan föreskriver mot big-bang-rewrite. Tabellen ovan besvaras alltså per rad, av den modul som ersätter raden — inte här. Revisionsspåret är skälet att ordningen spelar roll: `audit` är ett BFL-krav och får inte försvinna före sin ersättare. Se `SPEC-skal.md` §3.
 
 ## 9. Frågor som kvarstår
 
@@ -186,8 +188,14 @@ Besvarade: agentens hemvist, scope, frontendstrategi (se toppen av dokumentet).
 
 Kvar innan modulspecarna skrivs:
 
-1. **Sidorna utan hemvist** (§8b). Blockerar `skal`, ingen annan modul. **Kvar.**
+1. ~~**Sidorna utan hemvist** (§8b). Blockerar `skal`, ingen annan modul.~~ **Besvarad 2026-09-21:
+   bakom flagga, gamla kvar** — väg (b). Skalet ligger på `/v4` bakom `NEXT_PUBLIC_SKAL`, headern
+   har exakt tre sidor, och de 24 gamla rutterna står orörda och tas bort vy för vy när
+   motsvarigheten är i bruk. `SPEC-skal.md` §3. Frågan besvaras därmed per sida, av den modul som
+   ersätter sidan — den blockerar ingen längre.
 2. ~~**Enbolag bekräftat?** `view_key` bär bolaget från dag ett eller inte alls.~~ **Besvarad 2026-09-21: enbolag.** `view_key` är bara vyn. `SPEC-tradar.md` §12.2.
-3. **Förslagschips: ja eller nej?** (§6.1) **Kvar** — hör till `skal`/`chattyta`.
+3. ~~**Förslagschips: ja eller nej?** (§6.1)~~ **Besvarad 2026-09-21: nej, ren text.**
+   `README.md` och `komponenter.md` säger det båda uttryckligen; skärmbilden är en påslagen växel
+   i prototypen. `SPEC-skal.md` §2.1.
 4. **Var går gränsen för agentens text?** Den får aldrig bli en verifikations `description` utan mänskligt beslut — men var exakt går linjen? **Delvis besvarad:** agentens text lagras som `thread_posts`, aldrig som `description`, och ett fönster som inte ryms utelämnas i stället för att sammanfattas (`SPEC-tradar.md` §4, §6.3). Var gränsen går vid ett *mänskligt godkänt* förslag hör till `beslut`.
 5. Designens tre egna: ~~trådlängd över årsskiften~~ (**besvarad: en tråd per räkenskapsår**, `SPEC-tradar.md` §12.3), ~~agentläge globalt eller per sida~~ (**besvarad: globalt**, `SPEC-tradar.md` §7), tröskeln för beslutskort kontra val (**kvar** — hör till `beslut`).

@@ -12,6 +12,7 @@ En katalog per modul i kapabilitetskartan (`docs/redesign/ANALYS.md` §8), med s
 | `agentruntime` | `docs/redesign/SPEC-agentruntime.md` | **Klar** (A1–A14) |
 | `oversikt` | `docs/redesign/SPEC-oversikt.md` | **Klar** 2026-09-21 (O1–O5) |
 | `tradar` | `docs/redesign/SPEC-tradar.md` | **Klar** 2026-09-21 (T1–T14) |
+| `skal` | `docs/redesign/SPEC-skal.md` | **Klar** 2026-09-21 (S1–S13) |
 
 Listorna sparas när en modul är klar. De bär besluten och avvikelserna — varför en uppgift rörde
 en fil till än den skulle, vad som lämnades kvar — och det är det enda stället den historiken
