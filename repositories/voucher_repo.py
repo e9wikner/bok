@@ -8,6 +8,19 @@ from db.database import db
 from domain.models import Voucher, VoucherRow
 from domain.types import VoucherSeries, VoucherStatus
 
+# Derived voucher fields (SPEC-oversikt.md §3). Never stored: migration 014
+# aborts every UPDATE on a posted voucher, so a flag column could not be kept
+# in sync without softening the trigger. Both fragments reference the table by
+# name, so they only work in queries where `vouchers` is unaliased.
+MISSING_ATTACHMENT_SQL = (
+    "NOT EXISTS (SELECT 1 FROM attachments a WHERE a.voucher_id = vouchers.id)"
+)
+# Age of the business event, not of the posting: counted from vouchers.date,
+# in whole days, local time.
+AGE_DAYS_SQL = (
+    "CAST(julianday(date('now', 'localtime')) - julianday(vouchers.date) AS INTEGER)"
+)
+
 
 class VoucherRepository:
     """Manage vouchers (Verifikationer) - append-only storage."""
@@ -94,8 +107,17 @@ class VoucherRepository:
 
     @staticmethod
     def get(voucher_id: str) -> Optional[Voucher]:
-        """Get voucher by ID with all rows."""
-        sql = "SELECT * FROM vouchers WHERE id = ? LIMIT 1"
+        """Get voucher by ID with all rows.
+
+        The two derived fields ride along in this query, so reading a voucher
+        costs no more than it did before they existed.
+        """
+        sql = f"""
+            SELECT *,
+                   {MISSING_ATTACHMENT_SQL} AS missing_attachment,
+                   {AGE_DAYS_SQL} AS age_days
+            FROM vouchers WHERE id = ? LIMIT 1
+        """
         cursor = db.execute(sql, (voucher_id,))
         row = cursor.fetchone()
 
@@ -139,6 +161,8 @@ class VoucherRepository:
             created_at=datetime.fromisoformat(row["created_at"]),
             created_by=row["created_by"],
             posted_at=posted_at,
+            missing_attachment=bool(row["missing_attachment"]),
+            age_days=row["age_days"],
         )
 
     @staticmethod

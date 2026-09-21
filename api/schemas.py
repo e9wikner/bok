@@ -142,6 +142,10 @@ class VoucherResponse(BaseModel):
     created_at: DateTimeType
     created_by: str
     posted_at: Optional[DateTimeType] = None
+    missing_attachment: bool = Field(
+        False, description="True when no attachment is linked to the voucher"
+    )
+    age_days: int = Field(0, description="Whole days since the voucher date")
 
 
 # Account Schemas

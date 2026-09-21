@@ -125,6 +125,10 @@ class Voucher:
     created_at: datetime = field(default_factory=datetime.now)
     created_by: str = "system"
     posted_at: Optional[datetime] = None
+    # Derived by the repository, never stored (SPEC-oversikt.md §3). None on a
+    # voucher that was built in memory rather than read back.
+    missing_attachment: Optional[bool] = None
+    age_days: Optional[int] = None
 
     def is_posted(self) -> bool:
         """Check if voucher is posted (varaktighet - immutable)."""

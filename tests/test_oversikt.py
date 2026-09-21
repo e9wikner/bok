@@ -194,3 +194,83 @@ def test_small_posted_voucher_without_attachment_is_not_reported(
     _posted_voucher(client, auth_headers, period_id, date(2026, 3, 15), amount=40000)
 
     assert ComplianceService()._check_missing_attachments() == []
+
+
+# ---------------------------------------------------------------------------
+# O2 — missing_attachment and age_days on the voucher
+# ---------------------------------------------------------------------------
+
+
+def _list_vouchers(client, auth_headers, **params) -> dict:
+    resp = client.get("/api/v1/vouchers", headers=auth_headers, params=params)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def test_missing_attachment_is_derived_per_voucher(client, auth_headers, period_id):
+    """Testfall 4: true on a posted voucher without attachment, false with one."""
+    without = _posted_voucher(client, auth_headers, period_id, date(2026, 3, 10))
+    with_file = _posted_voucher(client, auth_headers, period_id, date(2026, 3, 11))
+    _attach(with_file)
+
+    by_id = {v["id"]: v for v in _list_vouchers(client, auth_headers)["vouchers"]}
+
+    assert by_id[without]["missing_attachment"] is True
+    assert by_id[with_file]["missing_attachment"] is False
+
+    # Same on the single-voucher read.
+    resp = client.get(f"/api/v1/vouchers/{without}", headers=auth_headers)
+    assert resp.json()["missing_attachment"] is True
+
+
+def test_age_days_counts_from_the_voucher_date(client, auth_headers, period_id):
+    """Testfall 5: age is the age of the business event, not of the posting."""
+    when = date(2026, 3, 15)
+    voucher_id = _posted_voucher(client, auth_headers, period_id, when)
+
+    resp = client.get(f"/api/v1/vouchers/{voucher_id}", headers=auth_headers)
+    assert resp.status_code == 200
+
+    expected = (date.today() - when).days
+    assert resp.json()["age_days"] == expected
+
+
+def _count_execute(monkeypatch, work) -> int:
+    """Count db.execute calls made while *work* runs."""
+    original = db.execute
+    calls = []
+
+    def counting(sql, params=()):
+        calls.append(sql)
+        return original(sql, params)
+
+    monkeypatch.setattr(db, "execute", counting)
+    try:
+        work()
+    finally:
+        monkeypatch.undo()
+    return len(calls)
+
+
+def test_listing_does_not_add_sql_calls_per_voucher(
+    client, auth_headers, fiscal_year_id, monkeypatch
+):
+    """Testfall 15: the per-voucher SQL cost of a listing is unchanged.
+
+    Measured before O2: 3 db.execute calls per listed voucher (the row itself,
+    its rows, and the account lookup in _voucher_to_response).
+    """
+    per_voucher_before_o2 = 3
+
+    march = _period_for(fiscal_year_id, date(2026, 3, 1))
+    _posted_voucher(client, auth_headers, march, date(2026, 3, 1))
+    one = _count_execute(monkeypatch, lambda: _list_vouchers(client, auth_headers))
+
+    for day in (2, 3, 4):
+        _posted_voucher(client, auth_headers, march, date(2026, 3, day))
+    four = _count_execute(monkeypatch, lambda: _list_vouchers(client, auth_headers))
+
+    marginal = (four - one) / 3
+    assert (
+        marginal <= per_voucher_before_o2
+    ), f"{marginal} SQL calls per listed voucher, was {per_voucher_before_o2}"

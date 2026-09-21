@@ -1,5 +1,6 @@
 """API routes for vouchers."""
 
+from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -881,6 +882,18 @@ def _voucher_to_response(voucher) -> VoucherResponse:
     total_debit = sum(row.debit for row in voucher.rows)
     total_credit = sum(row.credit for row in voucher.rows)
 
+    # Derived, never stored (SPEC-oversikt.md §3). A voucher read back from the
+    # repository carries both; one just built in memory does not, and a voucher
+    # that has only just been created has no attachment and no age.
+    missing_attachment = (
+        True if voucher.missing_attachment is None else voucher.missing_attachment
+    )
+    age_days = (
+        max((date.today() - voucher.date).days, 0)
+        if voucher.age_days is None
+        else voucher.age_days
+    )
+
     return VoucherResponse(
         id=voucher.id,
         series=voucher.series.value,
@@ -914,4 +927,6 @@ def _voucher_to_response(voucher) -> VoucherResponse:
         created_at=voucher.created_at,
         created_by=voucher.created_by,
         posted_at=voucher.posted_at,
+        missing_attachment=missing_attachment,
+        age_days=age_days,
     )

@@ -16,7 +16,7 @@ Testfallsnumren nedan syftar på tabellen i §7.
   - Obs: landas ensam. Kontrollen har aldrig producerat en issue — första riktiga körningen kan
     ge en vägg av varningar mot seedad data. Det är rätt utfall; nämn det för beställaren.
 
-- [ ] **O2 — `missing_attachment` och `age_days` på verifikationen**
+- [x] **O2 — `missing_attachment` och `age_days` på verifikationen**
   - Acceptans: båda härledda, aldrig lagrade. `missing_attachment` är
     `NOT EXISTS (SELECT 1 FROM attachments a WHERE a.voucher_id = vouchers.id)`, `age_days` är
     dygn sedan verifikationens **datum** (inte `posted_at`). Joinade i sidfrågan i `list_all`,
@@ -67,3 +67,24 @@ kompletteringsflagga, och trösklarna som gör `age_days` gult eller rött.
 
 **Fråga först** (§6): en persistent flagga, en ändring i `014`:s triggers, en fjärde sida, eller
 en femte räknare.
+
+---
+
+## Avvikelse från specen: var de härledda fälten beräknas
+
+Specens §3 och O2 säger "joinade i sidfrågan i `list_all`, aldrig hämtade per rad". De ligger i
+stället i `VoucherRepository.get`, i den `SELECT * FROM vouchers WHERE id = ?` som redan fanns.
+
+Skälet är att kravet bakom formuleringen är framgångskriterium 8 — *antalet SQL-anrop per listad
+verifikation är oförändrat eller lägre* — och `list_all` hämtar sidan som `SELECT id` och anropar
+sedan `get()` per rad. Att beräkna fälten i båda frågorna hade räknat samma två värden två
+gånger; att beräkna dem bara i sidfrågan hade lämnat `GET /vouchers/{id}` och
+`list_for_period` utan dem, och `VoucherResponse` kräver dem överallt.
+
+Mätt med testfall 15: 3,0 `db.execute`-anrop per listad verifikation före O2 och 3,0 efter.
+Uttrycken ligger som `MISSING_ATTACHMENT_SQL` och `AGE_DAYS_SQL` på modulnivå i
+`repositories/voucher_repo.py`, så filtret i O3 använder samma predikat som fältet.
+
+N+1:et i `list_all` (`SELECT id` + `get()` per rad) finns kvar. Det blev inte värre, och det
+föll inte ut naturligt att laga det här — det kräver att `get()`:s radhämtning skrivs om till en
+enda join, vilket är en större ändring än modulen har mandat för.
