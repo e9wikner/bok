@@ -271,6 +271,15 @@ class VoucherRepository:
         return vouchers, total
 
     @staticmethod
+    def count_missing_attachments() -> int:
+        """Posted vouchers with no attachment linked (SPEC-oversikt.md §3)."""
+        sql = f"""
+            SELECT COUNT(*) AS cnt FROM vouchers
+            WHERE status = 'posted' AND {MISSING_ATTACHMENT_SQL}
+        """
+        return db.execute(sql).fetchone()["cnt"]
+
+    @staticmethod
     def get_next_number(series: str, fiscal_year_id: str) -> int:
         """Get next sequential voucher number for series within a fiscal year.
 

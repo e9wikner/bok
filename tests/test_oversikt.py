@@ -353,3 +353,121 @@ def test_draft_without_attachment_is_never_missing_attachment(
         client, auth_headers, period_id=period_id, missing_attachment="true"
     )
     assert [v["id"] for v in scoped["vouchers"]] == [posted]
+
+
+# ---------------------------------------------------------------------------
+# O4 — GET /api/v1/overview
+# ---------------------------------------------------------------------------
+
+
+def _overview(client, auth_headers) -> dict:
+    resp = client.get("/api/v1/overview", headers=auth_headers)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def _row_census() -> dict:
+    """Row count per table, to prove a read wrote nothing."""
+    tables = [
+        row["name"]
+        for row in db.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' "
+            "AND name NOT LIKE 'sqlite_%'"
+        ).fetchall()
+    ]
+    return {
+        table: db.execute(f"SELECT COUNT(*) AS cnt FROM {table}").fetchone()["cnt"]
+        for table in tables
+    }
+
+
+def _overdue_invoice(client, auth_headers) -> None:
+    """An invoice whose due date has passed."""
+    from services.invoice import InvoiceService
+
+    InvoiceService().create_invoice(
+        customer_name="Kund AB",
+        invoice_date=date(2026, 1, 10),
+        due_date=date(2026, 2, 10),
+        rows_data=[
+            {
+                "description": "Konsultarvode",
+                "quantity": 1,
+                "unit_price": 100000,
+                "vat_code": "MP1",
+            }
+        ],
+    )
+
+
+def test_overview_has_three_pages_in_order(client, auth_headers, period_id):
+    """Testfall 10: three pages, in the order bocker, betala, bokslut."""
+    data = _overview(client, auth_headers)
+
+    assert [page["key"] for page in data["pages"]] == ["bocker", "betala", "bokslut"]
+    assert data["fiscal_year"]["label"] == "2026"
+    assert data["fiscal_year"]["start"] == "2026-01-01"
+    assert data["period_state"]["locked"] is False
+
+    for page in data["pages"]:
+        assert set(page["counters"]) == {
+            "open_decisions",
+            "overdue_invoices",
+            "payroll_waiting",
+            "missing_attachments",
+        }
+        assert page["title"]
+        assert page["meta"]
+
+
+def test_waiting_is_true_exactly_when_a_counter_is_nonzero(
+    client, auth_headers, period_id
+):
+    """Testfall 11: the server decides waiting, the client counts nothing."""
+    quiet = _overview(client, auth_headers)
+    assert [page["waiting"] for page in quiet["pages"]] == [False, False, False]
+
+    _posted_voucher(client, auth_headers, period_id, date(2026, 3, 10))
+
+    data = _overview(client, auth_headers)
+    for page in data["pages"]:
+        assert page["waiting"] is any(
+            count != 0 for count in page["counters"].values()
+        ), page["key"]
+
+    bocker = data["pages"][0]
+    assert bocker["counters"]["missing_attachments"] == 1
+    assert bocker["waiting"] is True
+
+
+def test_overdue_invoices_matches_the_invoice_summary(client, auth_headers, period_id):
+    """Testfall 12: the same predicate as GET /invoices, not a second one."""
+    _overdue_invoice(client, auth_headers)
+
+    listed = client.get("/api/v1/invoices", headers=auth_headers)
+    assert listed.status_code == 200
+    expected = listed.json()["summary"]["overdue_count"]
+    assert expected == 1
+
+    betala = _overview(client, auth_headers)["pages"][1]
+    assert betala["key"] == "betala"
+    assert betala["counters"]["overdue_invoices"] == expected
+    assert betala["waiting"] is True
+
+
+def test_overview_requires_bearer(client):
+    """Testfall 13: no bearer, no overview."""
+    assert client.get("/api/v1/overview").status_code == 401
+
+
+def test_overview_writes_nothing(client, auth_headers, period_id):
+    """Testfall 14: twice over gives the same answer and no new rows."""
+    _posted_voucher(client, auth_headers, period_id, date(2026, 3, 10))
+    _overdue_invoice(client, auth_headers)
+
+    before = _row_census()
+    first = _overview(client, auth_headers)
+    second = _overview(client, auth_headers)
+
+    assert first == second
+    assert _row_census() == before

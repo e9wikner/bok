@@ -87,6 +87,15 @@ class Invoice:
             and self.status != InvoiceStatus.CANCELLED
         )
 
+    def counts_as_overdue(self, as_of_date: Optional[date] = None) -> bool:
+        """Whether this invoice counts towards the overdue tally.
+
+        The status is set by a nightly sweep, the date check catches the ones
+        it has not reached yet. One predicate, so the invoice list and the
+        overview counter can never disagree.
+        """
+        return self.status == InvoiceStatus.OVERDUE or self.is_overdue(as_of_date)
+
 
 @dataclass
 class Payment:

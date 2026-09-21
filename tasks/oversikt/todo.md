@@ -38,7 +38,7 @@ Testfallsnumren nedan syftar på tabellen i §7.
     tyst `limit`/`offset`/`search`/`sort_*`. Det nya filtret ska bete sig lika i båda grenarna
     **eller** ge `400` i den som inte kan hedra det. Tyst ignorering är inte ett alternativ.
 
-- [ ] **O4 — `GET /api/v1/overview`**
+- [x] **O4 — `GET /api/v1/overview`**
   - Acceptans: svaret i §5 — `fiscal_year`, `period_state`, och `pages` som en **lista** i
     ordningen `bocker`, `betala`, `bokslut`, var och en med `waiting`, `meta` och samma fyra
     räknare. Servern bestämmer `waiting` och formulerar `meta`; klienten räknar ingenting.
@@ -99,3 +99,36 @@ Kvar, pre-existerande och inte fördjupat: `period_id`-grenen ignorerar fortfara
 `limit`, `offset`, `search` och `sort_*`. `sort_by=age` beter sig där som `date` och `number`
 redan gör. Att laga det är en egen uppgift — den gren som ska svara på `total` korrekt måste
 sluta filtrera i Python, och det rör fler anropare än den här modulen.
+
+## Avvikelse från specen: O4 rör fler än fem filer
+
+O4 rör åtta filer, inte fem. De tre extra är små och följer av två krav i specen som drar åt
+olika håll än filgränsen:
+
+- `domain/invoice_models.py` + `api/routes/invoices.py` — "återanvänd predikatet, skriv inte ett
+  andra". `status == "overdue" or is_overdue()` flyttade till `Invoice.counts_as_overdue()`, som
+  både fakturalistans summering och `overdue_invoices` kallar. Testfall 12 hade annars jämfört
+  två kopior av samma villkor, vilket inte är ett test.
+- `repositories/correction_note_repo.py` (`count_open`) och `repositories/voucher_repo.py`
+  (`count_missing_attachments`) — "ingen SQL i servicen som inte går via ett repository".
+  `count_pending()` räknar bara `pending`, och `open_decisions` ska räkna `pending` **och**
+  `suggested`. Alternativet var SQL i `services/overview.py`, vilket är ett hårdare brott
+  (AGENTS.md: all SQL i `repositories/` + `db/`) än en fil till.
+
+Fakturor och lönekörningar räknas däremot i Python över `list_all()` från respektive repository,
+så de två filerna behövde inte röras alls.
+
+## Beslut som inte stod i specen
+
+- **`meta`-strängens form** (öppen fråga 1). Servern sätter ihop en fras per nollskild räknare,
+  åtskilda med ` · ` — `"3 väntar på dig · 7 saknar underlag"` — och `"Inget väntar"` när sidan
+  är tyst. Samma ton som `docs/to_agent/`, och strängen är serverns. Klienten renderar den.
+- **`bokslut` räknar noll** (öppen fråga 2). Alla fyra räknare är noll på den sidan, med skälet i
+  koden: det som borde räknas där (oavstämd period, osänd momsdeklaration) hör till
+  `flode-verifikationer`. En tyst sida är ärligare än en påhittad siffra.
+- **Räknarna är installationens, inte räkenskapsårets.** `missing_attachments`,
+  `open_decisions`, `overdue_invoices` och `payroll_waiting` räknas över allt som finns, enligt
+  antagande 1 (enbolag). `fiscal_year` och `period_state` är däremot det aktuella året och den
+  aktuella perioden — det som ligger närmast `today`, annars det senaste.
+- **Tomt bolag.** Utan räkenskapsår är `fiscal_year` och `period_state` `null`, och de tre
+  sidorna finns ändå med nollställda räknare. Headern kan ritas dag ett.

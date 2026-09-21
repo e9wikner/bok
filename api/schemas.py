@@ -148,6 +148,53 @@ class VoucherResponse(BaseModel):
     age_days: int = Field(0, description="Whole days since the voucher date")
 
 
+# Overview Schemas
+
+
+class OverviewFiscalYear(BaseModel):
+    """The fiscal year the header shows."""
+
+    id: str
+    label: str
+    start: str
+    end: str
+
+
+class OverviewPeriodState(BaseModel):
+    """The current period, shown once in the header and not per page."""
+
+    current_period_id: str
+    label: str
+    locked: bool
+
+
+class OverviewCounters(BaseModel):
+    """The same four counters on every page (SPEC-oversikt.md §5)."""
+
+    open_decisions: int = 0
+    overdue_invoices: int = 0
+    payroll_waiting: int = 0
+    missing_attachments: int = 0
+
+
+class OverviewPageResponse(BaseModel):
+    """One page tab: a dot when something waits, and a meta line saying what."""
+
+    key: str
+    title: str
+    waiting: bool
+    meta: str
+    counters: OverviewCounters
+
+
+class OverviewResponse(BaseModel):
+    """Everything the header needs, in one call."""
+
+    fiscal_year: Optional[OverviewFiscalYear] = None
+    period_state: Optional[OverviewPeriodState] = None
+    pages: List[OverviewPageResponse]
+
+
 # Account Schemas
 
 

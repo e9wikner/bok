@@ -87,6 +87,15 @@ class CorrectionNoteRepository:
         return [CorrectionNoteRepository._row_to_note(row) for row in rows]
 
     @staticmethod
+    def count_open() -> int:
+        """Notes still awaiting a decision: raised, or suggested but unapplied."""
+        row = db.execute(
+            "SELECT COUNT(*) AS count FROM correction_notes "
+            "WHERE status IN ('pending', 'suggested')"
+        ).fetchone()
+        return row["count"]
+
+    @staticmethod
     def count_pending() -> int:
         row = db.execute(
             "SELECT COUNT(*) AS count FROM correction_notes WHERE status = 'pending'"

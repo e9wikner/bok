@@ -33,6 +33,7 @@ from api.routes import (
     invoice_drafts,
     invoices,
     k2_reports,
+    overview,
     payroll,
     periods,
     reports,
@@ -148,6 +149,9 @@ app.include_router(tax_ink2.router)
 
 # Payroll
 app.include_router(payroll.router)
+
+# Sidöversikt (header counters for the three pages)
+app.include_router(overview.router)
 
 
 @app.get("/health", tags=["health"])
