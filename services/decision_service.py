@@ -200,6 +200,41 @@ def _split_source(
     return source.get("kind"), source.get("id"), source.get("date")
 
 
+# ---------------------------------------------------------------------------
+# B4: option-list validation helpers
+# ---------------------------------------------------------------------------
+
+
+def _option_field(item: OptionInput, name: str, *, default: Any = None) -> Any:
+    """Read `name` off either a mapping or a `DecisionOption` -- the same
+    dual-shape read `DecisionRepository._field` does, duplicated rather
+    than imported: that helper is private to `repositories/decision_repo.py`
+    (AGENTS.md's layering rule keeps SQL-side helpers there), and
+    `validate_options` has to run on the raw `options` argument *before*
+    any `decision_options` row -- and therefore no real `DecisionOption`
+    with a settled `.account`/`.amount_ore` -- necessarily exists yet."""
+    if isinstance(item, Mapping):
+        return item.get(name, default)
+    return getattr(item, name, default)
+
+
+def _option_changes_the_books(item: OptionInput) -> bool:
+    """SPEC §6.3's predicate -- `account` set **and** `amount_ore != 0` --
+    evaluated on a plain `OptionInput` instead of a `DecisionOption`.
+
+    `DecisionOption.changes_the_books` (`domain/models.py`) is reused
+    directly when `item` already is one; a dict gets the identical
+    comparison via `_option_field`, so a caller that validates dicts (as
+    `create()` does, since `add_options` accepts either shape) sees
+    exactly the same rule the domain property documents, not a
+    second definition that could drift from it."""
+    if isinstance(item, DecisionOption):
+        return item.changes_the_books
+    account = _option_field(item, "account")
+    amount_ore = _option_field(item, "amount_ore")
+    return account is not None and amount_ore is not None and bool(amount_ore)
+
+
 class DecisionService:
     """Orchestrates `decisions` / `decision_options` / thread posts.
 
@@ -262,9 +297,13 @@ class DecisionService:
         exactly as given -- no rewording, no truncation, no normalisation
         (SPEC §7.4, testfall 34).
 
-        B4's escalation invariant (`validate_options`) is not enforced
-        here -- this is its hook point, immediately before
-        `DecisionRepository.add_options` is called below, once B4 exists.
+        A non-empty `options` is checked against `validate_options`
+        (SPEC §6.3, §11.1) immediately before `DecisionRepository.add_options`
+        runs below, inside this same transaction -- a broken list raises
+        before either the options rows or the `options` post are written,
+        so a rejected list leaves no partial trace (testfall 19, 23). An
+        empty list skips the check entirely: there is nothing to have a
+        `recommended` mark or an exit row in.
         """
         # Minted before the transaction opens, so the `decision` post can
         # carry it and the row can be created with it -- see the docstring.
@@ -302,8 +341,16 @@ class DecisionService:
             )
 
             if options:
-                # B4's escalation invariant goes here, before the write:
-                # `self.validate_options(options, under_open_decision=...)`.
+                # SPEC §11.1: the `decisions` row above always lands with
+                # `status='open'` (DecisionRepository.create's column
+                # default), so a list written here is always the "Flöde 1
+                # steg 2" row of the table in validate_options's docstring
+                # -- under_open_decision is derived from the row just
+                # created, not hardcoded, so this call site keeps meaning
+                # the same thing if that ever stops being true.
+                self.validate_options(
+                    options, under_open_decision=decision.status == "open"
+                )
                 created_options = DecisionRepository.add_options(
                     decision.id, options, _commit=False
                 )
@@ -447,3 +494,127 @@ class DecisionService:
         updated = DecisionRepository.set_status(decision_id, "superseded")
         assert updated is not None  # the row was just read above; it exists
         return updated
+
+    # -- B4: the rules -------------------------------------------------
+
+    def validate_options(
+        self,
+        options: Sequence[OptionInput],
+        *,
+        under_open_decision: bool,
+    ) -> None:
+        """The escalation invariant plus `AlternativLista`'s two contract
+        rules (SPEC §6.3, §11.1) -- server rules, not client rules: a
+        client that skipped them, or got them wrong, must not be able to
+        put a bad list into `decision_options` by calling the API
+        directly. `create()` is this module's only caller today, but the
+        check lives here, independent of `create()`'s transaction, so B5's
+        tool and any later caller ask the same question the same way.
+
+        Called only for a non-empty `options` -- an empty list has no
+        alternative to carry a `recommended` mark or an exit row, so
+        `create()` never calls this for one (SPEC §6.3: "En tom lista
+        valideras inte").
+
+        Three rules, checked in this order:
+
+        1. **The escalation invariant** (§11.1). If any option
+           `changes_the_books` (`DecisionOption.changes_the_books` /
+           `_option_changes_the_books`, SPEC §6.3: `account` set and
+           `amount_ore != 0`) and this list is not `under_open_decision`,
+           the whole list is rejected with
+           `code="options_require_open_decision"`. This runs first
+           because it answers a different question than the two rules
+           below it -- not "is this list well-formed" but "is this list
+           allowed to be an `options` list at all, or should it have been
+           raised as a `decision` instead" (§11.1's forbidden case). A
+           list that fails this check may also happen to have two
+           `recommended` marks or no exit row, but the escalation error is
+           the one that tells the agent what to do about it ("lägg fram
+           beslutet först"), so it must not be shadowed by a shape error
+           that leaves the caller trying to fix a list that should not
+           exist in this form in the first place.
+        2. **At most one `recommended`** (`komponenter.md`, via §6.3).
+           `code="multiple_recommended_options"`. Zero is allowed --
+           `recommended: true` is a mark, not a required pre-selection;
+           `AlternativRad` renders an empty ring when none is set.
+        3. **The last option has `is_exit`** (§6.3: "sista alternativet är
+           alltid en väg ut"). `code="options_without_exit"`. Checked last
+           because it is the cheapest, most purely structural of the
+           three -- a single index lookup -- and because a list that is
+           already wrong for either reason above does not need a second,
+           unrelated complaint about its last row.
+
+           SPEC §6.3 only asserts that the *last* option is a way out; it
+           never says a way out may not also appear earlier (a list can
+           reasonably offer more than one door -- e.g. "Annat konto" and,
+           after it, "Det är inte alls detta köp"). This method therefore
+           checks only `options[-1]`; `is_exit=True` on a non-last row is
+           deliberately **not** an error.
+
+        `under_open_decision`: true exactly when this `options` list sits
+        under a `decision` whose status is (or is about to become, inside
+        the same transaction) `open`. `create()` always passes
+        `decision.status == "open"` -- true unconditionally there, since
+        `DecisionRepository.create` always returns a fresh row with
+        `status='open'` -- which is precisely SPEC §11.1's first table
+        row: "Flöde 1 steg 2 -- 5410 mot 1250: öppet beslut ja, ändrar
+        böckerna ja -> `options`, tillåtet". The parameter stays public,
+        rather than this method hardcoding `True` for its only caller
+        today, because a future caller may lay out options with no open
+        decision behind them at all (flöde 4's "koppla utan att ändra" --
+        SPEC §11.1's third row, `options` allowed precisely because
+        nothing there changes the books) and needs to ask this rule
+        without first writing anything to find out which world it is in.
+
+        `options` items are `DecisionOption` or a mapping -- whatever
+        `DecisionRepository.add_options` accepts (`OptionInput`) -- read
+        through `_option_field` / `_option_changes_the_books` so both
+        shapes are checked identically.
+
+        An empty `options` never raises, under either value of
+        `under_open_decision` -- there is no alternative to carry a
+        `recommended` mark or an exit row, and nothing in it can change
+        the books either. `create()` never calls this method for an
+        empty list in the first place (see `create()`'s docstring), but
+        the method itself stays a no-op for one rather than raising
+        `IndexError` on rule 3's `options[-1]`, so a future caller that
+        does ask does not need to special-case "empty" before calling.
+        """
+        if not options:
+            return
+
+        if any(_option_changes_the_books(option) for option in options):
+            if not under_open_decision:
+                raise ValidationError(
+                    code="options_require_open_decision",
+                    message=(
+                        "An options list with an option that changes the "
+                        "books must be laid out under an already-open "
+                        "decision -- raise the decision first "
+                        "(SPEC-beslut.md §11.1)."
+                    ),
+                    details=f"option_count={len(options)}",
+                )
+
+        recommended_count = sum(
+            1
+            for option in options
+            if _option_field(option, "recommended", default=False)
+        )
+        if recommended_count > 1:
+            raise ValidationError(
+                code="multiple_recommended_options",
+                message=(
+                    "At most one option may be recommended, got " f"{recommended_count}"
+                ),
+                details=f"recommended_count={recommended_count}",
+            )
+
+        last_option = options[-1]
+        if not _option_field(last_option, "is_exit", default=False):
+            raise ValidationError(
+                code="options_without_exit",
+                message="The last option must be a way out (is_exit=True)",
+                details=f"option_count={len(options)}",
+            )

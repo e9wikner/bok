@@ -11,6 +11,7 @@ import sqlite3
 import uuid
 from dataclasses import replace
 from datetime import date, datetime, timedelta
+from typing import Any, Dict
 
 import pytest
 
@@ -1257,3 +1258,294 @@ class TestDecisionNotAnswerableIsDefined:
         assert error.code == "decision_not_answerable"
         assert error.decision_id == "intake:abc123"
         assert error.details == "PUT /intake/abc123/agent-guidance"
+
+
+# --- B4: eskaleringsinvarianten och alternativens kontraktsregler (SPEC §6.3, §11.1, testfall 19-23) ---
+
+
+def _exit_option(**overrides) -> dict:
+    """A minimal way-out option -- no account, no amount, `is_exit=True`.
+    Used to close a list off in tests that are about some other option in
+    it, so that only the rule under test can fail."""
+    option = {
+        "title": "Annat konto",
+        "rationale": "Det är ett annat köp.",
+        "is_exit": True,
+    }
+    option.update(overrides)
+    return option
+
+
+def _count_rows(table: str) -> int:
+    """Total row count in `table` -- used to prove a rejected `options`
+    list leaves no partial trace anywhere it could have written one."""
+    row = db.execute("SELECT COUNT(*) AS n FROM " + table).fetchone()
+    return row["n"]
+
+
+class TestValidateOptionsTableSection11_1:
+    """SPEC §11.1's table is the contract for the escalation invariant --
+    one test per row, each citing its own row and testfall number."""
+
+    def test_flow1_step2_5410_mot_1250_open_decision_changes_the_books_is_allowed(
+        self,
+    ):
+        """§11.1 row 1: "Flöde 1 steg 2 -- 5410 mot 1250 | ja | ja ->
+        `options`, tillåtet". Testfall 20."""
+        service = DecisionService()
+        options = [
+            {
+                "title": "Förbrukningsinventarier",
+                "account": "5410",
+                "amount_ore": 358400,
+                "rationale": "Kostnadsförs direkt i juni.",
+                "recommended": True,
+                "is_exit": False,
+            },
+            _exit_option(),
+        ]
+
+        service.validate_options(options, under_open_decision=True)  # must not raise
+
+    def test_flow4_exakt_match_step_is_skipped_empty_list_needs_no_permission(self):
+        """§11.1 row 2: "Flöde 4 -- exakt match | nej | nej | hoppas över |
+        'Exakt match ska hoppa över det här steget'". No `options` list is
+        ever produced for this case; `create()` never calls
+        `validate_options` for an empty one (SPEC §6.3: "En tom lista
+        valideras inte"). Checked directly here: an empty list raises
+        nothing, under either an open or a closed decision."""
+        service = DecisionService()
+
+        service.validate_options([], under_open_decision=False)
+        service.validate_options([], under_open_decision=True)
+
+    def test_flow4_koppla_utan_att_andra_is_allowed_without_an_open_decision(self):
+        """§11.1 row 3: "Flöde 4 -- `koppla utan att ändra` | nej | nej ->
+        `options`, tillåtet". Testfall 21."""
+        service = DecisionService()
+        options = [
+            {
+                "title": "Koppla mot befintlig faktura",
+                "rationale": "Beloppet och datumet matchar en öppen post.",
+                "is_exit": False,
+            },
+            _exit_option(),
+        ]
+
+        service.validate_options(options, under_open_decision=False)  # must not raise
+
+    def test_flow4_bokfor_skillnaden_120kr_is_rejected_without_an_open_decision(self):
+        """§11.1 row 4: "Flöde 4 -- `bokför skillnaden 120 kr` | nej | ja
+        -> `decision` | 'bör bli ett beslutskort'". Testfall 19."""
+        service = DecisionService()
+        options = [
+            {
+                "title": "Bokför skillnaden",
+                "account": "6990",
+                "amount_ore": 12000,
+                "rationale": "Öresavrundning mot bankens underlag.",
+                "is_exit": True,
+            },
+        ]
+
+        with pytest.raises(ValidationError) as exc_info:
+            service.validate_options(options, under_open_decision=False)
+
+        assert exc_info.value.code == "options_require_open_decision"
+
+
+class TestValidateOptionsAtMostOneRecommended:
+    """Testfall 22: fler än ett `recommended` är ett fel; noll och ett är
+    tillåtna -- `recommended: true` är ett märke, inte en förvald rad."""
+
+    def test_two_recommended_options_is_rejected(self):
+        service = DecisionService()
+        options = [
+            {"title": "A", "rationale": "…", "recommended": True, "is_exit": False},
+            _exit_option(recommended=True),
+        ]
+
+        with pytest.raises(ValidationError) as exc_info:
+            service.validate_options(options, under_open_decision=False)
+
+        assert exc_info.value.code == "multiple_recommended_options"
+
+    def test_zero_recommended_options_is_allowed(self):
+        service = DecisionService()
+        options = [
+            {"title": "A", "rationale": "…", "is_exit": False},
+            _exit_option(),
+        ]
+
+        service.validate_options(options, under_open_decision=False)  # must not raise
+
+    def test_one_recommended_option_is_allowed(self):
+        service = DecisionService()
+        options = [
+            {"title": "A", "rationale": "…", "recommended": True, "is_exit": False},
+            _exit_option(),
+        ]
+
+        service.validate_options(options, under_open_decision=False)  # must not raise
+
+
+class TestValidateOptionsLastOptionIsExit:
+    """Testfall 23: sista alternativet saknar `is_exit` -> avvisas. Ett
+    `is_exit` på en tidigare rad är **medvetet tillåtet**: SPEC §6.3
+    säger bara att den sista alltid är en väg ut, aldrig att bara den
+    sista får vara det -- en lista får erbjuda mer än en dörr."""
+
+    def test_last_option_without_is_exit_is_rejected(self):
+        service = DecisionService()
+        options = [
+            {"title": "A", "rationale": "…", "is_exit": False},
+            {"title": "B", "rationale": "…", "is_exit": False},
+        ]
+
+        with pytest.raises(ValidationError) as exc_info:
+            service.validate_options(options, under_open_decision=False)
+
+        assert exc_info.value.code == "options_without_exit"
+
+    def test_is_exit_on_a_non_last_row_is_allowed(self):
+        service = DecisionService()
+        options = [
+            _exit_option(title="Annat konto"),
+            _exit_option(title="Det är inte alls detta köp"),
+        ]
+
+        service.validate_options(options, under_open_decision=False)  # must not raise
+
+
+class TestValidateOptionsChangesTheBooksEdgeCasesAsARule:
+    """Same predicate B2 already tested on `DecisionOption` directly
+    (`TestDecisionOptionChangesTheBooks`) -- what's under test here is the
+    consequence for the *rule*: an option that does not change the books
+    never triggers the escalation invariant, with no open decision behind
+    it at all."""
+
+    def test_account_with_zero_amount_does_not_require_an_open_decision(self):
+        service = DecisionService()
+        options = [
+            {
+                "title": "A",
+                "account": "5410",
+                "amount_ore": 0,
+                "rationale": "…",
+                "is_exit": True,
+            },
+        ]
+
+        service.validate_options(options, under_open_decision=False)  # must not raise
+
+    def test_amount_without_account_does_not_require_an_open_decision(self):
+        service = DecisionService()
+        options = [
+            {"title": "A", "amount_ore": 12000, "rationale": "…", "is_exit": True},
+        ]
+
+        service.validate_options(options, under_open_decision=False)  # must not raise
+
+
+class TestValidateOptionsAcceptsDecisionOptionObjects:
+    """`DecisionRepository.add_options` takes `DecisionOption` objects or
+    dicts (`OptionInput`); `validate_options` has to read both shapes the
+    same way, since `create()` never converts one into the other before
+    calling it."""
+
+    @staticmethod
+    def _option(**overrides: Any) -> DecisionOption:
+        base: Dict[str, Any] = dict(
+            id=str(uuid.uuid4()),
+            decision_id="d1",
+            position=1,
+            title="Förbrukningsinventarier",
+            rationale="Kostnadsförs direkt.",
+        )
+        base.update(overrides)
+        return DecisionOption(**base)
+
+    def test_changes_the_books_option_without_open_decision_is_rejected(self):
+        service = DecisionService()
+        options = [
+            self._option(account="5410", amount_ore=358400, position=1),
+            self._option(title="Annat konto", is_exit=True, position=2),
+        ]
+
+        with pytest.raises(ValidationError) as exc_info:
+            service.validate_options(options, under_open_decision=False)
+
+        assert exc_info.value.code == "options_require_open_decision"
+
+    def test_two_recommended_decision_options_is_rejected(self):
+        service = DecisionService()
+        options = [
+            self._option(recommended=True, position=1),
+            self._option(
+                title="Annat konto", recommended=True, is_exit=True, position=2
+            ),
+        ]
+
+        with pytest.raises(ValidationError) as exc_info:
+            service.validate_options(options, under_open_decision=True)
+
+        assert exc_info.value.code == "multiple_recommended_options"
+
+    def test_last_decision_option_without_is_exit_is_rejected(self):
+        service = DecisionService()
+        options = [
+            self._option(position=1),
+            self._option(title="B", position=2),
+        ]
+
+        with pytest.raises(ValidationError) as exc_info:
+            service.validate_options(options, under_open_decision=True)
+
+        assert exc_info.value.code == "options_without_exit"
+
+    def test_a_well_formed_list_of_decision_options_is_allowed(self):
+        service = DecisionService()
+        options = [
+            self._option(
+                account="5410", amount_ore=358400, recommended=True, position=1
+            ),
+            self._option(title="Annat konto", is_exit=True, position=2),
+        ]
+
+        service.validate_options(options, under_open_decision=True)  # must not raise
+
+
+class TestValidateOptionsEnforcedThroughCreate:
+    """The rule is a server rule, not a client rule (BRIEF.md, todo.md
+    B4): `create()` calls `validate_options` itself, inside its own
+    transaction, so a bad list is rejected no matter what wrote it --
+    and rejecting it writes **nothing at all**, neither the `decision`
+    post, the `decisions` row, the `options` post, nor any
+    `decision_options` row (testfall 23, through `create()` rather than
+    `validate_options` called directly, as the other classes above do)."""
+
+    def test_create_with_a_list_missing_exit_on_the_last_row_writes_nothing(self):
+        thread = _new_thread()
+        service = DecisionService()
+
+        posts_before = _count_rows("thread_posts")
+        decisions_before = _count_rows("decisions")
+        options_before = _count_rows("decision_options")
+
+        with pytest.raises(ValidationError) as exc_info:
+            service.create(
+                thread,
+                title="Kortköp Elektronikhuset",
+                reason="Kvittot saknas.",
+                consequence="Ingenting är bokfört.",
+                options=[
+                    {"title": "A", "rationale": "…", "is_exit": False},
+                    {"title": "B", "rationale": "…", "is_exit": False},
+                ],
+            )
+
+        assert exc_info.value.code == "options_without_exit"
+        assert _count_rows("thread_posts") == posts_before
+        assert _count_rows("decisions") == decisions_before
+        assert _count_rows("decision_options") == options_before
+        assert ThreadRepository.list_posts(thread.id) == []
