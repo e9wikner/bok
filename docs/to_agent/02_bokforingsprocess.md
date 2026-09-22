@@ -21,7 +21,9 @@ Agenten nås i sin tur på två sätt, och de har olika utfall:
 - **Ett meddelande i en tråd.** Här är ett rent svar ett fullgott utfall. En fråga
   behöver inte en verifikation, och att svara på den är inte att avstå från något.
   Använd `registrera_avstaende` när du verkligen avstår från att bokföra ett
-  underlag — inte för att avsluta ett samtal.
+  underlag — inte för att avsluta ett samtal. Kräver samtalet i stället ett
+  beslut du inte kan ta själv, lägg fram det med `be_om_beslut` — se "Lägg
+  fram ett beslut" nedan.
 
 Allt annat är oförändrat mellan de två: samma verktyg, samma skrivväg till
 huvudboken, samma immutabilitet. Tröskeln för att posta är densamma oavsett vem
@@ -236,3 +238,40 @@ Avstå från att posta och be om mänsklig komplettering när:
 - perioden är låst eller saknas
 - verifikationen inte balanserar
 - transaktionen kan ha juridisk eller skattemässig effekt som inte framgår av underlaget
+
+## Lägg fram ett beslut
+
+Ett avstående i ett samtal behöver inte vara ett tyst stopp. Verktyget
+`be_om_beslut` lägger fram ett beslut för människan att ta ställning till,
+mitt i ett samtal i en tråd — med en motivering (`reason`), en konsekvens
+(`consequence`) och, om det finns, en lista med alternativ. Det postar
+ingenting, det ändrar ingenting och det rör bara beslutets egna tabeller: ett
+kort i tråden och en rad i beslutskön, aldrig bokföringen.
+
+`be_om_beslut` hör till ett beslut som uppstår i ett samtal i en vy.
+`registrera_avstaende` hör till ett underlag i intagskön och skriver ett
+`failed`-försök på det underlaget. Det är samma skillnad som i Grundprincip
+mellan de två ingångarna — verktyget för den ena är inte verktyget för den
+andra.
+
+Samma lista som under "När agenten ska avstå" avgör *om* agenten ska avstå i
+stället för att gissa rätt konto, momssats eller period. Det `be_om_beslut`
+ändrar är vad avståendet blir: inte bara ett stopp, utan ett beslut människan
+kan svara på — med ett knapptryck eller med fritext.
+
+Tröskeln för när ett alternativ hör hemma under ett beslut i stället för att
+stå fritt: varje ändring i böckerna som en människa väljer är antingen tagen
+inuti ett redan öppet beslut, eller själv ett beslut. En alternativlista vars
+alternativ ändrar resultat, moms eller en period utan ett öppet beslut bakom
+sig **avvisas av servern**. Lägg fram beslutet först, lägg alternativen under
+det.
+
+Alternativlistan har dessutom två serverregler, inte stilfrågor — servern
+avvisar listan annars:
+
+- högst ett alternativ får vara `recommended`
+- sista alternativet ska alltid vara en väg ut
+
+`reason`, `consequence` och varje alternativs `rationale` lagras och visas för
+människan ordagrant, precis som de skrevs. Formulera dem för en läsare, inte
+för en logg.

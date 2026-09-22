@@ -355,6 +355,61 @@ async def test_placeholder_agent_routes_are_removed(async_client):
         assert response.status_code in {404, 405}
 
 
+def test_agent_process_doc_describes_be_om_beslut_and_when_to_use_it():
+    """SPEC-beslut.md §6.4, §8: the tool exists, and the distinction from
+    ``registrera_avstaende`` this task builds on -- a decision arising in a
+    conversation in a view versus a `failed` attempt on a queued source.
+    """
+    text = PROCESS_DOC_PATH.read_text(encoding="utf-8")
+
+    assert "be_om_beslut" in text
+    assert "Det postar\ningenting, det ändrar ingenting" in text
+    assert "hör till ett beslut som uppstår i ett samtal i en vy" in text
+    assert (
+        "`registrera_avstaende` hör till ett underlag i intagskön och "
+        "skriver ett\n`failed`-försök" in text
+    )
+
+
+def test_agent_process_doc_states_the_decision_options_threshold():
+    """SPEC-beslut.md §11.1: the rule the agent needs to be able to follow --
+    an options list that changes the books without an open decision behind
+    it is rejected by the server.
+    """
+    text = PROCESS_DOC_PATH.read_text(encoding="utf-8")
+
+    assert (
+        "varje ändring i böckerna som en människa väljer är antingen tagen\n"
+        "inuti ett redan öppet beslut, eller själv ett beslut" in text
+    )
+    assert "**avvisas av servern**" in text
+    assert "Lägg fram beslutet först, lägg alternativen under" in text
+
+
+def test_agent_process_doc_states_the_options_list_contract_rules():
+    """SPEC-beslut.md §6.3/§11.1: the two server-enforced rules on the
+    alternative list, not a client styling choice.
+    """
+    text = PROCESS_DOC_PATH.read_text(encoding="utf-8")
+
+    assert "serverregler, inte stilfrågor" in text
+    assert "högst ett alternativ får vara `recommended`" in text
+    assert "sista alternativet ska alltid vara en väg ut" in text
+
+
+def test_agent_process_doc_says_the_agents_own_text_is_stored_verbatim():
+    """SPEC-beslut.md §6.4/plan.md: `reason`, `consequence` and each
+    option's `rationale` are shown to the human exactly as written -- a
+    reason to write them for a reader, not a log.
+    """
+    text = PROCESS_DOC_PATH.read_text(encoding="utf-8")
+
+    assert (
+        "`reason`, `consequence` och varje alternativs `rationale` lagras "
+        "och visas för\nmänniskan ordagrant" in text
+    )
+
+
 def test_agent_system_access_doc_does_not_advertise_removed_schema_routes():
     text = DRIFT_DOC_PATH.read_text(encoding="utf-8")
 
