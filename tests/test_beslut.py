@@ -1775,10 +1775,24 @@ class TestCaseTwentySevenRegistreraAvstaendeIsUnchanged:
         )
         assert tool["input_schema"] == RegistreraAvstaendeArgs.model_json_schema()
 
-    def test_case_27_registrera_avstaende_still_creates_no_decision(self, tmp_path):
-        """The bridge that gives an abstention its own `decisions` row is
-        B6's job (todo.md B6) -- until then a call through the unchanged
-        tool writes no `decisions` row at all, exactly as before B5."""
+    def test_case_27_a_bare_tool_call_still_creates_no_decision(self, tmp_path):
+        """Before B6, this test's docstring read: "The bridge that gives an
+        abstention its own `decisions` row is B6's job -- until then a call
+        through the unchanged tool writes no `decisions` row at all." That
+        was wrong about *where* B6's bridge lives, and B6 leaves this
+        specific assertion true rather than changing it.
+
+        `execute_tool("registrera_avstaende", ...)` on its own -- as this
+        test does -- never reaches `ThreadService.record_outcome`: that
+        only runs at the end of a full turn (`ThreadTurnRunner.run` ->
+        `run_thread_session`), and `_run_registrera_avstaende`
+        (`services/agent_tools.py`) itself only ever writes an
+        `intake_processing_attempts` row via `IntakeService.record_failed`
+        -- no thread post, no `decisions` row, not before B6 and not after.
+        The bridge B6 actually builds is in `record_outcome`, reached only
+        through a real thread turn -- see
+        `TestAbstentionInThreadGetsATrackedDecision` below, which is the
+        test that exercises it and would have failed before B6."""
         from config import settings
         from services.intake import IntakeService
 
@@ -2127,3 +2141,234 @@ class TestDocumentPathUnchangedByBeOmBeslut:
         )
 
         assert isinstance(result, list)
+
+
+# --- B6: avståendet i tråden blir ett spårat beslut (SPEC §2, testfall 34) ---
+
+
+def _intake_source_for_abstention(tmp_path):
+    """A real `intake_sources` row via `IntakeService`, so
+    `registrera_avstaende`'s `source_id` foreign key is genuine -- the same
+    setup `TestCaseTwentySevenRegistreraAvstaendeIsUnchanged` already uses,
+    reused here because a full turn's `registrera_avstaende` call needs one
+    too."""
+    from config import settings
+    from services.intake import IntakeService
+
+    original_dir = settings.intake_dir
+    settings.intake_dir = str(tmp_path / "intake")
+    try:
+        return IntakeService().create_source_from_upload_content(
+            filename="kvitto.pdf",
+            content_type="application/pdf",
+            content=b"%PDF-1.4 kvitto",
+            explanation="Kvitto",
+            source_type="receipt",
+            actor="api",
+        )
+    finally:
+        settings.intake_dir = original_dir
+
+
+def _run_abstention_turn(
+    tmp_path,
+    *,
+    summary: str,
+    error_detail: str,
+    view_key: str = "bocker.verifikationer",
+):
+    """A real thread turn whose only tool call is `registrera_avstaende` --
+    `ThreadTurnRunner.run`, synchronous, LLM faked via `client_factory`
+    (never monkeypatch), exactly BRIEF.md's arbetssätt §2. This is the path
+    `_thread_service.record_outcome` actually runs on, unlike a bare
+    `execute_tool` call (see the corrected `test_case_27_...` above)."""
+    thread = _new_thread(view_key=view_key)
+    trigger = ThreadRepository.add_post(
+        thread_id=thread.id,
+        post_type="user_text",
+        actor="stefan",
+        body={"text": "Kan du bokföra det här kvittot?"},
+    )
+    source = _intake_source_for_abstention(tmp_path)
+    tool_call = ToolCall(
+        id="call-1",
+        name="registrera_avstaende",
+        arguments={
+            "source_id": source.id,
+            "summary": summary,
+            "error_detail": error_detail,
+        },
+    )
+    client = _FakeLLMClient([_turn(tool_calls=[tool_call], stop="tool_calls")])
+    outcome = ThreadTurnRunner().run(
+        thread,
+        trigger,
+        "Kan du bokföra det här kvittot?",
+        client_factory=lambda model: client,
+    )
+    return thread, outcome
+
+
+class TestAbstentionInThreadGetsATrackedDecision:
+    """B6 (`tasks/beslut/todo.md`): a `registrera_avstaende` call inside a
+    real thread turn already produced a `decision` post (`tradar`, B1).
+    Before this task the post had no row behind it -- exactly the orphaned
+    card SPEC-beslut.md §2 describes: visible in the thread, but impossible
+    to list, age or answer. `ThreadService.record_outcome` now binds the
+    post to a fresh `decisions` row, in the same transaction."""
+
+    def test_the_decision_post_gets_exactly_one_bound_row(self, tmp_path):
+        thread, outcome = _run_abstention_turn(
+            tmp_path,
+            summary="Behöver veta vad inköpet avsåg",
+            error_detail="Beloppet går inte att utläsa på kvittot",
+        )
+        assert outcome is not None
+        assert outcome.kind == "abstained"
+
+        posts = [
+            post
+            for post in ThreadRepository.list_posts(thread.id)
+            if post.type == "decision"
+        ]
+        assert len(posts) == 1
+        post = posts[0]
+
+        decision = DecisionRepository.get_by_post_id(post.id)
+        assert decision is not None
+        assert decision.thread_id == thread.id
+        assert decision.kind == "abstention"
+        assert decision.status == "open"
+        assert decision.view_key == thread.view_key
+
+    def test_no_decision_post_is_ever_left_without_a_row(self, tmp_path):
+        """The task's real acceptance criterion (todo.md B6's Obs): every
+        `decision` post the turn produced -- not just "a" post -- has a row
+        bound to it, checked by listing the thread's own posts rather than
+        assuming there is exactly one."""
+        thread, _ = _run_abstention_turn(
+            tmp_path,
+            summary="Oklart om det är representation eller kontorsmaterial",
+            error_detail="Kvittot saknar specifikation",
+        )
+
+        decision_posts = [
+            post
+            for post in ThreadRepository.list_posts(thread.id)
+            if post.type == "decision"
+        ]
+        assert decision_posts, "the turn should have produced a decision post"
+        for post in decision_posts:
+            assert DecisionRepository.get_by_post_id(post.id) is not None
+
+    def test_the_post_and_the_row_carry_the_same_decision_id(self, tmp_path):
+        thread, _ = _run_abstention_turn(
+            tmp_path,
+            summary="Behöver veta vad inköpet avsåg",
+            error_detail="Beloppet går inte att utläsa på kvittot",
+        )
+        post = [
+            p for p in ThreadRepository.list_posts(thread.id) if p.type == "decision"
+        ][0]
+        decision = DecisionRepository.get_by_post_id(post.id)
+
+        assert post.body["decision_id"] == decision.id
+
+    def test_case_34_reason_and_consequence_survive_verbatim_in_post_and_row(
+        self, tmp_path
+    ):
+        """Testfall 34 (SPEC §7.4): the agent's own wording -- quotes, a
+        line break, Swedish characters -- reaches both the post and the row
+        unchanged, and the two agree exactly: `DecisionService.create`
+        (called with `post=` already written) does not re-derive or
+        retruncate what `_decision_body` already produced."""
+        summary = (
+            'Kvittot säger "Elektronikhuset – Örebro",\n'
+            "men beloppet 4 480 kr går inte att läsa med säkerhet."
+        )
+        thread, _ = _run_abstention_turn(
+            tmp_path,
+            summary=summary,
+            error_detail="Suddig bild, sista siffran oläslig.",
+        )
+        post = [
+            p for p in ThreadRepository.list_posts(thread.id) if p.type == "decision"
+        ][0]
+        decision = DecisionRepository.get_by_post_id(post.id)
+
+        assert post.body["reason"] == summary
+        assert decision.reason == summary
+        assert decision.reason == post.body["reason"]
+        assert decision.consequence == post.body["consequence"]
+
+    def test_the_decision_is_answerable(self, tmp_path):
+        """The whole point of B6 (todo.md's Obs): the card is no longer
+        orphaned -- it counts toward `DecisionService.count_open()` and
+        `DecisionService.answer()` closes it, exactly like any other open
+        decision."""
+        thread, _ = _run_abstention_turn(
+            tmp_path,
+            summary="Behöver veta vad inköpet avsåg",
+            error_detail="Beloppet går inte att utläsa på kvittot",
+        )
+        post = [
+            p for p in ThreadRepository.list_posts(thread.id) if p.type == "decision"
+        ][0]
+        decision = DecisionRepository.get_by_post_id(post.id)
+        service = DecisionService()
+
+        assert service.count_open() >= 1
+
+        answered, answer_post = service.answer(
+            decision.id, free_text="Det är representation.", actor="stefan"
+        )
+
+        assert answered.status == "answered"
+        assert answer_post.body["text"] == "Det är representation."
+
+    def test_an_answered_turn_writes_no_decision(self):
+        """Only the `decision` branch of `_render`/`record_outcome` is
+        touched by B6 -- an `answered` outcome (no tool call at all) must
+        still write no `decisions` row."""
+        thread = _new_thread()
+        trigger = ThreadRepository.add_post(
+            thread_id=thread.id,
+            post_type="user_text",
+            actor="stefan",
+            body={"text": "Vad är saldot på 1930?"},
+        )
+        client = _FakeLLMClient([_turn(text="Saldot är 12 345 kr.", stop="end")])
+        before = _count_rows("decisions")
+
+        outcome = ThreadTurnRunner().run(
+            thread,
+            trigger,
+            "Vad är saldot på 1930?",
+            client_factory=lambda model: client,
+        )
+
+        assert outcome.kind == "answered"
+        assert _count_rows("decisions") == before
+
+    def test_a_failed_turn_writes_no_decision(self):
+        """Same for `failed` -- an unrecognized stop reason must not leave
+        a decision behind either."""
+        thread = _new_thread()
+        trigger = ThreadRepository.add_post(
+            thread_id=thread.id,
+            post_type="user_text",
+            actor="stefan",
+            body={"text": "Bokför det här."},
+        )
+        client = _FakeLLMClient([_turn(text="", stop="bogus_stop_reason")])
+        before = _count_rows("decisions")
+
+        outcome = ThreadTurnRunner().run(
+            thread,
+            trigger,
+            "Bokför det här.",
+            client_factory=lambda model: client,
+        )
+
+        assert outcome.kind == "failed"
+        assert _count_rows("decisions") == before

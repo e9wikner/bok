@@ -21,8 +21,10 @@ Two rules the §6.2 table does not state but the contract depends on:
 
 import json
 import logging
+import uuid
 from typing import Any, Optional
 
+from db.database import db
 from domain.models import Thread, ThreadPost
 from repositories.agent_run_repo import AgentRunRepository
 from repositories.thread_repo import ThreadRepository
@@ -194,15 +196,27 @@ def _error_body(reason: Optional[str], retry_draft_id: Optional[str] = None) -> 
     }
 
 
-def _decision_body(outcome: SessionOutcome) -> dict:
+def _decision_body(outcome: SessionOutcome, decision_id: str) -> dict:
     """`BeslutKort`'s body (§6.2) for a registered abstention.
 
     §11: `registrera_avstaende` becomes a `decision` post. The agent's own
     wording is the point -- `datakontrakt.md` §2: "`reason` är agentens text
     om varför den inte gissade". It is never rewritten here.
+
+    `decision_id` (B6, SPEC §2) is minted by `record_outcome` before this
+    runs and before the post is written -- `decisions.post_id` is a plain
+    foreign key into `thread_posts(id)`, so the row can only be created once
+    the post exists, and a post is never rewritten afterwards to add one in
+    (`SPEC-tradar.md` §8.4). This function's only job regarding it is to
+    carry it in the body it already builds -- nothing else about it
+    changes. Same shape as `_decision_post_body`
+    (`services/decision_service.py`), which takes the same id the same way
+    for a decision raised through `be_om_beslut`, so a `BeslutKort` looks
+    identical regardless of which path produced it.
     """
     tool_result = outcome.tool_result or {}
     return {
+        "decision_id": decision_id,
         "title": tool_result.get("summary") or "Agenten avstod",
         "amount": None,
         "reason": outcome.reason or tool_result.get("error_detail") or "",
@@ -251,21 +265,90 @@ class ThreadService:
         | `abstained` via registrera_avstaende | `decision` |
         | `abstained` for any other reason | `error`      |
         | `failed`                         | `error`      |
+
+        B6 (SPEC-beslut.md §2): a `decision` post alone is not the whole
+        story -- without a row in `decisions` bound to it, it is the
+        orphaned card the module exists to close: visible in the thread,
+        but impossible to list, age or answer. So when `_render` produces a
+        `decision` post, this method also binds it to a fresh `decisions`
+        row, in the same transaction as the post itself (see the comment
+        by the `with db.transaction():` below for why that has to be
+        atomic). Every other outcome kind is unaffected -- only the
+        `decision` branch does any of this.
         """
         traces = traces_for_run(run_id)
-        post_type, body = ThreadService._render(outcome, answer_text)
-        return ThreadRepository.add_post(
-            thread_id=thread.id,
-            post_type=post_type,
-            actor=actor,
-            body=compact(body),
-            traces=traces or None,
-            run_id=run_id,
-        )
+        # Minted unconditionally, before `_render` runs, and cheaply (no
+        # I/O): that way `_render` stays a pure function that merely
+        # *carries* the value into the decision branch's body instead of
+        # `record_outcome` re-deriving `_render`'s own "is this outcome a
+        # decision" condition a second time just to decide whether an id is
+        # needed at all.
+        decision_id = str(uuid.uuid4())
+        post_type, body = ThreadService._render(outcome, answer_text, decision_id)
+
+        if post_type != "decision":
+            return ThreadRepository.add_post(
+                thread_id=thread.id,
+                post_type=post_type,
+                actor=actor,
+                body=compact(body),
+                traces=traces or None,
+                run_id=run_id,
+            )
+
+        # A `decision` post and the `decisions` row bound to it must land
+        # together. The post is written first -- `decisions.post_id` is a
+        # plain foreign key into an already-existing `thread_posts` row --
+        # but if the row's write then failed on its own, a half-finished
+        # outcome would leave exactly the orphaned card this task exists to
+        # prevent: a post the human can see, with no row to list, age or
+        # answer it by. The post is written with `_commit=False`, so it is
+        # still pending when `DecisionService.create` opens its own
+        # `with db.transaction():` -- and since both run on the same
+        # thread-local connection (`db/database.py`), that block's commit
+        # or rollback settles the post along with the row. SQLite has no
+        # nested transactions; the outer block below is not a second one,
+        # it is the guard for everything up to the point where `create`
+        # takes over.
+        compacted_body = compact(body)
+        with db.transaction():
+            post = ThreadRepository.add_post(
+                thread_id=thread.id,
+                post_type=post_type,
+                actor=actor,
+                body=compacted_body,
+                traces=traces or None,
+                run_id=run_id,
+                _commit=False,
+            )
+
+            # Deferred import -- AGENTS.md's service-to-service rule:
+            # imported inside the method rather than at module load time.
+            # Matches the same deferred import of `DecisionService` already
+            # done in `services/agent_tools.py`'s `_run_be_om_beslut` for
+            # this same module.
+            from services.decision_service import DecisionService
+
+            DecisionService().create(
+                thread,
+                title=compacted_body["title"],
+                reason=compacted_body["reason"],
+                consequence=compacted_body["consequence"],
+                amount_ore=compacted_body["amount"],
+                source=compacted_body["source"],
+                kind="abstention",
+                actor=actor,
+                post=post,
+                decision_id=decision_id,
+            )
+
+        return post
 
     @staticmethod
     def _render(
-        outcome: SessionOutcome, answer_text: Optional[str]
+        outcome: SessionOutcome,
+        answer_text: Optional[str],
+        decision_id: Optional[str] = None,
     ) -> tuple[str, dict]:
         text = answer_text if answer_text is not None else outcome.text
 
@@ -284,7 +367,11 @@ class ThreadService:
             }
 
         if outcome.kind == "abstained" and outcome.tool_result is not None:
-            return "decision", _decision_body(outcome)
+            # `decision_id` is always minted by `record_outcome` before
+            # this runs (B6) -- this is the only branch that needs one, so
+            # `agent_text`/`error` never see it.
+            assert decision_id is not None
+            return "decision", _decision_body(outcome, decision_id)
 
         return "error", _error_body(outcome.reason)
 
