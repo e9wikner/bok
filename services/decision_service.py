@@ -5,9 +5,15 @@ BRIEF.md §2 so later tasks don't each invent their own. This module
 implements the lifecycle B3 owns (`create`, `answer`, `count_open`,
 `supersede`), the escalation invariant (`validate_options`, B4), and the
 three-source union B7 owns (`list_decisions` / `get_decision`, SPEC §5,
-§6.1, §11.2). The seven-day reminder (`due_reminders` / `mark_reminded`,
-B10) is deliberately not built here -- its name is reserved in BRIEF.md §2
-and its call site is left as a plain comment below rather than implemented
+§6.1, §11.2). `answer()` also carries B8's synthetic-id guard (SPEC §5,
+§6.2 step 1) -- `api/routes/decisions.py::answer_decision` calls it and
+maps its typed errors to status codes, then starts the turn itself once
+the transaction inside `answer()` has committed; this module never
+imports `ThreadTurnRunner` or starts one (§7.2's boundary: a decision
+answer writes a post and stops, it does not itself drive a turn). The
+seven-day reminder (`due_reminders` / `mark_reminded`, B10) is
+deliberately not built here -- its name is reserved in BRIEF.md §2 and
+its call site is left as a plain comment below rather than implemented
 ahead of the task that owns it.
 
 No `fastapi` import, no `HTTPException` (AGENTS.md's layering rule --
@@ -262,6 +268,28 @@ def _decode_synthetic_id(decision_id: str) -> Optional[Tuple[str, str]]:
     return None
 
 
+def _existing_path_for_synthetic_source(source_kind: str, raw_id: str) -> str:
+    """SPEC §5: the path a synthetic-id answer is pointed at instead of
+    `POST /decisions/{id}/answer` -- `PUT /intake/{id}/agent-guidance` for
+    an `intake:` id, `POST /vouchers/{voucher_id}/correction-notes/
+    {note_id}/suggest` for a `correction:` one.
+
+    The voucher id the second form needs is looked up on
+    `correction_notes` -- a different table from the `decisions` lookup
+    SPEC §6.2 / testfall 16 forbids running before this check, so reading
+    it here does not fall into that trap (B7's final report is what names
+    it: check the prefix *before* `DecisionRepository.get`, not after).
+    A `note_id` that resolves to no row still gets a path -- the prefix
+    alone is what makes an id unanswerable here, not whether the source
+    row happens to still exist (SPEC §5 draws no such distinction).
+    """
+    if source_kind == "intake":
+        return f"PUT /intake/{raw_id}/agent-guidance"
+    note = CorrectionNoteRepository.get(raw_id)
+    voucher_id = note.voucher_id if note is not None else raw_id
+    return f"POST /vouchers/{voucher_id}/correction-notes/{raw_id}/suggest"
+
+
 # ---------------------------------------------------------------------------
 # Typed errors
 # ---------------------------------------------------------------------------
@@ -305,10 +333,13 @@ class DecisionNotAnswerable(DecisionError):
     the source's own existing path (`PUT /intake/{id}/agent-guidance` or
     `POST /vouchers/{id}/correction-notes/{note_id}/suggest`).
 
-    Defined here per the brief; nothing in B3 raises it. `DecisionService`
-    as built in B3 only ever looks a `decision_id` up in `decisions`
-    directly (`DecisionRepository.get`), so it never sees a synthetic id --
-    that only happens once B7's union exists and hands one to `answer()`.
+    Defined here per the brief; B3 never raised it -- `answer()` as B3 left
+    it only ever looked a `decision_id` up in `decisions` directly
+    (`DecisionRepository.get`), so it never saw a synthetic id. B8 is what
+    raises it: `answer()` now decodes the prefix (`_decode_synthetic_id`)
+    and raises this *before* that `decisions` lookup runs at all (SPEC
+    §6.2, testfall 16) -- checking after would answer `404` instead, since
+    a prefixed string is never a real `decisions.id`.
     """
 
     def __init__(self, decision_id: str, existing_path: Optional[str] = None):
@@ -605,12 +636,19 @@ class DecisionService:
         neither is `ValidationError(code="invalid_answer")`, mapped to
         `400` by B8.
 
-        Lookup and validation happen before any write: an unknown id is
-        `DecisionNotFound`; a decision that has already left `open` is
-        `DecisionAlreadyAnswered`, carrying the existing answer, so a
-        second press never produces a second post -- the check runs
-        *before* the transaction below, on a fresh read. `option_id` is
-        checked against **this** decision's own options; an id from
+        Lookup and validation happen before any write: a synthetic id
+        (`intake:...` / `correction:...`, SPEC §5) is `DecisionNotAnswerable`
+        -- decoded and raised **before** `DecisionRepository.get` runs,
+        because that repository only ever looks inside `decisions`, and a
+        prefixed string is never a row id there. Checking the other way
+        round -- look up first, decode on a miss -- would answer `404` for
+        a synthetic id instead of the `409` SPEC §6.2 / testfall 16 ask
+        for; B7's final report names this exact trap. An unknown *plain*
+        id is `DecisionNotFound`; a decision that has already left `open`
+        is `DecisionAlreadyAnswered`, carrying the existing answer, so a
+        second press never produces a second post -- that check also runs
+        *before* the transaction below, on the same fresh read. `option_id`
+        is checked against **this** decision's own options; an id from
         another decision is `ValidationError`, never a silent lookup that
         happens to match.
 
@@ -646,6 +684,14 @@ class DecisionService:
                 code="invalid_answer",
                 message="Exactly one of option_id or free_text is required",
                 details=f"option_id={option_id!r} free_text={free_text!r}",
+            )
+
+        decoded = _decode_synthetic_id(decision_id)
+        if decoded is not None:
+            source_kind, raw_id = decoded
+            raise DecisionNotAnswerable(
+                decision_id,
+                existing_path=_existing_path_for_synthetic_source(source_kind, raw_id),
             )
 
         decision = DecisionRepository.get(decision_id)

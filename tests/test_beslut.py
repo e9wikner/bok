@@ -7,6 +7,7 @@ SPEC-beslut.md §9.
 Per SPEC §9 no LLM is ever called from a test.
 """
 
+import itertools
 import sqlite3
 import uuid
 from dataclasses import replace
@@ -21,6 +22,7 @@ from db.database import db
 from domain.models import Decision, DecisionOption
 from domain.types import ThreadViewKey
 from domain.validation import ValidationError
+from repositories.account_repo import AccountRepository
 from repositories.decision_repo import DecisionRepository
 from repositories.period_repo import PeriodRepository
 from repositories.thread_repo import ThreadRepository
@@ -28,6 +30,7 @@ from repositories.voucher_repo import VoucherRepository
 from services.agent_tools import (
     AGENT_TOOL_DEFINITIONS,
     RegistreraAvstaendeArgs,
+    derive_thread_posting_idempotency_key,
     execute_tool,
 )
 from services.decision_service import (
@@ -37,7 +40,14 @@ from services.decision_service import (
     DecisionNotFound,
     DecisionService,
 )
-from services.llm import LLMCapabilities, LLMTurn, StopReason, ToolCall, Usage
+from services.llm import (
+    LLMCapabilities,
+    LLMConnectionError,
+    LLMTurn,
+    StopReason,
+    ToolCall,
+    Usage,
+)
 from services.thread_stream import ThreadTurnRunner
 
 pytestmark = pytest.mark.usefixtures("test_db")
@@ -260,7 +270,13 @@ class TestMigration026:
 
 # --- B2: DecisionRepository och domänmodellerna (SPEC §4, testfall 5, 10) ---
 
-_fiscal_year_counter = iter(range(2000, 2100))
+#: A distinct fiscal year per call, for tests that need more than one
+#: thread: `fiscal_years` has a `UNIQUE (start_date, end_date)`, so two
+#: threads in one test would otherwise collide on a fixed range. Unbounded
+#: on purpose — a finite one silently turns into `StopIteration` inside an
+#: unrelated helper the moment the file grows past its length, which reads
+#: as a broken test rather than an exhausted fixture.
+_fiscal_year_counter = itertools.count(2000)
 
 
 def _new_thread_and_post(view_key: str = "bocker.verifikationer"):
@@ -2996,3 +3012,694 @@ class TestDecisionsRouteRequiresAuthentication:
     def test_get_requires_auth(self, client):
         response = client.get(f"{DECISIONS_URL}/{uuid.uuid4()}")
         assert response.status_code == 401
+
+
+# --- B8: POST /decisions/{id}/answer (SPEC §6.2, testfall 11–16, 28–30) ------
+
+
+def _answer_url(decision_id: str) -> str:
+    return f"{DECISIONS_URL}/{decision_id}/answer"
+
+
+def _open_decision_with_options(view_key: str = "bocker.verifikationer"):
+    """An open decision with two options, the last one a way out — the
+    shape a `BeslutKort` with an `AlternativLista` actually has, so the
+    `option_id` path is answered against a real list rather than a
+    single-row stand-in."""
+    thread = _new_thread(view_key=view_key)
+    decision = DecisionService().create(
+        thread,
+        title="Kortköp Elektronikhuset",
+        reason="Kvittot saknas och beloppet ligger nära gränsen.",
+        consequence="Ingenting är bokfört. Beslutet ligger kvar tills du svarar.",
+        amount_ore=448000,
+        options=[
+            {
+                "title": "Förbrukningsinventarier",
+                "rationale": "Kostnadsförs direkt i juni.",
+                "account": "5410",
+                "amount_ore": 358400,
+                "recommended": True,
+            },
+            _exit_option(),
+        ],
+    )
+    return thread, decision
+
+
+class _RuntimeOff:
+    """`AGENT_RUNTIME_ENABLED=false` for the duration of a block.
+
+    The route's `202` path is what most of these tests are about, and the
+    turn it would otherwise start is not — `post_message` in
+    `api/routes/threads.py` is gated on the same global switch, and turning
+    it off is how a route test stays a route test instead of quietly
+    needing a model. The turn's own behaviour is covered separately, by the
+    tests that run one synchronously through `ThreadTurnRunner.run`.
+    """
+
+    def __enter__(self):
+        self._original = settings.agent_runtime_enabled
+        settings.agent_runtime_enabled = False
+        return self
+
+    def __exit__(self, *exc_info):
+        settings.agent_runtime_enabled = self._original
+        return False
+
+
+class TestCaseElevenAnsweringWithAnOptionId:
+    """Testfall 11 — the reply post is written **before** the turn starts."""
+
+    def test_the_answer_writes_a_user_text_post_and_answers_202(
+        self, client, auth_headers
+    ):
+        thread, decision = _open_decision_with_options()
+        option = decision.options[0]
+
+        with _RuntimeOff():
+            response = client.post(
+                _answer_url(decision.id),
+                json={"option_id": option.id},
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 202
+        body = response.json()
+        assert body["decision"]["status"] == "answered"
+        assert body["answer_post_id"]
+
+        post = ThreadRepository.get_post(body["answer_post_id"])
+        assert post is not None
+        assert post.type == "user_text"
+        # SPEC §6.2 step 4: the option's title and account, as the human's
+        # own reply in the thread.
+        assert option.title in post.body["text"]
+        assert option.account in post.body["text"]
+
+    def test_the_reply_stands_in_the_thread_before_the_agent_says_anything(
+        self, client, auth_headers
+    ):
+        """§6.2 step 4, the same rule `SPEC-tradar.md` §6.1 step 2 states
+        for a message: the human's reply is in the thread before any turn
+        has produced a word. With the runtime off, no turn runs at all —
+        so the last post in the thread is hers, and nothing follows it."""
+        thread, decision = _open_decision_with_options()
+
+        with _RuntimeOff():
+            response = client.post(
+                _answer_url(decision.id),
+                json={"option_id": decision.options[0].id},
+                headers=auth_headers,
+            )
+
+        posts = ThreadRepository.list_posts(thread.id)
+        answer_post_id = response.json()["answer_post_id"]
+        assert posts[-1].id == answer_post_id
+        assert response.json()["answer_post_seq"] == posts[-1].seq
+
+    def test_the_decision_row_records_the_option_that_was_chosen(
+        self, client, auth_headers
+    ):
+        thread, decision = _open_decision_with_options()
+        option = decision.options[0]
+
+        with _RuntimeOff():
+            client.post(
+                _answer_url(decision.id),
+                json={"option_id": option.id},
+                headers=auth_headers,
+            )
+
+        stored = DecisionRepository.get(decision.id)
+        assert stored is not None
+        assert stored.status == "answered"
+        assert stored.answer_option_id == option.id
+        assert stored.answered_at is not None
+        assert stored.answer_post_id is not None
+
+
+class TestCaseTwelveAnsweringWithFreeText:
+    """Testfall 12 — as complete as testfall 11, deliberately.
+
+    `README.md`, Tillgänglighet: "Beslutskortets primärknapp är aldrig den
+    enda vägen: samma beslut ska gå att uttrycka i text i chattfältet." A
+    decision that can only be answered with a mouse click is an interface
+    that excludes people, so the free-text path gets the same coverage as
+    the button, not a token test.
+    """
+
+    def test_the_answer_writes_a_user_text_post_and_answers_202(
+        self, client, auth_headers
+    ):
+        thread, decision = _open_decision_with_options()
+
+        with _RuntimeOff():
+            response = client.post(
+                _answer_url(decision.id),
+                json={"free_text": "Bokför det som förbrukningsinventarie."},
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 202
+        body = response.json()
+        assert body["decision"]["status"] == "answered"
+
+        post = ThreadRepository.get_post(body["answer_post_id"])
+        assert post is not None
+        assert post.type == "user_text"
+
+    def test_the_free_text_is_stored_and_replied_verbatim(self, client, auth_headers):
+        """Ordagrant, including quotes, a line break and Swedish
+        characters — the human's words are not normalised any more than the
+        agent's are (§7.4)."""
+        thread, decision = _open_decision_with_options()
+        text = (
+            'Bokför på 1250 — "inventarier".\nKvittot kommer i morgon, håll det öppet.'
+        )
+
+        with _RuntimeOff():
+            response = client.post(
+                _answer_url(decision.id),
+                json={"free_text": text},
+                headers=auth_headers,
+            )
+
+        post = ThreadRepository.get_post(response.json()["answer_post_id"])
+        assert post is not None
+        assert post.body["text"] == text
+
+        stored = DecisionRepository.get(decision.id)
+        assert stored is not None
+        assert stored.answer_text == text
+        assert stored.answer_option_id is None
+
+    def test_the_reply_stands_in_the_thread_before_the_agent_says_anything(
+        self, client, auth_headers
+    ):
+        thread, decision = _open_decision_with_options()
+
+        with _RuntimeOff():
+            response = client.post(
+                _answer_url(decision.id),
+                json={"free_text": "Håll det öppet tills vidare."},
+                headers=auth_headers,
+            )
+
+        posts = ThreadRepository.list_posts(thread.id)
+        assert posts[-1].id == response.json()["answer_post_id"]
+        assert response.json()["answer_post_seq"] == posts[-1].seq
+
+    def test_free_text_works_on_a_decision_with_no_options_at_all(
+        self, client, auth_headers
+    ):
+        """Flöde 1 steg 1: the card comes first, the options only when the
+        human asks for them. A decision with no list must still be
+        answerable — otherwise the free-text path is not a second way to
+        the same place, it is the only way to a different one."""
+        thread = _new_thread()
+        decision = DecisionService().create(
+            thread,
+            title="Oläsligt kvitto",
+            reason="Beloppet går inte att läsa med säkerhet.",
+            consequence="Ingenting är bokfört.",
+        )
+
+        with _RuntimeOff():
+            response = client.post(
+                _answer_url(decision.id),
+                json={"free_text": "Släng det, jag tar det manuellt."},
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 202
+
+
+class TestCaseThirteenExactlyOneOfTheTwoFields:
+    """Testfall 13 — both, or neither, is `400`."""
+
+    def test_both_option_id_and_free_text_is_400(self, client, auth_headers):
+        thread, decision = _open_decision_with_options()
+
+        with _RuntimeOff():
+            response = client.post(
+                _answer_url(decision.id),
+                json={
+                    "option_id": decision.options[0].id,
+                    "free_text": "…och dessutom det här.",
+                },
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 400
+        assert response.json()["detail"]["code"] == "invalid_answer"
+
+    def test_neither_field_is_400(self, client, auth_headers):
+        thread, decision = _open_decision_with_options()
+
+        with _RuntimeOff():
+            response = client.post(
+                _answer_url(decision.id), json={}, headers=auth_headers
+            )
+
+        assert response.status_code == 400
+        assert response.json()["detail"]["code"] == "invalid_answer"
+
+    def test_a_rejected_body_writes_nothing(self, client, auth_headers):
+        thread, decision = _open_decision_with_options()
+        posts_before = len(ThreadRepository.list_posts(thread.id))
+
+        with _RuntimeOff():
+            client.post(_answer_url(decision.id), json={}, headers=auth_headers)
+
+        assert len(ThreadRepository.list_posts(thread.id)) == posts_before
+        stored = DecisionRepository.get(decision.id)
+        assert stored is not None
+        assert stored.status == "open"
+
+
+class TestCaseFourteenOptionIdFromAnotherDecision:
+    """Testfall 14 — validated against **this** decision's own options,
+    never a silent lookup that happens to match."""
+
+    def test_an_option_id_from_another_decision_is_400(self, client, auth_headers):
+        _, mine = _open_decision_with_options()
+        _, theirs = _open_decision_with_options(view_key="bocker.balans")
+
+        with _RuntimeOff():
+            response = client.post(
+                _answer_url(mine.id),
+                json={"option_id": theirs.options[0].id},
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 400
+
+    def test_neither_decision_is_touched(self, client, auth_headers):
+        _, mine = _open_decision_with_options()
+        _, theirs = _open_decision_with_options(view_key="bocker.balans")
+
+        with _RuntimeOff():
+            client.post(
+                _answer_url(mine.id),
+                json={"option_id": theirs.options[0].id},
+                headers=auth_headers,
+            )
+
+        for decision in (mine, theirs):
+            stored = DecisionRepository.get(decision.id)
+            assert stored is not None
+            assert stored.status == "open"
+
+
+class TestCaseFifteenASecondAnswerIsA409:
+    """Testfall 15 — `409` with the existing answer, never a second post.
+
+    `409` rather than `400` on purpose (SPEC §6.2 step 2): the client
+    should be able to render the finished state instead of an error, which
+    is the same rule `datakontrakt.md` §3 puts on a posting.
+    """
+
+    def test_the_second_answer_is_409_carrying_the_existing_answer(
+        self, client, auth_headers
+    ):
+        thread, decision = _open_decision_with_options()
+
+        with _RuntimeOff():
+            first = client.post(
+                _answer_url(decision.id),
+                json={"free_text": "Bokför som inventarie."},
+                headers=auth_headers,
+            )
+            second = client.post(
+                _answer_url(decision.id),
+                json={"free_text": "Nej, förresten — kostnadsför det."},
+                headers=auth_headers,
+            )
+
+        assert first.status_code == 202
+        assert second.status_code == 409
+
+        detail = second.json()["detail"]
+        assert detail["code"] == "decision_already_answered"
+        assert detail["answered_at"] is not None
+        assert detail["answer_post_id"] == first.json()["answer_post_id"]
+        assert detail["answer_text"] == "Bokför som inventarie."
+
+    def test_the_second_answer_writes_no_second_post(self, client, auth_headers):
+        thread, decision = _open_decision_with_options()
+
+        with _RuntimeOff():
+            client.post(
+                _answer_url(decision.id),
+                json={"free_text": "Bokför som inventarie."},
+                headers=auth_headers,
+            )
+            client.post(
+                _answer_url(decision.id),
+                json={"free_text": "En gång till."},
+                headers=auth_headers,
+            )
+
+        user_posts = [
+            post
+            for post in ThreadRepository.list_posts(thread.id)
+            if post.type == "user_text"
+        ]
+        assert len(user_posts) == 1
+
+
+class TestCaseSixteenSyntheticIdsAreNotAnswerableHere:
+    """Testfall 16 — `409 decision_not_answerable`, pointing at the path
+    that does exist (SPEC §5).
+
+    Not `404`: the id is perfectly real and `GET /decisions/{id}` returns
+    it. It is this *route* that cannot answer it, and saying so with a
+    pointer is the difference between a dead end and a redirection.
+    """
+
+    def test_an_intake_id_is_409_pointing_at_agent_guidance(self, client, auth_headers):
+        source_id = _insert_intake_source(status="failed")
+
+        with _RuntimeOff():
+            response = client.post(
+                _answer_url(f"intake:{source_id}"),
+                json={"free_text": "Bokför den på 6212."},
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert detail["code"] == "decision_not_answerable"
+        assert f"/intake/{source_id}/agent-guidance" in detail["details"]
+
+    def test_a_correction_id_is_409_pointing_at_the_suggest_path(
+        self, client, auth_headers
+    ):
+        voucher_id = _voucher_for_correction()
+        note_id = _insert_correction_note(voucher_id, status="pending")
+
+        with _RuntimeOff():
+            response = client.post(
+                _answer_url(f"correction:{note_id}"),
+                json={"free_text": "Rätta den."},
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert detail["code"] == "decision_not_answerable"
+        assert f"correction-notes/{note_id}/suggest" in detail["details"]
+        assert voucher_id in detail["details"]
+
+    def test_a_synthetic_id_is_409_not_404_even_though_it_is_not_in_decisions(
+        self, client, auth_headers
+    ):
+        """The trap the prefix check exists to avoid: `DecisionRepository.
+        get` only looks inside `decisions`, so a prefixed id misses there
+        and would answer `404` if the decode ran second."""
+        source_id = _insert_intake_source(status="failed")
+
+        with _RuntimeOff():
+            response = client.post(
+                _answer_url(f"intake:{source_id}"),
+                json={"free_text": "…"},
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 409
+
+    def test_a_synthetic_id_is_still_readable(self, client, auth_headers):
+        """§5: "läsbara men inte besvarbara" — the `409` above must not be
+        mistaken for the row being gone."""
+        source_id = _insert_intake_source(status="failed")
+
+        response = client.get(
+            f"{DECISIONS_URL}/intake:{source_id}", headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        assert response.json()["kind"] == "intake"
+
+
+class TestAnsweringAnUnknownDecision:
+    def test_an_unknown_id_is_404(self, client, auth_headers):
+        with _RuntimeOff():
+            response = client.post(
+                _answer_url(str(uuid.uuid4())),
+                json={"free_text": "…"},
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 404
+        assert response.json()["detail"]["code"] == "decision_not_found"
+
+
+class TestAnswerRouteRequiresAuthentication:
+    def test_answering_without_a_token_is_401(self, client):
+        response = client.post(_answer_url(str(uuid.uuid4())), json={"free_text": "…"})
+        assert response.status_code == 401
+
+
+def _ensure_posting_accounts() -> None:
+    """The accounts a posting cites. Same three as
+    `tests/test_tradar.py::_ensure_accounts`, so a `posta_verifikation`
+    call built by `_posting_args` below balances against real rows."""
+    for code, name, account_type in (
+        ("1920", "Bankkonto", "asset"),
+        ("2640", "Ingående moms", "vat_in"),
+        ("6212", "Mobiltelefon", "expense"),
+    ):
+        if not AccountRepository.exists(code):
+            AccountRepository.create(code, name, account_type)
+
+
+def _posting_args(period_id: str, source_id: str, amount: int = 12500) -> dict:
+    """A balanced `posta_verifikation` call that cites its source material
+    — `post_agent_voucher` refuses one that does not, on either path."""
+    return {
+        "date": "2026-03-15",
+        "period_id": period_id,
+        "description": "Telefonutgift Fello",
+        "reasoning_summary": "Kvitto matchat mot underlag",
+        "intake_source_ids": [source_id],
+        "rows": [
+            {"account": "1920", "debit": 0, "credit": amount},
+            {"account": "2640", "debit": amount // 5, "credit": 0},
+            {"account": "6212", "debit": amount - amount // 5, "credit": 0},
+        ],
+    }
+
+
+def _answerable_decision_in_a_postable_thread(tmp_path):
+    """An open decision whose thread has an open period and a real intake
+    source, so the turn an answer starts can actually post something.
+
+    Returns `(thread, decision, posting_args)`.
+    """
+    _ensure_posting_accounts()
+    fy = PeriodRepository.create_fiscal_year(
+        start_date=date(2026, 1, 1), end_date=date(2026, 12, 31)
+    )
+    period = PeriodRepository.create_period(
+        fiscal_year_id=fy.id,
+        year=2026,
+        month=3,
+        start_date=date(2026, 3, 1),
+        end_date=date(2026, 3, 31),
+    )
+    thread = ThreadRepository.get_or_create(
+        view_key="bocker.verifikationer",
+        fiscal_year_id=fy.id,
+        model="opencode/claude-opus-5",
+    )
+    decision = DecisionService().create(
+        thread,
+        title="Telefonutgift Fello",
+        reason="Kvittot är otydligt om beloppet är inklusive moms.",
+        consequence="Ingenting är bokfört.",
+    )
+    source = _intake_source_for_abstention(tmp_path)
+    return thread, decision, _posting_args(period.id, source.id)
+
+
+class TestCaseTwentyEightTheTurnsPostingKeyHangsOnTheAnswerPost:
+    """Testfall 28 — a posting made in a turn started by an answer carries
+    `thread:{thread_id}:{post_id}`, derived from the **answer post**.
+
+    No third namespace (SPEC §2): an answer post is a user post, and it
+    inherits `SPEC-tradar.md` §6.4's rule unchanged. That is also what lets
+    testfall 29 hold — two answers cannot become two vouchers if the key
+    hangs on the post rather than on the clock.
+    """
+
+    def test_the_key_is_derived_from_the_answer_post(self, tmp_path):
+        thread, decision, posting_args = _answerable_decision_in_a_postable_thread(
+            tmp_path
+        )
+        _, answer_post = DecisionService().answer(
+            decision.id, free_text="Bokför den, beloppet är inkl. moms.", actor="stefan"
+        )
+        client = _FakeLLMClient(
+            [
+                _turn(
+                    tool_calls=[
+                        ToolCall(
+                            id="call-1",
+                            name="posta_verifikation",
+                            arguments=posting_args,
+                        )
+                    ],
+                    stop="tool_calls",
+                )
+            ]
+        )
+
+        outcome = ThreadTurnRunner().run(
+            thread,
+            answer_post,
+            answer_post.body["text"],
+            client_factory=lambda model: client,
+        )
+
+        assert outcome is not None and outcome.kind == "posted"
+        expected = derive_thread_posting_idempotency_key(thread.id, answer_post.id)
+        stored = db.execute("SELECT key FROM idempotency_keys LIMIT 1").fetchone()
+        assert stored is not None
+        assert stored["key"] == expected
+
+
+class TestCaseTwentyNineTwoAnswersNeverBecomeTwoVouchers:
+    """Testfall 29 — the guarantee `409`-from-the-schema buys (§11.4).
+
+    Two presses of the same button cannot produce two vouchers in a book
+    that cannot be tidied up afterwards. Two things stop it independently,
+    and this test leans on both: the second answer never gets as far as a
+    turn (`DecisionAlreadyAnswered`), and if a turn were somehow run twice
+    from the same answer post, the derived key replays instead of posting
+    again.
+    """
+
+    def test_a_second_answer_is_refused_before_any_turn_can_start(self, tmp_path):
+        thread, decision, posting_args = _answerable_decision_in_a_postable_thread(
+            tmp_path
+        )
+        service = DecisionService()
+        _, answer_post = service.answer(
+            decision.id, free_text="Bokför den.", actor="stefan"
+        )
+
+        def _posting_client():
+            return _FakeLLMClient(
+                [
+                    _turn(
+                        tool_calls=[
+                            ToolCall(
+                                id="call-1",
+                                name="posta_verifikation",
+                                arguments=posting_args,
+                            )
+                        ],
+                        stop="tool_calls",
+                    )
+                ]
+            )
+
+        ThreadTurnRunner().run(
+            thread,
+            answer_post,
+            answer_post.body["text"],
+            client_factory=lambda model: _posting_client(),
+        )
+
+        with pytest.raises(DecisionAlreadyAnswered):
+            service.answer(decision.id, free_text="Bokför den igen.", actor="stefan")
+
+        assert db.execute("SELECT COUNT(*) AS n FROM vouchers").fetchone()["n"] == 1
+
+    def test_the_same_answer_post_run_twice_replays_instead_of_posting_again(
+        self, tmp_path
+    ):
+        """The second guard, on its own: even a turn re-run from the same
+        answer post derives the same key and replays."""
+        thread, decision, posting_args = _answerable_decision_in_a_postable_thread(
+            tmp_path
+        )
+        _, answer_post = DecisionService().answer(
+            decision.id, free_text="Bokför den.", actor="stefan"
+        )
+        posting_turn = _turn(
+            tool_calls=[
+                ToolCall(id="call-1", name="posta_verifikation", arguments=posting_args)
+            ],
+            stop="tool_calls",
+        )
+
+        for _ in range(2):
+            ThreadTurnRunner().run(
+                thread,
+                answer_post,
+                answer_post.body["text"],
+                client_factory=lambda model: _FakeLLMClient([posting_turn]),
+            )
+
+        assert db.execute("SELECT COUNT(*) AS n FROM vouchers").fetchone()["n"] == 1
+
+
+class TestCaseThirtyAFailedTurnLeavesTheDecisionAnswered:
+    """Testfall 30 — the answer was given; it was the turn that fell (§6.7).
+
+    Reopening the decision would ask the human to make a decision she has
+    already made. `FelKort`'s "Försök igen" carries the same draft id
+    instead, which is what flöde 1 steg 6 means by "förslaget ligger kvar
+    så att försöket kan göras om".
+    """
+
+    def test_the_turn_fails_the_decision_stays_answered(self, tmp_path):
+        thread, decision, _ = _answerable_decision_in_a_postable_thread(tmp_path)
+        _, answer_post = DecisionService().answer(
+            decision.id, free_text="Bokför den.", actor="stefan"
+        )
+
+        class _ExplodingClient(_FakeLLMClient):
+            def run_turn(self, *args, **kwargs):
+                raise LLMConnectionError("anropet gick inte fram")
+
+        ThreadTurnRunner().run(
+            thread,
+            answer_post,
+            answer_post.body["text"],
+            client_factory=lambda model: _ExplodingClient([]),
+        )
+
+        stored = DecisionRepository.get(decision.id)
+        assert stored is not None
+        assert stored.status == "answered"
+        assert stored.answer_post_id == answer_post.id
+
+    def test_the_failed_turn_leaves_an_error_post_in_the_thread(self, tmp_path):
+        thread, decision, _ = _answerable_decision_in_a_postable_thread(tmp_path)
+        _, answer_post = DecisionService().answer(
+            decision.id, free_text="Bokför den.", actor="stefan"
+        )
+
+        class _ExplodingClient(_FakeLLMClient):
+            def run_turn(self, *args, **kwargs):
+                raise LLMConnectionError("anropet gick inte fram")
+
+        ThreadTurnRunner().run(
+            thread,
+            answer_post,
+            answer_post.body["text"],
+            client_factory=lambda model: _ExplodingClient([]),
+        )
+
+        error_posts = [
+            post
+            for post in ThreadRepository.list_posts(thread.id)
+            if post.type == "error"
+        ]
+        assert len(error_posts) == 1
+        # §6.7: cause *and* consequence, in bookkeeping terms.
+        assert error_posts[0].body["cause"]
+        assert "bokförde" in error_posts[0].body["consequence"].lower()

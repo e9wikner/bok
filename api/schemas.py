@@ -603,6 +603,42 @@ class DecisionListResponse(BaseModel):
     total: int
 
 
+# Decision answer schemas (SPEC-beslut.md §6.2 -- B8)
+
+
+class DecisionAnswerRequest(BaseModel):
+    """`POST /decisions/{id}/answer` -- `{ option_id }` **or**
+    `{ free_text }`, exactly one. Both fields stay optional here: which
+    one (or whether both, or neither) is a body-shape error is a rule on
+    the answer itself (SPEC §6.2), not on the request's shape, so it is
+    `DecisionService.answer()` that raises `400`
+    (`ValidationError(code="invalid_answer")`), not a Pydantic validator
+    here -- the same "no business rule in the route" split this router
+    keeps everywhere else.
+
+    Fritextvägen is not a courtesy: `README.md`'s accessibility
+    requirement is that every decision a `BeslutKort`'s primary button can
+    express is equally expressible as plain text (testfall 12).
+    """
+
+    option_id: Optional[str] = None
+    free_text: Optional[str] = None
+
+
+class DecisionAnswerResponse(BaseModel):
+    """What `POST /decisions/{id}/answer` answers `202` with: the decision
+    in its new (`answered`) state, plus the id and `seq` of the
+    `user_text` reply post that was written for it -- the same pairing
+    `ThreadMessageResponse` gives a client for the human's own post, so it
+    can find the reply in the thread (or as the SSE cursor to subscribe
+    from) without a second request.
+    """
+
+    decision: DecisionResponse
+    answer_post_id: str
+    answer_post_seq: int
+
+
 # Error Schemas
 
 

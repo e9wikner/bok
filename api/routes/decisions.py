@@ -1,16 +1,14 @@
 """API routes for the union of the three decision sources (SPEC-beslut.md
-§5, §6.1).
+§5, §6.1) and for answering one (§6.2, B8).
 
 HTTP only, per AGENTS.md's layering rule: parse, authenticate, validate
-`view_key` against the closed list of seven, and map domain errors to
-status codes. The union itself -- `decisions`, `intake_sources`
-(`failed`/`needs_attention`) and `correction_notes`
-(`pending`/`suggested`) -- lives entirely in
-`services/decision_service.py::DecisionService.list_decisions` /
-`.get_decision`; nothing here touches those three tables.
-
-`POST /decisions/{id}/answer` is B8's. This router is deliberately
-read-only so that task has a clean place to land.
+`view_key` against the closed list of seven, map domain errors to status
+codes, and -- for `answer_decision` -- start the turn after
+`DecisionService.answer()`'s own transaction has committed. Everything
+else -- the union itself, the synthetic-id prefixes, the lifecycle -- lives
+entirely in `services/decision_service.py`; nothing here decodes an
+`intake:`/`correction:` id or touches `decisions`/`decision_options`/
+`intake_sources`/`correction_notes` directly.
 """
 
 import logging
@@ -21,15 +19,26 @@ from fastapi import status as http_status
 
 from api.deps import get_current_actor
 from api.schemas import (
+    DecisionAnswerRequest,
+    DecisionAnswerResponse,
     DecisionListResponse,
     DecisionOptionResponse,
     DecisionResponse,
     DecisionSourceResponse,
 )
+from config import settings
 from domain.models import DecisionOption
 from domain.types import ThreadViewKey
 from domain.validation import ValidationError
-from services.decision_service import DecisionService, DecisionView
+from repositories.thread_repo import ThreadRepository
+from services.decision_service import (
+    DecisionAlreadyAnswered,
+    DecisionNotAnswerable,
+    DecisionNotFound,
+    DecisionService,
+    DecisionView,
+)
+from services.thread_stream import ThreadTurnRunner
 
 logger = logging.getLogger(__name__)
 
@@ -155,3 +164,112 @@ async def get_decision(
             },
         )
     return _decision_response(view)
+
+
+@router.post(
+    "/{decision_id}/answer",
+    response_model=DecisionAnswerResponse,
+    status_code=http_status.HTTP_202_ACCEPTED,
+)
+async def answer_decision(
+    decision_id: str,
+    request: DecisionAnswerRequest,
+    actor: str = Depends(get_current_actor),
+):
+    """`POST /decisions/{id}/answer` -- SPEC §6.2's seven steps.
+
+    Steps 1-5 (lookup, the synthetic-id guard, the already-answered guard,
+    `option_id` ownership, and the `user_text` post plus the status flip in
+    one transaction) all happen inside `DecisionService.answer()` -- there
+    is no business rule here, per AGENTS.md's layering rule and this
+    module's own docstring. This handler only maps `answer()`'s typed
+    errors to status codes and, for the success path, does step 6 itself:
+    start the turn.
+
+    **Not waited for.** Exactly `post_message`'s shape
+    (`api/routes/threads.py`): the human's own reply (the `user_text` post
+    `answer()` just wrote and committed) has to stand in the thread before
+    the agent has said anything, and the agent's answer arrives over
+    `GET /threads/{view_key}/stream` -- this request is not the one
+    writing it. Gated on the same global switch as `post_message`: the
+    agent being off is a *state*, not a per-answer failure, so the human's
+    answer still stands and nothing about a global setting gets written as
+    an `error` post under this one decision.
+
+    `DecisionAlreadyAnswered`'s `409` carries the existing answer in the
+    body -- `answered_at`, `answer_post_id`, and whichever of
+    `answer_option_id`/`answer_text` was actually given -- rather than
+    just a code, so a client can render the already-answered state instead
+    of a bare error (SPEC §6.2 step 2, testfall 15).
+    """
+    try:
+        decision, answer_post = DecisionService().answer(
+            decision_id,
+            option_id=request.option_id,
+            free_text=request.free_text,
+            actor=actor,
+        )
+    except DecisionNotFound:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": f"Unknown decision: {decision_id!r}",
+                "code": "decision_not_found",
+                "details": f"decision_id={decision_id}",
+            },
+        )
+    except DecisionNotAnswerable as exc:
+        raise HTTPException(
+            status_code=http_status.HTTP_409_CONFLICT,
+            detail={"error": exc.message, "code": exc.code, "details": exc.details},
+        )
+    except DecisionAlreadyAnswered as exc:
+        existing = exc.decision
+        raise HTTPException(
+            status_code=http_status.HTTP_409_CONFLICT,
+            detail={
+                "error": exc.message,
+                "code": exc.code,
+                "details": exc.details,
+                "answered_at": (
+                    existing.answered_at.isoformat()
+                    if existing.answered_at is not None
+                    else None
+                ),
+                "answer_post_id": existing.answer_post_id,
+                "answer_option_id": existing.answer_option_id,
+                "answer_text": existing.answer_text,
+            },
+        )
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail={"error": exc.message, "code": exc.code, "details": exc.details},
+        )
+
+    # Step 6 (SPEC §6.2): started only after the transaction inside
+    # `answer()` above has already committed -- the reply post and the
+    # status flip are both durable before any turn is even considered.
+    # Same gate, same logged-not-erred behaviour when the switch is off,
+    # as `api/routes/threads.py::post_message`.
+    thread = ThreadRepository.get(decision.thread_id)
+    assert thread is not None  # decision.thread_id is a real foreign key
+    if settings.agent_runtime_enabled:
+        ThreadTurnRunner().start(thread, answer_post, answer_post.body["text"])
+    else:
+        logger.info(
+            "Agent runtime disabled -- decision %s answered, no turn "
+            "started (AGENT_RUNTIME_ENABLED=false)",
+            decision.id,
+        )
+
+    # Step 7: the decision in its new state, read back through the same
+    # union `GET /decisions/{id}` uses, so the response shape a client
+    # gets here is identical to what a follow-up `GET` would show.
+    view = DecisionService().get_decision(decision.id)
+    assert view is not None  # just answered above; still exists
+    return DecisionAnswerResponse(
+        decision=_decision_response(view),
+        answer_post_id=answer_post.id,
+        answer_post_seq=answer_post.seq,
+    )
