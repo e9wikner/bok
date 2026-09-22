@@ -16,9 +16,17 @@ import pytest
 
 from db.database import db
 from domain.models import Decision, DecisionOption
+from domain.validation import ValidationError
 from repositories.decision_repo import DecisionRepository
 from repositories.period_repo import PeriodRepository
 from repositories.thread_repo import ThreadRepository
+from services.decision_service import (
+    DecisionAlreadyAnswered,
+    DecisionError,
+    DecisionNotAnswerable,
+    DecisionNotFound,
+    DecisionService,
+)
 
 pytestmark = pytest.mark.usefixtures("test_db")
 
@@ -761,3 +769,491 @@ class TestDecisionAgeDays:
         fetched = DecisionRepository.get(decision.id)
         assert fetched is not None
         assert fetched.age_days() == 0
+
+
+# --- B3: DecisionService, livscykeln (SPEC §6.2, testfall 15, 17, 18, 32) ---
+
+
+def _new_thread(view_key: str = "bocker.verifikationer"):
+    """A bare thread with no posts yet -- unlike `_new_thread_and_post`
+    (B2), which pre-writes a `decision` post for repository-level tests
+    that need an existing post to bind a row to. `DecisionService.create`
+    writes its own post, so a test of it must start from an empty thread."""
+    year = next(_fiscal_year_counter)
+    fy = _fiscal_year(start=date(year, 1, 1), end=date(year, 12, 31))
+    return ThreadRepository.get_or_create(
+        view_key=view_key,
+        fiscal_year_id=fy.id,
+        model="opencode/claude-opus-5",
+    )
+
+
+class TestDecisionServiceCreateWithoutOptions:
+    def test_creates_one_post_and_one_row(self):
+        thread = _new_thread()
+        service = DecisionService()
+
+        decision = service.create(
+            thread,
+            title="Kortköp Elektronikhuset",
+            reason="Kvittot saknas och beloppet ligger nära gränsen.",
+            consequence="Ingenting är bokfört.",
+            amount_ore=448000,
+        )
+
+        posts = ThreadRepository.list_posts(thread.id)
+        assert len(posts) == 1
+        assert posts[0].type == "decision"
+        assert posts[0].id == decision.post_id
+
+        fetched = DecisionRepository.get(decision.id)
+        assert fetched is not None
+        assert fetched.view_key == thread.view_key
+        assert fetched.status == "open"
+        assert fetched.options == []
+
+    def test_decision_post_body_matches_beslutkort_keys(self):
+        """Same key set `_decision_body` (services/thread_service.py)
+        already produces — `title`, `amount`, `reason`, `source`,
+        `consequence` — plus the `decision_id` that makes the card
+        answerable without a second request and a join on `post_id`."""
+        thread = _new_thread()
+        service = DecisionService()
+
+        decision = service.create(
+            thread,
+            title="Kortköp Elektronikhuset",
+            reason="Kvittot saknas.",
+            consequence="Ingenting är bokfört.",
+            amount_ore=448000,
+            source={"kind": "bank_input", "id": "src-1", "date": date(2026, 6, 3)},
+        )
+
+        post = ThreadRepository.get_post(decision.post_id)
+        assert post is not None
+        assert post.body == {
+            "decision_id": decision.id,
+            "title": "Kortköp Elektronikhuset",
+            "amount": 448000,
+            "reason": "Kvittot saknas.",
+            "source": {"kind": "bank_input", "id": "src-1"},
+            "consequence": "Ingenting är bokfört.",
+        }
+        assert decision.source_kind == "bank_input"
+        assert decision.source_id == "src-1"
+        assert decision.source_date == date(2026, 6, 3)
+
+    def test_create_with_post_binds_the_given_post_instead_of_writing_a_new_one(self):
+        """B6's path: a `decision` post already written elsewhere is bound
+        to a new row, rather than `create` writing a second post."""
+        thread = _new_thread()
+        existing_post = ThreadRepository.add_post(
+            thread_id=thread.id,
+            post_type="decision",
+            actor="agent",
+            body={"title": "Kortköp Elektronikhuset"},
+        )
+        service = DecisionService()
+
+        decision = service.create(
+            thread,
+            title="Kortköp Elektronikhuset",
+            reason="Kvittot saknas.",
+            consequence="Ingenting är bokfört.",
+            post=existing_post,
+        )
+
+        assert decision.post_id == existing_post.id
+        posts = ThreadRepository.list_posts(thread.id)
+        assert len(posts) == 1
+        assert posts[0].id == existing_post.id
+        # The already-written post is untouched -- append-only.
+        assert posts[0].body == {"title": "Kortköp Elektronikhuset"}
+
+
+class TestDecisionServiceCreateWithOptions:
+    def test_creates_two_posts_a_row_and_the_option_rows(self):
+        thread = _new_thread()
+        service = DecisionService()
+
+        decision = service.create(
+            thread,
+            title="Kortköp Elektronikhuset",
+            reason="Kvittot saknas.",
+            consequence="Ingenting är bokfört.",
+            options=[
+                {
+                    "title": "Förbrukningsinventarier",
+                    "account": "5410",
+                    "amount_ore": 358400,
+                    "rationale": "Kostnadsförs direkt i juni.",
+                    "recommended": True,
+                    "is_exit": False,
+                },
+                {
+                    "title": "Annat konto",
+                    "rationale": "Det är ett annat köp.",
+                    "is_exit": True,
+                },
+            ],
+            footnote="Moms 25 % · 896 kr dras av i båda alternativen",
+        )
+
+        posts = ThreadRepository.list_posts(thread.id)
+        assert [p.type for p in posts] == ["decision", "options"]
+
+        options = DecisionRepository.list_options(decision.id)
+        assert len(options) == 2
+        assert [o.position for o in options] == [1, 2]
+        assert decision.options == options
+
+    def test_options_post_body_matches_spec_section_4_shape(self):
+        thread = _new_thread()
+        service = DecisionService()
+
+        decision = service.create(
+            thread,
+            title="Kortköp Elektronikhuset",
+            reason="Kvittot saknas.",
+            consequence="Ingenting är bokfört.",
+            options=[
+                {
+                    "title": "Förbrukningsinventarier",
+                    "account": "5410",
+                    "amount_ore": 358400,
+                    "rationale": "Kostnadsförs direkt i juni.",
+                    "recommended": True,
+                    "is_exit": False,
+                },
+                {
+                    "title": "Annat konto",
+                    "rationale": "Det är ett annat köp.",
+                    "is_exit": True,
+                },
+            ],
+            footnote="Moms 25 % · 896 kr dras av i båda alternativen",
+        )
+
+        posts = ThreadRepository.list_posts(thread.id)
+        options_post = posts[1]
+        assert options_post.type == "options"
+        options = DecisionRepository.list_options(decision.id)
+        assert options_post.body == {
+            "decision_id": decision.id,
+            "options": [
+                {
+                    "option_id": options[0].id,
+                    "title": "Förbrukningsinventarier",
+                    "account": "5410",
+                    "amount_ore": 358400,
+                    "rationale": "Kostnadsförs direkt i juni.",
+                    "recommended": True,
+                    "is_exit": False,
+                },
+                {
+                    "option_id": options[1].id,
+                    "title": "Annat konto",
+                    "account": None,
+                    "amount_ore": None,
+                    "rationale": "Det är ett annat köp.",
+                    "recommended": False,
+                    "is_exit": True,
+                },
+            ],
+            "footnote": "Moms 25 % · 896 kr dras av i båda alternativen",
+        }
+
+    def test_no_options_post_when_options_is_empty(self):
+        thread = _new_thread()
+        service = DecisionService()
+
+        service.create(
+            thread,
+            title="Kortköp Elektronikhuset",
+            reason="Kvittot saknas.",
+            consequence="Ingenting är bokfört.",
+            options=[],
+        )
+
+        posts = ThreadRepository.list_posts(thread.id)
+        assert [p.type for p in posts] == ["decision"]
+
+
+class TestDecisionServiceCreateVerbatimText:
+    """SPEC §7.4, testfall 34 (the create() half): `reason`, `consequence`
+    and each option's `rationale` come back byte for byte, quotes,
+    newlines and Swedish characters included -- no rewording, no
+    truncation, no normalisation."""
+
+    _REASON = (
+        'Kvittot saknas – kunden skrev "tack" men bifogade inget kvitto.\n'
+        "Beloppet 4 480,00 kr ligger nära gränsen för förbrukningsinventarier."
+    )
+    _CONSEQUENCE = (
+        'Ingenting är bokfört.\nBeslutet ligger kvar tills du svarar "ja" eller "nej".'
+    )
+    _RATIONALE = (
+        "Kostnadsförs direkt – momsen (25 %) dras av i juni.\nÅterköp sker inte."
+    )
+
+    def test_reason_and_consequence_round_trip_verbatim(self):
+        thread = _new_thread()
+        service = DecisionService()
+
+        decision = service.create(
+            thread,
+            title="Kortköp Elektronikhuset",
+            reason=self._REASON,
+            consequence=self._CONSEQUENCE,
+        )
+
+        assert decision.reason == self._REASON
+        assert decision.consequence == self._CONSEQUENCE
+
+        fetched = DecisionRepository.get(decision.id)
+        assert fetched is not None
+        assert fetched.reason == self._REASON
+        assert fetched.consequence == self._CONSEQUENCE
+
+        post = ThreadRepository.get_post(decision.post_id)
+        assert post is not None
+        assert post.body["reason"] == self._REASON
+        assert post.body["consequence"] == self._CONSEQUENCE
+
+    def test_option_rationale_round_trips_verbatim(self):
+        thread = _new_thread()
+        service = DecisionService()
+
+        decision = service.create(
+            thread,
+            title="Kortköp Elektronikhuset",
+            reason="…",
+            consequence="…",
+            options=[
+                {"title": "A", "rationale": self._RATIONALE, "is_exit": False},
+                {"title": "B", "rationale": "Väg ut.", "is_exit": True},
+            ],
+        )
+
+        options = DecisionRepository.list_options(decision.id)
+        assert options[0].rationale == self._RATIONALE
+
+        posts = ThreadRepository.list_posts(thread.id)
+        options_post = posts[1]
+        assert options_post.body["options"][0]["rationale"] == self._RATIONALE
+
+
+class TestDecisionServiceAnswer:
+    def test_answer_requires_exactly_one_of_option_or_free_text(self):
+        thread, post = _new_thread_and_post()
+        decision = _create_decision(thread, post)
+        service = DecisionService()
+
+        with pytest.raises(ValidationError) as neither:
+            service.answer(decision.id, actor="stefan")
+        assert neither.value.code == "invalid_answer"
+
+        with pytest.raises(ValidationError) as both:
+            service.answer(
+                decision.id,
+                option_id="whatever",
+                free_text="Ja.",
+                actor="stefan",
+            )
+        assert both.value.code == "invalid_answer"
+
+    def test_answer_unknown_decision_id_raises_not_found(self):
+        service = DecisionService()
+
+        with pytest.raises(DecisionNotFound):
+            service.answer(str(uuid.uuid4()), free_text="Ja.", actor="stefan")
+
+    def test_answer_with_option_from_another_decision_is_a_validation_error(self):
+        thread_a, post_a = _new_thread_and_post()
+        thread_b, post_b = _new_thread_and_post()
+        decision_a = _create_decision(thread_a, post_a)
+        decision_b = _create_decision(thread_b, post_b)
+        options_b = DecisionRepository.add_options(
+            decision_b.id,
+            [{"title": "Annat konto", "rationale": "…", "is_exit": True}],
+        )
+        service = DecisionService()
+
+        with pytest.raises(ValidationError) as excinfo:
+            service.answer(decision_a.id, option_id=options_b[0].id, actor="stefan")
+        assert excinfo.value.code == "invalid_answer"
+
+        # No reply was written to either thread -- rejected before any write.
+        assert ThreadRepository.list_posts(thread_a.id) == [post_a]
+        fetched_a = DecisionRepository.get(decision_a.id)
+        assert fetched_a is not None
+        assert fetched_a.status == "open"
+
+    def test_answer_with_option_writes_titled_reply_and_flips_status(self):
+        thread, post = _new_thread_and_post()
+        decision = _create_decision(thread, post)
+        options = DecisionRepository.add_options(
+            decision.id,
+            [
+                {
+                    "title": "Förbrukningsinventarier",
+                    "account": "5410",
+                    "rationale": "…",
+                    "is_exit": False,
+                },
+                {"title": "Annat konto", "rationale": "…", "is_exit": True},
+            ],
+        )
+        service = DecisionService()
+
+        updated, answer_post = service.answer(
+            decision.id, option_id=options[0].id, actor="stefan"
+        )
+
+        assert updated.status == "answered"
+        assert updated.answer_option_id == options[0].id
+        assert updated.answer_text is None
+        assert updated.answer_post_id == answer_post.id
+        assert answer_post.type == "user_text"
+        assert answer_post.body == {"text": "Förbrukningsinventarier, 5410."}
+
+    def test_answer_with_free_text_stores_it_verbatim_and_the_reply_matches(self):
+        thread, post = _new_thread_and_post()
+        decision = _create_decision(thread, post)
+        service = DecisionService()
+        free_text = 'Nej, boka om till 6250 – "resekostnader", inte 5410.'
+
+        updated, answer_post = service.answer(
+            decision.id, free_text=free_text, actor="stefan"
+        )
+
+        assert updated.status == "answered"
+        assert updated.answer_text == free_text
+        assert updated.answer_option_id is None
+        assert answer_post.body == {"text": free_text}
+
+    def test_answer_never_starts_a_turn(self):
+        """B3's `answer()` only writes the reply and flips status; starting
+        `ThreadTurnRunner` is B8's job, after this call returns."""
+        thread, post = _new_thread_and_post()
+        decision = _create_decision(thread, post)
+        service = DecisionService()
+
+        service.answer(decision.id, free_text="Ja.", actor="stefan")
+
+        # Exactly the reply post plus the original decision post -- nothing
+        # from a turn (no agent_text/error post exists).
+        posts = ThreadRepository.list_posts(thread.id)
+        assert [p.type for p in posts] == ["decision", "user_text"]
+
+    def test_case_15_a_second_answer_raises_already_answered_and_writes_no_second_post(
+        self,
+    ):
+        thread, post = _new_thread_and_post()
+        decision = _create_decision(thread, post)
+        service = DecisionService()
+
+        first, first_post = service.answer(
+            decision.id, free_text="Ja, det stämmer.", actor="stefan"
+        )
+
+        with pytest.raises(DecisionAlreadyAnswered) as excinfo:
+            service.answer(decision.id, free_text="Nej, ångrar mig.", actor="stefan")
+
+        assert excinfo.value.decision.id == decision.id
+        assert excinfo.value.decision.answered_at == first.answered_at
+        assert excinfo.value.decision.answer_post_id == first_post.id
+        assert excinfo.value.decision.answer_text == "Ja, det stämmer."
+        assert isinstance(excinfo.value, DecisionError)
+
+        posts = ThreadRepository.list_posts(thread.id)
+        user_text_posts = [p for p in posts if p.type == "user_text"]
+        assert len(user_text_posts) == 1
+
+    def test_case_17_a_rolled_back_transaction_leaves_no_post_and_status_open(
+        self, monkeypatch
+    ):
+        """SPEC §6.2 steps 4-5 share one transaction: if anything inside it
+        fails, neither the reply post nor the status change survives. This
+        is not an LLM monkeypatch (SPEC §9's rule is about faking the LLM
+        client) -- it patches `DecisionRepository.set_answer` directly to
+        simulate a failure between the two writes."""
+        thread, post = _new_thread_and_post()
+        decision = _create_decision(thread, post)
+        service = DecisionService()
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("simulated failure between the two writes")
+
+        monkeypatch.setattr(DecisionRepository, "set_answer", _boom)
+
+        with pytest.raises(RuntimeError):
+            service.answer(decision.id, free_text="Ja.", actor="stefan")
+
+        still_open = DecisionRepository.get(decision.id)
+        assert still_open is not None
+        assert still_open.status == "open"
+        assert still_open.answer_post_id is None
+
+        posts = ThreadRepository.list_posts(thread.id)
+        assert [p.type for p in posts] == ["decision"]
+
+
+class TestDecisionServiceCountOpen:
+    def test_case_18_an_answered_decision_falls_out_of_open_and_count_open(self):
+        thread_a, post_a = _new_thread_and_post()
+        thread_b, post_b = _new_thread_and_post()
+        decision_a = _create_decision(thread_a, post_a)
+        decision_b = _create_decision(thread_b, post_b)
+        service = DecisionService()
+
+        assert service.count_open() == 2
+
+        service.answer(decision_a.id, free_text="Ja.", actor="stefan")
+
+        assert service.count_open() == 1
+        open_ids = {d.id for d in DecisionRepository.list_decisions(status="open")}
+        assert open_ids == {decision_b.id}
+        assert decision_a.id not in open_ids
+
+
+class TestDecisionServiceSupersede:
+    def test_case_32_supersede_takes_the_decision_out_of_the_queue_and_leaves_the_post(
+        self,
+    ):
+        thread, post = _new_thread_and_post()
+        decision = _create_decision(thread, post)
+        service = DecisionService()
+        before = ThreadRepository.get_post(post.id)
+        assert before is not None
+
+        updated = service.supersede(decision.id)
+
+        assert updated.status == "superseded"
+        assert service.count_open() == 0
+
+        after = ThreadRepository.get_post(post.id)
+        assert after is not None
+        assert after.body == before.body
+        assert after == before
+
+    def test_supersede_unknown_id_raises_not_found(self):
+        service = DecisionService()
+        with pytest.raises(DecisionNotFound):
+            service.supersede(str(uuid.uuid4()))
+
+
+class TestDecisionNotAnswerableIsDefined:
+    """B3 defines `DecisionNotAnswerable` but never raises it (that's B7/B8,
+    once the synthetic `intake:`/`correction:` ids from the union exist).
+    This only checks the shape is right and ready to be raised later."""
+
+    def test_shape_matches_the_other_typed_errors(self):
+        error = DecisionNotAnswerable(
+            "intake:abc123", existing_path="PUT /intake/abc123/agent-guidance"
+        )
+
+        assert isinstance(error, DecisionError)
+        assert error.code == "decision_not_answerable"
+        assert error.decision_id == "intake:abc123"
+        assert error.details == "PUT /intake/abc123/agent-guidance"

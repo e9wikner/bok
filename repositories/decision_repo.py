@@ -38,14 +38,22 @@ class DecisionRepository:
         source_kind: Optional[str] = None,
         source_id: Optional[str] = None,
         source_date: Optional[date] = None,
+        decision_id: Optional[str] = None,
         _commit: bool = True,
     ) -> Decision:
         """Insert one `decisions` row, `status='open'` by the column default.
 
-        `id`/`created_at` are generated here, the same shape as
-        `ThreadRepository.add_post` — a caller never invents either.
+        `created_at` is generated here, the same shape as
+        `ThreadRepository.add_post`. `decision_id` is too, unless the caller
+        minted one first — which `DecisionService.create` does, and has to:
+        `decisions.post_id` is a plain foreign key into `thread_posts`, so
+        the `decision` post must be written before this row exists, and that
+        post has to carry the decision's id in its body. A post is never
+        rewritten (`SPEC-tradar.md` §8.4), so there is no patching it in
+        afterwards — the id is minted before either write or it cannot be in
+        both.
         """
-        decision_id = str(uuid.uuid4())
+        decision_id = decision_id or str(uuid.uuid4())
         now = datetime.now()
         db.execute(
             """
