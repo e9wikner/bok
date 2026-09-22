@@ -1124,7 +1124,15 @@ class TestThreadToolSurface:
     thread path. The append-only rule's only automatic check through the
     agent's surface — it must break if someone adds a convenient tool."""
 
-    def test_case_14_the_thread_is_offered_exactly_the_nine_tools(self):
+    def test_case_14_the_thread_is_offered_exactly_the_same_tools(self):
+        """The thread gets `AGENT_TOOL_DEFINITIONS` and nothing of its own.
+
+        The assertion is equality with that list, not a count: the surface
+        grew to ten with `beslut`'s `be_om_beslut` (SPEC-beslut.md §11.3),
+        and what this test exists to catch is a tool the *thread path* hands
+        out that the document path does not — which a hardcoded number would
+        miss the day the shared list changes for a legitimate reason.
+        """
         _ensure_accounts()
         thread, posts = _thread_with_posts("hej")
         client = FakeLLMClient([_turn(text="Svar.")])
@@ -1133,7 +1141,6 @@ class TestThreadToolSurface:
 
         offered = client.calls[0]["tools"]
         assert offered == AGENT_TOOL_DEFINITIONS
-        assert len(offered) == 9
 
     def test_case_14_no_tool_offered_to_the_thread_can_change_a_posted_voucher(self):
         _ensure_accounts()

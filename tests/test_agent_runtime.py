@@ -972,6 +972,11 @@ _EXPECTED_TOOL_NAMES = [
     "las_bankhandelser",
     "posta_verifikation",
     "registrera_avstaende",
+    # The tenth, added last on purpose (SPEC-beslut.md §11.3, task B5).
+    # Appended here rather than inserted: the nine above keep their exact
+    # positions, because this list is the cached prompt prefix's order and a
+    # reorder is a silent cache-buster (SPEC §6.6).
+    "be_om_beslut",
 ]
 
 
@@ -1006,9 +1011,14 @@ class TestAppendOnlyToolSurface:
     adds a "convenient" tool that can edit or delete a posted voucher.
     """
 
-    def test_tool_names_are_exactly_the_nine_allowed_tools(self):
+    def test_tool_names_are_exactly_the_allowed_tools(self):
+        """Ten since `beslut` (SPEC-beslut.md §11.3). The count is asserted
+        against the expected list rather than a literal, so adding a tool
+        without adding it there still fails -- which is the point: this is
+        the append-only rule's only automatic check through the agent's
+        surface, and it must break when the surface grows."""
         assert {t["name"] for t in AGENT_TOOL_DEFINITIONS} == set(_EXPECTED_TOOL_NAMES)
-        assert len(AGENT_TOOL_DEFINITIONS) == 9
+        assert len(AGENT_TOOL_DEFINITIONS) == len(_EXPECTED_TOOL_NAMES)
 
     def test_no_tool_name_contains_a_mutate_or_delete_verb(self):
         forbidden_fragments = [
@@ -1052,8 +1062,22 @@ class TestAppendOnlyToolSurface:
                     phrase not in haystack
                 ), f"tool {tool['name']!r} description contains {phrase!r}"
 
-    def test_only_two_tools_are_documented_as_writing_anything(self):
-        write_tool_names = {"posta_verifikation", "registrera_avstaende"}
+    def test_only_the_writing_tools_are_undocumented_as_read_only(self):
+        """Three write, and each one names what it writes.
+
+        `be_om_beslut` joined them with `beslut` (SPEC-beslut.md §11.3). It
+        writes to `decisions`, `decision_options` and `thread_posts` and to
+        nothing else — never `vouchers`, `voucher_rows`, `periods` or
+        `fiscal_years` (SPEC-beslut.md §8), which is why testfall 26 in
+        `tests/test_beslut.py` counts ledger rows around a call to it.
+        Calling it read-only here would be the lie this test exists to
+        catch.
+        """
+        write_tool_names = {
+            "posta_verifikation",
+            "registrera_avstaende",
+            "be_om_beslut",
+        }
         read_tool_names = set(_EXPECTED_TOOL_NAMES) - write_tool_names
         for tool in AGENT_TOOL_DEFINITIONS:
             if tool["name"] in read_tool_names:

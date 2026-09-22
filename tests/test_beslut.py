@@ -11,7 +11,7 @@ import sqlite3
 import uuid
 from dataclasses import replace
 from datetime import date, datetime, timedelta
-from typing import Any, Dict
+from typing import Any, Dict, cast
 
 import pytest
 
@@ -21,6 +21,11 @@ from domain.validation import ValidationError
 from repositories.decision_repo import DecisionRepository
 from repositories.period_repo import PeriodRepository
 from repositories.thread_repo import ThreadRepository
+from services.agent_tools import (
+    AGENT_TOOL_DEFINITIONS,
+    RegistreraAvstaendeArgs,
+    execute_tool,
+)
 from services.decision_service import (
     DecisionAlreadyAnswered,
     DecisionError,
@@ -28,6 +33,8 @@ from services.decision_service import (
     DecisionNotFound,
     DecisionService,
 )
+from services.llm import LLMCapabilities, LLMTurn, StopReason, ToolCall, Usage
+from services.thread_stream import ThreadTurnRunner
 
 pytestmark = pytest.mark.usefixtures("test_db")
 
@@ -1549,3 +1556,574 @@ class TestValidateOptionsEnforcedThroughCreate:
         assert _count_rows("decisions") == decisions_before
         assert _count_rows("decision_options") == options_before
         assert ThreadRepository.list_posts(thread.id) == []
+
+
+# --- B5: verktyget be_om_beslut (SPEC §6.4, §8, testfall 24-27) ------------
+#
+# `be_om_beslut` is the redesign's one new tool -- a "fråga först" question
+# already asked and answered (SPEC §11.3): a tenth entry in `_TOOL_SPECS`,
+# appended last so the cached system-prompt prefix (SPEC-agentruntime §6.6)
+# stays byte-identical for the first nine. Every test below drives it
+# through `services.agent_tools.execute_tool`, exactly the entry point
+# `run_tool_loop` uses -- never the handler function directly -- so a test
+# failure here means the *tool surface*, not just the service underneath
+# it (already covered by B2-B4), is wrong.
+
+
+def _capabilities() -> LLMCapabilities:
+    """A capable, streaming adapter -- what both shipped adapters report.
+    Never consulted by `be_om_beslut` itself; only here because
+    `execute_tool` requires one for every tool."""
+    return LLMCapabilities(
+        cache_breakpoint=True,
+        pdf_document_blocks=True,
+        refusal_stop_reason=True,
+        streaming=True,
+    )
+
+
+class TestBeOmBeslutWritesDecisionPostRowAndOptions:
+    """Testfall 24: `be_om_beslut` writes a `decision` post, a `decisions`
+    row and `decision_options` rows -- and an `options` post, in that
+    order -- through `execute_tool`, exactly as `DecisionService.create`
+    already does one layer down (B3)."""
+
+    def test_case_24_writes_decision_then_options_post_in_seq_order(self):
+        thread = _new_thread()
+
+        result = execute_tool(
+            "be_om_beslut",
+            {
+                "title": "Kortköp Elektronikhuset",
+                "reason": "Kvittot saknas och beloppet ligger nära gränsen.",
+                "consequence": "Ingenting är bokfört.",
+                "amount_ore": 358400,
+                "options": [
+                    {
+                        "title": "Förbrukningsinventarier",
+                        "rationale": "Matchar tidigare köp av samma typ.",
+                        "account": "5410",
+                        "amount_ore": 358400,
+                        "recommended": True,
+                    },
+                    _exit_option(),
+                ],
+            },
+            actor="agent",
+            capabilities=_capabilities(),
+            tool_context={"thread": thread},
+        )
+
+        posts = ThreadRepository.list_posts(thread.id)
+        assert [post.type for post in posts] == ["decision", "options"]
+        # "rätt ordning" — `decision` strictly before `options` by `seq`.
+        assert posts[0].seq < posts[1].seq
+
+        decision = DecisionRepository.get(result["decision_id"])
+        assert decision is not None
+        assert decision.post_id == posts[0].id
+        assert decision.thread_id == thread.id
+        assert len(decision.options) == 2
+        assert [o.position for o in decision.options] == [1, 2]
+
+    def test_case_24_writes_only_the_decision_post_when_options_is_empty(self):
+        thread = _new_thread()
+
+        result = execute_tool(
+            "be_om_beslut",
+            {
+                "title": "Oklar leverantör",
+                "reason": "Motparten går inte att identifiera.",
+                "consequence": "Ingenting är bokfört.",
+            },
+            actor="agent",
+            capabilities=_capabilities(),
+            tool_context={"thread": thread},
+        )
+
+        posts = ThreadRepository.list_posts(thread.id)
+        assert [post.type for post in posts] == ["decision"]
+        decision = DecisionRepository.get(result["decision_id"])
+        assert decision.options == []
+
+
+class TestBeOmBeslutIsLastInAgentToolDefinitions:
+    """Testfall 25: `be_om_beslut` is last in `AGENT_TOOL_DEFINITIONS`, and
+    the first nine names are in their unchanged order -- a list that only
+    checked "last" would miss a reorder hidden among the first nine."""
+
+    _EXPECTED_FIRST_NINE = [
+        "las_kontoplan",
+        "las_perioder",
+        "las_verifikationer",
+        "las_korrigeringar",
+        "las_underlag",
+        "hamta_underlagsfil",
+        "las_bankhandelser",
+        "posta_verifikation",
+        "registrera_avstaende",
+    ]
+
+    def test_case_25_be_om_beslut_is_last_and_the_first_nine_are_unchanged(self):
+        names = [tool["name"] for tool in AGENT_TOOL_DEFINITIONS]
+
+        assert len(names) == 10
+        assert names[:9] == self._EXPECTED_FIRST_NINE
+        assert names[-1] == "be_om_beslut"
+
+
+class TestCaseTwentySixAppendOnlyToolSurfaceExtended:
+    """Testfall 26 **is** test case 17 from `tests/test_agent_runtime.py`
+    (`TestAppendOnlyToolSurface`), run against the ten-tool surface --
+    SPEC-beslut.md §8: "Testfall 17 ... körs mot den utökade listan och ska
+    passera oförändrat." The two checks below are copied from that class
+    rather than imported, since they assert against module-level constants,
+    not a shared fixture. `test_case_26_be_om_beslut_never_touches_vouchers`
+    adds the structural check §8 asks for specifically about the new tool:
+    counting `vouchers`/`voucher_rows` rows before and after a call."""
+
+    _FORBIDDEN_NAME_FRAGMENTS = [
+        "uppdatera",
+        "andra",
+        "ändra",
+        "redigera",
+        "radera",
+        "ta_bort",
+        "delete",
+        "update",
+        "edit",
+        "patch",
+        "remove",
+    ]
+
+    _FORBIDDEN_DESCRIPTION_PHRASES = [
+        "ändra en postad",
+        "ändra postad",
+        "redigera en postad",
+        "radera en postad",
+        "radera verifikation",
+        "ta bort en postad",
+        "ta bort verifikation",
+        "update the voucher",
+        "edit the voucher",
+        "delete the voucher",
+        "modify a posted",
+    ]
+
+    def test_case_26_no_tool_name_contains_a_mutate_or_delete_verb(self):
+        for tool in AGENT_TOOL_DEFINITIONS:
+            lowered = tool["name"].lower()
+            for fragment in self._FORBIDDEN_NAME_FRAGMENTS:
+                assert (
+                    fragment not in lowered
+                ), f"tool name {tool['name']!r} contains {fragment!r}"
+
+    def test_case_26_no_tool_description_implies_editing_a_posted_voucher(self):
+        for tool in AGENT_TOOL_DEFINITIONS:
+            haystack = tool["description"].lower()
+            for phrase in self._FORBIDDEN_DESCRIPTION_PHRASES:
+                assert (
+                    phrase not in haystack
+                ), f"tool {tool['name']!r} description contains {phrase!r}"
+
+    def test_case_26_only_posta_verifikation_touches_the_ledger_in_its_description(
+        self,
+    ):
+        for tool in AGENT_TOOL_DEFINITIONS:
+            if tool["name"] != "posta_verifikation":
+                assert "huvudboken" not in tool["description"].lower()
+
+    def test_case_26_be_om_beslut_never_touches_vouchers_or_voucher_rows(self):
+        thread = _new_thread()
+        vouchers_before = _count_rows("vouchers")
+        lines_before = _count_rows("voucher_rows")
+
+        execute_tool(
+            "be_om_beslut",
+            {
+                "title": "Oläsligt kvitto",
+                "reason": "Beloppet går inte att läsa.",
+                "consequence": "Ingenting är bokfört förrän beloppet är säkert.",
+                "options": [_exit_option()],
+            },
+            actor="agent",
+            capabilities=_capabilities(),
+            tool_context={"thread": thread},
+        )
+
+        assert _count_rows("vouchers") == vouchers_before
+        assert _count_rows("voucher_rows") == lines_before
+
+
+class TestCaseTwentySevenRegistreraAvstaendeIsUnchanged:
+    """Testfall 27: `registrera_avstaende` behaves exactly as before the
+    module -- same name, same description, same `input_schema`, same
+    position (ninth, index 8) in `AGENT_TOOL_DEFINITIONS`."""
+
+    def test_case_27_registrera_avstaende_definition_is_byte_for_byte_unchanged(
+        self,
+    ):
+        names = [tool["name"] for tool in AGENT_TOOL_DEFINITIONS]
+        assert names[8] == "registrera_avstaende"
+
+        tool = AGENT_TOOL_DEFINITIONS[8]
+        assert tool["name"] == "registrera_avstaende"
+        assert tool["description"] == (
+            "Registrera ett dokumenterat avstående för ett underlag, med en "
+            "motivering till varför det inte gick att bokföra. Skapar aldrig "
+            "någon verifikation."
+        )
+        assert tool["input_schema"] == RegistreraAvstaendeArgs.model_json_schema()
+
+    def test_case_27_registrera_avstaende_still_creates_no_decision(self, tmp_path):
+        """The bridge that gives an abstention its own `decisions` row is
+        B6's job (todo.md B6) -- until then a call through the unchanged
+        tool writes no `decisions` row at all, exactly as before B5."""
+        from config import settings
+        from services.intake import IntakeService
+
+        original_dir = settings.intake_dir
+        settings.intake_dir = str(tmp_path / "intake")
+        try:
+            source = IntakeService().create_source_from_upload_content(
+                filename="kvitto.pdf",
+                content_type="application/pdf",
+                content=b"%PDF-1.4 kvitto",
+                explanation="Kvitto",
+                source_type="receipt",
+                actor="api",
+            )
+        finally:
+            settings.intake_dir = original_dir
+
+        decisions_before = _count_rows("decisions")
+
+        execute_tool(
+            "registrera_avstaende",
+            {
+                "source_id": source.id,
+                "summary": "Kan inte läsas.",
+                "error_detail": "Filen är korrupt.",
+            },
+            actor="agent",
+            capabilities=_capabilities(),
+        )
+
+        assert _count_rows("decisions") == decisions_before
+
+
+class TestBeOmBeslutRequiresAThread:
+    """`thread=None` (the document path's shape, or a bare `execute_tool`
+    call with nothing passed) raises `ValidationError(code=
+    "decision_requires_thread")` and writes nothing -- SPEC §7 gräns:
+    "en decisions-rad utan thread_id" is exactly the silent "fråga först"
+    case the module must refuse to let happen."""
+
+    def _args(self, **overrides) -> dict:
+        args = {
+            "title": "X",
+            "reason": "Y",
+            "consequence": "Z",
+        }
+        args.update(overrides)
+        return args
+
+    def test_thread_none_raises_decision_requires_thread(self):
+        posts_before = _count_rows("thread_posts")
+        decisions_before = _count_rows("decisions")
+
+        with pytest.raises(ValidationError) as exc_info:
+            execute_tool(
+                "be_om_beslut",
+                self._args(),
+                actor="agent",
+                capabilities=_capabilities(),
+                tool_context=None,
+            )
+
+        assert exc_info.value.code == "decision_requires_thread"
+        assert _count_rows("thread_posts") == posts_before
+        assert _count_rows("decisions") == decisions_before
+
+    def test_thread_omitted_entirely_also_raises(self):
+        """`execute_tool`'s `thread` keyword defaults to `None` -- the
+        document path never passes it at all, and the same refusal must
+        happen whether the caller passed `thread=None` explicitly or left
+        it out."""
+        with pytest.raises(ValidationError) as exc_info:
+            execute_tool(
+                "be_om_beslut",
+                self._args(),
+                actor="agent",
+                capabilities=_capabilities(),
+            )
+
+        assert exc_info.value.code == "decision_requires_thread"
+
+
+class TestBeOmBeslutEnforcesTheEscalationInvariantThroughTheTool:
+    """B4's rule is a server rule (BRIEF.md, todo.md B5 Obs), and
+    `be_om_beslut` is the only path an agent has into it -- these repeat
+    B4's own escalation-invariant tests, but driven through the tool
+    surface rather than `DecisionService.validate_options` directly."""
+
+    def test_options_without_a_final_exit_is_rejected_through_the_tool(self):
+        thread = _new_thread()
+
+        with pytest.raises(ValidationError) as exc_info:
+            execute_tool(
+                "be_om_beslut",
+                {
+                    "title": "Kortköp",
+                    "reason": "Oklart konto.",
+                    "consequence": "Ingenting är bokfört.",
+                    "options": [
+                        {"title": "A", "rationale": "…", "is_exit": False},
+                        {"title": "B", "rationale": "…", "is_exit": False},
+                    ],
+                },
+                actor="agent",
+                capabilities=_capabilities(),
+                tool_context={"thread": thread},
+            )
+
+        assert exc_info.value.code == "options_without_exit"
+        assert _count_rows("decisions") == 0
+
+    def test_two_recommended_options_is_rejected_through_the_tool(self):
+        thread = _new_thread()
+
+        with pytest.raises(ValidationError) as exc_info:
+            execute_tool(
+                "be_om_beslut",
+                {
+                    "title": "Kortköp",
+                    "reason": "Oklart konto.",
+                    "consequence": "Ingenting är bokfört.",
+                    "options": [
+                        {"title": "A", "rationale": "…", "recommended": True},
+                        {
+                            "title": "B",
+                            "rationale": "…",
+                            "recommended": True,
+                            "is_exit": True,
+                        },
+                    ],
+                },
+                actor="agent",
+                capabilities=_capabilities(),
+                tool_context={"thread": thread},
+            )
+
+        assert exc_info.value.code == "multiple_recommended_options"
+
+    def test_options_that_change_the_books_without_being_a_decision_first_is_impossible(
+        self,
+    ):
+        """The tool always raises the `decisions` row first (SPEC §11.1's
+        first table row): `be_om_beslut`'s own call writes `decision` then
+        `options` inside one `create()` transaction, so there is no way to
+        call it with `options` and *not* have an open decision under them
+        -- `validate_options`'s `options_require_open_decision` branch is
+        therefore unreachable through this tool, which is itself part of
+        the invariant: only `create()`'s call site can ever pass
+        `under_open_decision=False`, and that is B7's synthetic-source path
+        (§11.1's third row), never this tool's."""
+        thread = _new_thread()
+
+        result = execute_tool(
+            "be_om_beslut",
+            {
+                "title": "Kortköp",
+                "reason": "Oklart konto.",
+                "consequence": "Ingenting är bokfört.",
+                "options": [
+                    {
+                        "title": "Förbrukningsinventarier",
+                        "rationale": "Matchar tidigare köp.",
+                        "account": "5410",
+                        "amount_ore": 12000,
+                    },
+                    _exit_option(),
+                ],
+            },
+            actor="agent",
+            capabilities=_capabilities(),
+            tool_context={"thread": thread},
+        )
+
+        decision = DecisionRepository.get(result["decision_id"])
+        assert decision.status == "open"
+        assert any(o.changes_the_books for o in decision.options)
+
+
+class TestBeOmBeslutStoresAgentTextVerbatim:
+    """Testfall 34 (the tool's part): `reason`, `consequence` and each
+    option's `rationale` reach `decisions`/`decision_options` exactly as
+    the agent wrote them -- no rewording, no truncation, no
+    normalisation (SPEC §7.4)."""
+
+    def test_reason_consequence_and_rationale_survive_the_whole_tool_path(self):
+        thread = _new_thread()
+        reason = (
+            "Kvittot är suddigt och sista siffran går inte att läsa med "
+            "säkerhet -- det kan vara 358400 öre eller 388400 öre."
+        )
+        consequence = "Ingenting är bokfört förrän du bekräftar beloppet."
+        rationale = (
+            "Matchar mönstret för tidigare köp hos samma leverantör, men "
+            "jag är inte säker eftersom sista siffran är oläslig."
+        )
+        footnote = "Två tolkningar av samma kvitto är möjliga."
+
+        result = execute_tool(
+            "be_om_beslut",
+            {
+                "title": "Oläsligt kvitto",
+                "reason": reason,
+                "consequence": consequence,
+                "footnote": footnote,
+                "options": [
+                    {
+                        "title": "Bokför som 3 584 kr",
+                        "rationale": rationale,
+                        "account": "5410",
+                        "amount_ore": 358400,
+                    },
+                    _exit_option(),
+                ],
+            },
+            actor="agent",
+            capabilities=_capabilities(),
+            tool_context={"thread": thread},
+        )
+
+        decision = DecisionRepository.get(result["decision_id"])
+        assert decision.reason == reason
+        assert decision.consequence == consequence
+        assert decision.options[0].rationale == rationale
+
+        options_post = [
+            post
+            for post in ThreadRepository.list_posts(thread.id)
+            if post.type == "options"
+        ][0]
+        assert options_post.body["footnote"] == footnote
+        assert options_post.body["options"][0]["rationale"] == rationale
+
+
+def _turn(
+    text: str = "",
+    tool_calls: Any = None,
+    stop: str = "end",
+) -> LLMTurn:
+    """A finished `LLMTurn`, the shape `tests/test_tradar.py`'s own `_turn`
+    helper builds -- reimplemented locally so this module drives its one
+    full-turn test (below) without importing fixtures from another test
+    module."""
+    return LLMTurn(
+        text=text,
+        tool_calls=tool_calls or [],
+        stop=cast(StopReason, stop),
+        usage=Usage(input_tokens=0, output_tokens=0, cache_read_input_tokens=0),
+    )
+
+
+class _FakeLLMClient:
+    """Structural `LLMClient` double (SPEC §9) -- a queue of ready-made
+    `LLMTurn`s, never a network call. Same pattern as
+    `tests/test_tradar.py::FakeLLMClient`, reimplemented locally rather than
+    imported, per BRIEF.md's rule to keep this module's own fixtures."""
+
+    def __init__(self, turns: list[LLMTurn]):
+        self._turns = list(turns)
+        self.capabilities = _capabilities()
+
+    def run_turn(
+        self,
+        system: str,
+        messages: list,
+        tools: list,
+        model: str,
+        max_tokens: int,
+        on_text: Any = None,
+        on_tool_call: Any = None,
+    ) -> LLMTurn:
+        return self._turns.pop(0) if len(self._turns) > 1 else self._turns[0]
+
+
+class TestRunThreadSessionReachesBeOmBeslutWithAThread:
+    """BRIEF.md §3's whole point, proven end to end: a real thread turn,
+    `ThreadTurnRunner.run` -> `run_thread_session` -> `run_tool_loop` ->
+    `execute_tool` -> `_run_be_om_beslut`, with the LLM faked via
+    `client_factory` (never monkeypatch) and run synchronously (never
+    `.start`)."""
+
+    def test_a_thread_turn_that_calls_be_om_beslut_creates_the_decision(self):
+        thread = _new_thread()
+        trigger = ThreadRepository.add_post(
+            thread_id=thread.id,
+            post_type="user_text",
+            actor="stefan",
+            body={"text": "Vad gör jag med det här kvittot?"},
+        )
+        tool_call = ToolCall(
+            id="call-1",
+            name="be_om_beslut",
+            arguments={
+                "title": "Oläsligt kvitto",
+                "reason": "Beloppet går inte att läsa med säkerhet.",
+                "consequence": "Ingenting är bokfört.",
+                "options": [_exit_option()],
+            },
+        )
+        client = _FakeLLMClient(
+            [
+                _turn(tool_calls=[tool_call], stop="tool_calls"),
+                _turn(text="Jag har lagt fram ett beslut åt dig.", stop="end"),
+            ]
+        )
+
+        outcome = ThreadTurnRunner().run(
+            thread,
+            trigger,
+            "Vad gör jag med det här kvittot?",
+            client_factory=lambda model: client,
+        )
+
+        assert outcome is not None
+        assert outcome.kind == "answered"
+
+        decisions = DecisionRepository.list_decisions(
+            status="open", view_key=thread.view_key
+        )
+        assert len(decisions) == 1
+        assert decisions[0].thread_id == thread.id
+        assert decisions[0].title == "Oläsligt kvitto"
+
+
+class TestDocumentPathUnchangedByBeOmBeslut:
+    """The document path (`execute_tool` with no `thread`) behaves exactly
+    as it did before B5 for the nine original tools -- `thread` is a purely
+    additive, ignored parameter for all of them."""
+
+    def test_an_old_tool_still_works_with_no_thread_argument_at_all(self):
+        result = execute_tool(
+            "las_kontoplan",
+            {"active_only": True},
+            actor="agent",
+            capabilities=_capabilities(),
+        )
+
+        assert isinstance(result, list)
+
+    def test_an_old_tool_still_works_when_thread_is_explicitly_none(self):
+        result = execute_tool(
+            "las_kontoplan",
+            {"active_only": True},
+            actor="agent",
+            capabilities=_capabilities(),
+            tool_context=None,
+        )
+
+        assert isinstance(result, list)

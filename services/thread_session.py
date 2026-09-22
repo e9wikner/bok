@@ -263,4 +263,12 @@ def run_thread_session(
             thread.id, trigger_post.id
         ),
         check_between_turns=check_between_turns,
+        # `be_om_beslut` cannot exist without knowing which thread it was
+        # raised in (SPEC-beslut.md §6.4). It travels in an unread mapping,
+        # the same opaque handoff `posting_idempotency_key` already makes
+        # above: `run_tool_loop` forwards it without looking inside, so
+        # SPEC-tradar.md §8.1's boundary -- the runtime does not know what a
+        # thread is -- survives the tenth tool. Only `execute_tool` ->
+        # `be_om_beslut` opens it.
+        tool_context={"thread": thread},
     )

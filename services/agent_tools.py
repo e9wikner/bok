@@ -8,6 +8,15 @@ the append-only guarantee (CLAUDE.md) can be checked *structurally*: test
 case 17 asserts directly against ``AGENT_TOOL_DEFINITIONS`` that no tool
 name or description implies the ability to edit or delete a posted voucher.
 
+A tenth, ``be_om_beslut``, was added by the ``beslut`` module
+(``docs/redesign/SPEC-beslut.md`` §6.4, §8, §11.3) -- the one exception
+SPEC-tradar.md §8.2 asks for a question first about, asked and answered
+there. It is appended last in ``_TOOL_SPECS`` rather than inserted among
+the nine above, since that order is part of the cached system-prompt
+prefix (SPEC-agentruntime §6.6), and it writes only to ``decisions`` /
+``decision_options`` / ``thread_posts`` -- test case 17 above still passes
+unchanged against the extended list (SPEC-beslut.md §8, testfall 26).
+
 ``posta_verifikation`` is the only tool that writes to the general ledger,
 and it goes through the exact same code as ``POST /api/v1/agent/vouchers``
 (``services/voucher_posting.post_agent_voucher``, A1) -- same
@@ -27,7 +36,7 @@ session decides what a raise means.
 
 import uuid
 from datetime import date as DateType
-from typing import Any, Callable, Literal, Optional
+from typing import Any, Callable, Literal, Mapping, Optional
 
 from pydantic import BaseModel, Field
 from pydantic import ValidationError as PydanticValidationError
@@ -36,6 +45,7 @@ from domain.models import (
     Account,
     BankInput,
     CorrectionHistory,
+    Decision,
     IntakeProcessingAttempt,
     IntakeSource,
     Period,
@@ -219,6 +229,73 @@ class RegistreraAvstaendeArgs(BaseModel):
     warnings: Optional[list[str]] = None
 
 
+class BeOmBeslutSource(BaseModel):
+    """Underlaget ett beslut hänger på, om det har ett -- ett kvitto i kön
+    eller en rättelse. Utelämnas för ett beslut som uppstår mitt i ett
+    samtal utan något underlag bakom sig."""
+
+    kind: str
+    id: str
+    date: Optional[DateType] = None
+
+
+class BeOmBeslutOption(BaseModel):
+    """Ett alternativ i den lista som visas under ett beslut (SPEC-beslut.md
+    §6.3). Servern -- inte klienten -- äger varje fält här: `rationale` och
+    `recommended` skrivs ordagrant/exakt som satta, aldrig omräknade."""
+
+    title: str
+    rationale: str
+    account: Optional[str] = None
+    amount_ore: Optional[int] = None
+    recommended: bool = Field(
+        False,
+        description=(
+            "Högst ett alternativ i listan får ha recommended=True -- "
+            "servern avvisar hela listan annars."
+        ),
+    )
+    is_exit: bool = Field(
+        False,
+        description=(
+            "Sista alternativet i listan måste ha is_exit=True -- en väg "
+            "ut som inte ändrar böckerna. Servern avvisar listan annars."
+        ),
+    )
+
+
+class BeOmBeslutArgs(BaseModel):
+    """Lägg fram ett beslut för människan att ta ställning till, mitt i ett
+    samtal (SPEC-beslut.md §6.4).
+
+    Skriver ett `decision`-inlägg (och ett `options`-inlägg när `options`
+    är ifyllt) i tråden, en rad i `decisions`, och rader i
+    `decision_options`. Postar ingenting, ändrar ingenting och läser
+    ingenting utanför sina egna tabeller -- vägen till huvudboken går bara
+    genom ``posta_verifikation``, aldrig genom det här verktyget.
+
+    Hör till ett samtal i en vy, inte till ett underlag i intagskön --
+    ``registrera_avstaende`` är motsvarigheten där.
+    """
+
+    title: str
+    reason: str
+    consequence: str
+    amount_ore: Optional[int] = None
+    source: Optional[BeOmBeslutSource] = None
+    options: list[BeOmBeslutOption] = Field(
+        default_factory=list,
+        description=(
+            "Sista alternativet ska alltid vara en väg ut (is_exit=True), "
+            "och högst ett får vara recommended=True -- servern avvisar "
+            "listan annars. En tom lista är tillåten för ett beslut utan "
+            "färdiga alternativ."
+        ),
+    )
+    kind: Literal["abstention", "approval"] = "abstention"
+    footnote: Optional[str] = None
+
+
 # ---------------------------------------------------------------------------
 # JSON-serializable result shapes
 # ---------------------------------------------------------------------------
@@ -321,6 +398,32 @@ def _intake_attempt_dict(attempt: IntakeProcessingAttempt) -> dict:
     }
 
 
+def _decision_dict(decision: Decision) -> dict:
+    """`be_om_beslut`'s result -- includes each option's `option_id` so the
+    agent's own text (its reply after the tool call) can refer to one
+    (SPEC-beslut.md §6.4)."""
+    return {
+        "decision_id": decision.id,
+        "status": decision.status,
+        "post_id": decision.post_id,
+        "thread_id": decision.thread_id,
+        "title": decision.title,
+        "amount_ore": decision.amount_ore,
+        "options": [
+            {
+                "option_id": option.id,
+                "title": option.title,
+                "account": option.account,
+                "amount_ore": option.amount_ore,
+                "rationale": option.rationale,
+                "recommended": option.recommended,
+                "is_exit": option.is_exit,
+            }
+            for option in decision.options
+        ],
+    }
+
+
 def _bank_input_dict(bank_input: BankInput) -> dict:
     return {
         "id": bank_input.id,
@@ -353,6 +456,7 @@ def _run_las_kontoplan(
     actor: str,
     capabilities: LLMCapabilities,
     idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> list[dict]:
     accounts = AccountRepository.list_all(active_only=args.active_only)
     return [_account_dict(account) for account in accounts]
@@ -364,6 +468,7 @@ def _run_las_perioder(
     actor: str,
     capabilities: LLMCapabilities,
     idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> list[dict]:
     if args.fiscal_year_id:
         periods = PeriodRepository.list_periods(args.fiscal_year_id)
@@ -380,6 +485,7 @@ def _run_las_verifikationer(
     actor: str,
     capabilities: LLMCapabilities,
     idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> dict:
     if args.period_id:
         all_vouchers = VoucherRepository.list_for_period(
@@ -400,6 +506,7 @@ def _run_las_korrigeringar(
     actor: str,
     capabilities: LLMCapabilities,
     idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> list[dict]:
     entries = AccountingCorrectionRepository.list(
         limit=args.limit, voucher_id=args.voucher_id
@@ -413,6 +520,7 @@ def _run_las_underlag(
     actor: str,
     capabilities: LLMCapabilities,
     idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> dict:
     intake = IntakeService()
     if args.source_id:
@@ -432,6 +540,7 @@ def _run_hamta_underlagsfil(
     actor: str,
     capabilities: LLMCapabilities,
     idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> ContentBlock:
     intake = IntakeService()
     source = intake.get_source(args.source_id)
@@ -450,6 +559,7 @@ def _run_las_bankhandelser(
     actor: str,
     capabilities: LLMCapabilities,
     idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> dict:
     bank_inputs = BankInputService()
     if args.bank_input_id:
@@ -539,6 +649,7 @@ def _run_posta_verifikation(
     actor: str,
     capabilities: LLMCapabilities,
     idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> dict:
     return _post_voucher(args, actor=actor, idempotency_key=idempotency_key)
 
@@ -549,6 +660,7 @@ def _run_registrera_avstaende(
     actor: str,
     capabilities: LLMCapabilities,
     idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> dict:
     attempt = IntakeService().record_failed(
         source_id=args.source_id,
@@ -558,6 +670,65 @@ def _run_registrera_avstaende(
         warnings=args.warnings,
     )
     return _intake_attempt_dict(attempt)
+
+
+def _run_be_om_beslut(
+    args: BeOmBeslutArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """SPEC-beslut.md §6.4, §7 gräns 6 ("fråga först": a decision without a
+    `thread_id`). `tool_context` is the opaque mapping `run_tool_loop` and
+    `execute_tool` hand to every handler without reading it; this is the
+    one handler that opens it, because a decision literally cannot exist
+    without the thread it was raised in.
+
+    The thread lives in a mapping rather than in an argument of its own
+    precisely so the runtime can carry it without naming it: SPEC-tradar.md
+    §8.1 forbids `services/agent_session.py` from knowing what a thread is,
+    and SPEC-beslut.md §7.6 draws the same line for a decision. The
+    knowledge stops here, in the tool layer, which is where it belongs.
+
+    A missing thread (the document path, or a bare `execute_tool` call) is
+    not silently skipped and not silently defaulted to some thread -- it
+    raises, so that a decision missing its `thread_id` never occurs
+    quietly.
+    """
+    thread = (tool_context or {}).get("thread")
+    if thread is None:
+        raise ValidationError(
+            code="decision_requires_thread",
+            message="be_om_beslut can only be called from a thread turn",
+            details=(
+                "This tool belongs to a thread turn (SPEC-beslut.md §7: a "
+                "decision without a thread_id is exactly the silent "
+                "'fråga först' case the module must not allow). The "
+                "document path's equivalent is registrera_avstaende."
+            ),
+        )
+
+    # Deferred import -- AGENTS.md's rule against import cycles at module
+    # load time: `services.decision_service` imports `repositories.thread_repo`
+    # and this module is imported by `services.agent_session` long before any
+    # tool call happens, so the import has to wait until the handler runs.
+    from services.decision_service import DecisionService
+
+    decision = DecisionService().create(
+        thread,
+        title=args.title,
+        reason=args.reason,
+        consequence=args.consequence,
+        kind=args.kind,
+        amount_ore=args.amount_ore,
+        source=args.source.model_dump() if args.source is not None else None,
+        options=[option.model_dump() for option in args.options],
+        footnote=args.footnote,
+        actor=actor,
+    )
+    return _decision_dict(decision)
 
 
 # ---------------------------------------------------------------------------
@@ -641,6 +812,18 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
         RegistreraAvstaendeArgs,
         _run_registrera_avstaende,
     ),
+    (
+        "be_om_beslut",
+        "Lägg fram ett beslut för människan att ta ställning till, mitt i "
+        "ett samtal, med en motivering och en konsekvens -- och valfritt en "
+        "lista med alternativ. Postar ingenting, ändrar ingenting och rör "
+        "bara beslutets egna tabeller: skriver ett kort i tråden och en rad "
+        "i beslutskön, aldrig i bokföringen. Hör till ett samtal i en vy "
+        "-- för ett underlag i intagskön, använd registrera_avstaende "
+        "i stället.",
+        BeOmBeslutArgs,
+        _run_be_om_beslut,
+    ),
 )
 
 #: Anthropic tool-definition shape: {"name", "description", "input_schema"}.
@@ -667,6 +850,7 @@ def execute_tool(
     actor: str,
     capabilities: LLMCapabilities,
     idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> Any:
     """Validate and run one model-requested tool call.
 
@@ -677,21 +861,37 @@ def execute_tool(
     source. It is handed to every handler rather than branched on here, so
     that the dispatcher stays a table lookup with no special case in it.
 
+    ``tool_context`` is the same idea for everything a tool may need that
+    only its caller can know. The thread path puts its ``Thread`` in it;
+    the document path (``run_session``) passes nothing. Only
+    ``be_om_beslut`` opens it -- a decision cannot exist without the thread
+    it was raised in -- and it is handed to every handler rather than
+    branched on here, for the same reason ``idempotency_key`` is: the
+    dispatcher stays a table lookup with no special case in it.
+
+    It is a mapping rather than a typed argument so that the layer above
+    can forward it without naming what is inside: SPEC-tradar.md §8.1 keeps
+    ``services/agent_session.py`` ignorant of what a thread is, and
+    SPEC-beslut.md §7.6 keeps it ignorant of what a decision is. Both
+    survive because the knowledge stops here.
+
     **This adds no tool.** ``AGENT_TOOL_DEFINITIONS`` is unchanged, byte for
     byte, including ``_TOOL_SPECS``' order (SPEC-agentruntime §6.6: the tool
     list is part of the cached prefix). The key is how the *caller*
     identifies its posting intent; it is not something a model can ask for,
-    and it is not in any tool's ``input_schema``.
+    and it is not in any tool's ``input_schema``. Neither is
+    ``tool_context``.
 
     Returns a JSON-serializable result on success. Raises on failure --
     either ``domain.validation.ValidationError`` (unknown tool name, or
     arguments that fail the tool's own Pydantic schema) or whatever domain
     exception the backing repository/service call itself raises
     (``IntakeError``, ``BankInputError``, ``DocumentUnreadableError``,
-    ``PostingConflictError``, ...). None of these are caught and converted
-    here -- wrapping a raised exception into a ``tool_result`` with
-    ``is_error: true`` is the session's (A8) job, since only the session
-    holds the ``ToolCall.id`` needed to build that content block.
+    ``PostingConflictError``, ``services.decision_service.DecisionError``,
+    ...). None of these are caught and converted here -- wrapping a raised
+    exception into a ``tool_result`` with ``is_error: true`` is the
+    session's (A8) job, since only the session holds the ``ToolCall.id``
+    needed to build that content block.
     """
     entry = _TOOL_HANDLERS.get(name)
     if entry is None:
@@ -714,4 +914,5 @@ def execute_tool(
         actor=actor,
         capabilities=capabilities,
         idempotency_key=idempotency_key,
+        tool_context=tool_context,
     )

@@ -46,7 +46,7 @@ scope. No test in this module is affected: every test drives a fake
 import json
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any, Callable, Literal, Optional
+from typing import Any, Callable, Literal, Mapping, Optional
 
 from config import settings
 from domain.models import Account, CorrectionHistory, IntakeSource, Period
@@ -446,6 +446,7 @@ def run_tool_loop(
     on_tool_call: Optional[StreamToolCallHook] = None,
     posting_idempotency_key: Optional[str] = None,
     check_between_turns: Optional[Callable[[], Optional[str]]] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> SessionOutcome:
     """The manual tool loop, shared by both entry points.
 
@@ -490,6 +491,16 @@ def run_tool_loop(
     ignorant of `services.agent_runtime`, which imports *it*. There is no
     `with db.transaction():` anywhere in this module, so "between turns" is
     never inside one (SPEC-agentruntime §6.5, test case 30).
+
+    `tool_context` travels the same way `posting_idempotency_key` does, and
+    for the same reason: a tool may need something only its caller can know.
+    It is handed to `execute_tool` unread and unopened -- this module never
+    looks inside it, never branches on it, and has no idea what any key in
+    it means. That opacity is the point. SPEC-tradar.md §8.1 says the
+    runtime must not know what a thread is, and SPEC-beslut.md §7.6 draws
+    the same line for a decision; a mapping this loop only forwards keeps
+    both, where a typed argument named after what happens to be inside it
+    would quietly break the first.
     """
     output_token_limit = (
         max_output_tokens
@@ -561,6 +572,7 @@ def run_tool_loop(
                         actor=actor,
                         capabilities=client.capabilities,
                         idempotency_key=posting_idempotency_key,
+                        tool_context=tool_context,
                     )
                 except Exception as exc:  # noqa: BLE001 -- SPEC §6.7: any
                     # tool exception becomes an is_error tool_result and the
