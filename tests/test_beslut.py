@@ -14,13 +14,17 @@ from datetime import date, datetime, timedelta
 from typing import Any, Dict, cast
 
 import pytest
+from fastapi.testclient import TestClient
 
+from config import settings
 from db.database import db
 from domain.models import Decision, DecisionOption
+from domain.types import ThreadViewKey
 from domain.validation import ValidationError
 from repositories.decision_repo import DecisionRepository
 from repositories.period_repo import PeriodRepository
 from repositories.thread_repo import ThreadRepository
+from repositories.voucher_repo import VoucherRepository
 from services.agent_tools import (
     AGENT_TOOL_DEFINITIONS,
     RegistreraAvstaendeArgs,
@@ -2372,3 +2376,623 @@ class TestAbstentionInThreadGetsATrackedDecision:
 
         assert outcome.kind == "failed"
         assert _count_rows("decisions") == before
+
+
+# --- B7: GET /decisions och GET /decisions/{id} (SPEC §5, §6.1, testfall 6–10) ---
+
+
+DECISIONS_URL = "/api/v1/decisions"
+
+
+def _voucher_for_correction() -> str:
+    """A bare draft voucher, through `VoucherRepository` directly, not the
+    HTTP API -- `correction_notes.voucher_id` (migration 022) is a real
+    foreign key, and this module must not invent one, same rule
+    `_thread_and_post`/`_new_thread_and_post` already follow for
+    `decisions.thread_id`/`.post_id`. No rows, no posting: the union only
+    ever reads `note_text` and `voucher_id` off the note itself, never the
+    voucher's own contents."""
+    year = next(_fiscal_year_counter)
+    fy = _fiscal_year(start=date(year, 1, 1), end=date(year, 12, 31))
+    period = PeriodRepository.create_period(
+        fiscal_year_id=fy.id,
+        year=year,
+        month=1,
+        start_date=date(year, 1, 1),
+        end_date=date(year, 12, 31),
+    )
+    voucher = VoucherRepository.create(
+        series="A",
+        number=1,
+        date=date(year, 1, 15),
+        period_id=period.id,
+        description="Test",
+        fiscal_year_id=fy.id,
+    )
+    return voucher.id
+
+
+def _insert_intake_source(**overrides) -> str:
+    """A raw `intake_sources` row, direct SQL like `_insert_decision` (B1)
+    -- so a test can pin `uploaded_at` exactly, unlike `IntakeService`,
+    whose timestamp is always "now"."""
+    source_id = overrides.pop("id", None) or str(uuid.uuid4())
+    row: Dict[str, Any] = {
+        "id": source_id,
+        "source_type": "receipt",
+        "status": "failed",
+        "original_filename": "kvitto.pdf",
+        "mime_type": "application/pdf",
+        "size_bytes": 100,
+        "sha256": uuid.uuid4().hex,
+        "stored_path": "/tmp/kvitto.pdf",
+        "uploaded_by": "api",
+        "uploaded_at": datetime.now(),
+    }
+    row.update(overrides)
+    names = ", ".join(row.keys())
+    placeholders = ", ".join("?" for _ in row)
+    db.execute(
+        f"INSERT INTO intake_sources ({names}) VALUES ({placeholders})",
+        tuple(row.values()),
+    )
+    db.commit()
+    return source_id
+
+
+def _insert_intake_attempt(source_id: str, **overrides) -> str:
+    """A raw `intake_processing_attempts` row -- same reasoning as
+    `_insert_intake_source`. `status` defaults to `'failed'`; the schema's
+    own `CHECK` (migration 018) only allows `processing`/`processed`/
+    `failed` here, never `needs_attention` -- that status lives on the
+    source, not on any one attempt."""
+    attempt_id = overrides.pop("id", None) or str(uuid.uuid4())
+    row: Dict[str, Any] = {
+        "id": attempt_id,
+        "intake_source_id": source_id,
+        "status": "failed",
+        "summary": "Agentens sammanfattning av försöket.",
+        "warnings": None,
+        "error_detail": "Agentens felbeskrivning.",
+        "voucher_id": None,
+        "actor": "agent",
+        "created_at": datetime.now(),
+    }
+    row.update(overrides)
+    names = ", ".join(row.keys())
+    placeholders = ", ".join("?" for _ in row)
+    db.execute(
+        f"INSERT INTO intake_processing_attempts ({names}) VALUES ({placeholders})",
+        tuple(row.values()),
+    )
+    db.commit()
+    return attempt_id
+
+
+def _insert_correction_note(voucher_id: str, **overrides) -> str:
+    """A raw `correction_notes` row -- same reasoning as
+    `_insert_intake_source`. `note_text` is the human's own words, never
+    the agent's (SPEC §5) -- kept as plain, ordinary test text here since
+    no test in this section asserts anything about its wording beyond "is
+    exactly what was written"."""
+    note_id = overrides.pop("id", None) or str(uuid.uuid4())
+    row: Dict[str, Any] = {
+        "id": note_id,
+        "voucher_id": voucher_id,
+        "note_text": "Kontot verkar fel, kolla igen.",
+        "status": "pending",
+        "created_at": datetime.now(),
+        "created_by": "stefan",
+    }
+    row.update(overrides)
+    names = ", ".join(row.keys())
+    placeholders = ", ".join("?" for _ in row)
+    db.execute(
+        f"INSERT INTO correction_notes ({names}) VALUES ({placeholders})",
+        tuple(row.values()),
+    )
+    db.commit()
+    return note_id
+
+
+@pytest.fixture
+def client(test_db):
+    """Test client bound after the database swap -- same pattern as
+    `tests/test_tradar.py`'s `client` fixture (BRIEF.md's arbetssätt §3)."""
+    from api.main import app
+
+    return TestClient(app)
+
+
+@pytest.fixture
+def auth_headers():
+    return {"Authorization": f"Bearer {settings.api_key}"}
+
+
+@pytest.fixture
+def current_fiscal_year():
+    """Unused by name in most B7 tests (`_new_thread`/`_voucher_for_correction`
+    mint their own fiscal years), kept for parity with
+    `tests/test_tradar.py`'s fixture set per the brief."""
+    today = date.today()
+    return PeriodRepository.create_fiscal_year(
+        start_date=date(today.year, 1, 1), end_date=date(today.year, 12, 31)
+    )
+
+
+class TestCaseSixUnionOfThreeSources:
+    """Testfall 6: `GET /decisions` unions `decisions`, `intake_sources`
+    and `correction_notes`."""
+
+    def test_all_three_kinds_are_present_with_the_right_ids(self, client, auth_headers):
+        thread = _new_thread()
+        decision = DecisionService().create(
+            thread,
+            title="Kortköp Elektronikhuset",
+            reason="Kvittot saknas.",
+            consequence="Ingenting är bokfört.",
+        )
+        source_id = _insert_intake_source(status="failed")
+        _insert_intake_attempt(
+            source_id,
+            summary="Kan inte tolka beloppet.",
+            error_detail="OCR misslyckades på kvittot.",
+        )
+        voucher_id = _voucher_for_correction()
+        note_id = _insert_correction_note(
+            voucher_id, status="pending", note_text="Kolla kontot igen."
+        )
+
+        response = client.get(DECISIONS_URL, headers=auth_headers)
+        assert response.status_code == 200
+        body = response.json()
+
+        kinds_by_id = {row["id"]: row["kind"] for row in body["decisions"]}
+        assert kinds_by_id == {
+            decision.id: "abstention",
+            f"intake:{source_id}": "intake",
+            f"correction:{note_id}": "correction",
+        }
+
+
+class TestCaseSevenPrefixedIdsDoNotCollide:
+    """Testfall 7: the union's ids are prefixed and don't collide between
+    sources -- forced here by giving an `intake_sources` row and a
+    `correction_notes` row the exact same raw id."""
+
+    def test_same_raw_id_resolves_to_two_different_decisions(
+        self, client, auth_headers
+    ):
+        shared_id = str(uuid.uuid4())
+        _insert_intake_source(id=shared_id, status="failed")
+        voucher_id = _voucher_for_correction()
+        _insert_correction_note(voucher_id, id=shared_id, status="pending")
+
+        intake_response = client.get(
+            f"{DECISIONS_URL}/intake:{shared_id}", headers=auth_headers
+        )
+        correction_response = client.get(
+            f"{DECISIONS_URL}/correction:{shared_id}", headers=auth_headers
+        )
+
+        assert intake_response.status_code == 200
+        assert intake_response.json()["kind"] == "intake"
+        assert intake_response.json()["id"] == f"intake:{shared_id}"
+
+        assert correction_response.status_code == 200
+        assert correction_response.json()["kind"] == "correction"
+        assert correction_response.json()["id"] == f"correction:{shared_id}"
+
+    def test_the_unprefixed_raw_id_matches_neither(self, client, auth_headers):
+        shared_id = str(uuid.uuid4())
+        _insert_intake_source(id=shared_id, status="failed")
+        voucher_id = _voucher_for_correction()
+        _insert_correction_note(voucher_id, id=shared_id, status="pending")
+
+        response = client.get(f"{DECISIONS_URL}/{shared_id}", headers=auth_headers)
+        assert response.status_code == 404
+
+
+class TestCaseEightIntakeReasonIsTheAgentsLatestText:
+    """Testfall 8: an `intake` row's `reason` is the agent's own text from
+    the **latest** `intake_processing_attempts` row, never the filename."""
+
+    def test_the_newer_attempts_text_wins_over_http(self, client, auth_headers):
+        source_id = _insert_intake_source(
+            status="failed", original_filename="kvitto_2026-06-03.pdf"
+        )
+        _insert_intake_attempt(
+            source_id,
+            summary="Första försöket: beloppet är otydligt.",
+            error_detail="Kan inte läsa beloppet på kvittot.",
+            created_at=datetime.now() - timedelta(hours=2),
+        )
+        _insert_intake_attempt(
+            source_id,
+            summary="Andra försöket: kontot är oklart.",
+            error_detail="Vet inte om det är representation eller kontorsmaterial.",
+            created_at=datetime.now() - timedelta(minutes=5),
+        )
+
+        response = client.get(
+            f"{DECISIONS_URL}/intake:{source_id}", headers=auth_headers
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert (
+            body["reason"] == "Vet inte om det är representation eller kontorsmaterial."
+        )
+        assert "kvitto_2026-06-03.pdf" not in body["reason"]
+        # The filename identifies the card; it never explains it.
+        assert body["title"] == "kvitto_2026-06-03.pdf"
+
+    def test_the_list_endpoint_agrees_with_the_single_lookup(
+        self, client, auth_headers
+    ):
+        """List and detail use two different repository calls
+        (`list_latest_attempts`, batched, versus
+        `list_attempts_for_source`, per-row) that must still agree."""
+        source_id = _insert_intake_source(status="failed")
+        _insert_intake_attempt(
+            source_id,
+            summary="Gammalt försök.",
+            error_detail="Gammal felbeskrivning.",
+            created_at=datetime.now() - timedelta(hours=1),
+        )
+        _insert_intake_attempt(
+            source_id,
+            summary="Nytt försök.",
+            error_detail="Ny felbeskrivning.",
+            created_at=datetime.now(),
+        )
+
+        response = client.get(DECISIONS_URL, headers=auth_headers)
+        row = next(
+            r for r in response.json()["decisions"] if r["id"] == f"intake:{source_id}"
+        )
+        assert row["reason"] == "Ny felbeskrivning."
+
+    def test_no_attempt_at_all_is_honest_about_the_gap(self, client, auth_headers):
+        """No attempt is recorded yet -- the reason must say so plainly,
+        never fall back to the filename or invent agent-sounding text."""
+        source_id = _insert_intake_source(
+            status="needs_attention", original_filename="okänt_underlag.pdf"
+        )
+
+        response = client.get(
+            f"{DECISIONS_URL}/intake:{source_id}", headers=auth_headers
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert "okänt_underlag.pdf" not in body["reason"]
+        assert body["reason"]
+
+
+class TestCaseNineViewKeyValidation:
+    """Testfall 9: `view_key` validates against the seven; an unknown key
+    is `404`, all seven are accepted."""
+
+    def test_unknown_view_key_is_404(self, client, auth_headers):
+        response = client.get(
+            f"{DECISIONS_URL}?view_key=bocker.verifikatoner", headers=auth_headers
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"]["code"] == "unknown_view_key"
+
+    @pytest.mark.parametrize("view_key", [key.value for key in ThreadViewKey])
+    def test_all_seven_valid_keys_are_accepted(self, client, auth_headers, view_key):
+        response = client.get(
+            f"{DECISIONS_URL}?view_key={view_key}", headers=auth_headers
+        )
+        assert response.status_code == 200
+
+
+class TestCaseTenAgeDaysOverHttp:
+    """Testfall 10: `age_days` is counted from `created_at` and is `0` for
+    a decision created today -- through the HTTP endpoint this time, not
+    just the domain method directly."""
+
+    def test_a_decision_created_today_has_age_days_zero(self, client, auth_headers):
+        thread = _new_thread()
+        decision = DecisionService().create(
+            thread, title="Beslut idag", reason="r", consequence="c"
+        )
+
+        response = client.get(f"{DECISIONS_URL}/{decision.id}", headers=auth_headers)
+        assert response.status_code == 200
+        assert response.json()["age_days"] == 0
+
+
+class TestOldestFirstAcrossTheWholeUnion:
+    """Flöde 1 steg 1: "en i taget i tråden, äldst först" -- over *all
+    three* sources at once, not source by source."""
+
+    def test_full_ordering_interleaves_all_three_sources(self, client, auth_headers):
+        now = datetime.now()
+
+        thread = _new_thread()
+        middle_decision = DecisionService().create(
+            thread, title="Mitten", reason="r", consequence="c"
+        )
+        db.execute(
+            "UPDATE decisions SET created_at = ? WHERE id = ?",
+            (now - timedelta(days=3), middle_decision.id),
+        )
+        db.commit()
+
+        oldest_source = _insert_intake_source(
+            status="failed", uploaded_at=now - timedelta(days=5)
+        )
+        newest_note_voucher = _voucher_for_correction()
+        newest_note = _insert_correction_note(
+            newest_note_voucher, status="pending", created_at=now - timedelta(days=1)
+        )
+
+        response = client.get(DECISIONS_URL, headers=auth_headers)
+        ids = [row["id"] for row in response.json()["decisions"]]
+        assert ids == [
+            f"intake:{oldest_source}",
+            middle_decision.id,
+            f"correction:{newest_note}",
+        ]
+
+
+class TestPaginationOverTheUnion:
+    """The naive-per-source-`LIMIT` killer: two sources' rows are
+    interleaved by age, and `limit`/`offset` must page the *merged, sorted*
+    list -- not `limit` rows from each source independently."""
+
+    def test_pages_together_equal_the_full_sorted_union(self, client, auth_headers):
+        now = datetime.now()
+
+        thread1 = _new_thread()
+        decision1 = DecisionService().create(
+            thread1, title="D1", reason="r", consequence="c"
+        )
+        db.execute(
+            "UPDATE decisions SET created_at = ? WHERE id = ?",
+            (now - timedelta(days=5), decision1.id),
+        )
+
+        intake1 = _insert_intake_source(
+            status="failed", uploaded_at=now - timedelta(days=4)
+        )
+
+        voucher1 = _voucher_for_correction()
+        correction1 = _insert_correction_note(
+            voucher1, status="pending", created_at=now - timedelta(days=3)
+        )
+
+        thread2 = _new_thread()
+        decision2 = DecisionService().create(
+            thread2, title="D2", reason="r", consequence="c"
+        )
+        db.execute(
+            "UPDATE decisions SET created_at = ? WHERE id = ?",
+            (now - timedelta(days=2), decision2.id),
+        )
+        db.commit()
+
+        intake2 = _insert_intake_source(
+            status="needs_attention", uploaded_at=now - timedelta(days=1)
+        )
+
+        full_order = [
+            decision1.id,
+            f"intake:{intake1}",
+            f"correction:{correction1}",
+            decision2.id,
+            f"intake:{intake2}",
+        ]
+
+        page1 = client.get(
+            f"{DECISIONS_URL}?limit=2&offset=0", headers=auth_headers
+        ).json()
+        page2 = client.get(
+            f"{DECISIONS_URL}?limit=2&offset=2", headers=auth_headers
+        ).json()
+        page3 = client.get(
+            f"{DECISIONS_URL}?limit=2&offset=4", headers=auth_headers
+        ).json()
+
+        assert [r["id"] for r in page1["decisions"]] == full_order[0:2]
+        assert [r["id"] for r in page2["decisions"]] == full_order[2:4]
+        assert [r["id"] for r in page3["decisions"]] == full_order[4:5]
+
+        assembled = (
+            [r["id"] for r in page1["decisions"]]
+            + [r["id"] for r in page2["decisions"]]
+            + [r["id"] for r in page3["decisions"]]
+        )
+        assert assembled == full_order
+        assert len(assembled) == len(set(assembled))
+
+        # `total` is the union's count, independent of `limit`.
+        assert page1["total"] == page2["total"] == page3["total"] == 5
+
+
+class TestOptionsAreInTheListResponse:
+    """§6.1: `options` rides along in the list response so a client never
+    needs a second call per card."""
+
+    def test_an_abstentions_options_appear_in_the_list(self, client, auth_headers):
+        thread = _new_thread()
+        decision = DecisionService().create(
+            thread,
+            title="Kortköp Elektronikhuset",
+            reason="r",
+            consequence="c",
+            options=[
+                {
+                    "title": "Förbrukningsinventarier",
+                    "account": "5410",
+                    "amount_ore": 100,
+                    "rationale": "Kostnadsförs direkt.",
+                    "is_exit": False,
+                },
+                {
+                    "title": "Annat konto",
+                    "rationale": "Det är inte alls detta köp.",
+                    "is_exit": True,
+                },
+            ],
+        )
+
+        response = client.get(DECISIONS_URL, headers=auth_headers)
+        row = next(r for r in response.json()["decisions"] if r["id"] == decision.id)
+        assert [o["title"] for o in row["options"]] == [
+            "Förbrukningsinventarier",
+            "Annat konto",
+        ]
+
+    def test_synthetic_rows_have_an_empty_options_list(self, client, auth_headers):
+        source_id = _insert_intake_source(status="failed")
+
+        response = client.get(DECISIONS_URL, headers=auth_headers)
+        row = next(
+            r for r in response.json()["decisions"] if r["id"] == f"intake:{source_id}"
+        )
+        assert row["options"] == []
+
+
+class TestStatusAnsweredAndAll:
+    """What `status=answered` / `status=all` mean for the two synthetic
+    sources (documented in `DecisionService.list_decisions`'s docstring):
+    always `open`, so they fall out of `answered` and appear in `all`
+    alongside every `decisions` status, including `superseded`."""
+
+    def _seed_one_of_each(self):
+        thread_open = _new_thread()
+        open_decision = DecisionService().create(
+            thread_open, title="Open", reason="r", consequence="c"
+        )
+
+        thread_answered = _new_thread()
+        answered_decision = DecisionService().create(
+            thread_answered, title="Answered", reason="r", consequence="c"
+        )
+        DecisionService().answer(answered_decision.id, free_text="Ja.", actor="stefan")
+
+        thread_superseded = _new_thread()
+        superseded_decision = DecisionService().create(
+            thread_superseded, title="Superseded", reason="r", consequence="c"
+        )
+        DecisionService().supersede(superseded_decision.id)
+
+        source_id = _insert_intake_source(status="failed")
+        voucher_id = _voucher_for_correction()
+        note_id = _insert_correction_note(voucher_id, status="pending")
+
+        return open_decision, answered_decision, superseded_decision, source_id, note_id
+
+    def test_status_open_includes_synthetic_excludes_answered_and_superseded(
+        self, client, auth_headers
+    ):
+        open_d, answered_d, superseded_d, source_id, note_id = self._seed_one_of_each()
+
+        response = client.get(f"{DECISIONS_URL}?status=open", headers=auth_headers)
+        ids = {row["id"] for row in response.json()["decisions"]}
+        assert ids == {open_d.id, f"intake:{source_id}", f"correction:{note_id}"}
+
+    def test_status_answered_is_decisions_only_synthetic_rows_fall_out(
+        self, client, auth_headers
+    ):
+        open_d, answered_d, superseded_d, source_id, note_id = self._seed_one_of_each()
+
+        response = client.get(f"{DECISIONS_URL}?status=answered", headers=auth_headers)
+        ids = {row["id"] for row in response.json()["decisions"]}
+        assert ids == {answered_d.id}
+
+    def test_status_all_includes_superseded_plus_synthetic(self, client, auth_headers):
+        open_d, answered_d, superseded_d, source_id, note_id = self._seed_one_of_each()
+
+        response = client.get(f"{DECISIONS_URL}?status=all", headers=auth_headers)
+        ids = {row["id"] for row in response.json()["decisions"]}
+        assert ids == {
+            open_d.id,
+            answered_d.id,
+            superseded_d.id,
+            f"intake:{source_id}",
+            f"correction:{note_id}",
+        }
+
+    def test_unknown_status_is_400(self, client, auth_headers):
+        response = client.get(f"{DECISIONS_URL}?status=bogus", headers=auth_headers)
+        assert response.status_code == 400
+        assert response.json()["detail"]["code"] == "unknown_status"
+
+
+class TestGetDecisionForAllThreeIdForms:
+    """`GET /decisions/{id}` across the three id spaces, plus `404` for an
+    id nothing was ever written under."""
+
+    def test_abstention_raw_id(self, client, auth_headers):
+        thread = _new_thread()
+        decision = DecisionService().create(
+            thread, title="T", reason="r", consequence="c"
+        )
+
+        response = client.get(f"{DECISIONS_URL}/{decision.id}", headers=auth_headers)
+        assert response.status_code == 200
+        assert response.json()["kind"] == "abstention"
+
+    def test_intake_prefixed_id(self, client, auth_headers):
+        source_id = _insert_intake_source(status="needs_attention")
+
+        response = client.get(
+            f"{DECISIONS_URL}/intake:{source_id}", headers=auth_headers
+        )
+        assert response.status_code == 200
+        assert response.json()["kind"] == "intake"
+
+    def test_correction_prefixed_id(self, client, auth_headers):
+        voucher_id = _voucher_for_correction()
+        note_id = _insert_correction_note(voucher_id, status="suggested")
+
+        response = client.get(
+            f"{DECISIONS_URL}/correction:{note_id}", headers=auth_headers
+        )
+        assert response.status_code == 200
+        assert response.json()["kind"] == "correction"
+
+    def test_unknown_plain_id_is_404(self, client, auth_headers):
+        response = client.get(f"{DECISIONS_URL}/{uuid.uuid4()}", headers=auth_headers)
+        assert response.status_code == 404
+        assert response.json()["detail"]["code"] == "decision_not_found"
+
+    def test_unknown_intake_prefixed_id_is_404(self, client, auth_headers):
+        response = client.get(
+            f"{DECISIONS_URL}/intake:{uuid.uuid4()}", headers=auth_headers
+        )
+        assert response.status_code == 404
+
+    def test_unknown_correction_prefixed_id_is_404(self, client, auth_headers):
+        response = client.get(
+            f"{DECISIONS_URL}/correction:{uuid.uuid4()}", headers=auth_headers
+        )
+        assert response.status_code == 404
+
+    def test_a_resolved_intake_source_is_no_longer_a_decision(
+        self, client, auth_headers
+    ):
+        """Once a source leaves `failed`/`needs_attention` it is no longer
+        a decision in this module's sense -- same `404` as an id nothing
+        was ever written under."""
+        source_id = _insert_intake_source(status="processed")
+
+        response = client.get(
+            f"{DECISIONS_URL}/intake:{source_id}", headers=auth_headers
+        )
+        assert response.status_code == 404
+
+
+class TestDecisionsRouteRequiresAuthentication:
+    """Same rule as every other route (`api/deps.py::get_current_actor`)."""
+
+    def test_list_requires_auth(self, client):
+        response = client.get(DECISIONS_URL)
+        assert response.status_code == 401
+
+    def test_get_requires_auth(self, client):
+        response = client.get(f"{DECISIONS_URL}/{uuid.uuid4()}")
+        assert response.status_code == 401

@@ -530,6 +530,79 @@ class ThreadMessageResponse(BaseModel):
     cursor: int
 
 
+# Decision Schemas (SPEC-beslut.md §5, §6.1 -- the three-source union, B7)
+
+
+class DecisionOptionResponse(BaseModel):
+    """One row of `DecisionResponse.options` -- `decision_options`, in the
+    order they were laid out (`position`). Always `[]` for the two
+    synthetic sources (`kind` `intake` / `correction`, SPEC §5): neither
+    has an alternatives list of its own.
+    """
+
+    id: str
+    position: int
+    title: str
+    rationale: str
+    account: Optional[str] = None
+    amount_ore: Optional[int] = None
+    recommended: bool = False
+    is_exit: bool = False
+
+
+class DecisionSourceResponse(BaseModel):
+    """`DecisionResponse.source` -- what grounds the decision, when there
+    is one. `None` for an abstention raised mid-conversation (SPEC §2
+    antagande 5)."""
+
+    kind: str
+    id: str
+    date: Optional[DateType] = None
+
+
+class DecisionResponse(BaseModel):
+    """One row of `GET /decisions`'s union, exactly SPEC §6.1's JSON shape
+    -- `services/decision_service.py::DecisionView` with `created_at` (the
+    union's own sort key) left off, since a client never needs it.
+
+    `id` is raw `decisions.id` for `kind="abstention"`, and prefixed
+    (`intake:{id}` / `correction:{id}`) for the two synthetic sources
+    (SPEC §5) -- the three id spaces don't collide, so a client and
+    `GET /decisions/{id}` can tell them apart from the id alone.
+
+    `reason` is the agent's own words for `abstention` and `intake`, but
+    **not** for `correction`: there `note_text` is the human's text, and
+    `kind="correction"` is the tell a reader has to use instead of a
+    different field name (`services/decision_service.py`'s
+    `_correction_to_view` docstring, SPEC §11.2 -- "hela priset").
+    """
+
+    id: str
+    view_key: str
+    kind: str
+    status: str
+    title: str
+    amount_ore: Optional[int] = None
+    reason: str
+    consequence: str
+    source: Optional[DecisionSourceResponse] = None
+    age_days: int
+    thread_id: Optional[str] = None
+    post_id: Optional[str] = None
+    options: List[DecisionOptionResponse] = Field(default_factory=list)
+
+
+class DecisionListResponse(BaseModel):
+    """`GET /decisions` -- oldest first **over the whole union**, not per
+    source (SPEC §6.1, §11.2). `total` is the union's count before
+    `limit`/`offset` slice it, so a client can page correctly even though
+    `len(decisions)` on any one page may be smaller than `limit`.
+    """
+
+    decisions: List[DecisionResponse]
+    total: int
+
+
 # Error Schemas
 
 

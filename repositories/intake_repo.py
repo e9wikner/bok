@@ -3,7 +3,7 @@
 import json
 import uuid
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional, Sequence
 
 from db.database import db
 from domain.models import IntakeProcessingAttempt, IntakeSource, VoucherIntakeSource
@@ -125,6 +125,74 @@ class IntakeRepository:
                 (IntakeStatus.DELETED.value, limit, offset),
             ).fetchall()
         return [IntakeRepository._row_to_source(row) for row in rows]
+
+    @staticmethod
+    def list_by_statuses(statuses: Sequence[str]) -> List[IntakeSource]:
+        """Every source whose status is in `statuses`, oldest `uploaded_at`
+        first with `id` as a stable tie-breaker -- added for
+        `DecisionService.list_decisions` (SPEC-beslut.md §5, §6.1, B7),
+        which unions `intake_sources` (`failed`/`needs_attention`) with two
+        other sources and sorts and paginates the merged, sorted result
+        itself. Unlike `list_by_status`, this takes several statuses at
+        once (so the two `intake` statuses are one query, not two) and is
+        deliberately unbounded -- `limit`/`offset` apply to the union in
+        the caller, not to any one source (§11.2's "priset" for choosing a
+        union: every matching row is fetched on every call).
+        """
+        if not statuses:
+            return []
+        placeholders = ", ".join("?" for _ in statuses)
+        rows = db.execute(
+            f"""
+            SELECT * FROM intake_sources
+            WHERE status IN ({placeholders})
+            ORDER BY uploaded_at ASC, id ASC
+            """,
+            tuple(statuses),
+        ).fetchall()
+        return [IntakeRepository._row_to_source(row) for row in rows]
+
+    @staticmethod
+    def list_latest_attempts(
+        source_ids: Sequence[str],
+    ) -> Dict[str, IntakeProcessingAttempt]:
+        """The most recent `intake_processing_attempts` row per source id,
+        in one query -- added for `DecisionService.list_decisions` /
+        `.get_decision` (SPEC-beslut.md §5): an `intake` row's `reason` is
+        "agentens egen text ur senaste `intake_processing_attempts.summary`
+        / `.error_detail`", and finding "latest" with one call to
+        `list_attempts_for_source` per source would turn a list endpoint
+        into a waterfall the same way an N+1 on `decision_options` would
+        (see `DecisionRepository._attach_options`'s docstring, which this
+        mirrors for attempts instead of options).
+
+        `ROW_NUMBER()` (SQLite 3.25+; this project runs 3.53) numbers each
+        source's attempts newest-first and keeps only the top one --
+        a `GROUP BY intake_source_id` on `MAX(created_at)` would return two
+        rows for a source whose two attempts happen to share a timestamp,
+        which `datetime.now()` resolution does not rule out.
+        """
+        if not source_ids:
+            return {}
+        placeholders = ", ".join("?" for _ in source_ids)
+        rows = db.execute(
+            f"""
+            SELECT * FROM (
+                SELECT *, ROW_NUMBER() OVER (
+                    PARTITION BY intake_source_id
+                    ORDER BY created_at DESC, id DESC
+                ) AS rn
+                FROM intake_processing_attempts
+                WHERE intake_source_id IN ({placeholders})
+            )
+            WHERE rn = 1
+            """,
+            tuple(source_ids),
+        ).fetchall()
+        return {
+            row["intake_source_id"]: IntakeRepository._row_to_attempt(row)
+            for row in rows
+        }
 
     @staticmethod
     def count_by_status(status: str | None = None) -> int:

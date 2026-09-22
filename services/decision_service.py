@@ -2,38 +2,264 @@
 
 `DecisionService` is the API surface B4-B10 build on -- fixed once in
 BRIEF.md §2 so later tasks don't each invent their own. This module
-implements only the lifecycle B3 owns: `create`, `answer`, `count_open`,
-`supersede`, plus the typed errors. The escalation invariant
-(`validate_options`, B4), the three-source union (`list_decisions`/
-`get_decision`, B7) and the seven-day reminder (`due_reminders`/
-`mark_reminded`, B10) are deliberately not built here -- their names are
-reserved in BRIEF.md §2 and their call sites are left as plain comments
-below rather than implemented ahead of the task that owns them.
+implements the lifecycle B3 owns (`create`, `answer`, `count_open`,
+`supersede`), the escalation invariant (`validate_options`, B4), and the
+three-source union B7 owns (`list_decisions` / `get_decision`, SPEC §5,
+§6.1, §11.2). The seven-day reminder (`due_reminders` / `mark_reminded`,
+B10) is deliberately not built here -- its name is reserved in BRIEF.md §2
+and its call site is left as a plain comment below rather than implemented
+ahead of the task that owns it.
 
 No `fastapi` import, no `HTTPException` (AGENTS.md's layering rule --
-`api/routes/decisions.py`, B7/B8, maps these to status codes). Domain
-errors are typed exceptions with the same ``{code, message, details}``
-shape `PostingConflictError` (`services/agent_tools.py`) and `IntakeError`
+`api/routes/decisions.py` maps these to status codes). Domain errors are
+typed exceptions with the same ``{code, message, details}`` shape
+`PostingConflictError` (`services/agent_tools.py`) and `IntakeError`
 (`services/intake.py`) already use, so a caller already branching on
 `.code` doesn't need a second pattern for this module.
 
-All SQL lives in `repositories/decision_repo.py` and
-`repositories/thread_repo.py` -- nothing here executes a query directly.
+All SQL lives in `repositories/decision_repo.py`, `repositories/thread_repo.py`,
+`repositories/intake_repo.py` and `repositories/correction_note_repo.py` --
+nothing here executes a query directly.
 """
 
 import uuid
+from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 from db.database import db
-from domain.models import Decision, DecisionOption, Thread, ThreadPost
+from domain.models import (
+    CorrectionNote,
+    Decision,
+    DecisionOption,
+    IntakeProcessingAttempt,
+    IntakeSource,
+    Thread,
+    ThreadPost,
+)
+from domain.types import ThreadViewKey
 from domain.validation import ValidationError
+from repositories.correction_note_repo import CorrectionNoteRepository
 from repositories.decision_repo import DecisionRepository
+from repositories.intake_repo import IntakeRepository
 from repositories.thread_repo import ThreadRepository
 
 #: What `DecisionRepository.add_options` already accepts -- reused here so
 #: `create`'s `options` argument doesn't need a third shape of its own.
 OptionInput = Union[DecisionOption, Mapping[str, Any]]
+
+
+# ---------------------------------------------------------------------------
+# B7: the union of the three sources (SPEC §5, §6.1, §11.2)
+# ---------------------------------------------------------------------------
+
+#: The two synthetic sources' own "open" statuses (SPEC §5's table). Neither
+#: has an `answered` counterpart in this module -- `list_decisions`'s
+#: docstring says what that means for `status=answered` / `status=all`.
+_INTAKE_OPEN_STATUSES: Tuple[str, ...] = ("failed", "needs_attention")
+_CORRECTION_OPEN_STATUSES: Tuple[str, ...] = ("pending", "suggested")
+
+_INTAKE_PREFIX = "intake:"
+_CORRECTION_PREFIX = "correction:"
+
+#: There is no `underlag` view among the seven `ThreadViewKey`s
+#: (SPEC-tradar.md §5). Both synthetic sources are pinned to
+#: `bocker.verifikationer` -- the view where vouchers and the material
+#: behind them live -- rather than inventing an eighth view for two sources
+#: that are meant to be temporary in the first place (SPEC §11.2: "Unionen
+#: är övergående").
+_SYNTHETIC_VIEW_KEY = ThreadViewKey.BOCKER_VERIFIKATIONER.value
+
+#: `intake_sources` / `intake_processing_attempts` has nothing that plays
+#: the role `decisions.consequence` plays for an abstention -- unlike
+#: `reason` (SPEC §5: the agent's own words from the latest attempt), there
+#: is no agent-authored consequence text to draw on here. This is system
+#: wording, said plainly, not invented text passed off as the agent's own.
+_INTAKE_CONSEQUENCE = (
+    "Inget är bokfört från det här underlaget förrän felet är åtgärdat eller "
+    "ny vägledning ges."
+)
+
+#: Same reasoning as `_INTAKE_CONSEQUENCE`: `correction_notes` carries no
+#: consequence text of its own either.
+_CORRECTION_CONSEQUENCE = (
+    "Rättelsen är inte tillämpad förrän ett beslut tas om noteringen."
+)
+
+#: Testfall 8 forbids one specific stand-in (the filename) for a missing
+#: agent reason; it does not forbid being honest that there is no attempt
+#: at all. Whatever this says, it is not the agent's text -- there is none
+#: yet -- so it must not read as if it were.
+_INTAKE_NO_ATTEMPT_REASON = (
+    "Inget bearbetningsförsök är registrerat för det här underlaget ännu."
+)
+
+
+@dataclass
+class DecisionSource:
+    """`source` in the §6.1 response shape -- what grounds the decision,
+    when there is one. `None` is legitimate (an abstention raised
+    mid-conversation has none, SPEC §2 antagande 5)."""
+
+    kind: str
+    id: str
+    date: Optional[date]
+
+
+@dataclass
+class DecisionView:
+    """One row of `GET /decisions`'s union (SPEC §5, §6.1) -- a response
+    shape spanning three sources, not a domain thing in its own right,
+    which is why it lives here and not in `domain/models.py` next to
+    `Decision`.
+
+    Fields are exactly SPEC §6.1's JSON sample, plus `created_at`: the
+    union's own sort key ("Äldst först" over *all three* sources at once,
+    not per source) -- `api/schemas.py`'s `DecisionResponse` leaves it out
+    of what actually goes over the wire.
+    """
+
+    id: str
+    view_key: str
+    kind: str
+    status: str
+    title: str
+    amount_ore: Optional[int]
+    reason: str
+    consequence: str
+    source: Optional[DecisionSource]
+    age_days: int
+    thread_id: Optional[str]
+    post_id: Optional[str]
+    options: List[DecisionOption]
+    created_at: datetime
+
+
+def _age_days(created_at: datetime, today: Optional[date]) -> int:
+    """Same rule as `Decision.age_days` (`domain/models.py`), for the two
+    sources that have no domain object of their own to hang the method on.
+    Counted here, never in SQL (AGENTS.md, BRIEF.md)."""
+    as_of = today if today is not None else date.today()
+    return max((as_of - created_at.date()).days, 0)
+
+
+def _decision_to_view(decision: Decision, *, today: Optional[date]) -> DecisionView:
+    """SPEC §5's `abstention` row: a straight read of `decisions`, `reason`
+    verbatim as the agent wrote it."""
+    source = None
+    if decision.source_kind is not None and decision.source_id is not None:
+        source = DecisionSource(
+            kind=decision.source_kind,
+            id=decision.source_id,
+            date=decision.source_date,
+        )
+    return DecisionView(
+        id=decision.id,
+        view_key=decision.view_key,
+        kind=decision.kind,
+        status=decision.status,
+        title=decision.title,
+        amount_ore=decision.amount_ore,
+        reason=decision.reason,
+        consequence=decision.consequence,
+        source=source,
+        age_days=decision.age_days(today),
+        thread_id=decision.thread_id,
+        post_id=decision.post_id,
+        options=list(decision.options),
+        created_at=decision.created_at,
+    )
+
+
+def _intake_reason(attempt: Optional[IntakeProcessingAttempt]) -> str:
+    """SPEC §5, testfall 8: the agent's own text from the **latest**
+    attempt -- `error_detail` when that attempt recorded one (the sharper,
+    specific explanation `IntakeService.record_failed` requires for a
+    failed attempt), else `summary`. Never the filename.
+
+    "Latest" is found by the caller (`IntakeRepository.list_latest_attempts`
+    / `.list_attempts_for_source`, whichever it used) -- this only picks
+    which of the two text fields on that one attempt to surface.
+
+    No attempt at all is not backfilled with an invented reason --
+    `_INTAKE_NO_ATTEMPT_REASON` says plainly that none exists rather than
+    manufacturing agent-sounding text for words the agent never wrote.
+    """
+    if attempt is None:
+        return _INTAKE_NO_ATTEMPT_REASON
+    return attempt.error_detail or attempt.summary
+
+
+def _intake_to_view(
+    source: IntakeSource,
+    latest_attempt: Optional[IntakeProcessingAttempt],
+    *,
+    today: Optional[date],
+) -> DecisionView:
+    """SPEC §5's `intake` row. `title` is the filename -- identification,
+    not a formulation -- while `reason` is the agent's own text; testfall 8
+    is precisely about not blurring those two."""
+    return DecisionView(
+        id=f"{_INTAKE_PREFIX}{source.id}",
+        view_key=_SYNTHETIC_VIEW_KEY,
+        kind="intake",
+        status="open",
+        title=source.original_filename,
+        amount_ore=None,
+        reason=_intake_reason(latest_attempt),
+        consequence=_INTAKE_CONSEQUENCE,
+        source=DecisionSource(
+            kind="intake_source", id=source.id, date=source.uploaded_at.date()
+        ),
+        age_days=_age_days(source.uploaded_at, today),
+        thread_id=None,
+        post_id=None,
+        options=[],
+        created_at=source.uploaded_at,
+    )
+
+
+def _correction_to_view(note: CorrectionNote, *, today: Optional[date]) -> DecisionView:
+    """SPEC §5's `correction` row -- the one source whose text is **not**
+    the agent's. `reason` is set to `note.note_text` anyway, because that
+    is the only text this source has; `kind="correction"` is what tells a
+    reader not to mistake it for the agent's own formulation (§11.2: "hela
+    priset" of the union is exactly this -- a card that carries the
+    human's words under the same `reason` key an agent's words sit under
+    everywhere else in this endpoint).
+
+    `title` names the voucher rather than repeating `note_text`, so the
+    list view has something short to show before the human's own text.
+    """
+    return DecisionView(
+        id=f"{_CORRECTION_PREFIX}{note.id}",
+        view_key=_SYNTHETIC_VIEW_KEY,
+        kind="correction",
+        status="open",
+        title=f"Korrigeringsnotering, verifikation {note.voucher_id}",
+        amount_ore=None,
+        reason=note.note_text,
+        consequence=_CORRECTION_CONSEQUENCE,
+        source=DecisionSource(
+            kind="voucher", id=note.voucher_id, date=note.created_at.date()
+        ),
+        age_days=_age_days(note.created_at, today),
+        thread_id=None,
+        post_id=None,
+        options=[],
+        created_at=note.created_at,
+    )
+
+
+def _decode_synthetic_id(decision_id: str) -> Optional[Tuple[str, str]]:
+    """`(source_kind, raw_id)` for a prefixed id, `None` for a plain one --
+    SPEC §5's `intake:{id}` / `correction:{id}` / raw `decisions.id`
+    (testfall 7: "prefixade id:n som inte kolliderar")."""
+    if decision_id.startswith(_INTAKE_PREFIX):
+        return "intake", decision_id[len(_INTAKE_PREFIX) :]
+    if decision_id.startswith(_CORRECTION_PREFIX):
+        return "correction", decision_id[len(_CORRECTION_PREFIX) :]
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -618,3 +844,146 @@ class DecisionService:
                 message="The last option must be a way out (is_exit=True)",
                 details=f"option_count={len(options)}",
             )
+
+    # -- B7: the union of the three sources (SPEC §5, §6.1, §11.2) --------
+
+    def list_decisions(
+        self,
+        *,
+        status: str = "open",
+        view_key: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+        today: Optional[date] = None,
+    ) -> Tuple[List[DecisionView], int]:
+        """SPEC §6.1: the union of `decisions`, `intake_sources`
+        (`failed`/`needs_attention`) and `correction_notes`
+        (`pending`/`suggested`), oldest first **over the whole union** --
+        Flöde 1 steg 1: "en i taget i tråden, äldst först".
+
+        `status` is `"open"` (default), `"answered"` or `"all"`; anything
+        else is `ValidationError(code="unknown_status")`, which
+        `api/routes/decisions.py` maps to `400` the same way it already
+        maps every other `ValidationError` (see `services/agent_tools.py`'s
+        route, `api/routes/agent.py`).
+
+        The two synthetic sources have no `answered` counterpart -- SPEC
+        §5's table lists no such column for them, and there is no path in
+        this module that could set one (§5: "läsbara men inte besvarbara").
+        They are therefore **always `open`**, and:
+
+        - `status="open"`: `decisions` filtered to `status='open'`, plus
+          both synthetic sources.
+        - `status="answered"`: `decisions` filtered to `status='answered'`
+          **only** -- the synthetic rows fall out entirely, since neither
+          has ever been anything but open.
+        - `status="all"`: no status filter on `decisions` at all, so this
+          is the one value that also surfaces `superseded` rows -- a
+          deliberate reading of "all" (every status the table has), not an
+          omission -- plus both synthetic sources.
+
+        `view_key` filters `decisions` normally. The synthetic sources are
+        pinned to `_SYNTHETIC_VIEW_KEY` (`bocker.verifikationer`), so they
+        are included only when `view_key` is `None` or exactly that value.
+        The caller (the route) validates `view_key` against the closed list
+        of seven before this is ever reached, so an invalid key never
+        arrives here.
+
+        **Pagination is over the sorted union, not per source.** Each
+        source is fetched in full -- `DecisionRepository.list_decisions`
+        with no `limit`/`offset`, and `IntakeRepository.list_by_statuses` /
+        `CorrectionNoteRepository.list_by_statuses`, which are unbounded by
+        design (see their docstrings) -- converted to `DecisionView`,
+        concatenated, sorted by `(created_at, id)`, and only *then* sliced
+        by `[offset : offset + limit]`. A per-source `LIMIT` would answer a
+        different question ("the oldest `limit` rows from each source") and
+        silently produce a wrong page the moment two sources are both
+        non-empty. `total` is `len(...)` of the merged, sorted list before
+        slicing -- the union's true count, independent of `limit`.
+
+        Avoiding N+1 on `intake` rows' latest attempt:
+        `IntakeRepository.list_latest_attempts` fetches every matching
+        source's newest attempt in a single query (a `ROW_NUMBER()` window
+        function keyed by `intake_source_id`), called once per
+        `list_decisions` call -- not once per intake row, which is what a
+        loop calling `list_attempts_for_source` per source would do.
+        """
+        if status not in ("open", "answered", "all"):
+            raise ValidationError(
+                code="unknown_status",
+                message=f"Unknown status: {status!r}",
+                details="expected one of: open, answered, all",
+            )
+
+        decision_status: Optional[str] = None if status == "all" else status
+        decisions = DecisionRepository.list_decisions(
+            status=decision_status, view_key=view_key
+        )
+        views: List[DecisionView] = [
+            _decision_to_view(decision, today=today) for decision in decisions
+        ]
+
+        # The synthetic sources are always "open" (see docstring above), so
+        # they only ever belong in the union when the caller did not ask
+        # for "answered" alone, and only under the one view they are
+        # pinned to.
+        include_synthetic = status != "answered" and (
+            view_key is None or view_key == _SYNTHETIC_VIEW_KEY
+        )
+        if include_synthetic:
+            sources = IntakeRepository.list_by_statuses(_INTAKE_OPEN_STATUSES)
+            latest_attempts: Dict[str, IntakeProcessingAttempt] = (
+                IntakeRepository.list_latest_attempts([source.id for source in sources])
+            )
+            views.extend(
+                _intake_to_view(source, latest_attempts.get(source.id), today=today)
+                for source in sources
+            )
+
+            notes = CorrectionNoteRepository.list_by_statuses(_CORRECTION_OPEN_STATUSES)
+            views.extend(_correction_to_view(note, today=today) for note in notes)
+
+        views.sort(key=lambda view: (view.created_at, view.id))
+        total = len(views)
+        return views[offset : offset + limit], total
+
+    def get_decision(
+        self, decision_id: str, *, today: Optional[date] = None
+    ) -> Optional[DecisionView]:
+        """One row of the same union `list_decisions` returns, looked up by
+        its (possibly prefixed) id -- SPEC §5.
+
+        A synthetic id decodes to `(kind, raw_id)` via
+        `_decode_synthetic_id` and is looked up in its own source; a plain
+        id is looked up in `decisions` directly. A synthetic source whose
+        status has since moved on (an intake source reprocessed, a
+        correction note applied or dismissed) is no longer a decision in
+        this module's sense the moment it leaves `_INTAKE_OPEN_STATUSES` /
+        `_CORRECTION_OPEN_STATUSES` -- this returns `None` for it, exactly
+        like an id nothing was ever written under. `api/routes/decisions.py`
+        maps both to `404` without needing to tell them apart.
+        """
+        decoded = _decode_synthetic_id(decision_id)
+        if decoded is not None:
+            source_kind, raw_id = decoded
+            if source_kind == "intake":
+                source = IntakeRepository.get_source(raw_id)
+                if source is None or source.status.value not in _INTAKE_OPEN_STATUSES:
+                    return None
+                # A single decision's own attempts -- not the batched
+                # `list_latest_attempts` above, which exists to avoid an
+                # N+1 across a *list* of sources. One lookup for one row
+                # is not the waterfall that method guards against.
+                attempts = IntakeRepository.list_attempts_for_source(raw_id)
+                latest = attempts[-1] if attempts else None
+                return _intake_to_view(source, latest, today=today)
+
+            note = CorrectionNoteRepository.get(raw_id)
+            if note is None or note.status not in _CORRECTION_OPEN_STATUSES:
+                return None
+            return _correction_to_view(note, today=today)
+
+        decision = DecisionRepository.get(decision_id)
+        if decision is None:
+            return None
+        return _decision_to_view(decision, today=today)

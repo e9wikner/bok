@@ -24,6 +24,7 @@ from api.routes import (
     company_info,
     compliance,
     customers,
+    decisions,
     export_pdf,
     export_sie4,
     export_sru,
@@ -156,6 +157,9 @@ app.include_router(overview.router)
 
 # Tråd per vy (chatten hör till vyn, inte till appen)
 app.include_router(threads.router)
+
+# Beslut: unionen av tre källor (SPEC-beslut.md §5, §6.1)
+app.include_router(decisions.router)
 
 
 @app.get("/health", tags=["health"])
