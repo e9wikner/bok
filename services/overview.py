@@ -11,8 +11,6 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Dict, List, Optional
 
-from repositories.correction_note_repo import CorrectionNoteRepository
-from repositories.intake_repo import IntakeRepository
 from repositories.invoice_repo import InvoiceRepository
 from repositories.payroll_repo import PayrollRunRepository
 from repositories.period_repo import PeriodRepository
@@ -29,8 +27,9 @@ PAGE_TITLES = [
 # Payroll runs that have not been booked yet.
 _PAYROLL_UNBOOKED = ("draft", "generated")
 
-# Intake sources the agent could not finish on its own.
-_INTAKE_OPEN = ("failed", "needs_attention")
+# The intake statuses that used to be summed here live on as
+# `_INTAKE_OPEN_STATUSES` in `services/decision_service.py`, which owns the
+# union `open_decisions` is counted from now (SPEC-beslut.md §5).
 
 
 @dataclass
@@ -118,18 +117,20 @@ class OverviewService:
     # -- counters ---------------------------------------------------------
 
     def _count_open_decisions(self) -> int:
-        """Approximation until the `beslut` module owns this.
+        """The `beslut` module owns this now (SPEC-beslut.md §6.6).
 
-        The final home is GET /decisions?status=open. Today the closest thing
-        to "cases where the agent stopped and asked" is an intake source it
-        could not finish plus a correction note nobody has answered — a
-        documented avståelse lands as a failed intake source via
-        IntakeService.record_failed.
+        The field did not change — only the arithmetic behind it, which is
+        what SPEC-oversikt.md said would happen: "När `beslut` kommer byter
+        den ut uträkningen bakom fältet — inte fältet." The approximation
+        that stood here summed the two synthetic sources DecisionService
+        still unions, so the number is unchanged on the day of the switch
+        and only grows as real decisions are written (testfall 33).
+
+        Deferred import, per AGENTS.md's service-to-service rule.
         """
-        from_intake = sum(
-            IntakeRepository.count_by_status(status) for status in _INTAKE_OPEN
-        )
-        return from_intake + CorrectionNoteRepository.count_open()
+        from services.decision_service import DecisionService
+
+        return DecisionService().count_open()
 
     def _count_overdue_invoices(self, today: date) -> int:
         """Same predicate as the invoice list summary — see Invoice.counts_as_overdue."""

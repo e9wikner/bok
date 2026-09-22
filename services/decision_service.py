@@ -741,15 +741,35 @@ class DecisionService:
         return updated, answer_post
 
     def count_open(self) -> int:
-        """`decisions` table's own `status='open'` count.
+        """How many open decisions there are, across **all three** sources
+        (SPEC §6.6, §11.2) -- the number `GET /overview`'s `open_decisions`
+        shows.
 
-        B9 points `services/overview.py`'s `_count_open_decisions()` at
-        this method once B7's union exists -- until then this is *only*
-        the table's own count, not "the union's number of open decisions"
-        BRIEF.md §2 describes for the final version. Switching
-        `OverviewService` over is B9's job, not B3's.
+        Deliberately the same three sources, with the same status sets, as
+        `list_decisions(status="open")`, so the header's number and the
+        list a human opens from it can never disagree. A test asserts that
+        equality directly rather than trusting these two to be kept in
+        step by hand.
+
+        This is also why the number does not jump the day the module is
+        deployed (§11.2, testfall 33): `services/overview.py`'s old
+        approximation summed exactly the two synthetic sources below, and
+        `decisions` is empty until something writes to it -- so the first
+        reading through here equals the last reading through the
+        approximation, and grows from there.
+
+        Counted, not listed: `list_decisions` builds a `DecisionView` per
+        row and sorts the union to answer a different question. A header
+        counter has no use for any of that.
         """
-        return DecisionRepository.count_open()
+        return (
+            DecisionRepository.count_open()
+            + sum(
+                IntakeRepository.count_by_status(status)
+                for status in _INTAKE_OPEN_STATUSES
+            )
+            + CorrectionNoteRepository.count_open()
+        )
 
     def supersede(self, decision_id: str) -> Decision:
         """`status='superseded'` -- out of the queue, post left untouched

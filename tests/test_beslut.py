@@ -3703,3 +3703,153 @@ class TestCaseThirtyAFailedTurnLeavesTheDecisionAnswered:
         # §6.7: cause *and* consequence, in bookkeeping terms.
         assert error_posts[0].body["cause"]
         assert "bokförde" in error_posts[0].body["consequence"].lower()
+
+
+# --- B9: open_decisions byter uträkning (SPEC §6.6, testfall 33) -------------
+
+
+def _legacy_open_decisions_approximation() -> int:
+    """The arithmetic `services/overview.py::_count_open_decisions` used
+    before this module owned the field, reproduced here verbatim.
+
+    Kept as the yardstick testfall 33 measures against: the point is not
+    that some number is produced, but that it is **the same number** the
+    approximation produced, on the day the switch happens. A copy in the
+    test is what lets that comparison still be made after the original is
+    gone.
+    """
+    from repositories.correction_note_repo import CorrectionNoteRepository
+    from repositories.intake_repo import IntakeRepository
+
+    from_intake = sum(
+        IntakeRepository.count_by_status(status)
+        for status in ("failed", "needs_attention")
+    )
+    return from_intake + CorrectionNoteRepository.count_open()
+
+
+class TestCaseThirtyThreeTheNumberDoesNotJump:
+    """Testfall 33 — `open_decisions` gives the same number before and
+    after the calculation is swapped.
+
+    SPEC §11.2's whole argument for the union: a clean table would have
+    taken the counter from its current value to zero on deployment day and
+    made the backlog invisible until every source had been reprocessed —
+    "en räknare som ljuger den dag modulen som ska göra den sann
+    driftsätts".
+    """
+
+    def test_with_only_the_synthetic_sources_the_numbers_are_identical(self):
+        _insert_intake_source(status="failed")
+        _insert_intake_source(status="needs_attention")
+        voucher_id = _voucher_for_correction()
+        _insert_correction_note(voucher_id, status="pending")
+
+        assert _legacy_open_decisions_approximation() == 3
+        assert DecisionService().count_open() == 3
+
+    def test_an_empty_installation_counts_zero_both_ways(self):
+        assert _legacy_open_decisions_approximation() == 0
+        assert DecisionService().count_open() == 0
+
+    def test_the_new_number_only_grows_by_real_decisions(self):
+        """Day one is equality; after that the difference is exactly the
+        decisions the old arithmetic could not see."""
+        _insert_intake_source(status="failed")
+        before = _legacy_open_decisions_approximation()
+
+        thread = _new_thread()
+        DecisionService().create(
+            thread,
+            title="Kortköp Elektronikhuset",
+            reason="Kvittot saknas.",
+            consequence="Ingenting är bokfört.",
+        )
+
+        assert _legacy_open_decisions_approximation() == before
+        assert DecisionService().count_open() == before + 1
+
+
+class TestCountOpenAgreesWithTheList:
+    """The header's number and the list a human opens from it must not be
+    able to disagree — they are two readings of the same three sources."""
+
+    def test_the_count_equals_the_open_list_total(self):
+        _insert_intake_source(status="failed")
+        voucher_id = _voucher_for_correction()
+        _insert_correction_note(voucher_id, status="pending")
+        thread = _new_thread()
+        DecisionService().create(
+            thread,
+            title="Oläsligt kvitto",
+            reason="Beloppet går inte att läsa.",
+            consequence="Ingenting är bokfört.",
+        )
+
+        _, total = DecisionService().list_decisions(status="open")
+        assert DecisionService().count_open() == total
+
+    def test_an_answered_decision_leaves_both_at_once(self):
+        """Testfall 18's other half, at the counter: answering removes the
+        decision from the list and from the number in the same move."""
+        thread = _new_thread()
+        decision = DecisionService().create(
+            thread,
+            title="Oläsligt kvitto",
+            reason="Beloppet går inte att läsa.",
+            consequence="Ingenting är bokfört.",
+        )
+        before = DecisionService().count_open()
+
+        DecisionService().answer(decision.id, free_text="Släng det.", actor="stefan")
+
+        _, total = DecisionService().list_decisions(status="open")
+        assert DecisionService().count_open() == before - 1
+        assert total == before - 1
+
+
+class TestOverviewReadsTheUnion:
+    """SPEC §6.6: the field did not change, the arithmetic behind it did."""
+
+    def test_overview_open_decisions_matches_decision_service(self):
+        from services.overview import OverviewService
+
+        _insert_intake_source(status="failed")
+        thread = _new_thread()
+        DecisionService().create(
+            thread,
+            title="Kortköp Elektronikhuset",
+            reason="Kvittot saknas.",
+            consequence="Ingenting är bokfört.",
+        )
+
+        overview = OverviewService().get_overview()
+        bocker = [page for page in overview.pages if page.key == "bocker"][0]
+
+        assert bocker.counters["open_decisions"] == DecisionService().count_open()
+        assert bocker.counters["open_decisions"] == 2
+
+    def test_a_decision_raised_in_a_thread_reaches_the_header(self):
+        """End to end, and the reason the module exists: an abstention the
+        agent registered is now countable — before `beslut` it was only a
+        card in a thread that nothing could see."""
+        from services.overview import OverviewService
+
+        before = OverviewService().get_overview()
+        before_count = [page for page in before.pages if page.key == "bocker"][
+            0
+        ].counters["open_decisions"]
+
+        thread = _new_thread()
+        DecisionService().create(
+            thread,
+            title="Kortköp Elektronikhuset",
+            reason="Kvittot saknas och beloppet ligger nära gränsen.",
+            consequence="Ingenting är bokfört.",
+        )
+
+        after = OverviewService().get_overview()
+        after_count = [page for page in after.pages if page.key == "bocker"][
+            0
+        ].counters["open_decisions"]
+        assert after_count == before_count + 1
