@@ -428,3 +428,88 @@ class ThreadPost:
     created_at: datetime = field(default_factory=datetime.now)
     traces: Optional[List[dict]] = None
     run_id: Optional[str] = None
+
+
+@dataclass
+class DecisionOption:
+    """One row an agent laid out under a decision (SPEC-beslut.md §4).
+
+    `decision_options` is its own table, not JSON packed onto `decisions`:
+    the `option_id` an answer names must check against what was actually
+    laid out, and `position` carries the order the options were shown in —
+    part of the contract, since the last option is always a way out (§6.3).
+    """
+
+    id: str
+    decision_id: str
+    position: int
+    title: str
+    rationale: str
+    account: Optional[str] = None
+    amount_ore: Optional[int] = None
+    recommended: bool = False
+    is_exit: bool = False
+
+    @property
+    def changes_the_books(self) -> bool:
+        """SPEC §6.3: whether choosing this option would write a ledger row.
+
+        `account` set **and** `amount_ore` non-zero. This is derived from
+        the option's own fields, not a second flag the agent has to
+        remember to set — which is exactly what makes the escalation
+        invariant testable in code instead of dependent on the prompt
+        having been followed.
+        """
+        return (
+            self.account is not None
+            and self.amount_ore is not None
+            and bool(self.amount_ore)
+        )
+
+
+@dataclass
+class Decision:
+    """A question the agent stopped to ask, tracked from open to closed
+    (SPEC-beslut.md §4).
+
+    `thread_posts` are never modified (SPEC-tradar.md §8.4), so "answered"
+    cannot live as a column on the post that showed the question — that's
+    the entire reason this table, and this class, exist. `options` is filled
+    in by `DecisionRepository.get`/`.list_decisions`, sorted by `position`;
+    nothing outside `repositories/decision_repo.py` writes SQL against
+    `decision_options`.
+    """
+
+    id: str
+    thread_id: str
+    post_id: str
+    view_key: str
+    kind: str  # 'abstention' | 'approval'
+    status: str  # 'open' | 'answered' | 'superseded'
+    title: str
+    reason: str
+    consequence: str
+    amount_ore: Optional[int] = None
+    source_kind: Optional[str] = None
+    source_id: Optional[str] = None
+    source_date: Optional[date] = None
+    created_at: datetime = field(default_factory=datetime.now)
+    answered_at: Optional[datetime] = None
+    answered_by: Optional[str] = None
+    answer_option_id: Optional[str] = None
+    answer_text: Optional[str] = None
+    answer_post_id: Optional[str] = None
+    reminded_at: Optional[datetime] = None
+    options: list[DecisionOption] = field(default_factory=list)
+
+    def age_days(self, today: Optional[date] = None) -> int:
+        """Days since `created_at`, never negative.
+
+        Counted in the domain, never in SQL — the same stance as
+        `Invoice.counts_as_overdue` in `domain/invoice_models.py`, so the
+        rule (and the reminder at seven days, §6.5) is testable without a
+        database. `today` defaults to `date.today()`; a caller passes it
+        explicitly to keep a test deterministic.
+        """
+        as_of = today if today is not None else date.today()
+        return max((as_of - self.created_at.date()).days, 0)
