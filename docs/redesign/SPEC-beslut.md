@@ -5,8 +5,8 @@ Modul-id `beslut` i kapabilitetskartan (`ANALYS.md` §8). Beror på `tradar`, so
 
 Status: **Fas 1 — skriven 2026-09-21.** Två beslut tagna i förväg av beställaren (§11.1–§11.2):
 eskaleringsregeln `decision` kontra `options`, och att `GET /decisions` unionar dagens två källor.
-Uppgifterna ligger i `tasks/beslut/plan.md` och `tasks/beslut/todo.md` (B1–B12). Ingen kod
-skriven ännu.
+Uppgifterna ligger i `tasks/beslut/plan.md` och `tasks/beslut/todo.md` (B1–B12). Modulen är
+**klar** 2026-09-22: B1–B12 avbockade, avvikelserna och besluten står sist i `todo.md`.
 
 ---
 
