@@ -38,6 +38,7 @@ services:
       context: ./frontend-v3
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_SKAL: ${NEXT_PUBLIC_SKAL:-}
     container_name: bokfoering-frontend
     ports:
       - "3000:3000"
