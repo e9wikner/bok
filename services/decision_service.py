@@ -11,10 +11,13 @@ maps its typed errors to status codes, then starts the turn itself once
 the transaction inside `answer()` has committed; this module never
 imports `ThreadTurnRunner` or starts one (§7.2's boundary: a decision
 answer writes a post and stops, it does not itself drive a turn). The
-seven-day reminder (`due_reminders` / `mark_reminded`, B10) is
-deliberately not built here -- its name is reserved in BRIEF.md §2 and
-its call site is left as a plain comment below rather than implemented
-ahead of the task that owns it.
+seven-day reminder (`due_reminders` / `send_reminders` / `mark_reminded`,
+B10, SPEC §6.5) lives at the bottom of the class: an open decision at
+least `REMINDER_THRESHOLD_DAYS` old that has never been reminded gets one
+`agent_text` post in its own thread and `reminded_at` set, once, per
+decision -- never from a schedule of its own. `services/agent_runtime.py`
+calls `DecisionService().send_reminders()` once per intake pass (SPEC
+§6.5: "Kontrollen sker i intagspassets befintliga cykel").
 
 No `fastapi` import, no `HTTPException` (AGENTS.md's layering rule --
 `api/routes/decisions.py` maps these to status codes). Domain errors are
@@ -28,9 +31,10 @@ All SQL lives in `repositories/decision_repo.py`, `repositories/thread_repo.py`,
 nothing here executes a query directly.
 """
 
+import logging
 import uuid
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 from db.database import db
@@ -49,6 +53,8 @@ from repositories.correction_note_repo import CorrectionNoteRepository
 from repositories.decision_repo import DecisionRepository
 from repositories.intake_repo import IntakeRepository
 from repositories.thread_repo import ThreadRepository
+
+logger = logging.getLogger(__name__)
 
 #: What `DecisionRepository.add_options` already accepts -- reused here so
 #: `create`'s `options` argument doesn't need a third shape of its own.
@@ -490,6 +496,54 @@ def _option_changes_the_books(item: OptionInput) -> bool:
     account = _option_field(item, "account")
     amount_ore = _option_field(item, "amount_ore")
     return account is not None and amount_ore is not None and bool(amount_ore)
+
+
+# ---------------------------------------------------------------------------
+# B10: the seven-day reminder (SPEC §6.5)
+# ---------------------------------------------------------------------------
+
+#: Flöde 1 steg 1: "Ett beslut som legat mer än sju dagar påminner agenten
+#: om en gång, inte varje körning." A named constant, not a bare `7` in a
+#: comparison, so the sentence it comes from stays attached to it.
+REMINDER_THRESHOLD_DAYS = 7
+
+
+def _reminder_text(decision: Decision, age_days: int) -> str:
+    """SPEC §6.5's tone (flöde 4 steg 1): "Mycket gamla kompletteringar hör
+    hemma i en påminnelse, inte i samma neutrala ton som färska." Names the
+    decision's own title and how long it has sat, and says plainly what has
+    *not* happened -- the same "ingenting är bokfört" stance
+    `_INTAKE_CONSEQUENCE` above already takes for a source with no agent
+    text of its own.
+
+    Deliberately does **not** restate `decision.reason` in different words:
+    the `decision` post one row above this one in the same thread already
+    carries the agent's own formulation verbatim (SPEC §7.4, testfall 34),
+    and a paraphrase here would be exactly the rewording that rule
+    forbids. This reminder points at the decision; it does not speak for
+    it. Kept in its own function so the wording is readable -- and
+    changeable -- in one place.
+    """
+    return (
+        f'Påminnelse: beslutet "{decision.title}" har legat obesvarat i '
+        f"{age_days} dagar. Ingenting är bokfört och beslutet ligger kvar."
+    )
+
+
+def _reminder_post_body(decision: Decision, age_days: int) -> dict:
+    """`agent_text`'s body is ordinarily just `{"text": ...}`
+    (`services/thread_service.py::_render`'s `"answered"` branch). This adds
+    `decision_id` alongside `text` so a client can associate the post with
+    the decision it reminds about directly, the same reasoning
+    `_decision_post_body`'s docstring gives for carrying `decision_id` on
+    the `decision` post itself -- without it, matching a reminder to its
+    decision would need a second `GET /decisions` call and a join on
+    `post_id` for every reminder a thread ever shows.
+    """
+    return {
+        "text": _reminder_text(decision, age_days),
+        "decision_id": decision.id,
+    }
 
 
 class DecisionService:
@@ -1053,3 +1107,104 @@ class DecisionService:
         if decision is None:
             return None
         return _decision_to_view(decision, today=today)
+
+    # -- B10: the seven-day reminder (SPEC §6.5) ---------------------------
+
+    def due_reminders(
+        self, *, today: Optional[date] = None, limit: Optional[int] = None
+    ) -> List[Decision]:
+        """Open decisions with `age_days(today) >= REMINDER_THRESHOLD_DAYS`
+        and `reminded_at IS NULL`, oldest first (SPEC §6.5, testfall 31).
+
+        `Decision.age_days` (`domain/models.py`) counts whole calendar days
+        from `created_at.date()`, ignoring the time of day `created_at`
+        happens to carry -- and per AGENTS.md / BRIEF.md that counting
+        never happens in SQL. `DecisionRepository.list_due_reminders`
+        still needs a single `before` cutoff to filter with (a plain
+        `created_at <= before`), so the cutoff passed here is the *last*
+        instant of `today - REMINDER_THRESHOLD_DAYS days`
+        (`datetime.combine(..., time.max)`), not its first: a decision
+        created at, say, 14:00 on the day exactly seven days ago must
+        still be due today, and a midnight cutoff would wrongly skip it
+        until the next pass. This is arithmetic on the cutoff date, not a
+        second copy of `age_days`'s rule -- the rule itself stays the one
+        place that decides "how many days", in the domain.
+
+        `today` defaults to `date.today()`, exactly like `list_decisions`'s
+        own `today` parameter -- a caller (a test, or `send_reminders`
+        below) pins it for a deterministic boundary.
+        """
+        as_of = today if today is not None else date.today()
+        threshold_date = as_of - timedelta(days=REMINDER_THRESHOLD_DAYS)
+        before = datetime.combine(threshold_date, time.max)
+        return DecisionRepository.list_due_reminders(before=before, limit=limit)
+
+    def send_reminders(
+        self, *, today: Optional[date] = None, actor: str = "agent"
+    ) -> List[Decision]:
+        """Write the seven-day reminder for every decision `due_reminders`
+        returns, and set `reminded_at` on each one (SPEC §6.5, testfall
+        31). Called once per intake pass by
+        `services.agent_runtime.AgentWorker.run_pass_once`, regardless of
+        whether that pass has any intake items to process.
+
+        **One `with db.transaction():` per decision**, not one for the
+        whole batch: the reminder post and `reminded_at` belong together
+        -- a half failure that wrote the post but left `reminded_at` NULL
+        would remind again on the very next pass, exactly the repeat SPEC
+        §6.5 forbids ("Utan kolumnen påminner varje körning"). Batching
+        every decision into a single transaction would also mean one
+        decision's failure rolls back reminders that had already
+        succeeded for the others, which is its own version of the same
+        problem in reverse.
+
+        A decision whose write raises (a broken thread, a database error)
+        is logged and skipped; the loop moves on to the rest. One
+        beslut that could not be reminded about is not a reason to stop
+        reminding, or bookkeeping, about any other (this method's own
+        docstring promise, and the reason `AgentWorker.run_pass_once`
+        below is allowed to wrap the whole call in one more try/except of
+        its own -- that outer guard is for a wholly unexpected failure in
+        this method itself, not a substitute for the per-decision handling
+        here).
+
+        Returns the decisions that were actually reminded, oldest first,
+        in `due_reminders`' own order -- a decision that raised is left
+        out entirely rather than included with some placeholder state.
+        """
+        as_of = today if today is not None else date.today()
+        reminded: List[Decision] = []
+        for decision in self.due_reminders(today=as_of):
+            try:
+                with db.transaction():
+                    ThreadRepository.add_post(
+                        thread_id=decision.thread_id,
+                        post_type="agent_text",
+                        actor=actor,
+                        body=_reminder_post_body(decision, decision.age_days(as_of)),
+                        _commit=False,
+                    )
+                    DecisionRepository.set_reminded(
+                        decision.id, datetime.now(), _commit=False
+                    )
+            except Exception:
+                logger.exception(
+                    "Could not send the seven-day reminder for decision "
+                    "%s -- continuing with the rest (SPEC §6.5)",
+                    decision.id,
+                )
+                continue
+            reminded.append(decision)
+        return reminded
+
+    def mark_reminded(self, decision_id: str) -> None:
+        """A standalone `reminded_at` setter, kept for BRIEF.md §2's fixed
+        `DecisionService` surface.
+
+        `send_reminders` above never calls this -- it sets `reminded_at`
+        itself, inside the same transaction as the reminder post, for the
+        reason its own docstring gives. This exists as a thin wrapper
+        around `DecisionRepository.set_reminded` for a caller that only
+        needs to silence a decision without writing a post alongside it.
+        """
+        DecisionRepository.set_reminded(decision_id, datetime.now())

@@ -11,7 +11,7 @@ import itertools
 import sqlite3
 import uuid
 from dataclasses import replace
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any, Dict, cast
 
 import pytest
@@ -27,6 +27,7 @@ from repositories.decision_repo import DecisionRepository
 from repositories.period_repo import PeriodRepository
 from repositories.thread_repo import ThreadRepository
 from repositories.voucher_repo import VoucherRepository
+from services.agent_runtime import AgentWorker
 from services.agent_tools import (
     AGENT_TOOL_DEFINITIONS,
     RegistreraAvstaendeArgs,
@@ -3853,3 +3854,234 @@ class TestOverviewReadsTheUnion:
             0
         ].counters["open_decisions"]
         assert after_count == before_count + 1
+
+
+# --- B10: påminnelsen vid sju dagar (SPEC §6.5, testfall 31) ---------------
+
+#: A fixed reference date, not `date.today()`, for every test below except
+#: the one that has to go through `AgentWorker.run_pass_once` itself (which
+#: calls `DecisionService().send_reminders()` with no `today` override, so
+#: it always measures against the real `date.today()`) -- same reasoning as
+#: `TestDecisionAgeDays`'s own fixed dates above: deterministic, and exact
+#: at the boundary regardless of what day the suite happens to run on.
+_REMINDER_TODAY = date(2026, 9, 22)
+
+
+def _decision_created_days_ago(days: int, today: date, **overrides):
+    """A decision whose `created_at` is written directly with `db.execute`
+    (as B2's `TestDecisionRepositoryReminders` already does), so its age
+    relative to `today` is exact and independent of wall-clock time. Returns
+    `(thread, decision)` -- most of the tests below need the thread too, to
+    check which one a reminder post landed in.
+    """
+    thread, post = _new_thread_and_post()
+    decision = _create_decision(thread, post, **overrides)
+    created_at = datetime.combine(today - timedelta(days=days), time(9, 0))
+    db.execute(
+        "UPDATE decisions SET created_at = ? WHERE id = ?",
+        (created_at, decision.id),
+    )
+    db.commit()
+    fetched = DecisionRepository.get(decision.id)
+    assert fetched is not None
+    return thread, fetched
+
+
+def _agent_text_posts(thread_id: str):
+    return [
+        post
+        for post in ThreadRepository.list_posts(thread_id)
+        if post.type == "agent_text"
+    ]
+
+
+class TestCaseThirtyOneReminderFiresOnceAtSevenDays:
+    """Testfall 31, both halves: the reminder is written at seven days, and
+    **not** a second time -- `reminded_at` is what makes the second check a
+    no-op (SPEC §6.5: "Utan kolumnen påminner varje körning")."""
+
+    def test_reminder_is_written_once_not_twice_across_two_checks(self):
+        thread, decision = _decision_created_days_ago(7, _REMINDER_TODAY)
+
+        first = DecisionService().send_reminders(today=_REMINDER_TODAY)
+        assert [d.id for d in first] == [decision.id]
+
+        reminded = DecisionRepository.get(decision.id)
+        assert reminded is not None
+        assert reminded.reminded_at is not None
+        first_reminded_at = reminded.reminded_at
+
+        second = DecisionService().send_reminders(today=_REMINDER_TODAY)
+        assert second == []
+
+        still = DecisionRepository.get(decision.id)
+        assert still is not None
+        assert still.reminded_at == first_reminded_at
+
+        posts = _agent_text_posts(thread.id)
+        assert len(posts) == 1
+        assert posts[0].body["decision_id"] == decision.id
+        assert posts[0].body["text"]
+
+
+class TestReminderBoundaryAtExactlySevenDays:
+    """ "age_days >= 7", tested exactly at the edge in both directions."""
+
+    def test_six_days_old_gets_no_reminder(self):
+        _thread, decision = _decision_created_days_ago(6, _REMINDER_TODAY)
+
+        due = DecisionService().due_reminders(today=_REMINDER_TODAY)
+        assert decision.id not in [d.id for d in due]
+
+        DecisionService().send_reminders(today=_REMINDER_TODAY)
+        stored = DecisionRepository.get(decision.id)
+        assert stored is not None
+        assert stored.reminded_at is None
+
+    def test_seven_days_old_gets_a_reminder(self):
+        _thread, decision = _decision_created_days_ago(7, _REMINDER_TODAY)
+
+        due = DecisionService().due_reminders(today=_REMINDER_TODAY)
+        assert [d.id for d in due] == [decision.id]
+
+
+class TestAnsweredAndSupersededDecisionsAreNeverReminded:
+    """However old, a decision that has left `open` is not reminded --
+    `DecisionRepository.list_due_reminders` filters on `status = 'open'`."""
+
+    def test_an_answered_decision_gets_no_reminder_however_old(self):
+        thread, decision = _decision_created_days_ago(30, _REMINDER_TODAY)
+        answer_post = ThreadRepository.add_post(
+            thread_id=thread.id,
+            post_type="user_text",
+            actor="stefan",
+            body={"text": "Ja."},
+        )
+        DecisionRepository.set_answer(
+            decision.id,
+            answered_at=datetime.now(),
+            answered_by="stefan",
+            answer_post_id=answer_post.id,
+            answer_text="Ja.",
+        )
+
+        due = DecisionService().due_reminders(today=_REMINDER_TODAY)
+        assert due == []
+        DecisionService().send_reminders(today=_REMINDER_TODAY)
+        assert _agent_text_posts(thread.id) == []
+
+    def test_a_superseded_decision_gets_no_reminder_however_old(self):
+        thread, decision = _decision_created_days_ago(30, _REMINDER_TODAY)
+        DecisionRepository.set_status(decision.id, "superseded")
+
+        due = DecisionService().due_reminders(today=_REMINDER_TODAY)
+        assert due == []
+        DecisionService().send_reminders(today=_REMINDER_TODAY)
+        assert _agent_text_posts(thread.id) == []
+
+
+class TestReminderLandsInTheDecisionsOwnThread:
+    """Two decisions in two threads, only one of them due -- the reminder
+    must land in that one's thread and nowhere else."""
+
+    def test_only_the_due_decisions_thread_gets_a_post(self):
+        thread_due, decision_due = _decision_created_days_ago(7, _REMINDER_TODAY)
+        thread_fresh, decision_fresh = _decision_created_days_ago(0, _REMINDER_TODAY)
+
+        DecisionService().send_reminders(today=_REMINDER_TODAY)
+
+        due_posts = _agent_text_posts(thread_due.id)
+        fresh_posts = _agent_text_posts(thread_fresh.id)
+
+        assert len(due_posts) == 1
+        assert due_posts[0].body["decision_id"] == decision_due.id
+        assert fresh_posts == []
+        assert DecisionRepository.get(decision_fresh.id).reminded_at is None  # type: ignore[union-attr]
+
+
+class TestReminderDoesNotRewriteTheAgentsOriginalText:
+    """SPEC §7.4, testfall 34's promise extended to the reminder: it points
+    at the decision, it does not speak for it. The decision's own row and
+    its `decision` post are read back unchanged."""
+
+    def test_the_decision_row_and_its_decision_post_are_unchanged(self):
+        original_reason = "Kvittot saknas och beloppet ligger nära gränsen."
+        thread, decision = _decision_created_days_ago(
+            7, _REMINDER_TODAY, reason=original_reason
+        )
+        original_post = ThreadRepository.get_post(decision.post_id)
+        assert original_post is not None
+        original_post_body = dict(original_post.body)
+
+        DecisionService().send_reminders(today=_REMINDER_TODAY)
+
+        stored = DecisionRepository.get(decision.id)
+        assert stored is not None
+        assert stored.reason == original_reason
+
+        unchanged_post = ThreadRepository.get_post(decision.post_id)
+        assert unchanged_post is not None
+        assert unchanged_post.body == original_post_body
+
+        posts = _agent_text_posts(thread.id)
+        assert len(posts) == 1
+        # The reminder refers to the decision -- it does not reformulate
+        # the agent's own `reason` in its own words.
+        assert original_reason not in posts[0].body["text"]
+        assert decision.title in posts[0].body["text"]
+
+
+class TestReminderRunsInTheIntakePassEvenWithAnEmptyQueue:
+    """The test that fails the naive placement: `run_pass_once` must run
+    the reminder check before its empty-queue early return (SPEC §9 test
+    case 9's `None` is unaffected; the reminder still has to fire)."""
+
+    def test_run_pass_once_still_sends_the_reminder_with_an_empty_queue(self):
+        thread, decision = _decision_created_days_ago(7, date.today())
+
+        def _factory(model: str):
+            raise AssertionError(
+                "client_factory must never be called on an empty queue"
+            )
+
+        run = AgentWorker().run_pass_once(client_factory=_factory)
+
+        assert run is None  # SPEC §9 test case 9, unaffected by B10
+
+        stored = DecisionRepository.get(decision.id)
+        assert stored is not None
+        assert stored.reminded_at is not None
+
+        posts = _agent_text_posts(thread.id)
+        assert len(posts) == 1
+        assert posts[0].body["decision_id"] == decision.id
+
+
+class TestOneFailingDecisionDoesNotStopTheOthers:
+    """A decision that cannot be reminded about is not a reason to skip the
+    rest -- `send_reminders` isolates each decision in its own transaction
+    and its own `try`/`except`."""
+
+    def test_an_error_writing_one_reminder_does_not_block_the_rest(self, monkeypatch):
+        thread_broken, decision_broken = _decision_created_days_ago(7, _REMINDER_TODAY)
+        thread_ok, decision_ok = _decision_created_days_ago(7, _REMINDER_TODAY)
+
+        original_add_post = ThreadRepository.add_post
+
+        def _flaky_add_post(*args, **kwargs):
+            if kwargs.get("thread_id") == thread_broken.id:
+                raise sqlite3.OperationalError("simulated failure")
+            return original_add_post(*args, **kwargs)
+
+        monkeypatch.setattr(ThreadRepository, "add_post", staticmethod(_flaky_add_post))
+
+        reminded = DecisionService().send_reminders(today=_REMINDER_TODAY)
+
+        assert [d.id for d in reminded] == [decision_ok.id]
+
+        stored_broken = DecisionRepository.get(decision_broken.id)
+        stored_ok = DecisionRepository.get(decision_ok.id)
+        assert stored_broken is not None
+        assert stored_broken.reminded_at is None
+        assert stored_ok is not None
+        assert stored_ok.reminded_at is not None

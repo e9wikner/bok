@@ -336,22 +336,49 @@ class AgentWorker:
         Sequencing, exactly as SPEC §6.2 orders it:
 
         1. Reap abandoned runs (`_reap_abandoned_runs`).
-        2. Resolve the model and look it up -- `UnknownModelError` propagates
+        2. Send decision reminders (SPEC-beslut.md §6.5) -- see the comment
+           at that call site below for why it sits here, before step 5's
+           empty-queue return.
+        3. Resolve the model and look it up -- `UnknownModelError` propagates
            unhandled, before any `agent_runs` row exists (SPEC §2).
-        3. Check the daily budget -- `DailyBudgetExhaustedError` propagates
+        4. Check the daily budget -- `DailyBudgetExhaustedError` propagates
            unhandled, before any `agent_runs` row exists (SPEC §9 test case 8).
-        4. Fetch the queue, capped at `settings.agent_max_items_per_pass`
+        5. Fetch the queue, capped at `settings.agent_max_items_per_pass`
            (the fourth cap, SPEC §6.5).
-        5. Empty queue -> return `None`.
-        6. Create the `agent_runs` row.
-        7. One item at a time: re-check the daily budget; optionally log a
+        6. Empty queue -> return `None`.
+        7. Create the `agent_runs` row.
+        8. One item at a time: re-check the daily budget; optionally log a
            processing attempt; resolve and read the file; run one session;
            handle `LLMConnectionError`/`LLMRateLimitError` by ending the pass
            with `status='failed'`; otherwise accumulate usage/items/events
            from the `SessionOutcome`.
-        8. Mark the run `status='completed'` once the queue is exhausted.
+        9. Mark the run `status='completed'` once the queue is exhausted.
         """
         self._reap_abandoned_runs()
+
+        # SPEC-beslut.md §6.5: "Ett beslut som legat mer än sju dagar
+        # påminner agenten om en gång, inte varje körning" -- checked "in
+        # the intake pass's existing cycle", not gated on that pass having
+        # anything to process. This call sits here, before the model is
+        # resolved and before step 6's `if not sources: return None` below,
+        # specifically so an empty pending queue can never make it skip: a
+        # reminder that only fires when there happens to be intake to
+        # process is not the rule SPEC-beslut.md describes, and a test
+        # proves exactly that by calling this method with an empty queue.
+        # Wrapped so a reminder failure is logged and this pass continues
+        # regardless -- a decision that could not be reminded about is not
+        # a reason to stop bookkeeping (`DecisionService.send_reminders`
+        # already isolates one failing decision from the rest; this is the
+        # outer net for a wholly unexpected failure in that call itself).
+        # Deferred import, never at module level (AGENTS.md) -- this module
+        # does not know what a decision is beyond asking the service to run
+        # its own check.
+        try:
+            from services.decision_service import DecisionService
+
+            DecisionService().send_reminders()
+        except Exception:
+            logger.exception("Agent pass: could not send decision reminders")
 
         resolved_model = model or settings.llm_default_model
         model_info = get_model_info(resolved_model)
