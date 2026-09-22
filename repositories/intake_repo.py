@@ -153,6 +153,21 @@ class IntakeRepository:
         return [IntakeRepository._row_to_source(row) for row in rows]
 
     @staticmethod
+    def list_by_status_and_uploaded_by(
+        status: str, uploaded_by: str, limit: int = 500, offset: int = 0
+    ) -> List[IntakeSource]:
+        rows = db.execute(
+            """
+            SELECT * FROM intake_sources
+            WHERE status = ? AND uploaded_by = ?
+            ORDER BY uploaded_at ASC
+            LIMIT ? OFFSET ?
+            """,
+            (status, uploaded_by, limit, offset),
+        ).fetchall()
+        return [IntakeRepository._row_to_source(row) for row in rows]
+
+    @staticmethod
     def list_latest_attempts(
         source_ids: Sequence[str],
     ) -> Dict[str, IntakeProcessingAttempt]:

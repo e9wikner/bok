@@ -20,9 +20,17 @@ The scanner is a *caller* of ``IntakeService`` and ``BankInputService``, never a
 parallel ingest path, so validation, storage, dedupe and the audit trail behave
 exactly as they do for a browser upload. It never deletes anything: every file
 either stays put or is moved.
+
+``_Problem/`` also receives files an agent later abstained on -- reported via
+``POST /api/v1/agent/intake/{source_id}/failed`` well after the file was
+archived into ``_Inläst/``. Each scan tick reconciles those: it looks up
+sources marked ``failed`` that came from the dropzone, finds the matching
+archived file by name and sha256, and moves it to ``_Problem/`` with a
+``.txt`` note in the same spirit as a scanner rejection.
 """
 
 import fcntl
+import hashlib
 import logging
 import mimetypes
 import os
@@ -37,8 +45,10 @@ from fnmatch import fnmatch
 from pathlib import Path
 
 from config import settings
-from domain.types import IntakeSourceType
+from domain.models import IntakeProcessingAttempt, IntakeSource
+from domain.types import IntakeSourceType, IntakeStatus
 from repositories.account_repo import AccountRepository
+from repositories.intake_repo import IntakeRepository
 from services.bank_inputs import (
     BankInputError,
     BankInputService,
@@ -234,6 +244,8 @@ class DropzoneScanner:
         if not root.is_dir():
             result.errors.append(f"dropzone_dir_missing: {root}")
             return
+
+        self._reconcile_failed_sources(result)
 
         budget = self.max_files_per_scan
         attempted = 0
@@ -549,6 +561,112 @@ class DropzoneScanner:
             bank_connection_id=connection_id,
             actor=DROPZONE_ACTOR,
         )
+
+    # --- agent abstentions -----------------------------------------------
+
+    def _reconcile_failed_sources(self, result: ScanResult) -> None:
+        """Move dropzone files an agent abstained on into ``_Problem/``.
+
+        ``IntakeService.record_failed`` only writes to the database -- it runs
+        in the service layer, which does not know about dropzone paths, and by
+        the time it runs the scanner has already archived the file into
+        ``_Inläst/``. Reconciling here, on the next tick, is what surfaces the
+        abstention in the synced folder without coupling the two layers.
+        """
+        try:
+            failed = IntakeRepository.list_by_status_and_uploaded_by(
+                IntakeStatus.FAILED.value, DROPZONE_ACTOR
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            result.errors.append(f"failed_source_lookup: {type(exc).__name__}: {exc}")
+            return
+        for source in failed:
+            try:
+                if self._reconcile_failed_source(source):
+                    result.problems += 1
+            except Exception as exc:
+                logger.exception(
+                    "Dropzone could not reconcile failed source %s", source.id
+                )
+                result.errors.append(
+                    f"{source.original_filename}: {type(exc).__name__}: {exc}"
+                )
+
+    def _reconcile_failed_source(self, source: IntakeSource) -> bool:
+        """Move one failed source's archived file to ``_Problem/``, if found.
+
+        Returns False when the file is not sitting where the agent's failure
+        would place it -- either it was already reconciled on an earlier
+        tick, or the source was never a dropzone file to begin with.
+        """
+        month_dir = self._reserved_dir(INGESTED_DIR_NAME) / source.uploaded_at.strftime(
+            "%Y-%m"
+        )
+        archived = self._find_archived_file(month_dir, source)
+        if archived is None:
+            return False
+
+        attempt = self._latest_failed_attempt(source.id)
+        destination = self._reserved_dir(PROBLEM_DIR_NAME)
+        moved = self._move_with_sidecar(archived, destination)
+        note = moved.with_name(moved.name + PROBLEM_NOTE_SUFFIX)
+        note.write_text(self._failed_note_text(source, attempt), encoding="utf-8")
+        logger.warning(
+            "Dropzone moved failed intake source %s (%s) to %s",
+            source.id,
+            source.original_filename,
+            destination,
+        )
+        return True
+
+    def _find_archived_file(self, month_dir: Path, source: IntakeSource) -> Path | None:
+        """Find the archived file matching a source's original name and hash.
+
+        The archive can hold a same-named file from an unrelated upload, so a
+        name match alone is not enough -- ``_unique_destination`` numbers
+        collisions (``namn (2).pdf``), and only the sha256 tells them apart.
+        """
+        try:
+            entries = list(month_dir.iterdir())
+        except OSError:
+            return None
+        stem = Path(unicodedata.normalize("NFC", source.original_filename)).stem
+        for entry in sorted(entries):
+            if not entry.is_file() or entry.is_symlink() or _is_sidecar(entry):
+                continue
+            entry_stem = Path(unicodedata.normalize("NFC", entry.name)).stem
+            if entry_stem != stem and not entry_stem.startswith(f"{stem} ("):
+                continue
+            if hashlib.sha256(entry.read_bytes()).hexdigest() == source.sha256:
+                return entry
+        return None
+
+    def _latest_failed_attempt(self, source_id: str) -> IntakeProcessingAttempt | None:
+        attempts = [
+            attempt
+            for attempt in IntakeRepository.list_attempts_for_source(source_id)
+            if attempt.status == IntakeStatus.FAILED
+        ]
+        return attempts[-1] if attempts else None
+
+    def _failed_note_text(
+        self, source: IntakeSource, attempt: IntakeProcessingAttempt | None
+    ) -> str:
+        lines = [attempt.summary if attempt else "Agenten bokförde inte underlaget."]
+        if attempt and attempt.error_detail:
+            lines += ["", attempt.error_detail]
+        if attempt and attempt.warnings:
+            lines += ["", "Varningar:"]
+            lines += [f"- {warning}" for warning in attempt.warnings]
+        timestamp = attempt.created_at if attempt else datetime.now()
+        lines += [
+            "",
+            f"Fil: {source.original_filename}",
+            f"Intagspost: {source.id}",
+            "Status: failed (agent)",
+            f"Tidpunkt: {timestamp.astimezone().isoformat(timespec='seconds')}",
+        ]
+        return "\n".join(lines) + "\n"
 
     # --- sidecar metadata ----------------------------------------------
 

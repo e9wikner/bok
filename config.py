@@ -2,6 +2,7 @@
 
 import os
 
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
@@ -39,7 +40,10 @@ class Settings(BaseSettings):
     )
 
     # Authentication
-    api_key: str = os.getenv("BOKFOERING_API_KEY", "dev-key-change-in-production")
+    api_key: str = Field(
+        default=os.getenv("BOKFOERING_API_KEY", "dev-key-change-in-production"),
+        alias="BOKFOERING_API_KEY",
+    )
     auth_username: str = os.getenv("AUTH_USERNAME", "admin")
     auth_password: str = os.getenv("AUTH_PASSWORD", "admin")
 
@@ -98,6 +102,10 @@ class Settings(BaseSettings):
     model_config = {
         "env_file": ".env",
         "case_sensitive": False,
+        # .env.example documents some deploy-only/future keys (e.g.
+        # DROPZONE_HOST_DIR, which only docker-compose.yml consumes) that have
+        # no matching field here -- tolerate them instead of failing startup.
+        "extra": "ignore",
     }
 
 
