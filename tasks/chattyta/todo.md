@@ -7,7 +7,13 @@ Ingen uppgift rör Python.
 
 ---
 
-- [ ] **C1 — Kontraktet: typer, `parseInlagg`, fixturer (gate)**
+- [x] **C1 — Kontraktet: typer, `parseInlagg`, fixturer (gate)**
+  - Gjort 2026-09-23: 31 tester. Driftskyddet läser `SPEC-chattyta.md` §4.3:s `jsonc`-block och
+    jämför med fixturen; bevisat genom att ändra ett öre i fixturen (testet föll, ändringen
+    återställd). Avvikelse: `parseInlagg` vägrar fler brott än §4.1:s fyra rader — saknade fält,
+    debet-och-kredit på samma rad, fel antal `labels`, `decision_id` som saknas. Tabellen i §4.1
+    utökad i samma ändring. Fixturerna fick två hjälpare (`kropp`, `kroppUtan`) för testernas
+    kontraktsbrott.
   - Acceptans: en diskriminerad union över de åtta `type`-värdena med kroppen typad per typ,
     exakt §2:s tabell och §4.3:s `draft`/`receipt`. `parseInlagg(raw)` ger en typad variant,
     `okant_kontrakt` för de fyra brotten i §4.1, eller `null` för okänd typ (en konsolrad per typ,

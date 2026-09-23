@@ -146,6 +146,13 @@ en typad sak, och den vägrar det som bryter kontraktet i stället för att rend
 | `options` där sista alternativet saknar `is_exit` | `okant_kontrakt` |
 | `receipt` där en rad saknar något av sina två tal | `okant_kontrakt` |
 | `draft` utan `draft_id` | `okant_kontrakt` |
+| `draft`-rad med både debet och kredit, eller ingetdera | `okant_kontrakt` |
+| `receipt` utan exakt två `labels` | `okant_kontrakt` |
+| `decision` eller `options` utan `decision_id` | `okant_kontrakt` — kortet går inte att svara på |
+| Ett obligatoriskt fält saknas eller har fel typ, i vilken typ som helst | `okant_kontrakt` |
+
+Ett trasigt `traces[]`-chip faller bort utan att inlägget gör det: spåren är agentens redovisning,
+inte kortets kontrakt.
 
 Servern garanterar redan de två första (`SPEC-beslut.md` §6.3, B4). Klienten kontrollerar ändå,
 av samma skäl som append-only vaktas på tre ställen: ett kort som ser rätt ut men bryter
