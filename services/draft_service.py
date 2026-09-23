@@ -2,7 +2,7 @@
 §5, §6).
 
 `foresla_verifikation` lands here. A proposal is three writes that only make
-sense together -- the draft voucher (series A, no number), the `draft` post
+sense together -- the draft voucher (no number), the `draft` post
 that shows it in the thread, and the `thread_drafts` row that ties the two
 and follows the draft until it is posted or replaced -- so they are made in
 **one** transaction, on the same thread-local connection, the pattern
@@ -17,8 +17,9 @@ What this module deliberately does not do:
   the row (migration 029). A link marks the source processed and the
   transaction booked, which is only true once the voucher is posted, so
   `on_posting` links them, inside the posting's transaction (§8.1, F8).
-- Correct. `correction_of` is refused with `not_implemented` until F11
-  builds §7's branch.
+- Build a reversal. A correction proposal (`correction_of`, §7) carries
+  only the agent's corrected rows; `LedgerService.reversal_rows` and
+  `create_correction` build the B draft, the same code `/correct` uses.
 
 Layering (AGENTS.md): no SQL here -- every write goes through a repository or
 `LedgerService` -- and no HTTP. Errors are `ValidationError`s with the
@@ -52,9 +53,10 @@ logger = logging.getLogger(__name__)
 #: a proposal and a posting from the same user post can never collide.
 FORESLA_VERIFIKATION_ENDPOINT = "TOOL foresla_verifikation"
 
-#: The series a plain proposal gets. The model does not choose it: `A`
-#: without `correction_of`, `B` with (§5.2) -- and the latter is F11's.
+#: The series a proposal gets. The model does not choose it: `A` without
+#: `correction_of`, `B` with (§5.2).
 _SERIES = "A"
+_CORRECTION_SERIES = "B"
 
 #: Mirrors fastapi.status.HTTP_201_CREATED for the stored idempotency
 #: response; services/ must not import fastapi.status.
@@ -143,13 +145,42 @@ def draft_meta(series: str, voucher_date: DateType) -> str:
     return f"Förslag · {series} · {voucher_date.isoformat()}"
 
 
-def draft_consequence(series: str, period: Period) -> str:
+def _today() -> DateType:
+    """The server's today, from which §7.2 dates a correction. A function of
+    its own so a test can fix it."""
+    return DateType.today()
+
+
+def draft_consequence(
+    series: str, period: Period, correction: Optional[str] = None
+) -> str:
     """§5.6: the server's line, since it is fact about the period and the
-    series, not the agent's reasoning."""
+    series, not the agent's reasoning. A correction gets §7.2's line after
+    it, on a line of its own (`correction_line`)."""
     state = "låst" if period.locked else "öppen"
-    return (
+    line = (
         f"Låses vid postning · får nästa nummer i {series}-serien · "
         f"period {period_name(period)} {state}"
+    )
+    return line if correction is None else f"{line}\n{correction}"
+
+
+def correction_line(original: Voucher, original_period: Period, target: Period) -> str:
+    """§7.2: what the correction corrects, and -- when the original's period
+    is locked and the correction is booked elsewhere -- both periods, said
+    explicitly before the press: `Rättar A-118 (juni 2026, låst sedan
+    2026-07-05) · bokförs i september 2026, inte i juni 2026`."""
+    label = f"Rättar {voucher_label(original)}"
+    if target.id == original_period.id:
+        return label
+    locked = (
+        f"låst sedan {original_period.locked_at.date().isoformat()}"
+        if original_period.locked_at
+        else "låst"
+    )
+    return (
+        f"{label} ({period_name(original_period)}, {locked}) · bokförs i "
+        f"{period_name(target)}, inte i {period_name(original_period)}"
     )
 
 
@@ -164,9 +195,11 @@ def draft_body(
     footnote: Optional[str],
     period: Period,
     decision_id: Optional[str],
+    correction: Optional[str] = None,
 ) -> dict:
     """The `draft` post's body -- exactly SPEC-chattyta.md §4.3's keys, which
-    `tests/test_flode_verifikationer.py` reads out of the client's fixture."""
+    `tests/test_flode_verifikationer.py` reads out of the client's fixture.
+    `correction` is `correction_line`'s text for a correction proposal."""
     return {
         "draft_id": draft_id,
         "kind": "voucher",
@@ -182,7 +215,7 @@ def draft_body(
             for row in rows
         ],
         "footnote": footnote,
-        "consequence": draft_consequence(series, period),
+        "consequence": draft_consequence(series, period, correction),
         "decision_id": decision_id,
     }
 
@@ -360,8 +393,8 @@ class DraftListItem:
 class DraftService:
     """Orchestrates thread drafts: `propose` (F6), the posting's two hooks
     `on_posting`/`on_posted` (F8) and its failure, `on_posting_failed` (F9),
-    and the list the card reads its state from, `list_drafts` (F10). The
-    correction branch follows in F11."""
+    and the list the card reads its state from, `list_drafts` (F10). A
+    proposal with `correction_of` is a B draft (§7, F11)."""
 
     # -- the list (§10) ---------------------------------------------------
 
@@ -714,43 +747,65 @@ class DraftService:
         idempotency: IdempotencyService,
         idempotency_key: Optional[str],
     ) -> dict:
+        correction: Optional[_Correction] = None
         if request["correction_of"] is not None:
-            raise DraftError(
-                "not_implemented",
-                "Corrections through foresla_verifikation are not built yet",
-                details="correction_of (SPEC-flode-verifikationer §7)",
-            )
-        if date is None or request["period_id"] is None:
-            raise DraftError(
-                "draft_requires_date_and_period",
-                "A proposal without correction_of needs date and period_id",
-            )
-
-        period = self._open_period(request["period_id"])
+            correction = self._check_correction(request)
+            period, date = correction.period, correction.date
+            series = _CORRECTION_SERIES
+        else:
+            if request["correction_note_id"] is not None:
+                raise DraftError(
+                    "correction_note_mismatch",
+                    "correction_note_id belongs to a correction: give "
+                    "correction_of too",
+                    details=f"correction_note_id={request['correction_note_id']}",
+                )
+            if date is None or request["period_id"] is None:
+                raise DraftError(
+                    "draft_requires_date_and_period",
+                    "A proposal without correction_of needs date and period_id",
+                )
+            period = self._open_period(request["period_id"])
+            series = _SERIES
         accounts = AccountRepository.get_all_as_dict()
         self._check_decision(thread, request["decision_id"])
         self._check_replaceable(thread, request["replaces_draft_id"])
         self._check_traceability(request)
-        rows: List[Dict[str, Any]] = request["rows"]
+        agent_rows: List[Dict[str, Any]] = request["rows"]
 
         # Deferred import (AGENTS.md: service-to-service imports wait until
         # the method runs).
         from services.ledger import LedgerService
 
+        ledger = LedgerService()
         with db.transaction():
-            # `create_voucher` runs `validate_complete_voucher` -- the same
-            # `VoucherValidator` the posting runs -- before its first write,
-            # so an unbalanced or unknown-account proposal raises here with
-            # the validator's own code and nothing written.
-            voucher = LedgerService().create_voucher(
-                series=_SERIES,
-                date=date,
-                period_id=period.id,
-                description=request["description"],
-                rows_data=rows,
-                created_by="agent",
-                _commit=False,
-            )
+            # Both paths validate the whole voucher with
+            # `validate_complete_voucher` -- the same `VoucherValidator` the
+            # posting runs -- so an unbalanced or unknown-account proposal
+            # raises with the validator's own code and, the transaction
+            # rolling back, nothing written.
+            if correction is not None:
+                # §7.1: the reversal of the original, then the agent's rows.
+                rows = ledger.reversal_rows(correction.original) + agent_rows
+                voucher = ledger.create_correction(
+                    original_voucher_id=correction.original.id,
+                    correction_rows=rows,
+                    actor="agent",
+                    voucher_date=date,
+                    description=request["description"],
+                    _commit=False,
+                )
+            else:
+                rows = agent_rows
+                voucher = ledger.create_voucher(
+                    series=series,
+                    date=date,
+                    period_id=period.id,
+                    description=request["description"],
+                    rows_data=rows,
+                    created_by="agent",
+                    _commit=False,
+                )
             post = ThreadRepository.add_post(
                 thread_id=thread.id,
                 post_type="draft",
@@ -758,13 +813,14 @@ class DraftService:
                 body=draft_body(
                     draft_id=voucher.id,
                     title=request["description"],
-                    series=_SERIES,
+                    series=series,
                     voucher_date=date,
                     rows=rows,
                     accounts=accounts,
                     footnote=request["footnote"],
                     period=period,
                     decision_id=request["decision_id"],
+                    correction=correction.line if correction is not None else None,
                 ),
                 _commit=False,
             )
@@ -774,6 +830,8 @@ class DraftService:
                 post_id=post.id,
                 view_key=thread.view_key,
                 decision_id=request["decision_id"],
+                correction_of=request["correction_of"],
+                correction_note_id=request["correction_note_id"],
                 intake_source_ids=_unique(request["intake_source_ids"]),
                 bank_input_ids=_unique(request["bank_input_ids"]),
                 bank_transaction_ids=_unique(request["bank_transaction_ids"]),
@@ -792,7 +850,7 @@ class DraftService:
                 "draft_id": voucher.id,
                 "post_id": post.id,
                 "status": "pending",
-                "series": _SERIES,
+                "series": series,
                 "date": date.isoformat(),
                 "period_id": period.id,
                 "description": request["description"],
@@ -812,6 +870,74 @@ class DraftService:
                     _commit=False,
                 )
         return result
+
+    @staticmethod
+    def _check_correction(request: Mapping[str, Any]) -> "_Correction":
+        """§7.4's checks, in order, before anything is written; returns the
+        original and where §7.2 books its correction."""
+        original_id = request["correction_of"]
+        if request["date"] is not None or request["period_id"] is not None:
+            raise DraftError(
+                "correction_period_is_derived",
+                "A correction's date and period are chosen by the server: "
+                "leave date and period_id out",
+                details=f"correction_of={original_id}",
+            )
+        original = VoucherRepository.get(original_id)
+        if original is None:
+            raise ValidationError(
+                "voucher_not_found",
+                "Original voucher not found",
+                details=f"voucher_id={original_id}",
+            )
+        # A correction may itself be corrected (§7.4), as through `/correct`.
+        if not original.is_posted():
+            raise ValidationError(
+                "not_posted",
+                "Can only correct posted vouchers",
+                details=f"voucher_id={original_id}",
+            )
+
+        note_id = request["correction_note_id"]
+        if note_id is not None:
+            from repositories.correction_note_repo import CorrectionNoteRepository
+
+            note = CorrectionNoteRepository.get(note_id)
+            if (
+                note is None
+                or note.voucher_id != original.id
+                or note.status not in ("pending", "suggested")
+            ):
+                raise DraftError(
+                    "correction_note_mismatch",
+                    "The correction note is not an open note on the voucher "
+                    "being corrected",
+                    details=(
+                        f"correction_note_id={note_id}, "
+                        f"voucher_id={note.voucher_id if note else None}, "
+                        f"status={note.status if note else 'missing'}"
+                    ),
+                )
+
+        pending = ThreadDraftRepository.pending_for_correction_of(original.id)
+        if pending is not None and pending.voucher_id != request["replaces_draft_id"]:
+            raise DraftError(
+                "correction_already_pending",
+                "A proposal already corrects this voucher: replace it with "
+                "replaces_draft_id instead",
+                details=f"draft_id={pending.voucher_id}",
+            )
+
+        from services.ledger import LedgerService
+
+        period, voucher_date = LedgerService().correction_target(original, _today())
+        original_period = PeriodRepository.get_period(original.period_id)
+        return _Correction(
+            original=original,
+            period=period,
+            date=voucher_date,
+            line=correction_line(original, original_period or period, period),
+        )
 
     @staticmethod
     def _open_period(period_id: str) -> Period:
@@ -897,6 +1023,17 @@ class DraftService:
         )
 
 
+@dataclass
+class _Correction:
+    """A checked correction proposal: the original, the period and date
+    §7.2 books it in, and the consequence's correction line."""
+
+    original: Voucher
+    period: Period
+    date: DateType
+    line: str
+
+
 def _unique(values: Sequence[str]) -> List[str]:
     return list(dict.fromkeys(values))
 
@@ -936,6 +1073,7 @@ __all__ = [
     "FORESLA_VERIFIKATION_ENDPOINT",
     "SourceAlreadyBookedError",
     "SourceNotLinkableError",
+    "correction_line",
     "draft_body",
     "draft_consequence",
     "draft_meta",

@@ -612,7 +612,10 @@ def _failing_case(name, thread, period):
     if name == "without_date":
         return thread, _args(period, date=None), "draft_requires_date_and_period"
     if name == "correction_of":
-        return thread, _args(period, correction_of="v-118"), "not_implemented"
+        # F11: the correction branch runs §7.4's checks; an unknown original
+        # is the first of them to fail.
+        args = _args(period, correction_of="v-118", date=None, period_id=None)
+        return thread, args, "voucher_not_found"
     raise AssertionError(name)
 
 
@@ -1912,3 +1915,440 @@ def test_the_receipt_ends_with_how_many_still_wait(auth_headers):
     # Counted after the posting: the posted draft no longer waits, the other
     # proposal and the open decision do.
     assert receipt.traces[-1] == {"tool": "vantar", "label": "2 kvar"}
+
+
+# --- F11: korrigeringsförslaget (testfall 32-36, 40) --------------------------
+
+#: How A-1 should have looked: no VAT on the purchase.
+_CORRECTED_ROWS = [
+    {"account": "6110", "debit": 89600},
+    {"account": "1930", "credit": 89600},
+]
+
+
+def _add_period(thread, month: int):
+    return PeriodRepository.create_period(
+        fiscal_year_id=thread.fiscal_year_id,
+        year=2026,
+        month=month,
+        start_date=date(2026, month, 1),
+        end_date=date(2026, month, 30),
+    )
+
+
+def _original(period, day: int = 18):
+    """A-n in `period`, posted -- the voucher the human wants corrected."""
+    ledger = LedgerService()
+    draft = ledger.create_voucher(
+        series="A",
+        date=date(period.year, period.month, day),
+        period_id=period.id,
+        description="Kontorsmaterial, Clas Ohlson",
+        rows_data=_ROWS,
+        created_by="stefan",
+    )
+    return ledger.post_voucher(draft.id, actor="stefan")
+
+
+def _correction_args(original, **overrides) -> ForeslaVerifikationArgs:
+    fields = {
+        "description": "Rättelse: kontorsmaterial utan avdragsgill moms",
+        "rows": _CORRECTED_ROWS,
+        "correction_of": original.id,
+        "footnote": "Kvittot saknar moms",
+    }
+    fields.update(overrides)
+    return ForeslaVerifikationArgs.model_validate(fields)
+
+
+@pytest.fixture
+def today(monkeypatch):
+    """The server's `today` (§7.2), fixed so the date rule can be asserted."""
+    import services.draft_service as draft_service
+
+    def set_today(value: date) -> None:
+        monkeypatch.setattr(draft_service, "_today", lambda: value)
+
+    set_today(date(2026, 9, 23))
+    return set_today
+
+
+def _reversal(original) -> list:
+    return [
+        (
+            r.account_code,
+            r.credit,
+            r.debit,
+            f"Återföring {original.series.value}{original.number}",
+        )
+        for r in original.rows
+    ]
+
+
+def test_case_32_correction_in_an_open_period(today):
+    thread, september, trigger = _books()
+    original = _original(september)
+    posts_before = _count("thread_posts")
+
+    result = _propose(
+        thread,
+        _correction_args(original),
+        ProposalSequence(thread.id, trigger.id),
+    )
+
+    draft = VoucherRepository.get(result["draft_id"])
+    assert draft.status == VoucherStatus.DRAFT
+    assert draft.number is None
+    assert draft.series.value == "B"
+    assert draft.correction_of == original.id
+    assert draft.period_id == september.id
+    assert draft.date == date(2026, 9, 23)
+    assert draft.description == "Rättelse: kontorsmaterial utan avdragsgill moms"
+    # The reversal, exactly A-1's rows with debit and credit swapped, then
+    # the agent's rows unchanged.
+    rows = [(r.account_code, r.debit, r.credit, r.description) for r in draft.rows]
+    assert rows[:3] == _reversal(original)
+    assert rows[3:] == [("6110", 89600, 0, None), ("1930", 0, 89600, None)]
+    assert draft.is_balanced()
+
+    row = ThreadDraftRepository.get(draft.id)
+    assert row.status == "pending"
+    assert row.correction_of == original.id
+    assert row.correction_note_id is None
+
+    assert _count("thread_posts") == posts_before + 1
+    [post] = _draft_posts(thread)
+    assert post.body["title"] == "Rättelse: kontorsmaterial utan avdragsgill moms"
+    assert post.body["meta"] == "Förslag · B · 2026-09-23"
+    assert post.body["consequence"] == (
+        "Låses vid postning · får nästa nummer i B-serien · "
+        "period september 2026 öppen\nRättar A-1"
+    )
+    assert [
+        (r["account"], r["debit_ore"], r["credit_ore"]) for r in post.body["rows"]
+    ] == [
+        ("6110", None, 71680),
+        ("2640", None, 17920),
+        ("1930", 89600, None),
+        ("6110", 89600, None),
+        ("1930", None, 89600),
+    ]
+    body_keys, _ = _fixture_draft_keys()
+    assert set(post.body) == body_keys
+
+    assert result["series"] == "B"
+    assert result["date"] == "2026-09-23"
+    assert result["period_id"] == september.id
+    assert result["consequence"] == post.body["consequence"]
+
+    # Posted, it takes the B series' number -- the original is untouched.
+    posted = LedgerService().post_voucher(draft.id, actor="stefan")
+    assert posted.number == 1
+    assert VoucherRepository.get(original.id).rows == original.rows
+
+
+def test_case_32_a_correction_can_itself_be_corrected(today):
+    thread, september, trigger = _books()
+    original = _original(september)
+    proposals = ProposalSequence(thread.id, trigger.id)
+    first = _propose(thread, _correction_args(original), proposals)
+    b1 = LedgerService().post_voucher(first["draft_id"], actor="stefan")
+    ThreadDraftRepository.mark_posted(b1.id, datetime.now())
+
+    again = _propose(thread, _correction_args(b1), proposals)
+
+    draft = VoucherRepository.get(again["draft_id"])
+    assert draft.correction_of == b1.id
+    rows = [(r.account_code, r.debit, r.credit, r.description) for r in draft.rows]
+    assert rows[: len(b1.rows)] == _reversal(b1)
+
+
+def test_case_33_original_in_a_locked_period(today):
+    thread, september, trigger = _books()
+    june = _add_period(thread, 6)
+    original = _original(june)
+    _lock(june, at=datetime(2026, 7, 5, 16, 2))
+
+    result = _propose(
+        thread,
+        _correction_args(original),
+        ProposalSequence(thread.id, trigger.id),
+    )
+
+    draft = VoucherRepository.get(result["draft_id"])
+    assert draft.period_id == september.id
+    assert draft.date == date(2026, 9, 23)
+    [post] = _draft_posts(thread)
+    assert post.body["consequence"] == (
+        "Låses vid postning · får nästa nummer i B-serien · "
+        "period september 2026 öppen\n"
+        "Rättar A-1 (juni 2026, låst sedan 2026-07-05) · "
+        "bokförs i september 2026, inte i juni 2026"
+    )
+    # Postable as it stands: the date lies in the target period.
+    assert LedgerService().post_voucher(draft.id, actor="stefan").number == 1
+
+
+def test_case_33_today_outside_the_target_period_gives_its_last_day(today):
+    thread, september, trigger = _books()
+    june = _add_period(thread, 6)
+    original = _original(june)
+    _lock(june, at=datetime(2026, 7, 5, 16, 2))
+    today(date(2026, 10, 2))
+
+    result = _propose(
+        thread,
+        _correction_args(original),
+        ProposalSequence(thread.id, trigger.id),
+    )
+
+    assert result["date"] == "2026-09-30"
+    assert result["period_id"] == september.id
+    [post] = _draft_posts(thread)
+    assert post.body["meta"] == "Förslag · B · 2026-09-30"
+
+
+def test_case_33_the_latest_open_period_is_chosen(today):
+    thread, september, trigger = _books()
+    june = _add_period(thread, 6)
+    _add_period(thread, 7)
+    original = _original(june)
+    _lock(june)
+
+    result = _propose(
+        thread,
+        _correction_args(original),
+        ProposalSequence(thread.id, trigger.id),
+    )
+
+    assert result["period_id"] == september.id
+
+
+def test_case_34_no_open_period_in_the_year(today):
+    thread, june, trigger = _books(month=6)
+    original = _original(june)
+    _lock(june)
+    vouchers_before = _count("vouchers")
+    posts_before = _count("thread_posts")
+    proposals = ProposalSequence(thread.id, trigger.id)
+
+    with pytest.raises(ValidationError) as excinfo:
+        _propose(thread, _correction_args(original), proposals)
+
+    assert excinfo.value.code == "no_open_period"
+    assert _count("vouchers") == vouchers_before
+    assert _count("thread_drafts") == 0
+    assert _count("thread_posts") == posts_before
+    assert proposals.n == 1
+
+
+def test_case_35_a_second_correction_while_the_first_waits(today):
+    thread, september, trigger = _books()
+    original = _original(september)
+    proposals = ProposalSequence(thread.id, trigger.id)
+    first = _propose(thread, _correction_args(original), proposals)
+    # Any thread: the pending correction blocks a proposal in another one.
+    other = ThreadRepository.get_or_create(
+        view_key="bocker.huvudbok",
+        fiscal_year_id=thread.fiscal_year_id,
+        model="opencode/claude-opus-5",
+    )
+
+    for where in (thread, other):
+        with pytest.raises(ValidationError) as excinfo:
+            _propose(where, _correction_args(original), proposals)
+        assert excinfo.value.code == "correction_already_pending"
+        assert first["draft_id"] in (excinfo.value.details or "")
+
+    assert _count("thread_drafts") == 1
+
+
+def test_case_35_replaces_draft_id_replaces_the_pending_correction(today):
+    thread, september, trigger = _books()
+    original = _original(september)
+    proposals = ProposalSequence(thread.id, trigger.id)
+    first = _propose(thread, _correction_args(original), proposals)
+
+    second = _propose(
+        thread,
+        _correction_args(
+            original,
+            description="Rättelse: kontorsmaterial, moms 12 %",
+            replaces_draft_id=first["draft_id"],
+        ),
+        proposals,
+    )
+
+    assert VoucherRepository.get(first["draft_id"]) is None
+    old_row = ThreadDraftRepository.get(first["draft_id"])
+    assert old_row.status == "superseded"
+    assert old_row.replaced_by == second["draft_id"]
+    new_row = ThreadDraftRepository.get(second["draft_id"])
+    assert new_row.status == "pending"
+    assert new_row.correction_of == original.id
+    assert second["replaced_draft_id"] == first["draft_id"]
+    assert ThreadDraftRepository.pending_for_correction_of(original.id).voucher_id == (
+        second["draft_id"]
+    )
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"date": "2026-09-18"},
+        {"period_id": "any"},
+        {"date": "2026-09-18", "period_id": "any"},
+    ],
+)
+def test_case_36_date_or_period_with_correction_of_is_refused(today, overrides):
+    thread, september, trigger = _books()
+    original = _original(september)
+    if "period_id" in overrides:
+        overrides["period_id"] = september.id
+    vouchers_before = _count("vouchers")
+
+    with pytest.raises(ValidationError) as excinfo:
+        _propose(
+            thread,
+            _correction_args(original, **overrides),
+            ProposalSequence(thread.id, trigger.id),
+        )
+
+    assert excinfo.value.code == "correction_period_is_derived"
+    assert _count("vouchers") == vouchers_before
+    assert _count("thread_drafts") == 0
+
+
+def test_case_36_the_original_must_be_posted(today):
+    thread, september, trigger = _books()
+    draft = LedgerService().create_voucher(
+        series="A",
+        date=date(2026, 9, 18),
+        period_id=september.id,
+        description="Utkast",
+        rows_data=_ROWS,
+    )
+
+    with pytest.raises(ValidationError) as excinfo:
+        _propose(
+            thread,
+            _correction_args(draft),
+            ProposalSequence(thread.id, trigger.id),
+        )
+
+    assert excinfo.value.code == "not_posted"
+    assert _count("thread_drafts") == 0
+
+
+def test_an_unbalanced_correction_writes_nothing(today):
+    thread, september, trigger = _books()
+    original = _original(september)
+    vouchers_before = _count("vouchers")
+    posts_before = _count("thread_posts")
+    rows = [{"account": "6110", "debit": 100}, {"account": "1930", "credit": 99}]
+
+    with pytest.raises(ValidationError) as excinfo:
+        _propose(
+            thread,
+            _correction_args(original, rows=rows),
+            ProposalSequence(thread.id, trigger.id),
+        )
+
+    assert excinfo.value.code == "balance_error"
+    assert _count("vouchers") == vouchers_before
+    assert _count("voucher_rows") == len(original.rows)
+    assert _count("thread_drafts") == 0
+    assert _count("thread_posts") == posts_before
+
+
+def test_a_correction_run_twice_in_the_same_turn_gives_the_same_draft(today):
+    thread, september, trigger = _books()
+    original = _original(september)
+
+    first = _propose(
+        thread, _correction_args(original), ProposalSequence(thread.id, trigger.id)
+    )
+    again = _propose(
+        thread, _correction_args(original), ProposalSequence(thread.id, trigger.id)
+    )
+
+    assert again["draft_id"] == first["draft_id"]
+    assert again["idempotent_replay"] is True
+    assert _count("thread_drafts") == 1
+
+
+def _note(voucher, status: str = "pending"):
+    from repositories.correction_note_repo import CorrectionNoteRepository
+
+    note = CorrectionNoteRepository.create(voucher.id, "Fel moms", "stefan")
+    if status != "pending":
+        db.execute(
+            "UPDATE correction_notes SET status = ? WHERE id = ?", (status, note.id)
+        )
+        db.commit()
+    return note
+
+
+@pytest.mark.parametrize("status", ["pending", "suggested"])
+def test_case_40_a_note_for_the_original_is_kept_on_the_row(today, status):
+    thread, september, trigger = _books()
+    original = _original(september)
+    note = _note(original, status)
+
+    result = _propose(
+        thread,
+        _correction_args(original, correction_note_id=note.id),
+        ProposalSequence(thread.id, trigger.id),
+    )
+
+    row = ThreadDraftRepository.get(result["draft_id"])
+    assert row.correction_of == original.id
+    assert row.correction_note_id == note.id
+
+
+def _mismatched_note(case, original, other):
+    if case == "other_voucher":
+        return _note(other).id, original
+    if case == "applied":
+        return _note(original, "applied").id, original
+    if case == "dismissed":
+        return _note(original, "dismissed").id, original
+    if case == "unknown":
+        return "nope", original
+    raise AssertionError(case)
+
+
+@pytest.mark.parametrize("case", ["other_voucher", "applied", "dismissed", "unknown"])
+def test_case_40_a_note_that_does_not_match_is_refused(today, case):
+    thread, september, trigger = _books()
+    original = _original(september)
+    other = _original(september, day=19)
+    note_id, corrected = _mismatched_note(case, original, other)
+    vouchers_before = _count("vouchers")
+
+    with pytest.raises(ValidationError) as excinfo:
+        _propose(
+            thread,
+            _correction_args(corrected, correction_note_id=note_id),
+            ProposalSequence(thread.id, trigger.id),
+        )
+
+    assert excinfo.value.code == "correction_note_mismatch"
+    assert _count("vouchers") == vouchers_before
+    assert _count("thread_drafts") == 0
+
+
+def test_case_40_a_note_without_correction_of_is_refused(today):
+    thread, september, trigger = _books()
+    original = _original(september)
+    note = _note(original)
+
+    with pytest.raises(ValidationError) as excinfo:
+        _propose(
+            thread,
+            _args(september, correction_note_id=note.id),
+            ProposalSequence(thread.id, trigger.id),
+        )
+
+    assert excinfo.value.code == "correction_note_mismatch"
+    assert _count("thread_drafts") == 0

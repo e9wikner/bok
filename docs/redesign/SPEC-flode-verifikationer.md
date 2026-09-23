@@ -518,9 +518,16 @@ ligger i målperioden, annars målperiodens sista dag.
 Det här är korrigeringens svåra fall, och panelens kant gäller ordagrant: *"Om posten ändrar en
 tidigare stängd period måste det sägas explicit."* `consequence` får då en rad till:
 
-> `Rättar A-118 (juni, låst sedan 2026-07-05) · bokförs i september, inte i juni`
+> `Rättar A-118 (juni 2026, låst sedan 2026-07-05) · bokförs i september 2026, inte i juni 2026`
 
 Både den låsta och den öppna perioden står i kortet, före trycket.
+
+Så byggdes det (F11): raden står efter §5.6:s rad, avskild med `\n`. Perioderna heter som
+överallt annars, med år (`period_name`). När originalets period är öppen är raden bara
+`Rättar A-118`. Saknar perioden `locked_at` (låst före migration 023) står bara `låst`. Datumet
+räknas i `LedgerService.correction_target`, som använder `_target_correction_period`;
+`create_correction` fick `voucher_date` och `description`, med originalets datum och `Correction
+of voucher …` som förval, så `/correct` och noteringarnas väg är oförändrade.
 
 ### 7.3 Korrigeringsnoteringar
 
@@ -551,6 +558,16 @@ enligt `SPEC-skal.md` §3: de gamla sidorna tas bort vy för vy, inte här.
 | Ingen öppen period i originalets räkenskapsår | `no_open_period`. Agenten avstår och säger det; korrigering över årsskifte är ur scope |
 | `correction_note_id` hör till en annan verifikation, eller är inte `pending`/`suggested` | `correction_note_mismatch` |
 | `date` eller `period_id` angivna tillsammans med `correction_of` | `correction_period_is_derived`: servern väljer, inte modellen |
+
+Så byggdes det (F11): kontrollerna körs i ordningen `correction_period_is_derived`,
+`voucher_not_found`/`not_posted`, `correction_note_mismatch`, `correction_already_pending`,
+`no_open_period`, och sedan §5.3:s gemensamma (beslut, `replaces_draft_id`, spårbarhet). En
+okänd notering, och `correction_note_id` utan `correction_of`, ger också
+`correction_note_mismatch`. `correction_already_pending` bär förslagets id i `details`
+(`draft_id=…`). Utkastet byggs av `LedgerService.create_correction` med
+`LedgerService.reversal_rows(original)` följt av agentens rader; `create_posted_correction`
+(`/correct`) bygger återföringen med samma metod. Hela B-utkastet valideras av
+`validate_complete_voucher` i förslagets transaktion.
 
 ### 7.5 Vyn
 

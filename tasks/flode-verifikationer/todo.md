@@ -260,7 +260,22 @@ oräknade. Testfallsnumren syftar på tabellerna i §14. Backendens tester ligge
   - Filer: `api/routes/drafts.py`, `main.py` (routern), `services/decision_service.py`,
     `services/overview.py`, `tests/test_flode_verifikationer.py`
 
-- [ ] **F11 — Korrigeringsförslaget**
+- [x] **F11 — Korrigeringsförslaget**
+  - Gjort 2026-09-23: `DraftService._propose` har en korrigeringsgren i stället för
+    `not_implemented`: `_check_correction` gör §7.4:s kontroller, sedan bygger
+    `LedgerService.create_correction(_commit=False)` B-utkastet ur
+    `LedgerService.reversal_rows(original)` (ny, delad med `create_posted_correction`) följt av
+    agentens rader, i samma transaktion som inlägget och raden. `correction_of` och
+    `correction_note_id` sparas i `thread_drafts`. `LedgerService.correction_target(original,
+    today)` väljer målperiod via `_target_correction_period` och datum enligt §7.2 (`no_open_period`
+    annars); `create_correction` (och repots) fick `voucher_date` och `description` med
+    oförändrade förval, och använder `_target_correction_period` i stället för sin kopia av den.
+    `draft_consequence` och `draft_body` tar en rad till, `correction_line`. 21 nya tester
+    (32 ×2, 33 ×3, 34, 35 ×2, 36 ×4, 40 ×7, obalanserad rättelse, idempotens), sedda röda först;
+    testfall 17:s `correction_of` väntar nu `voucher_not_found`. Avvikelser, specen §7.2 och §7.4
+    uppdaterade: perioderna med år, raden avskild med `\n`, okänd notering och notering utan
+    `correction_of` ger `correction_note_mismatch`. Hela sviten: 1122 passed; `mypy .` 61 fel som
+    före.
   - Acceptans: `foresla_verifikation` med `correction_of` bygger ett B-utkast med
     `LedgerService.create_correction`: återföring, sedan agentens rader. Målperiod och datum
     enligt §7.2. `consequence` nämner båda perioderna när originalets är låst. Kontrollerna i

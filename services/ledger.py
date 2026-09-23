@@ -1,7 +1,7 @@
 """Ledger service - core accounting logic."""
 
 from datetime import date, datetime
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
 from domain.models import Period, Voucher, VoucherRow
 from domain.types import AuditAction, VoucherSeries, VoucherStatus
@@ -204,8 +204,16 @@ class LedgerService:
         correction_rows: List[Dict],
         actor: str = "system",
         _commit: bool = True,
+        voucher_date: Optional[date] = None,
+        description: Optional[str] = None,
     ) -> Voucher:
-        """Create correction voucher (B-series) for an original voucher."""
+        """Create correction voucher (B-series) for an original voucher.
+
+        `voucher_date` and `description` default to the original's date and
+        `Correction of voucher …`; a thread proposal passes the date §7.2 of
+        SPEC-flode-verifikationer derives (`correction_target`) and the
+        agent's description, which the human sees on the card before posting.
+        """
         original = self.vouchers.get(original_voucher_id)
         if not original:
             raise ValidationError("voucher_not_found", "Original voucher not found")
@@ -220,12 +228,8 @@ class LedgerService:
         # Find an unlocked period for the correction.
         # If the original period is locked, use the latest unlocked period
         # in the same fiscal year (BFL: corrections go in current period).
-        original_period = self.periods.get_period(original.period_id)
-        if original_period and original_period.locked:
-            unlocked = self._find_unlocked_period(original.period_id)
-            target_period_id = unlocked.id if unlocked else original.period_id
-        else:
-            target_period_id = original.period_id
+        target = self._target_correction_period(original)
+        target_period_id = target.id if target else original.period_id
 
         # Create B-series correction voucher
         correction = self.vouchers.create_correction(
@@ -234,6 +238,8 @@ class LedgerService:
             created_by=actor,
             period_id_override=target_period_id,
             _commit=_commit,
+            voucher_date=voucher_date,
+            description=description,
         )
 
         # Get period and accounts for validation
@@ -295,16 +301,7 @@ class LedgerService:
             )
 
         target_period = self._target_correction_period(original)
-        reversal_rows = [
-            {
-                "account": row.account_code,
-                "debit": row.credit,
-                "credit": row.debit,
-                "description": f"Återföring {original.series.value}{original.number}",
-            }
-            for row in original.rows
-        ]
-        correction_rows = reversal_rows + corrected_rows
+        correction_rows = self.reversal_rows(original) + corrected_rows
 
         self._validate_correction_rows(original, target_period, correction_rows)
         correction = self.create_correction(
@@ -415,6 +412,41 @@ class LedgerService:
         )
 
         return self.vouchers.get(voucher_id)
+
+    @staticmethod
+    def reversal_rows(original: Voucher) -> List[Dict]:
+        """The reversal of `original`: each of its rows, debit and credit
+        swapped. Mechanical, so that it cannot be wrong because a model
+        counted (SPEC-flode-verifikationer §7.1); `/correct` and a thread's
+        correction proposal both build it here."""
+        return [
+            {
+                "account": row.account_code,
+                "debit": row.credit,
+                "credit": row.debit,
+                "description": f"Återföring {original.series.value}{original.number}",
+            }
+            for row in original.rows
+        ]
+
+    def correction_target(self, original: Voucher, today: date) -> Tuple[Period, date]:
+        """Where a correction of `original` is booked, and on which date
+        (SPEC-flode-verifikationer §7.2): the original's period if open,
+        otherwise the latest open period in the same fiscal year; `today` if
+        it lies in that period, otherwise its last day.
+
+        `ValidationError(no_open_period)` when the fiscal year has no open
+        period -- a correction across the year end is out of scope."""
+        period = self._target_correction_period(original)
+        if period is None or period.locked:
+            raise ValidationError(
+                "no_open_period",
+                "No open period in the original voucher's fiscal year",
+                details=f"voucher_id={original.id}, period_id={original.period_id}",
+            )
+        if period.start_date <= today <= period.end_date:
+            return period, today
+        return period, period.end_date
 
     def _target_correction_period(self, original: Voucher) -> Period:
         original_period = self.periods.get_period(original.period_id)

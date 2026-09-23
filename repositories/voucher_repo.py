@@ -421,12 +421,15 @@ class VoucherRepository:
         created_by: str = "system",
         period_id_override: str = None,
         _commit: bool = True,
+        voucher_date: Optional[date] = None,
+        description: Optional[str] = None,
     ) -> Voucher:
         """Create correction voucher (B-series) for an original voucher.
 
         If period_id_override is given, the correction is booked into that
         period instead of the original's (needed when the original period
-        is locked).
+        is locked). `voucher_date` and `description` default to the
+        original's date and `Correction of voucher …`.
         """
         # Get original voucher
         original = VoucherRepository.get(original_voucher_id)
@@ -449,14 +452,19 @@ class VoucherRepository:
         VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)
         """
         now = datetime.now()
-        description = f"Correction of voucher {original.series}{original.number:06d}"
+        if description is None:
+            description = (
+                f"Correction of voucher {original.series}{original.number:06d}"
+            )
+        if voucher_date is None:
+            voucher_date = original.date
 
         db.execute(
             sql,
             (
                 correction_id,
                 series,
-                original.date,
+                voucher_date,
                 target_period_id,
                 fiscal_year_id,
                 description,
@@ -472,7 +480,7 @@ class VoucherRepository:
             id=correction_id,
             series=VoucherSeries(series),
             number=None,
-            date=original.date,
+            date=voucher_date,
             period_id=target_period_id,
             description=description,
             status=VoucherStatus.DRAFT,
