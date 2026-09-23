@@ -230,11 +230,18 @@ class ComplianceService:
         """
         issues = []
 
+        # Numbers restart at 1 each fiscal year, so the series is only
+        # contiguous within a year: grouped on series alone, one year's
+        # vouchers hide another year's gap (SPEC-flode-verifikationer §4.5).
         rows = db.execute("""
-            SELECT series, MIN(number) as min_num, MAX(number) as max_num, COUNT(*) as cnt
-            FROM vouchers
-            WHERE status = 'posted'
-            GROUP BY series
+            SELECT v.series, v.fiscal_year_id, fy.start_date, fy.end_date,
+                   MIN(v.number) as min_num, MAX(v.number) as max_num,
+                   COUNT(*) as cnt
+            FROM vouchers v
+            LEFT JOIN fiscal_years fy ON fy.id = v.fiscal_year_id
+            WHERE v.status = 'posted'
+            GROUP BY v.series, v.fiscal_year_id
+            ORDER BY fy.start_date, v.series
         """).fetchall()
 
         for row in rows:
@@ -242,6 +249,11 @@ class ComplianceService:
             actual = row["cnt"]
             if actual < expected:
                 gaps = expected - actual
+                year = (
+                    f"{row['start_date']} – {row['end_date']}"
+                    if row["start_date"]
+                    else row["fiscal_year_id"]
+                )
                 issues.append(
                     ComplianceIssue(
                         id=str(uuid.uuid4()),
@@ -249,9 +261,13 @@ class ComplianceService:
                         severity="warning",
                         status="open",
                         entity_type="voucher",
-                        title=f"🔢 Luckor i verifikationsnumrering ({row['series']}-serien)",
+                        title=(
+                            f"🔢 Luckor i verifikationsnumrering "
+                            f"({row['series']}-serien, räkenskapsår {year})"
+                        ),
                         description=(
                             f"Det finns {gaps} luckor i {row['series']}-serien "
+                            f"för räkenskapsåret {year} "
                             f"(nummer {row['min_num']}-{row['max_num']}, {actual} verifikationer). "
                             f"Enligt BFL 5 kap 6§ ska verifikationer numreras löpande."
                         ),

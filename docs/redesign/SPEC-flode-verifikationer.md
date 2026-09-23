@@ -262,9 +262,14 @@ till schema: ett postat utan nummer, eller ett utkast med nummer, går inte att 
 - `VoucherRepository.create_correction` numrerar inte heller.
 - `Voucher.number` och `VoucherResponse.number` blir `Optional[int]` (typningen landade redan i
   F2, eftersom utkast annars inte kunde byggas eller serialiseras). Allt som formaterar ett
-  nummer (`_voucher_dict` i verktygen, `sie4_export`, `compliance`, `lib/utils.ts`,
-  `lib/skal/*.ts`) hanterar `None`. Utkast exporteras inte i SIE4 (`sie4_export.py:224` läser
-  bara postade), så exporten påverkas inte i praktiken.
+  nummer hanterar `None`. I backenden (F3) visade genomgången att bara vidareskickande ställen
+  kan få ett utkast — `_voucher_dict` i verktygen, `VoucherResponse`, noteringarnas
+  ögonblicksbild — och de ger `number: null`. Allt som *formaterar* (`get_account_ledger`,
+  huvudboken i `reports.py`, `sie4_export`, `compliance`) läser bara postade, och
+  korrigeringstexterna läser originalet, som måste vara postat; där ändras ingenting.
+  `list_all(sort_by="number")` lägger utkasten sist i båda riktningarna. I klienten
+  (`lib/utils.ts`, `lib/skal/*.ts`) är det F4. Utkast exporteras inte i SIE4
+  (`sie4_export.py:224` läser bara postade), så exporten påverkas inte i praktiken.
 - De gamla sidorna i `frontend-v3` visar `Utkast` där de i dag visar ett utkasts nummer.
 
 ### 4.4 Utkast som finns i dag
@@ -282,8 +287,8 @@ har luckor. Det ingår i verifieringen efter driftsättningen, inte i migratione
 
 `services/compliance.py::_check_voucher_sequence` grupperar på `series`, men numren börjar om på
 1 varje räkenskapsår (`get_next_number`s docstring). Över två år blir `MAX - MIN + 1` mindre än
-antalet verifikationer, och en lucka syns inte. Den grupperas om på `series, fiscal_year_id`. Det
-är samma sorts fynd som `SPEC-oversikt.md` §2: en kontroll som ser grön ut för att den inte kan
+antalet verifikationer, och en lucka syns inte. Den grupperas om på `series, fiscal_year_id`, och
+rubriken nämner räkenskapsåret (gjort i F3). Det är samma sorts fynd som `SPEC-oversikt.md` §2: en kontroll som ser grön ut för att den inte kan
 bli röd.
 
 ---

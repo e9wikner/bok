@@ -433,7 +433,7 @@ class LedgerService:
         temp = Voucher(
             id="temp",
             series=VoucherSeries.B,
-            number=0,
+            number=None,
             date=original.date,
             period_id=period.id,
             description=f"Correction of voucher {original.series.value}{original.number:06d}",

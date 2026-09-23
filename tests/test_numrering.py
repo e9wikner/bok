@@ -679,3 +679,182 @@ def test_10b_api_explicit_number_only_with_auto_post(
     assert posted.status_code == 201, posted.text
     assert posted.json()["number"] == 42
     assert posted.json()["status"] == "posted"
+
+
+# --- F3: a number may be None, and the gap check runs per fiscal year --------
+#
+# Case 12 is the gap check (SPEC §4.5): numbers restart at 1 each fiscal year,
+# so grouping on `series` alone lets a gap hide behind the other year's
+# vouchers. Case 13 is the backend half of "API and old pages": a draft reads
+# as `number: null` everywhere, and nothing answers 500 for one.
+
+
+def _second_year_period(ledger):
+    year = ledger.periods.create_fiscal_year(
+        start_date=date(2027, 1, 1), end_date=date(2027, 12, 31)
+    )
+    return ledger.periods.create_period(
+        fiscal_year_id=year.id,
+        year=2027,
+        month=1,
+        start_date=date(2027, 1, 1),
+        end_date=date(2027, 1, 31),
+    )
+
+
+def test_12_gap_check_finds_gap_in_second_fiscal_year(ledger_service, test_period):
+    """Case 12: A1, A2 in 2026 and A1, A3 in 2027. Grouped on series alone
+    that is 4 vouchers over 1–3 and looks gap-free; per year, 2027 lacks A2."""
+    from services.compliance import ComplianceService
+
+    period_2027 = _second_year_period(ledger_service)
+    for number in (1, 2):
+        ledger_service.post_voucher(
+            _draft(ledger_service, test_period).id, number=number
+        )
+    for number in (1, 3):
+        ledger_service.post_voucher(
+            _draft(ledger_service, period_2027).id, number=number
+        )
+    _draft(ledger_service, period_2027)  # a draft is not a gap, nor a number
+
+    issues = ComplianceService()._check_voucher_sequence()
+
+    assert len(issues) == 1, [i.title for i in issues]
+    issue = issues[0]
+    assert issue.check_type == "voucher_sequence"
+    assert "A-serien" in issue.title
+    assert "2027" in issue.title
+    assert "1 luckor" in issue.description or "1 lucka" in issue.description
+    assert "1-3" in issue.description
+
+
+def test_12b_gap_check_is_quiet_when_each_year_is_contiguous(
+    ledger_service, test_period
+):
+    """Case 12, the other side: each year 1..n with no gap is not flagged."""
+    from services.compliance import ComplianceService
+
+    period_2027 = _second_year_period(ledger_service)
+    for period, count in ((test_period, 3), (period_2027, 2)):
+        for _ in range(count):
+            ledger_service.post_voucher(_draft(ledger_service, period).id)
+
+    assert ComplianceService()._check_voucher_sequence() == []
+
+
+def test_13_api_gives_null_number_for_draft(ledger_service, test_period, auth_headers):
+    """Case 13, backend: a draft is `number: null` in the single read and the
+    list, and a number once posted; its audit trail answers 200."""
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+
+    client = TestClient(app)
+    draft = _draft(ledger_service, test_period)
+
+    one = client.get(f"/api/v1/vouchers/{draft.id}", headers=auth_headers)
+    assert one.status_code == 200, one.text
+    assert one.json()["number"] is None
+    assert one.json()["status"] == "draft"
+
+    listed = client.get("/api/v1/vouchers", headers=auth_headers)
+    assert listed.status_code == 200, listed.text
+    assert [v["number"] for v in listed.json()["vouchers"]] == [None]
+
+    audit = client.get(f"/api/v1/vouchers/{draft.id}/audit", headers=auth_headers)
+    assert audit.status_code == 200, audit.text
+
+    ledger_service.post_voucher(draft.id)
+    posted = client.get(f"/api/v1/vouchers/{draft.id}", headers=auth_headers)
+    assert posted.json()["number"] == 1
+    assert posted.json()["status"] == "posted"
+
+
+def test_13b_routes_that_format_numbers_do_not_fail_on_drafts(
+    ledger_service, test_period, auth_headers
+):
+    """Case 13, backend: with a draft beside a posted voucher, the list sorted
+    on number, the general ledger and the compliance run all answer 200, and
+    the ledger report shows only the posted voucher."""
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+
+    client = TestClient(app)
+    ledger_service.post_voucher(_draft(ledger_service, test_period).id)
+    _draft(ledger_service, test_period)
+
+    for order in ("asc", "desc"):
+        response = client.get(
+            f"/api/v1/vouchers?sort_by=number&sort_order={order}",
+            headers=auth_headers,
+        )
+        assert response.status_code == 200, response.text
+
+    ledger = client.get(
+        "/api/v1/reports/general-ledger/1510",
+        params={"fiscal_year_id": test_period.fiscal_year_id},
+        headers=auth_headers,
+    )
+    assert ledger.status_code == 200, ledger.text
+    assert [t["voucher_number"] for t in ledger.json()["transactions"]] == ["A1"]
+
+    from services.compliance import ComplianceService
+
+    ComplianceService().run_all_checks()
+
+
+def test_13c_list_all_puts_drafts_last_in_both_directions(ledger_service, test_period):
+    """`list_all(sort_by='number')`: posted by series and number in the asked
+    direction, drafts (NULL) after them either way."""
+    from repositories.voucher_repo import VoucherRepository
+
+    early_draft = _draft(ledger_service, test_period)
+    for series in ("A", "A", "B"):
+        ledger_service.post_voucher(_draft(ledger_service, test_period, series).id)
+    late_draft = _draft(ledger_service, test_period, series="B")
+
+    def order(direction):
+        vouchers, total = VoucherRepository.list_all(
+            sort_by="number", sort_order=direction
+        )
+        assert total == 5
+        return [(v.series.value, v.number) for v in vouchers]
+
+    assert order("asc")[:3] == [("A", 1), ("A", 2), ("B", 1)]
+    assert order("desc")[:3] == [("B", 1), ("A", 2), ("A", 1)]
+    for direction in ("asc", "desc"):
+        assert [n for _, n in order(direction)[3:]] == [None, None]
+
+    # Among themselves, drafts follow series in the asked direction.
+    assert [v.id for v in VoucherRepository.list_all(sort_by="number")[0][3:]] == [
+        late_draft.id,
+        early_draft.id,
+    ]
+
+
+def test_13d_agent_reads_a_draft_as_number_null(ledger_service, test_period):
+    """The agent's `las_verifikationer` gives `number: None` for a draft — no
+    crash and no invented number — and the number once posted."""
+    from services.agent_tools import execute_tool
+    from services.llm import LLMCapabilities
+
+    draft = _draft(ledger_service, test_period)
+    caps = LLMCapabilities(
+        cache_breakpoint=True, pdf_document_blocks=True, refusal_stop_reason=True
+    )
+
+    result = execute_tool(
+        "las_verifikationer",
+        {"period_id": test_period.id},
+        actor="agent",
+        capabilities=caps,
+    )
+    assert [(v["id"], v["number"], v["status"]) for v in result["items"]] == [
+        (draft.id, None, "draft")
+    ]
+
+    ledger_service.post_voucher(draft.id)
+    result = execute_tool("las_verifikationer", {}, actor="agent", capabilities=caps)
+    assert result["items"][0]["number"] == 1

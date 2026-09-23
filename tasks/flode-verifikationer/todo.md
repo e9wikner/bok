@@ -64,7 +64,26 @@ oräknade. Testfallsnumren syftar på tabellerna i §14. Backendens tester ligge
     postning. Ett test som *förutsätter* att ett utkast har nummer är ett test av det gamla felet.
     Det ska stå i commit-meddelandet vilka som ändrades.
 
-- [ ] **F3 — `number: Optional` i backenden, och luckkontrollen per räkenskapsår**
+- [x] **F3 — `number: Optional` i backenden, och luckkontrollen per räkenskapsår**
+  - Gjort 2026-09-23: 6 tester (testfall 12, 12b, 13, 13b, 13c, 13d) i `tests/test_numrering.py`;
+    12 och 13c sedda röda först, 13/13b/13d var gröna redan efter F2 och står kvar som vakt.
+    `_check_voucher_sequence` grupperar på `series, fiscal_year_id` och nämner räkenskapsåret
+    (datumintervallet) i rubrik och beskrivning. `list_all(sort_by="number")` sorterar
+    `number IS NULL` först i nyckeln: utkasten hamnar sist vid både `asc` och `desc`, sinsemellan
+    efter serie och datum i den begärda riktningen. Genomgången av varje ställe som läser ett
+    nummer: `_voucher_dict`, `VoucherResponse` och noteringarnas ögonblicksbild skickar bara
+    vidare och ger `null` för utkast (testat genom `las_verifikationer` och `GET /vouchers`,
+    `/vouchers/{id}`, `/vouchers/{id}/audit`); `get_account_ledger`, huvudboken i `reports.py`
+    (`_filter_posted_vouchers`), `sie4_export` och `_check_large_amounts` läser bara postade;
+    korrigeringstexterna (`06d`) läser originalet, som alla vägar kräver postat (`not_posted`);
+    `import_sie4`/`sie4_import` formaterar filens tolkade verifikationer, inte lagrade. Där
+    ändrades ingenting. Enda ändringen utöver de två: det tillfälliga valideringsutkastet i
+    `_validate_correction_rows` bar `number=0`, nu `None`. Tre produktionsfiler. Hela sviten:
+    1026 passed; `mypy .` 61 fel som före. Avvikelser, specen §4.3 och §4.5 uppdaterade:
+    `domain/models.py`, `api/schemas.py` och `agent_tools.py` behövde inte röras (typningen kom i
+    F2, `_voucher_dict` gav redan `None`). Känt, inte ändrat: `_issue_exists` släpper bara in en
+    öppen `voucher_sequence`-fråga åt gången (den har inget `entity_id`), så två serier/år med
+    luckor syns en i taget i `run_all_checks` — kontrollen själv hittar båda.
   - Acceptans: `Voucher.number` och `VoucherResponse.number` är `Optional[int]`. Varje ställe i
     backenden som formaterar ett nummer hanterar `None`: `_voucher_dict` i verktygen, `compliance`,
     `sie4_export`, `reports`, `import_sie4` och beskrivningstexten för korrigeringar.

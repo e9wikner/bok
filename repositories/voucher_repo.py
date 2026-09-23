@@ -252,7 +252,13 @@ class VoucherRepository:
             sort_order = "asc" if sort_col == "age" else "desc"
         sort_dir = "ASC" if sort_order == "asc" else "DESC"
         if sort_col == "number":
-            order_clause = f"series {sort_dir}, number {sort_dir}"
+            # A draft has no number (SPEC-flode-verifikationer §4.3). SQLite
+            # puts NULL first in ASC and last in DESC; drafts go last in both
+            # directions, after the posted series they have not joined yet.
+            order_clause = (
+                f"number IS NULL, series {sort_dir}, number {sort_dir}, "
+                f"date {sort_dir}"
+            )
         else:
             order_clause = f"date {sort_dir}, series, number"
 
