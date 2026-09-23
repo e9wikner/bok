@@ -60,8 +60,11 @@ describe("skalet håller sig innanför sin gräns (testfall 18)", () => {
   });
 
   it("AppShellClient är den enda komponenten utanför skalet som rör det", () => {
+    // `chattyta` är skalets egen tråd (SPEC-chattyta.md §1: beror på `skal`),
+    // inte en av de 24 gamla sidorna som vakten skyddar.
     const traffar = filerUnder(path.join(ROT, "components"))
       .filter((f) => !f.includes(`${path.sep}skal${path.sep}`))
+      .filter((f) => !f.includes(`${path.sep}chattyta${path.sep}`))
       .filter((f) => /@\/(components|lib|hooks)\/skal/.test(readFileSync(f, "utf8")))
       .map((f) => path.basename(f));
     expect(traffar).toEqual(["AppShellClient.tsx"]);

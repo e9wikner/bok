@@ -109,7 +109,14 @@ Ingen uppgift rör Python.
   - Filer: `components/chattyta/JamforelseRader.tsx`, `components/chattyta/TradRenderare.tsx`,
     `components/chattyta/__tests__/jamforelse.test.tsx`
 
-- [ ] **C10 — `VerifikationsForslag` utan knapp**
+- [x] **C10 — `VerifikationsForslag` utan knapp**
+  - Gjort 2026-09-23: 9 tester (testfall 24), skrivna före komponenten och sedda röda.
+    Avvikelser: `TradRenderare.tsx` rördes inte — C5 skapar den och registrerar kortet. Kortet
+    tar hela `DraftInlagg` (för `data-inlagg-id`), inte bara kroppen. Fotens `#78716c` har ingen
+    token och står som `text-[#78716c]`. Rubrik-, kolumn- och fotpadding saknas i
+    `komponenter.md`; valda kring radens 18 px. `lib/skal/__tests__/grans.test.tsx` undantar nu
+    `components/chattyta/` — vakten skyddar de 24 gamla sidorna, och `chattyta` beror på `skal`
+    enligt spec §1.
   - Acceptans: rubrikrad, kolumnrubriker Konto / Debet / Kredit (högra två 92 px högerställda),
     `KonteringsRad`, fot, konsekvensnotis i mono 12 `#52525b`. `kind` ≠ `voucher` →
     `okant_kontrakt` (redan i C1). Knappraden finns som slot, tom.
