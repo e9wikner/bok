@@ -1688,6 +1688,20 @@ class TestBase64NeverReachesAPost:
         assert len(compacted["summary"]) < 500
         assert compacted["summary"].startswith("xxx")
 
+    def test_a_long_answer_is_stored_whole(self):
+        """The 200-character cap is for a chip's one line, not for what the
+        agent said: an answer is stored exactly as the human watched it
+        stream."""
+        thread, _ = _thread_with_posts()
+        run_id = _run_with_tool_calls(("las_verifikationer", {"rows": []}))
+        answer = "Ja – med viktiga förbehåll. " + "x" * 1000
+
+        post = ThreadService.record_outcome(
+            thread, run_id, SessionOutcome(kind="answered", text=answer)
+        )
+
+        assert post.body["text"] == answer
+
     def test_ordinary_values_pass_through_untouched(self):
         payload = {"items": [1, 2, 3], "total": 12500, "note": "kort text"}
 

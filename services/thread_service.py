@@ -46,7 +46,9 @@ _BINARY_KEYS = ("data", "base64", "content_bytes")
 _MAX_TRACE_VALUE_CHARS = 200
 
 
-def compact(value: Any, _depth: int = 0) -> Any:
+def compact(
+    value: Any, max_chars: Optional[int] = _MAX_TRACE_VALUE_CHARS, _depth: int = 0
+) -> Any:
     """Strip binary payloads out of anything bound for a post.
 
     Mirrors `services.agent_runtime._compact_tool_result` for whole content
@@ -55,6 +57,10 @@ def compact(value: Any, _depth: int = 0) -> Any:
     one. A `data` field under an Anthropic `source` is the base64 itself, so
     it is replaced rather than truncated -- a truncated base64 string is not
     smaller in any way that matters and is no longer valid for anything.
+
+    `max_chars` caps each plain string for a chip's one line. A post's body
+    passes `None`: what the agent said is stored whole, never shortened to
+    fit a chip.
 
     Depth-limited: a payload nested deeper than this is not a shape any tool
     in `AGENT_TOOL_DEFINITIONS` returns, and recursion without a floor is how
@@ -69,14 +75,14 @@ def compact(value: Any, _depth: int = 0) -> Any:
             key: (
                 "<binary content omitted>"
                 if key in _BINARY_KEYS and isinstance(item, str)
-                else compact(item, _depth + 1)
+                else compact(item, max_chars, _depth + 1)
             )
             for key, item in value.items()
         }
     if isinstance(value, list):
-        return [compact(item, _depth + 1) for item in value]
-    if isinstance(value, str) and len(value) > _MAX_TRACE_VALUE_CHARS:
-        return value[:_MAX_TRACE_VALUE_CHARS] + "…"
+        return [compact(item, max_chars, _depth + 1) for item in value]
+    if max_chars is not None and isinstance(value, str) and len(value) > max_chars:
+        return value[:max_chars] + "…"
     return value
 
 
@@ -291,7 +297,7 @@ class ThreadService:
                 thread_id=thread.id,
                 post_type=post_type,
                 actor=actor,
-                body=compact(body),
+                body=compact(body, max_chars=None),
                 traces=traces or None,
                 run_id=run_id,
             )
@@ -310,7 +316,7 @@ class ThreadService:
         # nested transactions; the outer block below is not a second one,
         # it is the guard for everything up to the point where `create`
         # takes over.
-        compacted_body = compact(body)
+        compacted_body = compact(body, max_chars=None)
         with db.transaction():
             post = ThreadRepository.add_post(
                 thread_id=thread.id,
