@@ -95,8 +95,28 @@ describe("tråden kommer ur useTrad och ritas av chattytans renderare", () => {
 
   it("tråden är bottenankrad", () => {
     render(<ChattKolumn vyTitel="Balansräkning" viewKey="bocker.balans" />);
-    expect(screen.getByLabelText("Tråd för Balansräkning").className).toContain("justify-end");
+    const inre = screen.getByLabelText("Tråd för Balansräkning").firstElementChild!;
+    expect(inre.className).toContain("justify-end");
+    expect(inre.className).toContain("min-h-full");
   });
+
+  it.each(["desktop", "mobil"] as const)(
+    "tråden skrollar i stället för att klippa de äldsta inläggen (%s)",
+    (variant) => {
+      // Före rättelsen: `overflow-hidden` + `justify-end` på samma element.
+      // En tråd högre än kolumnen tappade sina äldsta inlägg ovanför kanten,
+      // och det fanns inget sätt att nå dem.
+      render(
+        <TradYta vyTitel="Verifikationer" viewKey="bocker.verifikationer" trad={tradSvar} variant={variant} />
+      );
+      const yta = screen.getByLabelText("Tråd för Verifikationer");
+      expect(yta.className).toContain("overflow-y-auto");
+      expect(yta.className).not.toContain("overflow-hidden");
+      // Bottenankringen sitter på det inre elementet — på skrollelementet
+      // självt gör `justify-end` överflödet ovanför oåtkomligt.
+      expect(yta.className).not.toContain("justify-end");
+    }
+  );
 
   it("inläggen krymper inte när tråden är högre än ytan — ett kort klipps aldrig (chattyta C14)", () => {
     // Hittat vid visuell kontroll: ett kort med `overflow-hidden` fick
@@ -105,11 +125,67 @@ describe("tråden kommer ur useTrad och ritas av chattytans renderare", () => {
     const { rerender } = render(
       <TradYta vyTitel="Verifikationer" viewKey="bocker.verifikationer" trad={tradSvar} />
     );
-    expect(screen.getByLabelText("Tråd för Verifikationer").className).toContain("[&>*]:shrink-0");
+    const inre = () => screen.getByLabelText("Tråd för Verifikationer").firstElementChild!;
+    expect(inre().className).toContain("[&>*]:shrink-0");
     rerender(
       <TradYta vyTitel="Verifikationer" viewKey="bocker.verifikationer" trad={tradSvar} variant="mobil" />
     );
-    expect(screen.getByLabelText("Tråd för Verifikationer").className).toContain("[&>*]:shrink-0");
+    expect(inre().className).toContain("[&>*]:shrink-0");
+  });
+});
+
+describe("tråden följer med nedåt — men bara när man redan är längst ner", () => {
+  /** jsdom räknar ingen layout; måtten sätts för hand. */
+  function mat(el: HTMLElement, { hojd, synlig }: { hojd: number; synlig: number }) {
+    Object.defineProperty(el, "scrollHeight", { configurable: true, get: () => hojd });
+    Object.defineProperty(el, "clientHeight", { configurable: true, get: () => synlig });
+  }
+  const mer = (n: number): UseTrad => ({
+    ...tradSvar,
+    inlagg: [
+      ...trad,
+      ...Array.from({ length: n }, (_, i) =>
+        typad({ ...FIXTUR_AGENT_TEXT, id: `ny-${i}`, seq: 10 + i })
+      ),
+    ],
+  });
+
+  it("ett nytt inlägg skrollar fram när man var längst ner", () => {
+    const { rerender } = render(
+      <TradYta vyTitel="Resultat" viewKey="bocker.resultat" trad={tradSvar} />
+    );
+    const yta = screen.getByLabelText("Tråd för Resultat");
+    mat(yta, { hojd: 2000, synlig: 500 });
+    rerender(<TradYta vyTitel="Resultat" viewKey="bocker.resultat" trad={mer(1)} />);
+    expect(yta.scrollTop).toBe(2000);
+  });
+
+  it("den som skrollat upp för att läsa blir kvar där den är", () => {
+    const { rerender } = render(
+      <TradYta vyTitel="Resultat" viewKey="bocker.resultat" trad={tradSvar} />
+    );
+    const yta = screen.getByLabelText("Tråd för Resultat");
+    mat(yta, { hojd: 2000, synlig: 500 });
+    yta.scrollTop = 300; // långt från botten (2000 − 500 = 1500)
+    yta.dispatchEvent(new Event("scroll"));
+    rerender(<TradYta vyTitel="Resultat" viewKey="bocker.resultat" trad={mer(1)} />);
+    expect(yta.scrollTop).toBe(300);
+  });
+
+  it("strömmande text följer också med", () => {
+    const { rerender } = render(
+      <TradYta vyTitel="Resultat" viewKey="bocker.resultat" trad={tradSvar} />
+    );
+    const yta = screen.getByLabelText("Tråd för Resultat");
+    mat(yta, { hojd: 1200, synlig: 500 });
+    rerender(
+      <TradYta
+        vyTitel="Resultat"
+        viewKey="bocker.resultat"
+        trad={{ ...tradSvar, strommande: { id: "streaming-r", run_id: "r", text: "Jag läser", activity: null } }}
+      />
+    );
+    expect(yta.scrollTop).toBe(1200);
   });
 });
 

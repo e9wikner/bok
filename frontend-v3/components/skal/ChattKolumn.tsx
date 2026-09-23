@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef } from "react";
+import { useCallback, useLayoutEffect, useRef } from "react";
 import { ChattFaltFokus, TradRenderare } from "@/components/chattyta/TradRenderare";
 import { ChattFalt } from "@/components/skal/ChattFalt";
 import { useTrad, type UseTrad } from "@/hooks/useTrad";
@@ -59,15 +59,32 @@ export function TradYta({
   trad: TradData;
   variant?: "desktop" | "mobil";
 }) {
+  const yta = useRef<HTMLDivElement>(null);
+  const langstNer = useRef(true);
+
+  // Följ med nedåt när något nytt kommer — men bara om människan redan var
+  // längst ner. Den som skrollat upp för att läsa ett gammalt beslut ska inte
+  // ryckas ner av nästa delta.
+  useLayoutEffect(() => {
+    const el = yta.current;
+    if (el && langstNer.current) el.scrollTop = el.scrollHeight;
+  }, [trad.inlagg, trad.strommande]);
+
   return (
     <div
-      // `[&>*]:shrink-0`: ett kort med `overflow-hidden` får annars flexens
-      // `min-height: 0`, krymper, och klipper sin sista rad — i
-      // AlternativLista vägen ut (hittat vid chattyta C14:s visuella kontroll).
+      ref={yta}
+      onScroll={(e) => {
+        const el = e.currentTarget;
+        langstNer.current = el.scrollHeight - el.scrollTop - el.clientHeight < NARA_BOTTEN_PX;
+      }}
+      // Skrollelementet och bottenankringen är två element. Med
+      // `justify-end` på själva skrollelementet hamnar överflödet OVANFÖR
+      // kanten, där det inte går att skrolla till — tråden tappade sina
+      // äldsta inlägg (hittat vid chattyta C14:s visuella kontroll).
       className={
         variant === "desktop"
-          ? "flex flex-1 flex-col justify-end gap-6 overflow-hidden px-[38px] py-[26px] [&>*]:shrink-0"
-          : "bok-dold-skroll flex h-[260px] flex-col gap-[18px] overflow-auto border-t border-bok-linje-svagast px-[18px] pb-[18px] pt-4 [&>*]:shrink-0"
+          ? "min-h-0 flex-1 overflow-y-auto"
+          : "bok-dold-skroll h-[260px] overflow-y-auto border-t border-bok-linje-svagast"
       }
       // INTE en live-region: då lästes varje text-delta upp ord för ord.
       // Annonseringen bor i `TradRenderare`s dolda region (SPEC-chattyta
@@ -75,15 +92,30 @@ export function TradYta({
       role="region"
       aria-label={`Tråd för ${vyTitel}`}
     >
-      <TradRenderare inlagg={trad.inlagg} strommande={trad.strommande} viewKey={viewKey} />
-      {trad.fel != null && (
-        <p data-testid="trad-fel" className="bok-mono m-0 text-[12px] text-bok-text-svag">
-          {felText(trad.fel)}
-        </p>
-      )}
+      <div
+        // `min-h-full` + `justify-end`: en kort tråd ligger vid fältet, en
+        // lång växer uppåt och skrollar. `[&>*]:shrink-0`: ett kort med
+        // `overflow-hidden` krymper annars och klipper sin sista rad — i
+        // AlternativLista vägen ut (chattyta C14).
+        className={
+          variant === "desktop"
+            ? "flex min-h-full flex-col justify-end gap-6 px-[38px] py-[26px] [&>*]:shrink-0"
+            : "flex min-h-full flex-col justify-end gap-[18px] px-[18px] pb-[18px] pt-4 [&>*]:shrink-0"
+        }
+      >
+        <TradRenderare inlagg={trad.inlagg} strommande={trad.strommande} viewKey={viewKey} />
+        {trad.fel != null && (
+          <p data-testid="trad-fel" className="bok-mono m-0 text-[12px] text-bok-text-svag">
+            {felText(trad.fel)}
+          </p>
+        )}
+      </div>
     </div>
   );
 }
+
+/** Så nära botten räknas som "längst ner" — ungefär en rad text. */
+const NARA_BOTTEN_PX = 48;
 
 /**
  * Desktopkolumnen: tråden och fältet.
