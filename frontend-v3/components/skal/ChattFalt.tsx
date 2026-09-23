@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useState } from "react";
+import { forwardRef, useId, useState } from "react";
 
 /**
  * `ChattFalt` (komponenter.md): radius 12, streckad kant #c7c7cc,
@@ -32,6 +32,9 @@ export const ChattFalt = forwardRef<
     onSkicka?: (text: string) => Promise<boolean> | boolean | void;
   }
 >(function ChattFalt({ vyTitel, variant = "desktop", onSkicka }, ref) {
+  // Ett id per fält: svepraden har flera kolumner på skärmen samtidigt, och
+  // ett delat id gjorde att etiketten pekade på första kolumnens fält.
+  const faltId = useId();
   const [text, setText] = useState("");
   // Ett andra Enter medan det första är i flykt skickar inte igen: texten
   // står ju kvar i fältet tills servern svarat, och samma fråga två gånger
@@ -63,12 +66,12 @@ export const ChattFalt = forwardRef<
       }}
     >
       <div className="flex items-center gap-3 rounded-[12px] border border-dashed border-bok-kant-streckad bg-bok-yta-falt px-4 py-[13px]">
-        <label htmlFor="skal-chattfalt" className="sr-only">
+        <label htmlFor={faltId} className="sr-only">
           {etikett}
         </label>
         <input
           ref={ref}
-          id="skal-chattfalt"
+          id={faltId}
           name="skal-chattfalt"
           type="text"
           autoComplete="off"

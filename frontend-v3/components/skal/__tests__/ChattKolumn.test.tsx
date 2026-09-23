@@ -134,6 +134,24 @@ describe("tråden kommer ur useTrad och ritas av chattytans renderare", () => {
   });
 });
 
+describe("varje kolumns fält har sitt eget id", () => {
+  it("två kolumner på skärmen: etiketten pekar på sin egen kolumns fält", () => {
+    // Före rättelsen hade alla fält `id="skal-chattfalt"`, så etiketten i
+    // andra kolumnen pekade på första kolumnens fält.
+    render(
+      <>
+        <ChattKolumn vyTitel="Balansräkning" viewKey="bocker.balans" aktiv={false} />
+        <ChattKolumn vyTitel="Resultaträkning" viewKey="bocker.resultat" aktiv={false} />
+      </>
+    );
+    const balans = screen.getByLabelText(/i balansräkning/i);
+    const resultat = screen.getByLabelText(/i resultaträkning/i);
+    expect(balans).not.toBe(resultat);
+    expect(balans.id).not.toBe(resultat.id);
+    expect(document.querySelectorAll(`[id="${balans.id}"]`)).toHaveLength(1);
+  });
+});
+
 describe("tråden följer med nedåt — men bara när man redan är längst ner", () => {
   /** jsdom räknar ingen layout; måtten sätts för hand. */
   function mat(el: HTMLElement, { hojd, synlig }: { hojd: number; synlig: number }) {
