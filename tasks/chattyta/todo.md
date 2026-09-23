@@ -23,7 +23,16 @@ Ingen uppgift rör Python.
     `lib/chattyta/__tests__/parse.test.ts`
   - Obs: **landas före alla renderare.** Kontraktet är ett ställe, inte åtta `body.x ?? ""`.
 
-- [ ] **C2 — SSE-läsaren**
+- [x] **C2 — SSE-läsaren**
+  - Gjort 2026-09-23: 22 tester (testfall 5, 6, 9 plus avbrott och headers), sedda röda först.
+    Basadressen ur `apiClient.defaults.baseURL`, token ur `localStorage` som interceptorn gör —
+    `fetch` går inte genom axios. Avvikelser: det finns ingen 401-utloggning i `lib/api.ts` att
+    återanvända (bara en request-interceptor); `oppnaStrom` tar därför `onObehorig`, och C3:s
+    `useTrad` skickar `useAuth().logout`. Bara `401` avslutar; `404`, `5xx` och nätverksfel
+    återansluts med backoff — att inte öppna strömmen mot en tråd som inte finns är C3:s jobb.
+    En ram med trasig JSON hoppas över med en varning, strömmen lever vidare. Node 26:s globala
+    `localStorage` skuggar jsdom:s i vitest; testerna stubbar den med `vi.stubGlobal` (gäller även
+    C3 och C12). `prettier --check` klagar på både C1 och C2 — prettier är inte en gate i repot.
   - Acceptans: `lasHandelser(stream: ReadableStream<Uint8Array>)` ger `{event, data}` i ordning;
     ramar delade över chunk-gränser, flerradig `data:`, kommentarsramar ignorerade.
     `oppnaStrom({viewKey, since, signal, onHandelse})` via `fetch` med bearer-headern ur samma
