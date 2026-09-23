@@ -93,7 +93,23 @@ oräknade. Testfallsnumren syftar på tabellerna i §14. Backendens tester ligge
     `services/agent_tools.py` samt det `grep -rn '\.number\b' services repositories api` visar.
     Blir det fler än fem, dela uppgiften i schema och formatering.
 
-- [ ] **F4 — Klienten: ett utkast utan nummer**
+- [x] **F4 — Klienten: ett utkast utan nummer**
+  - Gjort 2026-09-23: `formatVerifikationsnummer(nummer, serie?, avgransare = "")` i
+    `lib/utils.ts` ger `Utkast` när numret saknas, annars `A12`/`A-12`; alla ställen som visar ett
+    verifikationsnummer använder den. 3 nya vitest (formatteraren postad/utkast i
+    `lib/__tests__/verifikationsnummer.test.ts`, `verifikationerVy` med två utkast i
+    `bocker.test.ts`), sedda röda först (`A-null`); hela sviten 437 gröna, lint, `tsc` och
+    `NEXT_PUBLIC_SKAL=1` build gröna. `number: number | null` i `Voucher` (`lib/api.ts`) och
+    `Verifikation` (`lib/skal/bocker.ts`). Alla listor hade redan `key={id}`; ingen klientsortering
+    på nummer finns (`sort_by` går till servern). Orörda, eftersom de bara ser postade:
+    `voucher_number` i huvudboken (`app/reports`), `Postad · A-12` i `chattyta` och
+    `PostaUtfall.number`. Avvikelse: tio filer i stället för fyra. De gamla sidorna behövde
+    `app/page.tsx`, `app/vouchers/page.tsx`, `app/vouchers/[id]/page.tsx` (rubriken blir
+    `Verifikation` bredvid etiketten `Utkast`, kortet `Nummer` visar `Utkast`),
+    `app/learning/page.tsx` och `app/audit/page.tsx` (loggens `created`-payload har
+    `number: null`, gav `Anull`). Det bryter `skal`s testfall 18 (inga ändringar under `app/`
+    utanför `app/v4`), så `grans.test.tsx` fick ett namngivet undantag för exakt de fem filerna;
+    `SPEC-skal.md` §12 och specen §4.3 uppdaterade.
   - Acceptans: `number: number | null` i klientens typer. De gamla sidorna och `/v4` visar
     `Utkast` där de i dag visar ett utkasts nummer. Ingen `NaN`, ingen tom rubrik, ingen
     `A-null`.

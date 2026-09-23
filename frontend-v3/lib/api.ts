@@ -46,7 +46,8 @@ apiClient.interceptors.response.use(undefined, (error) => {
 // Types
 export interface Voucher {
   id: string;
-  number: number;
+  /** `null` för ett utkast; numret sätts vid postning. */
+  number: number | null;
   series: string;
   date: string;
   period_id: string;

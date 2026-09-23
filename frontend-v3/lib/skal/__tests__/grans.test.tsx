@@ -84,10 +84,21 @@ describe("skalet håller sig innanför sin gräns (testfall 18)", () => {
       // Grunt klonad CI-checkout utan main: den statiska vakten ovan gäller.
       return;
     }
+    // Undantag, inte skalets: `flode-verifikationer` F4 (SPEC-flode-verifikationer.md
+    // §4.3) låter utkast sakna nummer, och de gamla sidor som visar ett
+    // verifikationsnummer måste då visa `Utkast` i stället för `A-null`. Exakt de här.
+    const numreringen = [
+      "frontend-v3/app/page.tsx",
+      "frontend-v3/app/audit/page.tsx",
+      "frontend-v3/app/learning/page.tsx",
+      "frontend-v3/app/vouchers/page.tsx",
+      "frontend-v3/app/vouchers/[id]/page.tsx",
+    ];
     const tillatet = (f: string) =>
       f.includes("frontend-v3/app/v4/") ||
       f.endsWith("frontend-v3/app/globals.css") ||
-      f.endsWith("frontend-v3/app/layout.tsx");
+      f.endsWith("frontend-v3/app/layout.tsx") ||
+      numreringen.includes(f);
     expect(andrade.filter((f) => !tillatet(f))).toEqual([]);
   });
 });

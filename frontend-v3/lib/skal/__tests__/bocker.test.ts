@@ -127,6 +127,25 @@ describe("verifikationerVy", () => {
     expect(vanlig.variant).toBeUndefined();
   });
 
+  it("visar Utkast i stället för nummer på ett utkast (testfall 13)", () => {
+    const vy = verifikationerVy(
+      AR,
+      { total: 0, vouchers: [] },
+      {
+        total: 2,
+        vouchers: [
+          v({ id: "u1", status: "draft", number: null }),
+          v({ id: "u2", status: "draft", number: null }),
+        ],
+      }
+    );
+    const [u1, u2] = rader(vy);
+    expect(u1.meta).toBe("Utkast · 2026-09-04");
+    expect(u1.meta).not.toMatch(/null|NaN|A-/);
+    // Två utkast har båda `null`; identiteten är id.
+    expect([u1.id, u2.id]).toEqual(["u1", "u2"]);
+  });
+
   it("säger i foten när listan är avkortad", () => {
     const vy = verifikationerVy(AR, { total: 90, vouchers: [v({})] }, { total: 0, vouchers: [] });
     expect(vy.fot).toMatch(/Visar de 1 senaste/);

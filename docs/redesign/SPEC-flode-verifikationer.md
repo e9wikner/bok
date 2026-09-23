@@ -270,7 +270,11 @@ till schema: ett postat utan nummer, eller ett utkast med nummer, går inte att 
   `list_all(sort_by="number")` lägger utkasten sist i båda riktningarna. I klienten
   (`lib/utils.ts`, `lib/skal/*.ts`) är det F4. Utkast exporteras inte i SIE4
   (`sie4_export.py:224` läser bara postade), så exporten påverkas inte i praktiken.
-- De gamla sidorna i `frontend-v3` visar `Utkast` där de i dag visar ett utkasts nummer.
+- De gamla sidorna i `frontend-v3` visar `Utkast` där de i dag visar ett utkasts nummer. Regeln
+  bor i `formatVerifikationsnummer` i `lib/utils.ts`, som även `/v4` (`lib/skal/bocker.ts`)
+  använder. Det kräver ändringar i fem gamla sidor (`app/page.tsx`, `app/vouchers/page.tsx`,
+  `app/vouchers/[id]/page.tsx`, `app/learning/page.tsx`, `app/audit/page.tsx`), vilket
+  `SPEC-skal.md` testfall 18 annars förbjuder; vakten har ett namngivet undantag för just dem.
 
 ### 4.4 Utkast som finns i dag
 

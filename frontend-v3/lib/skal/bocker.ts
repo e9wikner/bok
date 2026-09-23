@@ -10,6 +10,7 @@
 
 import apiClient from "@/lib/api";
 import { formatBeloppHela } from "@/lib/skal/format";
+import { formatVerifikationsnummer } from "@/lib/utils";
 import type { VyData, VyRadData, VySektionData } from "@/lib/skal/vydata";
 import type { OverviewFiscalYear } from "@/lib/skal/api";
 
@@ -57,7 +58,8 @@ export interface Resultatrakning {
 export interface Verifikation {
   id: string;
   series: string;
-  number: number;
+  /** `null` för ett utkast; numret sätts vid postning. */
+  number: number | null;
   date: string;
   description: string;
   status: string;
@@ -254,7 +256,7 @@ export function resultatVy(ar: OverviewFiscalYear, r: Resultatrakning): VyData {
 }
 
 function verifikationsrad(v: Verifikation): VyRadData {
-  const nummer = `${v.series}-${v.number}`;
+  const nummer = formatVerifikationsnummer(v.number, v.series, "-");
   const saknar = v.status === "posted" && v.missing_attachment === true;
   return {
     id: v.id,

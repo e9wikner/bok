@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useVouchers, useFiscalYears } from "@/hooks/useData";
-import { formatCurrency, formatDate, formatFiscalYearLabel } from "@/lib/utils";
+import { formatCurrency, formatDate, formatFiscalYearLabel, formatVerifikationsnummer } from "@/lib/utils";
 import {
   FileText,
   ChevronLeft,
@@ -268,7 +268,7 @@ export default function VouchersPage() {
                             className="font-medium text-primary hover:underline flex items-center gap-2"
                           >
                             <FileText className="h-4 w-4" />
-                            {v.number}
+                            {formatVerifikationsnummer(v.number)}
                           </Link>
                         </td>
                         <td className="p-4 text-muted-foreground">

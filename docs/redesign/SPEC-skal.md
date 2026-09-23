@@ -395,7 +395,7 @@ hela vägen (det är `flode-verifikationer`, inte skalet) är Playwright rätt v
 | 15 | `ny`-markeringen försvinner efter sin varaktighet | S9 |
 | 16 | `ChattList` visar märket för väntande beslut även minimerad | S10 |
 | 17 | Fakturering och Löner har ingen primärknapp i vyns fot | S12 |
-| 18 | Ingen fil under `app/` utanför skalet har ändrats utom `AppShellClient.tsx` | S13 |
+| 18 | Ingen fil under `app/` utanför skalet har ändrats utom `AppShellClient.tsx` (undantag: de fem sidor `flode-verifikationer` F4 måste röra, se `SPEC-flode-verifikationer.md` §4.3) | S13 |
 
 Testfall 7 och 18 är regressionsvakter mot §3:s löfte: de gamla sidorna ska inte märka att
 modulen har funnits.
