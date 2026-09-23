@@ -45,6 +45,7 @@ from services.llm import (
     StreamToolCallHook,
     ToolCall,
     Usage,
+    api_model_id,
 )
 
 # Normalizes anthropic.types.StopReason -> services.llm.StopReason.
@@ -193,7 +194,8 @@ class MessagesClient:
         ]
 
         return {
-            "model": model,
+            # The bare id: the gateway prefix is config, not wire.
+            "model": api_model_id(model),
             "max_tokens": max_tokens,
             "system": system_blocks,
             "messages": messages,

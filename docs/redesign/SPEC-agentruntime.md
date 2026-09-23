@@ -106,6 +106,14 @@ sin egen leverantör:
 Gemini-vägen är utelämnad med avsikt: den är ett tredje protokoll för en familj ingen bett om, och
 den kan läggas till som en tredje adapter utan att röra något annat.
 
+**Tillägg: OpenCode Go som andra gateway.** Go (abonnemanget) har en egen bas-URL,
+`https://opencode.ai/zen/go/v1` (`LLM_GO_BASE_URL`), och talar samma två protokoll. Vilken gateway
+en modell går mot avgörs av prefixet i modell-id:t: `opencode/…` går mot Zen och `opencode-go/…` mot
+Go. Det gör att båda kan användas sida vid sida. På tråden sparas det fullständiga id:t, men mot
+gatewayen skickas det utan prefix. Protokollet står uttryckligen på varje rad i modellregistret och
+härleds inte ur namnet, eftersom Go serverar Qwen och MiniMax över Messages. Modeller som bara finns
+på `/responses` (Grok, GPT Luna och Muse på Go) har ingen adapter och finns därför inte i registret.
+
 ### Vad som skiljer sig mellan protokollen
 
 Det här är den verkliga kostnaden för leverantörsoberoendet, och den ska stå skriven innan någon

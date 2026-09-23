@@ -65,7 +65,14 @@ class Settings(BaseSettings):
     # Never log, print, or otherwise surface this value -- see §12.6.
     llm_api_key: str = os.getenv("LLM_API_KEY", "")
     llm_base_url: str = os.getenv("LLM_BASE_URL", "https://opencode.ai/zen/v1")
-    llm_default_model: str = os.getenv("LLM_DEFAULT_MODEL", "opencode/claude-opus-5")
+    # OpenCode Go, the subscription gateway. Picked per model by the
+    # `opencode-go/` prefix (services/llm/__init__.py), so Zen and Go models
+    # can be used side by side. The key comes from the same OpenCode
+    # account; an empty `LLM_GO_API_KEY` falls back to `LLM_API_KEY`.
+    llm_go_base_url: str = os.getenv("LLM_GO_BASE_URL", "https://opencode.ai/zen/go/v1")
+    # Same rule as `llm_api_key`: never log, print, or surface it.
+    llm_go_api_key: str = os.getenv("LLM_GO_API_KEY", "")
+    llm_default_model: str = os.getenv("LLM_DEFAULT_MODEL", "opencode-go/glm-5.3")
 
     # The four caps (SPEC §6.5). Checked between source documents and between
     # tool turns, never inside a `with db.transaction():`.
@@ -89,6 +96,12 @@ class Settings(BaseSettings):
     agent_thread_window_tokens: int = int(
         os.getenv("AGENT_THREAD_WINDOW_TOKENS", "12000")
     )
+
+    def gateway_for(self, provider: str) -> tuple[str, str]:
+        """(base_url, api_key) for a model's gateway -- `ModelInfo.provider`."""
+        if provider == "opencode-go":
+            return self.llm_go_base_url, self.llm_go_api_key or self.llm_api_key
+        return self.llm_base_url, self.llm_api_key
 
     @property
     def cors_origins_list(self) -> list[str]:

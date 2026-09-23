@@ -601,7 +601,7 @@ class TestRunTurnWiring:
             max_tokens=1024,
         )
 
-        assert received_kwargs["model"] == "opencode/gpt-5.5"
+        assert received_kwargs["model"] == "gpt-5.5"
         assert received_kwargs["messages"][0] == {
             "role": "system",
             "content": "systemprompt",

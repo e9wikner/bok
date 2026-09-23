@@ -81,6 +81,7 @@ from services.llm import (
     StreamToolCallHook,
     ToolCall,
     Usage,
+    api_model_id,
 )
 
 # Normalizes OpenAI's Chat Completions `finish_reason` -> services.llm.StopReason.
@@ -270,7 +271,8 @@ class ChatClient:
         # runtime. `**kwargs: dict[str, Any]` unpacks as `Any` per key, which
         # is what keeps `mypy .` clean here without a `cast` per argument.
         kwargs: dict[str, Any] = {
-            "model": model,
+            # The bare id: the gateway prefix is config, not wire.
+            "model": api_model_id(model),
             "messages": translated_messages,
             "tools": translated_tools,
             # `max_completion_tokens`, not the deprecated `max_tokens`:

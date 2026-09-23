@@ -212,18 +212,19 @@ def build_llm_client(model: str) -> LLMClient:
     empty, per SPEC §4/§10's "anthropic/openai importeras bara i
     services/llm/".
     """
-    protocol = get_model_info(model).protocol
-    if protocol == "messages":
+    info = get_model_info(model)
+    # Zen or Go, by the model id's prefix -- the protocol is independent of
+    # the gateway (Go serves Messages too).
+    base_url, api_key = settings.gateway_for(info.provider)
+    if info.protocol == "messages":
         from services.llm.messages import MessagesClient
 
-        return MessagesClient(
-            api_key=settings.llm_api_key, base_url=settings.llm_base_url
-        )
-    if protocol == "chat":
+        return MessagesClient(api_key=api_key, base_url=base_url)
+    if info.protocol == "chat":
         from services.llm.chat import ChatClient
 
-        return ChatClient(api_key=settings.llm_api_key, base_url=settings.llm_base_url)
-    raise UnsupportedProtocolError(protocol)
+        return ChatClient(api_key=api_key, base_url=base_url)
+    raise UnsupportedProtocolError(info.protocol)
 
 
 # ---------------------------------------------------------------------------

@@ -18,7 +18,7 @@ one (SPEC §9).
 """
 
 from dataclasses import dataclass
-from typing import Any, Callable, Literal, Optional, Protocol
+from typing import Any, Callable, Literal, Optional, Protocol, cast
 
 # ---------------------------------------------------------------------------
 # Value types (SPEC §4)
@@ -29,8 +29,14 @@ from typing import Any, Callable, Literal, Optional, Protocol
 #: there just comes back as ordinary text with `stop == "end"`.
 StopReason = Literal["tool_calls", "end", "refusal", "max_tokens"]
 
-#: Which wire protocol a model speaks on OpenCode Zen (SPEC §2).
+#: Which wire protocol a model speaks on its gateway (SPEC §2).
 ProtocolName = Literal["messages", "chat"]
+
+#: Which OpenCode gateway serves a model: Zen (pay per token) or Go (the
+#: subscription). Read off the model id's prefix -- `opencode/...` or
+#: `opencode-go/...`, the same prefixes OpenCode's own config uses -- and
+#: mapped to a base URL and key by `config.Settings.gateway_for`.
+Provider = Literal["opencode", "opencode-go"]
 
 
 @dataclass(frozen=True)
@@ -198,7 +204,7 @@ class UnknownModelError(Exception):
     def __init__(self, model: str) -> None:
         super().__init__(
             f"No price row for model {model!r}. "
-            "Add one to services/llm/_MODEL_PRICES before this model may run."
+            "Add one to services/llm/_MODELS before this model may run."
         )
         self.model = model
 
@@ -227,80 +233,175 @@ class ModelPrice:
 
 @dataclass(frozen=True)
 class ModelInfo:
-    """What `get_model_info` returns: a model's protocol and its price."""
+    """What `get_model_info` returns: a model's gateway, protocol and price."""
 
     model: str
     protocol: ProtocolName
     price: ModelPrice
+    #: Which gateway serves it -- the model id's prefix.
+    provider: Provider
+    #: The id the gateway expects in the request's `model` field: the stored
+    #: id without its prefix. Both gateways document the bare id; the
+    #: `opencode/` / `opencode-go/` prefix is OpenCode's config convention,
+    #: and it is what `threads.model` / `agent_runs.model` keep, so a run
+    #: still says afterwards which gateway it went to.
+    api_model: str
 
 
-# Claude family (Opus, Sonnet, Haiku, Fable) speaks the Anthropic Messages
-# protocol; every other model OpenCode Zen lists (GPT, Grok, Qwen, DeepSeek,
-# Kimi, GLM, MiniMax) speaks OpenAI Chat Completions (SPEC §2). Matched by
-# substring against the model id, case-insensitively, so
-# "opencode/claude-opus-5" and a bare "claude-3-7-sonnet" both resolve the
-# same way without a new branch per model.
-_MESSAGES_PROTOCOL_SUBSTRINGS: tuple[str, ...] = (
-    "claude",
-    "opus",
-    "sonnet",
-    "haiku",
-    "fable",
-)
+_PROVIDERS: tuple[Provider, ...] = ("opencode", "opencode-go")
 
 
-def _infer_protocol(model: str) -> ProtocolName:
-    lowered = model.lower()
-    if any(substring in lowered for substring in _MESSAGES_PROTOCOL_SUBSTRINGS):
-        return "messages"
-    return "chat"
+def api_model_id(model: str) -> str:
+    """`model` without its gateway prefix -- what goes on the wire.
+
+    Pure string work, no registry lookup, so the adapters' request builders
+    stay callable with any id in tests. An id without a known prefix is
+    passed through unchanged.
+    """
+    prefix, sep, bare = model.partition("/")
+    if sep and prefix in _PROVIDERS:
+        return bare
+    return model
 
 
-# Illustrative placeholder prices -- confirm against OpenCode Zen's actual
-# price sheet (https://opencode.ai/zen) before any real spend. These are
-# only real enough to give A9's cap/cost math and A12's chat-protocol tests
-# non-zero, plausible numbers to multiply.
+# Every model has an explicit protocol and price row -- no inference from
+# the name. A substring rule ("claude" means Messages) held on Zen, but Go
+# serves Qwen and MiniMax over Messages too, and a rule that is right by
+# coincidence is one model away from routing a request to the wrong
+# endpoint. Adding a model is still one dict entry.
+#
+# Models a gateway serves only over `/responses` (Go's Grok, GPT Luna and
+# Muse; Zen's newer GPT/Grok) have no adapter here and are deliberately
+# absent.
+#
+# Illustrative placeholder prices -- confirm against the gateways' actual
+# price sheets (https://opencode.ai/zen, https://opencode.ai/docs/go/)
+# before any real spend. Converted from USD at an illustrative ~10 SEK/USD,
+# not a maintained FX rate. Go is a flat subscription, but its quotas are
+# metered in these same per-token prices, and the daily cap (A9) needs a
+# cost per run either way.
 #
 # `opencode/claude-sonnet-5`'s USD reference ($2 in / $10 out per million
-# tokens) is the one figure SPEC-agentruntime.md §12.5 actually states;
-# converted here at an illustrative ~10 SEK/USD rate purely to seed a
-# plausible öre value -- not a maintained FX rate.
-_MODEL_PRICES: dict[str, ModelPrice] = {
-    "opencode/claude-opus-5": ModelPrice(
-        input_ore_per_million_tokens=15_000,
-        output_ore_per_million_tokens=75_000,
-        # Anthropic-style cache reads are billed at roughly 10% of the base
-        # input price.
-        cache_read_ore_per_million_tokens=1_500,
+# tokens) is the one figure SPEC-agentruntime.md §12.5 actually states.
+_MODELS: dict[str, tuple[ProtocolName, ModelPrice]] = {
+    # --- OpenCode Zen -----------------------------------------------------
+    "opencode/claude-opus-5": (
+        "messages",
+        ModelPrice(
+            input_ore_per_million_tokens=15_000,
+            output_ore_per_million_tokens=75_000,
+            # Anthropic-style cache reads are billed at roughly 10% of the
+            # base input price.
+            cache_read_ore_per_million_tokens=1_500,
+        ),
     ),
-    "opencode/claude-sonnet-5": ModelPrice(
-        input_ore_per_million_tokens=2_000,
-        output_ore_per_million_tokens=10_000,
-        cache_read_ore_per_million_tokens=200,
+    "opencode/claude-sonnet-5": (
+        "messages",
+        ModelPrice(
+            input_ore_per_million_tokens=2_000,
+            output_ore_per_million_tokens=10_000,
+            cache_read_ore_per_million_tokens=200,
+        ),
     ),
-    "opencode/gpt-5.5": ModelPrice(
-        input_ore_per_million_tokens=1_500,
-        output_ore_per_million_tokens=6_000,
-        # Chat Completions has no verifiable cache-read discount
-        # (capabilities.cache_breakpoint is False for this protocol), so
-        # this is priced the same as a plain input token.
-        cache_read_ore_per_million_tokens=1_500,
+    "opencode/gpt-5.5": (
+        "chat",
+        ModelPrice(
+            input_ore_per_million_tokens=1_500,
+            output_ore_per_million_tokens=6_000,
+            # Chat Completions has no verifiable cache-read discount
+            # (capabilities.cache_breakpoint is False for this protocol), so
+            # this is priced the same as a plain input token.
+            cache_read_ore_per_million_tokens=1_500,
+        ),
     ),
-    "opencode/grok-4": ModelPrice(
-        input_ore_per_million_tokens=2_500,
-        output_ore_per_million_tokens=10_000,
-        cache_read_ore_per_million_tokens=2_500,
+    "opencode/grok-4": (
+        "chat",
+        ModelPrice(
+            input_ore_per_million_tokens=2_500,
+            output_ore_per_million_tokens=10_000,
+            cache_read_ore_per_million_tokens=2_500,
+        ),
+    ),
+    # --- OpenCode Go ------------------------------------------------------
+    # Chat-protocol rows price a cache read as a plain input token, for the
+    # reason given on `opencode/gpt-5.5` above.
+    "opencode-go/glm-5.3": (
+        "chat",
+        ModelPrice(
+            input_ore_per_million_tokens=1_400,
+            output_ore_per_million_tokens=4_400,
+            cache_read_ore_per_million_tokens=1_400,
+        ),
+    ),
+    "opencode-go/glm-5.3-flash": (
+        "chat",
+        ModelPrice(
+            input_ore_per_million_tokens=150,
+            output_ore_per_million_tokens=500,
+            cache_read_ore_per_million_tokens=150,
+        ),
+    ),
+    "opencode-go/kimi-k3": (
+        "chat",
+        ModelPrice(
+            input_ore_per_million_tokens=3_000,
+            output_ore_per_million_tokens=15_000,
+            cache_read_ore_per_million_tokens=3_000,
+        ),
+    ),
+    "opencode-go/deepseek-v4-pro": (
+        "chat",
+        ModelPrice(
+            input_ore_per_million_tokens=660,
+            output_ore_per_million_tokens=1_980,
+            cache_read_ore_per_million_tokens=660,
+        ),
+    ),
+    "opencode-go/deepseek-v4.1-flash": (
+        "chat",
+        ModelPrice(
+            input_ore_per_million_tokens=150,
+            output_ore_per_million_tokens=600,
+            cache_read_ore_per_million_tokens=150,
+        ),
+    ),
+    "opencode-go/qwen3.8-max": (
+        "messages",
+        ModelPrice(
+            input_ore_per_million_tokens=2_000,
+            output_ore_per_million_tokens=6_000,
+            cache_read_ore_per_million_tokens=250,
+        ),
+    ),
+    "opencode-go/minimax-m3": (
+        "messages",
+        ModelPrice(
+            input_ore_per_million_tokens=300,
+            output_ore_per_million_tokens=1_200,
+            cache_read_ore_per_million_tokens=60,
+        ),
     ),
 }
 
 
 def get_model_info(model: str) -> ModelInfo:
-    """Resolve a model id to its protocol and price row.
+    """Resolve a model id to its gateway, protocol and price row.
 
-    Raises `UnknownModelError` if the model has no price row -- that is a
-    hard error by design (SPEC §2), not a fallback to a default price.
+    Raises `UnknownModelError` if the model has no row -- that is a hard
+    error by design (SPEC §2), not a fallback to a default price.
     """
-    price = _MODEL_PRICES.get(model)
-    if price is None:
+    row = _MODELS.get(model)
+    if row is None:
         raise UnknownModelError(model)
-    return ModelInfo(model=model, protocol=_infer_protocol(model), price=price)
+    protocol, price = row
+    # Every key in `_MODELS` carries one of `_PROVIDERS` as its prefix, so
+    # this cast cannot lie; `test_every_registered_model_has_a_known_provider`
+    # holds the table to that.
+    provider = cast(Provider, model.partition("/")[0])
+    return ModelInfo(
+        model=model,
+        protocol=protocol,
+        price=price,
+        provider=provider,
+        api_model=api_model_id(model),
+    )

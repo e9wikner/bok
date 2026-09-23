@@ -507,6 +507,55 @@ class TestModelRegistry:
             <= price.input_ore_per_million_tokens
         )
 
+    def test_zen_model_resolves_to_zen_provider_and_bare_api_model(self):
+        info = get_model_info("opencode/claude-opus-5")
+
+        assert info.provider == "opencode"
+        assert info.api_model == "claude-opus-5"
+
+    @pytest.mark.parametrize(
+        "model, protocol",
+        [
+            ("opencode-go/glm-5.3", "chat"),
+            ("opencode-go/glm-5.3-flash", "chat"),
+            ("opencode-go/kimi-k3", "chat"),
+            ("opencode-go/deepseek-v4-pro", "chat"),
+            ("opencode-go/deepseek-v4.1-flash", "chat"),
+            # Go serves these over Messages although they are not Claude --
+            # the reason the registry is explicit rather than name-inferred.
+            ("opencode-go/qwen3.8-max", "messages"),
+            ("opencode-go/minimax-m3", "messages"),
+        ],
+    )
+    def test_go_models_resolve_to_go_provider_and_their_protocol(self, model, protocol):
+        info = get_model_info(model)
+
+        assert info.provider == "opencode-go"
+        assert info.protocol == protocol
+        assert info.api_model == model.removeprefix("opencode-go/")
+
+    def test_go_id_under_the_zen_prefix_is_unknown(self):
+        with pytest.raises(UnknownModelError):
+            get_model_info("opencode/glm-5.3")
+
+    def test_unknown_prefix_is_unknown(self):
+        with pytest.raises(UnknownModelError):
+            get_model_info("glm-5.3")
+
+    def test_every_registered_model_has_a_known_provider(self):
+        from services.llm import _MODELS
+
+        for model in _MODELS:
+            assert model.partition("/")[0] in ("opencode", "opencode-go"), model
+
+    def test_api_model_id_strips_only_known_prefixes(self):
+        from services.llm import api_model_id
+
+        assert api_model_id("opencode-go/kimi-k3") == "kimi-k3"
+        assert api_model_id("opencode/gpt-5.5") == "gpt-5.5"
+        assert api_model_id("claude-opus-5") == "claude-opus-5"
+        assert api_model_id("other/model") == "other/model"
+
     def test_price_lookup_for_known_chat_model_also_has_expected_shape(self):
         info = get_model_info("opencode/gpt-5.5")
         price = info.price
@@ -531,11 +580,32 @@ class TestAgentRuntimeConfig:
     def test_llm_base_url_has_opencode_zen_default(self):
         assert Settings().llm_base_url == "https://opencode.ai/zen/v1"
 
-    def test_llm_default_model_is_a_priced_claude_model(self):
+    def test_llm_default_model_is_a_priced_go_model(self):
         # The default must itself resolve via get_model_info -- a default
         # that isn't priced would violate SPEC §2 on day one.
         info = get_model_info(Settings().llm_default_model)
-        assert info.protocol == "messages"
+        assert info.model == "opencode-go/glm-5.3"
+        assert info.provider == "opencode-go"
+        assert info.protocol == "chat"
+
+    def test_llm_go_base_url_has_opencode_go_default(self):
+        assert Settings().llm_go_base_url == "https://opencode.ai/zen/go/v1"
+
+    def test_go_gateway_falls_back_to_the_zen_key(self, monkeypatch):
+        monkeypatch.setenv("LLM_API_KEY", "shared-key")
+        monkeypatch.delenv("LLM_GO_API_KEY", raising=False)
+        s = Settings()
+
+        assert s.gateway_for("opencode-go") == (s.llm_go_base_url, "shared-key")
+        assert s.gateway_for("opencode") == (s.llm_base_url, "shared-key")
+
+    def test_go_gateway_uses_its_own_key_when_set(self, monkeypatch):
+        monkeypatch.setenv("LLM_API_KEY", "zen-key")
+        monkeypatch.setenv("LLM_GO_API_KEY", "go-key")
+        s = Settings()
+
+        assert s.gateway_for("opencode-go")[1] == "go-key"
+        assert s.gateway_for("opencode")[1] == "zen-key"
 
     def test_the_four_caps_have_specs_stated_defaults(self):
         settings = Settings()
@@ -2328,6 +2398,37 @@ class TestBuildLlmClient:
         assert client.capabilities.pdf_document_blocks is False
         assert client.capabilities.refusal_stop_reason is False
 
+    @pytest.mark.parametrize(
+        "model, base_url",
+        [
+            ("opencode-go/glm-5.3", "https://go.example/v1"),
+            ("opencode-go/minimax-m3", "https://go.example/v1"),
+            ("opencode/gpt-5.5", "https://zen.example/v1"),
+            ("opencode/claude-opus-5", "https://zen.example/v1"),
+        ],
+    )
+    def test_model_prefix_picks_the_gateway(self, monkeypatch, model, base_url):
+        import services.llm.chat as chat_module
+        import services.llm.messages as messages_module
+
+        monkeypatch.setattr(settings, "llm_base_url", "https://zen.example/v1")
+        monkeypatch.setattr(settings, "llm_go_base_url", "https://go.example/v1")
+        monkeypatch.setattr(settings, "llm_api_key", "zen-key")
+        monkeypatch.setattr(settings, "llm_go_api_key", "go-key")
+        constructed: list[dict] = []
+
+        def fake_sdk(**kwargs):
+            constructed.append(kwargs)
+            return object()
+
+        monkeypatch.setattr(messages_module.anthropic, "Anthropic", fake_sdk)
+        monkeypatch.setattr(chat_module.openai, "OpenAI", fake_sdk)
+
+        build_llm_client(model)
+
+        expected_key = "go-key" if model.startswith("opencode-go/") else "zen-key"
+        assert constructed == [{"api_key": expected_key, "base_url": base_url}]
+
     def test_unsupported_protocol_raises_unsupported_protocol_error(self, monkeypatch):
         # Every real model registered in services/llm/__init__.py resolves
         # to "messages" or "chat" (SPEC §2's two built adapters) -- there is
@@ -2342,6 +2443,8 @@ class TestBuildLlmClient:
             model="some/gemini-model",
             protocol="gemini",  # type: ignore[arg-type]
             price=get_model_info("opencode/claude-opus-5").price,
+            provider="opencode",
+            api_model="gemini-model",
         )
         monkeypatch.setattr(
             agent_runtime_module, "get_model_info", lambda model: fake_info

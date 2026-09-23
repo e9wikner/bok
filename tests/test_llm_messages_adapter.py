@@ -106,7 +106,7 @@ class TestBuildRequestKwargs:
     def test_model_and_max_tokens_pass_through(self):
         kwargs = self._build()
 
-        assert kwargs["model"] == "opencode/claude-opus-5"
+        assert kwargs["model"] == "claude-opus-5"
         assert kwargs["max_tokens"] == 4096
 
 
@@ -260,7 +260,7 @@ class TestRunTurnWiring:
         )
 
         assert fake_stream.entered is True
-        assert received_kwargs["model"] == "opencode/claude-opus-5"
+        assert received_kwargs["model"] == "claude-opus-5"
         assert received_kwargs["thinking"] == {"type": "adaptive"}
         assert turn.stop == "tool_calls"
         assert turn.tool_calls[0].name == "posta_verifikation"

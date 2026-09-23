@@ -61,8 +61,10 @@ Everything below is off or defaulted when absent.
 | `NEXT_PUBLIC_SKAL` | unset | `1` builds the frontend with the new shell at `/v4` (`docs/redesign/SPEC-skal.md` §3). It takes effect at **build** time: `deploy.sh` passes it as a build arg and rebuilds the frontend when the value changes. The 24 existing pages are unaffected either way. |
 | `AGENT_RUNTIME_ENABLED` | `False` | `true` starts the internal agent worker (`docs/redesign/SPEC-agentruntime.md`), which books pending intake with an LLM. It costs money, so it is off unless you say so. `deploy.sh` refuses to run if it is `true` and `LLM_API_KEY` is empty. |
 | `LLM_API_KEY` | empty | The LLM gateway key. Never logged or returned by any endpoint. |
-| `LLM_BASE_URL` | `https://opencode.ai/zen/v1` | The gateway. |
-| `LLM_DEFAULT_MODEL` | `opencode/claude-opus-5` | The model a pass uses unless told otherwise. |
+| `LLM_BASE_URL` | `https://opencode.ai/zen/v1` | The OpenCode Zen gateway, for `opencode/…` models. |
+| `LLM_GO_BASE_URL` | `https://opencode.ai/zen/go/v1` | The OpenCode Go gateway, for `opencode-go/…` models. The model id's prefix picks the gateway, so both can be used side by side. |
+| `LLM_GO_API_KEY` | empty | Key for the Go gateway. When it is empty, `LLM_API_KEY` is used. |
+| `LLM_DEFAULT_MODEL` | `opencode-go/glm-5.3` | The model a pass uses unless told otherwise. It must have a row in `services/llm/__init__.py`. |
 | `AGENT_DAILY_BUDGET_ORE` | `5000` | Daily spend cap in öre (50 kr). The agent pauses when it is reached. |
 | `AGENT_MAX_ITEMS_PER_PASS`, `AGENT_MAX_TOOL_TURNS_PER_ITEM`, `AGENT_MAX_OUTPUT_TOKENS_PER_ITEM`, `AGENT_THREAD_WINDOW_TOKENS` | `20`, `25`, `32000`, `12000` | The other caps; see `config.py`. |
 
