@@ -48,6 +48,8 @@ export interface VyData {
 // ─── Vyernas rader ────────────────────────────────────────────────────────
 // ERSÄTTS AV: vyernas egna endpoints (balans-/resultaträkning, verifikations-
 // listan, fakturor, lönekörningar, rapporter). Ingen av dem är skalets.
+// Böckernas tre (BALANS, RESULTAT, VERIFIKATIONER) är ersatta av
+// `lib/skal/bocker.ts` i skalet och finns kvar här bara som testdata.
 
 const BALANS: VyData = {
   lage: "vantar",

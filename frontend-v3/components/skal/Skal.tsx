@@ -10,13 +10,14 @@ import type { SidMeta } from "@/components/skal/SidVaeljare";
 import { VyInnehall } from "@/components/skal/VyInnehall";
 import { VySvep } from "@/components/skal/VySvep";
 import { useAgentStatus, useOverview } from "@/hooks/useSkal";
+import { useBockerVyer } from "@/hooks/useBockerVyer";
 import { useVantandeBeslut } from "@/hooks/useVantandeBeslut";
 import { useBredSkarm } from "@/hooks/useBredSkarm";
 import { arsrad } from "@/lib/skal/header";
 import { lageFarg } from "@/lib/skal/lage";
-import { MOCK_VYER } from "@/lib/skal/mock";
+import { MOCK_VYER, type VyData } from "@/lib/skal/mock";
 import { SKAL_RUTT, lasPosition } from "@/lib/skal/rutt";
-import { type Sidnyckel, type Vy, forstaVyn, sidan, vyAt } from "@/lib/skal/vyer";
+import { type Sidnyckel, type ViewKey, type Vy, forstaVyn, sidan, vyAt } from "@/lib/skal/vyer";
 
 /**
  * Skalet: tre sidor, sju vyer, en rutt.
@@ -73,7 +74,17 @@ export function Skal() {
     setVyIndex(0); // Byte av sida landar alltid på sidans första vy.
   }, []);
 
-  const data = MOCK_VYER[aktivVy.key];
+  // Böckernas vyer läser riktiga data; de övriga fyra är fortfarande mockade.
+  const bocker = useBockerVyer(
+    overview === undefined ? undefined : overview.fiscal_year,
+    sidnyckel === "bocker"
+  );
+  const vyData = (key: ViewKey): { data: VyData; laddar: boolean } =>
+    key in bocker
+      ? bocker[key as keyof typeof bocker]
+      : { data: MOCK_VYER[key], laddar: false };
+
+  const { data } = vyData(aktivVy.key);
   const vyStatus = { text: data.status, fg: lageFarg(data.lage) };
 
   return (
@@ -99,7 +110,7 @@ export function Skal() {
         aktivIndex={vyIndex}
         onIndexChange={setVyIndex}
         renderVy={(vy, i) => {
-          const vyData = MOCK_VYER[vy.key];
+          const { data: innehall, laddar } = vyData(vy.key);
           // Bara den aktiva vyns tråd läses och strömmas: svepraden renderar
           // sidans alla vyer, och SPEC-chattyta.md §6.2 punkt 5 säger en
           // ström per flik.
@@ -111,13 +122,13 @@ export function Skal() {
                 style={{ gridTemplateColumns: "1fr var(--bok-vykolumn)" }}
               >
                 <ChattKolumn vyTitel={vy.titel} viewKey={vy.key} aktiv={aktiv} />
-                <VyInnehall vy={vy} data={vyData} />
+                <VyInnehall vy={vy} data={innehall} laddar={laddar} />
               </div>
             );
           }
           return (
             <div className="flex min-h-0 flex-1 flex-col">
-              <VyInnehall vy={vy} data={vyData} variant="mobil" />
+              <VyInnehall vy={vy} data={innehall} laddar={laddar} variant="mobil" />
               <ChattList
                 vyTitel={vy.titel}
                 viewKey={vy.key}
