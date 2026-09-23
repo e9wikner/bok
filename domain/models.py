@@ -513,3 +513,31 @@ class Decision:
         """
         as_of = today if today is not None else date.today()
         return max((as_of - self.created_at.date()).days, 0)
+
+
+@dataclass
+class ThreadDraft:
+    """A draft voucher proposed in a thread, tracked until it is posted or
+    replaced (SPEC-flode-verifikationer.md §6).
+
+    `voucher_id` is the draft's `vouchers.id`, but not a foreign key: a
+    superseded draft is deleted while this row stays (§6.2). `status` moves
+    only `pending -> posted` or `pending -> superseded`, which
+    `ThreadDraftRepository` enforces; nothing outside
+    `repositories/thread_draft_repo.py` writes SQL against `thread_drafts`.
+    """
+
+    voucher_id: str
+    thread_id: str
+    post_id: str
+    view_key: str
+    status: str = "pending"  # 'pending' | 'posted' | 'superseded'
+    decision_id: Optional[str] = None
+    correction_of: Optional[str] = None
+    correction_note_id: Optional[str] = None
+    replaced_by: Optional[str] = None
+    posted_at: Optional[datetime] = None
+    receipt_post_id: Optional[str] = None
+    last_error_code: Optional[str] = None
+    last_error_post_id: Optional[str] = None
+    created_at: datetime = field(default_factory=datetime.now)

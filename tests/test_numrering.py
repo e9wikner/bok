@@ -230,7 +230,11 @@ def test_1_migration_keeps_posted_rows_and_clears_draft_numbers(v26_db):
     db.init_db()
     conn = db.connect()
 
-    assert _schema_version(conn) == 27
+    # 027 was applied; later migrations (028, …) run too and raise MAX.
+    assert (
+        conn.execute("SELECT 1 FROM schema_version WHERE version = 27").fetchone()
+        is not None
+    )
     # The runner's connection has foreign keys back on after 027.
     assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
 

@@ -117,7 +117,19 @@ oräknade. Testfallsnumren syftar på tabellerna i §14. Backendens tester ligge
   - Filer: `frontend-v3/lib/utils.ts`, `frontend-v3/lib/api.ts`, `frontend-v3/lib/skal/bocker.ts`,
     `frontend-v3/lib/skal/format.ts`
 
-- [ ] **F5 — Migration 028: `thread_drafts` och dess repository**
+- [x] **F5 — Migration 028: `thread_drafts` och dess repository**
+  - Gjort 2026-09-23: 20 tester i `tests/test_flode_verifikationer.py`, sedda röda först
+    (import). Tabellen ordagrant enligt §6.1, plus index `(view_key, status, created_at)` och ett
+    partiellt index på `correction_of WHERE status='pending'`. Varje statusändring är ett `UPDATE
+    … WHERE status='pending'` med `rowcount`-kontroll; annars `ThreadDraftTransitionError`
+    (`ValueError`, med `voucher_id`, `target_status`, `current_status` — `None` om raden saknas)
+    och raden orörd. Avvikelser, specen §6.2 uppdaterad: `set_error` kräver också `pending` (ett
+    postat eller ersatt utkast har inget försök som kan misslyckas); `set_receipt` kräver
+    `posted` och `receipt_post_id IS NULL`, så att ett andra kvitto vägras i stället för att
+    skriva över; `list` returnerar `(drafts, total)` och tar `status=None`/`'all'` för alla;
+    `pending_for_correction_of` ger ett utkast (det äldsta) eller `None`; `get_by_post` tillkom.
+    `test_numrering.py` testfall 1 kontrollerade `MAX(version) == 27` och kontrollerar nu att 27
+    är tillämpad. Hela sviten: 1046 passed; `mypy .` 61 fel som före.
   - Acceptans: tabellen enligt spec §6.1, med `CHECK`-villkoren. `ThreadDraftRepository` har
     `create`, `get`, `list(view_key, status, limit)`, `mark_posted`, `mark_superseded`,
     `set_error`, `set_receipt` och `pending_for_correction_of(voucher_id)`, med `_commit=False`

@@ -447,6 +447,13 @@ pending ──Posta lyckas──→ posted
   som panelen säger: *"förslaget ligger kvar så att försöket kan göras om"*.
 - Ett ersatt eller postat utkast kan aldrig gå tillbaka.
 
+`ThreadDraftRepository` håller livscykeln, inte anroparna: varje ändring är ett `UPDATE … WHERE
+status='pending'` (kvittot: `WHERE status='posted' AND receipt_post_id IS NULL`), och ingen
+träffad rad ger `ThreadDraftTransitionError` med raden orörd. Det gäller även `set_error`: ett
+postat eller ersatt utkast har inget försök som kan misslyckas. Ett andra kvitto för samma
+utkast vägras i stället för att skriva över det första. Två index: `(view_key, status,
+created_at)` för §10, och `correction_of WHERE status='pending'` för §7.4.
+
 ### 6.3 Beslutet
 
 Ett besvarat beslut står kvar som `answered` genom hela flödet. Modulen ändrar inte beslutets
