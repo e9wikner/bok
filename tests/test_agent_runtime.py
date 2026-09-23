@@ -1076,6 +1076,9 @@ _EXPECTED_TOOL_NAMES = [
     # positions, because this list is the cached prompt prefix's order and a
     # reorder is a silent cache-buster (SPEC §6.6).
     "be_om_beslut",
+    # The eleventh, appended the same way (SPEC-flode-verifikationer.md
+    # §5.7, §12.1, task F7): the ten above keep their positions.
+    "foresla_verifikation",
 ]
 
 
@@ -1111,7 +1114,7 @@ class TestAppendOnlyToolSurface:
     """
 
     def test_tool_names_are_exactly_the_allowed_tools(self):
-        """Ten since `beslut` (SPEC-beslut.md §11.3). The count is asserted
+        """Eleven since `flode-verifikationer` (SPEC §5.7). The count is asserted
         against the expected list rather than a literal, so adding a tool
         without adding it there still fails -- which is the point: this is
         the append-only rule's only automatic check through the agent's
@@ -1162,7 +1165,7 @@ class TestAppendOnlyToolSurface:
                 ), f"tool {tool['name']!r} description contains {phrase!r}"
 
     def test_only_the_writing_tools_are_undocumented_as_read_only(self):
-        """Three write, and each one names what it writes.
+        """Four write, and each one names what it writes.
 
         `be_om_beslut` joined them with `beslut` (SPEC-beslut.md §11.3). It
         writes to `decisions`, `decision_options` and `thread_posts` and to
@@ -1171,11 +1174,19 @@ class TestAppendOnlyToolSurface:
         `tests/test_beslut.py` counts ledger rows around a call to it.
         Calling it read-only here would be the lie this test exists to
         catch.
+
+        `foresla_verifikation` joined them with `flode-verifikationer`
+        (SPEC-flode-verifikationer.md §5.1). It writes a draft voucher --
+        no number, never posted -- a `thread_drafts` row and a `draft` post.
+        It is not read-only, so it is not allowed to say it is; and like
+        `be_om_beslut` it must not name the general ledger, which the next
+        test keeps for `posta_verifikation` alone.
         """
         write_tool_names = {
             "posta_verifikation",
             "registrera_avstaende",
             "be_om_beslut",
+            "foresla_verifikation",
         }
         read_tool_names = set(_EXPECTED_TOOL_NAMES) - write_tool_names
         for tool in AGENT_TOOL_DEFINITIONS:

@@ -169,7 +169,19 @@ oräknade. Testfallsnumren syftar på tabellerna i §14. Backendens tester ligge
   - Obs: kroppens form läses ur `frontend-v3/lib/chattyta/__fixtures__/inlagg.ts`, inte skrivs av.
     Testet jämför nycklarna, så att producent och konsument inte kan glida isär.
 
-- [ ] **F7 — Verktygslistan och agentinstruktionen**
+- [x] **F7 — Verktygslistan och agentinstruktionen**
+  - Gjort 2026-09-23: `foresla_verifikation` sist i `_TOOL_SPECS`; modulens och `execute_tool`s
+    docstrings säger elva verktyg och att även det öppnar `tool_context`. Testfall 22 i
+    `tests/test_flode_verifikationer.py` (tre tester, sedda röda först): namnlistan, sha256 av
+    `json.dumps(AGENT_TOOL_DEFINITIONS[:10])` tagen på `cc47e5c`, beskrivningen, och att
+    `execute_tool` når hanteraren. `02_bokforingsprocess.md`: nytt avsnitt "Lägg fram ett
+    förslag" (förslag efter besvarat beslut med `decision_id`, eller när människan ska se
+    konteringen först; direkt postning när det är klart; `replaces_draft_id`; en rättelse är
+    alltid ett förslag med `correction_of`, aldrig `posta_verifikation`, och går det inte säger
+    agenten det i stället för att posta), plus en hänvisning i Grundprincip; tre nya tester i
+    `tests/test_agent_entrypoint.py`. Ändrade: `agentruntime` 17 (förväntad lista och
+    skrivverktygen), `beslut` 25 (`be_om_beslut` tionde, inte sist; specen §5.7 uppdaterad),
+    docstrings i `beslut` 26 och `tradar` 14. Hela sviten: 1075 passed; `mypy .` 61 fel som före.
   - Acceptans: `foresla_verifikation` sist i `_TOOL_SPECS`. De tio första är byte för byte
     oförändrade. `docs/to_agent/02_bokforingsprocess.md` beskriver när ett förslag används och
     när en direkt postning används (§12.2), och att en rättelse alltid är ett förslag (§12.5).

@@ -1669,9 +1669,17 @@ class TestBeOmBeslutWritesDecisionPostRowAndOptions:
 
 
 class TestBeOmBeslutIsLastInAgentToolDefinitions:
-    """Testfall 25: `be_om_beslut` is last in `AGENT_TOOL_DEFINITIONS`, and
-    the first nine names are in their unchanged order -- a list that only
-    checked "last" would miss a reorder hidden among the first nine."""
+    """Testfall 25: `be_om_beslut` was appended last in
+    `AGENT_TOOL_DEFINITIONS`, and the first nine names are in their unchanged
+    order -- a list that only checked "last" would miss a reorder hidden
+    among the first nine.
+
+    Since `flode-verifikationer` appended `foresla_verifikation` after it
+    (SPEC-flode-verifikationer.md §5.7), `be_om_beslut` is tenth rather than
+    last. What this test protects is unchanged: its position, and the nine
+    before it. Everything after it is testfall 22's
+    (`tests/test_flode_verifikationer.py`), which also pins the first ten
+    byte for byte."""
 
     _EXPECTED_FIRST_NINE = [
         "las_kontoplan",
@@ -1685,17 +1693,20 @@ class TestBeOmBeslutIsLastInAgentToolDefinitions:
         "registrera_avstaende",
     ]
 
-    def test_case_25_be_om_beslut_is_last_and_the_first_nine_are_unchanged(self):
+    def test_case_25_be_om_beslut_is_tenth_and_the_first_nine_are_unchanged(self):
         names = [tool["name"] for tool in AGENT_TOOL_DEFINITIONS]
 
-        assert len(names) == 10
+        assert len(names) == 11
         assert names[:9] == self._EXPECTED_FIRST_NINE
-        assert names[-1] == "be_om_beslut"
+        assert names[9] == "be_om_beslut"
+        assert names[10:] == ["foresla_verifikation"]
 
 
 class TestCaseTwentySixAppendOnlyToolSurfaceExtended:
     """Testfall 26 **is** test case 17 from `tests/test_agent_runtime.py`
-    (`TestAppendOnlyToolSurface`), run against the ten-tool surface --
+    (`TestAppendOnlyToolSurface`), run against the extended surface -- ten
+    tools with `beslut`, eleven since `flode-verifikationer` (its §5.7 asks
+    for this test to run against that list too) --
     SPEC-beslut.md §8: "Testfall 17 ... körs mot den utökade listan och ska
     passera oförändrat." The two checks below are copied from that class
     rather than imported, since they assert against module-level constants,

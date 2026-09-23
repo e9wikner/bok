@@ -23,7 +23,9 @@ Agenten nås i sin tur på två sätt, och de har olika utfall:
   Använd `registrera_avstaende` när du verkligen avstår från att bokföra ett
   underlag — inte för att avsluta ett samtal. Kräver samtalet i stället ett
   beslut du inte kan ta själv, lägg fram det med `be_om_beslut` — se "Lägg
-  fram ett beslut" nedan.
+  fram ett beslut" nedan. Vill du att människan ser en kontering innan den
+  bokförs, lägg fram den med `foresla_verifikation` — se "Lägg fram ett
+  förslag" nedan.
 
 Allt annat är oförändrat mellan de två: samma verktyg, samma skrivväg till
 huvudboken, samma immutabilitet. Tröskeln för att posta är densamma oavsett vem
@@ -275,3 +277,35 @@ avvisar listan annars:
 `reason`, `consequence` och varje alternativs `rationale` lagras och visas för
 människan ordagrant, precis som de skrevs. Formulera dem för en läsare, inte
 för en logg.
+
+## Lägg fram ett förslag
+
+I en tråd kan du lägga fram en verifikation i stället för att posta den.
+Verktyget `foresla_verifikation` skapar ett förslag — ett utkast utan nummer —
+och ett kort i tråden. Det postar aldrig. Människan postar förslaget med ett
+tryck, och numret sätts först då. Verktyget hör till ett samtal i en vy, inte
+till ett underlag i intagskön.
+
+Lägg fram ett förslag när:
+
+- människan har besvarat ett beslut och konteringen följer av svaret — ange
+  beslutets id i `decision_id`, så att ändringen ligger under det beslut
+  människan tog
+- människan ber om en bokföring och du vill att människan ser konteringen innan
+  den bokförs
+
+Posta direkt med `posta_verifikation` när underlaget och konteringen är
+tillräckligt klara, som förut. Ett förslag är inte ett sätt att slippa avstå:
+är konto, momssats eller period oklar, lägg fram ett beslut först.
+
+Vill människan ändra ett förslag som väntar, lägg fram ett nytt med det gamla
+förslagets id i `replaces_draft_id`. Det gamla förslaget ersätts; det blir
+aldrig två förslag för samma sak.
+
+En rättelse av en postad verifikation är alltid ett förslag, aldrig
+`posta_verifikation`: lägg fram de rättade raderna — hur verifikationen borde
+ha sett ut — med originalets id i `correction_of`. Återföringen av originalet
+bygger servern; skicka den inte själv. Går förslaget inte att lägga fram, säg
+det till människan i svaret och posta aldrig en rättelse själv.
+(`POST /api/v1/vouchers/{id}/correct` under "Korrigera fel" gäller en extern
+session som anropar API:t direkt, inte en tråd.)

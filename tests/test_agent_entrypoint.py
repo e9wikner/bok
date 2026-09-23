@@ -410,6 +410,58 @@ def test_agent_process_doc_says_the_agents_own_text_is_stored_verbatim():
     )
 
 
+def _process_doc_flat() -> str:
+    """The process doc with its line wrapping undone, so an assertion pins
+    the sentence and not where the editor happened to break it."""
+    return " ".join(PROCESS_DOC_PATH.read_text(encoding="utf-8").split())
+
+
+def test_agent_process_doc_describes_foresla_verifikation():
+    """SPEC-flode-verifikationer.md §5.1, §5.7: the eleventh tool exists,
+    it never posts, the human does, and the number comes with the posting.
+    """
+    text = _process_doc_flat()
+
+    assert "## Lägg fram ett förslag" in text
+    assert "`foresla_verifikation` skapar ett förslag" in text
+    assert "Det postar aldrig" in text
+    assert "numret sätts först då" in text
+
+
+def test_agent_process_doc_says_when_to_propose_and_when_to_post_directly():
+    """SPEC-flode-verifikationer.md §12.2 with SPEC-beslut.md §11.1: a
+    proposal after an answered decision carries `decision_id`, direct
+    posting stays for what the agent is sure of -- and a proposal is not a
+    softer way around the abstention list.
+    """
+    text = _process_doc_flat()
+
+    assert "människan har besvarat ett beslut" in text
+    assert "ange beslutets id i `decision_id`" in text
+    assert "vill att människan ser konteringen innan den bokförs" in text
+    assert "Posta direkt med `posta_verifikation` när" in text
+    assert "Ett förslag är inte ett sätt att slippa avstå" in text
+    assert "`replaces_draft_id`" in text
+    # The threshold for posting is still stated, unchanged, for both paths.
+    assert "Tröskeln för att posta är densamma oavsett vem" in text
+
+
+def test_agent_process_doc_says_a_correction_is_always_a_proposal():
+    """SPEC-flode-verifikationer.md §12.5: the agent may post directly, but
+    never a correction. It goes through a proposal the human posts, with
+    `correction_of` -- and if that cannot be made, the agent says so rather
+    than posting the correction itself.
+    """
+    text = _process_doc_flat()
+
+    assert (
+        "En rättelse av en postad verifikation är alltid ett förslag, aldrig "
+        "`posta_verifikation`" in text
+    )
+    assert "originalets id i `correction_of`" in text
+    assert "posta aldrig en rättelse själv" in text
+
+
 def test_agent_system_access_doc_does_not_advertise_removed_schema_routes():
     text = DRIFT_DOC_PATH.read_text(encoding="utf-8")
 

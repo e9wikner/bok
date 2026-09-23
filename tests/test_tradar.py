@@ -1128,7 +1128,9 @@ class TestThreadToolSurface:
         """The thread gets `AGENT_TOOL_DEFINITIONS` and nothing of its own.
 
         The assertion is equality with that list, not a count: the surface
-        grew to ten with `beslut`'s `be_om_beslut` (SPEC-beslut.md §11.3),
+        grew to ten with `beslut`'s `be_om_beslut` (SPEC-beslut.md §11.3)
+        and to eleven with `foresla_verifikation` (SPEC-flode-verifikationer
+        §5.7),
         and what this test exists to catch is a tool the *thread path* hands
         out that the document path does not — which a hardcoded number would
         miss the day the shared list changes for a legitimate reason.

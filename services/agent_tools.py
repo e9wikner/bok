@@ -1,6 +1,6 @@
 """The agent's tool surface (docs/redesign/SPEC-agentruntime.md §6.4).
 
-Nine tools, each a specific, typed action -- never a generic bash, SQL,
+The original nine tools, each a specific, typed action -- never a generic bash, SQL,
 filesystem, or HTTP tool (SPEC §10's "Aldrig" list). Every allowed action a
 model can take is its own function with its own Pydantic argument schema, so
 each one can be validated, logged, and rendered independently, and so that
@@ -17,7 +17,16 @@ prefix (SPEC-agentruntime §6.6), and it writes only to ``decisions`` /
 ``decision_options`` / ``thread_posts`` -- test case 17 above still passes
 unchanged against the extended list (SPEC-beslut.md §8, testfall 26).
 
-``posta_verifikation`` is the only tool that writes to the general ledger,
+An eleventh, ``foresla_verifikation``, was added by ``flode-verifikationer``
+(``docs/redesign/SPEC-flode-verifikationer.md`` §5, §12.1) and appended after
+``be_om_beslut`` for the same reason (§5.7, testfall 22). It writes a draft
+voucher -- no number, never posted -- with its ``thread_drafts`` row and
+``draft`` post; the human posts it. A correction of a posted voucher always
+goes through it with ``correction_of`` (§12.5), never through
+``posta_verifikation`` -- a rule the agent's instructions already state,
+while the branch itself answers ``not_implemented`` until F11 builds it.
+
+``posta_verifikation`` is the only tool that posts to the general ledger,
 and it goes through the exact same code as ``POST /api/v1/agent/vouchers``
 (``services/voucher_posting.post_agent_voucher``, A1) -- same
 ``VoucherValidator``, same transaction, same idempotency key.
@@ -952,6 +961,19 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
         BeOmBeslutArgs,
         _run_be_om_beslut,
     ),
+    (
+        "foresla_verifikation",
+        "Lägg fram en verifikation som ett förslag för människan att posta: "
+        "skapar ett utkast utan nummer och ett kort i tråden. Postar aldrig "
+        "-- människan postar förslaget med ett tryck, och numret sätts först "
+        "vid postningen. Ange decision_id när förslaget följer på ett "
+        "besvarat beslut, och replaces_draft_id när människan vill ändra ett "
+        "väntande förslag. Hör till ett samtal i en vy -- "
+        "för ett underlag i intagskön, använd posta_verifikation eller "
+        "registrera_avstaende i stället.",
+        ForeslaVerifikationArgs,
+        _run_foresla_verifikation,
+    ),
 )
 
 #: Anthropic tool-definition shape: {"name", "description", "input_schema"}.
@@ -992,10 +1014,13 @@ def execute_tool(
     ``tool_context`` is the same idea for everything a tool may need that
     only its caller can know. The thread path puts its ``Thread`` in it;
     the document path (``run_session``) passes nothing. Only
-    ``be_om_beslut`` opens it -- a decision cannot exist without the thread
-    it was raised in -- and it is handed to every handler rather than
-    branched on here, for the same reason ``idempotency_key`` is: the
-    dispatcher stays a table lookup with no special case in it.
+    ``be_om_beslut`` and ``foresla_verifikation`` open it -- a decision
+    cannot exist without the thread it was raised in, nor a proposal
+    without the thread it is a card in; ``foresla_verifikation`` also reads
+    the turn's ``proposals`` sequence from it, which the thread path always
+    sets. It is handed to every handler rather than branched on here, for
+    the same reason ``idempotency_key`` is: the dispatcher stays a table
+    lookup with no special case in it.
 
     It is a mapping rather than a typed argument so that the layer above
     can forward it without naming what is inside: SPEC-tradar.md §8.1 keeps

@@ -401,7 +401,8 @@ explicit"* uppfylls av samma rad.
 
 Sist, efter `be_om_beslut`. Ordningen är en del av det cachade prefixet, och att lägga till sist
 är den enda ändringen som inte flyttar de tio första. `agentruntime`s testfall 17 och `beslut`s
-testfall 26 körs mot den utökade listan. `docs/to_agent/02_bokforingsprocess.md` får ett stycke
+testfall 26 körs mot den utökade listan. `beslut`s testfall 25 (*"`be_om_beslut` sist"*) blir
+*"`be_om_beslut` tionde"*: det skyddar fortfarande sin plats och de nio före; resten är testfall 22. `docs/to_agent/02_bokforingsprocess.md` får ett stycke
 om när verktyget används, och om att en rättelse alltid går genom det (§12.5). Filen är
 runtime-innehåll och testas av `tests/test_agent_entrypoint.py`.
 

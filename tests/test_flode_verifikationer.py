@@ -7,6 +7,8 @@ gets its own section. Numbering (F1-F3) lives in `tests/test_numrering.py`.
 Per the spec no LLM is ever called from a test.
 """
 
+import hashlib
+import json
 import re
 import sqlite3
 import uuid
@@ -29,11 +31,13 @@ from repositories.thread_draft_repo import (
 from repositories.thread_repo import ThreadRepository
 from repositories.voucher_repo import VoucherRepository
 from services.agent_tools import (
+    AGENT_TOOL_DEFINITIONS,
     ForeslaVerifikationArgs,
     ProposalSequence,
     _run_foresla_verifikation,
     derive_thread_posting_idempotency_key,
     derive_thread_proposal_idempotency_key,
+    execute_tool,
 )
 from services.decision_service import DecisionService
 from services.ledger import LedgerService
@@ -819,3 +823,72 @@ def test_thread_turn_hands_the_proposal_sequence_to_the_tools(monkeypatch):
     assert proposals.key() == derive_thread_proposal_idempotency_key(
         thread.id, trigger.id, 1
     )
+
+
+# --- F7: verktygslistan (testfall 22) ----------------------------------------
+
+_FIRST_TEN = [
+    "las_kontoplan",
+    "las_perioder",
+    "las_verifikationer",
+    "las_korrigeringar",
+    "las_underlag",
+    "hamta_underlagsfil",
+    "las_bankhandelser",
+    "posta_verifikation",
+    "registrera_avstaende",
+    "be_om_beslut",
+]
+
+# sha256 of `json.dumps(AGENT_TOOL_DEFINITIONS[:10], ensure_ascii=False)`,
+# taken on `cc47e5c`, before F7 touched `_TOOL_SPECS`. No `sort_keys`: the key
+# order inside each definition is part of the bytes the model is sent, and
+# so of the cached prefix (SPEC-agentruntime §6.6).
+_FIRST_TEN_SHA256 = "503ba62181d07802fb1a2c521e9453a4d2f213098f3e2aa73a20e67f6259f5d4"
+
+
+def test_case_22_foresla_verifikation_is_last_and_the_first_ten_are_unchanged():
+    """SPEC §5.7: appended last, the one change that moves none of the ten
+    before it. The names catch a reorder; the hash catches an edit to a
+    description or a schema that leaves the names where they were."""
+    names = [tool["name"] for tool in AGENT_TOOL_DEFINITIONS]
+
+    assert names == _FIRST_TEN + ["foresla_verifikation"]
+    first_ten = json.dumps(AGENT_TOOL_DEFINITIONS[:10], ensure_ascii=False)
+    assert hashlib.sha256(first_ten.encode("utf-8")).hexdigest() == _FIRST_TEN_SHA256
+    assert AGENT_TOOL_DEFINITIONS[-1]["input_schema"] == (
+        ForeslaVerifikationArgs.model_json_schema()
+    )
+
+
+def test_case_22_the_description_says_it_proposes_and_never_posts():
+    [tool] = [t for t in AGENT_TOOL_DEFINITIONS if t["name"] == "foresla_verifikation"]
+    description = tool["description"]
+
+    assert "Postar aldrig" in description
+    assert "numret sätts" in description
+    assert "posta_verifikation" in description
+
+
+def test_case_22_execute_tool_reaches_the_handler():
+    """Listed is not enough: the dispatcher must route the name to F6's
+    handler, with the thread from `tool_context`."""
+    thread, period, trigger = _books()
+
+    result = execute_tool(
+        "foresla_verifikation",
+        _args(period).model_dump(mode="json"),
+        actor="agent",
+        capabilities=_capabilities(),
+        tool_context={
+            "thread": thread,
+            "proposals": ProposalSequence(thread.id, trigger.id),
+        },
+    )
+
+    voucher = VoucherRepository.get(result["draft_id"])
+    assert voucher is not None
+    assert voucher.status == VoucherStatus.DRAFT
+    assert voucher.number is None
+    [post] = _draft_posts(thread)
+    assert result["post_id"] == post.id
