@@ -287,5 +287,7 @@ Nästa modul i byggordningen är `chattyta` (`ANALYS.md` §8), som beror på `sk
 - **`ny`-markeringens varaktighet är gissad** (6 s). Sätt ett tal om du har ett.
 - **`age_days`-trösklarna är fortfarande inte satta** (öppen fråga från `oversikt`).
   `VyRad`-varianten `saknar` finns; vad som gör den gul eller röd gör inte.
+  **Besvarad 2026-09-23 i `chattyta`:** röd från sju dagar (`lib/chattyta/alder.ts`,
+  `SPEC-chattyta.md` §12.2).
 - **De 24 gamla sidorna står kvar och kostar underhåll tills de tas bort vy för vy.** Det var
   beslutet, men det betyder att två frontends lever parallellt under hela redesignen.

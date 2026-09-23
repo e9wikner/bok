@@ -61,13 +61,18 @@ export function TradYta({
 }) {
   return (
     <div
+      // `[&>*]:shrink-0`: ett kort med `overflow-hidden` får annars flexens
+      // `min-height: 0`, krymper, och klipper sin sista rad — i
+      // AlternativLista vägen ut (hittat vid chattyta C14:s visuella kontroll).
       className={
         variant === "desktop"
-          ? "flex flex-1 flex-col justify-end gap-6 overflow-hidden px-[38px] py-[26px]"
-          : "bok-dold-skroll flex h-[260px] flex-col gap-[18px] overflow-auto border-t border-bok-linje-svagast px-[18px] pb-[18px] pt-4"
+          ? "flex flex-1 flex-col justify-end gap-6 overflow-hidden px-[38px] py-[26px] [&>*]:shrink-0"
+          : "bok-dold-skroll flex h-[260px] flex-col gap-[18px] overflow-auto border-t border-bok-linje-svagast px-[18px] pb-[18px] pt-4 [&>*]:shrink-0"
       }
-      // Strömmande svar och postningar annonseras, inte bara som grå rader.
-      aria-live="polite"
+      // INTE en live-region: då lästes varje text-delta upp ord för ord.
+      // Annonseringen bor i `TradRenderare`s dolda region (SPEC-chattyta
+      // §11, testfall 31) — indikatorbyten och färdiga inlägg, inget annat.
+      role="region"
       aria-label={`Tråd för ${vyTitel}`}
     >
       <TradRenderare inlagg={trad.inlagg} strommande={trad.strommande} viewKey={viewKey} />

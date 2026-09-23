@@ -278,7 +278,33 @@ Ingen uppgift rör Python.
   - Obs: i dag är `retry_draft_id` alltid `null` — kortet har alltså ingen primärknapp i drift.
     Det är rätt, inte ofullständigt (§9).
 
-- [ ] **C14 — Tillgänglighet, regression, lint, visuell kontroll; modulen stängd**
+- [x] **C14 — Tillgänglighet, regression, lint, visuell kontroll; modulen stängd**
+  - Gjort 2026-09-23: 10 nya tester (8 för testfall 31, 1 träffyta, 1 layout), sedda röda först och
+    mutationsprövade (en region som visade deltatexten gav två röda, en som aldrig mindes turens
+    start gav två röda); **398 gröna i 28 filer** (388 efter C13). **Live-regionen** är
+    `TradAnnons` i `TradRenderare.tsx`: dold (`sr-only`), `aria-live="polite"`,
+    `aria-atomic="true"`. Medan agenten arbetar säger den indikatorns text — text-deltan ändrar
+    den inte, så den annonseras en gång per byte av `activity`. När platshållaren försvinner
+    säger den de inlägg som kom under turen, hela (`Agenten: …`, `Beslut: …`, `Alternativ: …`,
+    `Förslag: …`, `Något gick fel: …`). En laddad tråd, en återuppspelning utan pågående tur och
+    människans egna inlägg annonseras inte. **`aria-live="polite"` på trådytan
+    (`ChattKolumn.tsx::TradYta`) togs bort** — ytan var själv en live-region, så varje
+    `message.delta {text}` lästes upp som ett nytt ord, precis det §11 förbjuder; två regioner
+    hade dessutom sagt allt två gånger. Ytan är nu `role="region"` med samma `aria-label`. Två
+    befintliga tester som asserterade den gamla `aria-live` skrevs om, inte togs bort.
+    **Träffytor:** kortens knappar (`Posta`, `Ändra`, `Försök igen`, `Visa vad som hände`) var
+    `min-h-[44px]` på alla bredder — två px under §11:s 46 på mobil. Brytpunkten 1000 px finns bara
+    i `useBredSkarm`, inte som Tailwind-skärm, så knapparna är nu `min-h-[46px]` överallt, vilket
+    uppfyller båda. `AlternativRad` har `min-h-[44px]` men padding 15+15 plus titelraden ger ≥ 50;
+    orörd. **Fynd vid visuell kontroll, rättat:** ett kort med `overflow-hidden` (alternativlistan,
+    förslaget, jämförelsen) fick flexens `min-height: 0` och krympte när tråden var högre än
+    kolumnen — alternativlistans sista rad, vägen ut, klipptes bort. Trådytan har nu
+    `[&>*]:shrink-0` i båda varianterna, med test. **Testfallen:** ett skript greppar
+    `testfall N` i titlarna i chattytans tester och `hooks/__tests__` — alla 36 utom 33 har ett
+    namngivet test; 19 står som `testfall 12 + 19`. 33 är regressionen och verifieras här (nedan),
+    inte av ett test. Filer: **tolv** — sju kodfiler (`TradRenderare.tsx`, `ChattKolumn.tsx`,
+    `SkriverIndikator.tsx` (kommentaren pekade på en region som inte fanns),
+    `VerifikationsForslag.tsx`, `FelKort.tsx`, två testfiler) och fem dokument.
   - Acceptans: dold live-region annonserar indikatorbyte och färdigt inlägg, inte varje delta.
     Träffytor ≥ 44/46. Alla 36 testfall namngivna i minst ett test. `npm test`, `npm run lint`,
     `npx tsc --noEmit`, `NEXT_PUBLIC_SKAL=1 npm run build` gröna. `pytest tests/ -q` grön och
@@ -289,3 +315,92 @@ Ingen uppgift rör Python.
   - Filer: `components/chattyta/TradRenderare.tsx`, `tasks/chattyta/todo.md`, `tasks/README.md`,
     `docs/redesign/SPEC-chattyta.md`, `docs/redesign/SPEC-beslut.md`
   - Obs: stäng `SPEC-beslut.md` öppen fråga 1 här, och skriv avvikelserna sist i den här filen.
+
+---
+
+## Modulen är klar
+
+C1–C14 avbockade 2026-09-23. De nio framgångskriterierna i spec §14, ett och ett:
+
+1. Alla åtta inläggstyper renderas med `komponenter.md`s mått; kontraktsbrott blir
+   `okant_kontrakt` — ✅ (testfall 1–4). Sedan C13 ritar ingen känd typ `OkantKontrakt`. Live:
+   `user_text`, `decision` (med och utan alternativ), `options` och ett handskapat `draft` ritade
+   mot riktig backend.
+2. Tråden är riktig i alla sju vyer, strömmar och överlever en bortkoppling — ✅ i test (5–12).
+   Live: `GET /threads/{vk}` laddar, tom tråd öppnar ingen ström, första `POST …/messages` gav
+   `201` och öppnade strömmen med `since=1`, omladdning öppnade den med `since=` senaste `seq`.
+   Strömmen går igenom `next dev`s proxy obuffrad (återuppspelning och hjärtslag kom fram med
+   `curl -N`). **Ett strömmande agentsvar är inte sett live** — se nedan.
+3. Ett beslut kan besvaras med knapp och med text; ett andra svar är ett besvarat kort —
+   ✅ i test (14–20). Live: knappsvar `202`, kortet gick till `Besvarat`, fokus på den valda
+   raden, en omladdning höll läget. **Fritextsvaret är inte sett live**: det kräver att agenten
+   tolkar texten. Besvarat läge säger bara `Besvarat`, utan tid och svar — se nedan.
+4. Ingenting förväljs — ✅ (testfall 14; live: tomma ringar, `rekommenderas` som märke).
+5. Två tryck på `Posta` ger en verifikation; låst period säger vem och när — ✅ i test (25–28,
+   34, 35). Live mot en engångsdatabas: `POST /vouchers/{id}/post` två gånger med samma
+   `Idempotency-Key` gav `200` och sedan `409 already_posted` med hela verifikationen, **en**
+   verifikation (A-7) och **en** `posted`-rad i revisionsloggen. I gränssnittet, mot ett
+   handskapat `draft`-inlägg: `Posta` → `200` → `Postad · A-8`; efter omladdning stod `Posta`
+   där igen, och ett tryck gav `409 already_posted` → `Postad · A-8`. Fortfarande en verifikation.
+   `period_locked` är bara prövat i test: ett utkast i en låst period kan inte skapas
+   (`POST /vouchers` svarar `period_locked`), och att låsa en period är oåterkalleligt.
+6. Märket och åldersfärgen kommer ur servern och en regel på ett ställe — ✅ (21, 22). Mobilens
+   märke är inte kontrollerat live (desktopbredd).
+7. Mocken för tråd och beslut är borta — ✅ (32).
+8. `npm test` **398 gröna i 28 filer**, `npm run lint` och `npx tsc --noEmit` rena,
+   `NEXT_PUBLIC_SKAL=1 npm run build` bygger 24 rutter plus `/v4` — ✅. `pytest tests/ -q`:
+   **989 gröna** (testfall 33). Ingen chattyta-commit rör en `.py`-fil (kontrollerat commit för
+   commit, `961866b..HEAD`), och arbetskatalogen har ingen Python-ändring. `git diff main --
+   '*.py'` är **inte** tom, men av skäl utanför modulen: grenen `redesign-v4` bär `tradar`,
+   `beslut` och `3723581 feat(llm)`, som inte är sammanslagna med `main`.
+9. Visuellt kontrollerat i `next dev` mot riktig backend — **delvis**. Sett: tråden, ett skickat
+   meddelande, två beslut ritade och ett besvarat med knapp, förslagskortet och postningen.
+   Inte sett: ett svar som strömmar (ingen LLM-nyckel; `AGENT_RUNTIME_ENABLED=false`, så ingen
+   tur startar), ett beslut lagt av agenten (besluten skapades med
+   `execute_tool("be_om_beslut", …)` direkt mot engångsdatabasen, samma kodväg utan modellen),
+   och ett fritextsvar som agenten tolkar.
+
+Alla 36 testfall i §13 utom 33 har minst ett test som namnger dem; 33 är verifieringen ovan.
+
+## Kvar att nämna för beställaren
+
+- **Besvarat beslut saknar tid och svar efter en omladdning.** `DecisionResponse` saknar
+  `answered_at`, `answer_option_id` och `answer_text` — bara `409`-kroppen bär dem. Kortet säger
+  därför `Besvarat` utan `· HH:MM` och svaret, och en omladdad alternativlista markerar ingen
+  rad (sett live). Människans svar syns ändå som hennes `user_text` i tråden. Kräver en
+  backendändring i `GET /decisions` (spec §15.3).
+- **`POST /vouchers/{id}/post` läser inte `Idempotency-Key`** (C12). Ofarligt i dag: postningen
+  byter `status` på utkastets egen rad, så två tryck ger en verifikation (bekräftat live). Men
+  `request_in_flight`, `idempotency_key_reuse` och `Idempotent-Replay` kan inte uppstå på den
+  vägen, och i ett exakt samtidigt lopp kan revisionsloggen få en dubbel `POSTED`-rad. Bör
+  kopplas i `flode-verifikationer` (spec §15.4).
+- **De första deltana kan missas på första meddelandet i en tom tråd** (C3). Turen startar inne i
+  `POST`, strömmen öppnas efter svaret. Det färdiga inlägget spelas upp via `since`, men
+  indikatorn och den strömmande texten kan börja sent — och om inget delta hinner fram
+  annonserar live-regionen inte det färdiga svaret, eftersom ingen tur syntes starta. Rättas på
+  servern (spec §15.5).
+- **Samma `id="skal-chattfalt"` i varje kolumn** (C12). Svepraden ritar en sidas alla vyer, så
+  `<label for>` i andra och tredje kolumnen pekar på första kolumnens fält. Befintlig a11y-bugg
+  från `skal`, inte rättad här.
+- **Ingen `401`-hantering i axios-instansen** (`lib/api.ts`, C2). Strömmen loggar ut på `401` via
+  `useAuth().logout`; vanliga anrop som får `401` gör ingenting särskilt.
+- **Desktopens tråd skrollar inte.** Trådytan är `overflow-hidden` och bottenankrad (skalets
+  layout); när tråden blir högre än kolumnen klipps de äldsta inläggen i överkanten och går inte
+  att nå. Sett live med sex inlägg. C14 rättade bara att korten krympte; skrollen är en
+  designfråga (bottenankrat och skrollbart kräver att skrollen läggs längst ner vid nytt inlägg).
+- **Förslagskortet vet inte att utkastet redan är postat.** Efter en omladdning står `Posta` kvar
+  på ett postat utkast; ett tryck landar i `already_posted` och klart läge (sett live). Ärligt
+  men förvånande; kvittot och `view.changed` som stänger kortet är `flode-verifikationer`s.
+- **Fem-filerstaket hölls inte.** C5 (tio filer), C6 (åtta), C7 (sex), C8 (sex), C12 (nio) och
+  C14 (tolv, varav fem dokument). Skälen står i respektive `Gjort`.
+- **`SPEC-idempotens.md` antagande 3 är inaktuellt**: det säger att klienten slumpar en UUIDv4;
+  klienten härleder en v5 ur `draft_id` (C11). Servern kräver bara en UUID, så inget går sönder.
+- **Inte verifierat live:** ett strömmande agentsvar och live-regionens annonsering av det
+  (ingen LLM-nyckel), ett beslut lagt av agenten själv, fritextsvaret, att svarsinlägget efter ett
+  knappsvar kommer via strömmen (med `AGENT_RUNTIME_ENABLED=false` startar ingen tur och inlägget
+  syns först vid omladdning), `period_locked` i kortet, `FelKort` mot ett riktigt `error`-inlägg,
+  mobilens märke och tjänsten `hubbabubba` (orörd). Knapparnas nyckel jämfördes inte i
+  begärandehuvudena live; testfall 25–26 prövar den.
+
+Nästa modul i byggordningen är `flode-verifikationer`, som skriver `draft`- och
+`receipt`-inläggen mot §4.3:s kontrakt och kopplar `Idempotency-Key` till `/post`.

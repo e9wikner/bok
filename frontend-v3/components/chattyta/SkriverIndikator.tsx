@@ -12,8 +12,8 @@ import { skriverText } from "@/lib/chattyta/etiketter";
  * komponenter.md: metarad `AGENTEN` ovanför; tre prickar 5×5 (#a1a1aa,
  * #c4c4c8, #e0e0e4, gap 4) + text 15 #52525b.
  *
- * Ingen egen live-region: tråden har redan `aria-live`, och SPEC §11 lägger
- * annonseringen av indikatorbyten i EN dold region (C14). Två regioner
+ * Ingen egen live-region: SPEC §11 lägger annonseringen av indikatorbyten
+ * i EN dold region, `TradAnnons` i `TradRenderare.tsx` (C14). Två regioner
  * vore samma ord två gånger.
  */
 

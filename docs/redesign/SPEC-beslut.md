@@ -612,6 +612,9 @@ Ingen av dem blockerar starten.
 1. **`age_days`-trösklarna.** Ärvd från `oversikt` och noterad i `tasks/skal/todo.md`: vad gör
    `VyRad`-varianten `saknar` gul respektive röd? Servern ger talet oavsett; frågan är
    `chattyta`s och behöver ett svar innan den modulen stänger.
+   **Besvarad 2026-09-23:** röd från sju dagar, samma dag som påminnelsen (§6.5).
+   `ROD_FRAN_DAGAR = 7` i `frontend-v3/lib/chattyta/alder.ts`; beslutet står i
+   `SPEC-chattyta.md` §12.2.
 2. **Vem sätter `superseded`, och när?** Kolumnen finns och regeln är beskriven (§4), men vilka
    händelser som faktiskt utlöser den — raderat underlag, låst period, korrigerad verifikation —
    hör ihop med `flode-verifikationer`, som äger korrigeringsvägen. Tills dess sätts den bara

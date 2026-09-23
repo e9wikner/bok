@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
-import { ChattKolumn } from "@/components/skal/ChattKolumn";
+import { ChattKolumn, TradYta } from "@/components/skal/ChattKolumn";
 import { ChattList } from "@/components/skal/ChattList";
 import type { UseTrad } from "@/hooks/useTrad";
 import { parseInlagg } from "@/lib/chattyta/parse";
@@ -63,12 +63,12 @@ describe("tråden kommer ur useTrad och ritas av chattytans renderare", () => {
     expect(screen.getByText("Vad består kundfordringarna av?")).toBeInTheDocument();
   });
 
-  it("annonserar tråden via aria-live", () => {
+  it("annonserar genom trådens dolda live-region, inte hela ytan (chattyta testfall 31)", () => {
     render(<ChattKolumn vyTitel="Balansräkning" viewKey="bocker.balans" />);
-    expect(screen.getByLabelText("Tråd för Balansräkning")).toHaveAttribute(
-      "aria-live",
-      "polite"
-    );
+    const trad = screen.getByLabelText("Tråd för Balansräkning");
+    // Ytan som live-region läste upp varje delta ord för ord (SPEC-chattyta §11).
+    expect(trad).not.toHaveAttribute("aria-live");
+    expect(within(trad).getByTestId("trad-annons")).toHaveAttribute("aria-live", "polite");
   });
 
   it("skalet bygger inga kort själv — ett kontraktsbrott blir okant_kontrakt, inte ett halvt kort", () => {
@@ -96,6 +96,20 @@ describe("tråden kommer ur useTrad och ritas av chattytans renderare", () => {
   it("tråden är bottenankrad", () => {
     render(<ChattKolumn vyTitel="Balansräkning" viewKey="bocker.balans" />);
     expect(screen.getByLabelText("Tråd för Balansräkning").className).toContain("justify-end");
+  });
+
+  it("inläggen krymper inte när tråden är högre än ytan — ett kort klipps aldrig (chattyta C14)", () => {
+    // Hittat vid visuell kontroll: ett kort med `overflow-hidden` fick
+    // flexens `min-height: 0` och krympte, och AlternativListans sista rad —
+    // vägen ut — klipptes bort. Gäller både desktop och mobil.
+    const { rerender } = render(
+      <TradYta vyTitel="Verifikationer" viewKey="bocker.verifikationer" trad={tradSvar} />
+    );
+    expect(screen.getByLabelText("Tråd för Verifikationer").className).toContain("[&>*]:shrink-0");
+    rerender(
+      <TradYta vyTitel="Verifikationer" viewKey="bocker.verifikationer" trad={tradSvar} variant="mobil" />
+    );
+    expect(screen.getByLabelText("Tråd för Verifikationer").className).toContain("[&>*]:shrink-0");
   });
 });
 

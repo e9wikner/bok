@@ -1,4 +1,4 @@
-import { createContext, useContext } from "react";
+import { createContext, useContext, useState } from "react";
 import { AlternativLista } from "@/components/chattyta/AlternativLista";
 import { BeslutKort } from "@/components/chattyta/BeslutKort";
 import { FelKort } from "@/components/chattyta/FelKort";
@@ -8,6 +8,8 @@ import { SkriverIndikator } from "@/components/chattyta/SkriverIndikator";
 import { TradInlagg } from "@/components/chattyta/TradInlagg";
 import { PostaKnappar, VerifikationsForslag } from "@/components/chattyta/VerifikationsForslag";
 import { useBeslut } from "@/hooks/useBeslut";
+import { skriverText } from "@/lib/chattyta/etiketter";
+import { arOptimistisk } from "@/lib/chattyta/trad";
 import type { Strommande } from "@/lib/chattyta/trad";
 import type {
   AgentTextInlagg,
@@ -61,8 +63,74 @@ export function TradRenderare({
         <InlaggRenderare key={i.id} inlagg={i} viewKey={viewKey} />
       ))}
       {strommande && <StrommandeInlagg strommande={strommande} />}
+      <TradAnnons inlagg={inlagg} strommande={strommande} />
     </>
   );
+}
+
+/**
+ * Den dolda live-regionen (SPEC-chattyta.md §11, testfall 31).
+ *
+ * Trådytan är INTE en live-region: då läste skärmläsaren varje
+ * `message.delta {text}` som ett nytt ord. Här sägs två saker, och bara de:
+ *
+ * - medan agenten arbetar: indikatorns text (`Läser…`, `Postar
+ *   verifikation…`). Text-deltan ändrar den inte, så den annonseras en gång
+ *   per byte av `activity`;
+ * - när turen är klar: de inlägg som kom under turen, hela.
+ *
+ * "Under turen" = inlägg som inte fanns när platshållaren dök upp. En tråd
+ * som laddas, en återuppspelning utan pågående tur och människans eget
+ * inlägg annonseras inte — hon har inte väntat på dem. Minnet av vad som
+ * fanns vid turens start bor i state, uppdaterat under renderingen (Reacts
+ * mönster för att härleda ur föregående props), inte i en effekt.
+ */
+function TradAnnons({ inlagg, strommande }: { inlagg: Inlagg[]; strommande: Strommande | null }) {
+  const [minne, setMinne] = useState<{
+    arbetar: boolean;
+    vidStart: ReadonlySet<string>;
+    fardigt: string;
+  }>({ arbetar: false, vidStart: new Set(), fardigt: "" });
+
+  const arbetar = strommande !== null;
+  if (arbetar && !minne.arbetar) {
+    setMinne({ arbetar, vidStart: new Set(inlagg.map((i) => i.id)), fardigt: "" });
+  } else if (!arbetar && minne.arbetar) {
+    const nya = inlagg.filter((i) => !minne.vidStart.has(i.id) && !arOptimistisk(i));
+    setMinne({ arbetar, vidStart: new Set(), fardigt: nya.map(annonsText).filter(Boolean).join(" ") });
+  }
+
+  return (
+    <div data-testid="trad-annons" className="sr-only" aria-live="polite" aria-atomic="true">
+      {strommande ? skriverText(strommande.activity) : minne.fardigt}
+    </div>
+  );
+}
+
+/**
+ * Vad regionen säger om ett färdigt inlägg: kortets bärande text, ordagrant
+ * ur kroppen. Människans egna inlägg sägs inte — hon skrev dem nyss.
+ */
+function annonsText(i: Inlagg): string {
+  switch (i.type) {
+    case "agent_text":
+      return `Agenten: ${i.body.text}`;
+    case "decision":
+      return `Beslut: ${i.body.title}`;
+    case "options":
+      return `Alternativ: ${i.body.options.map((o) => o.title).join(", ")}`;
+    case "draft":
+      return `Förslag: ${i.body.title}`;
+    case "error":
+      return `Något gick fel: ${i.body.cause}`;
+    case "receipt":
+      return i.body.title;
+    case "okant_kontrakt":
+      return "Ett kort kunde inte visas.";
+    case "user_text":
+    case "user_file":
+      return "";
+  }
 }
 
 export function InlaggRenderare({ inlagg, viewKey }: { inlagg: Inlagg; viewKey?: string }) {

@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { TradRenderare } from "@/components/chattyta/TradRenderare";
+import { ChattFaltFokus, TradRenderare } from "@/components/chattyta/TradRenderare";
 import { ChattFalt } from "@/components/skal/ChattFalt";
 import { ChattKolumn } from "@/components/skal/ChattKolumn";
 import type { MeddelandeSvar, TradSvar } from "@/lib/chattyta/api";
@@ -233,6 +233,125 @@ describe("det strömmande inlägget (SPEC §6.3, testfall 11)", () => {
   });
 });
 
+// ─── Testfall 31: live-regionen ───────────────────────────────────────────
+// SPEC §11: deltan annonseras inte en och en — det blir ett ord i taget i
+// skärmläsaren. En dold region säger indikatorns text när den byts och hela
+// inlägget när det är färdigt.
+
+describe("live-regionen annonserar indikatorbyte och färdigt inlägg, inte varje delta (testfall 31)", () => {
+  const annons = () => screen.getByTestId("trad-annons");
+  const strom = (over: Partial<Strommande> = {}): Strommande => ({
+    id: "streaming-r-9",
+    run_id: "r-9",
+    text: "",
+    activity: null,
+    ...over,
+  });
+  const svar = typad({
+    ...FIXTUR_AGENT_TEXT,
+    id: "p-svar",
+    seq: 9,
+    run_id: "r-9",
+    body: { text: "Kundfordringarna är tre fakturor på sammanlagt 148 500 kr." },
+    traces: null,
+  });
+
+  it("testfall 31: regionen är dold, polite och atomisk", () => {
+    rendera([]);
+    expect(annons()).toHaveAttribute("aria-live", "polite");
+    expect(annons()).toHaveAttribute("aria-atomic", "true");
+    expect(annons().className).toContain("sr-only");
+  });
+
+  it("testfall 31: en laddad tråd annonseras inte — bara det som händer medan man lyssnar", () => {
+    const { rerender } = rendera([]);
+    rerender(<TradRenderare inlagg={[typad(FIXTUR_AGENT_TEXT), typad(FIXTUR_USER_TEXT)]} strommande={null} />);
+    expect(annons()).toHaveTextContent("");
+  });
+
+  it("testfall 31: indikatorns text annonseras, och byts när activity byts", () => {
+    const { rerender } = rendera([], strom());
+    expect(annons()).toHaveTextContent("Läser…");
+    rerender(<TradRenderare inlagg={[]} strommande={strom({ activity: "las_kontoplan" })} />);
+    expect(annons().textContent).toBe(screen.getByTestId("skriver-text").textContent);
+    expect(annons().textContent).not.toBe("Läser…");
+  });
+
+  it("testfall 31: text-deltan ändrar inte regionen — inget ord i taget", () => {
+    const { rerender } = rendera([], strom({ activity: "las_kontoplan" }));
+    const fore = annons().textContent;
+    for (const text of ["Kund", "Kundfordringarna är", "Kundfordringarna är tre fakturor"]) {
+      rerender(<TradRenderare inlagg={[]} strommande={strom({ activity: "las_kontoplan", text })} />);
+      expect(annons().textContent).toBe(fore);
+      expect(annons().textContent).not.toContain("Kund");
+    }
+  });
+
+  it("testfall 31: message.completed annonserar hela det lagrade inlägget", () => {
+    const fraga = typad(FIXTUR_USER_TEXT);
+    const { rerender } = rendera([fraga], strom({ text: "Kundfordringarna är tre" }));
+    rerender(<TradRenderare inlagg={[fraga, svar]} strommande={null} />);
+    expect(annons()).toHaveTextContent(
+      "Kundfordringarna är tre fakturor på sammanlagt 148 500 kr."
+    );
+  });
+
+  it("testfall 31: ett beslut som kom under turen annonseras med sin rubrik", () => {
+    const beslut = typad(FIXTUR_DECISION);
+    // Beslutskortet läser sin status (§7) och behöver en QueryClient.
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false, enabled: false } } });
+    const med = (i: Inlagg[], s: Strommande | null) => (
+      <QueryClientProvider client={qc}>
+        <TradRenderare inlagg={i} strommande={s} viewKey="bocker.verifikationer" />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(med([], strom()));
+    rerender(med([beslut], strom({ activity: "be_om_beslut" })));
+    rerender(med([beslut, svar], null));
+    expect(annons().textContent).toContain(kropp(FIXTUR_DECISION).title as string);
+    expect(annons().textContent).toContain("Kundfordringarna är tre fakturor");
+  });
+
+  it("testfall 31: människans eget inlägg annonseras inte — hon skrev det nyss", () => {
+    const { rerender } = rendera([]);
+    rerender(<TradRenderare inlagg={[typad(FIXTUR_USER_TEXT)]} strommande={null} />);
+    expect(annons()).toHaveTextContent("");
+  });
+
+  it("testfall 31: trådytan själv är inte en live-region — då lästes varje delta upp", async () => {
+    hamtaTrad.mockResolvedValue(tomTradSvar());
+    render(medKlient(<ChattKolumn vyTitel="Resultaträkning" viewKey="bocker.resultat" />));
+    const trad = screen.getByLabelText("Tråd för Resultaträkning");
+    expect(trad).not.toHaveAttribute("aria-live");
+    expect(trad).not.toHaveAttribute("role", "log");
+    expect(within(trad).getByTestId("trad-annons")).toHaveAttribute("aria-live", "polite");
+    await waitFor(() => expect(hamtaTrad).toHaveBeenCalled());
+  });
+});
+
+// ─── Träffytor (SPEC §11) ─────────────────────────────────────────────────
+
+describe("kortens knappar har träffyta ≥ 46 — mobilens krav, som också täcker desktopens 44 (§11)", () => {
+  it("Posta, Ändra, Försök igen och Visa vad som hände", () => {
+    const felMedUtkast = typad(
+      medKropp(FIXTUR_ERROR, { ...kropp(FIXTUR_ERROR), retry_draft_id: "utkast-1" })
+    );
+    render(
+      medKlient(
+        <ChattFaltFokus.Provider value={() => {}}>
+          <TradRenderare inlagg={[typad(FIXTUR_DRAFT), felMedUtkast]} strommande={null} />
+        </ChattFaltFokus.Provider>
+      )
+    );
+    const namn = ["Posta", "Ändra", "Försök igen", "Visa vad som hände"];
+    for (const n of namn) {
+      const knapp = screen.getByRole("button", { name: n });
+      expect(knapp.tagName).toBe("BUTTON");
+      expect(knapp.className, n).toContain("min-h-[46px]");
+    }
+  });
+});
+
 // ─── ChattFalt ────────────────────────────────────────────────────────────
 
 describe("ChattFalt töms bara när meddelandet är lagrat", () => {
@@ -342,7 +461,10 @@ describe("ChattKolumn skickar genom tråden", () => {
     hamtaTrad.mockResolvedValue(tomTradSvar());
     render(medKlient(<ChattKolumn vyTitel="Resultaträkning" viewKey="bocker.resultat" aktiv={false} />));
     expect(hamtaTrad).not.toHaveBeenCalled();
-    expect(screen.getByLabelText("Tråd för Resultaträkning")).toHaveAttribute("aria-live", "polite");
+    // Ytan finns och bär sin dolda region (testfall 31), fast tom.
+    expect(
+      within(screen.getByLabelText("Tråd för Resultaträkning")).getByTestId("trad-annons")
+    ).toHaveTextContent("");
   });
 });
 

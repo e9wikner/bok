@@ -121,10 +121,11 @@ function KonteringsRad({ rad }: { rad: KonteringsRadData }) {
 
 // ─── Postningsknapparna (SPEC-chattyta.md §8, C12) ────────────────────────
 
+// Träffyta 46: mobilens krav (SPEC-chattyta §11), som också täcker desktopens 44.
 const PRIMAR =
-  "min-h-[44px] rounded-[8px] bg-bok-black px-[16px] text-[14px] font-medium text-bok-yta hover:bg-bok-black-hover aria-disabled:cursor-default aria-disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bok-lank";
+  "min-h-[46px] rounded-[8px] bg-bok-black px-[16px] text-[14px] font-medium text-bok-yta hover:bg-bok-black-hover aria-disabled:cursor-default aria-disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bok-lank";
 const SEKUNDAR =
-  "min-h-[44px] rounded-[8px] border border-bok-kant bg-bok-yta px-[16px] text-[14px] text-bok-text hover:bg-bok-yta-svag aria-disabled:cursor-default aria-disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bok-lank";
+  "min-h-[46px] rounded-[8px] border border-bok-kant bg-bok-yta px-[16px] text-[14px] text-bok-text hover:bg-bok-yta-svag aria-disabled:cursor-default aria-disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bok-lank";
 
 /**
  * `Posta` + `Ändra` och de sju utfallen (§8). Nyckeln görs i `postaUtkast`,

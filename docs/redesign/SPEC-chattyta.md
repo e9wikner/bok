@@ -5,7 +5,9 @@ Modul-id `chattyta` i kapabilitetskartan (`ANALYS.md` §8). Beror på `skal` (kl
 
 Status: **Fas 1 — skriven 2026-09-23.** Två beslut tagna i förväg av beställaren (§12.1–§12.2):
 `VerifikationsForslag` byggs hela vägen, med postningsknapp, och `age_days` blir röd från sju
-dagar. Uppgifterna ligger i `tasks/chattyta/plan.md` och `tasks/chattyta/todo.md` (C1–C14).
+dagar. Uppgifterna ligger i `tasks/chattyta/plan.md` och `tasks/chattyta/todo.md` (C1–C14). Modulen är
+**klar** 2026-09-23: C1–C14 avbockade, framgångskriterierna och avvikelserna står sist i `todo.md`.
+Kriterium 9 (visuell kontroll) är delvis uppfyllt — ett strömmande agentsvar kräver LLM-nyckel.
 
 ---
 
@@ -219,7 +221,7 @@ specen lägger till är beteende.
 | `FilInlagg` | `user_file` | Läsbar; filmeta ur `size_bytes`, `pages`. Ingen förhandsvisning. |
 | `SkriverIndikator` | strömmande | Text ur senaste `activity` — verktygsnamnet via samma svenska etiketter som `build_trace`. Utan `activity` än: `Läser…`. Aldrig tom. |
 | `SparChip` | `traces[]` | `label` + ` · detail` när den finns. |
-| `BeslutKort` | `decision` | Tre lägen ur beslutets status (§7): **öppen**, **besvarad** (`Besvarat · HH:MM` + svaret, inga knappar), **ersatt** (`superseded`: `Inte längre aktuellt`, inga knappar). |
+| `BeslutKort` | `decision` | Tre lägen ur beslutets status (§7): **öppen**, **besvarad** (`Besvarat`, inga knappar — `· HH:MM` bara när tiden kom ur en `409`; `GET /decisions` bär varken tid eller svar, §15.3), **ersatt** (`superseded`: `Inte längre aktuellt`, inga knappar). |
 | `GodkannKort` | `decision` där beslutet har `kind="approval"` | Som `BeslutKort`, rubrik `Väntar på ditt godkännande`. |
 | `AlternativLista` | `options` | Tryck på en rad = svar. Ingen bekräftelsedialog — konsekvensen står i kortet (`README.md` regel 4). En rad åt gången i flykt; övriga låsta tills svaret kommit. |
 | `VerifikationsForslag` | `draft` | §8. |
@@ -365,7 +367,8 @@ export function aldersTon(ageDays: number): "vantar" | "forfallen"
 
 - **`aria-live="polite"`** finns redan på tråden. Deltan annonseras **inte** en och en — det
   blir ett ord i taget i skärmläsaren. En dold live-region annonserar `SkriverIndikator`s text vid
-  byte och hela inlägget vid `message.completed`.
+  byte och hela inlägget vid `message.completed`. *(C14: `aria-live` på trådytan togs bort — den läste
+  varje delta; regionen är `TradAnnons` i `TradRenderare.tsx`.)*
 - Kortens knappar är `<button>`, träffyta ≥ 46 på mobil, ≥ 44 på desktop.
 - `AlternativLista` är en grupp knappar med `aria-describedby` till fotnoten, inte en radiogrupp
   — en radiogrupp har ett valt värde, och här finns inget valt värde förrän svaret är skickat.
@@ -470,3 +473,22 @@ Ingen av dem blockerar starten.
    `flode-verifikationer`s.
 2. **`ny`-markeringens varaktighet** (6 s, `SPEC-skal.md` öppen fråga 3) — gäller nu även ett
    besvarat kort som blir grönt. Samma konstant används.
+3. **`GET /decisions` saknar svaret.** `DecisionResponse` bär inte `answered_at`,
+   `answer_option_id` eller `answer_text` — bara `409 decision_already_answered` gör det. Ett
+   besvarat kort säger därför bara `Besvarat`, och en omladdad `AlternativLista` markerar ingen
+   rad (C6, C7; sett live i C14). Kräver en backendändring; naturligt i `flode-verifikationer`,
+   som ändå rör beslutens livscykel.
+4. **`POST /vouchers/{id}/post` läser inte `Idempotency-Key`.** Klienten skickar nyckeln (§8),
+   men bara `/correct` har beroendet. Ofarligt i dag — postningen byter status på utkastets egen
+   rad, så två tryck ger en verifikation (bekräftat live i C14) — men ett exakt samtidigt lopp kan
+   ge en dubbel `POSTED`-rad i `audit_log`, och §8:s `request_in_flight`/`idempotency_key_reuse`/
+   replay kan inte uppstå. Hör till `flode-verifikationer`. `SPEC-idempotens.md` antagande 3
+   (klienten slumpar v4) är inaktuellt: klienten härleder v5 ur `draft_id`.
+5. **Första meddelandet i en tom tråd kan tappa de första deltana.** Turen startar inne i
+   `POST …/messages`; strömmen kan öppnas först när svaret gett `thread_id` (§6.2 punkt 3). Det
+   färdiga inlägget spelas upp via `since`, men indikatorn börjar sent, och live-regionen (§11)
+   annonserar inte svaret om inget delta hann fram. Rättas på servern — t.ex. genom att turen
+   startar efter att klienten hunnit prenumerera — och hör till `tradar`s ägare.
+6. **Kvar i klienten, utanför modulen:** samma `id="skal-chattfalt"` i varje kolumn ger fel
+   `<label for>` (från `skal`); ingen `401`-hantering i `lib/api.ts`; desktopens tråd skrollar
+   inte, så de äldsta inläggen klipps när tråden är högre än kolumnen.
