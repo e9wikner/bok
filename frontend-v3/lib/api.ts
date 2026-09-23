@@ -20,6 +20,29 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
+/**
+ * Vad ett `401` gör. Ett objekt, inte fria funktioner, så att testerna kan
+ * byta ut navigeringen — jsdom kan inte navigera.
+ */
+export const obehorig = {
+  sokvag: (): string => (typeof window !== "undefined" ? window.location.pathname : ""),
+  ga: (url: string): void => {
+    if (typeof window !== "undefined") window.location.href = url;
+  },
+};
+
+// En utgången eller återkallad token loggar ut — samma sak som
+// `useAuth().logout` gör: token bort, till /login. Utan det gav en utgången
+// session tysta fel på varje sida. Inte på /login självt: där vore det en
+// loop. Felet kastas vidare, så anroparens egen felhantering körs ändå.
+apiClient.interceptors.response.use(undefined, (error) => {
+  if (error?.response?.status === 401 && typeof window !== "undefined") {
+    localStorage.removeItem("auth_token");
+    if (obehorig.sokvag() !== "/login") obehorig.ga("/login");
+  }
+  return Promise.reject(error);
+});
+
 // Types
 export interface Voucher {
   id: string;
