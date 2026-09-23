@@ -283,18 +283,17 @@ suffix i vyraderna. Skalet får en egen `formatBelopp` i `lib/skal/format.ts` oc
 | Sidornas `waiting` + `meta` | `GET /api/v1/overview` (`SPEC-oversikt.md` §5) | finns |
 | Räkenskapsår, periodläge | samma anrop, `fiscal_year` + `period_state` | finns |
 | Agentläge | `GET /api/v1/agent/status` (`SPEC-tradar.md` §7) | finns, tre lägen |
-| Vyns rader | vyns egna endpoints | **mockat i den här modulen** |
-| Tråden | `GET /api/v1/threads/{view_key}` | **mockat i den här modulen** |
+| Vyns rader | vyns egna endpoints, via `hooks/useVyer.ts` (`lib/skal/bocker.ts`, `betala.ts`, `bokslut.ts`) | finns |
+| Tråden | `GET /api/v1/threads/{view_key}` | finns (`chattyta`) |
 
 **Ett anrop för headern.** `useOverview()` är en `useQuery` med nyckeln `["overview"]`, och den är
 den **enda** källan till sidornas prickar och metarader. Skalet räknar aldrig `waiting` själv, inte
 ens när det vore en rad — datakontraktets regel 2, och `SPEC-oversikt.md` §5 säger uttryckligen att
 servern bestämmer.
 
-**Mockarna är märkta och isolerade.** All mockad data ligger i `lib/skal/mock.ts`, varje export
-kommenterad med vilken modul som ersätter den. Ingen mock får ligga inline i en komponent, och
-ingen komponent får ha en `if (mock)`-gren — komponenten tar data som props och vet inte att den
-är påhittad. Annars blir bytet till `chattyta` en omskrivning i stället för ett byte av källa.
+**Ingen påhittad data.** `lib/skal/mock.ts` är borttagen (2026-09-23). Vyernas innehåll byggs av
+rena avbildningar från API-svar till `VyData` (`lib/skal/vydata.ts`); komponenterna tar data som
+props. En vy utan data visar sitt tomma läge, aldrig exempelrader.
 
 **`agent_status` faller mjukt.** Går anropet inte fram visar `AgentStatus` ingenting alls, inte
 "Agenten pausad". Pausad är ett riktigt läge med en orsak (`SPEC-tradar.md` §7); att gissa det ur

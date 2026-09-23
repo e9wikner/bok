@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { aldersTon } from "@/lib/chattyta/alder";
-import type { RadVariant } from "@/lib/skal/mock";
+import type { RadVariant } from "@/lib/skal/vydata";
 
 /**
  * `VyRad` (komponenter.md): padding 9/8, margin 0 -8, radius 6,

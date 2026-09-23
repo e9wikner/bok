@@ -6,7 +6,7 @@
  * Två uppslagstabeller hade glidit isär vid första ändringen.
  */
 
-import type { VyLage } from "@/lib/skal/mock";
+import type { VyLage } from "@/lib/skal/vydata";
 
 const STATUS_FARG: Record<VyLage, string> = {
   normal: "var(--bok-text-svag)",

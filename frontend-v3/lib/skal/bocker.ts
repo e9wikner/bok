@@ -1,17 +1,16 @@
 /**
  * Böckernas tre vyer ur riktiga data (modul `skal`).
  *
- * Ersätter BALANS, RESULTAT och VERIFIKATIONER i `mock.ts` med serverns
- * rapporter för det räkenskapsår översikten pekar ut. Funktionerna här är
- * rena avbildningar från API-svar till `VyData`; hämtningen ligger i
- * `bockerApi` och cachningen i `hooks/useBockerVyer.ts`.
+ * Serverns rapporter för det räkenskapsår översikten pekar ut. Funktionerna
+ * här är rena avbildningar från API-svar till `VyData`; hämtningen ligger i
+ * `bockerApi` och cachningen i `hooks/useVyer.ts`.
  *
  * Beloppen kommer i öre och visas i hela kronor, som designen kräver.
  */
 
 import apiClient from "@/lib/api";
 import { formatBeloppHela } from "@/lib/skal/format";
-import type { VyData, VyRadData, VySektionData } from "@/lib/skal/mock";
+import type { VyData, VyRadData, VySektionData } from "@/lib/skal/vydata";
 import type { OverviewFiscalYear } from "@/lib/skal/api";
 
 // ─── API-svaren, bara de fält vyerna läser ────────────────────────────────
@@ -114,11 +113,11 @@ function arsrubrik(ar: OverviewFiscalYear): string {
   return `${ar.start} – ${ar.end}`;
 }
 
-function kontorad(k: { code: string; name: string }, belopp: number): VyRadData {
+export function kontorad(k: { code: string; name: string }, belopp: number): VyRadData {
   return { id: k.code, titel: k.name, meta: k.code, hoger: formatBeloppHela(belopp) };
 }
 
-function summarad(id: string, titel: string, belopp: number): VyRadData {
+export function summarad(id: string, titel: string, belopp: number): VyRadData {
   return { id, titel, hoger: formatBeloppHela(belopp), summa: true };
 }
 
@@ -300,30 +299,3 @@ export function verifikationerVy(
         : "Alla årets verifikationer visas.",
   };
 }
-
-// ─── Lägen medan data hämtas ──────────────────────────────────────────────
-
-export const LADDAR_VY: VyData = {
-  lage: "pagaende",
-  status: "hämtar",
-  period: "",
-  sektioner: [],
-  fot: "",
-};
-
-export const FEL_VY: VyData = {
-  lage: "fel",
-  status: "kunde inte läsas",
-  period: "",
-  banner: { ton: "fel", text: "Uppgifterna kunde inte hämtas från servern. Ladda om sidan." },
-  sektioner: [],
-  fot: "",
-};
-
-export const INGET_AR_VY: VyData = {
-  lage: "tomt",
-  status: "inget räkenskapsår",
-  period: "",
-  sektioner: [],
-  fot: "Det finns inget räkenskapsår för dagens datum.",
-};

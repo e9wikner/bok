@@ -10,14 +10,13 @@ import type { SidMeta } from "@/components/skal/SidVaeljare";
 import { VyInnehall } from "@/components/skal/VyInnehall";
 import { VySvep } from "@/components/skal/VySvep";
 import { useAgentStatus, useOverview } from "@/hooks/useSkal";
-import { useBockerVyer } from "@/hooks/useBockerVyer";
+import { useVyer } from "@/hooks/useVyer";
 import { useVantandeBeslut } from "@/hooks/useVantandeBeslut";
 import { useBredSkarm } from "@/hooks/useBredSkarm";
 import { arsrad } from "@/lib/skal/header";
 import { lageFarg } from "@/lib/skal/lage";
-import { MOCK_VYER, type VyData } from "@/lib/skal/mock";
 import { SKAL_RUTT, lasPosition } from "@/lib/skal/rutt";
-import { type Sidnyckel, type ViewKey, type Vy, forstaVyn, sidan, vyAt } from "@/lib/skal/vyer";
+import { type Sidnyckel, type Vy, forstaVyn, sidan, vyAt } from "@/lib/skal/vyer";
 
 /**
  * Skalet: tre sidor, sju vyer, en rutt.
@@ -74,17 +73,9 @@ export function Skal() {
     setVyIndex(0); // Byte av sida landar alltid på sidans första vy.
   }, []);
 
-  // Böckernas vyer läser riktiga data; de övriga fyra är fortfarande mockade.
-  const bocker = useBockerVyer(
-    overview === undefined ? undefined : overview.fiscal_year,
-    sidnyckel === "bocker"
-  );
-  const vyData = (key: ViewKey): { data: VyData; laddar: boolean } =>
-    key in bocker
-      ? bocker[key as keyof typeof bocker]
-      : { data: MOCK_VYER[key], laddar: false };
+  const vyer = useVyer(overview === undefined ? undefined : overview.fiscal_year, sidnyckel);
 
-  const { data } = vyData(aktivVy.key);
+  const { data } = vyer[aktivVy.key];
   const vyStatus = { text: data.status, fg: lageFarg(data.lage) };
 
   return (
@@ -110,7 +101,7 @@ export function Skal() {
         aktivIndex={vyIndex}
         onIndexChange={setVyIndex}
         renderVy={(vy, i) => {
-          const { data: innehall, laddar } = vyData(vy.key);
+          const { data: innehall, laddar } = vyer[vy.key];
           // Bara den aktiva vyns tråd läses och strömmas: svepraden renderar
           // sidans alla vyer, och SPEC-chattyta.md §6.2 punkt 5 säger en
           // ström per flik.

@@ -1,6 +1,6 @@
 "use client";
 
-import type { BannerTon } from "@/lib/skal/mock";
+import type { BannerTon } from "@/lib/skal/vydata";
 
 /**
  * `VyBanner` (komponenter.md): radius 10, padding 12/14, text 13/1.5.

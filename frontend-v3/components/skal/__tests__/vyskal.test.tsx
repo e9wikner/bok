@@ -3,8 +3,17 @@ import { act, render, screen } from "@testing-library/react";
 import { VySektion } from "@/components/skal/VySektion";
 import { VyRad, VyRadSkelett, NY_MARKERING_MS } from "@/components/skal/VyRad";
 import { VyInnehall } from "@/components/skal/VyInnehall";
-import { MOCK_VYER } from "@/lib/skal/mock";
-import { allaVyer, sidan } from "@/lib/skal/vyer";
+import { atgarderVy } from "@/lib/skal/bokslut";
+import { FEL_VY, INGET_AR_VY, LADDAR_VY, type VyData } from "@/lib/skal/vydata";
+import { sidan } from "@/lib/skal/vyer";
+
+const BALANS: VyData = {
+  lage: "normal",
+  status: "balanserar",
+  period: "2026-01-01 – 2026-12-31 · utgående balans",
+  sektioner: [{ titel: "Tillgångar", rader: [{ id: "1930", titel: "Företagskonto", meta: "1930", hoger: "400 720" }] }],
+  fot: "",
+};
 
 afterEach(() => {
   vi.useRealTimers();
@@ -32,7 +41,7 @@ describe("tom sektion utgår helt (testfall 13)", () => {
 
   it("tomt läge ger en vy utan en enda sektionsrubrik", () => {
     const vy = sidan("bokslut").vyer[1];
-    render(<VyInnehall vy={vy} data={MOCK_VYER["bokslut.atgarder"]} />);
+    render(<VyInnehall vy={vy} data={atgarderVy({ count: 0, issues: [] })} />);
     expect(screen.getByText("Åtgärder och nyckeltal")).toBeInTheDocument();
     expect(screen.queryByText("Väntar")).not.toBeInTheDocument();
   });
@@ -42,7 +51,7 @@ describe("laddning är skelettrader (testfall 14)", () => {
   it("visar skelett, inte en spinner över hela ytan", () => {
     const vy = sidan("bocker").vyer[0];
     const { container } = render(
-      <VyInnehall vy={vy} data={MOCK_VYER["bocker.balans"]} laddar />
+      <VyInnehall vy={vy} data={BALANS} laddar />
     );
     expect(screen.getByTestId("vyrad-skelett")).toBeInTheDocument();
     expect(container.querySelector(".animate-spin")).toBeNull();
@@ -83,11 +92,10 @@ describe("ny-markeringen är kortvarig (testfall 15)", () => {
   });
 });
 
-describe("alla sex lägen går att visa", () => {
-  it("varje vy i mocken har ett läge, och alla sex förekommer över de sju vyerna", () => {
-    const lagen = new Set(allaVyer().map((v) => MOCK_VYER[v.key].lage));
-    for (const l of ["normal", "vantar", "pagaende", "klart", "tomt"]) {
-      expect(lagen.has(l as never)).toBe(true);
-    }
+describe("lägena som inte beror på vyn", () => {
+  it("laddning, fel och inget räkenskapsår har var sitt läge", () => {
+    expect(LADDAR_VY.lage).toBe("pagaende");
+    expect(FEL_VY.lage).toBe("fel");
+    expect(INGET_AR_VY.lage).toBe("tomt");
   });
 });

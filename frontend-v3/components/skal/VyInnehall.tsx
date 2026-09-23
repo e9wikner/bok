@@ -5,7 +5,7 @@ import { VyHeaderStatus } from "@/components/skal/VyHeaderStatus";
 import { VyRad, VyRadSkelett } from "@/components/skal/VyRad";
 import { VySektion } from "@/components/skal/VySektion";
 import { lageFarg } from "@/lib/skal/lage";
-import type { VyData } from "@/lib/skal/mock";
+import type { VyData } from "@/lib/skal/vydata";
 import type { Vy } from "@/lib/skal/vyer";
 
 /**

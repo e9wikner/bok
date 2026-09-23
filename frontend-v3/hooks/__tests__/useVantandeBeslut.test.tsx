@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { ReactNode } from "react";
 import { renderHook, waitFor } from "@testing-library/react";
@@ -11,7 +11,6 @@ import {
   type BeslutListSvar,
   type BeslutSvar,
 } from "@/lib/chattyta/api";
-import * as skalMock from "@/lib/skal/mock";
 
 // ─── Mockar ───────────────────────────────────────────────────────────────
 
@@ -124,14 +123,15 @@ describe("märket = serverns total ur status=open (testfall 21)", () => {
 // ─── Testfall 32, beslutshalvan ───────────────────────────────────────────
 
 describe("mocken för beslutsmärket är borta (testfall 32)", () => {
-  it("lib/skal/mock exporterar ingen mockVantandeBeslut (testfall 32)", () => {
-    expect("mockVantandeBeslut" in skalMock).toBe(false);
+  it("lib/skal/mock.ts finns inte längre (testfall 32)", () => {
+    const rot = path.resolve(__dirname, "../..");
+    expect(existsSync(path.join(rot, "lib/skal/mock.ts"))).toBe(false);
   });
 
-  it("varken mock.ts eller Skal.tsx nämner mockVantandeBeslut (testfall 32)", () => {
+  it("Skal.tsx nämner inte mockVantandeBeslut (testfall 32)", () => {
     const rot = path.resolve(__dirname, "../..");
-    for (const fil of ["lib/skal/mock.ts", "components/skal/Skal.tsx"]) {
-      expect(readFileSync(path.join(rot, fil), "utf8")).not.toMatch(/\bmockVantandeBeslut\b/);
-    }
+    expect(readFileSync(path.join(rot, "components/skal/Skal.tsx"), "utf8")).not.toMatch(
+      /\bmockVantandeBeslut\b/
+    );
   });
 });

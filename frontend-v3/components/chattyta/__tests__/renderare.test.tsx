@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -25,7 +25,6 @@ import {
   kropp,
   medKropp,
 } from "@/lib/chattyta/__fixtures__/inlagg";
-import * as skalMock from "@/lib/skal/mock";
 
 // ─── Mockar ───────────────────────────────────────────────────────────────
 // Nätet, inte hooken: testfall 12 och 19 prövar hela kedjan ChattFalt →
@@ -471,14 +470,7 @@ describe("ChattKolumn skickar genom tråden", () => {
 // ─── Testfall 32, trådens halva ───────────────────────────────────────────
 
 describe("mocken för tråden är borta (testfall 32)", () => {
-  it("lib/skal/mock exporterar ingen mockTrad", () => {
-    expect("mockTrad" in skalMock).toBe(false);
-  });
-
-  it("varken mockTrad, TradInlaggData eller TRAD står kvar i källan", () => {
-    const kalla = readFileSync(path.resolve(__dirname, "../../../lib/skal/mock.ts"), "utf8");
-    expect(kalla).not.toMatch(/\bmockTrad\b/);
-    expect(kalla).not.toMatch(/\bTradInlaggData\b/);
-    expect(kalla).not.toMatch(/\bconst TRAD\b/);
+  it("lib/skal/mock.ts, där mockTrad låg, finns inte längre", () => {
+    expect(existsSync(path.resolve(__dirname, "../../../lib/skal/mock.ts"))).toBe(false);
   });
 });
