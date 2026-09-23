@@ -13,8 +13,9 @@ change is a single `UPDATE ... WHERE status = 'pending'`, and a zero
 final.
 """
 
+import json
 from datetime import datetime
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional, Sequence, Tuple
 
 from db.database import db
 from domain.models import ThreadDraft
@@ -52,17 +53,29 @@ class ThreadDraftRepository:
         decision_id: Optional[str] = None,
         correction_of: Optional[str] = None,
         correction_note_id: Optional[str] = None,
+        intake_source_ids: Sequence[str] = (),
+        bank_input_ids: Sequence[str] = (),
+        bank_transaction_ids: Sequence[str] = (),
         _commit: bool = True,
     ) -> ThreadDraft:
         """Insert one row, `status='pending'`. `post_id` must already exist
-        (a real foreign key), so the `draft` post is written first."""
+        (a real foreign key), so the `draft` post is written first.
+
+        The three id lists are the traceability a posting of this draft must
+        link (migration 029); stored as one JSON object."""
         now = datetime.now()
+        traceability = {
+            "intake_source_ids": list(intake_source_ids),
+            "bank_input_ids": list(bank_input_ids),
+            "bank_transaction_ids": list(bank_transaction_ids),
+        }
         db.execute(
             """
             INSERT INTO thread_drafts
             (voucher_id, thread_id, post_id, view_key, decision_id,
-             correction_of, correction_note_id, status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+             correction_of, correction_note_id, status, created_at,
+             traceability_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
             """,
             (
                 voucher_id,
@@ -73,6 +86,7 @@ class ThreadDraftRepository:
                 correction_of,
                 correction_note_id,
                 now,
+                json.dumps(traceability),
             ),
         )
         if _commit:
@@ -87,6 +101,9 @@ class ThreadDraftRepository:
             correction_of=correction_of,
             correction_note_id=correction_note_id,
             created_at=now,
+            intake_source_ids=traceability["intake_source_ids"],
+            bank_input_ids=traceability["bank_input_ids"],
+            bank_transaction_ids=traceability["bank_transaction_ids"],
         )
 
     @staticmethod
@@ -238,6 +255,7 @@ class ThreadDraftRepository:
 
     @staticmethod
     def _row_to_draft(row) -> ThreadDraft:
+        traceability = json.loads(row["traceability_json"] or "{}")
         return ThreadDraft(
             voucher_id=row["voucher_id"],
             thread_id=row["thread_id"],
@@ -253,6 +271,9 @@ class ThreadDraftRepository:
             last_error_code=row["last_error_code"],
             last_error_post_id=row["last_error_post_id"],
             created_at=_parse_required_datetime(row["created_at"]),
+            intake_source_ids=list(traceability.get("intake_source_ids", [])),
+            bank_input_ids=list(traceability.get("bank_input_ids", [])),
+            bank_transaction_ids=list(traceability.get("bank_transaction_ids", [])),
         )
 
 

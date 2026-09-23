@@ -541,3 +541,8 @@ class ThreadDraft:
     last_error_code: Optional[str] = None
     last_error_post_id: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
+    # Migration 029: what a posting of this draft must link (§5.2). Links
+    # are only ever written against a posted voucher, so the ids wait here.
+    intake_source_ids: List[str] = field(default_factory=list)
+    bank_input_ids: List[str] = field(default_factory=list)
+    bank_transaction_ids: List[str] = field(default_factory=list)

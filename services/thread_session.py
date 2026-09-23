@@ -44,6 +44,7 @@ from services.agent_session import (
 )
 from services.agent_tools import (
     AGENT_TOOL_DEFINITIONS,
+    ProposalSequence,
     derive_thread_posting_idempotency_key,
 )
 from services.llm import LLMClient, StreamTextHook, StreamToolCallHook
@@ -269,5 +270,14 @@ def run_thread_session(
         # SPEC-tradar.md §8.1's boundary -- the runtime does not know what a
         # thread is -- survives the tenth tool. Only `execute_tool` ->
         # `be_om_beslut` opens it.
-        tool_context={"thread": thread},
+        #
+        # `proposals` is `foresla_verifikation`'s (SPEC-flode-verifikationer
+        # §5.5): the `{post_id}:{n}` of its key, fresh per turn and hung on
+        # the same trigger post as the posting key. It rides in the same
+        # unread mapping for the same reason, and only
+        # `_run_foresla_verifikation` opens it.
+        tool_context={
+            "thread": thread,
+            "proposals": ProposalSequence(thread.id, trigger_post.id),
+        },
     )

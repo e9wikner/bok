@@ -7,20 +7,37 @@ gets its own section. Numbering (F1-F3) lives in `tests/test_numrering.py`.
 Per the spec no LLM is ever called from a test.
 """
 
+import re
 import sqlite3
 import uuid
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
 from db.database import db
 from domain.models import ThreadDraft
+from domain.types import VoucherStatus
+from domain.validation import ValidationError
+from repositories.account_repo import AccountRepository
+from repositories.intake_repo import IntakeRepository
 from repositories.period_repo import PeriodRepository
 from repositories.thread_draft_repo import (
     ThreadDraftRepository,
     ThreadDraftTransitionError,
 )
 from repositories.thread_repo import ThreadRepository
+from repositories.voucher_repo import VoucherRepository
+from services.agent_tools import (
+    ForeslaVerifikationArgs,
+    ProposalSequence,
+    _run_foresla_verifikation,
+    derive_thread_posting_idempotency_key,
+    derive_thread_proposal_idempotency_key,
+)
+from services.decision_service import DecisionService
+from services.ledger import LedgerService
+from services.llm import LLMCapabilities
 
 pytestmark = pytest.mark.usefixtures("test_db")
 
@@ -313,3 +330,492 @@ def test_pending_for_correction_of_finds_pending_in_any_thread():
     )
     assert ThreadDraftRepository.pending_for_correction_of("orig-1") is None
     assert ThreadDraftRepository.pending_for_correction_of("orig-2") is None
+
+
+# --- F6: foresla_verifikation, vanligt förslag (testfall 14-21) --------------
+
+_FIXTURE_FILE = (
+    Path(__file__).resolve().parent.parent
+    / "frontend-v3"
+    / "lib"
+    / "chattyta"
+    / "__fixtures__"
+    / "inlagg.ts"
+)
+
+_ACCOUNTS = (
+    ("6110", "Kontorsmateriel", "expense"),
+    ("2640", "Ingående moms", "vat_in"),
+    ("1930", "Företagskonto", "asset"),
+)
+
+_ROWS = [
+    {"account": "6110", "debit": 71680},
+    {"account": "2640", "debit": 17920},
+    {"account": "1930", "credit": 89600},
+]
+
+
+def _fixture_draft_keys() -> tuple[set, set]:
+    """The keys of `FIXTUR_DRAFT.body` and of its first row, read out of the
+    client's own fixture -- not copied from it -- so that producer and
+    consumer cannot drift apart (todo F6)."""
+    source = _FIXTURE_FILE.read_text(encoding="utf-8")
+    start = source.index("export const FIXTUR_DRAFT")
+    block = source[start : source.index("};", start)]
+    body = block[block.index("body: {") :]
+    body_keys = set(re.findall(r"^    (\w+):", body, flags=re.MULTILINE))
+    first_row = re.search(r"\{ (account:[^}]*)\}", body)
+    assert first_row is not None
+    row_keys = set(re.findall(r"(\w+):", first_row.group(1)))
+    return body_keys, row_keys
+
+
+def _books(month: int = 9):
+    """A thread in 2026, September open, the three accounts of the design's
+    example, and the human's post that triggers the turn."""
+    thread = _thread()
+    period = PeriodRepository.create_period(
+        fiscal_year_id=thread.fiscal_year_id,
+        year=2026,
+        month=month,
+        start_date=date(2026, month, 1),
+        end_date=date(2026, month, 30),
+    )
+    for code, name, account_type in _ACCOUNTS:
+        if AccountRepository.get(code) is None:
+            AccountRepository.create(code, name, account_type)
+    trigger = ThreadRepository.add_post(
+        thread_id=thread.id,
+        post_type="user_text",
+        actor="api",
+        body={"text": "Bokför kvittot från Clas Ohlson."},
+    )
+    return thread, period, trigger
+
+
+def _args(period, **overrides) -> ForeslaVerifikationArgs:
+    fields = {
+        "description": "Kontorsmaterial, Clas Ohlson",
+        "rows": _ROWS,
+        "date": "2026-09-18",
+        "period_id": period.id,
+        "footnote": "Underlag: kvitto 2026-09-18 · kompletteringsflagga sätts inte",
+    }
+    fields.update(overrides)
+    return ForeslaVerifikationArgs.model_validate(fields)
+
+
+def _capabilities() -> LLMCapabilities:
+    return LLMCapabilities(
+        cache_breakpoint=True,
+        pdf_document_blocks=True,
+        refusal_stop_reason=True,
+        streaming=True,
+    )
+
+
+def _propose(thread, args, proposals=None):
+    """One `foresla_verifikation` call through its handler, the way
+    `execute_tool` would make it inside a thread turn."""
+    return _run_foresla_verifikation(
+        args,
+        actor="agent",
+        capabilities=_capabilities(),
+        tool_context=(
+            None if thread is None else {"thread": thread, "proposals": proposals}
+        ),
+    )
+
+
+def _count(table: str) -> int:
+    return db.execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()["n"]
+
+
+def _draft_posts(thread):
+    return [p for p in ThreadRepository.list_posts(thread.id) if p.type == "draft"]
+
+
+def test_case_14_proposal_writes_draft_row_and_post():
+    thread, period, trigger = _books()
+    proposals = ProposalSequence(thread.id, trigger.id)
+
+    result = _propose(thread, _args(period), proposals)
+
+    voucher = VoucherRepository.get(result["draft_id"])
+    assert voucher is not None
+    assert voucher.status == VoucherStatus.DRAFT
+    assert voucher.number is None
+    assert voucher.series.value == "A"
+    assert voucher.date == date(2026, 9, 18)
+    assert [(r.account_code, r.debit, r.credit) for r in voucher.rows] == [
+        ("6110", 71680, 0),
+        ("2640", 17920, 0),
+        ("1930", 0, 89600),
+    ]
+
+    [post] = _draft_posts(thread)
+    assert post.actor == "agent"
+    row = ThreadDraftRepository.get(voucher.id)
+    assert row is not None
+    assert row.status == "pending"
+    assert row.post_id == post.id
+    assert row.thread_id == thread.id
+    assert row.view_key == thread.view_key
+    assert row.decision_id is None
+    assert row.correction_of is None
+    assert result["post_id"] == post.id
+    assert result["status"] == "pending"
+
+    fixture_body_keys, fixture_row_keys = _fixture_draft_keys()
+    assert set(post.body) == fixture_body_keys
+    for body_row in post.body["rows"]:
+        assert set(body_row) == fixture_row_keys
+    assert post.body["kind"] == "voucher"
+    assert post.body["draft_id"] == voucher.id
+    assert post.body["decision_id"] is None
+    assert post.body["rows"] == [
+        {
+            "account": "6110",
+            "name": "Kontorsmateriel",
+            "debit_ore": 71680,
+            "credit_ore": None,
+        },
+        {
+            "account": "2640",
+            "name": "Ingående moms",
+            "debit_ore": 17920,
+            "credit_ore": None,
+        },
+        {
+            "account": "1930",
+            "name": "Företagskonto",
+            "debit_ore": None,
+            "credit_ore": 89600,
+        },
+    ]
+
+
+def test_case_14_proposal_keeps_its_traceability_until_posting():
+    thread, period, trigger = _books()
+    source = IntakeRepository.create_source(
+        source_id="kvitto-clas-ohlson",
+        original_filename="kvitto-clas-ohlson.pdf",
+        mime_type="application/pdf",
+        size_bytes=10,
+        sha256="sha-clas-ohlson",
+        stored_path="/dev/null/kvitto-clas-ohlson",
+        uploaded_by="test",
+    )
+
+    result = _propose(
+        thread,
+        _args(period, intake_source_ids=[source.id]),
+        ProposalSequence(thread.id, trigger.id),
+    )
+
+    row = ThreadDraftRepository.get(result["draft_id"])
+    assert row.intake_source_ids == [source.id]
+    assert row.bank_input_ids == []
+    assert row.bank_transaction_ids == []
+    # Not linked yet: a link marks the source processed, and only a posted
+    # voucher may be linked.
+    assert IntakeRepository.get_link_by_source_id(source.id) is None
+
+
+def test_case_15_same_turn_run_twice_gives_the_same_draft():
+    thread, period, trigger = _books()
+
+    first = _propose(thread, _args(period), ProposalSequence(thread.id, trigger.id))
+    # The turn is run again from the start (a crash after the commit): a
+    # fresh sequence for the same trigger post, the same call.
+    again = _propose(thread, _args(period), ProposalSequence(thread.id, trigger.id))
+
+    assert again["draft_id"] == first["draft_id"]
+    assert again["post_id"] == first["post_id"]
+    assert again["idempotent_replay"] is True
+    assert _count("vouchers") == 1
+    assert _count("thread_drafts") == 1
+    assert len(_draft_posts(thread)) == 1
+
+
+def test_case_16_two_proposals_in_one_turn_give_two_drafts():
+    thread, period, trigger = _books()
+    proposals = ProposalSequence(thread.id, trigger.id)
+
+    first = _propose(thread, _args(period), proposals)
+    second = _propose(thread, _args(period), proposals)
+
+    assert first["draft_id"] != second["draft_id"]
+    assert _count("vouchers") == 2
+    assert _count("thread_drafts") == 2
+    assert len(_draft_posts(thread)) == 2
+    keys = {
+        derive_thread_proposal_idempotency_key(thread.id, trigger.id, n) for n in (1, 2)
+    }
+    assert len(keys) == 2
+    # And a proposal never collides with a posting from the same post.
+    assert derive_thread_posting_idempotency_key(thread.id, trigger.id) not in keys
+
+
+def _open_decision(thread):
+    return DecisionService().create(
+        thread,
+        title="Swish 4 500 kr utan referens",
+        reason="Avsändaren är en privatperson.",
+        consequence="Ingenting är bokfört.",
+    )
+
+
+def _answered_decision(thread):
+    decision = _open_decision(thread)
+    DecisionService().answer(decision.id, free_text="Övrig intäkt.", actor="api")
+    return decision
+
+
+def _failing_case(name, thread, period):
+    """Arguments and expected code for each row of §5.3's table."""
+    if name == "without_thread":
+        return None, _args(period), "draft_requires_thread"
+    if name == "unbalanced":
+        rows = [{"account": "6110", "debit": 100}, {"account": "1930", "credit": 99}]
+        return thread, _args(period, rows=rows), "balance_error"
+    if name == "unknown_account":
+        rows = [{"account": "9999", "debit": 100}, {"account": "1930", "credit": 100}]
+        return thread, _args(period, rows=rows), "account_not_found"
+    if name == "locked_period":
+        PeriodRepository.lock_period(period.id, actor="stefan")
+        return thread, _args(period), "period_locked"
+    if name == "decision_not_found":
+        return thread, _args(period, decision_id="nope"), "decision_not_found"
+    if name == "decision_not_in_thread":
+        other = ThreadRepository.get_or_create(
+            view_key="bocker.huvudbok",
+            fiscal_year_id=thread.fiscal_year_id,
+            model="opencode/claude-opus-5",
+        )
+        decision = _answered_decision(other)
+        return thread, _args(period, decision_id=decision.id), "decision_not_in_thread"
+    if name == "decision_superseded":
+        decision = _open_decision(thread)
+        DecisionService().supersede(decision.id)
+        return thread, _args(period, decision_id=decision.id), "decision_superseded"
+    if name == "decision_still_open":
+        decision = _open_decision(thread)
+        return thread, _args(period, decision_id=decision.id), "decision_still_open"
+    if name == "replaces_unknown":
+        return thread, _args(period, replaces_draft_id="nope"), "draft_not_replaceable"
+    if name == "without_date":
+        return thread, _args(period, date=None), "draft_requires_date_and_period"
+    if name == "correction_of":
+        return thread, _args(period, correction_of="v-118"), "not_implemented"
+    raise AssertionError(name)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "without_thread",
+        "unbalanced",
+        "unknown_account",
+        "locked_period",
+        "decision_not_found",
+        "decision_not_in_thread",
+        "decision_superseded",
+        "decision_still_open",
+        "replaces_unknown",
+        "without_date",
+        "correction_of",
+    ],
+)
+def test_case_17_failed_checks_write_nothing(name):
+    thread, period, trigger = _books()
+    context_thread, args, code = _failing_case(name, thread, period)
+    posts_before = _count("thread_posts")
+    proposals = ProposalSequence(thread.id, trigger.id)
+
+    with pytest.raises(ValidationError) as excinfo:
+        _propose(context_thread, args, proposals)
+
+    assert excinfo.value.code == code
+    assert _count("vouchers") == 0
+    assert _count("thread_drafts") == 0
+    assert _count("thread_posts") == posts_before
+    if name == "locked_period":
+        assert "stefan" in (excinfo.value.details or "")
+    if name != "without_thread":
+        # A failed call claims no key: the same slot is free for the
+        # corrected call that follows.
+        assert proposals.n == 1
+
+
+def test_case_17_replaces_a_draft_from_another_thread_is_refused():
+    thread, period, trigger = _books()
+    other = ThreadRepository.get_or_create(
+        view_key="bocker.huvudbok",
+        fiscal_year_id=thread.fiscal_year_id,
+        model="opencode/claude-opus-5",
+    )
+    other_trigger = ThreadRepository.add_post(
+        thread_id=other.id, post_type="user_text", actor="api", body={"text": "x"}
+    )
+    elsewhere = _propose(
+        other, _args(period), ProposalSequence(other.id, other_trigger.id)
+    )
+
+    with pytest.raises(ValidationError) as excinfo:
+        _propose(
+            thread,
+            _args(period, replaces_draft_id=elsewhere["draft_id"]),
+            ProposalSequence(thread.id, trigger.id),
+        )
+    assert excinfo.value.code == "draft_not_replaceable"
+    assert ThreadDraftRepository.get(elsewhere["draft_id"]).status == "pending"
+
+
+def test_case_17_an_answered_decision_is_carried_on_the_draft():
+    thread, period, trigger = _books()
+    decision = _answered_decision(thread)
+
+    result = _propose(
+        thread,
+        _args(period, decision_id=decision.id),
+        ProposalSequence(thread.id, trigger.id),
+    )
+
+    assert ThreadDraftRepository.get(result["draft_id"]).decision_id == decision.id
+    [post] = _draft_posts(thread)
+    assert post.body["decision_id"] == decision.id
+
+
+def test_case_18_failure_halfway_leaves_nothing(monkeypatch):
+    thread, period, trigger = _books()
+    posts_before = _count("thread_posts")
+
+    def _boom(**kwargs):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(ThreadDraftRepository, "create", staticmethod(_boom))
+    proposals = ProposalSequence(thread.id, trigger.id)
+    with pytest.raises(RuntimeError):
+        _propose(thread, _args(period), proposals)
+
+    assert _count("vouchers") == 0
+    assert _count("voucher_rows") == 0
+    assert _count("thread_drafts") == 0
+    assert _count("thread_posts") == posts_before
+    monkeypatch.undo()
+
+    # The key was released, not left in flight: the retry goes through.
+    result = _propose(thread, _args(period), proposals)
+    assert "idempotent_replay" not in result
+    assert _count("thread_drafts") == 1
+
+
+def test_case_18_failure_while_replacing_keeps_the_old_draft(monkeypatch):
+    thread, period, trigger = _books()
+    proposals = ProposalSequence(thread.id, trigger.id)
+    old = _propose(thread, _args(period), proposals)
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(VoucherRepository, "delete_draft", staticmethod(_boom))
+    with pytest.raises(RuntimeError):
+        _propose(thread, _args(period, replaces_draft_id=old["draft_id"]), proposals)
+
+    assert _count("vouchers") == 1
+    assert VoucherRepository.get(old["draft_id"]) is not None
+    assert ThreadDraftRepository.get(old["draft_id"]).status == "pending"
+    assert len(_draft_posts(thread)) == 1
+
+
+def test_case_19_replaces_draft_id_supersedes_and_deletes_the_old_draft():
+    thread, period, trigger = _books()
+    proposals = ProposalSequence(thread.id, trigger.id)
+    old = _propose(thread, _args(period), proposals)
+
+    new = _propose(
+        thread,
+        _args(
+            period,
+            description="Kontorsmaterial, Clas Ohlson (rättad)",
+            replaces_draft_id=old["draft_id"],
+        ),
+        proposals,
+    )
+
+    assert VoucherRepository.get(old["draft_id"]) is None
+    old_row = ThreadDraftRepository.get(old["draft_id"])
+    assert old_row.status == "superseded"
+    assert old_row.replaced_by == new["draft_id"]
+    assert ThreadDraftRepository.get(new["draft_id"]).status == "pending"
+    assert new["replaced_draft_id"] == old["draft_id"]
+    # Both cards stay in the thread: a post is never rewritten.
+    assert [p.id for p in _draft_posts(thread)] == [old["post_id"], new["post_id"]]
+
+    # No gap: drafts have no number, so the replacement is A-1 once posted.
+    posted = LedgerService().post_voucher(new["draft_id"], actor="stefan")
+    assert posted.number == 1
+
+
+def test_case_20_description_becomes_the_voucher_and_footnote_stays_in_the_post():
+    thread, period, trigger = _books()
+    args = _args(period)
+
+    result = _propose(thread, args, ProposalSequence(thread.id, trigger.id))
+
+    voucher = VoucherRepository.get(result["draft_id"])
+    assert voucher.description == "Kontorsmaterial, Clas Ohlson"
+    [post] = _draft_posts(thread)
+    assert post.body["title"] == "Kontorsmaterial, Clas Ohlson"
+    assert post.body["footnote"] == args.footnote
+    assert args.footnote not in (voucher.description or "")
+    assert all(args.footnote != (row.description or "") for row in voucher.rows)
+
+
+def test_case_21_meta_has_no_number_and_consequence_names_series_and_period():
+    thread, period, trigger = _books()
+
+    _propose(thread, _args(period), ProposalSequence(thread.id, trigger.id))
+
+    [post] = _draft_posts(thread)
+    assert post.body["meta"] == "Förslag · A · 2026-09-18"
+    assert post.body["consequence"] == (
+        "Låses vid postning · får nästa nummer i A-serien · "
+        "period september 2026 öppen"
+    )
+
+
+def test_thread_turn_hands_the_proposal_sequence_to_the_tools(monkeypatch):
+    """§5.5's `{post_id}` is the trigger post's: `run_thread_session` puts a
+    fresh `ProposalSequence` for it in the opaque `tool_context`."""
+    import services.thread_session as thread_session
+
+    thread, period, trigger = _books()
+    captured = {}
+
+    def _fake_loop(client, **kwargs):
+        captured.update(kwargs)
+        return None
+
+    monkeypatch.setattr(thread_session, "run_tool_loop", _fake_loop)
+    thread_session.run_thread_session(
+        client=None,
+        thread=thread,
+        trigger_post=trigger,
+        message="Bokför kvittot.",
+        history=[],
+        open_periods=[period],
+        today=date(2026, 9, 18),
+        model="opencode/claude-opus-5",
+        actor="agent",
+    )
+
+    context = captured["tool_context"]
+    assert context["thread"] is thread
+    proposals = context["proposals"]
+    assert isinstance(proposals, ProposalSequence)
+    assert proposals.key() == derive_thread_proposal_idempotency_key(
+        thread.id, trigger.id, 1
+    )

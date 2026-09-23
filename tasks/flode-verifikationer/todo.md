@@ -139,7 +139,25 @@ oräknade. Testfallsnumren syftar på tabellerna i §14. Backendens tester ligge
   - Filer: `db/migrations/028_add_thread_drafts.sql`, `repositories/thread_draft_repo.py`,
     `domain/models.py`, `tests/test_flode_verifikationer.py`
 
-- [ ] **F6 — `foresla_verifikation`: vanligt förslag**
+- [x] **F6 — `foresla_verifikation`: vanligt förslag**
+  - Gjort 2026-09-23: 23 tester i `tests/test_flode_verifikationer.py` (testfall 14–21, 17
+    parametriserat över elva fel, plus trådens `tool_context`), sedda röda först (import).
+    `services/draft_service.py`: `DraftService.propose(thread, *, description, rows, date,
+    period_id, footnote, decision_id, replaces_draft_id, correction_of, correction_note_id,
+    intake_source_ids, bank_input_ids, bank_transaction_ids, actor, idempotency_key) -> dict`,
+    `DraftError(ValidationError)`, `FORESLA_VERIFIKATION_ENDPOINT`, och de rena
+    `draft_body`/`draft_meta`/`draft_consequence`/`period_name`. Utkast via
+    `LedgerService.create_voucher(_commit=False)` (samma `validate_complete_voucher`), `draft`-inlägg
+    och rad, och vid `replaces_draft_id` `mark_superseded` + `delete_draft`, allt i en
+    `db.transaction()` där även nyckeln `complete`as; fel släpper nyckeln. I `agent_tools.py`:
+    `ForeslaVerifikationArgs`, `_run_foresla_verifikation` (inte i `_TOOL_SPECS`),
+    `derive_thread_proposal_idempotency_key` och `ProposalSequence`, som `thread_session` lägger i
+    `tool_context["proposals"]` per tur. `VoucherRepository.delete_draft` fick `_commit`.
+    Avvikelser, specen uppdaterad (§5.3, §5.5, §5.6, §6.1, §8.1): migration 029
+    (`thread_drafts.traceability_json`) håller spårbarheten till postningen, där F8 länkar den;
+    spårbarheten kontrolleras redan vid förslaget; `n` räknar bara lyckade förslag; saknat
+    datum/period ger `draft_requires_date_and_period`; `consequence` säger `öppen`, inte
+    `öppen till {datum}`. Hela sviten: 1069 passed; `mypy .` 61 fel som före.
   - Acceptans: `ForeslaVerifikationArgs` enligt spec §5.2, utan korrigeringsgrenen, som ger
     `not_implemented` för `correction_of` tills F11. `DraftService.propose` gör kontrollerna i
     §5.3, och skriver sedan utkast, `thread_drafts`-rad och `draft`-inlägg i **en** transaktion.

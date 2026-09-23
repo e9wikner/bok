@@ -343,6 +343,8 @@ redan följer för korrigeringar.
 | `decision_id` finns inte, hör till en annan tråd, eller är `superseded` | `decision_not_found` / `decision_not_in_thread` / `decision_superseded` |
 | `decision_id` är fortfarande `open` | `decision_still_open`: ett förslag följer på ett svar, inte i stället för ett |
 | `replaces_draft_id` är inte ett väntande utkast i samma tråd | `draft_not_replaceable` |
+| `date` eller `period_id` saknas utan `correction_of` | `draft_requires_date_and_period` |
+| Spårbarhetsfälten: samma kontroller som `posta_verifikation` kör (underlaget obearbetat och olänkat, bankunderlaget bearbetat, transaktionen ledig) | `IntakeError`/`BankInputError`s egna koder |
 | Korrigeringens kontroller | §7.4 |
 
 Valideringen är samma `VoucherValidator` som postningen kör. Designens kant, *"Kontrollera vid
@@ -368,6 +370,14 @@ verktygsanropets ordning i turen. Den reserveras under en egen endpoint-sträng,
 stället för att skapa ett andra. Två förslag i samma tur får två nycklar, och ett förslag och en
 postning ur samma inlägg krockar aldrig.
 
+Så byggdes det (F6): trådens ingång lägger en `ProposalSequence(thread_id, post_id)` i
+`tool_context["proposals"]`, ny per tur, bredvid `thread`. `run_tool_loop` skickar den vidare
+oläst, så körtiden vet fortfarande inte vad en tråd är. `n` räknar bara förslag som skapats eller
+spelats upp. Ett anrop som en kontroll avvisar tar ingen plats, eftersom nyckeln släpps. Då blir
+nyckeln densamma när turen körs om, hur många rättade försök modellen än behövde första gången.
+Nyckeln reserveras före kontrollerna, så en uppspelning ger samma utkast även om perioden låsts
+sedan dess. Utan `proposals` (ett bart `execute_tool`-anrop) görs förslaget utan nyckel.
+
 ### 5.6 Kroppen
 
 Exakt `SPEC-chattyta.md` §4.3, med fält som servern räknar och agenten inte skickar:
@@ -379,7 +389,8 @@ Exakt `SPEC-chattyta.md` §4.3, med fält som servern räknar och agenten inte s
 | `meta` | Servern: `"Förslag · {serie} · {datum}"`. Inget nummer finns att visa |
 | `rows[].name` | Servern, ur kontoplanen. Modellen skickar bara kontot |
 | `footnote` | Agentens, ordagrant |
-| `consequence` | Servern: `"Låses vid postning · får nästa nummer i {serie}-serien · period {namn} {läge}"`, och för en korrigering även §7.2:s rad |
+| `consequence` | Servern: `"Låses vid postning · får nästa nummer i {serie}-serien · period {namn} {läge}"`, och för en korrigering även §7.2:s rad. `{namn}` är `september 2026`, `{läge}` är `öppen` (ett vanligt förslag i en låst period avvisas). Fixturens *"öppen till 2026-10-12"* byggs inte: ingen tabell vet när en period stängs |
+| `kind` | Alltid `"voucher"` |
 | `decision_id` | Argumentet |
 
 `consequence` är serverns eftersom den är fakta om perioden och serien. *"Agenten formulerar"*
@@ -430,6 +441,13 @@ Ingen främmande nyckel mot `vouchers`. Ett ersatt utkast tas bort (§6.2) medan
 kvar, eftersom inlägget i tråden står kvar och måste kunna säga vad som hände med det.
 
 **Ingen ny kolumn på `vouchers`.** Kopplingen lever bredvid huvudboken, inte i den.
+
+**Migration 029 (F6):** `traceability_json TEXT` på `thread_drafts`, med förslagets
+`intake_source_ids`, `bank_input_ids` och `bank_transaction_ids`. En länk till underlag eller
+banktransaktion får bara skrivas mot en postad verifikation, eftersom länken markerar underlaget
+bearbetat och transaktionen bokförd. Id:na måste därför ligga någonstans fram till postningen, och
+`vouchers` får ingen kolumn. De länkas i postningens transaktion (§8.1, F8), efter att samma
+kontroller körts om. `ThreadDraft` bär dem som tre listor.
 
 ### 6.2 Livscykel
 
@@ -553,21 +571,24 @@ Klienten anropar som i dag `POST /vouchers/{draft_id}/post` med nyckeln
 
 1. `status='posted'`, `posted_at`.
 2. Om `correction_of`: korrigeringshistoriken och, om den finns, noteringen `applied` (§7).
+3. Radens spårbarhet (migration 029, §6.1) länkas som en direkt postning gör det:
+   `IntakeService.link_existing_voucher` och `BankInputService.link_posted_voucher`, med
+   `_commit=False`.
 
 Det här måste ligga i transaktionen. En korrigering utan historik, eller en notering som fortsatt
 står öppen efter att rättelsen postats, är fel i bokföringen, inte i tråden.
 
 **Efter commit**, via `DraftService.on_posted(voucher, actor)`:
 
-3. Skriver `receipt`-inlägget och sätter `receipt_post_id`.
-4. Publicerar `message.completed` för kvittot och `view.changed` med
+4. Skriver `receipt`-inlägget och sätter `receipt_post_id`.
+5. Publicerar `message.completed` för kvittot och `view.changed` med
    `{voucher_id, kind: "voucher_posted"}` på trådens `view_key`.
 
 Utkast som inte kommer från en tråd berörs inte, och routen beter sig som i dag för dem.
 
 **Varför kvittot skrivs efter commit.** Postningen är BFL-kritisk och kvittot är det inte. Ett fel
 i trådlagret får inte kunna rulla tillbaka en verifikation. Priset är att kvittot kan saknas trots
-att postningen lyckats. Därför är steg 3–4 **idempotenta och återupptagbara**: en uppspelning med
+att postningen lyckats. Därför är steg 4–5 **idempotenta och återupptagbara**: en uppspelning med
 samma nyckel (`Idempotent-Replay` eller `409 already_posted`) kör om dem om `receipt_post_id` är
 `NULL`. Klientens `Försök igen` vid nätverksfel gör det av sig självt.
 

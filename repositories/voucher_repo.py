@@ -410,8 +410,12 @@ class VoucherRepository:
         )
 
     @staticmethod
-    def delete_draft(voucher_id: str) -> bool:
-        """Delete draft voucher (before posting)."""
+    def delete_draft(voucher_id: str, _commit: bool = True) -> bool:
+        """Delete draft voucher (before posting).
+
+        `_commit=False` lets a caller replace a draft inside its own
+        transaction (`DraftService.propose`, SPEC-flode-verifikationer §6.2).
+        """
         voucher = VoucherRepository.get(voucher_id)
         if not voucher or voucher.is_posted():
             raise ValueError("Can only delete draft vouchers")
@@ -420,7 +424,8 @@ class VoucherRepository:
         db.execute("DELETE FROM voucher_rows WHERE voucher_id = ?", (voucher_id,))
         # Delete voucher
         db.execute("DELETE FROM vouchers WHERE id = ?", (voucher_id,))
-        db.commit()
+        if _commit:
+            db.commit()
         return True
 
     @staticmethod

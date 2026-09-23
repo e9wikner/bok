@@ -107,6 +107,50 @@ def derive_thread_posting_idempotency_key(thread_id: str, post_id: str) -> str:
     return str(uuid.uuid5(BOK_NAMESPACE, f"thread:{thread_id}:{post_id}"))
 
 
+def derive_thread_proposal_idempotency_key(thread_id: str, post_id: str, n: int) -> str:
+    """``uuid5(BOK_NAMESPACE, f"thread:{thread_id}:{post_id}:{n}")`` --
+    SPEC-flode-verifikationer.md §5.5.
+
+    ``n`` is the proposal's place among the turn's ``foresla_verifikation``
+    calls, so two proposals in one turn get two keys, and a turn run again
+    from the start gets the same ones. The key is reserved under its own
+    endpoint string (``services.draft_service.FORESLA_VERIFIKATION_ENDPOINT``)
+    and never collides with the posting key above, which has no ``:{n}``.
+    """
+    return str(uuid.uuid5(BOK_NAMESPACE, f"thread:{thread_id}:{post_id}:{n}"))
+
+
+class ProposalSequence:
+    """``n`` in ``thread:{thread_id}:{post_id}:{n}`` for one thread turn
+    (SPEC-flode-verifikationer.md §5.5).
+
+    The thread entry point (``services/thread_session.py``) puts a fresh one
+    in ``tool_context["proposals"]`` per turn, for the user post that
+    triggered it; ``run_tool_loop`` forwards it unread like the rest of the
+    mapping, so the runtime still does not know what a thread is. Only
+    ``_run_foresla_verifikation`` opens it.
+
+    ``n`` advances only when a proposal is made or replayed. A call refused
+    by a check claims no slot (its key is released), so a model that gets a
+    proposal wrong and corrects it in the same turn uses one slot, not two
+    -- which is what makes the key the same when the turn is run again,
+    however many corrections it took the first time.
+    """
+
+    def __init__(self, thread_id: str, post_id: str):
+        self.thread_id = thread_id
+        self.post_id = post_id
+        self.n = 1
+
+    def key(self) -> str:
+        return derive_thread_proposal_idempotency_key(
+            self.thread_id, self.post_id, self.n
+        )
+
+    def advance(self) -> None:
+        self.n += 1
+
+
 class PostingConflictError(Exception):
     """Raised when ``posta_verifikation``'s idempotency key is already
     claimed (SPEC §6.7).
@@ -212,6 +256,32 @@ class PostaVerifikationArgs(BaseModel):
     rows: list[PostaVerifikationRow] = Field(..., min_length=2)
     series: Literal["A", "B"] = "A"
     reasoning_summary: Optional[str] = None
+    intake_source_ids: list[str] = Field(default_factory=list)
+    bank_input_ids: list[str] = Field(default_factory=list)
+    bank_transaction_ids: list[str] = Field(default_factory=list)
+
+
+class ForeslaVerifikationArgs(BaseModel):
+    """Föreslå en verifikation i tråden, för människan att posta
+    (SPEC-flode-verifikationer.md §5).
+
+    Skapar ett utkast utan nummer och ett kort i tråden. Postar aldrig:
+    människans tryck på `Posta` är godkännandet. `description` blir
+    verifikationens text ordagrant; `footnote` visas bara i kortet. Serien
+    väljer servern. Radtypen och spårbarhetsfälten är samma som
+    ``posta_verifikation``s, så ett förslag som postas bär exakt det en
+    direkt postning hade burit.
+    """
+
+    description: str
+    rows: list[PostaVerifikationRow] = Field(..., min_length=2)
+    date: Optional[DateType] = None
+    period_id: Optional[str] = None
+    footnote: Optional[str] = None
+    decision_id: Optional[str] = None
+    replaces_draft_id: Optional[str] = None
+    correction_of: Optional[str] = None
+    correction_note_id: Optional[str] = None
     intake_source_ids: list[str] = Field(default_factory=list)
     bank_input_ids: list[str] = Field(default_factory=list)
     bank_transaction_ids: list[str] = Field(default_factory=list)
@@ -729,6 +799,64 @@ def _run_be_om_beslut(
         actor=actor,
     )
     return _decision_dict(decision)
+
+
+def _run_foresla_verifikation(
+    args: ForeslaVerifikationArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """SPEC-flode-verifikationer.md §5. Not terminal: like ``be_om_beslut``
+    it writes a card in the thread and the turn goes on to its answer.
+
+    Opens ``tool_context`` for two things: the ``thread`` (a draft card
+    cannot exist outside the thread it was proposed in -- missing, it is
+    ``draft_requires_thread``, never a silent default) and the turn's
+    ``proposals`` sequence, which gives the §5.5 key. Without a sequence (a
+    bare ``execute_tool`` call) the proposal is made without a key.
+    ``idempotency_key`` -- the posting key -- is deliberately not used: a
+    proposal and a posting from the same post must never share one.
+    """
+    context = tool_context or {}
+    thread = context.get("thread")
+    if thread is None:
+        raise ValidationError(
+            code="draft_requires_thread",
+            message="foresla_verifikation can only be called from a thread turn",
+            details=(
+                "A proposal is a card in a thread for a human to post "
+                "(SPEC-flode-verifikationer.md §5.3). The document path's "
+                "equivalents are posta_verifikation and registrera_avstaende."
+            ),
+        )
+    proposals = context.get("proposals")
+
+    # Deferred import -- the same import-cycle rule as `_run_be_om_beslut`.
+    from services.draft_service import DraftService
+
+    result = DraftService().propose(
+        thread,
+        description=args.description,
+        rows=[row.model_dump() for row in args.rows],
+        date=args.date,
+        period_id=args.period_id,
+        footnote=args.footnote,
+        decision_id=args.decision_id,
+        replaces_draft_id=args.replaces_draft_id,
+        correction_of=args.correction_of,
+        correction_note_id=args.correction_note_id,
+        intake_source_ids=args.intake_source_ids,
+        bank_input_ids=args.bank_input_ids,
+        bank_transaction_ids=args.bank_transaction_ids,
+        actor=actor,
+        idempotency_key=proposals.key() if proposals is not None else None,
+    )
+    if proposals is not None:
+        proposals.advance()
+    return result
 
 
 # ---------------------------------------------------------------------------
