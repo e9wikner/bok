@@ -54,7 +54,16 @@ Ingen uppgift rör Python.
   - Obs: det lagrade inlägget vinner över den ihopsamlade deltatexten vid `completed` (testfall 10) —
     servern lagrar det människan såg, men det lagrade är sanningen.
 
-- [ ] **C4 — Textinläggen**
+- [x] **C4 — Textinläggen**
+  - Gjort 2026-09-23: 43 tester, skrivna före komponenterna. Avvikelser: `SparChip` bor i
+    `TradInlagg.tsx` (exporterad) i stället för egen fil — med `lib/chattyta/etiketter.ts` hade
+    uppgiften annars rört sex filer, och chippet har ingen egen inläggstyp. `TradInlagg` har en
+    `radLista`-slot som C5 fyller med C9:s `RadLista`. **Indikatorn talar i presens**
+    (`Postar verifikation…`), inte med chippens perfekt (`verifikation postad`): `activity` sänds
+    när verktyget *anropas*, och perfekt vore ett påstående om huvudboken som inte har hänt än.
+    Två tabeller i `etiketter.ts`, testade att täcka samma verktyg; perfekttabellen är fastlåst
+    ordagrant mot serverns `_TRACE_LABELS`. `FilInlagg`s valfria textbubbla ritas inte —
+    `user_file` har inget textfält.
   - Acceptans: `TradInlagg` (agent/du), `SparChip`, `FilInlagg`, `SkriverIndikator`,
     `RadLista` med `komponenter.md`s mått. Metarad `agenten · HH:MM` ur `created_at`.
     `SkriverIndikator` säger aldrig tomt: `activity` via svenska etiketter, annars `Läser…`.
@@ -140,7 +149,15 @@ Ingen uppgift rör Python.
     `components/chattyta/__tests__/forslag.test.tsx`
   - Obs: konsekvensnotisen är inte metatext. `text-bok-meta` på den är ett fel, inte en stilfråga.
 
-- [ ] **C11 — Idempotensnyckeln (gate)**
+- [x] **C11 — Idempotensnyckeln (gate)**
+  - Gjort 2026-09-23: 12 tester, sedda röda först. `BOK_KLIENT_NS =
+    67d43419-c305-4b32-9247-305e346b0398` (skild från serverns `BOK_NAMESPACE` i
+    `services/agent_tools.py`; får aldrig bytas — gamla utkast skulle få nya nycklar). Fyra
+    vektorer räknade med Pythons `uuid.uuid5`, varav en med `å`, plus DNS-vektorn
+    `www.example.com`; kommandona står i testet. `crypto.subtle` finns i jsdom, ingen fallback.
+    Avvikelse: `uuidV5` exporteras också, för DNS-vektorn. `SPEC-idempotens.md` antagande 3 säger
+    att klienten slumpar v4 — servern kräver bara en UUID (`api/deps.py:78`), så v5 fungerar, men
+    antagandet är inaktuellt.
   - Acceptans: `nyckelForUtkast(draftId)` = UUIDv5 under en fast `BOK_KLIENT_NS`, via
     `crypto.subtle` (SHA-1). Deterministisk, giltig v5 (version- och variantbitar), skild från
     serverns namnrymd.
