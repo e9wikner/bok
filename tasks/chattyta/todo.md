@@ -42,7 +42,20 @@ Ingen uppgift rör Python.
   - Filer: `lib/chattyta/strom.ts`, `lib/chattyta/__tests__/strom.test.ts`
   - Obs: inte `EventSource` (§6.1). Inga nya beroenden.
 
-- [ ] **C3 — Trådens tillstånd: reducer, `useTrad`, api**
+- [x] **C3 — Trådens tillstånd: reducer, `useTrad`, api**
+  - Gjort 2026-09-23: 40 tester (21 reducer, 19 hook), sedda röda först och mutationsprövade
+    (tre avsiktliga fel gav sex röda). Beslut: ett misslyckat `POST` **tar bort** det optimistiska
+    inlägget — ett kvarlämnat skulle påstå att servern lagrat något den inte lagrat; `skicka`
+    ger `Promise<boolean>`, `fel` sätts, och C5 låter texten stå kvar i fältet. Optimistiska
+    inlägg känns igen på id-prefixet `lokal-`, `seq: -1`. Frågenycklar: `OVERVIEW_NYCKEL =
+    ["overview"]` (kopia av `hooks/useSkal.ts`, ett test håller dem lika), `BESLUT_NYCKEL =
+    ["decisions"]` som rot — C6/C8 lägger sina nycklar under den. Utloggning: `useAuth().logout`
+    som `onObehorig`. Avvikelser: `message.completed` av typen `decision`/`options`/`user_text`
+    invaliderar också beslutsfrågan (§7) här, eftersom C6 inte rör `useTrad.ts`. Ett
+    `message.delta` utan föregående `created` startar ändå platshållaren: turen startar inuti
+    `POST`, klienten prenumererar efteråt, så `created` kan missas på första meddelandet i en tom
+    tråd. Det färdiga inlägget går inte förlorat — det spelas upp via `since` — men de första
+    deltana kan göra det. Serverns lopp lämnas orört (antagande 1).
   - Acceptans: `tradReducer` enligt §6.3:s tabell, sorterad på `seq`, optimistiska sist,
     idempotent på `id`. `useTrad(viewKey)`: `GET /threads/{vk}`; ingen ström när `thread_id` är
     `null`; ström från `cursor` annars; `skicka(text)` gör optimistiskt `user_text` → `POST
