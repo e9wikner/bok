@@ -10,6 +10,12 @@ vi.mock("next/navigation", () => ({
 
 const agentLage = { state: "pausad" as const };
 
+// Tråden är `chattyta`s (C5) och har sina egna tester. Här prövas skalet;
+// utan mocken skulle varje vy i svepraden anropa GET /threads mot ingenstans.
+vi.mock("@/hooks/useTrad", () => ({
+  useTrad: () => ({ inlagg: [], strommande: null, skicka: async () => true, laddar: false, fel: null }),
+}));
+
 vi.mock("@/lib/skal/api", () => ({
   skalApi: {
     getOverview: async () => ({

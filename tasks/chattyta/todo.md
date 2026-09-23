@@ -87,7 +87,19 @@ Ingen uppgift rör Python.
   - Obs: `RadLista` läggs i `JamforelseRader.tsx` (C9) som en enkolumnsvariant — samma radkomponent,
     en fil. Byggs här om C9 inte landat, flyttas då i C9.
 
-- [ ] **C5 — Renderaren byts i skalet; `ChattFalt` skickar**
+- [x] **C5 — Renderaren byts i skalet; `ChattFalt` skickar**
+  - Gjort 2026-09-23: 24 nya tester i `renderare.test.tsx`, skalets tre trådtester uppdaterade
+    (mockar `useTrad`), 279 gröna totalt. Lint, `tsc` och `NEXT_PUBLIC_SKAL=1 npm run build`
+    gröna. `decision`, `options`, `error` renderas som `OkantKontrakt`-raden tills C6/C7/C13 byter
+    sina grenar. Avvikelser: **tio filer**, inte fem — `ChattFalt.tsx` och fyra testfiler
+    tillkom. **Bara den aktiva vyn läser sin tråd** (`aktiv`-prop, `Skal` skickar
+    `i === vyIndex`): svepraden renderar en sidas alla vyer, och utan det öppnade varje sida tre
+    `GET` och tre strömmar (§6.2 punkt 5). Priset: grannvyns tråd är tom under ett svep.
+    `ChattKolumn` tappade `variant="mobil"`; `ChattList` anropar `useTrad` en gång för både
+    märke och tråd via den exporterade `TradYta` — två anrop hade gett två strömmar.
+    `ChattFalt`: ett andra tryck under pågående sändning ignoreras, och fältet töms bara om
+    texten fortfarande är den som skickades. **Visuell kontroll mot backend gjordes inte** —
+    ingen backend svarade på `127.0.0.1:8000`; den görs i C14.
   - Acceptans: `TradRenderare` väljer komponent per `type`; typer utan renderare än blir
     `okant_kontrakt`. `ChattKolumn` och `ChattList` tar `useTrad` i stället för `inlagg`-propen.
     `ChattFalt.onSkicka` kopplas till `skicka`. `mockTrad` och `TradInlaggData` borta ur

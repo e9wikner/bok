@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { ChattFalt } from "@/components/skal/ChattFalt";
-import { ChattKolumn } from "@/components/skal/ChattKolumn";
-import type { TradInlaggData } from "@/lib/skal/mock";
+import { OLAST_TRAD, TradYta, type TradData } from "@/components/skal/ChattKolumn";
+import { useTrad, type UseTrad } from "@/hooks/useTrad";
 
 /**
  * `ChattList` (komponenter.md), mobilens chatt.
@@ -15,22 +15,56 @@ import type { TradInlaggData } from "@/lib/skal/mock";
  * "Väntar ett beslut syns det som ett märke på listen ÄVEN NÄR CHATTEN ÄR
  * MINIMERAD." Det är hela poängen med märket — kön ligger i tråden och det
  * finns inga notiser.
+ *
+ * Tråden läses HÄR, en gång, och ges till både märket och `TradYta`. Läste
+ * ytan den själv vore det två strömmar mot samma vy. Som i `ChattKolumn`
+ * läses den bara för den aktiva vyn (SPEC-chattyta.md §6.2 punkt 5).
  */
 export function ChattList({
   vyTitel,
-  inlagg,
+  viewKey,
+  vantandeBeslut,
+  aktiv = true,
+}: {
+  vyTitel: string;
+  viewKey: string;
+  vantandeBeslut: number;
+  aktiv?: boolean;
+}) {
+  if (!aktiv) return <ListLayout vyTitel={vyTitel} trad={OLAST_TRAD} vantandeBeslut={vantandeBeslut} />;
+  return <AktivList vyTitel={vyTitel} viewKey={viewKey} vantandeBeslut={vantandeBeslut} />;
+}
+
+function AktivList({
+  vyTitel,
+  viewKey,
   vantandeBeslut,
 }: {
   vyTitel: string;
-  inlagg: TradInlaggData[];
+  viewKey: string;
   vantandeBeslut: number;
+}) {
+  const trad = useTrad(viewKey);
+  return <ListLayout vyTitel={vyTitel} trad={trad} vantandeBeslut={vantandeBeslut} onSkicka={trad.skicka} />;
+}
+
+function ListLayout({
+  vyTitel,
+  trad,
+  vantandeBeslut,
+  onSkicka,
+}: {
+  vyTitel: string;
+  trad: TradData;
+  vantandeBeslut: number;
+  onSkicka?: UseTrad["skicka"];
 }) {
   const [oppen, setOppen] = useState(true);
 
   const marke =
     vantandeBeslut > 0
       ? { text: `${vantandeBeslut} väntar`, vantar: true }
-      : { text: `${inlagg.length} inlägg`, vantar: false };
+      : { text: `${trad.inlagg.length} inlägg`, vantar: false };
 
   return (
     <div className="flex shrink-0 flex-col border-t border-bok-linje bg-bok-yta shadow-bok-chattlist">
@@ -71,8 +105,8 @@ export function ChattList({
 
       {oppen && (
         <div className="flex flex-col">
-          <ChattKolumn vyTitel={vyTitel} inlagg={inlagg} variant="mobil" />
-          <ChattFalt vyTitel={vyTitel} variant="mobil" />
+          <TradYta vyTitel={vyTitel} trad={trad} variant="mobil" />
+          <ChattFalt vyTitel={vyTitel} variant="mobil" onSkicka={onSkicka} />
         </div>
       )}
     </div>

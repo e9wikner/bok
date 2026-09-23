@@ -45,15 +45,6 @@ export interface VyData {
   fot: string;
 }
 
-/** Två typer räcker för skalet. Korten är `chattyta`. */
-export interface TradInlaggData {
-  id: string;
-  typ: "agent_text" | "user_text";
-  /** Metarad i formatet `agenten · 06:41`. */
-  meta: string;
-  text: string;
-}
-
 // ─── Vyernas rader ────────────────────────────────────────────────────────
 // ERSÄTTS AV: vyernas egna endpoints (balans-/resultaträkning, verifikations-
 // listan, fakturor, lönekörningar, rapporter). Ingen av dem är skalets.
@@ -236,42 +227,8 @@ export const MOCK_VYER: Record<ViewKey, VyData> = {
   "bokslut.atgarder": ATGARDER,
 };
 
-// ─── Tråden ───────────────────────────────────────────────────────────────
-// ERSÄTTS AV: `tradar` (GET /api/v1/threads/{view_key} + SSE) för datan, och
-// `chattyta` för renderingen. Skalet kan bara två typer med flit: korten bär
-// kontrakt (ingen förvald rekommendation, alltid en väg ut, båda talen) som
-// skalet inte äger.
-
-const TRAD: Record<ViewKey, TradInlaggData[]> = {
-  "bocker.balans": [
-    { id: "1", typ: "agent_text", meta: "agenten · 06:41", text: "Balansräkningen är uppdaterad per i morse. Två bankhändelser ligger kvar obokade — jag avstod från att gissa kontering på den ena." },
-    { id: "2", typ: "user_text", meta: "du · 09:12", text: "Vad består kundfordringarna av?" },
-    { id: "3", typ: "agent_text", meta: "agenten · 09:12", text: "148 500 kr i tre fakturor. Nordkraft är förfallen sedan sex dagar, de andra två har inte nått förfallodagen." },
-  ],
-  "bocker.resultat": [
-    { id: "1", typ: "agent_text", meta: "agenten · 06:41", text: "Resultatet för första halvåret är 129 620 kr. Ingenting i perioden är obokat." },
-  ],
-  "bocker.verifikationer": [
-    { id: "1", typ: "agent_text", meta: "agenten · 06:39", text: "Jag postar elnätsfakturan från Nordkraft nu. Den matchar bankhändelsen på öret." },
-    { id: "2", typ: "agent_text", meta: "agenten · 06:41", text: "Swish-inbetalningen på 4 500 kr saknar referens. Beloppet stämmer med faktura 1044, men avsändaren är en privatperson — jag bokför den inte mot kundfordran på gissning." },
-  ],
-  "betala.fakturering": [
-    { id: "1", typ: "agent_text", meta: "agenten · 06:40", text: "Faktura 1042 till Nordkraft är förfallen sedan sex dagar. Jag skickar ingen påminnelse av mig själv." },
-  ],
-  "betala.loner": [
-    { id: "1", typ: "agent_text", meta: "agenten · 06:40", text: "Junilönerna är utbetalda och bokförda. Nästa körning är den 25 juli." },
-  ],
-  "bokslut.rapporter": [
-    { id: "1", typ: "agent_text", meta: "agenten · 06:40", text: "Bokslutet för 2025 är inlämnat. Alla underlag ligger kvar och går att hämta." },
-  ],
-  "bokslut.atgarder": [
-    { id: "1", typ: "agent_text", meta: "agenten · 06:40", text: "Ingenting väntar inför bokslutet just nu. Perioden är avstämd." },
-  ],
-};
-
-export function mockTrad(key: ViewKey): TradInlaggData[] {
-  return TRAD[key] ?? [];
-}
+// ─── Beslutsmärket ────────────────────────────────────────────────────────
+// Tråden låg här tills chattyta C5; den kommer nu ur `useTrad`.
 
 /**
  * Väntande beslut per vy — driver märket på mobilens `ChattList`, som ska

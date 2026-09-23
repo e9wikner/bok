@@ -22,10 +22,19 @@ export function ChattFalt({
 }: {
   vyTitel: string;
   variant?: "desktop" | "mobil";
-  /** Skalet skickar ingenting. `tradar` kopplar POST /threads/{view_key}/messages. */
-  onSkicka?: (text: string) => void;
+  /**
+   * `useTrad().skicka` (chattyta C5): POST /threads/{view_key}/messages.
+   * Fältet töms bara när den svarar `true` — servern har då lagrat texten.
+   * `false` (POST misslyckades) eller `void` lämnar texten kvar, så att
+   * människan inte behöver skriva om den (tasks/chattyta/todo.md, C3).
+   */
+  onSkicka?: (text: string) => Promise<boolean> | boolean | void;
 }) {
   const [text, setText] = useState("");
+  // Ett andra Enter medan det första är i flykt skickar inte igen: texten
+  // står ju kvar i fältet tills servern svarat, och samma fråga två gånger
+  // är två turer för agenten.
+  const [skickar, setSkickar] = useState(false);
   const etikett = `Fråga om en post i ${vyTitel.toLowerCase()}`;
 
   return (
@@ -35,11 +44,20 @@ export function ChattFalt({
           ? "shrink-0 border-t border-bok-linje px-[38px] pb-5 pt-4"
           : "shrink-0 px-[18px] pb-[18px] pt-3"
       }
-      onSubmit={(e) => {
+      onSubmit={async (e) => {
         e.preventDefault();
-        if (!text.trim()) return;
-        onSkicka?.(text.trim());
-        setText("");
+        const skickad = text.trim();
+        if (!skickad || skickar || !onSkicka) return;
+        setSkickar(true);
+        try {
+          if (await onSkicka(skickad)) {
+            // Har människan hunnit skriva något nytt medan anropet var i
+            // flykt är det hennes nästa fråga, inte den som skickades.
+            setText((nu) => (nu.trim() === skickad ? "" : nu));
+          }
+        } finally {
+          setSkickar(false);
+        }
       }}
     >
       <div className="flex items-center gap-3 rounded-[12px] border border-dashed border-bok-kant-streckad bg-bok-yta-falt px-4 py-[13px]">

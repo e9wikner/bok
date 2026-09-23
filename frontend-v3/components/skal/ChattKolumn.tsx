@@ -1,7 +1,8 @@
 "use client";
 
+import { TradRenderare } from "@/components/chattyta/TradRenderare";
 import { ChattFalt } from "@/components/skal/ChattFalt";
-import type { TradInlaggData } from "@/lib/skal/mock";
+import { useTrad, type UseTrad } from "@/hooks/useTrad";
 
 /**
  * Chattkolumnen som SKAL.
@@ -10,23 +11,51 @@ import type { TradInlaggData } from "@/lib/skal/mock";
  * flex-end) så att det senaste ligger vid inmatningsfältet. Textrader max
  * 54ch, kort max-bredd 560.
  *
- * Renderaren nedan kan två typer: agenttext och egen replik. Korten —
- * `BeslutKort`, `AlternativLista`, `VerifikationsForslag`, `FelKort`,
- * `JamforelseRader` — byggs INTE här. De är `chattyta` och bär kontrakt som
- * skalet inte äger: ingen förvald rekommendation, alltid en väg ut, alltid
- * båda talen. Ett halvfärdigt kort som redan ser rätt ut är värre än inget.
- * SPEC-skal.md §13.
+ * Skalet äger layouten; innehållet är `chattyta`s. Tråden kommer ur
+ * `useTrad` och ritas av `TradRenderare` (SPEC-chattyta.md §5, §6), som bär
+ * kortens kontrakt: ingen förvald rekommendation, alltid en väg ut, alltid
+ * båda talen. Skalet ritar inga inlägg själv.
  */
-export function ChattKolumn({
+
+/** Det ytan behöver ur tråden. `skicka` går till fältet, inte hit. */
+export type TradData = Pick<UseTrad, "inlagg" | "strommande" | "fel">;
+
+/**
+ * En tråd som inte läses (en inaktiv vy). Tomt är ett ärligt läge här: vyn
+ * ligger utanför skärmen och är `aria-hidden` i svepraden.
+ */
+export const OLAST_TRAD: TradData = { inlagg: [], strommande: null, fel: null };
+
+/**
+ * `fel` ur `useTrad` som en rad: kort, neutral, utan stacktrace. Ett
+ * misslyckat POST har redan tagit bort det optimistiska inlägget och lämnat
+ * texten i fältet (C3), så raden behöver bara säga att kontakten brast.
+ */
+function felText(fel: unknown): string {
+  const status = (fel as { response?: { status?: unknown } } | null)?.response?.status;
+  return typeof status === "number"
+    ? `tråden kunde inte nås · servern svarade ${status}`
+    : "tråden kunde inte nås · inget svar från servern";
+}
+
+/**
+ * Trådytan, delad av desktopkolumnen och mobilens `ChattList`. Tar datan som
+ * props så att `ChattList` kan läsa tråden EN gång och ge både märket och
+ * ytan samma svar — två `useTrad` på samma vy vore två strömmar.
+ *
+ * Laddning ritas inte: ingen spinner (README.md), och en tom tråd medan GET
+ * är i flykt ljuger inte om något.
+ */
+export function TradYta({
   vyTitel,
-  inlagg,
+  trad,
   variant = "desktop",
 }: {
   vyTitel: string;
-  inlagg: TradInlaggData[];
+  trad: TradData;
   variant?: "desktop" | "mobil";
 }) {
-  const trad = (
+  return (
     <div
       className={
         variant === "desktop"
@@ -37,29 +66,55 @@ export function ChattKolumn({
       aria-live="polite"
       aria-label={`Tråd för ${vyTitel}`}
     >
-      {inlagg.map((m) =>
-        m.typ === "agent_text" ? (
-          <div key={m.id} className="flex flex-col gap-[13px]">
-            <span className="bok-etikett text-[11px] text-bok-meta">{m.meta}</span>
-            <p className="m-0 max-w-[54ch] text-[15px] leading-[1.6] [text-wrap:pretty]">{m.text}</p>
-          </div>
-        ) : (
-          <div key={m.id} className="flex justify-end">
-            <div className="max-w-[74%] rounded-[14px_14px_4px_14px] bg-bok-bubbla px-4 py-3 text-[15px] leading-[1.55] [text-wrap:pretty]">
-              {m.text}
-            </div>
-          </div>
-        )
+      <TradRenderare inlagg={trad.inlagg} strommande={trad.strommande} />
+      {trad.fel != null && (
+        <p data-testid="trad-fel" className="bok-mono m-0 text-[12px] text-bok-text-svag">
+          {felText(trad.fel)}
+        </p>
       )}
     </div>
   );
+}
 
-  if (variant === "mobil") return trad;
+/**
+ * Desktopkolumnen: tråden och fältet.
+ *
+ * `aktiv` styr om tråden läses alls. Svepraden renderar sidans alla vyer,
+ * men SPEC-chattyta.md §6.2 punkt 5 säger en ström per flik — den aktiva
+ * vyns. Hooken kan inte anropas villkorligt, så läsningen bor i en egen
+ * komponent som bara monteras för den aktiva vyn.
+ */
+export function ChattKolumn({
+  vyTitel,
+  viewKey,
+  aktiv = true,
+}: {
+  vyTitel: string;
+  viewKey: string;
+  aktiv?: boolean;
+}) {
+  if (!aktiv) return <KolumnLayout vyTitel={vyTitel} trad={OLAST_TRAD} />;
+  return <AktivKolumn vyTitel={vyTitel} viewKey={viewKey} />;
+}
 
+function AktivKolumn({ vyTitel, viewKey }: { vyTitel: string; viewKey: string }) {
+  const trad = useTrad(viewKey);
+  return <KolumnLayout vyTitel={vyTitel} trad={trad} onSkicka={trad.skicka} />;
+}
+
+function KolumnLayout({
+  vyTitel,
+  trad,
+  onSkicka,
+}: {
+  vyTitel: string;
+  trad: TradData;
+  onSkicka?: UseTrad["skicka"];
+}) {
   return (
     <div className="flex min-h-0 flex-col border-r border-bok-linje">
-      {trad}
-      <ChattFalt vyTitel={vyTitel} />
+      <TradYta vyTitel={vyTitel} trad={trad} />
+      <ChattFalt vyTitel={vyTitel} onSkicka={onSkicka} />
     </div>
   );
 }

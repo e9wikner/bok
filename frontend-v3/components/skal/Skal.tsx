@@ -13,7 +13,7 @@ import { useAgentStatus, useOverview } from "@/hooks/useSkal";
 import { useBredSkarm } from "@/hooks/useBredSkarm";
 import { arsrad } from "@/lib/skal/header";
 import { lageFarg } from "@/lib/skal/lage";
-import { MOCK_VYER, mockTrad, mockVantandeBeslut } from "@/lib/skal/mock";
+import { MOCK_VYER, mockVantandeBeslut } from "@/lib/skal/mock";
 import { SKAL_RUTT, lasPosition } from "@/lib/skal/rutt";
 import { type Sidnyckel, type Vy, forstaVyn, sidan, vyAt } from "@/lib/skal/vyer";
 
@@ -92,15 +92,19 @@ export function Skal() {
         sida={sida}
         aktivIndex={vyIndex}
         onIndexChange={setVyIndex}
-        renderVy={(vy) => {
+        renderVy={(vy, i) => {
           const vyData = MOCK_VYER[vy.key];
+          // Bara den aktiva vyns tråd läses och strömmas: svepraden renderar
+          // sidans alla vyer, och SPEC-chattyta.md §6.2 punkt 5 säger en
+          // ström per flik.
+          const aktiv = i === vyIndex;
           if (bred) {
             return (
               <div
                 className="grid min-h-0 flex-1"
                 style={{ gridTemplateColumns: "1fr var(--bok-vykolumn)" }}
               >
-                <ChattKolumn vyTitel={vy.titel} inlagg={mockTrad(vy.key)} />
+                <ChattKolumn vyTitel={vy.titel} viewKey={vy.key} aktiv={aktiv} />
                 <VyInnehall vy={vy} data={vyData} />
               </div>
             );
@@ -110,7 +114,8 @@ export function Skal() {
               <VyInnehall vy={vy} data={vyData} variant="mobil" />
               <ChattList
                 vyTitel={vy.titel}
-                inlagg={mockTrad(vy.key)}
+                viewKey={vy.key}
+                aktiv={aktiv}
                 vantandeBeslut={mockVantandeBeslut(vy.key)}
               />
             </div>
