@@ -145,6 +145,13 @@ class DecisionView:
     post_id: Optional[str]
     options: List[DecisionOption]
     created_at: datetime
+    # How it was answered, when it was (chattyta open question 3). `None`
+    # for an open or superseded decision, and always for the two synthetic
+    # sources -- they are never answered through this module (SPEC §11.2).
+    answered_at: Optional[datetime] = None
+    answered_by: Optional[str] = None
+    answer_option_id: Optional[str] = None
+    answer_text: Optional[str] = None
 
 
 def _age_days(created_at: datetime, today: Optional[date]) -> int:
@@ -180,6 +187,10 @@ def _decision_to_view(decision: Decision, *, today: Optional[date]) -> DecisionV
         post_id=decision.post_id,
         options=list(decision.options),
         created_at=decision.created_at,
+        answered_at=decision.answered_at,
+        answered_by=decision.answered_by,
+        answer_option_id=decision.answer_option_id,
+        answer_text=decision.answer_text,
     )
 
 

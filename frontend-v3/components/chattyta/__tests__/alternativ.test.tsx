@@ -251,6 +251,22 @@ describe("tryck på ett alternativ = svaret (testfall 15)", () => {
     expect(post).toHaveBeenCalledTimes(1);
   });
 
+  it("202 med answered_at i beslutet: `Besvarat · HH:MM` direkt, utan att vänta på listan", async () => {
+    post.mockResolvedValue({
+      status: 202,
+      data: {
+        decision: beslut({ status: "answered", answered_at: "2026-09-18T09:12:00" }),
+        answer_post_id: "p-9",
+        answer_post_seq: 9,
+      },
+    });
+    rendera();
+    await userEvent.click(rad(OVRIG.title));
+    await waitFor(() =>
+      expect(screen.getByTestId("alternativ-status")).toHaveTextContent(/^Besvarat · 09:12$/)
+    );
+  });
+
   it("svaret invaliderar beslutsfrågan (§7), så BeslutKort och märket följer med", async () => {
     post.mockResolvedValue(svar202());
     const invalidera = vi.spyOn(qc, "invalidateQueries");
@@ -315,7 +331,31 @@ describe("409 decision_already_answered är inte ett fel (testfall 16, §7)", ()
 // ─── Status ur GET /decisions vid (om)laddning ────────────────────────────
 
 describe("besvarat vid omladdning: låst, ingenting gissat (§7, C6)", () => {
-  it("status answered: alla rader låsta, ingen markerad, raden `Besvarat`", async () => {
+  it("status answered med answer_option_id: den valda raden markerad, tiden ur servern", async () => {
+    get.mockResolvedValue(
+      listSvar([
+        beslut({
+          status: "answered",
+          answer_option_id: REK.option_id,
+          answered_at: "2026-09-18T09:12:00",
+        }),
+      ])
+    );
+    rendera();
+    await waitFor(() =>
+      expect(screen.getByTestId("alternativ-status")).toHaveTextContent(/^Besvarat · 09:12$/)
+    );
+    for (const knapp of rader()) {
+      expect(knapp).toHaveAttribute("aria-disabled", "true");
+      const vald = knapp === rad(REK.title);
+      expect(knapp.dataset.vald).toBe(vald ? "ja" : "nej");
+      expect(ring(knapp).dataset.fylld).toBe(vald ? "ja" : "nej");
+    }
+    // Ingen fokusflytt vid en omladdning.
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it("status answered utan answer_option_id (fritext): alla låsta, ingen markerad, `Besvarat`", async () => {
     get.mockResolvedValue(listSvar([beslut({ status: "answered" })]));
     rendera();
     await waitFor(() =>

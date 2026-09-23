@@ -28,13 +28,12 @@ import { formatBelopp } from "@/lib/skal/format";
  * `disabled` i samma ögonblick.
  *
  * **Vilket svar som gäller.** Två källor, som i `BeslutKort`:
- * - Beslutets status ur `GET /decisions` (`beslut`, via `useBeslut`) säger OM
- *   beslutet är besvarat. `DecisionResponse` bär inte `answer_option_id`
- *   (todo.md C6), så efter en omladdning vet klienten inte VILKET alternativ
- *   som valdes. Då låses alla rader, ingen markeras, och raden `Besvarat`
- *   står under dem. Att markera ett alternativ på gissning vore att påstå
- *   något om bokföringen som servern inte sagt; människans svar syns ändå i
- *   tråden som hennes `user_text`-inlägg.
+ * - Beslutet ur `GET /decisions` (`beslut`, via `useBeslut`) säger om det är
+ *   besvarat, och sedan 2026-09-23 också VILKET alternativ (`answer_option_id`)
+ *   och när (`answered_at`). Efter en omladdning markeras alltså den valda
+ *   raden. Saknas `answer_option_id` — ett fritextsvar, eller en server från
+ *   före fälten — låses alla rader och ingen markeras: att markera på gissning
+ *   vore att påstå något servern inte sagt.
  * - Inom sessionen vet klienten: vid `202` är det raden som trycktes, vid
  *   `409 decision_already_answered` är det `answer_option_id` ur kroppen —
  *   som kan vara ett annat alternativ, eller `null` om svaret var fritext.
@@ -45,7 +44,7 @@ type Lage = "oppen" | "besvarad" | "ersatt";
 /** Svaret som det blev i den här sessionen. `optionId: null` = fritext. */
 interface LokaltSvar {
   optionId: string | null;
-  /** Bara ur `409`-kroppen; `DecisionAnswerResponse` bär ingen tid. */
+  /** Ur `202`-svarets beslut, eller ur `409`-kroppen. */
   answeredAt: string | null;
 }
 
@@ -83,7 +82,8 @@ export function AlternativLista({
         ? "ersatt"
         : "oppen";
   const last = lage !== "oppen" || iFlykt !== null;
-  const valdId = lokalt?.optionId ?? null;
+  // Lokalt svar först (färskast); annars serverns, efter en omladdning.
+  const valdId = lokalt ? lokalt.optionId : (beslut?.answer_option_id ?? null);
 
   // Fokus efter svaret (§11): till den besvarade raden, eller till
   // statusraden när svaret var fritext och ingen rad är besvarad. Aldrig vid
@@ -105,7 +105,7 @@ export function AlternativLista({
       flyttaFokus.current = true;
       setLokalt(
         utfall.utfall === "besvarat"
-          ? { optionId, answeredAt: null }
+          ? { optionId, answeredAt: utfall.svar.decision.answered_at ?? null }
           : { optionId: utfall.answer_option_id, answeredAt: utfall.answered_at }
       );
       // §7: ett svar (202 eller 409) invaliderar beslutsfrågan — roten, så
@@ -122,7 +122,9 @@ export function AlternativLista({
     }
   }
 
-  const tid = lokalt?.answeredAt ? klockslag(lokalt.answeredAt) : null;
+  // `202` bär ingen tid; den kommer med listan när beslutsfrågan hämtats om.
+  const answeredAt = lokalt?.answeredAt ?? beslut?.answered_at ?? null;
+  const tid = answeredAt ? klockslag(answeredAt) : null;
   const statusText =
     lage === "besvarad" ? (tid ? `Besvarat · ${tid}` : "Besvarat") : "Inte längre aktuellt";
 

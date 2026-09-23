@@ -590,6 +590,14 @@ class DecisionResponse(BaseModel):
     thread_id: Optional[str] = None
     post_id: Optional[str] = None
     options: List[DecisionOptionResponse] = Field(default_factory=list)
+    # How it was answered -- so a reloaded card can say when and mark the
+    # chosen option, not just `Besvarat` (SPEC-chattyta §15, question 3).
+    # `answer_text` is the human's words verbatim; `None` throughout for an
+    # unanswered row and for the two synthetic sources.
+    answered_at: Optional[DateTimeType] = None
+    answered_by: Optional[str] = None
+    answer_option_id: Optional[str] = None
+    answer_text: Optional[str] = None
 
 
 class DecisionListResponse(BaseModel):

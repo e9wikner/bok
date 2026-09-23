@@ -119,6 +119,16 @@ export interface BeslutSvar {
   thread_id: string | null;
   post_id: string | null;
   options: BeslutAlternativSvar[];
+  /**
+   * Hur beslutet besvarades — `null` för öppna, ersatta och syntetiska.
+   * Valfria i typen: en server från före fälten (2026-09-23) skickar dem inte,
+   * och då visar korten bara `Besvarat` utan att gissa.
+   */
+  answered_at?: string | null;
+  answered_by?: string | null;
+  answer_option_id?: string | null;
+  /** Människans ord, ordagrant. */
+  answer_text?: string | null;
 }
 
 /**

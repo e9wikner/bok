@@ -116,9 +116,51 @@ describe("BeslutKort i tre lägen, knappar bara i öppet (testfall 17)", () => {
     expect(screen.queryAllByRole("button")).toHaveLength(0);
   });
 
-  it("besvarad: inget klockslag som servern inte gett (DecisionResponse saknar answered_at)", () => {
+  it("besvarad utan answered_at: inget klockslag som servern inte gett", () => {
     renderaKort(beslut({ status: "answered" }));
     expect(screen.getByTestId("beslut-rubrik").textContent).not.toMatch(/\d\d:\d\d/);
+    expect(screen.queryByTestId("beslut-svar")).toBeNull();
+  });
+
+  it("besvarad med fritext: `Besvarat · HH:MM` och svaret ordagrant (§5)", () => {
+    renderaKort(
+      beslut({
+        status: "answered",
+        answered_at: "2026-09-18T09:12:00",
+        answered_by: "stefan",
+        answer_text: "Boka på 6250 – resekostnader.",
+      })
+    );
+    expect(screen.getByTestId("beslut-rubrik")).toHaveTextContent(/^Besvarat · 09:12$/);
+    expect(screen.getByTestId("beslut-svar")).toHaveTextContent("Boka på 6250 – resekostnader.");
+  });
+
+  it("besvarad med ett alternativ: alternativets titel och konto ur listan", () => {
+    renderaKort(
+      beslut({
+        status: "answered",
+        answered_at: "2026-09-18T09:12:00",
+        answer_option_id: "o-1",
+        options: [
+          {
+            id: "o-1",
+            position: 0,
+            title: "Betalning av faktura 1044",
+            rationale: "r",
+            account: "1510",
+            amount_ore: 450000,
+            recommended: true,
+            is_exit: false,
+          },
+        ],
+      })
+    );
+    expect(screen.getByTestId("beslut-svar")).toHaveTextContent("Betalning av faktura 1044 · 1510");
+  });
+
+  it("besvarad med ett alternativ som inte finns i listan: ingen svarsrad, ingen gissning", () => {
+    renderaKort(beslut({ status: "answered", answer_option_id: "o-okand" }));
+    expect(screen.queryByTestId("beslut-svar")).toBeNull();
   });
 
   it("ersatt: `Inte längre aktuellt`, inga knappar (testfall 17)", () => {

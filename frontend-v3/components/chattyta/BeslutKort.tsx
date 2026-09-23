@@ -1,3 +1,4 @@
+import { klockslag } from "@/components/chattyta/TradInlagg";
 import { aldersTon } from "@/lib/chattyta/alder";
 import type { BeslutSvar } from "@/lib/chattyta/api";
 import type { DecisionInlagg } from "@/lib/chattyta/typer";
@@ -42,15 +43,15 @@ function lageAv(beslut: BeslutSvar | undefined): Lage {
 }
 
 /**
- * Rubrikradens text. `Besvarat` utan klockslag och utan svaret: SPEC §5 vill
- * `Besvarat · HH:MM` + svaret, men `DecisionResponse` (api/schemas.py) bär
- * varken `answered_at`, `answer_option_id` eller `answer_text` — de finns
- * bara i `409`-kroppen. Människans svar står redan i tråden som hennes
- * eget `user_text`-inlägg; ett klockslag klienten hittat på vore ett
- * påstående om bokföringen som servern inte gjort.
+ * Rubrikradens text. Ett besvarat beslut säger `Besvarat · HH:MM` när
+ * servern gett tiden (`answered_at`), annars bara `Besvarat` — ett klockslag
+ * klienten hittat på vore ett påstående servern inte gjort.
  */
 function rubrik(lage: Lage, beslut: BeslutSvar | undefined): string {
-  if (lage === "besvarad") return "Besvarat";
+  if (lage === "besvarad") {
+    const tid = beslut?.answered_at ? klockslag(beslut.answered_at) : null;
+    return tid ? `Besvarat · ${tid}` : "Besvarat";
+  }
   if (lage === "ersatt") return "Inte längre aktuellt";
   if (!beslut) return "Behöver ditt beslut";
   return beslut.kind === "approval"
@@ -83,6 +84,19 @@ function kallText(inlagg: DecisionInlagg, beslut: BeslutSvar | undefined): strin
   return [kalla.kind, kalla.id, datum].filter(Boolean).join(" · ");
 }
 
+/**
+ * Vad svaret var (§5): alternativets titel och konto, eller människans
+ * fritext ordagrant. `null` när servern inte sagt det, eller när det valda
+ * alternativet inte finns i listan — då ingen rad, ingen gissning.
+ */
+function svarText(beslut: BeslutSvar | undefined): string | null {
+  if (!beslut || beslut.status !== "answered") return null;
+  if (beslut.answer_text) return beslut.answer_text;
+  const valt = beslut.options.find((o) => o.id === beslut.answer_option_id);
+  if (!valt) return null;
+  return valt.account ? `${valt.title} · ${valt.account}` : valt.title;
+}
+
 export function BeslutKort({
   inlagg,
   beslut,
@@ -94,6 +108,7 @@ export function BeslutKort({
   const { title, amount, reason, consequence } = inlagg.body;
   const lage = lageAv(beslut);
   const kalla = kallText(inlagg, beslut);
+  const svar = svarText(beslut);
 
   // Gult bär betydelse: något väntar på människan (globals.css). Ett
   // besvarat eller ersatt beslut väntar inte, så det får neutral yta.
@@ -157,6 +172,13 @@ export function BeslutKort({
        * notis, aldrig `text-bok-meta`.
        */}
       <p className="bok-mono m-0 text-[12px] text-bok-text-dampad">{consequence}</p>
+
+      {/* Svaret, som servern lagrade det (§5). Klartoner: beslutet är taget. */}
+      {svar && (
+        <p data-testid="beslut-svar" className="m-0 text-[14px] leading-[1.55] text-bok-klart-text">
+          {svar}
+        </p>
+      )}
     </div>
   );
 }

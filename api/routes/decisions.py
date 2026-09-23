@@ -104,6 +104,10 @@ def _decision_response(view: DecisionView) -> DecisionResponse:
         thread_id=view.thread_id,
         post_id=view.post_id,
         options=[_option_response(option) for option in view.options],
+        answered_at=view.answered_at,
+        answered_by=view.answered_by,
+        answer_option_id=view.answer_option_id,
+        answer_text=view.answer_text,
     )
 
 

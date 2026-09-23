@@ -2933,6 +2933,52 @@ class TestStatusAnsweredAndAll:
             f"correction:{note_id}",
         }
 
+    def test_answered_rows_carry_the_answer_open_rows_carry_nulls(
+        self, client, auth_headers
+    ):
+        """chattyta open question 3: without these, a reloaded `BeslutKort`
+        could only say `Besvarat` -- not when, and an `AlternativLista` could
+        not mark which option was chosen. The 409 body had them; the list did
+        not."""
+        _, decision = _open_decision_with_options()
+        chosen = decision.options[0]
+        with _RuntimeOff():
+            client.post(
+                _answer_url(decision.id),
+                json={"option_id": chosen.id},
+                headers=auth_headers,
+            )
+        thread_text = _new_thread()
+        free = DecisionService().create(
+            thread_text, title="Fritext", reason="r", consequence="c"
+        )
+        DecisionService().answer(free.id, free_text="Boka på 6250.", actor="stefan")
+        thread_open = _new_thread()
+        still_open = DecisionService().create(
+            thread_open, title="Öppen", reason="r", consequence="c"
+        )
+        source_id = _insert_intake_source(status="failed")
+
+        response = client.get(f"{DECISIONS_URL}?status=all", headers=auth_headers)
+        rows = {row["id"]: row for row in response.json()["decisions"]}
+
+        by_option = rows[decision.id]
+        assert by_option["answer_option_id"] == chosen.id
+        assert by_option["answer_text"] is None
+        assert by_option["answered_at"] is not None
+        assert by_option["answered_by"] is not None
+
+        by_text = rows[free.id]
+        assert by_text["answer_text"] == "Boka på 6250."
+        assert by_text["answer_option_id"] is None
+        assert by_text["answered_by"] == "stefan"
+
+        for unanswered in (rows[still_open.id], rows[f"intake:{source_id}"]):
+            assert unanswered["answered_at"] is None
+            assert unanswered["answered_by"] is None
+            assert unanswered["answer_option_id"] is None
+            assert unanswered["answer_text"] is None
+
     def test_unknown_status_is_400(self, client, auth_headers):
         response = client.get(f"{DECISIONS_URL}?status=bogus", headers=auth_headers)
         assert response.status_code == 400
