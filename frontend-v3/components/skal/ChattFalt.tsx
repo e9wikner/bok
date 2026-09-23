@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { forwardRef, useState } from "react";
 
 /**
  * `ChattFalt` (komponenter.md): radius 12, streckad kant #c7c7cc,
@@ -14,22 +14,24 @@ import { useState } from "react";
  *
  * `drop`-varianten (drag och släpp, kamera, urklipp) hör till
  * `flode-underlag` och finns inte här.
+ *
+ * `ref` går till textfältet, så att förslagskortets `Ändra` kan lägga fokus
+ * här utan att skicka något (SPEC-chattyta.md §8 steg 4, chattyta C12).
  */
-export function ChattFalt({
-  vyTitel,
-  variant = "desktop",
-  onSkicka,
-}: {
-  vyTitel: string;
-  variant?: "desktop" | "mobil";
-  /**
-   * `useTrad().skicka` (chattyta C5): POST /threads/{view_key}/messages.
-   * Fältet töms bara när den svarar `true` — servern har då lagrat texten.
-   * `false` (POST misslyckades) eller `void` lämnar texten kvar, så att
-   * människan inte behöver skriva om den (tasks/chattyta/todo.md, C3).
-   */
-  onSkicka?: (text: string) => Promise<boolean> | boolean | void;
-}) {
+export const ChattFalt = forwardRef<
+  HTMLInputElement,
+  {
+    vyTitel: string;
+    variant?: "desktop" | "mobil";
+    /**
+     * `useTrad().skicka` (chattyta C5): POST /threads/{view_key}/messages.
+     * Fältet töms bara när den svarar `true` — servern har då lagrat texten.
+     * `false` (POST misslyckades) eller `void` lämnar texten kvar, så att
+     * människan inte behöver skriva om den (tasks/chattyta/todo.md, C3).
+     */
+    onSkicka?: (text: string) => Promise<boolean> | boolean | void;
+  }
+>(function ChattFalt({ vyTitel, variant = "desktop", onSkicka }, ref) {
   const [text, setText] = useState("");
   // Ett andra Enter medan det första är i flykt skickar inte igen: texten
   // står ju kvar i fältet tills servern svarat, och samma fråga två gånger
@@ -65,6 +67,7 @@ export function ChattFalt({
           {etikett}
         </label>
         <input
+          ref={ref}
           id="skal-chattfalt"
           name="skal-chattfalt"
           type="text"
@@ -80,4 +83,4 @@ export function ChattFalt({
       </div>
     </form>
   );
-}
+});

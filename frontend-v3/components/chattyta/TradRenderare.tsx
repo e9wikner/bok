@@ -1,15 +1,17 @@
+import { createContext, useContext } from "react";
 import { AlternativLista } from "@/components/chattyta/AlternativLista";
 import { BeslutKort } from "@/components/chattyta/BeslutKort";
 import { FilInlagg } from "@/components/chattyta/FilInlagg";
 import { JamforelseRader, RadLista } from "@/components/chattyta/JamforelseRader";
 import { SkriverIndikator } from "@/components/chattyta/SkriverIndikator";
 import { TradInlagg } from "@/components/chattyta/TradInlagg";
-import { VerifikationsForslag } from "@/components/chattyta/VerifikationsForslag";
+import { PostaKnappar, VerifikationsForslag } from "@/components/chattyta/VerifikationsForslag";
 import { useBeslut } from "@/hooks/useBeslut";
 import type { Strommande } from "@/lib/chattyta/trad";
 import type {
   AgentTextInlagg,
   DecisionInlagg,
+  DraftInlagg,
   Inlagg,
   OptionsInlagg,
 } from "@/lib/chattyta/typer";
@@ -32,6 +34,17 @@ import type {
  * Ordningen är serverns (`listaInlagg`); renderaren flyttar och slår inte
  * ihop något (§5).
  */
+
+/**
+ * Lägger fokus i SAMMA kolumns `ChattFalt` — förslagskortets `Ändra`
+ * (SPEC-chattyta.md §8 steg 4). Ges av `ChattKolumn`/`ChattList`, som äger
+ * både tråden och fältet. Ett kontext och inte ett `id`-uppslag: svepraden
+ * ritar en sidas alla vyer, var och en med ett fält med samma `id`, och
+ * `getElementById` skulle hitta den första, inte kortets. `null` = inget
+ * fält i närheten; då ritas ingen `Ändra`.
+ */
+export const ChattFaltFokus = createContext<(() => void) | null>(null);
+
 export function TradRenderare({
   inlagg,
   strommande,
@@ -69,10 +82,7 @@ export function InlaggRenderare({ inlagg, viewKey }: { inlagg: Inlagg; viewKey?:
     case "receipt":
       return <JamforelseRader kropp={inlagg.body} />;
     case "draft":
-      // Utan knappar: `Posta` kopplas först i C12, efter idempotensnyckeln
-      // (C11, ANALYS.md §7). En knapp före nyckeln vore en väg till två
-      // verifikationer i en append-only-bok.
-      return <VerifikationsForslag inlagg={inlagg} />;
+      return <ForslagInlagg inlagg={inlagg} />;
     case "decision":
       return <BeslutInlagg inlagg={inlagg} viewKey={viewKey} />;
     case "options":
@@ -107,6 +117,23 @@ function BeslutInlagg({ inlagg, viewKey }: { inlagg: DecisionInlagg; viewKey?: s
 function AlternativInlagg({ inlagg, viewKey }: { inlagg: OptionsInlagg; viewKey?: string }) {
   const uppslag = useBeslut(viewKey);
   return <AlternativLista inlagg={inlagg} beslut={uppslag?.get(inlagg.body.decision_id)} />;
+}
+
+/**
+ * Förslaget med `Posta` och `Ändra` (§8, C12). Knapparna bor i en egen
+ * komponent av samma skäl som `BeslutInlagg`: bara en tråd med ett utkast
+ * behöver `QueryClientProvider` (postningen invaliderar frågor). Kortet får
+ * `draft_id` och inget annat att posta med — nyckeln görs i `postaUtkast`
+ * (antagande 4, C11).
+ */
+function ForslagInlagg({ inlagg }: { inlagg: DraftInlagg }) {
+  const fokuseraFalt = useContext(ChattFaltFokus);
+  return (
+    <VerifikationsForslag
+      inlagg={inlagg}
+      knappar={<PostaKnappar draftId={inlagg.body.draft_id} onAndra={fokuseraFalt ?? undefined} />}
+    />
+  );
 }
 
 /**

@@ -1,6 +1,7 @@
 "use client";
 
-import { TradRenderare } from "@/components/chattyta/TradRenderare";
+import { useCallback, useRef } from "react";
+import { ChattFaltFokus, TradRenderare } from "@/components/chattyta/TradRenderare";
 import { ChattFalt } from "@/components/skal/ChattFalt";
 import { useTrad, type UseTrad } from "@/hooks/useTrad";
 
@@ -116,10 +117,15 @@ function KolumnLayout({
   trad: TradData;
   onSkicka?: UseTrad["skicka"];
 }) {
+  // Förslagskortets `Ändra` ska till DEN HÄR kolumnens fält (chattyta C12).
+  const falt = useRef<HTMLInputElement>(null);
+  const fokuseraFalt = useCallback(() => falt.current?.focus(), []);
   return (
     <div className="flex min-h-0 flex-col border-r border-bok-linje">
-      <TradYta vyTitel={vyTitel} viewKey={viewKey} trad={trad} />
-      <ChattFalt vyTitel={vyTitel} onSkicka={onSkicka} />
+      <ChattFaltFokus.Provider value={fokuseraFalt}>
+        <TradYta vyTitel={vyTitel} viewKey={viewKey} trad={trad} />
+      </ChattFaltFokus.Provider>
+      <ChattFalt ref={falt} vyTitel={vyTitel} onSkicka={onSkicka} />
     </div>
   );
 }

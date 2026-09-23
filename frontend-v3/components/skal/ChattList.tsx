@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import { ChattFaltFokus } from "@/components/chattyta/TradRenderare";
 import { ChattFalt } from "@/components/skal/ChattFalt";
 import { OLAST_TRAD, TradYta, type TradData } from "@/components/skal/ChattKolumn";
 import { useTrad, type UseTrad } from "@/hooks/useTrad";
@@ -62,6 +63,9 @@ function ListLayout({
   onSkicka?: UseTrad["skicka"];
 }) {
   const [oppen, setOppen] = useState(true);
+  // Förslagskortets `Ändra` ska till listens eget fält (chattyta C12).
+  const falt = useRef<HTMLInputElement>(null);
+  const fokuseraFalt = useCallback(() => falt.current?.focus(), []);
 
   const marke =
     vantandeBeslut > 0
@@ -107,8 +111,10 @@ function ListLayout({
 
       {oppen && (
         <div className="flex flex-col">
-          <TradYta vyTitel={vyTitel} viewKey={viewKey} trad={trad} variant="mobil" />
-          <ChattFalt vyTitel={vyTitel} variant="mobil" onSkicka={onSkicka} />
+          <ChattFaltFokus.Provider value={fokuseraFalt}>
+            <TradYta vyTitel={vyTitel} viewKey={viewKey} trad={trad} variant="mobil" />
+          </ChattFaltFokus.Provider>
+          <ChattFalt ref={falt} vyTitel={vyTitel} variant="mobil" onSkicka={onSkicka} />
         </div>
       )}
     </div>

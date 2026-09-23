@@ -135,12 +135,17 @@ describe("TradRenderare väljer komponent per type (SPEC §5)", () => {
     expect(screen.getAllByTestId("tal")).toHaveLength(2);
   });
 
-  it("draft → VerifikationsForslag, utan knappar tills C12", () => {
-    const { container } = rendera([typad(FIXTUR_DRAFT)]);
+  it("draft → VerifikationsForslag med Posta (C12); utan ChattFalt i närheten ingen Ändra", () => {
+    // Postningen invaliderar frågor och behöver därför en QueryClient.
+    // Knapparnas utfall prövas i posta.test.tsx.
+    const { container } = render(
+      medKlient(<TradRenderare inlagg={[typad(FIXTUR_DRAFT)]} strommande={null} />)
+    );
     expect(container.querySelector(`[data-inlagg-id="${FIXTUR_DRAFT.id}"]`)).not.toBeNull();
     expect(screen.getAllByTestId("konteringsrad")).toHaveLength(3);
-    // En knapp utan idempotensnyckeln vore en väg till två verifikationer.
-    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    expect(screen.getByRole("button", { name: "Posta" })).toBeInTheDocument();
+    // `Ändra` lägger fokus i kolumnens fält; utan fält vore den en död knapp.
+    expect(screen.queryByRole("button", { name: "Ändra" })).toBeNull();
   });
 
   it("decision → BeslutKort (C6), inte okant_kontrakt-raden", () => {

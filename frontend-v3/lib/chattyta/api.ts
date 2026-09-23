@@ -9,11 +9,12 @@
  * typade (§4.1) — den körs i reducern (`trad.ts`), inte här, så att GET,
  * POST och strömmen går genom samma dörr.
  *
- * Beslutssvaret (C7) ligger här; postningen (C12) läggs här.
+ * Beslutssvaret (C7) och postningen (C12) ligger här.
  */
 
 import axios from "axios";
 import apiClient from "@/lib/api";
+import { nyckelForUtkast } from "@/lib/chattyta/idempotens";
 import type { RaInlagg } from "@/lib/chattyta/typer";
 
 /** `api/schemas.py::ThreadResponse`. */
@@ -224,6 +225,122 @@ export async function svaraBeslut(decisionId: string, optionId: string): Promise
       answer_option_id: redan.answer_option_id ?? null,
       answer_text: redan.answer_text ?? null,
     };
+  }
+}
+
+// ─── Postning (SPEC-chattyta.md §8, SPEC-idempotens.md §6) ───────────────
+
+/**
+ * `api/schemas.py::VoucherResponse`, de fält klienten läser. Kortets klara
+ * läge är `{series}-{number}` (§8); resten lämnas åt `flode-verifikationer`.
+ */
+export interface VerifikationSvar {
+  id: string;
+  series: string;
+  number: number;
+  date: string;
+  period_id: string;
+  status: string;
+  posted_at?: string | null;
+}
+
+/**
+ * Hur en postning slutade, så som kortet behöver veta det — en rad per rad i
+ * §8:s tabell. Två saker är avsiktligt INTE fel:
+ * - `redan_postad` (`409 already_posted`) är samma sak som `postad` för
+ *   människan: verifikationen finns, med det nummer servern säger.
+ *   `verifikation` är `null` bara om servern inte hittade den att bifoga
+ *   (`_posting_http_error`); då vet klienten att den är postad men inte som vad.
+ * - `pagar` (`409 request_in_flight`) är ett "fråga igen strax", inte ett slut.
+ */
+export type PostaUtfall =
+  | { utfall: "postad"; verifikation: VerifikationSvar; uppspelad: boolean }
+  | { utfall: "redan_postad"; verifikation: VerifikationSvar | null }
+  | { utfall: "pagar"; retry_after_ms: number }
+  | { utfall: "nyckel_ateranvand" }
+  | {
+      utfall: "period_last";
+      /** Serverns id — ett UUID, inte en etikett. Det är allt `detail` bär om perioden. */
+      period_id: string | null;
+      /** ISO, utan tidszon (`period.locked_at.isoformat()`). */
+      locked_at: string | null;
+      /** Servern ersätter redan `null` med `"okänd"`, men kontraktet (§2) tillåter `null`. */
+      locked_by: string | null;
+    }
+  /** `status: null` = inget svar alls (nätverket). */
+  | { utfall: "natverk"; status: number | null };
+
+/** Servern har ingen `retry_after_ms` att ge i något känt fall; 500 ms är vad den skickar i dag. */
+const STANDARD_VANTAN_MS = 500;
+
+/** FastAPIs `HTTPException(detail={...})` → `{"detail": {...}}`; annars `null`. */
+function feldetalj(fel: unknown): Record<string, unknown> | null {
+  if (!axios.isAxiosError(fel)) return null;
+  const detalj = (fel.response?.data as { detail?: unknown } | undefined)?.detail;
+  return typeof detalj === "object" && detalj !== null ? (detalj as Record<string, unknown>) : null;
+}
+
+const strangEllerNull = (v: unknown): string | null => (typeof v === "string" ? v : null);
+
+/**
+ * `POST /vouchers/{draftId}/post` med `Idempotency-Key` härledd ur utkastet
+ * (C11). **Nyckeln görs bara här, bara med `nyckelForUtkast`** — ett andra
+ * tryck, en annan flik, en omladdning och `FelKort`s `Försök igen` går alla
+ * genom den här funktionen och får samma nyckel (§8 steg 1, testfall 25).
+ *
+ * Det här är det ENDA anropsstället för en postning från chattytan. §15.1
+ * lämnar öppet om människan ska posta direkt eller via tråden; byts vägen
+ * byts den här, och kortet märker inget. `PUT /vouchers/{id}` anropas aldrig
+ * härifrån: förslag ändras i samtalet (§8 steg 4).
+ *
+ * Allt som inte står i §8:s tabell kastas vidare (t.ex. `400
+ * voucher_date_outside_period`, `404`): det är inte kortets sak att gissa
+ * vad de betyder.
+ */
+export async function postaUtkast(draftId: string): Promise<PostaUtfall> {
+  const nyckel = await nyckelForUtkast(draftId);
+  try {
+    const svar = await apiClient.post<VerifikationSvar>(
+      `/api/v1/vouchers/${encodeURIComponent(draftId)}/post`,
+      undefined,
+      { headers: { "Idempotency-Key": nyckel } }
+    );
+    // axios gemenar headernamnen. En uppspelning är samma verifikation (§8).
+    const replay = (svar.headers as Record<string, unknown> | undefined)?.["idempotent-replay"];
+    return { utfall: "postad", verifikation: svar.data, uppspelad: replay === "true" };
+  } catch (fel) {
+    if (!axios.isAxiosError(fel)) throw fel;
+    const status = fel.response?.status;
+    // Inget svar, eller servern föll: ingenting vet vi är bokfört, och samma
+    // nyckel gör ett nytt försök ofarligt.
+    if (status === undefined || status >= 500) return { utfall: "natverk", status: status ?? null };
+
+    const detalj = feldetalj(fel);
+    const kod = detalj?.code;
+    if (status === 409 && kod === "already_posted") {
+      const v = detalj?.voucher;
+      return {
+        utfall: "redan_postad",
+        verifikation: typeof v === "object" && v !== null ? (v as VerifikationSvar) : null,
+      };
+    }
+    if (status === 409 && kod === "request_in_flight") {
+      const ms = detalj?.retry_after_ms;
+      return {
+        utfall: "pagar",
+        retry_after_ms: typeof ms === "number" && ms >= 0 ? ms : STANDARD_VANTAN_MS,
+      };
+    }
+    if (status === 422 && kod === "idempotency_key_reuse") return { utfall: "nyckel_ateranvand" };
+    if (status === 409 && kod === "period_locked") {
+      return {
+        utfall: "period_last",
+        period_id: strangEllerNull(detalj?.period_id),
+        locked_at: strangEllerNull(detalj?.locked_at),
+        locked_by: strangEllerNull(detalj?.locked_by),
+      };
+    }
+    throw fel;
   }
 }
 

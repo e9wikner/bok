@@ -223,7 +223,28 @@ Ingen uppgift rör Python.
   - Obs: **landas före C12.** Idempotens före något skrivflöde kopplas till en knapp
     (`ANALYS.md` §7).
 
-- [ ] **C12 — Postningsknappen och dess sju utfall**
+- [x] **C12 — Postningsknappen och dess sju utfall**
+  - Gjort 2026-09-23: 27 tester (testfall 25, 27, 28, 34, 35, 36 plus nätverk), mutationsprövade
+    (slumpad nyckel gav sex röda, ignorerad `retry_after_ms` gav testfall 34 röd); 372 gröna.
+    **Fynd: `POST /vouchers/{id}/post` läser inte `Idempotency-Key`** — bara `/correct` har
+    beroendet. `request_in_flight`, `idempotency_key_reuse` och `Idempotent-Replay` kan alltså
+    inte uppstå på den vägen i dag; klienten hanterar dem enligt `SPEC-idempotens.md` §6 och
+    fixturer. Kontrollerat av koordinatorn: postning skriver **ingen ny rad** — den byter
+    `status` på utkastets egen rad (`VoucherRepository.post`), så två tryck kan inte ge två
+    verifikationer. Andra trycket får `409 already_posted` (klart läge); i ett exakt samtidigt
+    lopp avvisar triggern på postade verifikationer det andra `UPDATE`:t, klienten visar
+    nätverksfel, och `Försök igen` landar i `already_posted`. Kvar i ett sådant lopp: möjligen
+    en dubbel `POSTED`-rad i `audit_log`. Nyckeln är ofarlig och framtidssäker (spec §15.1);
+    att koppla `get_idempotency_key` till `/post` hör till `flode-verifikationer`.
+    Avvikelser: **nio filer** — `Ändra` måste nå fältet i kortets egen kolumn, och alla
+    kolumners fält har samma `id="skal-chattfalt"`; en fokuskontext i `ChattKolumn` och
+    `ChattList` plus `forwardRef` på `ChattFalt`. (Samma id ger en befintlig a11y-bugg:
+    `<label for>` i andra kolumnen pekar på första kolumnens fält. Inte rättad här.) Perioden
+    nämns inte vid namn — felet bär bara `period_id`, och att läsa månaden ur `meta` vore att
+    tolka serverns text; `locked_at` skärs som sträng, inte tolkad med gissad tidszon.
+    Nätverksfel säger **inte** `Ingenting är bokfört` — efter ett förlorat svar vet klienten
+    inte det. Okända fel (t.ex. `400 voucher_date_outside_period`) visas som
+    `Servern nekade postningen · {kod}`, utan omförsök. `Ändra` skriver aldrig i fältet.
   - Acceptans: `Posta` → `postaUtkast(draftId)` → `POST /vouchers/{draftId}/post` med nyckeln ur
     C11. Låst i flykt. Utfallen i §8:s tabell: `200`, replay, `409 already_posted`,
     `409 request_in_flight` (vänta, samma nyckel), `422 idempotency_key_reuse`,
