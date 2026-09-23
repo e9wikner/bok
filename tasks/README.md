@@ -15,6 +15,7 @@ En katalog per modul i kapabilitetskartan (`docs/redesign/ANALYS.md` §8), med s
 | `skal` | `docs/redesign/SPEC-skal.md` | **Klar** 2026-09-21 (S1–S13) |
 | `beslut` | `docs/redesign/SPEC-beslut.md` | **Klar** 2026-09-22 (B1–B12) |
 | `chattyta` | `docs/redesign/SPEC-chattyta.md` | **Klar** 2026-09-23 (C1–C14) |
+| `flode-verifikationer` | `docs/redesign/SPEC-flode-verifikationer.md` | Planerad 2026-09-23 (F1–F15) |
 
 Listorna sparas när en modul är klar. De bär besluten och avvikelserna — varför en uppgift rörde
 en fil till än den skulle, vad som lämnades kvar — och det är det enda stället den historiken
