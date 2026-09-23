@@ -208,15 +208,22 @@ INSERT INTO vouchers_new SELECT
     CASE WHEN status = 'draft' THEN NULL ELSE number END,
     ... ;
 
+-- triggrarna på voucher_rows nämner vouchers; står de kvar vägrar RENAME (test 3)
+DROP TRIGGER prevent_update_rows_for_posted_vouchers;
+DROP TRIGGER prevent_delete_rows_for_posted_vouchers;
+
 DROP TABLE vouchers;
 ALTER TABLE vouchers_new RENAME TO vouchers;
 
--- index ur 001 och triggrarna ur 014, återskapade ordagrant
+-- index ur 001 och alla fyra triggrarna ur 014, återskapade ordagrant
 CREATE INDEX ... ;
 CREATE TRIGGER prevent_update_posted_vouchers ... ;
 CREATE TRIGGER prevent_delete_posted_vouchers ... ;
+CREATE TRIGGER prevent_update_rows_for_posted_vouchers ... ;
+CREATE TRIGGER prevent_delete_rows_for_posted_vouchers ... ;
 
-PRAGMA foreign_key_check;           -- testet kräver tomt resultat
+-- ingen PRAGMA foreign_key_check här: executescript kastar resultatet.
+-- Test 1 kräver att den är tom efter migrationen.
 COMMIT;
 PRAGMA foreign_keys = ON;
 ```
@@ -231,8 +238,8 @@ till schema: ett postat utan nummer, eller ett utkast med nummer, går inte att 
 
 | Risk | Motdrag |
 |---|---|
-| `DROP TABLE vouchers` stoppas av `prevent_delete_posted_vouchers` | SQLite kör inga triggrar vid den implicita raderingen i `DROP TABLE`. Det verifieras i test 3, inte antas |
-| Triggrarna på `voucher_rows` pekar på `vouchers` med namn | De står kvar och pekar på den nya tabellen efter `RENAME`. Test 4 försöker ändra en rad i en postad verifikation efter migrationen |
+| `DROP TABLE vouchers` stoppas av `prevent_delete_posted_vouchers` | SQLite kör inga triggrar vid den implicita raderingen i `DROP TABLE`. Verifierat i test 3. Med `foreign_keys` på är `DROP TABLE` däremot en `DELETE` med främmande nycklars följder: den vägras av `correction_notes.voucher_id`, eller kaskaderar bort hela `voucher_rows`. `PRAGMA foreign_keys = OFF` före `BEGIN` är därför bärande; test 1 visar att den verkar genom `Database.init_db` |
+| Triggrarna på `voucher_rows` pekar på `vouchers` med namn | **Visat i test 3:** står de kvar när `vouchers` droppas vägrar `ALTER TABLE … RENAME` (`error in trigger prevent_update_rows_for_posted_vouchers: no such table: main.vouchers`). 027 droppar dem i samma transaktion och återskapar dem ordagrant efter `RENAME`. Test 4 försöker ändra och radera rader i en postad verifikation efter migrationen |
 | Produktionsdatabasen har något testdatabasen inte har | Beställaren kan börja om och importera SIE4-filerna igen (§4.4), så produktionen är inget skäl att skona migrationen. Test 1 jämför ändå varje postad rad fält för fält före och efter, eftersom migrationen ska vara rätt även där den inte behöver vara det |
 
 ### 4.3 Koden

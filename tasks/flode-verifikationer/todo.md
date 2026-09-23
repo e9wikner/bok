@@ -7,7 +7,20 @@ oräknade. Testfallsnumren syftar på tabellerna i §14. Backendens tester ligge
 
 ---
 
-- [ ] **F1 — Migration 027: `vouchers` byggs om, `number` nullbar (gate 1)**
+- [x] **F1 — Migration 027: `vouchers` byggs om, `number` nullbar (gate 1)**
+  - Gjort 2026-09-23: 4 tester (testfall 1–4) i `tests/test_numrering.py`, 1 och 2 sedda röda
+    först. Varje fall bygger en databas på version 26 med numrerade utkast och kör 027 genom
+    `Database.init_db`. Kolumnlistan är 001:s: ingen senare migration lägger till kolumner i
+    `vouchers`, och ingen vy eller annan tabells trigger än de två på `voucher_rows` nämner den.
+    Testfall 3 visade: `DROP TABLE` stoppas inte av raderingstriggern, men `RENAME` vägras så
+    länge triggrarna på `voucher_rows` står kvar (`no such table: main.vouchers`) — 027 droppar
+    dem i transaktionen och återskapar alla fyra ordagrant ur 014. Med `foreign_keys` på vägras
+    `DROP TABLE` (av `correction_notes`) eller kaskaderar bort `voucher_rows`; att `PRAGMA
+    foreign_keys = OFF` verkar genom runnerns `executescript` är bevisat genom att ta bort raden
+    (alla fyra föll). Runnern behövde inte ändras. Avvikelser: `PRAGMA foreign_key_check` står
+    inte i filen, eftersom `executescript` kastar resultatet; test 1 kräver den tom. Spec §4.2
+    (skissen och risktabellen) uppdaterad. Övriga sviten: 106 fel + 6 errors, alla av samma
+    orsak — koden ger utkast nummer och `CHECK` avvisar det. Rättas i F2.
   - Acceptans: `db/migrations/027_voucher_number_at_posting.sql` bygger om `vouchers` enligt
     spec §4.2. `number` är nullbar, och `CHECK((status='draft' AND number IS NULL) OR
     (status='posted' AND number IS NOT NULL))` gäller. Utkastens nummer blir `NULL`. Varje postad
