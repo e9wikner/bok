@@ -32,7 +32,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from db.database import db
 from domain.models import Account, Period, Thread, ThreadDraft, ThreadPost, Voucher
-from domain.validation import ValidationError
+from domain.validation import ValidationError, VoucherValidator
 from repositories.account_repo import AccountRepository
 from repositories.decision_repo import DecisionRepository
 from repositories.intake_repo import IntakeRepository
@@ -114,6 +114,21 @@ class SourceAlreadyBookedError(DraftError):
             "voucher_id": self.voucher_id,
             "voucher_number": self.voucher_number,
         }
+
+
+class SourceNotLinkableError(DraftError):
+    """The posting of a thread draft met an underlag or bank input that can
+    no longer be linked for another reason than being booked (removed,
+    rejected). Rolls the posting back like `SourceAlreadyBookedError`."""
+
+    def __init__(self, *, source_kind: str, source_id: str, exc: Any):
+        self.source_kind = source_kind
+        self.source_id = source_id
+        super().__init__(
+            "source_not_linkable",
+            "The draft's source material can no longer be linked to a voucher",
+            details=f"{source_kind}={source_id}, {exc.code}: {exc.message}",
+        )
 
 
 def period_name(period: Period) -> str:
@@ -225,9 +240,110 @@ def receipt_traces(voucher: Voucher) -> List[dict]:
     return traces
 
 
+#: The consequence every failed posting shares: the posting rolled back.
+_NOTHING_CHANGED = "Ingenting har ändrats i bokföringen."
+
+#: Failures that are not failures for the thread: the voucher is posted, and
+#: the receipt path (`on_posted`) owns what the thread says.
+_NOT_A_FAILURE = frozenset({"already_posted"})
+
+
+def posting_error_body(error: ValidationError, voucher_id: str) -> dict:
+    """The `error` post's body for a failed posting of a thread draft (§9.1):
+    cause and consequence in bookkeeping terms, built from the failure and
+    the ledger's current state -- never a status code. `retry_draft_id` is
+    always `None`: none of these can succeed by pressing again."""
+    cause, consequence = _posting_error_texts(error, voucher_id)
+    return {"cause": cause, "consequence": consequence, "retry_draft_id": None}
+
+
+def _posting_error_texts(error: ValidationError, voucher_id: str) -> tuple:
+    if error.code == "period_locked":
+        voucher = VoucherRepository.get(voucher_id)
+        period = PeriodRepository.get_period(voucher.period_id) if voucher else None
+        if period is not None:
+            return _period_locked_texts(period)
+    if isinstance(error, SourceAlreadyBookedError):
+        return _already_booked_texts(error)
+    if isinstance(error, SourceNotLinkableError):
+        return (
+            f"{_source_phrase(error.source_kind, error.source_id)} kan inte längre "
+            "kopplas till en verifikation.",
+            f"{_NOTHING_CHANGED} Förslaget ligger kvar men kan inte postas med "
+            "det underlaget.",
+        )
+    as_written = (
+        f"{_NOTHING_CHANGED} Förslaget ligger kvar men kan inte postas som det står."
+    )
+    account = _account_code(error.details)
+    if error.code == "inactive_account" and account:
+        known = AccountRepository.get(account)
+        name = f" {known.name}" if known is not None else ""
+        return (
+            f"Konto {account}{name} har inaktiverats i kontoplanen sedan "
+            "förslaget lades fram.",
+            as_written,
+        )
+    if error.code == "account_not_found" and account:
+        return (f"Konto {account} finns inte längre i kontoplanen.", as_written)
+    if error.code == "voucher_date_outside_period":
+        return ("Verifikationens datum ligger utanför dess period.", as_written)
+    return (
+        f"Förslaget klarade inte bokföringens kontroller vid postningen "
+        f"({error.message}).",
+        as_written,
+    )
+
+
+def _period_locked_texts(period: Period) -> tuple:
+    name = period_name(period)
+    when = f" {period.locked_at.strftime('%Y-%m-%d %H:%M')}" if period.locked_at else ""
+    # A lock from before migration 023 has no recorded actor: say nothing
+    # rather than guess.
+    who = f" av {period.locked_by}" if period.locked_by else ""
+    return (
+        f"Perioden {name} låstes{when}{who} medan förslaget låg.",
+        f"{_NOTHING_CHANGED} Förslaget ligger kvar men kan inte postas i {name}.",
+    )
+
+
+def _already_booked_texts(error: SourceAlreadyBookedError) -> tuple:
+    number = error.voucher_number
+    on = f"verifikation {number}" if number else "en annan verifikation"
+    kept = number or "Den verifikationen"
+    return (
+        f"{_source_phrase(error.source_kind, error.source_id)} bokfördes på {on} "
+        "medan förslaget låg.",
+        f"{_NOTHING_CHANGED} Samma underlag bokförs inte två gånger: {kept} står "
+        "kvar och förslaget ligger kvar opostat.",
+    )
+
+
+def _source_phrase(source_kind: str, source_id: str) -> str:
+    """`Underlaget kvitto.pdf`, `Banktransaktionen` -- the thing, as the
+    human knows it."""
+    if source_kind == "intake_source":
+        source = IntakeRepository.get_source(source_id)
+        if source is not None and source.original_filename:
+            return f"Underlaget {source.original_filename}"
+        return "Underlaget"
+    if source_kind == "bank_transaction":
+        return "Banktransaktionen"
+    return "Bankunderlaget"
+
+
+def _account_code(details: Optional[str]) -> Optional[str]:
+    """`VoucherValidator`'s account errors carry `account_code=6110`."""
+    prefix = "account_code="
+    if details and details.startswith(prefix):
+        return details[len(prefix) :]
+    return None
+
+
 class DraftService:
     """Orchestrates thread drafts: `propose` (F6), the posting's two hooks
-    `on_posting`/`on_posted` (F8). The correction branch follows in F11."""
+    `on_posting`/`on_posted` (F8) and its failure, `on_posting_failed` (F9).
+    The correction branch follows in F11."""
 
     # -- posting hooks (§8.1) ---------------------------------------------
 
@@ -248,6 +364,13 @@ class DraftService:
         draft = ThreadDraftRepository.get(voucher.id)
         if draft is None or draft.status != "pending":
             return None
+
+        # 0. The chart of accounts as it is now, not as it was when the
+        #    proposal was checked (§9: "kontoplanen ändrad sedan förslaget").
+        #    `post_voucher` does not re-run these checks.
+        accounts = AccountRepository.get_all_as_dict(active_only=False)
+        VoucherValidator.validate_accounts_exist(voucher, accounts)
+        VoucherValidator.validate_accounts_active(voucher, accounts)
 
         # 1. pending -> posted.
         draft = ThreadDraftRepository.mark_posted(
@@ -304,6 +427,57 @@ class DraftService:
                 "view_key": draft.view_key,
                 "changed": {"voucher_id": voucher.id, "kind": "voucher_posted"},
             },
+        )
+        return post
+
+    def on_posting_failed(
+        self, voucher_id: str, error: ValidationError, *, actor: str
+    ) -> Optional[ThreadPost]:
+        """§9: a refused posting of a thread draft, after the posting's
+        transaction has rolled back. Writes one `error` post (§9.1) and
+        `last_error_code`/`last_error_post_id`, in a transaction of their own,
+        and publishes `message.completed`.
+
+        **One post per draft and code**: when the row already points at a
+        post for the same code, nothing is written. `None` then, and for a
+        draft that is not a thread's or no longer `pending`.
+
+        The caller must not let an exception from here change the posting's
+        answer.
+        """
+        if error.code in _NOT_A_FAILURE:
+            return None
+        draft = ThreadDraftRepository.get(voucher_id)
+        if draft is None or not _needs_error_post(draft, error.code):
+            return None
+        body = posting_error_body(error, voucher_id)
+        try:
+            with db.transaction():
+                current = ThreadDraftRepository.get(voucher_id)
+                if current is None or not _needs_error_post(current, error.code):
+                    return None
+                post = ThreadRepository.add_post(
+                    thread_id=draft.thread_id,
+                    post_type="error",
+                    actor=actor,
+                    body=body,
+                    _commit=False,
+                )
+                ThreadDraftRepository.set_error(
+                    voucher_id, error.code, post.id, _commit=False
+                )
+        except ThreadDraftTransitionError:
+            logger.info("Draft %s left pending meanwhile; no error post", voucher_id)
+            return None
+
+        from services.thread_stream import (
+            EVENT_MESSAGE_COMPLETED,
+            get_broker,
+            post_event_payload,
+        )
+
+        get_broker().publish(
+            draft.thread_id, EVENT_MESSAGE_COMPLETED, post_event_payload(post)
         )
         return post
 
@@ -688,11 +862,14 @@ def _already_booked(
 
 
 def _not_linkable(source_kind: str, source_id: str, exc: Any) -> DraftError:
-    return DraftError(
-        "source_not_linkable",
-        "The draft's source material can no longer be linked to a voucher",
-        details=f"{source_kind}={source_id}, {exc.code}: {exc.message}",
-    )
+    return SourceNotLinkableError(source_kind=source_kind, source_id=source_id, exc=exc)
+
+
+def _needs_error_post(draft: ThreadDraft, code: str) -> bool:
+    """§9.1: pending, and no post yet for this code."""
+    if draft.status != "pending":
+        return False
+    return not (draft.last_error_code == code and draft.last_error_post_id)
 
 
 __all__ = [
@@ -700,10 +877,12 @@ __all__ = [
     "DraftService",
     "FORESLA_VERIFIKATION_ENDPOINT",
     "SourceAlreadyBookedError",
+    "SourceNotLinkableError",
     "draft_body",
     "draft_consequence",
     "draft_meta",
     "period_name",
+    "posting_error_body",
     "receipt_body",
     "receipt_traces",
     "voucher_label",

@@ -536,14 +536,12 @@ def _post_and_record(
             fiscal_year_id = period.fiscal_year_id if period else None
             is_opening_balance = voucher.series.value == "IB"
     except ValidationError as e:
-        # The transaction is rolled back here. TODO(F9): a thread draft's
-        # failure (`period_locked`, validation, `source_already_booked`) is
-        # written to its thread from this point -- `set_error` plus one
-        # `error` post per draft and code (§9.1) -- after the rollback, in
-        # its own transaction, before the HTTP error is raised.
+        # The transaction is rolled back here.
         if e.code == "already_posted":
             # Posted by an earlier request whose receipt may have failed.
             _after_posting(voucher_id, actor)
+        else:
+            _after_failed_posting(voucher_id, e, actor)
         raise _posting_http_error(e, ledger, voucher_id)
     except HTTPException:
         raise
@@ -585,6 +583,22 @@ def _after_posting(voucher_id: str, actor: str) -> None:
             DraftService().on_posted(voucher, actor=actor)
     except Exception:
         logger.exception("Receipt for posted voucher %s failed", voucher_id)
+
+
+def _after_failed_posting(voucher_id: str, error: ValidationError, actor: str) -> None:
+    """SPEC-flode-verifikationer §9 for a thread draft: one `error` post per
+    draft and code, in its own transaction, after the posting's rollback. A
+    no-op for any other voucher.
+
+    Best-effort, like `_after_posting`: the HTTP answer is the refusal, and a
+    failure in the thread layer must not change it. Network errors and 5xx
+    never reach here -- the server does not know about the first, and the
+    second is not a refusal.
+    """
+    try:
+        DraftService().on_posting_failed(voucher_id, error, actor=actor)
+    except Exception:
+        logger.exception("Error post for voucher %s failed", voucher_id)
 
 
 def _begin_idempotent(

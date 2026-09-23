@@ -570,6 +570,10 @@ Klienten anropar som i dag `POST /vouchers/{draft_id}/post` med nyckeln
 **I postningens transaktion**, via `DraftService.on_posting(voucher)`, om utkastet finns i
 `thread_drafts` med `status='pending'`:
 
+0. Kontoplanen som den är nu (F9): varje rads konto ska finnas och vara aktivt
+   (`VoucherValidator.validate_accounts_exist`/`validate_accounts_active`). `post_voucher` kör inte
+   de kontrollerna, så ett konto som inaktiverats medan förslaget låg hade annars postats. Ett fel
+   här rullar tillbaka postningen och blir `400 inactive_account` eller `400 account_not_found`.
 1. `status='posted'`, `posted_at`.
 2. Om `correction_of`: korrigeringshistoriken och, om den finns, noteringen `applied` (§7).
 3. Radens spårbarhet (migration 029, §6.1) länkas som en direkt postning gör det:
@@ -646,10 +650,17 @@ Panelens *"Sista händelsen i kön: då slutar tråden med att juni är avstämd
 | Fel | Utkastet | Tråden | Kortet (klart i `chattyta`) |
 |---|---|---|---|
 | `409 period_locked` | `last_error_code='period_locked'` | Ett `error`-inlägg (§9.1) | Inline med vem/när, ingen `Försök igen` |
-| `422` validering (kontoplanen ändrad sedan förslaget) | Oförändrat | Ett `error`-inlägg med valideringens orsak | Inline fel |
+| `400` validering (kontoplanen ändrad sedan förslaget, §8.1 steg 0) | `last_error_code` = valideringens kod | Ett `error`-inlägg med valideringens orsak | Inline fel |
 | `422 idempotency_key_reuse` | Oförändrat | Inget | Inline, som i dag |
-| `409 source_already_booked` (§8.1) | Oförändrat, postningen rullad tillbaka | Ett `error`-inlägg som säger vilken verifikation som bär underlaget (F9) | Inline fel |
+| `409 source_already_booked` (§8.1) | `last_error_code='source_already_booked'`, postningen rullad tillbaka | Ett `error`-inlägg som säger vilken verifikation som bär underlaget | Inline fel |
+| `409 source_not_linkable` (§8.1) | `last_error_code='source_not_linkable'`, postningen rullad tillbaka | Ett `error`-inlägg som namnger underlaget | Inline fel |
 | Nätverksfel, `5xx` | Oförändrat | Inget: servern vet inte att det hände | Inline med `Försök igen`, samma nyckel |
+
+Valideringsfel vid postning har alltid mappats till `400` av routen (`_posting_http_error`); F9
+ändrar inga HTTP-svar. Felinlägget skrivs av `DraftService.on_posting_failed` efter postningens
+rollback, i en egen transaktion (inlägget och `set_error` tillsammans), och publiceras som
+`message.completed`. Ett fel där loggas och ändrar inte svaret. `already_posted` är inget fel för
+tråden: där tar kvittot över (§8.1).
 
 Ett B-utkast kan också träffas av `period_locked`, om målperioden låses emellan. Svaret är
 detsamma. Agentens nästa förslag hamnar i nästa öppna period, och §7.2:s rad säger det.
@@ -666,8 +677,18 @@ detsamma. Agentens nästa förslag hamnar i nästa öppna period, och §7.2:s ra
 
 - Texterna är serverns, byggda ur felet: orsak *och* konsekvens, i bokföringstermer, aldrig en
   statuskod.
-- `retry_draft_id` är `null` vid `period_locked` och vid validering, eftersom inget av dem kan
-  lyckas vid ett nytt försök med samma utkast.
+- `retry_draft_id` är `null` vid alla fel i tabellen ovan, eftersom inget av dem kan lyckas vid
+  ett nytt försök med samma utkast.
+- Texterna (F9), med `Ingenting har ändrats i bokföringen.` först i varje konsekvens:
+
+  | Kod | `cause` | `consequence` fortsätter |
+  |---|---|---|
+  | `period_locked` | `Perioden {period} låstes {YYYY-MM-DD HH:MM} av {locked_by} medan förslaget låg.` (`av …` utelämnas om låsaren saknas) | `Förslaget ligger kvar men kan inte postas i {period}.` |
+  | `inactive_account` | `Konto {kod} {namn} har inaktiverats i kontoplanen sedan förslaget lades fram.` | `Förslaget ligger kvar men kan inte postas som det står.` |
+  | `account_not_found` | `Konto {kod} finns inte längre i kontoplanen.` | som ovan |
+  | `source_already_booked` | `Underlaget {filnamn}` / `Banktransaktionen` `bokfördes på verifikation {A-n} medan förslaget låg.` | `Samma underlag bokförs inte två gånger: {A-n} står kvar och förslaget ligger kvar opostat.` |
+  | `source_not_linkable` | `Underlaget {filnamn}` / `Bankunderlaget` `kan inte längre kopplas till en verifikation.` | `Förslaget ligger kvar men kan inte postas med det underlaget.` |
+  | övriga | `Förslaget klarade inte bokföringens kontroller vid postningen ({meddelande}).` | `Förslaget ligger kvar men kan inte postas som det står.` |
 - **Ett inlägg per utkast och felkod.** Panelens *"samla dem till ett inlägg med en räknare"* går
   inte att göra ordagrant, eftersom inlägg aldrig ändras (`SPEC-tradar.md` §8.4). Det görs i
   stället genom att inte skriva det andra inlägget: finns `last_error_post_id` redan för samma

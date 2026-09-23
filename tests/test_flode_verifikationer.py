@@ -1316,12 +1316,16 @@ def test_a_source_booked_meanwhile_rolls_back_the_whole_posting(
     assert row.posted_at is None
     assert IntakeRepository.get_link_by_source_id(source.id).voucher_id == direct.id
     assert _receipts(thread) == []
-    assert events == []
+    # F9: the thread is told, in one `error` post, and nothing else happens.
+    [error] = _errors(thread)
+    assert [(e[1], e[2]["id"]) for e in events] == [("message.completed", error.id)]
 
     # The key was released, not stored: the same press answers the same way.
     again = _post_route(client, draft_id, auth_headers, key=key)
     assert again.status_code == 409
     assert "Idempotent-Replay" not in again.headers
+    assert again.json()["detail"] == detail
+    assert len(_errors(thread)) == 1
 
     # And no number was consumed: the next posting in the series is A-2.
     next_one = ledger.create_voucher(
@@ -1333,3 +1337,329 @@ def test_a_source_booked_meanwhile_rolls_back_the_whole_posting(
         created_by="test",
     )
     assert ledger.post_voucher(next_one.id).number == 2
+
+
+# --- F9: felen i tråden (testfall 28-29) --------------------------------------
+
+
+def _errors(thread):
+    return [p for p in ThreadRepository.list_posts(thread.id) if p.type == "error"]
+
+
+def _fixture_error_keys() -> set:
+    """`FIXTUR_ERROR.body`'s keys, read out of the client's fixture like
+    `_fixture_draft_keys`."""
+    source = _FIXTURE_FILE.read_text(encoding="utf-8")
+    start = source.index("export const FIXTUR_ERROR")
+    block = source[start : source.index("};", start)]
+    body = block[block.index("body: {") : block.index("},", block.index("body: {"))]
+    return set(re.findall(r"^    (\w+):", body, flags=re.MULTILINE))
+
+
+def _lock(period, actor="stefan", at=datetime(2026, 9, 30, 9, 14)):
+    """Lock the period as `POST /periods/{id}/lock` does, at a known time so
+    the post's text can be asserted on."""
+    PeriodRepository.lock_period(period.id, actor=actor)
+    db.execute("UPDATE periods SET locked_at = ? WHERE id = ?", (at, period.id))
+    db.commit()
+
+
+def _posted_count() -> int:
+    return db.execute(
+        "SELECT COUNT(*) AS n FROM vouchers WHERE status = 'posted'"
+    ).fetchone()["n"]
+
+
+def test_case_28_period_locked_between_proposal_and_press(monkeypatch, auth_headers):
+    thread, period, trigger = _books()
+    draft_id = _proposed(thread, period, trigger)
+    _lock(period)
+    events = _record_events(monkeypatch)
+
+    response = _post_route(_client(), draft_id, auth_headers, key=str(uuid.uuid4()))
+
+    # The HTTP answer is T7's, unchanged.
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert detail["code"] == "period_locked"
+    assert detail["locked_by"] == "stefan"
+    assert detail["period_id"] == period.id
+
+    [error] = _errors(thread)
+    assert set(error.body) == _fixture_error_keys()
+    assert error.body == {
+        "cause": (
+            "Perioden september 2026 låstes 2026-09-30 09:14 av stefan "
+            "medan förslaget låg."
+        ),
+        "consequence": (
+            "Ingenting har ändrats i bokföringen. Förslaget ligger kvar men "
+            "kan inte postas i september 2026."
+        ),
+        "retry_draft_id": None,
+    }
+    assert error.actor == "api"
+
+    row = ThreadDraftRepository.get(draft_id)
+    assert row.status == "pending"
+    assert row.last_error_code == "period_locked"
+    assert row.last_error_post_id == error.id
+
+    assert [(e[0], e[1], e[2]["id"], e[2]["type"]) for e in events] == [
+        (thread.id, "message.completed", error.id, "error")
+    ]
+
+    # Nothing booked, no number taken: the next posting in A is A-1.
+    voucher = VoucherRepository.get(draft_id)
+    assert voucher.status == VoucherStatus.DRAFT
+    assert voucher.number is None
+    assert _posted_count() == 0
+    october = PeriodRepository.create_period(
+        fiscal_year_id=thread.fiscal_year_id,
+        year=2026,
+        month=10,
+        start_date=date(2026, 10, 1),
+        end_date=date(2026, 10, 31),
+    )
+    ledger = LedgerService()
+    next_one = ledger.create_voucher(
+        series="A",
+        date=date(2026, 10, 1),
+        period_id=october.id,
+        description="Nästa",
+        rows_data=_ROWS,
+        created_by="test",
+    )
+    assert ledger.post_voucher(next_one.id).number == 1
+
+
+def test_case_28_a_lock_with_no_recorded_actor_does_not_guess(auth_headers):
+    thread, period, trigger = _books()
+    draft_id = _proposed(thread, period, trigger)
+    _lock(period, actor=None)
+
+    response = _post_route(_client(), draft_id, auth_headers)
+
+    assert response.status_code == 409
+    [error] = _errors(thread)
+    assert error.body["cause"] == (
+        "Perioden september 2026 låstes 2026-09-30 09:14 medan förslaget låg."
+    )
+
+
+def test_case_29_the_same_locked_draft_posted_three_times_gives_one_post(
+    monkeypatch, auth_headers
+):
+    thread, period, trigger = _books()
+    draft_id = _proposed(thread, period, trigger)
+    _lock(period)
+    events = _record_events(monkeypatch)
+    client = _client()
+
+    responses = [
+        _post_route(client, draft_id, auth_headers, key=str(uuid.uuid4())),
+        _post_route(client, draft_id, auth_headers),
+        _post_route(client, draft_id, auth_headers, key=str(uuid.uuid4())),
+    ]
+
+    assert [r.status_code for r in responses] == [409, 409, 409]
+    assert len({json.dumps(r.json(), sort_keys=True) for r in responses}) == 1
+    [error] = _errors(thread)
+    assert ThreadDraftRepository.get(draft_id).last_error_post_id == error.id
+    assert len([e for e in events if e[1] == "message.completed"]) == 1
+    assert _posted_count() == 0
+
+
+def test_a_validation_error_writes_a_post_and_a_new_code_writes_another(
+    monkeypatch, auth_headers
+):
+    """The chart of accounts changes while the proposal waits: 6110 is
+    deactivated. The press is refused, the thread says why -- and when the
+    period is then locked too, that is a new code and a second post."""
+    thread, period, trigger = _books()
+    draft_id = _proposed(thread, period, trigger)
+    AccountRepository.deactivate("6110")
+    events = _record_events(monkeypatch)
+    client = _client()
+
+    response = _post_route(client, draft_id, auth_headers, key=str(uuid.uuid4()))
+
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"]["code"] == "inactive_account"
+    [error] = _errors(thread)
+    assert set(error.body) == _fixture_error_keys()
+    assert error.body == {
+        "cause": (
+            "Konto 6110 Kontorsmateriel har inaktiverats i kontoplanen "
+            "sedan förslaget lades fram."
+        ),
+        "consequence": (
+            "Ingenting har ändrats i bokföringen. Förslaget ligger kvar men "
+            "kan inte postas som det står."
+        ),
+        "retry_draft_id": None,
+    }
+    row = ThreadDraftRepository.get(draft_id)
+    assert (row.last_error_code, row.last_error_post_id) == (
+        "inactive_account",
+        error.id,
+    )
+    voucher = VoucherRepository.get(draft_id)
+    assert voucher.status == VoucherStatus.DRAFT
+    assert voucher.number is None
+
+    # Same code again: nothing new.
+    _post_route(client, draft_id, auth_headers)
+    assert len(_errors(thread)) == 1
+
+    # A new code: a new post.
+    _lock(period)
+    locked = _post_route(client, draft_id, auth_headers)
+    assert locked.json()["detail"]["code"] == "period_locked"
+    first, second = _errors(thread)
+    assert first.id == error.id
+    assert second.body["cause"].startswith("Perioden september 2026 låstes")
+    row = ThreadDraftRepository.get(draft_id)
+    assert (row.last_error_code, row.last_error_post_id) == (
+        "period_locked",
+        second.id,
+    )
+    assert [e[2]["id"] for e in events if e[1] == "message.completed"] == [
+        first.id,
+        second.id,
+    ]
+    assert _posted_count() == 0
+
+
+def test_an_account_removed_from_the_chart_writes_a_post(auth_headers):
+    thread, period, trigger = _books()
+    draft_id = _proposed(thread, period, trigger)
+    db.execute("PRAGMA foreign_keys = OFF")
+    db.execute("DELETE FROM accounts WHERE code = '6110'")
+    db.commit()
+    db.execute("PRAGMA foreign_keys = ON")
+
+    response = _post_route(_client(), draft_id, auth_headers)
+
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"]["code"] == "account_not_found"
+    [error] = _errors(thread)
+    assert error.body["cause"] == "Konto 6110 finns inte längre i kontoplanen."
+
+
+def test_source_already_booked_names_the_voucher_that_has_it(auth_headers):
+    from services.intake import IntakeService
+
+    thread, period, trigger = _books()
+    source = _intake_source()
+    draft_id = _proposed(thread, period, trigger, intake_source_ids=[source.id])
+    ledger = LedgerService()
+    direct = ledger.create_voucher(
+        series="A",
+        date=date(2026, 9, 18),
+        period_id=period.id,
+        description="Kontorsmaterial, bokfört av intaget",
+        rows_data=_ROWS,
+        created_by="agent",
+    )
+    ledger.post_voucher(direct.id)
+    IntakeService().link_existing_voucher(
+        source_id=source.id,
+        voucher_id=direct.id,
+        actor="agent",
+        summary="Bokfört direkt",
+    )
+
+    response = _post_route(_client(), draft_id, auth_headers)
+
+    assert response.status_code == 409
+    [error] = _errors(thread)
+    assert set(error.body) == _fixture_error_keys()
+    assert error.body == {
+        "cause": (
+            "Underlaget kvitto-clas-ohlson.pdf bokfördes på verifikation A-1 "
+            "medan förslaget låg."
+        ),
+        "consequence": (
+            "Ingenting har ändrats i bokföringen. Samma underlag bokförs inte "
+            "två gånger: A-1 står kvar och förslaget ligger kvar opostat."
+        ),
+        "retry_draft_id": None,
+    }
+    row = ThreadDraftRepository.get(draft_id)
+    assert (row.last_error_code, row.last_error_post_id) == (
+        "source_already_booked",
+        error.id,
+    )
+
+
+def test_a_draft_outside_any_thread_gets_no_error_post(monkeypatch, auth_headers):
+    thread, period, _trigger = _books()
+    draft = LedgerService().create_voucher(
+        series="A",
+        date=date(2026, 9, 18),
+        period_id=period.id,
+        description="Utan tråd",
+        rows_data=_ROWS,
+        created_by="test",
+    )
+    _lock(period)
+    events = _record_events(monkeypatch)
+
+    response = _post_route(_client(), draft.id, auth_headers)
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "period_locked"
+    assert _count("thread_posts") == 1  # the trigger only
+    assert events == []
+
+
+def test_a_failure_writing_the_error_post_leaves_the_answer(monkeypatch, auth_headers):
+    thread, period, trigger = _books()
+    draft_id = _proposed(thread, period, trigger)
+    outside = LedgerService().create_voucher(
+        series="A",
+        date=date(2026, 9, 18),
+        period_id=period.id,
+        description="Utan tråd",
+        rows_data=_ROWS,
+        created_by="test",
+    )
+    _lock(period)
+    client = _client()
+    # The answer a draft outside any thread gets: the route as before F9.
+    expected = _post_route(client, outside.id, auth_headers)
+
+    real_add_post = ThreadRepository.add_post
+
+    def failing_add_post(thread_id, post_type, *args, **kwargs):
+        if post_type == "error":
+            raise RuntimeError("tråden är nere")
+        return real_add_post(thread_id, post_type, *args, **kwargs)
+
+    monkeypatch.setattr(ThreadRepository, "add_post", staticmethod(failing_add_post))
+    response = _post_route(client, draft_id, auth_headers)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == expected.json()["detail"]
+    row = ThreadDraftRepository.get(draft_id)
+    assert row.status == "pending"
+    assert row.last_error_code is None
+    assert row.last_error_post_id is None
+
+
+def test_a_server_error_writes_nothing_to_the_thread(monkeypatch, auth_headers):
+    thread, period, trigger = _books()
+    draft_id = _proposed(thread, period, trigger)
+    events = _record_events(monkeypatch)
+
+    def broken(self, *args, **kwargs):
+        raise RuntimeError("disken är full")
+
+    monkeypatch.setattr(LedgerService, "post_voucher", broken)
+    response = _post_route(_client(), draft_id, auth_headers)
+
+    assert response.status_code == 500
+    assert _errors(thread) == []
+    assert ThreadDraftRepository.get(draft_id).last_error_code is None
+    assert events == []

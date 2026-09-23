@@ -217,7 +217,23 @@ oräknade. Testfallsnumren syftar på tabellerna i §14. Backendens tester ligge
     `tests/test_flode_verifikationer.py`
   - Obs: saldot räknas i en fråga över postade rader, inte per konto i en loop.
 
-- [ ] **F9 — Felen i tråden**
+- [x] **F9 — Felen i tråden**
+  - Gjort 2026-09-23: `DraftService.on_posting_failed(voucher_id, error, actor)` anropas från
+    routens `except ValidationError` (utom `already_posted`) via `_after_failed_posting`, efter
+    rollbacken, och loggar och sväljer fel så att HTTP-svaret aldrig ändras. För ett trådutkast
+    med `status='pending'` skrivs ett `error`-inlägg enligt §9.1 och `set_error` i en egen
+    transaktion, och `message.completed` publiceras. Ett inlägg per utkast och kod: finns
+    `last_error_post_id` för samma kod skrivs inget. Gäller `period_locked` (vem/när, periodens
+    namn), `source_already_booked` (underlagets filnamn och verifikationen som bär det),
+    `source_not_linkable` (ny `SourceNotLinkableError`, samma kod och `details` som förut) och
+    validering. **Avvikelse:** `post_voucher` kontrollerade aldrig kontoplanen, så ett konto som
+    inaktiverats medan förslaget låg postades ändå; `on_posting` kör nu
+    `validate_accounts_exist`/`validate_accounts_active` först (§8.1 steg 0), bara för
+    trådutkast. Valideringsfel svarar `400` som alltid (specen sa `422`). Texterna står i §9.1.
+    9 nya tester (28, 28 utan låsare, 29, inaktiverat konto + ny kod ger nytt inlägg, borttaget konto,
+    `source_already_booked`, utkast utanför tråd, fel i felinlägget, `5xx`, plus F8:s
+    rollback-test utökat), sedda röda först; felkroppen mot `FIXTUR_ERROR`s nycklar. Hela sviten:
+    1093 passed; `mypy .` 61 fel som före.
   - Acceptans: `period_locked` och valideringsfel vid postning av ett trådutkast skriver ett
     `error`-inlägg enligt §9.1 och sätter `last_error_code`. Ett andra fel med samma kod för samma
     utkast skriver inget nytt. Inget nummer förbrukas.
