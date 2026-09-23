@@ -15,8 +15,12 @@ Modulen är **klar** 2026-09-14: T1–T11 avbockade.
    är ur scope (flöde 2 och 3 utgår), men mekanismen byggs generisk så de kan hänga på senare
    utan schemaändring.
 2. Enbolag. Nyckeln behöver inte bära bolag.
-3. `Idempotency-Key` genereras av klienten (UUIDv4) och hör till *avsikten*, inte till försöket.
-   Samma avsikt → samma nyckel vid varje omförsök.
+3. `Idempotency-Key` genereras av klienten och hör till *avsikten*, inte till försöket.
+   Samma avsikt → samma nyckel vid varje omförsök. Servern kräver bara en UUID
+   (`api/deps.py::get_idempotency_key`). *Tillägg 2026-09-23:* chattens `Posta` härleder en
+   UUIDv5 ur `draft_id` i stället för att slumpa en v4 (`SPEC-chattyta.md` §8) — då ger även en
+   omladdning och en annan flik samma nyckel. `POST /vouchers/{id}/post` läser nyckeln sedan
+   samma dag; före det gjorde bara `/correct` och `POST /agent/vouchers` det.
 4. Idempotensnycklar är **inte** bokföringsmaterial. De omfattas inte av BFL:s bevarandekrav
    och *får* raderas. Verifikationerna de skyddar får det aldrig.
 

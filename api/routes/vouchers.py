@@ -440,23 +440,145 @@ async def post_voucher(
     voucher_id: str,
     ledger: LedgerService = Depends(get_ledger_service),
     actor: str = Depends(get_current_actor),
+    idempotency_key: Optional[str] = Depends(get_idempotency_key),
 ):
     """
     Post voucher (make immutable - BFL varaktighet requirement).
 
     Once posted, a voucher can only be corrected via a correction voucher (B-series),
     never edited directly.
-    """
-    try:
-        voucher = ledger.post_voucher(voucher_id, actor=actor)
-        return _voucher_to_response(voucher)
 
+    The key is what the chat's Posta button sends (SPEC-chattyta §8). Posting
+    only flips the draft's own status, so a second request cannot make a
+    second voucher -- but two requests arriving at the same instant could both
+    pass validation and both write a `posted` audit row. Under a key the
+    second is `request_in_flight` or a replay instead.
+    """
+    idempotency = IdempotencyService()
+    endpoint = _post_endpoint(voucher_id)
+    replay = _begin_idempotent(idempotency, idempotency_key, endpoint, {}, actor)
+    if replay is not None:
+        return replay
+
+    try:
+        return _post_and_record(
+            voucher_id=voucher_id,
+            ledger=ledger,
+            actor=actor,
+            idempotency=idempotency,
+            idempotency_key=idempotency_key,
+            endpoint=endpoint,
+        )
+    except Exception:
+        # A refusal (locked period, already posted) is an answer, not a
+        # completed posting: free the key so the caller can act on it.
+        if idempotency_key:
+            idempotency.release(idempotency_key, endpoint)
+        raise
+
+
+def _post_endpoint(voucher_id: str) -> str:
+    """Scoped to the voucher, like `_correct_endpoint`: the body is empty."""
+    return f"POST /api/v1/vouchers/{voucher_id}/post"
+
+
+def _post_and_record(
+    voucher_id: str,
+    ledger: LedgerService,
+    actor: str,
+    idempotency: IdempotencyService,
+    idempotency_key: Optional[str],
+    endpoint: str,
+) -> VoucherResponse:
+    """The posting and its key row, in one transaction."""
+    try:
+        with db.transaction():
+            voucher = ledger.post_voucher(voucher_id, actor=actor, _commit=False)
+            response = _voucher_to_response(voucher)
+            if idempotency_key:
+                idempotency.complete(
+                    key=idempotency_key,
+                    endpoint=endpoint,
+                    response_status=http_status.HTTP_200_OK,
+                    response_payload=jsonable_encoder(response),
+                    entity_type="voucher",
+                    entity_id=voucher.id,
+                    _commit=False,
+                )
+            # From the period, as `LedgerService.post_voucher` does:
+            # `Voucher.fiscal_year_id` is optional and may be unset.
+            period = ledger.periods.get_period(voucher.period_id)
+            fiscal_year_id = period.fiscal_year_id if period else None
+            is_opening_balance = voucher.series.value == "IB"
     except ValidationError as e:
         raise _posting_http_error(e, ledger, voucher_id)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
+
+    # `post_voucher(_commit=False)` skips the opening-balance update, so it
+    # runs here: after the commit and best-effort, as in `_correct_and_record`.
+    if fiscal_year_id and not is_opening_balance:
+        try:
+            from services.opening_balance import OpeningBalanceService
+
+            OpeningBalanceService().update_opening_balances_for_next_year(
+                fiscal_year_id, actor
+            )
+        except Exception:
+            pass
+
+    return response
+
+
+def _begin_idempotent(
+    idempotency: IdempotencyService,
+    idempotency_key: Optional[str],
+    endpoint: str,
+    body: dict,
+    actor: str,
+) -> Optional[JSONResponse]:
+    """Reserve the key, or answer for it (SPEC-idempotens §6).
+
+    Returns the stored response to replay, raises for a mismatch or a request
+    still in flight, and returns `None` when the caller should go ahead --
+    with the key reserved, or with no key at all.
+    """
+    if not idempotency_key:
+        return None
+    outcome = idempotency.begin(
+        key=idempotency_key, endpoint=endpoint, body=body, actor=actor
+    )
+    if outcome.kind == IdempotencyOutcome.REPLAY:
+        return JSONResponse(
+            status_code=outcome.response_status or http_status.HTTP_200_OK,
+            content=outcome.response_payload,
+            headers={"Idempotent-Replay": "true"},
+        )
+    if outcome.kind == IdempotencyOutcome.MISMATCH:
+        raise HTTPException(
+            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "error": "Idempotency-Key already used for a different request",
+                "code": "idempotency_key_reuse",
+                "details": "The same key must carry the same request body",
+                "original_fingerprint": outcome.original_fingerprint,
+            },
+        )
+    if outcome.kind == IdempotencyOutcome.IN_FLIGHT:
+        raise HTTPException(
+            status_code=http_status.HTTP_409_CONFLICT,
+            detail={
+                "error": "A request with this Idempotency-Key is in flight",
+                "code": "request_in_flight",
+                "details": "Retry with the same key to get the stored response",
+                "retry_after_ms": 500,
+            },
+        )
+    return None
 
 
 def _posting_http_error(
@@ -512,42 +634,11 @@ async def correct_voucher(
     """
     idempotency = IdempotencyService()
     endpoint = _correct_endpoint(voucher_id)
-    reserved = False
-
-    if idempotency_key:
-        outcome = idempotency.begin(
-            key=idempotency_key,
-            endpoint=endpoint,
-            body=jsonable_encoder(request),
-            actor=actor,
-        )
-        if outcome.kind == IdempotencyOutcome.REPLAY:
-            return JSONResponse(
-                status_code=outcome.response_status or http_status.HTTP_200_OK,
-                content=outcome.response_payload,
-                headers={"Idempotent-Replay": "true"},
-            )
-        if outcome.kind == IdempotencyOutcome.MISMATCH:
-            raise HTTPException(
-                status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail={
-                    "error": "Idempotency-Key already used for a different request",
-                    "code": "idempotency_key_reuse",
-                    "details": "The same key must carry the same request body",
-                    "original_fingerprint": outcome.original_fingerprint,
-                },
-            )
-        if outcome.kind == IdempotencyOutcome.IN_FLIGHT:
-            raise HTTPException(
-                status_code=http_status.HTTP_409_CONFLICT,
-                detail={
-                    "error": "A request with this Idempotency-Key is in flight",
-                    "code": "request_in_flight",
-                    "details": "Retry with the same key to get the stored response",
-                    "retry_after_ms": 500,
-                },
-            )
-        reserved = True
+    replay = _begin_idempotent(
+        idempotency, idempotency_key, endpoint, jsonable_encoder(request), actor
+    )
+    if replay is not None:
+        return replay
 
     try:
         return _correct_and_record(
@@ -560,7 +651,7 @@ async def correct_voucher(
             endpoint=endpoint,
         )
     except Exception:
-        if reserved and idempotency_key:
+        if idempotency_key:
             idempotency.release(idempotency_key, endpoint)
         raise
 
