@@ -190,7 +190,23 @@ oräknade. Testfallsnumren syftar på tabellerna i §14. Backendens tester ligge
   - Filer: `services/agent_tools.py`, `docs/to_agent/02_bokforingsprocess.md`,
     `tests/test_agent_entrypoint.py`
 
-- [ ] **F8 — Postningens krokar och kvittot**
+- [x] **F8 — Postningens krokar och kvittot**
+  - Gjort 2026-09-23: `DraftService.on_posting(voucher, *, actor, _commit=False)` i
+    `_post_and_record`s transaktion direkt efter `ledger.post_voucher`: raden `posted`, sedan
+    underlag och banktransaktioner länkade via `IntakeService.link_existing_voucher` och
+    `BankInputService.link_posted_voucher` med `_commit=False` (båda tog redan `_commit`).
+    F6:s öppna risk stängd: redan bokfört underlag/transaktion ger `SourceAlreadyBookedError`
+    och hela postningen rullas tillbaka (inget nummer, utkastet kvar, raden `pending`, nyckeln
+    släppt); routen svarar `409 source_already_booked` med `booked_by`, annat länkfel `409
+    source_not_linkable`. Felinlägget i tråden är F9:s (TODO i routens `except
+    ValidationError`). `on_posted(voucher, *, actor)` efter commit via `_after_posting`, som
+    loggar och sväljer fel; även vid `Idempotent-Replay` och `409 already_posted`, så ett
+    saknat kvitto återupptas och aldrig blir två (inlägg och `receipt_post_id` i en
+    transaktion). Kvittot enligt §8.2, saldon ur `VoucherRepository.account_balances_around`
+    (en fråga; *före* = tidigare postade i räkenskapsåret); chipen `verifikation postad · A-n`
+    och `kompletteringsflagga satt`; `{n} kvar` lämnat till F10. 10 tester (23, 23b, 24, 25,
+    25b, 26 mot huvudboken, 27, länkning, rollback), sedda röda först. Specen §8.1, §8.2 och §9
+    uppdaterade. Hela sviten: 1084 passed; `mypy .` 61 fel som före.
   - Acceptans: `POST /vouchers/{id}/post` anropar `DraftService.on_posting` i postningens
     transaktion och `on_posted` efter commit. `on_posting` sätter `posted`. `on_posted` skriver
     `receipt` enligt §8.2 och publicerar `message.completed` och `view.changed`. En uppspelning

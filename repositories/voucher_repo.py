@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import date, datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from db.database import db
 from domain.models import Voucher, VoucherRow
@@ -286,6 +286,61 @@ class VoucherRepository:
             WHERE status = 'posted' AND {MISSING_ATTACHMENT_SQL}
         """
         return db.execute(sql).fetchone()["cnt"]
+
+    @staticmethod
+    def account_balances_around(voucher_id: str) -> List[Tuple[str, int, int]]:
+        """Each account a posted voucher touches, once, in the order its rows
+        first name it, with the account's balance (debit - credit, öre) in
+        the voucher's fiscal year before and after the voucher
+        (SPEC-flode-verifikationer §8.2, the receipt).
+
+        *Before* sums the posted rows of vouchers in the same fiscal year
+        that were posted earlier than this one (`posted_at`, then `rowid`
+        for a tie), so a receipt written late -- on a resumed replay --
+        still says what the posting changed when it happened. *After* is
+        before plus the voucher's own net on the account. One statement: the
+        correlated sum runs per touched account inside SQLite, not per
+        account in a Python loop.
+        """
+        sql = """
+            WITH v AS (
+                SELECT rowid AS rid, id, fiscal_year_id, posted_at
+                FROM vouchers WHERE id = ?
+            ),
+            touched AS (
+                SELECT account_code,
+                       MIN(rowid) AS first_row,
+                       SUM(debit - credit) AS own
+                FROM voucher_rows
+                WHERE voucher_id = (SELECT id FROM v)
+                GROUP BY account_code
+            )
+            SELECT t.account_code AS account_code,
+                   COALESCE((
+                       SELECT SUM(r.debit - r.credit)
+                       FROM voucher_rows AS r
+                       JOIN vouchers AS o ON o.id = r.voucher_id
+                       WHERE r.account_code = t.account_code
+                         AND o.status = 'posted'
+                         AND o.fiscal_year_id = v.fiscal_year_id
+                         AND o.id != v.id
+                         AND (COALESCE(o.posted_at, '') < v.posted_at
+                              OR (COALESCE(o.posted_at, '') = v.posted_at
+                                  AND o.rowid < v.rid))
+                   ), 0) AS before_ore,
+                   t.own AS own_ore
+            FROM touched AS t CROSS JOIN v
+            ORDER BY t.first_row
+        """
+        rows = db.execute(sql, (voucher_id,)).fetchall()
+        return [
+            (
+                row["account_code"],
+                row["before_ore"],
+                row["before_ore"] + row["own_ore"],
+            )
+            for row in rows
+        ]
 
     @staticmethod
     def get_next_number(series: str, fiscal_year_id: str) -> int:

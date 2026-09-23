@@ -1,7 +1,8 @@
 """API routes for vouchers."""
 
+import logging
 from datetime import date
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status as http_status
@@ -31,8 +32,11 @@ from repositories.audit_repo import AuditRepository
 from repositories.bank_input_repo import BankInputRepository
 from repositories.intake_repo import IntakeRepository
 from services.correction_notes import CorrectionNoteError, CorrectionNoteService
+from services.draft_service import DraftService, SourceAlreadyBookedError
 from services.idempotency import IdempotencyOutcome, IdempotencyService
 from services.ledger import LedgerService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/vouchers", tags=["vouchers"])
 
@@ -468,6 +472,9 @@ async def post_voucher(
     endpoint = _post_endpoint(voucher_id)
     replay = _begin_idempotent(idempotency, idempotency_key, endpoint, {}, actor)
     if replay is not None:
+        # A replay of a completed posting: the receipt may be what the first
+        # request never got to (SPEC-flode-verifikationer §8.1).
+        _after_posting(voucher_id, actor)
         return replay
 
     try:
@@ -500,10 +507,18 @@ def _post_and_record(
     idempotency_key: Optional[str],
     endpoint: str,
 ) -> VoucherResponse:
-    """The posting and its key row, in one transaction."""
+    """The posting, a thread draft's hooks and the key row, in one transaction.
+
+    `DraftService.on_posting` is steps 1-3 of SPEC-flode-verifikationer
+    §8.1: a thread draft's row goes `posted` and its underlag and bank
+    transactions are linked. Anything it raises -- `source_already_booked`
+    included -- rolls the whole posting back: no number is taken. Steps 4-5
+    (receipt, publication) run after the commit, in `_after_posting`.
+    """
     try:
         with db.transaction():
             voucher = ledger.post_voucher(voucher_id, actor=actor, _commit=False)
+            DraftService().on_posting(voucher, actor=actor, _commit=False)
             response = _voucher_to_response(voucher)
             if idempotency_key:
                 idempotency.complete(
@@ -521,6 +536,14 @@ def _post_and_record(
             fiscal_year_id = period.fiscal_year_id if period else None
             is_opening_balance = voucher.series.value == "IB"
     except ValidationError as e:
+        # The transaction is rolled back here. TODO(F9): a thread draft's
+        # failure (`period_locked`, validation, `source_already_booked`) is
+        # written to its thread from this point -- `set_error` plus one
+        # `error` post per draft and code (§9.1) -- after the rollback, in
+        # its own transaction, before the HTTP error is raised.
+        if e.code == "already_posted":
+            # Posted by an earlier request whose receipt may have failed.
+            _after_posting(voucher_id, actor)
         raise _posting_http_error(e, ledger, voucher_id)
     except HTTPException:
         raise
@@ -528,6 +551,8 @@ def _post_and_record(
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
+
+    _after_posting(voucher_id, actor)
 
     # `post_voucher(_commit=False)` skips the opening-balance update, so it
     # runs here: after the commit and best-effort, as in `_correct_and_record`.
@@ -542,6 +567,24 @@ def _post_and_record(
             pass
 
     return response
+
+
+def _after_posting(voucher_id: str, actor: str) -> None:
+    """Steps 4-5 of SPEC-flode-verifikationer §8.1 for a thread draft: the
+    `receipt` post and its publication. A no-op for any other voucher, and
+    for one whose receipt is already written, so it is called after every
+    posting and on every replay of one.
+
+    Best-effort by design: the posting is committed, and a failure in the
+    thread layer must not turn a successful posting into an error. A replay
+    with the same key resumes it.
+    """
+    try:
+        voucher = LedgerService().vouchers.get(voucher_id)
+        if voucher is not None and voucher.status.value == "posted":
+            DraftService().on_posted(voucher, actor=actor)
+    except Exception:
+        logger.exception("Receipt for posted voucher %s failed", voucher_id)
 
 
 def _begin_idempotent(
@@ -602,12 +645,25 @@ def _posting_http_error(
     ledger is simply already in a state that settles it. A client retrying
     after a timeout has to be able to render the done state, not an error.
     """
-    detail = {"error": exc.message, "code": exc.code, "details": exc.details}
+    detail: dict[str, Any] = {
+        "error": exc.message,
+        "code": exc.code,
+        "details": exc.details,
+    }
 
     if exc.code == "already_posted":
         voucher = ledger.vouchers.get(voucher_id)
         if voucher:
             detail["voucher"] = jsonable_encoder(_voucher_to_response(voucher))
+        return HTTPException(status_code=http_status.HTTP_409_CONFLICT, detail=detail)
+
+    if isinstance(exc, SourceAlreadyBookedError):
+        # F6's open risk: the intake flow booked the same underlag while the
+        # proposal waited. Nothing was posted; say which voucher has it.
+        detail["booked_by"] = exc.booked_by()
+        return HTTPException(status_code=http_status.HTTP_409_CONFLICT, detail=detail)
+
+    if exc.code == "source_not_linkable":
         return HTTPException(status_code=http_status.HTTP_409_CONFLICT, detail=detail)
 
     if exc.code == "period_locked":

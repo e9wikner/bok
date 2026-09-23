@@ -892,3 +892,444 @@ def test_case_22_execute_tool_reaches_the_handler():
     assert voucher.number is None
     [post] = _draft_posts(thread)
     assert result["post_id"] == post.id
+
+
+# --- F8: postningens krokar och kvittot (testfall 23-27) ----------------------
+
+
+def _client():
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+
+    return TestClient(app)
+
+
+def _post_route(client, voucher_id, headers, key=None):
+    extra = {"Idempotency-Key": key} if key else {}
+    return client.post(
+        f"/api/v1/vouchers/{voucher_id}/post", headers={**headers, **extra}
+    )
+
+
+def _record_events(monkeypatch) -> list:
+    """Every frame the broker is asked to publish, as `(thread_id, event,
+    data)`. Patched on the process-wide instance, which is what
+    `get_broker()` hands out."""
+    from services.thread_stream import get_broker
+
+    events: list = []
+    monkeypatch.setattr(
+        get_broker(),
+        "publish",
+        lambda thread_id, event, data: events.append((thread_id, event, data)),
+    )
+    return events
+
+
+def _receipts(thread):
+    return [p for p in ThreadRepository.list_posts(thread.id) if p.type == "receipt"]
+
+
+def _proposed(thread, period, trigger, **overrides):
+    result = _propose(
+        thread,
+        _args(period, **overrides),
+        ProposalSequence(thread.id, trigger.id),
+    )
+    return result["draft_id"]
+
+
+def _fixture_receipt_keys() -> tuple[set, set]:
+    """`FIXTUR_RECEIPT`'s body keys and first row's keys, read out of the
+    client's fixture like `_fixture_draft_keys`."""
+    source = _FIXTURE_FILE.read_text(encoding="utf-8")
+    start = source.index("export const FIXTUR_RECEIPT")
+    block = source[start : source.index("};", start)]
+    body = block[block.index("body: {") :]
+    body_keys = set(re.findall(r"^    (\w+):", body, flags=re.MULTILINE))
+    first_row = re.search(r"\{ (key:[^}]*)\}", body)
+    assert first_row is not None
+    row_keys = set(re.findall(r"(\w+):", first_row.group(1)))
+    return body_keys, row_keys
+
+
+def _intake_source(name: str = "kvitto-clas-ohlson"):
+    return IntakeRepository.create_source(
+        source_id=name,
+        original_filename=f"{name}.pdf",
+        mime_type="application/pdf",
+        size_bytes=10,
+        sha256=f"sha-{name}",
+        stored_path=f"/dev/null/{name}",
+        uploaded_by="test",
+    )
+
+
+def test_case_23_posting_a_thread_draft_writes_one_receipt(monkeypatch, auth_headers):
+    thread, period, trigger = _books()
+    draft_id = _proposed(thread, period, trigger)
+    events = _record_events(monkeypatch)
+
+    response = _post_route(_client(), draft_id, auth_headers, key=str(uuid.uuid4()))
+
+    assert response.status_code == 200, response.text
+    assert response.json()["number"] == 1
+    voucher = VoucherRepository.get(draft_id)
+    assert voucher.status == VoucherStatus.POSTED
+    assert voucher.number == 1
+
+    row = ThreadDraftRepository.get(draft_id)
+    assert row.status == "posted"
+    assert row.posted_at is not None
+    [receipt] = _receipts(thread)
+    assert row.receipt_post_id == receipt.id
+    assert receipt.actor == "api"  # the human who pressed Posta, not the agent
+
+    body_keys, row_keys = _fixture_receipt_keys()
+    assert set(receipt.body) == body_keys
+    for body_row in receipt.body["rows"]:
+        assert set(body_row) == row_keys
+    assert receipt.body["title"] == "A-1 postad"
+    assert receipt.body["labels"] == ["var", "blir"]
+    assert receipt.body["voucher_id"] == draft_id
+    assert [r["key"] for r in receipt.body["rows"]] == ["6110", "2640", "1930"]
+    assert [r["text"] for r in receipt.body["rows"]] == [
+        "Kontorsmateriel",
+        "Ingående moms",
+        "Företagskonto",
+    ]
+
+    # No attachment on the voucher: the flag is part of what happened.
+    assert receipt.traces == [
+        {
+            "tool": "posta_utkast",
+            "label": "verifikation postad",
+            "detail": "A-1",
+            "voucher_id": draft_id,
+        },
+        {"tool": "kompletteringsflagga", "label": "kompletteringsflagga satt"},
+    ]
+
+    completed = [e for e in events if e[1] == "message.completed"]
+    assert [(e[0], e[2]["id"], e[2]["type"]) for e in completed] == [
+        (thread.id, receipt.id, "receipt")
+    ]
+    assert (
+        thread.id,
+        "view.changed",
+        {
+            "view_key": thread.view_key,
+            "changed": {"voucher_id": draft_id, "kind": "voucher_posted"},
+        },
+    ) in events
+
+
+def test_case_23_an_attached_voucher_gets_no_completion_flag(auth_headers):
+    thread, period, trigger = _books()
+    draft_id = _proposed(thread, period, trigger)
+    db.execute(
+        "INSERT INTO attachments "
+        "(id, voucher_id, filename, sha256, mime_type, stored_path, size_bytes) "
+        "VALUES (?, ?, 'kvitto.pdf', 'sha', 'application/pdf', '/dev/null', 1)",
+        (str(uuid.uuid4()), draft_id),
+    )
+    db.commit()
+
+    response = _post_route(_client(), draft_id, auth_headers)
+
+    assert response.status_code == 200, response.text
+    [receipt] = _receipts(thread)
+    assert [t["label"] for t in receipt.traces] == ["verifikation postad"]
+
+
+def test_case_24_posting_twice_with_the_same_key_gives_one_receipt(
+    monkeypatch, auth_headers
+):
+    thread, period, trigger = _books()
+    draft_id = _proposed(thread, period, trigger)
+    events = _record_events(monkeypatch)
+    client = _client()
+    key = str(uuid.uuid4())
+
+    first = _post_route(client, draft_id, auth_headers, key=key)
+    second = _post_route(client, draft_id, auth_headers, key=key)
+    third = _post_route(client, draft_id, auth_headers)  # no key: 409
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert second.headers.get("Idempotent-Replay") == "true"
+    assert second.json()["number"] == first.json()["number"] == 1
+    assert third.status_code == 409
+    assert third.json()["detail"]["code"] == "already_posted"
+
+    assert _count("vouchers") == 1
+    assert len(_receipts(thread)) == 1
+    assert len([e for e in events if e[1] == "message.completed"]) == 1
+    assert len([e for e in events if e[1] == "view.changed"]) == 1
+
+
+def test_case_25_a_failed_receipt_leaves_the_posting_and_a_replay_writes_it(
+    monkeypatch, auth_headers
+):
+    thread, period, trigger = _books()
+    draft_id = _proposed(thread, period, trigger)
+    client = _client()
+    key = str(uuid.uuid4())
+
+    real_add_post = ThreadRepository.add_post
+
+    def failing_add_post(thread_id, post_type, *args, **kwargs):
+        if post_type == "receipt":
+            raise RuntimeError("tråden är nere")
+        return real_add_post(thread_id, post_type, *args, **kwargs)
+
+    monkeypatch.setattr(ThreadRepository, "add_post", staticmethod(failing_add_post))
+    response = _post_route(client, draft_id, auth_headers, key=key)
+
+    # The posting is committed and answered as a success.
+    assert response.status_code == 200, response.text
+    assert VoucherRepository.get(draft_id).number == 1
+    row = ThreadDraftRepository.get(draft_id)
+    assert row.status == "posted"
+    assert row.receipt_post_id is None
+    assert _receipts(thread) == []
+
+    monkeypatch.setattr(ThreadRepository, "add_post", staticmethod(real_add_post))
+    events = _record_events(monkeypatch)
+    replay = _post_route(client, draft_id, auth_headers, key=key)
+
+    assert replay.status_code == 200, replay.text
+    assert replay.headers.get("Idempotent-Replay") == "true"
+    [receipt] = _receipts(thread)
+    assert ThreadDraftRepository.get(draft_id).receipt_post_id == receipt.id
+    assert receipt.body["title"] == "A-1 postad"
+    assert [e[1] for e in events] == ["message.completed", "view.changed"]
+
+    # And once written, it is never written again.
+    _post_route(client, draft_id, auth_headers, key=key)
+    assert len(_receipts(thread)) == 1
+
+
+def test_case_25_already_posted_without_a_key_resumes_the_receipt(
+    monkeypatch, auth_headers
+):
+    thread, period, trigger = _books()
+    draft_id = _proposed(thread, period, trigger)
+    client = _client()
+
+    from services.draft_service import DraftService
+
+    def broken(self, voucher, *, actor):
+        raise RuntimeError("kvittot föll")
+
+    monkeypatch.setattr(DraftService, "_write_receipt", broken)
+    assert _post_route(client, draft_id, auth_headers).status_code == 200
+    assert _receipts(thread) == []
+
+    monkeypatch.undo()
+    conflict = _post_route(client, draft_id, auth_headers)
+
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["code"] == "already_posted"
+    [receipt] = _receipts(thread)
+    assert ThreadDraftRepository.get(draft_id).receipt_post_id == receipt.id
+
+
+def test_case_26_receipt_rows_are_balances_before_and_after(auth_headers):
+    """One row per account in the voucher's order (an account on two rows
+    appears once), and both numbers agree with the general ledger."""
+    thread, period, trigger = _books()
+    ledger = LedgerService()
+
+    # Earlier in the same fiscal year: counts.
+    earlier = ledger.create_voucher(
+        series="A",
+        date=date(2026, 9, 2),
+        period_id=period.id,
+        description="Insättning",
+        rows_data=[
+            {"account": "1930", "debit": 1000000},
+            {"account": "6110", "credit": 1000000},
+        ],
+        created_by="test",
+    )
+    ledger.post_voucher(earlier.id)
+
+    # Another fiscal year: does not count.
+    fy_2025 = PeriodRepository.create_fiscal_year(
+        start_date=date(2025, 1, 1), end_date=date(2025, 12, 31)
+    )
+    period_2025 = PeriodRepository.create_period(
+        fiscal_year_id=fy_2025.id,
+        year=2025,
+        month=9,
+        start_date=date(2025, 9, 1),
+        end_date=date(2025, 9, 30),
+    )
+    other_year = ledger.create_voucher(
+        series="A",
+        date=date(2025, 9, 2),
+        period_id=period_2025.id,
+        description="Förra året",
+        rows_data=[
+            {"account": "1930", "debit": 777},
+            {"account": "2640", "credit": 777},
+        ],
+        created_by="test",
+    )
+    ledger.post_voucher(other_year.id)
+
+    rows = [
+        {"account": "6110", "debit": 50000},
+        {"account": "2640", "debit": 17920},
+        {"account": "6110", "debit": 21680},
+        {"account": "1930", "credit": 89600},
+    ]
+    draft_id = _proposed(thread, period, trigger, rows=rows)
+    client = _client()
+    assert _post_route(client, draft_id, auth_headers).status_code == 200
+
+    [receipt] = _receipts(thread)
+    assert receipt.body["title"] == "A-2 postad"
+    assert receipt.body["rows"] == [
+        {
+            "key": "6110",
+            "text": "Kontorsmateriel",
+            "left_ore": -1000000,
+            "right_ore": -1000000 + 71680,
+        },
+        {"key": "2640", "text": "Ingående moms", "left_ore": 0, "right_ore": 17920},
+        {
+            "key": "1930",
+            "text": "Företagskonto",
+            "left_ore": 1000000,
+            "right_ore": 1000000 - 89600,
+        },
+    ]
+
+    for receipt_row in receipt.body["rows"]:
+        report = client.get(
+            f"/api/v1/reports/general-ledger/{receipt_row['key']}",
+            params={"fiscal_year_id": thread.fiscal_year_id},
+            headers=auth_headers,
+        )
+        assert report.status_code == 200, report.text
+        report = report.json()
+        own = sum(
+            t["debit"] - t["credit"]
+            for t in report["transactions"]
+            if t["voucher_id"] == draft_id
+        )
+        assert report["closing_balance"] == receipt_row["right_ore"]
+        assert report["closing_balance"] - own == receipt_row["left_ore"]
+
+
+def test_case_27_a_draft_outside_any_thread_is_posted_as_before(
+    monkeypatch, auth_headers
+):
+    thread, period, _trigger = _books()
+    draft = LedgerService().create_voucher(
+        series="A",
+        date=date(2026, 9, 18),
+        period_id=period.id,
+        description="Utan tråd",
+        rows_data=_ROWS,
+        created_by="test",
+    )
+    events = _record_events(monkeypatch)
+
+    response = _post_route(_client(), draft.id, auth_headers, key=str(uuid.uuid4()))
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "posted"
+    assert response.json()["number"] == 1
+    assert _receipts(thread) == []
+    assert events == []
+    assert _count("thread_drafts") == 0
+
+
+def test_posting_a_thread_draft_links_its_source(auth_headers):
+    thread, period, trigger = _books()
+    source = _intake_source()
+    draft_id = _proposed(thread, period, trigger, intake_source_ids=[source.id])
+
+    response = _post_route(_client(), draft_id, auth_headers)
+
+    assert response.status_code == 200, response.text
+    link = IntakeRepository.get_link_by_source_id(source.id)
+    assert link is not None
+    assert link.voucher_id == draft_id
+    assert IntakeRepository.get_source(source.id).status.value == "processed"
+
+
+def test_a_source_booked_meanwhile_rolls_back_the_whole_posting(
+    monkeypatch, auth_headers
+):
+    """F6's open risk: the intake flow posts the same source while the
+    proposal waits. The press on Posta must then change nothing -- no number
+    taken, the draft still a draft, the row still pending, the source still
+    on the voucher that booked it -- and say which voucher that is."""
+    from services.intake import IntakeService
+
+    thread, period, trigger = _books()
+    source = _intake_source()
+    draft_id = _proposed(thread, period, trigger, intake_source_ids=[source.id])
+
+    ledger = LedgerService()
+    direct = ledger.create_voucher(
+        series="A",
+        date=date(2026, 9, 18),
+        period_id=period.id,
+        description="Kontorsmaterial, bokfört av intaget",
+        rows_data=_ROWS,
+        created_by="agent",
+    )
+    direct = ledger.post_voucher(direct.id)
+    IntakeService().link_existing_voucher(
+        source_id=source.id,
+        voucher_id=direct.id,
+        actor="agent",
+        summary="Bokfört direkt",
+    )
+    events = _record_events(monkeypatch)
+    client = _client()
+    key = str(uuid.uuid4())
+
+    response = _post_route(client, draft_id, auth_headers, key=key)
+
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert detail["code"] == "source_already_booked"
+    assert detail["booked_by"] == {
+        "source_kind": "intake_source",
+        "source_id": source.id,
+        "voucher_id": direct.id,
+        "voucher_number": "A-1",
+    }
+
+    voucher = VoucherRepository.get(draft_id)
+    assert voucher.status == VoucherStatus.DRAFT
+    assert voucher.number is None
+    row = ThreadDraftRepository.get(draft_id)
+    assert row.status == "pending"
+    assert row.posted_at is None
+    assert IntakeRepository.get_link_by_source_id(source.id).voucher_id == direct.id
+    assert _receipts(thread) == []
+    assert events == []
+
+    # The key was released, not stored: the same press answers the same way.
+    again = _post_route(client, draft_id, auth_headers, key=key)
+    assert again.status_code == 409
+    assert "Idempotent-Replay" not in again.headers
+
+    # And no number was consumed: the next posting in the series is A-2.
+    next_one = ledger.create_voucher(
+        series="A",
+        date=date(2026, 9, 19),
+        period_id=period.id,
+        description="Nästa",
+        rows_data=_ROWS,
+        created_by="test",
+    )
+    assert ledger.post_voucher(next_one.id).number == 2

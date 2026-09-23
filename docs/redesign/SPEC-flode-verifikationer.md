@@ -579,6 +579,15 @@ Klienten anropar som i dag `POST /vouchers/{draft_id}/post` med nyckeln
 Det här måste ligga i transaktionen. En korrigering utan historik, eller en notering som fortsatt
 står öppen efter att rättelsen postats, är fel i bokföringen, inte i tråden.
 
+**Underlaget hann bokföras (F8).** Medan ett förslag väntar står dess underlag som `pending`, så
+intagsflödet kan posta samma underlag direkt. Vägrar länkningen i steg 3 för att underlaget eller
+banktransaktionen redan bär en verifikation, kastar `on_posting` `SourceAlreadyBookedError` och
+**hela postningen rullas tillbaka**: inget nummer förbrukat, utkastet kvar som utkast, raden kvar
+som `pending`, nyckeln släppt. Routen svarar `409 source_already_booked` med `booked_by:
+{source_kind, source_id, voucher_id, voucher_number}`. Vägrar länkningen av något annat skäl blir
+det `409 source_not_linkable` med tjänstens kod i `details`. `on_posting` tar även `actor`, som
+blir länkarnas `linked_by`.
+
 **Efter commit**, via `DraftService.on_posted(voucher, actor)`:
 
 4. Skriver `receipt`-inlägget och sätter `receipt_post_id`.
@@ -614,12 +623,18 @@ Exakt `SPEC-chattyta.md` §4.3:
   alltså varje konto som återföringen eller de rättade raderna rör, en gång var, och ett konto
   vars saldo inte ändrats netto står ändå med. Båda talen, alltid.
 - `left_ore`/`right_ore` är kontots saldo i räkenskapsåret före och efter verifikationen, räknat
-  på servern ur postade rader.
+  på servern ur postade rader (`VoucherRepository.account_balances_around`, en fråga). *Före* är
+  summan av postade rader i samma räkenskapsår på verifikationer postade tidigare (`posted_at`,
+  sedan `rowid`), så att ett kvitto som skrivs sent, vid en återupptagning, fortfarande säger vad
+  postningen ändrade när den skedde. *Efter* är före plus verifikationens egen nettorad på kontot.
 - Numret i `title` kommer ur den postade verifikationen, alltså det som just satts (§4).
 - `traces[]`: `verifikation postad` · `{serie}-{nummer}`, `kompletteringsflagga satt` när
   verifikationen saknar bilaga (`SPEC-oversikt.md` §3), `{n} kvar` ur räknaren i §11.3, och för
   en korrigering även `rättar {serie}-{nummer}`.
 - `actor` är människan som postade, inte `agent`.
+- Chipens `tool` (F8): `posta_utkast` för `verifikation postad` (med `detail` och `voucher_id`),
+  `kompletteringsflagga` för `kompletteringsflagga satt`. `{n} kvar` kommer med `count_waiting` i
+  F10, `rättar …` med korrigeringen i F12.
 
 Panelens *"Sista händelsen i kön: då slutar tråden med att juni är avstämd"* blir chipet
 `0 kvar`. Att juni är *avstämd* är ett omdöme, och omdömen är agentens.
@@ -633,6 +648,7 @@ Panelens *"Sista händelsen i kön: då slutar tråden med att juni är avstämd
 | `409 period_locked` | `last_error_code='period_locked'` | Ett `error`-inlägg (§9.1) | Inline med vem/när, ingen `Försök igen` |
 | `422` validering (kontoplanen ändrad sedan förslaget) | Oförändrat | Ett `error`-inlägg med valideringens orsak | Inline fel |
 | `422 idempotency_key_reuse` | Oförändrat | Inget | Inline, som i dag |
+| `409 source_already_booked` (§8.1) | Oförändrat, postningen rullad tillbaka | Ett `error`-inlägg som säger vilken verifikation som bär underlaget (F9) | Inline fel |
 | Nätverksfel, `5xx` | Oförändrat | Inget: servern vet inte att det hände | Inline med `Försök igen`, samma nyckel |
 
 Ett B-utkast kan också träffas av `period_locked`, om målperioden låses emellan. Svaret är

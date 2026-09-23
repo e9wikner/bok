@@ -12,10 +12,11 @@ What this module deliberately does not do:
 
 - Post. The human's press on `Posta` is the approval; a proposal only
   prepares what that press will post (§5.1, §5.4).
-- Link traceability. `intake_source_ids` and the bank ids are checked here
-  with the same checks a direct posting runs, then kept on the row
-  (migration 029). A link marks the source processed and the transaction
-  booked, which is only true once the voucher is posted (F8).
+- Link traceability at proposal time. `intake_source_ids` and the bank ids
+  are checked here with the same checks a direct posting runs, then kept on
+  the row (migration 029). A link marks the source processed and the
+  transaction booked, which is only true once the voucher is posted, so
+  `on_posting` links them, inside the posting's transaction (§8.1, F8).
 - Correct. `correction_of` is refused with `not_implemented` until F11
   builds §7's branch.
 
@@ -24,19 +25,27 @@ Layering (AGENTS.md): no SQL here -- every write goes through a repository or
 `{code, message, details}` shape the session already renders for the model.
 """
 
+import logging
 from datetime import date as DateType
+from datetime import datetime
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from db.database import db
-from domain.models import Account, Period, Thread
+from domain.models import Account, Period, Thread, ThreadDraft, ThreadPost, Voucher
 from domain.validation import ValidationError
 from repositories.account_repo import AccountRepository
 from repositories.decision_repo import DecisionRepository
+from repositories.intake_repo import IntakeRepository
 from repositories.period_repo import PeriodRepository
-from repositories.thread_draft_repo import ThreadDraftRepository
+from repositories.thread_draft_repo import (
+    ThreadDraftRepository,
+    ThreadDraftTransitionError,
+)
 from repositories.thread_repo import ThreadRepository
 from repositories.voucher_repo import VoucherRepository
 from services.idempotency import IdempotencyOutcome, IdempotencyService
+
+logger = logging.getLogger(__name__)
 
 #: Idempotency-key endpoint scope for proposals (§5.5). Its own namespace, so
 #: a proposal and a posting from the same user post can never collide.
@@ -69,6 +78,42 @@ _MONTHS = (
 class DraftError(ValidationError):
     """A proposal refused by one of §5.3's checks that `VoucherValidator`
     does not already own."""
+
+
+class SourceAlreadyBookedError(DraftError):
+    """The posting of a thread draft met an underlag or a bank transaction
+    that another voucher has booked while the proposal waited (F6's open
+    risk). Raised inside the posting's transaction, so the whole posting --
+    number, status, links -- rolls back with it."""
+
+    def __init__(
+        self,
+        *,
+        source_kind: str,
+        source_id: str,
+        voucher_id: Optional[str],
+        voucher_number: Optional[str],
+    ):
+        self.source_kind = source_kind
+        self.source_id = source_id
+        self.voucher_id = voucher_id
+        self.voucher_number = voucher_number
+        super().__init__(
+            "source_already_booked",
+            "The draft's source material is already booked on another voucher",
+            details=(
+                f"{source_kind}={source_id}, voucher_id={voucher_id}, "
+                f"voucher_number={voucher_number}"
+            ),
+        )
+
+    def booked_by(self) -> dict:
+        return {
+            "source_kind": self.source_kind,
+            "source_id": self.source_id,
+            "voucher_id": self.voucher_id,
+            "voucher_number": self.voucher_number,
+        }
 
 
 def period_name(period: Period) -> str:
@@ -126,9 +171,219 @@ def draft_body(
     }
 
 
+#: Trace chips on a receipt (§8.2). Same `{tool, label, detail?,
+#: voucher_id?}` shape as `services/thread_service.build_trace`; `tool` names
+#: what happened, since no agent tool ran -- the human pressed Posta.
+RECEIPT_POSTED_TOOL = "posta_utkast"
+RECEIPT_FLAG_TOOL = "kompletteringsflagga"
+
+
+def voucher_label(voucher: Voucher) -> str:
+    """`A-118`: series and number, as the thread names a posted voucher."""
+    return f"{voucher.series.value}-{voucher.number}"
+
+
+def receipt_body(voucher: Voucher, accounts: Mapping[str, Account]) -> dict:
+    """The `receipt` post's body -- SPEC-chattyta.md §4.3, which
+    `tests/test_flode_verifikationer.py` reads out of the client's fixture.
+
+    One row per account, in the voucher's order, both numbers always: the
+    account's balance in the fiscal year before and after (§8.2)."""
+    return {
+        "title": f"{voucher_label(voucher)} postad",
+        "labels": ["var", "blir"],
+        "rows": [
+            {
+                "key": code,
+                "text": accounts[code].name if code in accounts else code,
+                "left_ore": before,
+                "right_ore": after,
+            }
+            for code, before, after in VoucherRepository.account_balances_around(
+                voucher.id
+            )
+        ],
+        "voucher_id": voucher.id,
+    }
+
+
+def receipt_traces(voucher: Voucher) -> List[dict]:
+    """§8.2's chips. `{n} kvar` needs `count_waiting` (§11.3), which is
+    F10's; the correction's `rättar {serie}-{nummer}` is F12's."""
+    traces: List[dict] = [
+        {
+            "tool": RECEIPT_POSTED_TOOL,
+            "label": "verifikation postad",
+            "detail": voucher_label(voucher),
+            "voucher_id": voucher.id,
+        }
+    ]
+    # Derived, like SPEC-oversikt.md §3: no row in `attachments`.
+    if voucher.missing_attachment:
+        traces.append({"tool": RECEIPT_FLAG_TOOL, "label": "kompletteringsflagga satt"})
+    # TODO(F10): {"label": f"{n} kvar"} from count_waiting(view_key).
+    return traces
+
+
 class DraftService:
-    """Orchestrates thread drafts: `propose` (F6). Posting hooks follow in
-    F8, the correction branch in F11."""
+    """Orchestrates thread drafts: `propose` (F6), the posting's two hooks
+    `on_posting`/`on_posted` (F8). The correction branch follows in F11."""
+
+    # -- posting hooks (§8.1) ---------------------------------------------
+
+    def on_posting(
+        self, voucher: Voucher, *, actor: str, _commit: bool = False
+    ) -> Optional[ThreadDraft]:
+        """Steps 1-3 of §8.1, inside the posting's transaction.
+
+        `voucher` is the just-posted voucher (status and number already set
+        in the same, uncommitted transaction). A draft that is not a thread's,
+        or whose row is no longer `pending`, is left alone: returns `None`.
+
+        Any failure raises and must roll the posting back with it -- in
+        particular `SourceAlreadyBookedError` when the intake flow booked the
+        same underlag or bank transaction while the proposal waited: no
+        number is taken, the draft stays a draft, the row stays `pending`.
+        """
+        draft = ThreadDraftRepository.get(voucher.id)
+        if draft is None or draft.status != "pending":
+            return None
+
+        # 1. pending -> posted.
+        draft = ThreadDraftRepository.mark_posted(
+            voucher.id, voucher.posted_at or datetime.now(), _commit=False
+        )
+        # 2. TODO(F12): if draft.correction_of -- the correction history and,
+        #    when draft.correction_note_id is set, the note `applied` (§7),
+        #    here, before the traceability, inside the same transaction.
+        # 3. Traceability, as a direct posting links it.
+        self._link_traceability(draft, voucher, actor)
+
+        if _commit:
+            db.commit()
+        return draft
+
+    def on_posted(self, voucher: Voucher, *, actor: str) -> Optional[ThreadPost]:
+        """Steps 4-5 of §8.1, after the posting has committed.
+
+        Idempotent and resumable: does nothing unless the row is `posted`
+        and has no receipt yet, so the route can call it again on every
+        replay (`Idempotent-Replay`, `409 already_posted`). Never two
+        receipts: the post and `receipt_post_id` commit together, and
+        `set_receipt` refuses a second one.
+
+        The caller must not let an exception from here change the posting's
+        answer -- the voucher is already committed.
+        """
+        draft = ThreadDraftRepository.get(voucher.id)
+        if (
+            draft is None
+            or draft.status != "posted"
+            or draft.receipt_post_id is not None
+        ):
+            return None
+        post = self._write_receipt(voucher, actor=actor)
+        if post is None:
+            return None
+
+        from services.thread_stream import (
+            EVENT_MESSAGE_COMPLETED,
+            EVENT_VIEW_CHANGED,
+            get_broker,
+            post_event_payload,
+        )
+
+        broker = get_broker()
+        broker.publish(
+            draft.thread_id, EVENT_MESSAGE_COMPLETED, post_event_payload(post)
+        )
+        broker.publish(
+            draft.thread_id,
+            EVENT_VIEW_CHANGED,
+            {
+                "view_key": draft.view_key,
+                "changed": {"voucher_id": voucher.id, "kind": "voucher_posted"},
+            },
+        )
+        return post
+
+    def _write_receipt(self, voucher: Voucher, *, actor: str) -> Optional[ThreadPost]:
+        """The `receipt` post and `receipt_post_id`, in one transaction.
+        `None` when another request wrote the receipt first."""
+        draft = ThreadDraftRepository.get(voucher.id)
+        if draft is None:
+            return None
+        body = receipt_body(voucher, AccountRepository.get_all_as_dict())
+        traces = receipt_traces(voucher)
+        try:
+            with db.transaction():
+                post = ThreadRepository.add_post(
+                    thread_id=draft.thread_id,
+                    post_type="receipt",
+                    actor=actor,
+                    body=body,
+                    traces=traces,
+                    _commit=False,
+                )
+                ThreadDraftRepository.set_receipt(voucher.id, post.id, _commit=False)
+        except ThreadDraftTransitionError:
+            logger.info("Receipt for %s already written; skipped", voucher.id)
+            return None
+        return post
+
+    @staticmethod
+    def _link_traceability(draft: ThreadDraft, voucher: Voucher, actor: str) -> None:
+        """Link the row's underlag and bank transactions to the posted
+        voucher, `_commit=False`, exactly as `post_agent_voucher` does. The
+        services run their own checks again; a refusal because the thing
+        is already booked becomes `SourceAlreadyBookedError`, any other
+        refusal a `DraftError` carrying the service's code."""
+        from services.bank_inputs import BankInputError, BankInputService
+        from services.intake import IntakeError, IntakeService
+
+        intake = IntakeService()
+        for source_id in draft.intake_source_ids:
+            try:
+                intake.link_existing_voucher(
+                    source_id=source_id,
+                    voucher_id=voucher.id,
+                    actor=actor,
+                    summary=voucher.description,
+                    link_reason="thread_draft_posted",
+                    _commit=False,
+                )
+            except IntakeError as exc:
+                link = IntakeRepository.get_link_by_source_id(source_id)
+                if link is not None:
+                    raise _already_booked("intake_source", source_id, link.voucher_id)
+                raise _not_linkable("intake_source", source_id, exc)
+
+        if not (draft.bank_input_ids or draft.bank_transaction_ids):
+            return
+        bank_inputs = BankInputService()
+        try:
+            bank_inputs.link_posted_voucher(
+                voucher_id=voucher.id,
+                bank_input_ids=draft.bank_input_ids,
+                bank_transaction_ids=draft.bank_transaction_ids,
+                actor=actor,
+                _commit=False,
+            )
+        except BankInputError as exc:
+            for transaction_id in draft.bank_transaction_ids:
+                transaction = bank_inputs.bank.get_transaction(transaction_id)
+                if transaction is not None and (
+                    transaction.status == "booked"
+                    or transaction.matched_voucher_id is not None
+                ):
+                    raise _already_booked(
+                        "bank_transaction",
+                        transaction_id,
+                        transaction.matched_voucher_id,
+                    )
+            raise _not_linkable("bank_input", ",".join(draft.bank_input_ids), exc)
+
+    # -- proposal (§5) ----------------------------------------------------
 
     def propose(
         self,
@@ -416,12 +671,40 @@ def _unique(values: Sequence[str]) -> List[str]:
     return list(dict.fromkeys(values))
 
 
+def _already_booked(
+    source_kind: str, source_id: str, voucher_id: Optional[str]
+) -> SourceAlreadyBookedError:
+    booked = VoucherRepository.get(voucher_id) if voucher_id else None
+    return SourceAlreadyBookedError(
+        source_kind=source_kind,
+        source_id=source_id,
+        voucher_id=voucher_id,
+        voucher_number=(
+            voucher_label(booked)
+            if booked is not None and booked.number is not None
+            else None
+        ),
+    )
+
+
+def _not_linkable(source_kind: str, source_id: str, exc: Any) -> DraftError:
+    return DraftError(
+        "source_not_linkable",
+        "The draft's source material can no longer be linked to a voucher",
+        details=f"{source_kind}={source_id}, {exc.code}: {exc.message}",
+    )
+
+
 __all__ = [
     "DraftError",
     "DraftService",
     "FORESLA_VERIFIKATION_ENDPOINT",
+    "SourceAlreadyBookedError",
     "draft_body",
     "draft_consequence",
     "draft_meta",
     "period_name",
+    "receipt_body",
+    "receipt_traces",
+    "voucher_label",
 ]
