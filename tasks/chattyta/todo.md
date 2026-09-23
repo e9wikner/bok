@@ -102,7 +102,13 @@ Ingen uppgift rör Python.
   - Obs: stänger `SPEC-beslut.md` öppen fråga 1 och den ärvda frågan i `tasks/skal/todo.md` —
     notera det i båda filerna när C14 stänger modulen, inte här.
 
-- [ ] **C9 — `JamforelseRader` (`receipt`) och `RadLista`**
+- [x] **C9 — `JamforelseRader` (`receipt`) och `RadLista`**
+  - Gjort 2026-09-23: 6 tester (4 för testfall 23, 2 för `RadLista`), skrivna före komponenten.
+    En radkomponent för båda, som `komponenter.md` säger. Två decimaler, inte hela kronor — en
+    avrundad jämförelse kan visa två lika tal för en skillnad i öre. Avvikelser: `TradRenderare`
+    rördes inte (C5 registrerar: `JamforelseRader kropp={body}`, `RadLista rader={body.rows}`).
+    Designskissen ritar `var`/`blir` som två rader med ett tal var; specen §4.3 följs i stället —
+    en rad med `left_ore`/`right_ore`, etiketterna som kolumnrubriker.
   - Acceptans: båda talen i varje rad, etiketterna ur `labels`, belopp via `formatBelopp`,
     mono tabulärt. `RadLista` = samma radkomponent med en kolumn tal.
   - Verifiera: testfall 23. Fixtur ur C1.
