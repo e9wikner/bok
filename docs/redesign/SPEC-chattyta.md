@@ -221,7 +221,7 @@ specen lägger till är beteende.
 | `FilInlagg` | `user_file` | Läsbar; filmeta ur `size_bytes`, `pages`. Ingen förhandsvisning. |
 | `SkriverIndikator` | strömmande | Text ur senaste `activity` — verktygsnamnet via samma svenska etiketter som `build_trace`. Utan `activity` än: `Läser…`. Aldrig tom. |
 | `SparChip` | `traces[]` | `label` + ` · detail` när den finns. |
-| `BeslutKort` | `decision` | Tre lägen ur beslutets status (§7): **öppen**, **besvarad** (`Besvarat`, inga knappar — `· HH:MM` bara när tiden kom ur en `409`; `GET /decisions` bär varken tid eller svar, §15.3), **ersatt** (`superseded`: `Inte längre aktuellt`, inga knappar). |
+| `BeslutKort` | `decision` | Tre lägen ur beslutets status (§7): **öppen**, **besvarad** (`Besvarat · HH:MM` ur `answered_at` och svaret — alternativets titel och konto, eller fritexten ordagrant; inga knappar. Utan `answered_at` bara `Besvarat`, §15.3), **ersatt** (`superseded`: `Inte längre aktuellt`, inga knappar). |
 | `GodkannKort` | `decision` där beslutet har `kind="approval"` | Som `BeslutKort`, rubrik `Väntar på ditt godkännande`. |
 | `AlternativLista` | `options` | Tryck på en rad = svar. Ingen bekräftelsedialog — konsekvensen står i kortet (`README.md` regel 4). En rad åt gången i flykt; övriga låsta tills svaret kommit. |
 | `VerifikationsForslag` | `draft` | §8. |
@@ -473,22 +473,14 @@ Ingen av dem blockerar starten.
    `flode-verifikationer`s.
 2. **`ny`-markeringens varaktighet** (6 s, `SPEC-skal.md` öppen fråga 3) — gäller nu även ett
    besvarat kort som blir grönt. Samma konstant används.
-3. **`GET /decisions` saknar svaret.** `DecisionResponse` bär inte `answered_at`,
-   `answer_option_id` eller `answer_text` — bara `409 decision_already_answered` gör det. Ett
-   besvarat kort säger därför bara `Besvarat`, och en omladdad `AlternativLista` markerar ingen
-   rad (C6, C7; sett live i C14). Kräver en backendändring; naturligt i `flode-verifikationer`,
-   som ändå rör beslutens livscykel.
-4. **`POST /vouchers/{id}/post` läser inte `Idempotency-Key`.** Klienten skickar nyckeln (§8),
-   men bara `/correct` har beroendet. Ofarligt i dag — postningen byter status på utkastets egen
-   rad, så två tryck ger en verifikation (bekräftat live i C14) — men ett exakt samtidigt lopp kan
-   ge en dubbel `POSTED`-rad i `audit_log`, och §8:s `request_in_flight`/`idempotency_key_reuse`/
-   replay kan inte uppstå. Hör till `flode-verifikationer`. `SPEC-idempotens.md` antagande 3
-   (klienten slumpar v4) är inaktuellt: klienten härleder v5 ur `draft_id`.
-5. **Första meddelandet i en tom tråd kan tappa de första deltana.** Turen startar inne i
-   `POST …/messages`; strömmen kan öppnas först när svaret gett `thread_id` (§6.2 punkt 3). Det
-   färdiga inlägget spelas upp via `since`, men indikatorn börjar sent, och live-regionen (§11)
-   annonserar inte svaret om inget delta hann fram. Rättas på servern — t.ex. genom att turen
-   startar efter att klienten hunnit prenumerera — och hör till `tradar`s ägare.
-6. **Kvar i klienten, utanför modulen:** samma `id="skal-chattfalt"` i varje kolumn ger fel
-   `<label for>` (från `skal`); ingen `401`-hantering i `lib/api.ts`; desktopens tråd skrollar
-   inte, så de äldsta inläggen klipps när tråden är högre än kolumnen.
+3. ~~**`GET /decisions` saknar svaret.**~~ **Besvarad 2026-09-23** (`7e92b48`):
+   `DecisionResponse` bär `answered_at`, `answered_by`, `answer_option_id` och `answer_text`.
+   §5:s `Besvarat · HH:MM` + svaret gäller nu som skrivet.
+4. ~~**`POST /vouchers/{id}/post` läser inte `Idempotency-Key`.**~~ **Besvarad 2026-09-23**
+   (`51c5b6d`): vägen läser nyckeln som `/correct`; alla §8:s utfall kan nu uppstå.
+   `SPEC-idempotens.md` antagande 3 uppdaterat.
+5. ~~**Första meddelandet i en tom tråd kan tappa de första deltana.**~~ **Besvarad 2026-09-23**
+   (`255c19c`): `ThreadBroker.subscribe` ger en sen prenumerant den pågående turen som ett
+   `message.created` med `text` och `activity`; klienten ersätter platshållaren med det.
+6. ~~**Kvar i klienten, utanför modulen.**~~ **Rättade 2026-09-23**: ett id per `ChattFalt`
+   (`aeb8ec0`), `401` loggar ut (`5b79e90`), tråden skrollar (`e66a419`).

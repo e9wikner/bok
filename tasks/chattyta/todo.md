@@ -364,33 +364,35 @@ Alla 36 testfall i §13 utom 33 har minst ett test som namnger dem; 33 är verif
 
 ## Kvar att nämna för beställaren
 
-- **Besvarat beslut saknar tid och svar efter en omladdning.** `DecisionResponse` saknar
-  `answered_at`, `answer_option_id` och `answer_text` — bara `409`-kroppen bär dem. Kortet säger
-  därför `Besvarat` utan `· HH:MM` och svaret, och en omladdad alternativlista markerar ingen
-  rad (sett live). Människans svar syns ändå som hennes `user_text` i tråden. Kräver en
-  backendändring i `GET /decisions` (spec §15.3).
-- **`POST /vouchers/{id}/post` läser inte `Idempotency-Key`** (C12). Ofarligt i dag: postningen
-  byter `status` på utkastets egen rad, så två tryck ger en verifikation (bekräftat live). Men
-  `request_in_flight`, `idempotency_key_reuse` och `Idempotent-Replay` kan inte uppstå på den
-  vägen, och i ett exakt samtidigt lopp kan revisionsloggen få en dubbel `POSTED`-rad. Bör
-  kopplas i `flode-verifikationer` (spec §15.4).
-- **De första deltana kan missas på första meddelandet i en tom tråd** (C3). Turen startar inne i
-  `POST`, strömmen öppnas efter svaret. Det färdiga inlägget spelas upp via `since`, men
-  indikatorn och den strömmande texten kan börja sent — och om inget delta hinner fram
-  annonserar live-regionen inte det färdiga svaret, eftersom ingen tur syntes starta. Rättas på
-  servern (spec §15.5).
-- **Samma `id="skal-chattfalt"` i varje kolumn** (C12). Svepraden ritar en sidas alla vyer, så
-  `<label for>` i andra och tredje kolumnen pekar på första kolumnens fält. Befintlig a11y-bugg
-  från `skal`, inte rättad här.
-- **Ingen `401`-hantering i axios-instansen** (`lib/api.ts`, C2). Strömmen loggar ut på `401` via
-  `useAuth().logout`; vanliga anrop som får `401` gör ingenting särskilt.
-- **Desktopens tråd skrollar inte.** Trådytan är `overflow-hidden` och bottenankrad (skalets
-  layout); när tråden blir högre än kolumnen klipps de äldsta inläggen i överkanten och går inte
-  att nå. Sett live med sex inlägg. C14 rättade bara att korten krympte; skrollen är en
-  designfråga (bottenankrat och skrollbart kräver att skrollen läggs längst ner vid nytt inlägg).
-- **Förslagskortet vet inte att utkastet redan är postat.** Efter en omladdning står `Posta` kvar
-  på ett postat utkast; ett tryck landar i `already_posted` och klart läge (sett live). Ärligt
-  men förvånande; kvittot och `view.changed` som stänger kortet är `flode-verifikationer`s.
+Sju av punkterna rättades 2026-09-23, efter att modulen stängts, på beställarens begäran
+("fix the known issues"). Tre av dem krävde backendändringar, vilket avviker från specens
+antagande 1 — det var beställarens beslut, inte ett smygande.
+
+- ~~**Besvarat beslut saknar tid och svar efter en omladdning.**~~ **Rättat** (`7e92b48`):
+  `DecisionResponse` bär `answered_at`, `answered_by`, `answer_option_id` och `answer_text`.
+  `BeslutKort` säger `Besvarat · HH:MM` och visar svaret; `AlternativLista` markerar den valda
+  raden även efter omladdning, och tar tiden direkt ur `202`-svarets beslut.
+- ~~**`POST /vouchers/{id}/post` läser inte `Idempotency-Key`.**~~ **Rättat** (`51c5b6d`): samma
+  mönster som `/correct` — nyckeln reserveras, nyckelraden skrivs i postningens transaktion,
+  samma nyckel spelas upp, en samtidig andra begäran får `request_in_flight`, och en vägran
+  (`period_locked`, `already_posted`) släpper nyckeln. En gemensam hjälpare
+  (`_begin_idempotent`) mappar utfallen för båda vägarna.
+- ~~**De första deltana kan missas på första meddelandet i en tom tråd.**~~ **Rättat**
+  (`255c19c`): `ThreadBroker` håller det en pågående tur sagt hittills, och en sen prenumerant
+  får det som ett `message.created` med `text` och `activity` före allt annat. Klienten
+  ersätter platshållarens text i stället för att bygga på den, så en återanslutning mitt i en
+  tur dubblar inget.
+- ~~**Samma `id="skal-chattfalt"` i varje kolumn.**~~ **Rättat** (`aeb8ec0`): `useId`.
+- ~~**Ingen `401`-hantering i axios-instansen.**~~ **Rättat** (`5b79e90`): en
+  response-interceptor tar bort token och går till `/login`, utom på `/login` självt. Gäller
+  även de 24 gamla sidorna, som förut visade tysta fel vid en utgången session.
+- ~~**Desktopens tråd skrollar inte.**~~ **Rättat** (`e66a419`): skrollelement och
+  bottenankring är två element; ett nytt inlägg skrollar fram bara om man redan var längst ner.
+- ~~**Förslagskortet vet inte att utkastet redan är postat.**~~ **Rättat** (`f87a2db`): kortet
+  läser utkastets status när det monteras och startar i klart läge om det redan är postat.
+- ~~**`SPEC-idempotens.md` antagande 3 är inaktuellt.**~~ **Rättat** (`51c5b6d`).
+Kvar:
+
 - **Fem-filerstaket hölls inte.** C5 (tio filer), C6 (åtta), C7 (sex), C8 (sex), C12 (nio) och
   C14 (tolv, varav fem dokument). Skälen står i respektive `Gjort`.
 - **`SPEC-idempotens.md` antagande 3 är inaktuellt**: det säger att klienten slumpar en UUIDv4;
@@ -403,4 +405,4 @@ Alla 36 testfall i §13 utom 33 har minst ett test som namnger dem; 33 är verif
   begärandehuvudena live; testfall 25–26 prövar den.
 
 Nästa modul i byggordningen är `flode-verifikationer`, som skriver `draft`- och
-`receipt`-inläggen mot §4.3:s kontrakt och kopplar `Idempotency-Key` till `/post`.
+`receipt`-inläggen mot §4.3:s kontrakt. `/post` läser redan `Idempotency-Key`.
