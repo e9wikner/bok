@@ -143,8 +143,18 @@ describe("TradRenderare väljer komponent per type (SPEC §5)", () => {
     expect(screen.queryAllByRole("button")).toHaveLength(0);
   });
 
+  it("decision → BeslutKort (C6), inte okant_kontrakt-raden", () => {
+    // Beslutskortet läser sin status med TanStack Query (§7); utan vy frågar
+    // det inte och står i öppet läge.
+    const { container } = render(
+      medKlient(<TradRenderare inlagg={[typad(FIXTUR_DECISION)]} strommande={null} />)
+    );
+    const kort = container.querySelector<HTMLElement>(`[data-inlagg-id="${FIXTUR_DECISION.id}"]`);
+    expect(kort?.dataset.beslutLage).toBe("oppen");
+    expect(screen.queryByText(OKANT)).toBeNull();
+  });
+
   it.each([
-    ["decision", FIXTUR_DECISION],
     ["options", FIXTUR_OPTIONS],
     ["error", FIXTUR_ERROR],
   ] as const)("%s har ingen renderare än → okant_kontrakt-raden, inte tomt", (typ, fixtur) => {

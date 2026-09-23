@@ -48,10 +48,13 @@ function felText(fel: unknown): string {
  */
 export function TradYta({
   vyTitel,
+  viewKey,
   trad,
   variant = "desktop",
 }: {
   vyTitel: string;
+  /** Beslutskortens status läses per vy (SPEC-chattyta.md §7). */
+  viewKey: string;
   trad: TradData;
   variant?: "desktop" | "mobil";
 }) {
@@ -66,7 +69,7 @@ export function TradYta({
       aria-live="polite"
       aria-label={`Tråd för ${vyTitel}`}
     >
-      <TradRenderare inlagg={trad.inlagg} strommande={trad.strommande} />
+      <TradRenderare inlagg={trad.inlagg} strommande={trad.strommande} viewKey={viewKey} />
       {trad.fel != null && (
         <p data-testid="trad-fel" className="bok-mono m-0 text-[12px] text-bok-text-svag">
           {felText(trad.fel)}
@@ -93,27 +96,29 @@ export function ChattKolumn({
   viewKey: string;
   aktiv?: boolean;
 }) {
-  if (!aktiv) return <KolumnLayout vyTitel={vyTitel} trad={OLAST_TRAD} />;
+  if (!aktiv) return <KolumnLayout vyTitel={vyTitel} viewKey={viewKey} trad={OLAST_TRAD} />;
   return <AktivKolumn vyTitel={vyTitel} viewKey={viewKey} />;
 }
 
 function AktivKolumn({ vyTitel, viewKey }: { vyTitel: string; viewKey: string }) {
   const trad = useTrad(viewKey);
-  return <KolumnLayout vyTitel={vyTitel} trad={trad} onSkicka={trad.skicka} />;
+  return <KolumnLayout vyTitel={vyTitel} viewKey={viewKey} trad={trad} onSkicka={trad.skicka} />;
 }
 
 function KolumnLayout({
   vyTitel,
+  viewKey,
   trad,
   onSkicka,
 }: {
   vyTitel: string;
+  viewKey: string;
   trad: TradData;
   onSkicka?: UseTrad["skicka"];
 }) {
   return (
     <div className="flex min-h-0 flex-col border-r border-bok-linje">
-      <TradYta vyTitel={vyTitel} trad={trad} />
+      <TradYta vyTitel={vyTitel} viewKey={viewKey} trad={trad} />
       <ChattFalt vyTitel={vyTitel} onSkicka={onSkicka} />
     </div>
   );

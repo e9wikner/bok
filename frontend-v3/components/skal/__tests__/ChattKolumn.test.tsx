@@ -7,7 +7,7 @@ import { parseInlagg } from "@/lib/chattyta/parse";
 import type { Inlagg, RaInlagg } from "@/lib/chattyta/typer";
 import {
   FIXTUR_AGENT_TEXT,
-  FIXTUR_DECISION,
+  FIXTUR_OPTIONS,
   FIXTUR_USER_TEXT,
 } from "@/lib/chattyta/__fixtures__/inlagg";
 
@@ -71,11 +71,12 @@ describe("tråden kommer ur useTrad och ritas av chattytans renderare", () => {
   });
 
   it("skalet bygger inga kort själv — en typ utan renderare blir okant_kontrakt, inte ett halvt kort", () => {
-    // BeslutKort, AlternativLista, FelKort … är `chattyta`. Tills de finns
-    // säger tråden ärligt att något finns (SPEC-chattyta.md §4.4).
-    useTrad.mockImplementation(() => ({ ...tradSvar, inlagg: [typad(FIXTUR_DECISION)] }));
+    // AlternativLista, FelKort … är `chattyta`. Tills de finns säger tråden
+    // ärligt att något finns (SPEC-chattyta.md §4.4). `decision` har sin
+    // renderare sedan C6 och prövas i chattyta/__tests__/beslut.test.tsx.
+    useTrad.mockImplementation(() => ({ ...tradSvar, inlagg: [typad(FIXTUR_OPTIONS)] }));
     render(<ChattKolumn vyTitel="Verifikationer" viewKey="bocker.verifikationer" />);
-    expect(screen.getByText(`kortet kunde inte visas · decision · ${FIXTUR_DECISION.id}`)).toBeInTheDocument();
+    expect(screen.getByText(`kortet kunde inte visas · options · ${FIXTUR_OPTIONS.id}`)).toBeInTheDocument();
   });
 
   it("tråden är bottenankrad", () => {

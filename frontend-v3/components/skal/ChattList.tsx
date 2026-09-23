@@ -31,7 +31,7 @@ export function ChattList({
   vantandeBeslut: number;
   aktiv?: boolean;
 }) {
-  if (!aktiv) return <ListLayout vyTitel={vyTitel} trad={OLAST_TRAD} vantandeBeslut={vantandeBeslut} />;
+  if (!aktiv) return <ListLayout vyTitel={vyTitel} viewKey={viewKey} trad={OLAST_TRAD} vantandeBeslut={vantandeBeslut} />;
   return <AktivList vyTitel={vyTitel} viewKey={viewKey} vantandeBeslut={vantandeBeslut} />;
 }
 
@@ -45,16 +45,18 @@ function AktivList({
   vantandeBeslut: number;
 }) {
   const trad = useTrad(viewKey);
-  return <ListLayout vyTitel={vyTitel} trad={trad} vantandeBeslut={vantandeBeslut} onSkicka={trad.skicka} />;
+  return <ListLayout vyTitel={vyTitel} viewKey={viewKey} trad={trad} vantandeBeslut={vantandeBeslut} onSkicka={trad.skicka} />;
 }
 
 function ListLayout({
   vyTitel,
+  viewKey,
   trad,
   vantandeBeslut,
   onSkicka,
 }: {
   vyTitel: string;
+  viewKey: string;
   trad: TradData;
   vantandeBeslut: number;
   onSkicka?: UseTrad["skicka"];
@@ -105,7 +107,7 @@ function ListLayout({
 
       {oppen && (
         <div className="flex flex-col">
-          <TradYta vyTitel={vyTitel} trad={trad} variant="mobil" />
+          <TradYta vyTitel={vyTitel} viewKey={viewKey} trad={trad} variant="mobil" />
           <ChattFalt vyTitel={vyTitel} variant="mobil" onSkicka={onSkicka} />
         </div>
       )}

@@ -1,10 +1,12 @@
+import { BeslutKort } from "@/components/chattyta/BeslutKort";
 import { FilInlagg } from "@/components/chattyta/FilInlagg";
 import { JamforelseRader, RadLista } from "@/components/chattyta/JamforelseRader";
 import { SkriverIndikator } from "@/components/chattyta/SkriverIndikator";
 import { TradInlagg } from "@/components/chattyta/TradInlagg";
 import { VerifikationsForslag } from "@/components/chattyta/VerifikationsForslag";
+import { useBeslut } from "@/hooks/useBeslut";
 import type { Strommande } from "@/lib/chattyta/trad";
-import type { AgentTextInlagg, Inlagg } from "@/lib/chattyta/typer";
+import type { AgentTextInlagg, DecisionInlagg, Inlagg } from "@/lib/chattyta/typer";
 
 /**
  * Trådens renderare (SPEC-chattyta.md §5): ett inlägg in, en komponent ut.
@@ -14,9 +16,12 @@ import type { AgentTextInlagg, Inlagg } from "@/lib/chattyta/typer";
  * bara typade inlägg och `okant_kontrakt`. Därför läser ingen gren `body` på
  * sitt eget sätt, och här finns inga `?? ""`.
  *
- * Typer utan renderare än (`decision`, `options`, `error`) blir samma rad som
- * ett kontraktsbrott: ärligt, inte tomt (plan.md, C4 → C5). C6, C7 och C13
- * byter bara ut sin gren.
+ * Typer utan renderare än (`options`, `error`) blir samma rad som ett
+ * kontraktsbrott: ärligt, inte tomt (plan.md, C4 → C5). C7 och C13 byter
+ * bara ut sin gren.
+ *
+ * `viewKey` behövs bara av beslutskorten: statusen läses per vy (§7), och
+ * inlägget bär ingen `view_key`. Utan den står korten i öppet läge.
  *
  * Ordningen är serverns (`listaInlagg`); renderaren flyttar och slår inte
  * ihop något (§5).
@@ -24,21 +29,23 @@ import type { AgentTextInlagg, Inlagg } from "@/lib/chattyta/typer";
 export function TradRenderare({
   inlagg,
   strommande,
+  viewKey,
 }: {
   inlagg: Inlagg[];
   strommande: Strommande | null;
+  viewKey?: string;
 }) {
   return (
     <>
       {inlagg.map((i) => (
-        <InlaggRenderare key={i.id} inlagg={i} />
+        <InlaggRenderare key={i.id} inlagg={i} viewKey={viewKey} />
       ))}
       {strommande && <StrommandeInlagg strommande={strommande} />}
     </>
   );
 }
 
-export function InlaggRenderare({ inlagg }: { inlagg: Inlagg }) {
+export function InlaggRenderare({ inlagg, viewKey }: { inlagg: Inlagg; viewKey?: string }) {
   switch (inlagg.type) {
     case "agent_text":
       return (
@@ -60,14 +67,28 @@ export function InlaggRenderare({ inlagg }: { inlagg: Inlagg }) {
       // (C11, ANALYS.md §7). En knapp före nyckeln vore en väg till två
       // verifikationer i en append-only-bok.
       return <VerifikationsForslag inlagg={inlagg} />;
-    // Byggs i C6 (`decision`), C7 (`options`) och C13 (`error`).
     case "decision":
+      return <BeslutInlagg inlagg={inlagg} viewKey={viewKey} />;
+    // Byggs i C7 (`options`) och C13 (`error`).
     case "options":
     case "error":
       return <OkantKontrakt typ={inlagg.type} id={inlagg.id} />;
     case "okant_kontrakt":
       return <OkantKontrakt typ={inlagg.ursprungligTyp} id={inlagg.id} />;
   }
+}
+
+/**
+ * Beslutskortet med sin status (§7). Varje kort anropar `useBeslut`, men
+ * nyckeln är vyns, så TanStack Query ger ETT `GET /decisions` per vy
+ * (testfall 20). Hooken bor i en egen komponent i stället för i
+ * `TradRenderare` så att bara en tråd som faktiskt har ett beslutsinlägg
+ * frågar — och så att ytor som ritar tråden utan beslut inte behöver en
+ * `QueryClientProvider`.
+ */
+function BeslutInlagg({ inlagg, viewKey }: { inlagg: DecisionInlagg; viewKey?: string }) {
+  const uppslag = useBeslut(viewKey);
+  return <BeslutKort inlagg={inlagg} beslut={uppslag?.get(inlagg.body.decision_id)} />;
 }
 
 /**

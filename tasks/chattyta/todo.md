@@ -111,7 +111,20 @@ Ingen uppgift rör Python.
   - Obs: skalets kommentar om att `chattyta` byter renderaren tas bort när det är gjort. Rör
     `grans.test.tsx` bara om den pekar på den borttagna mocken.
 
-- [ ] **C6 — `BeslutKort`, `GodkannKort` och beslutsstatus**
+- [x] **C6 — `BeslutKort`, `GodkannKort` och beslutsstatus**
+  - Gjort 2026-09-23: 26 tester (testfall 17, 18, 20, 22), 323 gröna totalt. `useBeslut`
+    anropas per kort men TanStack slår ihop dem till **ett** `GET` per vy; en tråd utan
+    beslutsinlägg frågar inte alls. **Avvikelse från spec §5, kräver serverändring:**
+    `DecisionResponse` saknar `answered_at`, `answer_option_id` och `answer_text` (bara
+    `409`-kroppen bär dem), så besvarat läge säger bara `Besvarat` — utan tid och svar.
+    Människans svar syns ändå i tråden som hennes `user_text`. Tas upp som öppen fråga i C14.
+    Okänd status (laddar, fel, id utanför de 200): öppet läge med neutral rubrik
+    `Behöver ditt beslut`, eftersom `kind` bara finns i listan, inte i inlägget. Ersatt: grå,
+    inte gul — gult betyder "väntar på dig". Konsekvensen i mono 12 `text-bok-text-dampad`, som
+    förslagskortets. Filer: **åtta** — `viewKey` fick trädas Skal → ChattKolumn/ChattList →
+    TradYta → TradRenderare, och två befintliga tester asserterade det gamla `decision`-beteendet.
+    `ChattKolumn.test` använder nu `FIXTUR_OPTIONS` som orenderad typ; C7 byter till
+    `FIXTUR_ERROR`.
   - Acceptans: `useBeslut(viewKey)` = ett `GET /decisions?view_key&status=all&limit=200` per vy,
     uppslag på `decision_id`, invalideras enligt §7. `BeslutKort` i tre lägen (öppen, besvarad,
     ersatt); knappar bara i öppen. `kind="approval"` → `GodkannKort`-rubriken. Källraden färgas
