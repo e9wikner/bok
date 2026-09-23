@@ -82,6 +82,7 @@ from services.llm import (
     ToolCall,
     Usage,
     api_model_id,
+    gateway_headers,
 )
 
 # Normalizes OpenAI's Chat Completions `finish_reason` -> services.llm.StopReason.
@@ -226,13 +227,19 @@ class ChatClient:
         streaming=True,
     )
 
-    def __init__(self, api_key: str, base_url: str) -> None:
+    def __init__(
+        self, api_key: str, base_url: str, session_id: Optional[str] = None
+    ) -> None:
         # Plain constructor args, not `config.settings` read here directly --
         # matches `MessagesClient`'s constructor exactly, for the same
         # reason: the factory (`services/agent_runtime.py::build_llm_client`)
         # wires this to `settings.llm_api_key`/`settings.llm_base_url`, and
         # this class stays trivial to construct with a dummy key in tests.
-        self._client = openai.OpenAI(api_key=api_key, base_url=base_url)
+        self._client = openai.OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            default_headers=gateway_headers(session_id),
+        )
 
     def run_turn(
         self,

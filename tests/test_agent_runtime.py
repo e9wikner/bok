@@ -2379,6 +2379,21 @@ class TestBuildLlmClient:
         assert client.capabilities.cache_breakpoint is True
         assert client.capabilities.pdf_document_blocks is True
 
+    def test_session_id_and_user_agent_reach_both_adapters(self, monkeypatch):
+        # OpenCode Go answers 400 `MissingSessionID` without
+        # `x-opencode-session`, and wants the client's own user agent
+        # (https://opencode.ai/docs/go/#where-can-i-use-it).
+        monkeypatch.setattr(settings, "llm_api_key", "dummy-test-key")
+
+        for model in ("opencode-go/glm-5.3", "opencode/claude-opus-5"):
+            client = build_llm_client(model, session_id="bok-thread-7")
+            headers = client._client.default_headers  # type: ignore[attr-defined]
+            assert headers["x-opencode-session"] == "bok-thread-7"
+            assert headers["User-Agent"] == "bok-agent/1.0"
+
+        without = build_llm_client("opencode-go/glm-5.3")
+        assert "x-opencode-session" not in without._client.default_headers  # type: ignore[attr-defined]
+
     def test_chat_protocol_resolves_to_a_chat_client(self, monkeypatch):
         from services.llm.chat import ChatClient
 
@@ -2427,7 +2442,9 @@ class TestBuildLlmClient:
         build_llm_client(model)
 
         expected_key = "go-key" if model.startswith("opencode-go/") else "zen-key"
-        assert constructed == [{"api_key": expected_key, "base_url": base_url}]
+        assert len(constructed) == 1
+        assert constructed[0]["api_key"] == expected_key
+        assert constructed[0]["base_url"] == base_url
 
     def test_unsupported_protocol_raises_unsupported_protocol_error(self, monkeypatch):
         # Every real model registered in services/llm/__init__.py resolves

@@ -46,6 +46,7 @@ from services.llm import (
     ToolCall,
     Usage,
     api_model_id,
+    gateway_headers,
 )
 
 # Normalizes anthropic.types.StopReason -> services.llm.StopReason.
@@ -104,12 +105,18 @@ class MessagesClient:
         streaming=True,
     )
 
-    def __init__(self, api_key: str, base_url: str) -> None:
+    def __init__(
+        self, api_key: str, base_url: str, session_id: Optional[str] = None
+    ) -> None:
         # Plain constructor args, not `config.settings` read here directly --
         # the factory that wires this to `settings.llm_api_key` /
         # `settings.llm_base_url` lives elsewhere (A8/A10), so this class
         # stays trivial to construct with a dummy key in tests.
-        self._client = anthropic.Anthropic(api_key=api_key, base_url=base_url)
+        self._client = anthropic.Anthropic(
+            api_key=api_key,
+            base_url=base_url,
+            default_headers=gateway_headers(session_id),
+        )
 
     def run_turn(
         self,

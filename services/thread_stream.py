@@ -313,7 +313,13 @@ class ThreadTurnRunner:
         )
         from services.thread_session import run_thread_session
 
-        factory = client_factory or build_llm_client
+        def factory(model: str) -> Any:
+            if client_factory is not None:
+                return client_factory(model)
+            # One gateway session per thread, so every turn in it shares
+            # routing and prompt cache (`services.llm.gateway_headers`).
+            return build_llm_client(model, session_id=f"bok-thread-{thread.id}")
+
         model = thread.model
 
         try:

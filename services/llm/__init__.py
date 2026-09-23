@@ -264,6 +264,25 @@ def api_model_id(model: str) -> str:
     return model
 
 
+#: How the adapters identify themselves to the gateway. OpenCode Go refuses
+#: a generic SDK user agent: it wants the client's own name
+#: (https://opencode.ai/docs/go/#where-can-i-use-it).
+USER_AGENT = "bok-agent/1.0"
+
+
+def gateway_headers(session_id: Optional[str]) -> dict[str, str]:
+    """Headers every adapter sends on every request.
+
+    `x-opencode-session` is a stable id per conversation -- one thread, or
+    one intake pass -- which Go uses for routing and prompt caching, and
+    without which it answers 400 `MissingSessionID`. Zen ignores both.
+    """
+    headers = {"User-Agent": USER_AGENT}
+    if session_id:
+        headers["x-opencode-session"] = session_id
+    return headers
+
+
 # Every model has an explicit protocol and price row -- no inference from
 # the name. A substring rule ("claude" means Messages) held on Zen, but Go
 # serves Qwen and MiniMax over Messages too, and a rule that is right by

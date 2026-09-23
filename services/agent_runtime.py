@@ -195,7 +195,7 @@ class UnsupportedProtocolError(Exception):
         self.protocol = protocol
 
 
-def build_llm_client(model: str) -> LLMClient:
+def build_llm_client(model: str, session_id: Optional[str] = None) -> LLMClient:
     """Resolve `model` to its protocol and construct the matching adapter.
 
     Called once per pass by `AgentWorker.run_pass_once` (not once per item --
@@ -211,6 +211,9 @@ def build_llm_client(model: str) -> LLMClient:
     `grep -r "^import anthropic\\|^from anthropic\\|^import openai\\|^from openai" services/agent_runtime.py`
     empty, per SPEC §4/§10's "anthropic/openai importeras bara i
     services/llm/".
+
+    `session_id` becomes the `x-opencode-session` header: stable for one
+    conversation, which Go requires (`services.llm.gateway_headers`).
     """
     info = get_model_info(model)
     # Zen or Go, by the model id's prefix -- the protocol is independent of
@@ -219,11 +222,11 @@ def build_llm_client(model: str) -> LLMClient:
     if info.protocol == "messages":
         from services.llm.messages import MessagesClient
 
-        return MessagesClient(api_key=api_key, base_url=base_url)
+        return MessagesClient(api_key=api_key, base_url=base_url, session_id=session_id)
     if info.protocol == "chat":
         from services.llm.chat import ChatClient
 
-        return ChatClient(api_key=api_key, base_url=base_url)
+        return ChatClient(api_key=api_key, base_url=base_url, session_id=session_id)
     raise UnsupportedProtocolError(info.protocol)
 
 
@@ -320,11 +323,12 @@ class AgentWorker:
         self,
         model: Optional[str] = None,
         trigger: str = "manual",
-        client_factory: Callable[[str], LLMClient] = build_llm_client,
+        client_factory: Optional[Callable[[str], LLMClient]] = None,
     ) -> Optional[AgentRun]:
         """Run exactly one pass over the pending intake queue (SPEC §6.2).
 
-        `client_factory` defaults to the real `build_llm_client` and exists
+        `client_factory` defaults to the real `build_llm_client` (with the
+        run's id as the gateway session) and exists
         purely for tests to inject a fake `LLMClient` without monkeypatching
         module state -- every test in this file except the lock/enabled
         ones (SPEC §9 test cases 13, 16) calls this method directly with a
@@ -407,7 +411,10 @@ class AgentWorker:
             len(sources),
         )
 
-        client = client_factory(resolved_model)
+        if client_factory is None:
+            client = build_llm_client(resolved_model, session_id=f"bok-run-{run.id}")
+        else:
+            client = client_factory(resolved_model)
         open_periods = [
             period
             for period in PeriodRepository.list_all_periods()
