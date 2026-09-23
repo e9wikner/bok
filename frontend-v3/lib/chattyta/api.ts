@@ -9,9 +9,10 @@
  * typade (§4.1) — den körs i reducern (`trad.ts`), inte här, så att GET,
  * POST och strömmen går genom samma dörr.
  *
- * Senare uppgifter lägger beslutssvaret (C7) och postningen (C12) här.
+ * Beslutssvaret (C7) ligger här; postningen (C12) läggs här.
  */
 
+import axios from "axios";
 import apiClient from "@/lib/api";
 import type { RaInlagg } from "@/lib/chattyta/typer";
 
@@ -148,6 +149,82 @@ export async function hamtaBeslut({
     params: { view_key: viewKey, status, limit, offset },
   });
   return data;
+}
+
+// ─── Svar på beslut (SPEC-beslut.md §6.2, SPEC-chattyta.md §7) ──────────
+
+/** `api/schemas.py::DecisionAnswerResponse` — kroppen i `202`. */
+export interface BeslutSvarSvar {
+  decision: BeslutSvar;
+  /** Människans `user_text`-inlägg som servern skrev för svaret. */
+  answer_post_id: string;
+  answer_post_seq: number;
+}
+
+/**
+ * Hur ett svar slutade, så som kortet behöver veta det. Två utfall, inte
+ * tre: `202` och `409 decision_already_answered` är samma sak för
+ * människan — beslutet är besvarat (§7). Skillnaden är bara VILKET svar som
+ * gäller: vid `409` är det serverns, som kan vara ett annat alternativ än
+ * det som trycktes, eller fritext (`answer_option_id: null`).
+ */
+export type BeslutSvarUtfall =
+  | { utfall: "besvarat"; svar: BeslutSvarSvar }
+  | {
+      utfall: "redan_besvarat";
+      answered_at: string | null;
+      answer_post_id: string | null;
+      answer_option_id: string | null;
+      answer_text: string | null;
+    };
+
+/** `409`-kroppens `detail` (`api/routes/decisions.py::answer_decision`). */
+interface RedanBesvaratDetalj {
+  code: "decision_already_answered";
+  answered_at?: string | null;
+  answer_post_id?: string | null;
+  answer_option_id?: string | null;
+  answer_text?: string | null;
+}
+
+function arRedanBesvarat(fel: unknown): RedanBesvaratDetalj | null {
+  if (!axios.isAxiosError(fel) || fel.response?.status !== 409) return null;
+  // FastAPIs `HTTPException(detail={...})` → `{"detail": {...}}`.
+  const detalj = (fel.response.data as { detail?: unknown } | undefined)?.detail;
+  if (typeof detalj !== "object" || detalj === null) return null;
+  return (detalj as { code?: unknown }).code === "decision_already_answered"
+    ? (detalj as RedanBesvaratDetalj)
+    : null;
+}
+
+/**
+ * `POST /decisions/{id}/answer {option_id}` — knappvägen. Fritexten går
+ * aldrig hit utan via `skickaMeddelande` (§7: agenten tolkar den, klienten
+ * gissar inte vilket beslut en text svarar på).
+ *
+ * Allt annat än `202` och `409 decision_already_answered` kastas vidare:
+ * `409 decision_not_answerable` (syntetiska beslut, som inte har något
+ * `options`-inlägg att trycka i), `404`, `400`, `5xx` och nätverksfel. För
+ * kortet är de samma sak — svaret kom inte fram.
+ */
+export async function svaraBeslut(decisionId: string, optionId: string): Promise<BeslutSvarUtfall> {
+  try {
+    const { data } = await apiClient.post<BeslutSvarSvar>(
+      `/api/v1/decisions/${encodeURIComponent(decisionId)}/answer`,
+      { option_id: optionId }
+    );
+    return { utfall: "besvarat", svar: data };
+  } catch (fel) {
+    const redan = arRedanBesvarat(fel);
+    if (!redan) throw fel;
+    return {
+      utfall: "redan_besvarat",
+      answered_at: redan.answered_at ?? null,
+      answer_post_id: redan.answer_post_id ?? null,
+      answer_option_id: redan.answer_option_id ?? null,
+      answer_text: redan.answer_text ?? null,
+    };
+  }
 }
 
 // ─── Frågenycklar ─────────────────────────────────────────────────────────

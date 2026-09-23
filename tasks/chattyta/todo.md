@@ -136,7 +136,17 @@ Ingen uppgift rör Python.
     är ett eget inlägg. Primär/sekundär i `BeslutKort` finns bara när kroppen säger vad de gör;
     i dag gör den inte det, så öppet läge är text + källrad och vägen är fritexten eller listan.
 
-- [ ] **C7 — `AlternativLista` och svaret**
+- [x] **C7 — `AlternativLista` och svaret**
+  - Gjort 2026-09-23: 22 tester (testfall 14, 15, 16 m.fl.), sedda röda först och
+    mutationsprövade; 345 gröna totalt. Sex filer, som planerat. Låst = `aria-disabled` plus
+    klickvakt, inte `disabled` — en avstängd knapp kan inte ta fokus, och §11 flyttar fokus till
+    den valda raden i samma ögonblick. Efter omladdning markeras **ingen** rad (samma lucka som
+    C6: `GET /decisions` saknar `answer_option_id`); inom sessionen markeras det klickade
+    alternativet, eller `answer_option_id` ur `409`-kroppen. `Besvarat · HH:MM` bara när tiden
+    kom ur en `409`. Nätverksfel: `Svaret kom inte fram. Ingenting är besvarat.`, mono 12, raderna
+    låses upp, inget automatiskt omförsök. `decision_not_answerable` kastas vidare — kan inte
+    uppstå från ett inlägg i tråden. **Att notera:** väg-ut-alternativet (`is_exit`) skickar sitt
+    `option_id` som vilket annat som helst; vad agenten gör efter `Annat konto` är agentens.
   - Acceptans: `AlternativRad` med tom ring, `RekMarke` vid `recommended`, fotnot med
     `aria-describedby`. Tryck → `POST /decisions/{id}/answer {option_id}`; övriga rader låsta i
     flykt; `202` och `409 decision_already_answered` ger båda besvarat läge (svaret ur kroppen vid

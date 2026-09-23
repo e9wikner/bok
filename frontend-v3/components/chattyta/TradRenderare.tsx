@@ -1,3 +1,4 @@
+import { AlternativLista } from "@/components/chattyta/AlternativLista";
 import { BeslutKort } from "@/components/chattyta/BeslutKort";
 import { FilInlagg } from "@/components/chattyta/FilInlagg";
 import { JamforelseRader, RadLista } from "@/components/chattyta/JamforelseRader";
@@ -6,7 +7,12 @@ import { TradInlagg } from "@/components/chattyta/TradInlagg";
 import { VerifikationsForslag } from "@/components/chattyta/VerifikationsForslag";
 import { useBeslut } from "@/hooks/useBeslut";
 import type { Strommande } from "@/lib/chattyta/trad";
-import type { AgentTextInlagg, DecisionInlagg, Inlagg } from "@/lib/chattyta/typer";
+import type {
+  AgentTextInlagg,
+  DecisionInlagg,
+  Inlagg,
+  OptionsInlagg,
+} from "@/lib/chattyta/typer";
 
 /**
  * Trådens renderare (SPEC-chattyta.md §5): ett inlägg in, en komponent ut.
@@ -16,12 +22,12 @@ import type { AgentTextInlagg, DecisionInlagg, Inlagg } from "@/lib/chattyta/typ
  * bara typade inlägg och `okant_kontrakt`. Därför läser ingen gren `body` på
  * sitt eget sätt, och här finns inga `?? ""`.
  *
- * Typer utan renderare än (`options`, `error`) blir samma rad som ett
- * kontraktsbrott: ärligt, inte tomt (plan.md, C4 → C5). C7 och C13 byter
- * bara ut sin gren.
+ * Typer utan renderare än (`error`) blir samma rad som ett kontraktsbrott:
+ * ärligt, inte tomt (plan.md, C4 → C5). C13 byter bara ut sin gren.
  *
- * `viewKey` behövs bara av beslutskorten: statusen läses per vy (§7), och
- * inlägget bär ingen `view_key`. Utan den står korten i öppet läge.
+ * `viewKey` behövs bara av beslutskorten och alternativlistan: statusen läses
+ * per vy (§7), och inlägget bär ingen `view_key`. Utan den står de i öppet
+ * läge.
  *
  * Ordningen är serverns (`listaInlagg`); renderaren flyttar och slår inte
  * ihop något (§5).
@@ -69,8 +75,9 @@ export function InlaggRenderare({ inlagg, viewKey }: { inlagg: Inlagg; viewKey?:
       return <VerifikationsForslag inlagg={inlagg} />;
     case "decision":
       return <BeslutInlagg inlagg={inlagg} viewKey={viewKey} />;
-    // Byggs i C7 (`options`) och C13 (`error`).
     case "options":
+      return <AlternativInlagg inlagg={inlagg} viewKey={viewKey} />;
+    // Byggs i C13.
     case "error":
       return <OkantKontrakt typ={inlagg.type} id={inlagg.id} />;
     case "okant_kontrakt":
@@ -89,6 +96,17 @@ export function InlaggRenderare({ inlagg, viewKey }: { inlagg: Inlagg; viewKey?:
 function BeslutInlagg({ inlagg, viewKey }: { inlagg: DecisionInlagg; viewKey?: string }) {
   const uppslag = useBeslut(viewKey);
   return <BeslutKort inlagg={inlagg} beslut={uppslag?.get(inlagg.body.decision_id)} />;
+}
+
+/**
+ * Alternativlistan med beslutets status (§7), av samma skäl och med samma
+ * fråga som `BeslutInlagg`: listan och kortet för samma beslut delar ETT
+ * `GET /decisions` per vy. Statusen låser listan när beslutet redan är
+ * besvarat eller ersatt — vid en omladdning, eller när svaret gavs med text.
+ */
+function AlternativInlagg({ inlagg, viewKey }: { inlagg: OptionsInlagg; viewKey?: string }) {
+  const uppslag = useBeslut(viewKey);
+  return <AlternativLista inlagg={inlagg} beslut={uppslag?.get(inlagg.body.decision_id)} />;
 }
 
 /**

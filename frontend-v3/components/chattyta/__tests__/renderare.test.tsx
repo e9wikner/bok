@@ -154,13 +154,22 @@ describe("TradRenderare väljer komponent per type (SPEC §5)", () => {
     expect(screen.queryByText(OKANT)).toBeNull();
   });
 
-  it.each([
-    ["options", FIXTUR_OPTIONS],
-    ["error", FIXTUR_ERROR],
-  ] as const)("%s har ingen renderare än → okant_kontrakt-raden, inte tomt", (typ, fixtur) => {
-    rendera([typad(fixtur)]);
+  it("options → AlternativLista (C7), inte okant_kontrakt-raden", () => {
+    // Listan läser beslutets status som kortet (§7); utan vy frågar den inte
+    // och står öppen. Den pratar med TanStack Query, därav klienten.
+    const { container } = render(
+      medKlient(<TradRenderare inlagg={[typad(FIXTUR_OPTIONS)]} strommande={null} />)
+    );
+    const lista = container.querySelector<HTMLElement>(`[data-inlagg-id="${FIXTUR_OPTIONS.id}"]`);
+    expect(lista?.dataset.alternativLage).toBe("oppen");
+    expect(within(screen.getByRole("group")).getAllByRole("button")).toHaveLength(3);
+    expect(screen.queryByText(OKANT)).toBeNull();
+  });
+
+  it("error har ingen renderare än → okant_kontrakt-raden, inte tomt", () => {
+    rendera([typad(FIXTUR_ERROR)]);
     const rad = screen.getByText(OKANT);
-    expect(rad).toHaveTextContent(`kortet kunde inte visas · ${typ} · ${fixtur.id}`);
+    expect(rad).toHaveTextContent(`kortet kunde inte visas · error · ${FIXTUR_ERROR.id}`);
     expect(rad.className).toContain("bok-mono");
     expect(rad.className).toContain("text-[12px]");
     // Ingen knapp: raden säger att något finns, inte vad man kan göra (§4.4).
