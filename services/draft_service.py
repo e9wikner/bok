@@ -26,9 +26,10 @@ Layering (AGENTS.md): no SQL here -- every write goes through a repository or
 """
 
 import logging
+from dataclasses import dataclass
 from datetime import date as DateType
 from datetime import datetime
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from db.database import db
 from domain.models import Account, Period, Thread, ThreadDraft, ThreadPost, Voucher
@@ -191,6 +192,7 @@ def draft_body(
 #: what happened, since no agent tool ran -- the human pressed Posta.
 RECEIPT_POSTED_TOOL = "posta_utkast"
 RECEIPT_FLAG_TOOL = "kompletteringsflagga"
+RECEIPT_WAITING_TOOL = "vantar"
 
 
 def voucher_label(voucher: Voucher) -> str:
@@ -222,9 +224,10 @@ def receipt_body(voucher: Voucher, accounts: Mapping[str, Account]) -> dict:
     }
 
 
-def receipt_traces(voucher: Voucher) -> List[dict]:
-    """§8.2's chips. `{n} kvar` needs `count_waiting` (§11.3), which is
-    F10's; the correction's `rättar {serie}-{nummer}` is F12's."""
+def receipt_traces(voucher: Voucher, waiting: int) -> List[dict]:
+    """§8.2's chips. `waiting` is `DecisionService.count_waiting` for the
+    thread's view, counted after the posting (§11.3): its `{n} kvar` chip
+    comes last. The correction's `rättar {serie}-{nummer}` is F12's."""
     traces: List[dict] = [
         {
             "tool": RECEIPT_POSTED_TOOL,
@@ -236,7 +239,7 @@ def receipt_traces(voucher: Voucher) -> List[dict]:
     # Derived, like SPEC-oversikt.md §3: no row in `attachments`.
     if voucher.missing_attachment:
         traces.append({"tool": RECEIPT_FLAG_TOOL, "label": "kompletteringsflagga satt"})
-    # TODO(F10): {"label": f"{n} kvar"} from count_waiting(view_key).
+    traces.append({"tool": RECEIPT_WAITING_TOOL, "label": f"{waiting} kvar"})
     return traces
 
 
@@ -340,10 +343,58 @@ def _account_code(details: Optional[str]) -> Optional[str]:
     return None
 
 
+#: `GET /drafts?status=` (§10): the table's three states, or every one.
+DRAFT_LIST_STATUSES = ("pending", "posted", "superseded", "all")
+
+
+@dataclass
+class DraftListItem:
+    """One row of `GET /drafts` (§10): the `thread_drafts` row and, when it
+    is posted, the number the ledger gave it."""
+
+    draft: ThreadDraft
+    series: Optional[str] = None
+    number: Optional[int] = None
+
+
 class DraftService:
     """Orchestrates thread drafts: `propose` (F6), the posting's two hooks
-    `on_posting`/`on_posted` (F8) and its failure, `on_posting_failed` (F9).
-    The correction branch follows in F11."""
+    `on_posting`/`on_posted` (F8) and its failure, `on_posting_failed` (F9),
+    and the list the card reads its state from, `list_drafts` (F10). The
+    correction branch follows in F11."""
+
+    # -- the list (§10) ---------------------------------------------------
+
+    def list_drafts(
+        self, *, view_key: str, status: str = "all", limit: Optional[int] = None
+    ) -> Tuple[List[DraftListItem], int]:
+        """One view's thread drafts, oldest first, and the total before
+        `limit`. A posted row carries its series and number, read from the
+        ledger in one query for the whole page -- never one per row.
+
+        An unknown `status` is `ValidationError(code="unknown_status")`, the
+        same code `DecisionService.list_decisions` uses."""
+        if status not in DRAFT_LIST_STATUSES:
+            raise ValidationError(
+                code="unknown_status",
+                message=f"Unknown status: {status!r}",
+                details="expected one of: " + ", ".join(DRAFT_LIST_STATUSES),
+            )
+        drafts, total = ThreadDraftRepository.list(
+            view_key=view_key, status=status, limit=limit
+        )
+        numbers = VoucherRepository.numbers_for(
+            [d.voucher_id for d in drafts if d.status == "posted"]
+        )
+        items = []
+        for draft in drafts:
+            series, number = (
+                numbers.get(draft.voucher_id, (None, None))
+                if draft.status == "posted"
+                else (None, None)
+            )
+            items.append(DraftListItem(draft=draft, series=series, number=number))
+        return items, total
 
     # -- posting hooks (§8.1) ---------------------------------------------
 
@@ -488,7 +539,12 @@ class DraftService:
         if draft is None:
             return None
         body = receipt_body(voucher, AccountRepository.get_all_as_dict())
-        traces = receipt_traces(voucher)
+        from services.decision_service import DecisionService
+
+        # After the posting's commit: this draft no longer waits (§8.2).
+        traces = receipt_traces(
+            voucher, DecisionService().count_waiting(draft.view_key)
+        )
         try:
             with db.transaction():
                 post = ThreadRepository.add_post(
@@ -873,7 +929,9 @@ def _needs_error_post(draft: ThreadDraft, code: str) -> bool:
 
 
 __all__ = [
+    "DRAFT_LIST_STATUSES",
     "DraftError",
+    "DraftListItem",
     "DraftService",
     "FORESLA_VERIFIKATION_ENDPOINT",
     "SourceAlreadyBookedError",

@@ -637,8 +637,9 @@ Exakt `SPEC-chattyta.md` §4.3:
   en korrigering även `rättar {serie}-{nummer}`.
 - `actor` är människan som postade, inte `agent`.
 - Chipens `tool` (F8): `posta_utkast` för `verifikation postad` (med `detail` och `voucher_id`),
-  `kompletteringsflagga` för `kompletteringsflagga satt`. `{n} kvar` kommer med `count_waiting` i
-  F10, `rättar …` med korrigeringen i F12.
+  `kompletteringsflagga` för `kompletteringsflagga satt`, `vantar` för `{n} kvar` (F10), som
+  står sist och räknas med `count_waiting(trådens vy)` efter postningens commit, så att det
+  postade förslaget inte längre räknas. `rättar …` kommer med korrigeringen i F12.
 
 Panelens *"Sista händelsen i kön: då slutar tråden med att juni är avstämd"* blir chipet
 `0 kvar`. Att juni är *avstämd* är ett omdöme, och omdömen är agentens.
@@ -711,7 +712,12 @@ GET /api/v1/drafts?view_key={vk}&status=pending|posted|superseded|all&limit=200
 ```
 
 `voucher` är ifyllt bara när `status='posted'`, och det är enda stället klienten får ett nummer
-ifrån.
+ifrån. Numren hämtas ur `vouchers` i en fråga för hela sidan (`VoucherRepository.numbers_for`).
+
+Parametrarna (F10): `view_key` krävs (saknas → `422`, okänd → `404 unknown_view_key`, som
+`GET /decisions`); `status` är `all` om den utelämnas, okänd → `400 unknown_status`; `limit` är
+`1–200`, förval `200`. Äldst först (`created_at`, sedan `rowid`); `total` räknas före `limit`.
+Bearer-auth. `posted_at` och `created_at` är ISO-8601-tider.
 
 `VerifikationsForslag` får sina lägen ur den här statusen:
 
@@ -770,6 +776,22 @@ Panelen: *"Räknaren i headern och vyns lista läser samma fält."* En funktion,
 En rättelse som väntar räknas också, eftersom den väntar på människan. `open_decisions` i
 `GET /overview`, `VyHeaderStatus` och mobilens märke läser funktionen. Fältnamnet behålls och
 payloaden ändras inte, bara uträkningen.
+
+Regeln, som den byggdes i F10:
+
+1. Öppna beslut som `list_decisions(status="open", view_key=…)` skulle visa: `decisions` med
+   `status='open'` i vyn (alla vyer utan `view_key`), plus de syntetiska (`intake:`,
+   `correction:`) när `view_key` saknas eller är `bocker.verifikationer`.
+2. Plus väntande förslag i vyn, **utom** de vars `decision_id` är ett öppet beslut som räknas i
+   1, eller vars `correction_note_id` är en öppen notering som räknas i 1.
+3. De som återstår räknas en gång per `decision_id` (ett besvarat eller ersatt beslut med
+   väntande förslag är en sak som väntar), en gång per `correction_note_id`, och ett vardera när
+   de svarar på ingetdera (ett fristående förslag, eller en rättelse utan beslut).
+
+Ett öppet beslut med väntande förslag räknas alltså via beslutet, ett besvarat beslut med ett
+ersatt och ett väntande förslag via det väntande. Postade och ersatta förslag räknas aldrig. Utan
+trådförslag är talet exakt `count_open()`. `open_decisions` finns bara på `bocker` och räknas
+utan `view_key`.
 
 ---
 

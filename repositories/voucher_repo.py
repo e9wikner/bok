@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import date, datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from db.database import db
 from domain.models import Voucher, VoucherRow
@@ -286,6 +286,24 @@ class VoucherRepository:
             WHERE status = 'posted' AND {MISSING_ATTACHMENT_SQL}
         """
         return db.execute(sql).fetchone()["cnt"]
+
+    @staticmethod
+    def numbers_for(voucher_ids: Sequence[str]) -> Dict[str, Tuple[str, int]]:
+        """`{id: (series, number)}` for those of `voucher_ids` that are
+        posted, in one query -- a list of drafts asks once, not once per
+        row (SPEC-flode-verifikationer §10). Drafts have no number and are
+        left out, as are ids with no voucher (a superseded draft's voucher
+        is deleted)."""
+        ids = list(dict.fromkeys(voucher_ids))
+        if not ids:
+            return {}
+        placeholders = ", ".join("?" for _ in ids)
+        rows = db.execute(
+            f"SELECT id, series, number FROM vouchers "
+            f"WHERE status = 'posted' AND id IN ({placeholders})",
+            tuple(ids),
+        ).fetchall()
+        return {row["id"]: (row["series"], row["number"]) for row in rows}
 
     @staticmethod
     def account_balances_around(voucher_id: str) -> List[Tuple[str, int, int]]:

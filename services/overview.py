@@ -117,20 +117,27 @@ class OverviewService:
     # -- counters ---------------------------------------------------------
 
     def _count_open_decisions(self) -> int:
-        """The `beslut` module owns this now (SPEC-beslut.md §6.6).
+        """The `beslut` module owns this now (SPEC-beslut.md §6.6), and
+        since flode-verifikationer it counts what waits, not only what is a
+        decision (SPEC-flode-verifikationer.md §11.3): open decisions plus
+        pending thread proposals, each thing once. See
+        `DecisionService.count_waiting` for the rule.
 
         The field did not change — only the arithmetic behind it, which is
         what SPEC-oversikt.md said would happen: "När `beslut` kommer byter
         den ut uträkningen bakom fältet — inte fältet." The approximation
         that stood here summed the two synthetic sources DecisionService
         still unions, so the number is unchanged on the day of the switch
-        and only grows as real decisions are written (testfall 33).
+        and only grows as real decisions and proposals are written
+        (testfall 33).
+
+        Every view, since `bocker` is the one page that shows it.
 
         Deferred import, per AGENTS.md's service-to-service rule.
         """
         from services.decision_service import DecisionService
 
-        return DecisionService().count_open()
+        return DecisionService().count_waiting()
 
     def _count_overdue_invoices(self, today: date) -> int:
         """Same predicate as the invoice list summary — see Invoice.counts_as_overdue."""

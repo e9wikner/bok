@@ -241,7 +241,19 @@ oräknade. Testfallsnumren syftar på tabellerna i §14. Backendens tester ligge
   - Filer: `api/routes/vouchers.py`, `services/draft_service.py`,
     `tests/test_flode_verifikationer.py`
 
-- [ ] **F10 — `GET /drafts`, `count_waiting` och räknaren**
+- [x] **F10 — `GET /drafts`, `count_waiting` och räknaren**
+  - Gjort 2026-09-23: `GET /api/v1/drafts` (`api/routes/drafts.py`) läser
+    `DraftService.list_drafts`, som hämtar serie och nummer för de postade raderna i en fråga
+    (`VoucherRepository.numbers_for`). `view_key` krävs (okänd → `404`), `status` förval `all`
+    (okänd → `400 unknown_status`), `limit` 1–200. `DecisionService.count_waiting(view_key)`:
+    öppna beslut som i dag plus väntande förslag, där förslag vars beslut eller notering redan
+    räknas utelämnas och resten räknas en gång per beslut/notering (en SQL-sats,
+    `ThreadDraftRepository.count_pending_not_yet_counted`); regeln står i docstringen och §11.3.
+    `open_decisions` i `/overview` läser den, payloaden oförändrad. Kvittot får chipet
+    `{"tool": "vantar", "label": "{n} kvar"}` sist, räknat efter commit; F8:s två kvittotester
+    hävdar nu det. **Avvikelse:** en väntande rättelse vars öppna notering redan räknas räknas
+    inte igen. 8 nya tester (30 ×5, 31 ×2, chipet), sedda röda först. Hela sviten: 1101 passed;
+    `mypy .` 61 fel som före.
   - Acceptans: `GET /api/v1/drafts` enligt §10. `DecisionService.count_waiting` enligt §11.3.
     `open_decisions` i `GET /overview` läser den. Payloaden är oförändrad.
   - Verifiera: testfall 30, 31; `oversikt`s och `beslut`s tester gröna.

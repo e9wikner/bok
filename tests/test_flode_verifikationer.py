@@ -1009,6 +1009,8 @@ def test_case_23_posting_a_thread_draft_writes_one_receipt(monkeypatch, auth_hea
             "voucher_id": draft_id,
         },
         {"tool": "kompletteringsflagga", "label": "kompletteringsflagga satt"},
+        # Last, counted after the posting (§8.2, F10): nothing else waits.
+        {"tool": "vantar", "label": "0 kvar"},
     ]
 
     completed = [e for e in events if e[1] == "message.completed"]
@@ -1040,7 +1042,7 @@ def test_case_23_an_attached_voucher_gets_no_completion_flag(auth_headers):
 
     assert response.status_code == 200, response.text
     [receipt] = _receipts(thread)
-    assert [t["label"] for t in receipt.traces] == ["verifikation postad"]
+    assert [t["label"] for t in receipt.traces] == ["verifikation postad", "0 kvar"]
 
 
 def test_case_24_posting_twice_with_the_same_key_gives_one_receipt(
@@ -1663,3 +1665,250 @@ def test_a_server_error_writes_nothing_to_the_thread(monkeypatch, auth_headers):
     assert _errors(thread) == []
     assert ThreadDraftRepository.get(draft_id).last_error_code is None
     assert events == []
+
+
+# --- F10: GET /drafts, count_waiting och räknaren (testfall 30-31) ------------
+
+
+def _get_drafts(client, headers, **params):
+    return client.get("/api/v1/drafts", headers=headers, params=params)
+
+
+def test_case_30_get_drafts_gives_status_and_voucher_only_when_posted(auth_headers):
+    thread, period, trigger = _books()
+    proposals = ProposalSequence(thread.id, trigger.id)
+    old = _propose(thread, _args(period), proposals)
+    new = _propose(thread, _args(period, replaces_draft_id=old["draft_id"]), proposals)
+    waiting = _propose(thread, _args(period, description="Pennor"), proposals)
+    client = _client()
+    assert _post_route(client, new["draft_id"], auth_headers).status_code == 200
+
+    response = _get_drafts(client, auth_headers, view_key=thread.view_key)
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["total"] == 3
+    by_id = {d["draft_id"]: d for d in payload["drafts"]}
+    assert [d["draft_id"] for d in payload["drafts"]] == [
+        old["draft_id"],
+        new["draft_id"],
+        waiting["draft_id"],
+    ]
+    for draft in payload["drafts"]:
+        assert set(draft) == {
+            "draft_id",
+            "post_id",
+            "decision_id",
+            "correction_of",
+            "status",
+            "replaced_by",
+            "posted_at",
+            "voucher",
+            "last_error_code",
+            "created_at",
+        }
+
+    superseded = by_id[old["draft_id"]]
+    assert superseded["status"] == "superseded"
+    assert superseded["replaced_by"] == new["draft_id"]
+    assert superseded["voucher"] is None
+    assert superseded["post_id"] == old["post_id"]
+
+    posted = by_id[new["draft_id"]]
+    assert posted["status"] == "posted"
+    assert posted["voucher"] == {"series": "A", "number": 1}
+    assert posted["posted_at"] is not None
+
+    pending = by_id[waiting["draft_id"]]
+    assert pending["status"] == "pending"
+    assert pending["voucher"] is None
+    assert pending["posted_at"] is None
+    assert pending["last_error_code"] is None
+
+
+def test_case_30_get_drafts_filters_on_status_and_limit(auth_headers):
+    thread, period, trigger = _books()
+    proposals = ProposalSequence(thread.id, trigger.id)
+    first = _propose(thread, _args(period), proposals)
+    second = _propose(thread, _args(period, description="Pennor"), proposals)
+    client = _client()
+    assert _post_route(client, first["draft_id"], auth_headers).status_code == 200
+
+    pending = _get_drafts(
+        client, auth_headers, view_key=thread.view_key, status="pending"
+    ).json()
+    assert [d["draft_id"] for d in pending["drafts"]] == [second["draft_id"]]
+    assert pending["total"] == 1
+
+    posted = _get_drafts(
+        client, auth_headers, view_key=thread.view_key, status="posted"
+    ).json()
+    assert [d["voucher"] for d in posted["drafts"]] == [{"series": "A", "number": 1}]
+
+    assert _get_drafts(
+        client, auth_headers, view_key=thread.view_key, status="superseded"
+    ).json() == {"drafts": [], "total": 0}
+
+    limited = _get_drafts(
+        client, auth_headers, view_key=thread.view_key, status="all", limit=1
+    ).json()
+    assert [d["draft_id"] for d in limited["drafts"]] == [first["draft_id"]]
+    assert limited["total"] == 2
+
+    # Another view sees none of this view's drafts.
+    other = _get_drafts(client, auth_headers, view_key="bocker.balans").json()
+    assert other == {"drafts": [], "total": 0}
+
+
+def test_case_30_get_drafts_carries_the_error_code(auth_headers):
+    thread, period, trigger = _books()
+    draft_id = _proposed(thread, period, trigger)
+    _lock(period)
+    client = _client()
+    assert _post_route(client, draft_id, auth_headers).status_code == 409
+
+    [draft] = _get_drafts(client, auth_headers, view_key=thread.view_key).json()[
+        "drafts"
+    ]
+    assert draft["status"] == "pending"
+    assert draft["last_error_code"] == "period_locked"
+    assert draft["voucher"] is None
+
+
+def test_case_30_get_drafts_rejects_bad_input_and_requires_auth(auth_headers):
+    client = _client()
+
+    bad_status = _get_drafts(
+        client, auth_headers, view_key="bocker.verifikationer", status="open"
+    )
+    assert bad_status.status_code == 400
+    assert bad_status.json()["detail"]["code"] == "unknown_status"
+
+    bad_view = _get_drafts(client, auth_headers, view_key="bocker.nope")
+    assert bad_view.status_code == 404
+    assert bad_view.json()["detail"]["code"] == "unknown_view_key"
+
+    assert _get_drafts(client, auth_headers).status_code == 422
+    assert (
+        client.get(
+            "/api/v1/drafts", params={"view_key": "bocker.verifikationer"}
+        ).status_code
+        == 401
+    )
+
+
+def test_case_30_voucher_numbers_are_read_in_one_query(monkeypatch, auth_headers):
+    thread, period, trigger = _books()
+    proposals = ProposalSequence(thread.id, trigger.id)
+    client = _client()
+    for description in ("Ett", "Två", "Tre"):
+        draft = _propose(thread, _args(period, description=description), proposals)
+        assert _post_route(client, draft["draft_id"], auth_headers).status_code == 200
+
+    statements: list = []
+    real_execute = db.execute
+
+    def counting(sql, *args, **kwargs):
+        statements.append(sql)
+        return real_execute(sql, *args, **kwargs)
+
+    monkeypatch.setattr(db, "execute", counting)
+    payload = _get_drafts(client, auth_headers, view_key=thread.view_key).json()
+
+    assert [d["voucher"]["number"] for d in payload["drafts"]] == [1, 2, 3]
+    assert len([s for s in statements if "FROM vouchers" in s]) == 1
+
+
+def _waiting_books():
+    """Testfall 31's database: every kind of thing that can wait, and the
+    kinds that must not be counted, in one view -- plus one draft in another
+    view. Returns the thread and how many wait in its view."""
+    thread, period, trigger = _books()
+    proposals = ProposalSequence(thread.id, trigger.id)
+    first = _propose(thread, _args(period), proposals)
+    original = LedgerService().post_voucher(first["draft_id"], actor="stefan")
+    # Straight through the ledger, so the row is marked by hand; the route's
+    # hook would do the same.
+    ThreadDraftRepository.mark_posted(first["draft_id"], datetime.now())
+    service = DecisionService()
+
+    # 1. An open decision with no proposal: counted, once.
+    _open_decision(thread)
+    # 2. An open decision with a pending proposal: counted once, via the decision.
+    open_with_draft = _open_decision(thread)
+    _draft(thread, decision_id=open_with_draft.id)
+    # 3. An answered decision with a superseded and a pending proposal: once.
+    answered = _answered_decision(thread)
+    replaced = _draft(thread, decision_id=answered.id)
+    successor = _draft(thread, decision_id=answered.id)
+    ThreadDraftRepository.mark_superseded(replaced.voucher_id, successor.voucher_id)
+    # 4. An answered decision whose proposal was posted: nothing waits.
+    done = _answered_decision(thread)
+    posted = _draft(thread, decision_id=done.id)
+    ThreadDraftRepository.mark_posted(posted.voucher_id, datetime.now())
+    # 5. A pending correction, no decision behind it: counted.
+    _draft(thread, correction_of=original.id)
+    # 6. A pending proposal with no decision: counted.
+    _draft(thread)
+    # 7. A superseded proposal with no decision: not counted.
+    lone = _draft(thread)
+    ThreadDraftRepository.mark_superseded(lone.voucher_id, "någon-annan")
+    # 8. An open correction note (a synthetic decision) and the pending
+    #    correction answering it: counted once, via the note.
+    from repositories.correction_note_repo import CorrectionNoteRepository
+
+    note = CorrectionNoteRepository.create(original.id, "Fel konto", "stefan")
+    _draft(thread, correction_of=original.id, correction_note_id=note.id)
+    # 9. A decision that was superseded, with a pending proposal: once.
+    gone = _open_decision(thread)
+    service.supersede(gone.id)
+    _draft(thread, decision_id=gone.id)
+
+    # Another view: one pending proposal, counted only without a view_key.
+    other = ThreadRepository.get_or_create(
+        view_key="bocker.balans",
+        fiscal_year_id=thread.fiscal_year_id,
+        model="opencode/claude-opus-5",
+    )
+    _draft(other)
+    return thread, 1 + 1 + 1 + 1 + 1 + 1 + 1
+
+
+def test_case_31_count_waiting_counts_each_waiting_thing_once():
+    thread, in_view = _waiting_books()
+    service = DecisionService()
+
+    assert service.count_waiting(thread.view_key) == in_view
+    assert service.count_waiting() == in_view + 1
+    assert service.count_waiting("bocker.balans") == 1
+    assert service.count_waiting("bocker.kontoplan") == 0
+    # The open decisions alone (1, 2 and the note) are what count_open says.
+    assert service.count_open() == 3
+
+
+def test_case_31_overview_gives_the_same_number(auth_headers):
+    _waiting_books()
+
+    response = _client().get("/api/v1/overview", headers=auth_headers)
+
+    assert response.status_code == 200, response.text
+    [bocker] = [p for p in response.json()["pages"] if p["key"] == "bocker"]
+    assert bocker["counters"]["open_decisions"] == DecisionService().count_waiting()
+    assert bocker["counters"]["open_decisions"] == 8
+    assert bocker["meta"].startswith("8 väntar på dig")
+
+
+def test_the_receipt_ends_with_how_many_still_wait(auth_headers):
+    thread, period, trigger = _books()
+    proposals = ProposalSequence(thread.id, trigger.id)
+    first = _propose(thread, _args(period), proposals)
+    _propose(thread, _args(period, description="Pennor"), proposals)
+    _open_decision(thread)
+
+    response = _post_route(_client(), first["draft_id"], auth_headers)
+
+    assert response.status_code == 200, response.text
+    [receipt] = _receipts(thread)
+    # Counted after the posting: the posted draft no longer waits, the other
+    # proposal and the open decision do.
+    assert receipt.traces[-1] == {"tool": "vantar", "label": "2 kvar"}

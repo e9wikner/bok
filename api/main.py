@@ -25,6 +25,7 @@ from api.routes import (
     compliance,
     customers,
     decisions,
+    drafts,
     export_pdf,
     export_sie4,
     export_sru,
@@ -160,6 +161,9 @@ app.include_router(threads.router)
 
 # Beslut: unionen av tre källor (SPEC-beslut.md §5, §6.1)
 app.include_router(decisions.router)
+
+# Trådens förslag och vad som hände med dem (SPEC-flode-verifikationer.md §10)
+app.include_router(drafts.router)
 
 
 @app.get("/health", tags=["health"])

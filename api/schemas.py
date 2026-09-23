@@ -605,6 +605,37 @@ class DecisionResponse(BaseModel):
     answer_text: Optional[str] = None
 
 
+class DraftVoucherNumber(BaseModel):
+    """The number a posted thread draft got (SPEC-flode-verifikationer §10)."""
+
+    series: str
+    number: int
+
+
+class ThreadDraftResponse(BaseModel):
+    """One row of `GET /drafts` (SPEC-flode-verifikationer §10). `voucher`
+    is set only when `status='posted'` -- the one place the client gets a
+    number from."""
+
+    draft_id: str
+    post_id: str
+    decision_id: Optional[str] = None
+    correction_of: Optional[str] = None
+    status: str
+    replaced_by: Optional[str] = None
+    posted_at: Optional[DateTimeType] = None
+    voucher: Optional[DraftVoucherNumber] = None
+    last_error_code: Optional[str] = None
+    created_at: DateTimeType
+
+
+class ThreadDraftListResponse(BaseModel):
+    """`GET /drafts` -- oldest first; `total` is the count before `limit`."""
+
+    drafts: List[ThreadDraftResponse]
+    total: int
+
+
 class DecisionListResponse(BaseModel):
     """`GET /decisions` -- oldest first **over the whole union**, not per
     source (SPEC §6.1, §11.2). `total` is the union's count before

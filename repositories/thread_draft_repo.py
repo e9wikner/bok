@@ -151,6 +151,52 @@ class ThreadDraftRepository:
         return [ThreadDraftRepository._row_to_draft(r) for r in rows], total
 
     @staticmethod
+    def count_pending_not_yet_counted(
+        *,
+        view_key: Optional[str],
+        open_note_statuses: Sequence[str],
+        notes_counted: bool,
+    ) -> int:
+        """The pending drafts `DecisionService.count_waiting` adds on top of
+        the open decisions (§11.3), in one statement.
+
+        A pending draft is left out when what it answers is already counted
+        in the same number: its `decision_id` is an open decision in the same
+        filter (`view_key`, or every view when `None`), or -- when
+        `notes_counted`, i.e. the synthetic `correction:` decisions are in
+        the count -- its `correction_note_id` is an open correction note.
+        The rest are counted once per decision, once per note, and one each
+        when they answer neither: `COUNT(DISTINCT ...)` over that key, so a
+        decision with two pending drafts still waits as one thing."""
+        placeholders = ", ".join("?" for _ in open_note_statuses)
+        note_counted = (
+            f"(cn.id IS NOT NULL AND cn.status IN ({placeholders}))"
+            if notes_counted and open_note_statuses
+            else "0"
+        )
+        sql = f"""
+            SELECT COUNT(DISTINCT COALESCE(
+                'decision:' || td.decision_id,
+                'note:' || td.correction_note_id,
+                'draft:' || td.voucher_id
+            )) AS n
+            FROM thread_drafts td
+            LEFT JOIN decisions d ON d.id = td.decision_id
+            LEFT JOIN correction_notes cn ON cn.id = td.correction_note_id
+            WHERE td.status = 'pending'
+              AND (? IS NULL OR td.view_key = ?)
+              AND NOT (
+                  d.id IS NOT NULL AND d.status = 'open'
+                  AND (? IS NULL OR d.view_key = ?)
+              )
+              AND NOT {note_counted}
+        """
+        params: List[Any] = [view_key, view_key, view_key, view_key]
+        if notes_counted:
+            params.extend(open_note_statuses)
+        return db.execute(sql, tuple(params)).fetchone()["n"]
+
+    @staticmethod
     def pending_for_correction_of(voucher_id: str) -> Optional[ThreadDraft]:
         """The pending draft that corrects `voucher_id`, in any thread —
         `correction_already_pending` (§7.4). Oldest first if there were ever

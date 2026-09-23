@@ -27,8 +27,9 @@ typed exceptions with the same ``{code, message, details}`` shape
 `.code` doesn't need a second pattern for this module.
 
 All SQL lives in `repositories/decision_repo.py`, `repositories/thread_repo.py`,
-`repositories/intake_repo.py` and `repositories/correction_note_repo.py` --
-nothing here executes a query directly.
+`repositories/intake_repo.py`, `repositories/correction_note_repo.py` and
+(for `count_waiting`) `repositories/thread_draft_repo.py` -- nothing here
+executes a query directly.
 """
 
 import logging
@@ -52,6 +53,7 @@ from domain.validation import ValidationError
 from repositories.correction_note_repo import CorrectionNoteRepository
 from repositories.decision_repo import DecisionRepository
 from repositories.intake_repo import IntakeRepository
+from repositories.thread_draft_repo import ThreadDraftRepository
 from repositories.thread_repo import ThreadRepository
 
 logger = logging.getLogger(__name__)
@@ -834,6 +836,56 @@ class DecisionService:
                 for status in _INTAKE_OPEN_STATUSES
             )
             + CorrectionNoteRepository.count_open()
+        )
+
+    def count_waiting(self, view_key: Optional[str] = None) -> int:
+        """Everything that waits on the human, each thing once
+        (SPEC-flode-verifikationer.md §11.3) -- the number `GET /overview`'s
+        `open_decisions`, the view header and the receipt's `{n} kvar` chip
+        all read.
+
+        The rule:
+
+        1. Every open decision `count_open` would count, filtered the way
+           `list_decisions(status="open", view_key=...)` filters: `decisions`
+           with `status='open'` in the view (every view when `view_key` is
+           `None`), plus the two synthetic sources (`intake:`,
+           `correction:`) when `view_key` is `None` or the view they are
+           pinned to (`_SYNTHETIC_VIEW_KEY`).
+        2. Plus every `thread_drafts` row with `status='pending'` in the
+           view, **except** one whose `decision_id` is an open decision
+           counted in 1, or whose `correction_note_id` is an open correction
+           note counted in 1: that thing already waits, once.
+        3. The drafts left over count once per `decision_id` (an answered
+           or superseded decision with a pending proposal is one thing
+           waiting, however many pending drafts point at it), once per
+           `correction_note_id`, and one each when they answer neither -- a
+           plain proposal, or a correction (`correction_of` set) with no
+           decision behind it.
+
+        So an open decision with a pending proposal counts once, via the
+        decision; an answered decision with a superseded and a pending
+        proposal counts once, via the pending one; a posted or superseded
+        proposal never counts. With no thread drafts at all this is exactly
+        `count_open()` (for `view_key=None`), which is why the switch in
+        `services/overview.py` moved no number the day it was made.
+
+        Counted, not listed, like `count_open`: three counts and one
+        statement over `thread_drafts` (`ThreadDraftRepository.
+        count_pending_not_yet_counted`), not a list per source.
+        """
+        include_synthetic = view_key is None or view_key == _SYNTHETIC_VIEW_KEY
+        waiting = DecisionRepository.count(status="open", view_key=view_key)
+        if include_synthetic:
+            waiting += sum(
+                IntakeRepository.count_by_status(status)
+                for status in _INTAKE_OPEN_STATUSES
+            )
+            waiting += CorrectionNoteRepository.count_open()
+        return waiting + ThreadDraftRepository.count_pending_not_yet_counted(
+            view_key=view_key,
+            open_note_statuses=_CORRECTION_OPEN_STATUSES,
+            notes_counted=include_synthetic,
         )
 
     def supersede(self, decision_id: str) -> Decision:
