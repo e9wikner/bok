@@ -860,14 +860,15 @@ class SIE4Importer:
             ledger = LedgerService()
             created = ledger.create_voucher(
                 series=voucher.series,
-                number=voucher.number,
                 date=voucher.date,
                 period_id=period_id,
                 description=voucher.description,
                 rows_data=rows,
                 created_by="sie4_import",
             )
-            ledger.post_voucher(created.id, actor="sie4_import")
+            # The file's number is kept; a draft cannot carry one, so it is
+            # set at posting (SPEC flode-verifikationer §4.3).
+            ledger.post_voucher(created.id, actor="sie4_import", number=voucher.number)
             return True
         except ValidationError as e:
             self.errors.append(

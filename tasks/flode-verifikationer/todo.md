@@ -35,7 +35,22 @@ oräknade. Testfallsnumren syftar på tabellerna i §14. Backendens tester ligge
     001. Testfall 3 visar om `DROP TABLE` stoppas av raderingstriggern. Gör den det, droppas
     triggrarna först i samma transaktion (plan, risker).
 
-- [ ] **F2 — Numret sätts vid postning (gate 2)**
+- [x] **F2 — Numret sätts vid postning (gate 2)**
+  - Gjort 2026-09-23: 8 tester (testfall 5–11 och 10b) i `tests/test_numrering.py`, 5–11 sedda
+    röda först. `VoucherRepository.post` sätter numret i samma `UPDATE` som statusbytet, med
+    `MAX(number) + 1` över postade som underfråga i samma sats och `COALESCE` med ett explicit
+    nummer; `WHERE status='draft'` och en `rowcount`-kontroll. `create` och `create_correction`
+    skriver inget nummer, och `get_next_number` räknar bara postade. `post_voucher` fick
+    parametern `number`, och audit-raden för postningen bär det tilldelade numret. Hela sviten:
+    1020 passed. Fyra befintliga tester ändrades, alla för att de förutsatte numrerade utkast (se
+    commit). Avvikelser, specen §4.3 uppdaterad: `create_voucher` har inte längre någon
+    `number`-parameter (explicit nummer går till `post_voucher`); läsningen är en underfråga i
+    `UPDATE`, inte en separat `SELECT`; SIE4-importens skapa och posta är två transaktioner som
+    före, inte en; `POST /vouchers` med `number` utan `auto_post` ger `400
+    number_requires_auto_post`. `Voucher.number` och `VoucherResponse.number` blev redan här
+    `Optional[int]` (annars mypy-fel respektive 500 på utkastsvar) — formateringen är kvar till
+    F3. Sex produktionsfiler i stället för tre: `domain/models.py`, `api/schemas.py`,
+    `api/routes/vouchers.py` tillkom av de skälen. `mypy .` har samma 61 fel som före.
   - Acceptans: `LedgerService.create_voucher` och `VoucherRepository.create_correction` sätter
     aldrig ett nummer. `post_voucher` tar `MAX(number) + 1` över **postade** i serien och
     räkenskapsåret, eller ett explicit nummer, i samma `UPDATE` som statusbytet, med

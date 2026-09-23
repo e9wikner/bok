@@ -36,7 +36,11 @@ class CreateVoucherRequest(BaseModel):
 
     series: str = Field("A", description="Voucher series (A=normal, B=correction)")
     number: Optional[int] = Field(
-        None, description="Voucher number (auto-assigned if omitted)"
+        None,
+        description=(
+            "Voucher number, set at posting (auto-assigned if omitted); "
+            "requires auto_post"
+        ),
     )
     date: DateType = Field(..., description="Voucher date")
     period_id: str = Field(..., description="Period ID")
@@ -128,7 +132,7 @@ class VoucherResponse(BaseModel):
 
     id: str
     series: str
-    number: int
+    number: Optional[int]  # None for a draft
     date: DateType
     period_id: str
     description: str

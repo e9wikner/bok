@@ -88,7 +88,6 @@ def fiscal_year_with_data(test_db):
     # Ver A1: Startkapital (jan)
     v1 = VoucherRepository.create(
         series="A",
-        number=1,
         date=date(2026, 1, 15),
         period_id=p1.id,
         description="Startkapital",
@@ -96,12 +95,11 @@ def fiscal_year_with_data(test_db):
     )
     VoucherRepository.add_row(v1.id, "1930", debit=20000000, credit=0)
     VoucherRepository.add_row(v1.id, "2081", debit=0, credit=20000000)
-    VoucherRepository.post(v1.id)
+    VoucherRepository.post(v1.id, number=1)
 
     # Ver A2: Hyra (feb)
     v2 = VoucherRepository.create(
         series="A",
-        number=2,
         date=date(2026, 2, 1),
         period_id=p2.id,
         description="Lokalhyra feb",
@@ -109,12 +107,11 @@ def fiscal_year_with_data(test_db):
     )
     VoucherRepository.add_row(v2.id, "5010", debit=1000000, credit=0)
     VoucherRepository.add_row(v2.id, "1930", debit=0, credit=1000000)
-    VoucherRepository.post(v2.id)
+    VoucherRepository.post(v2.id, number=2)
 
     # Ver A3: Försäljning (feb)
     v3 = VoucherRepository.create(
         series="A",
-        number=3,
         date=date(2026, 2, 15),
         period_id=p2.id,
         description="Försäljning tjänster",
@@ -122,7 +119,7 @@ def fiscal_year_with_data(test_db):
     )
     VoucherRepository.add_row(v3.id, "1930", debit=5000000, credit=0)
     VoucherRepository.add_row(v3.id, "3010", debit=0, credit=5000000)
-    VoucherRepository.post(v3.id)
+    VoucherRepository.post(v3.id, number=3)
 
     return fy
 

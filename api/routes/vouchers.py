@@ -271,6 +271,15 @@ async def create_voucher(
     try:
         rows_data = [r.model_dump() for r in request.rows]
 
+        # A draft has no number (SPEC flode-verifikationer §4.3), so an
+        # explicit one can only be honoured when the voucher is posted now.
+        if request.number is not None and not request.auto_post:
+            raise ValidationError(
+                "number_requires_auto_post",
+                "An explicit voucher number is set at posting",
+                "pass auto_post=true together with number",
+            )
+
         voucher = ledger.create_voucher(
             series=request.series,
             date=request.date,
@@ -278,12 +287,13 @@ async def create_voucher(
             description=request.description,
             rows_data=rows_data,
             created_by=actor,
-            number=request.number,
         )
 
         # Auto-post if requested
         if request.auto_post:
-            voucher = ledger.post_voucher(voucher.id, actor=actor)
+            voucher = ledger.post_voucher(
+                voucher.id, actor=actor, number=request.number
+            )
 
         return _voucher_to_response(voucher)
 

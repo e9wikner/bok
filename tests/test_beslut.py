@@ -2420,7 +2420,6 @@ def _voucher_for_correction() -> str:
     )
     voucher = VoucherRepository.create(
         series="A",
-        number=1,
         date=date(year, 1, 15),
         period_id=period.id,
         description="Test",

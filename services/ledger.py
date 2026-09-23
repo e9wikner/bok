@@ -34,7 +34,6 @@ class LedgerService:
         description: str,
         rows_data: List[Dict],
         created_by: str = "system",
-        number: int | None = None,
         _commit: bool = True,
     ) -> Voucher:
         """Create new draft voucher with rows.
@@ -42,8 +41,9 @@ class LedgerService:
         Validates all business rules before persisting to ensure
         no invalid data is written to the database.
 
-        If *number* is provided it is used as-is (e.g. SIE4 import);
-        otherwise the next sequential number is auto-assigned.
+        A draft has no number; `post_voucher` sets it (SPEC
+        flode-verifikationer §4.3). An explicit number, as in the SIE4
+        import, is passed to `post_voucher`.
         """
         # Get period to verify it's open
         period = self.periods.get_period(period_id)
@@ -58,12 +58,10 @@ class LedgerService:
         all_accounts = self.accounts.get_all_as_dict()
 
         # Build in-memory voucher for validation BEFORE persisting
-        if number is None:
-            number = self.vouchers.get_next_number(series, period.fiscal_year_id)
         temp_voucher = Voucher(
             id="temp",
             series=VoucherSeries(series),
-            number=number,
+            number=None,
             date=date,
             period_id=period_id,
             description=description,
@@ -88,7 +86,6 @@ class LedgerService:
         def persist_voucher() -> Voucher:
             voucher = self.vouchers.create(
                 series=series,
-                number=number,
                 date=date,
                 period_id=period_id,
                 description=description,
@@ -140,8 +137,15 @@ class LedgerService:
         actor: str = "system",
         _commit: bool = True,
         update_opening_balance: bool = True,
+        number: int | None = None,
     ) -> Voucher:
-        """Post voucher (make immutable - BFL varaktighet requirement)."""
+        """Post voucher (make immutable - BFL varaktighet requirement).
+
+        The voucher gets its number here, in the same UPDATE as the status
+        change: *number* if given (SIE4 import keeps the file's numbers),
+        otherwise the next among posted vouchers in the series and fiscal
+        year.
+        """
         voucher = self.vouchers.get(voucher_id)
         if not voucher:
             raise ValidationError(
@@ -161,8 +165,8 @@ class LedgerService:
         # Store fiscal year ID for IB update trigger
         fiscal_year_id = period.fiscal_year_id
 
-        # Post (make immutable)
-        self.vouchers.post(voucher.id, _commit=_commit)
+        # Post (make immutable) and number it
+        voucher.number = self.vouchers.post(voucher.id, number=number, _commit=_commit)
 
         # Log
         self.audit.log(

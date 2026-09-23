@@ -112,7 +112,7 @@ class Voucher:
 
     id: str
     series: VoucherSeries  # A or B (B for corrections)
-    number: int
+    number: Optional[int]  # None until posted (SPEC flode-verifikationer §4.3)
     date: date
     period_id: str
     description: str

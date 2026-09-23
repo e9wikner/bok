@@ -28,7 +28,6 @@ class VoucherRepository:
     @staticmethod
     def create(
         series: str,
-        number: int,
         date: date,
         period_id: str,
         description: str,
@@ -36,11 +35,15 @@ class VoucherRepository:
         created_by: str = "system",
         _commit: bool = True,
     ) -> Voucher:
-        """Create new draft voucher."""
+        """Create new draft voucher.
+
+        A draft has no number: it gets one when it is posted (`post`), so a
+        draft that is deleted or never posted leaves no gap in the series.
+        """
         voucher_id = str(uuid.uuid4())
         sql = """
-        INSERT INTO vouchers (id, series, number, date, period_id, fiscal_year_id, description, status, created_by, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)
+        INSERT INTO vouchers (id, series, date, period_id, fiscal_year_id, description, status, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?)
         """
         now = datetime.now()
         db.execute(
@@ -48,7 +51,6 @@ class VoucherRepository:
             (
                 voucher_id,
                 series,
-                number,
                 date,
                 period_id,
                 fiscal_year_id,
@@ -63,7 +65,7 @@ class VoucherRepository:
         return Voucher(
             id=voucher_id,
             series=VoucherSeries(series),
-            number=number,
+            number=None,
             date=date,
             period_id=period_id,
             description=description,
@@ -281,27 +283,57 @@ class VoucherRepository:
 
     @staticmethod
     def get_next_number(series: str, fiscal_year_id: str) -> int:
-        """Get next sequential voucher number for series within a fiscal year.
+        """Next voucher number for a series within a fiscal year.
 
-        Voucher numbers restart from 1 each fiscal year (BFL requirement).
+        Counted over *posted* vouchers only — drafts have no number. Numbers
+        restart from 1 each fiscal year (BFL requirement). Informational:
+        `post` assigns the number itself, in the same statement as the
+        status change.
         """
         sql = """
             SELECT MAX(number) as max_num
             FROM vouchers
-            WHERE series = ? AND fiscal_year_id = ?
+            WHERE series = ? AND fiscal_year_id = ? AND status = 'posted'
         """
         cursor = db.execute(sql, (series, fiscal_year_id))
         row = cursor.fetchone()
         return (row["max_num"] or 0) + 1
 
     @staticmethod
-    def post(voucher_id: str, _commit: bool = True) -> bool:
-        """Post voucher (make immutable - BFL varaktighet requirement)."""
-        sql = "UPDATE vouchers SET status = 'posted', posted_at = ? WHERE id = ?"
-        db.execute(sql, (datetime.now(), voucher_id))
+    def post(
+        voucher_id: str, number: Optional[int] = None, _commit: bool = True
+    ) -> int:
+        """Post a draft voucher (make immutable - BFL varaktighet requirement).
+
+        The number is set in the same UPDATE as the status change (SPEC
+        flode-verifikationer §4.3): *number* when given (SIE4 import keeps the
+        file's numbers), otherwise MAX(number) + 1 over posted vouchers in the
+        same series and fiscal year. One statement, so the read and the write
+        cannot land in different transactions; UNIQUE(series, number,
+        fiscal_year_id) is the backstop. Returns the number assigned.
+        """
+        sql = """
+            UPDATE vouchers
+            SET status = 'posted',
+                posted_at = ?,
+                number = COALESCE(?, (
+                    SELECT COALESCE(MAX(p.number), 0) + 1
+                    FROM vouchers AS p
+                    WHERE p.series = vouchers.series
+                      AND p.fiscal_year_id = vouchers.fiscal_year_id
+                      AND p.status = 'posted'
+                ))
+            WHERE id = ? AND status = 'draft'
+        """
+        cursor = db.execute(sql, (datetime.now(), number, voucher_id))
+        if cursor.rowcount != 1:
+            raise ValueError(f"Voucher {voucher_id} is not a draft")
+        assigned = db.execute(
+            "SELECT number FROM vouchers WHERE id = ?", (voucher_id,)
+        ).fetchone()["number"]
         if _commit:
             db.commit()
-        return True
+        return assigned
 
     @staticmethod
     def create_correction(
@@ -324,7 +356,7 @@ class VoucherRepository:
 
         target_period_id = period_id_override or original.period_id
 
-        # Look up the fiscal year for the target period to scope voucher numbering
+        # The fiscal year of the target period; the number is set at posting
         period_row = db.execute(
             "SELECT fiscal_year_id FROM periods WHERE id = ?", (target_period_id,)
         ).fetchone()
@@ -332,11 +364,10 @@ class VoucherRepository:
 
         # Create new B-series voucher referencing the original
         correction_id = str(uuid.uuid4())
-        number = VoucherRepository.get_next_number(series, fiscal_year_id)
 
         sql = """
-        INSERT INTO vouchers (id, series, number, date, period_id, fiscal_year_id, description, status, correction_of, created_by, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)
+        INSERT INTO vouchers (id, series, date, period_id, fiscal_year_id, description, status, correction_of, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)
         """
         now = datetime.now()
         description = f"Correction of voucher {original.series}{original.number:06d}"
@@ -346,7 +377,6 @@ class VoucherRepository:
             (
                 correction_id,
                 series,
-                number,
                 original.date,
                 target_period_id,
                 fiscal_year_id,
@@ -362,7 +392,7 @@ class VoucherRepository:
         return Voucher(
             id=correction_id,
             series=VoucherSeries(series),
-            number=number,
+            number=None,
             date=original.date,
             period_id=target_period_id,
             description=description,

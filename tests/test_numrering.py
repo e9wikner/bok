@@ -16,6 +16,7 @@ import os
 import shutil
 import sqlite3
 import tempfile
+from datetime import date
 from pathlib import Path
 from typing import Any, Dict, Iterator, List
 
@@ -443,3 +444,238 @@ def test_4_triggers_still_guard_posted_vouchers_and_rows(v26_db):
         ).fetchone()[0]
         == 0
     )
+
+
+# --- F2: the number is set at posting (cases 5–11) ---------------------------
+#
+# A draft has no number; `post_voucher` takes MAX(number) + 1 over *posted*
+# vouchers in the same series and fiscal year — or an explicit number, for the
+# SIE4 import — in the same UPDATE that flips the status (SPEC §4.3).
+
+ROWS = [
+    {"account": "1510", "debit": 10000, "credit": 0},
+    {"account": "3011", "debit": 0, "credit": 10000},
+]
+
+
+def _draft(ledger, period, series: str = "A", day: int = 10):
+    return ledger.create_voucher(
+        series=series,
+        date=date(period.year, period.month, day),
+        period_id=period.id,
+        description=f"Test {series}",
+        rows_data=ROWS,
+        created_by="test",
+    )
+
+
+def _stored_number(voucher_id: str):
+    row = db.execute(
+        "SELECT number FROM vouchers WHERE id = ?", (voucher_id,)
+    ).fetchone()
+    return row["number"]
+
+
+def test_5_create_voucher_has_no_number(ledger_service, test_period):
+    """Case 5: a draft is created without a number, in memory and on disk."""
+    draft = _draft(ledger_service, test_period)
+
+    assert draft.number is None
+    assert _stored_number(draft.id) is None
+    assert ledger_service.vouchers.get(draft.id).number is None
+
+
+def test_6_post_takes_next_number_among_posted(ledger_service, test_period):
+    """Case 6: posting gives MAX(number) + 1 among posted in the series and
+    year; other series and drafts do not count."""
+    first = ledger_service.post_voucher(_draft(ledger_service, test_period).id)
+    assert first.number == 1
+    assert _stored_number(first.id) == 1
+
+    _draft(ledger_service, test_period)  # a draft does not take a number
+    ledger_service.post_voucher(_draft(ledger_service, test_period, series="B").id)
+
+    second = ledger_service.post_voucher(_draft(ledger_service, test_period).id)
+    assert second.number == 2
+    assert second.status.value == "posted"
+
+
+def test_7_later_draft_posted_first_gets_lower_number(ledger_service, test_period):
+    """Case 7: the number follows the order of posting, not of creation."""
+    earlier = _draft(ledger_service, test_period)
+    later = _draft(ledger_service, test_period)
+
+    assert ledger_service.post_voucher(later.id).number == 1
+    assert ledger_service.post_voucher(earlier.id).number == 2
+
+
+def test_8_deleted_draft_leaves_no_gap(ledger_service, test_period):
+    """Case 8: deleting a draft consumes no number."""
+    a = _draft(ledger_service, test_period)
+    b = _draft(ledger_service, test_period)
+    c = _draft(ledger_service, test_period)
+    ledger_service.vouchers.delete_draft(b.id)
+
+    numbers = [ledger_service.post_voucher(v.id).number for v in (a, c)]
+    assert numbers == [1, 2]
+
+
+def test_9_new_fiscal_year_starts_at_one(ledger_service, test_period):
+    """Case 9: the series restarts at 1 in each fiscal year."""
+    for _ in range(2):
+        ledger_service.post_voucher(_draft(ledger_service, test_period).id)
+
+    next_year = ledger_service.periods.create_fiscal_year(
+        start_date=date(2027, 1, 1), end_date=date(2027, 12, 31)
+    )
+    period_2027 = ledger_service.periods.create_period(
+        fiscal_year_id=next_year.id,
+        year=2027,
+        month=1,
+        start_date=date(2027, 1, 1),
+        end_date=date(2027, 1, 31),
+    )
+
+    posted = ledger_service.post_voucher(_draft(ledger_service, period_2027).id)
+    assert posted.number == 1
+    assert (
+        ledger_service.post_voucher(_draft(ledger_service, test_period).id).number == 3
+    )
+
+
+SIE4_WITH_NUMBERS = """#FLAGGA 0
+#FORMAT PC8
+#PROGRAM "Test" 1.0
+#FNAMN "Test AB"
+#FORGN 5566778899
+#RAR 0 20100101 20101231
+#KONTO 1930 "Företagskonto"
+#KONTO 3010 "Försäljning"
+#VER A 5 20100115 "Femte"
+{
+#TRANS 1930 {} 10000 20100115
+#TRANS 3010 {} -10000 20100115
+}
+#VER A 7 20100210 "Sjunde"
+{
+#TRANS 1930 {} 20000 20100210
+#TRANS 3010 {} -20000 20100210
+}
+#VER B 2 20100301 "Andra B"
+{
+#TRANS 1930 {} 30000 20100301
+#TRANS 3010 {} -30000 20100301
+}
+"""
+
+
+def test_10_sie4_import_keeps_file_numbers(test_db):
+    """Case 10: the file's numbers survive, gaps included; the next voucher
+    posted in the app continues after the file's highest."""
+    from services.ledger import LedgerService
+    from services.sie4_import import SIE4Importer
+
+    importer = SIE4Importer(api_url="http://test", api_key="test")
+    assert importer.import_content(SIE4_WITH_NUMBERS) is True, importer.errors
+
+    rows = db.execute(
+        "SELECT series, number, status, description FROM vouchers "
+        "ORDER BY series, number"
+    ).fetchall()
+    assert [(r["series"], r["number"], r["status"]) for r in rows] == [
+        ("A", 5, "posted"),
+        ("A", 7, "posted"),
+        ("B", 2, "posted"),
+    ]
+
+    period_id = db.execute(
+        "SELECT period_id FROM vouchers WHERE number = 7"
+    ).fetchone()["period_id"]
+    ledger = LedgerService()
+    draft = ledger.create_voucher(
+        series="A",
+        date=date(2010, 2, 20),
+        period_id=period_id,
+        description="Efter importen",
+        rows_data=[
+            {"account": "1930", "debit": 100, "credit": 0},
+            {"account": "3010", "debit": 0, "credit": 100},
+        ],
+    )
+    assert draft.number is None
+    assert ledger.post_voucher(draft.id).number == 8
+
+
+def test_11_correct_sets_b_number_at_posting(ledger_service, test_period, auth_headers):
+    """Case 11: `/correct` yields a posted B-series voucher numbered at
+    posting, as before; a B draft does not take a number."""
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+
+    original = ledger_service.post_voucher(_draft(ledger_service, test_period).id)
+    stray_b_draft = _draft(ledger_service, test_period, series="B")
+
+    response = TestClient(app).post(
+        f"/api/v1/vouchers/{original.id}/correct",
+        json={
+            "corrected_rows": [
+                {"account": "1510", "debit": 12000, "credit": 0},
+                {"account": "3011", "debit": 0, "credit": 12000},
+            ],
+            "reason": "Fel belopp",
+        },
+        headers=auth_headers,
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["series"] == "B"
+    assert body["status"] == "posted"
+    assert body["number"] == 1
+    assert _stored_number(body["id"]) == 1
+    assert _stored_number(stray_b_draft.id) is None
+
+    # A correction draft (the correction-notes path) has no number until it
+    # is posted.
+    draft = ledger_service.create_correction(
+        original_voucher_id=original.id,
+        correction_rows=[
+            {"account": "3011", "debit": 10000, "credit": 0},
+            {"account": "1510", "debit": 0, "credit": 10000},
+        ],
+    )
+    assert draft.number is None
+    assert _stored_number(draft.id) is None
+    assert ledger_service.post_voucher(draft.id).number == 2
+
+
+def test_10b_api_explicit_number_only_with_auto_post(
+    ledger_service, test_period, auth_headers
+):
+    """Case 10, over HTTP: an explicit `number` is set at posting, so it is
+    refused on a draft and kept with `auto_post`."""
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+
+    client = TestClient(app)
+    body = {
+        "series": "A",
+        "number": 42,
+        "date": "2026-03-10",
+        "period_id": test_period.id,
+        "description": "Explicit",
+        "rows": ROWS,
+    }
+
+    refused = client.post("/api/v1/vouchers", json=body, headers=auth_headers)
+    assert refused.status_code == 400, refused.text
+    assert refused.json()["detail"]["code"] == "number_requires_auto_post"
+    assert db.execute("SELECT COUNT(*) AS n FROM vouchers").fetchone()["n"] == 0
+
+    posted = client.post(
+        "/api/v1/vouchers", json={**body, "auto_post": True}, headers=auth_headers
+    )
+    assert posted.status_code == 201, posted.text
+    assert posted.json()["number"] == 42
+    assert posted.json()["status"] == "posted"

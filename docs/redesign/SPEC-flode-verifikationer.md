@@ -244,18 +244,24 @@ till schema: ett postat utan nummer, eller ett utkast med nummer, går inte att 
 
 ### 4.3 Koden
 
-- `LedgerService.create_voucher` sätter aldrig ett nummer. Parametern `number` finns kvar för
-  SIE4-importen, men ett explicit nummer lagras inte på utkastet. Det skickas vidare till
-  `post_voucher`, som importen redan anropar i samma transaktion.
+- `LedgerService.create_voucher` sätter aldrig ett nummer och har ingen `number`-parameter längre.
+  Ett explicit nummer (SIE4-importen) lagras inte på utkastet utan ges till
+  `post_voucher(..., number=)`, som importen anropar direkt efter att utkastet skapats. De är
+  två transaktioner, som före F2; `CHECK` gör att utkastet däremellan inte kan bära numret.
+  `POST /api/v1/vouchers` tar `number` bara tillsammans med `auto_post` och svarar annars `400
+  number_requires_auto_post`.
 - `LedgerService.post_voucher` tar nästa nummer, `MAX(number) + 1` över **postade**
   verifikationer i samma serie och räkenskapsår, eller det explicita numret, och skriver det i
-  samma `UPDATE` som statusbytet:
-  `UPDATE vouchers SET status='posted', posted_at=?, number=? WHERE id=? AND status='draft'`.
-  Triggern släpper igenom den, eftersom `OLD.status` är `draft`. `UNIQUE` är skyddet mot två
-  samtidiga postningar. SQLite har en skrivare åt gången, så en krock kan bara uppstå om
-  läsningen och skrivningen hamnar i olika transaktioner, och det får de inte.
+  samma `UPDATE` som statusbytet — i en och samma sats, med läsningen som underfråga:
+  `UPDATE vouchers SET status='posted', posted_at=?, number=COALESCE(?, (SELECT
+  COALESCE(MAX(p.number), 0) + 1 FROM vouchers p WHERE p.series = vouchers.series AND
+  p.fiscal_year_id = vouchers.fiscal_year_id AND p.status = 'posted')) WHERE id=? AND
+  status='draft'`. Triggern släpper igenom den, eftersom `OLD.status` är `draft`. `UNIQUE` är
+  skyddet mot två samtidiga postningar. SQLite har en skrivare åt gången, och eftersom läsning
+  och skrivning är samma sats kan de inte hamna i olika transaktioner.
 - `VoucherRepository.create_correction` numrerar inte heller.
-- `Voucher.number` och `VoucherResponse.number` blir `Optional[int]`. Allt som formaterar ett
+- `Voucher.number` och `VoucherResponse.number` blir `Optional[int]` (typningen landade redan i
+  F2, eftersom utkast annars inte kunde byggas eller serialiseras). Allt som formaterar ett
   nummer (`_voucher_dict` i verktygen, `sie4_export`, `compliance`, `lib/utils.ts`,
   `lib/skal/*.ts`) hanterar `None`. Utkast exporteras inte i SIE4 (`sie4_export.py:224` läser
   bara postade), så exporten påverkas inte i praktiken.
