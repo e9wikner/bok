@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { aldersTon } from "@/lib/chattyta/alder";
 import type { RadVariant } from "@/lib/skal/mock";
 
 /**
@@ -32,6 +33,19 @@ const META_FARG: Record<RadVariant, string> = {
   paverkad: "var(--bok-vantar-meta)",
 };
 
+/**
+ * `saknar` och `vantar` är de två raderna som väntar på människan; bara de
+ * blir röda med åldern (SPEC-chattyta.md §10). Utan `ageDays` gäller
+ * tabellen ovan, så en rad som inte vet sin ålder aldrig gissas röd.
+ */
+const ALDRANDE = new Set<RadVariant>(["saknar", "vantar"]);
+const TON_FARG = { vantar: "var(--bok-vantar-meta)", forfallen: "var(--bok-fel-meta)" } as const;
+
+function metaFarg(variant: RadVariant, ageDays: number | undefined): string {
+  if (ageDays === undefined || !ALDRANDE.has(variant)) return META_FARG[variant];
+  return TON_FARG[aldersTon(ageDays)];
+}
+
 export function VyRad({
   titel,
   meta,
@@ -39,6 +53,7 @@ export function VyRad({
   variant = "normal",
   summa = false,
   storlek = "desktop",
+  ageDays,
 }: {
   titel: string;
   meta?: string;
@@ -46,6 +61,8 @@ export function VyRad({
   variant?: RadVariant;
   summa?: boolean;
   storlek?: "desktop" | "mobil";
+  /** Serverns `age_days`; färgar metaraden för `saknar`/`vantar` (§10). */
+  ageDays?: number;
 }) {
   // Markeringen tas bort av sig själv; raden ligger kvar.
   const [nyAktiv, setNyAktiv] = useState(variant === "ny");
@@ -79,7 +96,7 @@ export function VyRad({
         {meta && (
           <span
             className={`bok-mono ${storlek === "desktop" ? "text-[11px]" : "text-[12px]"}`}
-            style={{ color: META_FARG[variant] }}
+            style={{ color: metaFarg(variant, ageDays) }}
           >
             {meta}
           </span>

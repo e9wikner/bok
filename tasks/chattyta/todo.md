@@ -134,7 +134,15 @@ Ingen uppgift rör Python.
   - Obs: testfall 14 kontrollerar tre saker — inget valt, inget fokuserat, ingen annan stil än
     `RekMarke`. En rekommendation som får en mörkare kant är också ett förval.
 
-- [ ] **C8 — Märket och `age_days`-tröskeln**
+- [x] **C8 — Märket och `age_days`-tröskeln**
+  - Gjort 2026-09-23: 18 nya tester, sedda röda först; 297 gröna totalt. Frågenyckel
+    `["decisions", viewKey, "open"]` under `BESLUT_NYCKEL`. `hamtaBeslut` och de fulla
+    beslutstyperna (`BeslutSvar` m.fl., exakt `api/schemas.py`) ligger i `lib/chattyta/api.ts`
+    för C6. Avvikelser: sex källfiler — hooken `hooks/useVantandeBeslut.ts` och `api.ts` utöver
+    listan. Märket hämtas bara för aktiv vy **och bara på mobil**; desktop har inget märke.
+    Laddning eller fel ger `0`, så märket faller tillbaka på `N inlägg` i stället för att
+    gissa. `staleTime` 60 s som `useOverview`. `ChattList.tsx` orörd. Testfilen för åldern är
+    `.tsx`, eftersom den renderar `VyRad`.
   - Acceptans: `aldersTon(ageDays)` med `ROD_FRAN_DAGAR = 7` på ett ställe. Mobilens
     `ChattList`-märke = `total` ur `GET /decisions?view_key&status=open&limit=1`.
     `mockVantandeBeslut` borta. `VyRad`s `saknar`/`vantar` tar en valfri `ageDays` och färgas

@@ -227,14 +227,5 @@ export const MOCK_VYER: Record<ViewKey, VyData> = {
   "bokslut.atgarder": ATGARDER,
 };
 
-// ─── Beslutsmärket ────────────────────────────────────────────────────────
-// Tråden låg här tills chattyta C5; den kommer nu ur `useTrad`.
-
-/**
- * Väntande beslut per vy — driver märket på mobilens `ChattList`, som ska
- * synas även när chatten är minimerad (komponenter.md).
- * ERSÄTTS AV: `beslut` (GET /decisions?status=open).
- */
-export function mockVantandeBeslut(key: ViewKey): number {
-  return key === "bocker.verifikationer" ? 1 : 0;
-}
+// Tråden och beslutsmärket låg här tills chattyta C5 och C8; de kommer nu ur
+// `useTrad` och `useVantandeBeslut`.

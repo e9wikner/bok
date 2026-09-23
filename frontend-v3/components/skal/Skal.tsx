@@ -10,10 +10,11 @@ import type { SidMeta } from "@/components/skal/SidVaeljare";
 import { VyInnehall } from "@/components/skal/VyInnehall";
 import { VySvep } from "@/components/skal/VySvep";
 import { useAgentStatus, useOverview } from "@/hooks/useSkal";
+import { useVantandeBeslut } from "@/hooks/useVantandeBeslut";
 import { useBredSkarm } from "@/hooks/useBredSkarm";
 import { arsrad } from "@/lib/skal/header";
 import { lageFarg } from "@/lib/skal/lage";
-import { MOCK_VYER, mockVantandeBeslut } from "@/lib/skal/mock";
+import { MOCK_VYER } from "@/lib/skal/mock";
 import { SKAL_RUTT, lasPosition } from "@/lib/skal/rutt";
 import { type Sidnyckel, type Vy, forstaVyn, sidan, vyAt } from "@/lib/skal/vyer";
 
@@ -52,6 +53,11 @@ export function Skal() {
   const bred = useBredSkarm();
   const { data: overview } = useOverview();
   const { data: agent } = useAgentStatus();
+  // Märket läses för den aktiva vyn och bara på mobil, där det finns
+  // (SPEC-chattyta.md §10). Inte beroende av om chatten är minimerad: det
+  // är då märket behövs (komponenter.md). Grannvyerna i svepraden får 0,
+  // som de får en oläst tråd (C5) — de ligger utanför skärmen.
+  const vantandeBeslut = useVantandeBeslut(aktivVy.key, { aktiv: !bred });
 
   const metaPerSida = useMemo<Partial<Record<Sidnyckel, SidMeta>>>(() => {
     const ut: Partial<Record<Sidnyckel, SidMeta>> = {};
@@ -116,7 +122,7 @@ export function Skal() {
                 vyTitel={vy.titel}
                 viewKey={vy.key}
                 aktiv={aktiv}
-                vantandeBeslut={mockVantandeBeslut(vy.key)}
+                vantandeBeslut={aktiv ? vantandeBeslut : 0}
               />
             </div>
           );

@@ -16,6 +16,13 @@ vi.mock("@/hooks/useTrad", () => ({
   useTrad: () => ({ inlagg: [], strommande: null, skicka: async () => true, laddar: false, fel: null }),
 }));
 
+// Märket är `chattyta`s (C8) och har sina egna tester (testfall 21). Här
+// prövas bara att skalet visar hookens tal för den aktiva vyn.
+const vantandeBeslut = vi.fn((viewKey: string) => (viewKey === "bocker.verifikationer" ? 3 : 0));
+vi.mock("@/hooks/useVantandeBeslut", () => ({
+  useVantandeBeslut: (viewKey: string) => vantandeBeslut(viewKey),
+}));
+
 vi.mock("@/lib/skal/api", () => ({
   skalApi: {
     getOverview: async () => ({
@@ -64,10 +71,12 @@ describe("mobilmönstret under 1000 px", () => {
     expect(screen.getByRole("button", { name: "Verifikationer" })).toBeInTheDocument();
   });
 
-  it("visar märket för väntande beslut på chattlisten", () => {
+  it("visar märket för väntande beslut på chattlisten (testfall 21)", () => {
     renderaSkal();
     const marken = screen.getAllByTestId("chattlist-marke");
-    expect(marken.some((m) => m.textContent?.includes("väntar"))).toBe(true);
+    // Talet är hookens — serverns `total` — ordagrant, för den aktiva vyn.
+    expect(marken.map((m) => m.textContent)).toContain("3 väntar");
+    expect(vantandeBeslut).toHaveBeenCalledWith("bocker.verifikationer");
   });
 
   it("visar Agenten pausad även i mobilheadern", async () => {

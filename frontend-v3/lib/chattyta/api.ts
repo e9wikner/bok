@@ -59,6 +59,97 @@ export async function skickaMeddelande(viewKey: string, text: string): Promise<M
   return data;
 }
 
+// ─── Beslut (SPEC-beslut.md §6.1, SPEC-chattyta.md §7, §10) ──────────────
+
+/**
+ * `abstention` och `approval` är riktiga beslut (`decisions.kind`, migration
+ * 026); `intake` och `correction` är de två syntetiska källorna, vars `id`
+ * bär prefixet `intake:`/`correction:` (SPEC-beslut.md §5). Servern typar
+ * fältet som `str`; värdena här är de fyra den kan ge.
+ */
+export type BeslutSort = "abstention" | "approval" | "intake" | "correction";
+
+/** `superseded` syns bara vid `status=all` (`DecisionService.list_decisions`). */
+export type BeslutStatus = "open" | "answered" | "superseded";
+
+/** Frågans filter, inte ett besluts status: `all` är inget läge ett beslut kan ha. */
+export type BeslutFilter = "open" | "answered" | "all";
+
+/** `api/schemas.py::DecisionOptionResponse`. Alltid `[]` för syntetiska beslut. */
+export interface BeslutAlternativSvar {
+  id: string;
+  position: number;
+  title: string;
+  rationale: string;
+  account: string | null;
+  amount_ore: number | null;
+  recommended: boolean;
+  is_exit: boolean;
+}
+
+/**
+ * `api/schemas.py::DecisionSourceResponse`. `kind` är öppen (`intake_source`,
+ * `voucher`, eller vad agenten angav) och lämnas som sträng.
+ */
+export interface BeslutKallaSvar {
+  kind: string;
+  id: string;
+  /** ISO-datum `YYYY-MM-DD`, eller `null`. */
+  date: string | null;
+}
+
+/** `api/schemas.py::DecisionResponse`, fält för fält. */
+export interface BeslutSvar {
+  id: string;
+  view_key: string;
+  kind: BeslutSort;
+  status: BeslutStatus;
+  title: string;
+  amount_ore: number | null;
+  /** För `correction` är det människans text, inte agentens (schemats docstring). */
+  reason: string;
+  consequence: string;
+  /** `null` för ett beslut som togs upp mitt i samtalet (SPEC-beslut.md §2 antagande 5). */
+  source: BeslutKallaSvar | null;
+  /** Serverns tal; färgas med `aldersTon` (`lib/chattyta/alder.ts`). */
+  age_days: number;
+  /** `null` för syntetiska beslut — de har inget inlägg i någon tråd (§7). */
+  thread_id: string | null;
+  post_id: string | null;
+  options: BeslutAlternativSvar[];
+}
+
+/**
+ * `api/schemas.py::DecisionListResponse`. `total` är unionens antal FÖRE
+ * `limit`/`offset` — därför räcker `limit=1` för märket (§10).
+ */
+export interface BeslutListSvar {
+  decisions: BeslutSvar[];
+  total: number;
+}
+
+/**
+ * `GET /decisions` — unionen av de tre källorna, äldst först. Utelämnade
+ * parametrar lämnas åt serverns standard (`status=open`, `limit=50`); axios
+ * skickar inte `undefined`.
+ */
+export async function hamtaBeslut({
+  viewKey,
+  status,
+  limit,
+  offset,
+}: {
+  viewKey?: string;
+  status?: BeslutFilter;
+  limit?: number;
+  offset?: number;
+}): Promise<BeslutListSvar> {
+  const { data } = await apiClient.get<BeslutListSvar>("/api/v1/decisions", {
+    params: { view_key: viewKey, status, limit, offset },
+  });
+  return data;
+}
+
 // ─── Frågenycklar ─────────────────────────────────────────────────────────
 
 /**

@@ -16,6 +16,9 @@ vi.mock("@/hooks/useTrad", () => ({
   useTrad: () => ({ inlagg: [], strommande: null, skicka: async () => true, laddar: false, fel: null }),
 }));
 
+// Beslutsmärket är `chattyta`s (C8); utan mocken frågar skalet GET /decisions.
+vi.mock("@/hooks/useVantandeBeslut", () => ({ useVantandeBeslut: () => 0 }));
+
 vi.mock("@/lib/skal/api", () => ({
   skalApi: {
     getOverview: async () => ({
