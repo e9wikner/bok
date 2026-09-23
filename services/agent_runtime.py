@@ -131,7 +131,7 @@ def ensure_daily_budget_available(
 ) -> None:
     """Raise `DailyBudgetExhaustedError` if today's spend already meets or
     exceeds `config.settings.agent_daily_budget_ore` (SPEC §6.5's "kostnad
-    per dygn" cap, 5000 öre / 50 kr by default).
+    per dygn" cap). Does nothing when no budget is configured.
 
     `agent_run_repo` accepts `AgentRunRepository` itself (all of its methods
     are `@staticmethod`, so the class is callable exactly like an instance --
@@ -161,11 +161,13 @@ def ensure_daily_budget_available(
     Comparison is `>=`, not `>`: a spend exactly equal to the budget has
     exhausted it, matching SPEC §6.5's "redan nått" framing in test case 8.
     """
+    budget_ore = settings.agent_daily_budget_ore
+    if budget_ore is None:
+        # No budget configured: the cap is opt-in.
+        return
     spent_ore = agent_run_repo.sum_cost_today_ore()
-    if spent_ore >= settings.agent_daily_budget_ore:
-        raise DailyBudgetExhaustedError(
-            spent_ore=spent_ore, budget_ore=settings.agent_daily_budget_ore
-        )
+    if spent_ore >= budget_ore:
+        raise DailyBudgetExhaustedError(spent_ore=spent_ore, budget_ore=budget_ore)
 
 
 # ---------------------------------------------------------------------------

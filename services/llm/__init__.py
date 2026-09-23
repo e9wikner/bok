@@ -131,7 +131,7 @@ class LLMClient(Protocol):
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
         model: str,
-        max_tokens: int,
+        max_tokens: Optional[int],
         on_text: Optional[StreamTextHook] = None,
         on_tool_call: Optional[StreamToolCallHook] = None,
     ) -> LLMTurn: ...

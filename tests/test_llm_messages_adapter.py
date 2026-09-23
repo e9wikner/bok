@@ -26,6 +26,7 @@ from anthropic.types import Message, RawContentBlockStartEvent
 
 from services.llm import LLMCapabilities, LLMConnectionError, LLMRateLimitError
 from services.llm.messages import (
+    MESSAGES_MAX_TOKENS_FALLBACK,
     MessagesClient,
     UnrecognizedStopReasonError,
     dispatch_stream_event,
@@ -108,6 +109,13 @@ class TestBuildRequestKwargs:
 
         assert kwargs["model"] == "claude-opus-5"
         assert kwargs["max_tokens"] == 4096
+
+    def test_no_cap_still_sends_the_protocols_required_max_tokens(self):
+        kwargs = MessagesClient.build_request_kwargs(
+            system="x", messages=[], tools=[], model="m", max_tokens=None
+        )
+
+        assert kwargs["max_tokens"] == MESSAGES_MAX_TOKENS_FALLBACK
 
 
 # --- Normalization against recorded fixtures --------------------------------

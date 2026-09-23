@@ -247,7 +247,7 @@ class ChatClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
         model: str,
-        max_tokens: int,
+        max_tokens: Optional[int],
         on_text: Optional[StreamTextHook] = None,
         on_tool_call: Optional[StreamToolCallHook] = None,
     ) -> LLMTurn:
@@ -282,6 +282,8 @@ class ChatClient:
             "model": api_model_id(model),
             "messages": translated_messages,
             "tools": translated_tools,
+        }
+        if max_tokens is not None:
             # `max_completion_tokens`, not the deprecated `max_tokens`:
             # confirmed against the installed `openai>=2.0` SDK's
             # `CompletionCreateParamsBase` (`completion_create_params.py`)
@@ -292,8 +294,7 @@ class ChatClient:
             # DeepSeek, Kimi, GLM, MiniMax) include reasoning models, so the
             # deprecated parameter is the wrong default to reach for here
             # even though both still exist on the installed SDK.
-            "max_completion_tokens": max_tokens,
-        }
+            kwargs["max_completion_tokens"] = max_tokens
         try:
             if on_text is not None or on_tool_call is not None:
                 response = self._stream_completion(kwargs, on_text, on_tool_call)
@@ -345,7 +346,16 @@ class ChatClient:
         with self._client.chat.completions.stream(**stream_kwargs) as stream:
             for event in stream:
                 dispatcher.dispatch(event)
-            return stream.get_final_completion()
+            try:
+                return stream.get_final_completion()
+            except openai.LengthFinishReasonError as exc:
+                # The helper refuses to hand back a completion cut off by
+                # `finish_reason == "length"`, but the exception carries it.
+                # Returned as is, it normalizes to `stop="max_tokens"` -- a
+                # truncated turn the session abstains on -- exactly as the
+                # unstreamed `.create(...)` path already does, and its usage
+                # still reaches the daily cap.
+                return exc.completion
 
     # -----------------------------------------------------------------
     # Translation: Anthropic tool-definition shape -> OpenAI function-tool

@@ -607,13 +607,42 @@ class TestAgentRuntimeConfig:
         assert s.gateway_for("opencode-go")[1] == "go-key"
         assert s.gateway_for("opencode")[1] == "zen-key"
 
-    def test_the_four_caps_have_specs_stated_defaults(self):
-        settings = Settings()
+    def test_the_caps_defaults(self, monkeypatch):
+        for name in (
+            "AGENT_MAX_OUTPUT_TOKENS_PER_ITEM",
+            "AGENT_MAX_TOKENS_PER_TURN",
+            "AGENT_DAILY_BUDGET_ORE",
+        ):
+            monkeypatch.delenv(name, raising=False)
+        settings = Settings(_env_file=None)
 
         assert settings.agent_max_tool_turns_per_item == 25
-        assert settings.agent_max_output_tokens_per_item == 32000
-        assert settings.agent_daily_budget_ore == 5000  # 50 kr, per SPEC §6.5/§8
         assert settings.agent_max_items_per_pass == 20
+        # Token and cost caps are opt-in.
+        assert settings.agent_max_output_tokens_per_item is None
+        assert settings.agent_max_tokens_per_turn is None
+        assert settings.agent_daily_budget_ore is None
+
+    def test_an_empty_cap_variable_means_no_cap(self, monkeypatch):
+        monkeypatch.setenv("AGENT_DAILY_BUDGET_ORE", "")
+        monkeypatch.setenv("AGENT_MAX_OUTPUT_TOKENS_PER_ITEM", " ")
+        monkeypatch.setenv("AGENT_MAX_TOKENS_PER_TURN", "16000")
+
+        settings = Settings(_env_file=None)
+
+        assert settings.agent_daily_budget_ore is None
+        assert settings.agent_max_output_tokens_per_item is None
+        assert settings.agent_max_tokens_per_turn == 16000
+
+    def test_no_daily_budget_never_refuses(self, monkeypatch):
+        monkeypatch.setattr(settings, "agent_daily_budget_ore", None)
+
+        class _Spent:
+            @staticmethod
+            def sum_cost_today_ore() -> int:
+                return 10**9
+
+        ensure_daily_budget_available(_Spent)  # type: ignore[arg-type]
 
     def test_daily_budget_ore_can_be_flipped_via_env_var(self, monkeypatch):
         monkeypatch.setenv("AGENT_DAILY_BUDGET_ORE", "1234")
@@ -1532,7 +1561,7 @@ class FakeLLMClient:
         messages: list[dict],
         tools: list[dict],
         model: str,
-        max_tokens: int,
+        max_tokens: Optional[int],
         on_text: Optional[Callable[[str], None]] = None,
         on_tool_call: Optional[Callable[[str], None]] = None,
     ) -> LLMTurn:

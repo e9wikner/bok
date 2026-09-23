@@ -900,3 +900,66 @@ class TestChatAdapterStreamDispatch:
         dispatcher.dispatch(_Other())
 
         assert seen == []
+
+
+class TestStreamedLengthFinish:
+    """The streaming helper raises `LengthFinishReasonError` on a
+    `finish_reason == "length"` completion instead of returning it. That
+    must still come out as a `max_tokens` turn, not an exception.
+    """
+
+    def test_truncated_streamed_turn_is_max_tokens_not_an_error(self):
+        client = ChatClient(api_key="dummy-test-key", base_url="http://127.0.0.1:0")
+        truncated = _load_completion("length_finish.json")
+
+        class _Stream:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc: Any) -> None:
+                return None
+
+            def __iter__(self):
+                return iter(())
+
+            def get_final_completion(self) -> ChatCompletion:
+                raise openai.LengthFinishReasonError(completion=truncated)
+
+        client._client.chat.completions.stream = (  # type: ignore[method-assign]
+            lambda **kwargs: _Stream()
+        )
+
+        turn = client.run_turn(
+            system="systemprompt",
+            messages=[{"role": "user", "content": [{"type": "text", "text": "hej"}]}],
+            tools=[],
+            model="opencode-go/glm-5.3",
+            max_tokens=1024,
+            on_text=lambda _: None,
+        )
+
+        assert turn.stop == "max_tokens"
+        assert turn.usage.output_tokens == truncated.usage.completion_tokens
+
+
+class TestNoPerTurnCap:
+    def test_no_cap_sends_no_max_completion_tokens(self):
+        client = ChatClient(api_key="dummy-test-key", base_url="http://127.0.0.1:0")
+        received: dict[str, Any] = {}
+
+        def fake_create(**kwargs: Any) -> ChatCompletion:
+            received.update(kwargs)
+            return _load_completion("stop_finish.json")
+
+        client._client.chat.completions.create = fake_create  # type: ignore[method-assign]
+
+        client.run_turn(
+            system="s",
+            messages=[{"role": "user", "content": [{"type": "text", "text": "hej"}]}],
+            tools=[],
+            model="opencode-go/glm-5.3",
+            max_tokens=None,
+        )
+
+        assert "max_completion_tokens" not in received
+        assert "max_tokens" not in received

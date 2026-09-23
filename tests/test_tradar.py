@@ -665,7 +665,7 @@ class FakeLLMClient:
         messages: list,
         tools: list,
         model: str,
-        max_tokens: int,
+        max_tokens: Optional[int],
         on_text=None,
         on_tool_call=None,
     ) -> LLMTurn:
@@ -2995,6 +2995,7 @@ class TestTurnFailuresBecomeErrorPosts:
         """Same shape as the intake pass's refusal (SPEC-agentruntime §9 #8):
         no `agent_runs` row, and the refusal is visible."""
         _ensure_accounts()
+        monkeypatch.setattr(settings, "agent_daily_budget_ore", 5000)
         thread, posts = _thread_with_posts("Hej")
         run = AgentRunRepository.create(
             trigger="thread", model="opencode/claude-opus-5", protocol="messages"
@@ -3626,6 +3627,7 @@ class TestPausedReasonPersists:
         """A cap on spending that resets at midnight is not a fault somebody
         has to clear — it is reported as cost, not as a pause."""
         monkeypatch.setattr(settings, "agent_runtime_enabled", True)
+        monkeypatch.setattr(settings, "agent_daily_budget_ore", 5000)
         monkeypatch.setattr(type(get_runner()), "running", property(lambda self: True))
         run = AgentRunRepository.create(
             trigger="thread", model="opencode/claude-opus-5", protocol="messages"

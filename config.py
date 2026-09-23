@@ -1,8 +1,9 @@
 """Application configuration."""
 
 import os
+from typing import Optional
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -74,16 +75,23 @@ class Settings(BaseSettings):
     llm_go_api_key: str = os.getenv("LLM_GO_API_KEY", "")
     llm_default_model: str = os.getenv("LLM_DEFAULT_MODEL", "opencode-go/glm-5.3")
 
-    # The four caps (SPEC §6.5). Checked between source documents and between
+    # The caps (SPEC §6.5). Checked between source documents and between
     # tool turns, never inside a `with db.transaction():`.
     agent_max_tool_turns_per_item: int = int(
         os.getenv("AGENT_MAX_TOOL_TURNS_PER_ITEM", "25")
     )
-    agent_max_output_tokens_per_item: int = int(
-        os.getenv("AGENT_MAX_OUTPUT_TOKENS_PER_ITEM", "32000")
-    )
-    # 50 kr/day, expressed in öre (this codebase's amount convention).
-    agent_daily_budget_ore: int = int(os.getenv("AGENT_DAILY_BUDGET_ORE", "5000"))
+    # The token and cost caps are opt-in: unset or empty means no cap. Read
+    # by pydantic from the environment under the field's own name.
+    #
+    # Cumulative output tokens per source document / thread turn.
+    agent_max_output_tokens_per_item: Optional[int] = None
+    # Output tokens per single model call. With none, a Chat model runs to
+    # its own limit; the Messages protocol requires a value, see
+    # `services/llm/messages.py`.
+    agent_max_tokens_per_turn: Optional[int] = None
+    # Daily spend in öre (this codebase's amount convention), e.g. 5000 for
+    # 50 kr.
+    agent_daily_budget_ore: Optional[int] = None
     agent_max_items_per_pass: int = int(os.getenv("AGENT_MAX_ITEMS_PER_PASS", "20"))
 
     # The thread window (SPEC-tradar.md §6.3, open question 1). A token
@@ -96,6 +104,18 @@ class Settings(BaseSettings):
     agent_thread_window_tokens: int = int(
         os.getenv("AGENT_THREAD_WINDOW_TOKENS", "12000")
     )
+
+    @field_validator(
+        "agent_max_output_tokens_per_item",
+        "agent_max_tokens_per_turn",
+        "agent_daily_budget_ore",
+        mode="before",
+    )
+    @classmethod
+    def _empty_means_no_cap(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     def gateway_for(self, provider: str) -> tuple[str, str]:
         """(base_url, api_key) for a model's gateway -- `ModelInfo.provider`."""

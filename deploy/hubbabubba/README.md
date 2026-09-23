@@ -65,8 +65,9 @@ Everything below is off or defaulted when absent.
 | `LLM_GO_BASE_URL` | `https://opencode.ai/zen/go/v1` | The OpenCode Go gateway, for `opencode-go/…` models. The model id's prefix picks the gateway, so both can be used side by side. |
 | `LLM_GO_API_KEY` | empty | Key for the Go gateway. When it is empty, `LLM_API_KEY` is used. |
 | `LLM_DEFAULT_MODEL` | `opencode-go/glm-5.3` | The model a pass uses unless told otherwise. It must have a row in `services/llm/__init__.py`. |
-| `AGENT_DAILY_BUDGET_ORE` | `5000` | Daily spend cap in öre (50 kr). The agent pauses when it is reached. |
-| `AGENT_MAX_ITEMS_PER_PASS`, `AGENT_MAX_TOOL_TURNS_PER_ITEM`, `AGENT_MAX_OUTPUT_TOKENS_PER_ITEM`, `AGENT_THREAD_WINDOW_TOKENS` | `20`, `25`, `32000`, `12000` | The other caps; see `config.py`. |
+| `AGENT_DAILY_BUDGET_ORE` | *(unset)* | Optional daily spend cap in öre, e.g. `5000` for 50 kr. The agent pauses when it is reached. Unset or empty: no cap. |
+| `AGENT_MAX_OUTPUT_TOKENS_PER_ITEM`, `AGENT_MAX_TOKENS_PER_TURN` | *(unset)* | Optional token caps: cumulative output per document or thread turn, and output per model call. Unset or empty: no cap (a Messages-protocol model still gets `max_tokens` 32000, which that protocol requires). |
+| `AGENT_MAX_ITEMS_PER_PASS`, `AGENT_MAX_TOOL_TURNS_PER_ITEM`, `AGENT_THREAD_WINDOW_TOKENS` | `20`, `25`, `12000` | The other caps; see `config.py`. |
 
 The backend settings are read when `bok-api` starts, so a change needs only
 `systemctl --user restart bok-api.service`. `NEXT_PUBLIC_SKAL` needs a

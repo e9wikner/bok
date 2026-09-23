@@ -85,6 +85,13 @@ class UnrecognizedStopReasonError(Exception):
         self.stop_reason = stop_reason
 
 
+#: `max_tokens` when no per-turn cap is configured. The Messages protocol
+#: will not take a request without one, so this is the protocol's floor, not
+#: a policy: large enough that thinking plus an answer fits. A model whose
+#: own output limit is lower needs `AGENT_MAX_TOKENS_PER_TURN` set.
+MESSAGES_MAX_TOKENS_FALLBACK = 32000
+
+
 class MessagesClient:
     """`LLMClient` adapter for Anthropic's Messages API (SPEC §2).
 
@@ -124,7 +131,7 @@ class MessagesClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
         model: str,
-        max_tokens: int,
+        max_tokens: Optional[int],
         on_text: Optional[StreamTextHook] = None,
         on_tool_call: Optional[StreamToolCallHook] = None,
     ) -> LLMTurn:
@@ -178,7 +185,7 @@ class MessagesClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
         model: str,
-        max_tokens: int,
+        max_tokens: Optional[int],
     ) -> dict[str, Any]:
         """Build the kwargs for `anthropic.Anthropic(...).messages.stream(...)`.
 
@@ -203,7 +210,10 @@ class MessagesClient:
         return {
             # The bare id: the gateway prefix is config, not wire.
             "model": api_model_id(model),
-            "max_tokens": max_tokens,
+            # Required on this protocol: "no cap" still has to name one.
+            "max_tokens": (
+                max_tokens if max_tokens is not None else MESSAGES_MAX_TOKENS_FALLBACK
+            ),
             "system": system_blocks,
             "messages": messages,
             "tools": tools,

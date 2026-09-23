@@ -37,7 +37,6 @@ from typing import Any, Optional
 from config import settings
 from domain.models import Period, Thread, ThreadPost
 from services.agent_session import (
-    DEFAULT_MAX_TOKENS_PER_TURN,
     THREAD_POLICY,
     SessionOutcome,
     build_system_prompt,
@@ -204,7 +203,7 @@ def run_thread_session(
     model: str,
     actor: str,
     max_tool_turns: Optional[int] = None,
-    max_tokens_per_turn: int = DEFAULT_MAX_TOKENS_PER_TURN,
+    max_tokens_per_turn: Optional[int] = None,
     max_output_tokens: Optional[int] = None,
     window_budget_tokens: Optional[int] = None,
     on_text: Optional[StreamTextHook] = None,

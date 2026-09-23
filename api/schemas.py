@@ -413,7 +413,8 @@ class AgentStatusResponse(BaseModel):
     last_run: Optional[AgentLastRunResponse] = None
     queue_depth: int
     cost_today_ore: int
-    budget_today_ore: int
+    # `None` when no daily budget is configured.
+    budget_today_ore: Optional[int] = None
     last_error: Optional[str] = None
 
 

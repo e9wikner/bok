@@ -381,12 +381,6 @@ def _assistant_message(turn: LLMTurn) -> dict:
 # The session itself
 # ---------------------------------------------------------------------------
 
-#: Per-call token limit for the LLM's response on a single `run_turn` call.
-#: Distinct from SPEC §6.5's "ut-token per underlag" cap (default 32,000),
-#: which is a *cumulative* limit across every turn of one session and is
-#: A9's job to enforce between turns -- not this constant, and not checked
-#: anywhere in this module.
-DEFAULT_MAX_TOKENS_PER_TURN = 8192
 
 #: Tool names that end a session outright on success (SPEC §6.3/§6.7): the
 #: only two ways a pass over one intake source is allowed to conclude.
@@ -440,7 +434,7 @@ def run_tool_loop(
     actor: str,
     policy: TerminalPolicy,
     turn_limit: int,
-    max_tokens_per_turn: int = DEFAULT_MAX_TOKENS_PER_TURN,
+    max_tokens_per_turn: Optional[int] = None,
     max_output_tokens: Optional[int] = None,
     on_text: Optional[StreamTextHook] = None,
     on_tool_call: Optional[StreamToolCallHook] = None,
@@ -462,7 +456,8 @@ def run_tool_loop(
     caller owns the list it passes in.
 
     `max_output_tokens` defaults to
-    `config.settings.agent_max_output_tokens_per_item` and is checked
+    `config.settings.agent_max_output_tokens_per_item` (`None`: no cap) and
+    is checked
     *between* turns: a turn that itself reached a terminal outcome is never
     overridden by it, and it never aborts mid-turn. `turn_limit` is the
     other per-session cap. Neither the daily budget nor the items-per-pass
@@ -507,6 +502,13 @@ def run_tool_loop(
         if max_output_tokens is not None
         else settings.agent_max_output_tokens_per_item
     )
+    # Per model call, distinct from the cumulative cap above. `None` on both
+    # is "no cap": the model's own limit applies.
+    turn_token_limit = (
+        max_tokens_per_turn
+        if max_tokens_per_turn is not None
+        else settings.agent_max_tokens_per_turn
+    )
     stream_hooks: dict[str, Any] = {}
     if getattr(client.capabilities, "streaming", False):
         if on_text is not None:
@@ -523,7 +525,7 @@ def run_tool_loop(
             messages=messages,
             tools=tools,
             model=model,
-            max_tokens=max_tokens_per_turn,
+            max_tokens=turn_token_limit,
             **stream_hooks,
         )
         usage = _add_usage(usage, turn.usage)
@@ -642,7 +644,10 @@ def run_tool_loop(
             messages.append(_assistant_message(turn))
             messages.append({"role": "user", "content": tool_result_blocks})
 
-            if usage.output_tokens > output_token_limit:
+            if (
+                output_token_limit is not None
+                and usage.output_tokens > output_token_limit
+            ):
                 # SPEC §6.5's "ut-token per underlag" cap: this turn didn't
                 # itself post or abstain (handled above, before this point),
                 # so nothing is overridden -- the cap only prevents the next
@@ -697,7 +702,7 @@ def run_session(
     model: str,
     actor: str,
     max_tool_turns: Optional[int] = None,
-    max_tokens_per_turn: int = DEFAULT_MAX_TOKENS_PER_TURN,
+    max_tokens_per_turn: Optional[int] = None,
     max_output_tokens: Optional[int] = None,
     on_text: Optional[StreamTextHook] = None,
     on_tool_call: Optional[StreamToolCallHook] = None,

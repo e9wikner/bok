@@ -12,7 +12,7 @@ import sqlite3
 import uuid
 from dataclasses import replace
 from datetime import date, datetime, time, timedelta
-from typing import Any, Dict, cast
+from typing import Any, Dict, Optional, cast
 
 import pytest
 from fastapi.testclient import TestClient
@@ -2080,7 +2080,7 @@ class _FakeLLMClient:
         messages: list,
         tools: list,
         model: str,
-        max_tokens: int,
+        max_tokens: Optional[int],
         on_text: Any = None,
         on_tool_call: Any = None,
     ) -> LLMTurn:
