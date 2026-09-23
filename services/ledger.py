@@ -17,6 +17,12 @@ from repositories.period_repo import PeriodRepository
 from repositories.voucher_repo import VoucherRepository
 
 
+def _today() -> date:
+    """The server's date, for where a correction is booked
+    (SPEC-flode-verifikationer §7.2). A function so tests can fix it."""
+    return date.today()
+
+
 class LedgerService:
     """Core accounting service (Bokföringssystem)."""
 
@@ -209,10 +215,17 @@ class LedgerService:
     ) -> Voucher:
         """Create correction voucher (B-series) for an original voucher.
 
-        `voucher_date` and `description` default to the original's date and
-        `Correction of voucher …`; a thread proposal passes the date §7.2 of
-        SPEC-flode-verifikationer derives (`correction_target`) and the
-        agent's description, which the human sees on the card before posting.
+        Booked where SPEC-flode-verifikationer §7.2 says: the original's
+        period if open, otherwise the latest open period in the same fiscal
+        year. `voucher_date` defaults to the date `correction_target` derives
+        for today -- never the original's date, which lies outside the target
+        period when the original's is locked (F12) -- and `description` to
+        `Correction of voucher …`. A thread proposal passes its own date
+        (the same rule, its own clock) and the agent's description, which the
+        human sees on the card before posting.
+
+        `ValidationError(no_open_period)` when no date is given and the
+        fiscal year has no open period.
         """
         original = self.vouchers.get(original_voucher_id)
         if not original:
@@ -228,7 +241,10 @@ class LedgerService:
         # Find an unlocked period for the correction.
         # If the original period is locked, use the latest unlocked period
         # in the same fiscal year (BFL: corrections go in current period).
-        target = self._target_correction_period(original)
+        if voucher_date is None:
+            target, voucher_date = self.correction_target(original, _today())
+        else:
+            target = self._target_correction_period(original)
         target_period_id = target.id if target else original.period_id
 
         # Create B-series correction voucher
@@ -288,8 +304,39 @@ class LedgerService:
         """Create and post a B-series correction for a posted voucher.
 
         The posted correction contains reversal rows for the original voucher
-        followed by the corrected rows supplied by the caller.
+        followed by the corrected rows supplied by the caller, dated and
+        booked by `correction_target` (SPEC-flode-verifikationer §7.2).
+
+        The voucher, its number and the correction history are one unit: a
+        failure writing the history rolls the correction back (F12). With
+        `_commit=False` the caller's transaction is that unit; by default
+        this method opens one of its own.
         """
+        if _commit:
+            from db.database import db
+
+            with db.transaction():
+                correction = self.create_posted_correction(
+                    original_voucher_id,
+                    corrected_rows,
+                    reason=reason,
+                    actor=actor,
+                    _commit=False,
+                )
+            # Skipped by `post_voucher(_commit=False)`; best-effort, as in
+            # `api/routes/vouchers.py`.
+            try:
+                from services.opening_balance import OpeningBalanceService
+
+                period = self.periods.get_period(correction.period_id)
+                if period is not None:
+                    OpeningBalanceService().update_opening_balances_for_next_year(
+                        period.fiscal_year_id, actor
+                    )
+            except Exception:
+                pass
+            return correction
+
         original = self.vouchers.get(original_voucher_id)
         if not original:
             raise ValidationError("voucher_not_found", "Original voucher not found")
@@ -300,19 +347,22 @@ class LedgerService:
                 "original voucher must be in 'posted' status",
             )
 
-        target_period = self._target_correction_period(original)
+        target_period, voucher_date = self.correction_target(original, _today())
         correction_rows = self.reversal_rows(original) + corrected_rows
 
-        self._validate_correction_rows(original, target_period, correction_rows)
+        self._validate_correction_rows(
+            original, target_period, voucher_date, correction_rows
+        )
         correction = self.create_correction(
             original_voucher_id=original.id,
             correction_rows=correction_rows,
             actor=actor,
             _commit=_commit,
+            voucher_date=voucher_date,
         )
         correction = self.post_voucher(correction.id, actor=actor, _commit=_commit)
 
-        self._record_correction_history(
+        self.record_correction_history(
             original=original,
             correction=correction,
             corrected_rows=corrected_rows,
@@ -459,6 +509,7 @@ class LedgerService:
         self,
         original: Voucher,
         period: Period,
+        voucher_date: date,
         correction_rows: List[Dict],
     ) -> None:
         all_accounts = self.accounts.get_all_as_dict()
@@ -466,7 +517,7 @@ class LedgerService:
             id="temp",
             series=VoucherSeries.B,
             number=None,
-            date=original.date,
+            date=voucher_date,
             period_id=period.id,
             description=f"Correction of voucher {original.series.value}{original.number:06d}",
             status=VoucherStatus.DRAFT,
@@ -486,7 +537,7 @@ class LedgerService:
             )
         validate_complete_voucher(temp, period, all_accounts)
 
-    def _record_correction_history(
+    def record_correction_history(
         self,
         original: Voucher,
         correction: Voucher,
@@ -495,35 +546,41 @@ class LedgerService:
         actor: str,
         _commit: bool = True,
     ) -> None:
-        try:
-            from repositories.accounting_correction_repo import (
-                AccountingCorrectionRepository,
-            )
+        """The `correction_history` row for a posted correction: the
+        original as it was (`original_data`) and as it should have been
+        (`corrected_data`: the original's description with the corrected
+        rows -- never the reversal).
 
-            AccountingCorrectionRepository.create(
-                original_voucher_id=original.id,
-                corrected_voucher_id=correction.id,
-                original_data=self._voucher_snapshot(original),
-                corrected_data={
-                    "description": original.description,
-                    "rows": [
-                        {
-                            "account_code": row["account"],
-                            "debit": row.get("debit", 0),
-                            "credit": row.get("credit", 0),
-                            "description": row.get("description"),
-                        }
-                        for row in corrected_rows
-                    ],
-                    "correction_voucher_id": correction.id,
-                },
-                change_type="multiple",
-                corrected_by=actor,
-                correction_reason=reason,
-                _commit=_commit,
-            )
-        except Exception:
-            pass
+        Raises on failure. It used to swallow every exception, which let a
+        correction be posted without its history; the posting's transaction
+        now rolls back instead (SPEC-flode-verifikationer §8.1, F12).
+        """
+        from repositories.accounting_correction_repo import (
+            AccountingCorrectionRepository,
+        )
+
+        AccountingCorrectionRepository.create(
+            original_voucher_id=original.id,
+            corrected_voucher_id=correction.id,
+            original_data=self._voucher_snapshot(original),
+            corrected_data={
+                "description": original.description,
+                "rows": [
+                    {
+                        "account_code": row["account"],
+                        "debit": row.get("debit", 0),
+                        "credit": row.get("credit", 0),
+                        "description": row.get("description"),
+                    }
+                    for row in corrected_rows
+                ],
+                "correction_voucher_id": correction.id,
+            },
+            change_type="multiple",
+            corrected_by=actor,
+            correction_reason=reason,
+            _commit=_commit,
+        )
 
     def _voucher_snapshot(self, voucher: Voucher) -> Dict:
         return {

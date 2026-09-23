@@ -1963,11 +1963,15 @@ def _correction_args(original, **overrides) -> ForeslaVerifikationArgs:
 
 @pytest.fixture
 def today(monkeypatch):
-    """The server's `today` (§7.2), fixed so the date rule can be asserted."""
+    """The server's `today` (§7.2), fixed so the date rule can be asserted:
+    the thread's proposal reads it in `draft_service`, `/correct` and the
+    notes' paths in `ledger` (F12)."""
     import services.draft_service as draft_service
+    import services.ledger as ledger
 
     def set_today(value: date) -> None:
         monkeypatch.setattr(draft_service, "_today", lambda: value)
+        monkeypatch.setattr(ledger, "_today", lambda: value, raising=False)
 
     set_today(date(2026, 9, 23))
     return set_today
@@ -2352,3 +2356,380 @@ def test_case_40_a_note_without_correction_of_is_refused(today):
 
     assert excinfo.value.code == "correction_note_mismatch"
     assert _count("thread_drafts") == 0
+
+
+# --- F12: rättelsens postning och noteringarna (testfall 37-39, 41, 43) -------
+
+
+def _history(original_id: str) -> list:
+    from repositories.accounting_correction_repo import AccountingCorrectionRepository
+
+    return AccountingCorrectionRepository.list(voucher_id=original_id)
+
+
+def _proposed_correction(thread, trigger, original, **overrides) -> str:
+    result = _propose(
+        thread,
+        _correction_args(original, **overrides),
+        ProposalSequence(thread.id, trigger.id),
+    )
+    return result["draft_id"]
+
+
+def _note_status(note_id: str):
+    from repositories.correction_note_repo import CorrectionNoteRepository
+
+    return CorrectionNoteRepository.get(note_id)
+
+
+def test_case_37_posting_a_correction(today, auth_headers):
+    thread, september, trigger = _books()
+    original = _original(september)
+    draft_id = _proposed_correction(thread, trigger, original)
+
+    response = _post_route(_client(), draft_id, auth_headers, key=str(uuid.uuid4()))
+
+    assert response.status_code == 200, response.text
+    posted = VoucherRepository.get(draft_id)
+    assert posted.status == VoucherStatus.POSTED
+    assert (posted.series.value, posted.number) == ("B", 1)
+    assert ThreadDraftRepository.get(draft_id).status == "posted"
+
+    [entry] = _history(original.id)
+    assert entry.corrected_voucher_id == draft_id
+    assert entry.change_type == "multiple"
+    assert entry.corrected_by == "api"
+    assert entry.was_successful is None or entry.was_successful
+    assert entry.original_data["id"] == original.id
+    assert [r["account_code"] for r in entry.original_data["rows"]] == [
+        "6110",
+        "2640",
+        "1930",
+    ]
+    # The corrected rows are the agent's -- never the reversal.
+    assert [
+        (r["account_code"], r["debit"], r["credit"])
+        for r in entry.corrected_data["rows"]
+    ] == [("6110", 89600, 0), ("1930", 0, 89600)]
+    # "How the voucher should have looked": the original, corrected.
+    assert entry.corrected_data["description"] == original.description
+    assert entry.corrected_data["correction_voucher_id"] == draft_id
+    assert entry.correction_reason == (
+        "Rättelse: kontorsmaterial utan avdragsgill moms"
+    )
+
+    [receipt] = _receipts(thread)
+    assert receipt.body["title"] == "B-1 postad · rättar A-1"
+    # Every account the reversal or the corrected rows touch, once each.
+    assert [r["key"] for r in receipt.body["rows"]] == ["6110", "2640", "1930"]
+    assert receipt.traces[:2] == [
+        {
+            "tool": "posta_utkast",
+            "label": "verifikation postad",
+            "detail": "B-1",
+            "voucher_id": draft_id,
+        },
+        {
+            "tool": "rattar",
+            "label": "rättar A-1",
+            "detail": "A-1",
+            "voucher_id": original.id,
+        },
+    ]
+    assert receipt.traces[-1] == {"tool": "vantar", "label": "0 kvar"}
+
+
+def test_case_37_a_plain_draft_gets_no_correction_chip(auth_headers):
+    thread, period, trigger = _books()
+    draft_id = _proposed(thread, period, trigger)
+
+    assert _post_route(_client(), draft_id, auth_headers).status_code == 200
+
+    [receipt] = _receipts(thread)
+    assert receipt.body["title"] == "A-1 postad"
+    assert "rattar" not in [t["tool"] for t in receipt.traces]
+    assert _count("correction_history") == 0
+
+
+def test_case_37_a_correction_note_gives_the_reason(today, auth_headers):
+    thread, september, trigger = _books()
+    original = _original(september)
+    note = _note(original)
+    draft_id = _proposed_correction(
+        thread, trigger, original, correction_note_id=note.id
+    )
+
+    assert _post_route(_client(), draft_id, auth_headers).status_code == 200
+
+    [entry] = _history(original.id)
+    assert entry.correction_reason == (
+        "Rättelse: kontorsmaterial utan avdragsgill moms · notering: Fel moms"
+    )
+
+
+def test_case_38_a_failed_history_rolls_back_the_whole_posting(
+    today, monkeypatch, auth_headers
+):
+    from repositories.accounting_correction_repo import AccountingCorrectionRepository
+
+    thread, september, trigger = _books()
+    original = _original(september)
+    note = _note(original)
+    draft_id = _proposed_correction(
+        thread, trigger, original, correction_note_id=note.id
+    )
+    key = str(uuid.uuid4())
+
+    def broken(*args, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(AccountingCorrectionRepository, "create", broken)
+    response = _post_route(_client(), draft_id, auth_headers, key=key)
+
+    assert response.status_code == 500
+    draft = VoucherRepository.get(draft_id)
+    assert draft.status == VoucherStatus.DRAFT
+    assert draft.number is None
+    assert ThreadDraftRepository.get(draft_id).status == "pending"
+    assert _note_status(note.id).status == "pending"
+    assert _count("correction_history") == 0
+    assert _receipts(thread) == []
+
+    # Nothing was used up: the next try takes B-1, with its history.
+    monkeypatch.undo()
+    retry = _post_route(_client(), draft_id, auth_headers, key=key)
+    assert retry.status_code == 200, retry.text
+    assert retry.json()["number"] == 1
+    assert len(_history(original.id)) == 1
+
+
+@pytest.mark.parametrize("status", ["pending", "suggested"])
+def test_case_39_the_note_is_applied_with_the_posting(today, auth_headers, status):
+    thread, september, trigger = _books()
+    original = _original(september)
+    note = _note(original, status)
+    draft_id = _proposed_correction(
+        thread, trigger, original, correction_note_id=note.id
+    )
+    client = _client()
+    decision_id = f"correction:{note.id}"
+
+    def open_ids():
+        response = client.get("/api/v1/decisions", headers=auth_headers)
+        assert response.status_code == 200, response.text
+        return [d["id"] for d in response.json()["decisions"]]
+
+    # The proposal leaves the note as it was: only the posting moves it,
+    # so the old page's approve cannot post the thread's draft past the hooks.
+    assert _note_status(note.id).status == status
+    assert decision_id in open_ids()
+    waiting_before = DecisionService().count_waiting(thread.view_key)
+
+    assert _post_route(client, draft_id, auth_headers).status_code == 200
+
+    applied = _note_status(note.id)
+    assert applied.status == "applied"
+    assert applied.resolved_at is not None
+    if status == "pending":
+        assert applied.suggested_voucher_id == draft_id
+    assert decision_id not in open_ids()
+    # The note and its proposal were one thing waiting; now none.
+    assert waiting_before == 1
+    assert DecisionService().count_waiting(thread.view_key) == 0
+    [receipt] = _receipts(thread)
+    assert receipt.traces[-1] == {"tool": "vantar", "label": "0 kvar"}
+
+
+def test_case_39_a_note_closed_meanwhile_refuses_the_posting(today, auth_headers):
+    thread, september, trigger = _books()
+    original = _original(september)
+    note = _note(original)
+    draft_id = _proposed_correction(
+        thread, trigger, original, correction_note_id=note.id
+    )
+    db.execute(
+        "UPDATE correction_notes SET status = 'dismissed' WHERE id = ?", (note.id,)
+    )
+    db.commit()
+
+    response = _post_route(_client(), draft_id, auth_headers)
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "correction_note_mismatch"
+    assert VoucherRepository.get(draft_id).number is None
+    assert _count("correction_history") == 0
+    assert ThreadDraftRepository.get(draft_id).last_error_code == (
+        "correction_note_mismatch"
+    )
+
+
+def test_case_41_answering_a_correction_decision_points_at_the_chat(auth_headers):
+    thread, september, trigger = _books()
+    original = _original(september)
+    note = _note(original)
+
+    response = _client().post(
+        f"/api/v1/decisions/correction:{note.id}/answer",
+        json={"free_text": "Rätta den."},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["code"] == "decision_not_answerable"
+    assert "Verifikationers chatt" in detail["details"]
+    assert "bocker.verifikationer" in detail["details"]
+    assert f"correction_of={original.id}" in detail["details"]
+    assert f"correction_note_id={note.id}" in detail["details"]
+    assert "/suggest" not in detail["details"]
+
+
+def test_case_43_posta_verifikation_has_no_correction_of():
+    from services.agent_tools import PostaVerifikationArgs
+
+    assert "correction_of" not in PostaVerifikationArgs.model_fields
+    assert "correction_note_id" not in PostaVerifikationArgs.model_fields
+    [tool] = [t for t in AGENT_TOOL_DEFINITIONS if t["name"] == "posta_verifikation"]
+    assert "correction_of" not in json.dumps(tool["input_schema"])
+
+
+def test_las_korrigeringar_gives_a_vouchers_open_notes(today):
+    from services.agent_tools import LasKorrigeringarArgs, _run_las_korrigeringar
+
+    thread, september, trigger = _books()
+    original = _original(september)
+    other = _original(september, day=19)
+    # One active note per voucher (migration 022): the closed ones first.
+    _note(original, "dismissed")
+    _note(original, "applied")
+    pending = _note(original)
+    _note(other)
+
+    result = _run_las_korrigeringar(
+        LasKorrigeringarArgs(voucher_id=original.id),
+        actor="agent",
+        capabilities=_capabilities(),
+    )
+
+    assert result["voucher_id"] == original.id
+    assert result["history"] == []
+    assert [(n["id"], n["status"], n["text"]) for n in result["open_notes"]] == [
+        (pending.id, "pending", "Fel moms")
+    ]
+    # Without voucher_id the answer is the history list, as before.
+    assert (
+        _run_las_korrigeringar(
+            LasKorrigeringarArgs(), actor="agent", capabilities=_capabilities()
+        )
+        == []
+    )
+
+
+def test_las_korrigeringar_lists_a_suggested_note_too(today):
+    from services.agent_tools import LasKorrigeringarArgs, _run_las_korrigeringar
+
+    thread, september, trigger = _books()
+    original = _original(september)
+    note = _note(original, "suggested")
+
+    result = _run_las_korrigeringar(
+        LasKorrigeringarArgs(voucher_id=original.id),
+        actor="agent",
+        capabilities=_capabilities(),
+    )
+
+    assert [(n["id"], n["status"]) for n in result["open_notes"]] == [
+        (note.id, "suggested")
+    ]
+
+
+# The date bug F11 found: `/correct`, the old page's `suggest` and
+# `create_draft` dated the B voucher with the original's date, so a
+# correction of a voucher in a locked period landed in a later period with a
+# date outside it.
+
+
+def _june_locked_september_open():
+    thread, september, trigger = _books()
+    june = _add_period(thread, 6)
+    original = _original(june)
+    _lock(june)
+    return september, original
+
+
+def test_correct_route_books_a_locked_original_in_the_open_period(today, auth_headers):
+    september, original = _june_locked_september_open()
+
+    response = _client().post(
+        f"/api/v1/vouchers/{original.id}/correct",
+        json={"corrected_rows": _CORRECTED_ROWS, "reason": "Fel moms"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    correction = VoucherRepository.get(response.json()["id"])
+    assert correction.status == VoucherStatus.POSTED
+    assert correction.period_id == september.id
+    assert correction.date == date(2026, 9, 23)
+    assert _history(original.id)[0].correction_reason == "Fel moms"
+
+
+def test_correct_route_takes_the_periods_last_day_when_today_is_outside(
+    today, auth_headers
+):
+    september, original = _june_locked_september_open()
+    today(date(2026, 10, 2))
+
+    response = _client().post(
+        f"/api/v1/vouchers/{original.id}/correct",
+        json={"corrected_rows": _CORRECTED_ROWS, "reason": "Fel moms"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["date"] == "2026-09-30"
+
+
+def test_note_suggest_and_create_draft_book_a_locked_original_in_the_open_period(
+    today,
+):
+    from services.correction_notes import CorrectionNoteService
+
+    september, original = _june_locked_september_open()
+    note = _note(original)
+    rows = LedgerService.reversal_rows(original) + _CORRECTED_ROWS
+    service = CorrectionNoteService()
+
+    suggested, draft = service.suggest(original.id, note.id, rows)
+    assert (draft.period_id, draft.date) == (september.id, date(2026, 9, 23))
+    posted = service.approve(original.id, note.id)
+    assert posted.status == VoucherStatus.POSTED
+
+    other = service.create_draft(original.id, rows)
+    assert (other.period_id, other.date) == (september.id, date(2026, 9, 23))
+
+
+def test_correct_route_rolls_back_when_the_history_fails(
+    today, monkeypatch, auth_headers
+):
+    """`/correct`'s choice (F12): a correction without its history is not
+    posted. The history used to be swallowed; now the whole correction,
+    number included, rolls back and the answer is `500`."""
+    from repositories.accounting_correction_repo import AccountingCorrectionRepository
+
+    thread, september, trigger = _books()
+    original = _original(september)
+
+    def broken(*args, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(AccountingCorrectionRepository, "create", broken)
+    response = _client().post(
+        f"/api/v1/vouchers/{original.id}/correct",
+        json={"corrected_rows": _CORRECTED_ROWS, "reason": "Fel moms"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 500
+    assert _count("vouchers") == 1
+    assert _count("correction_history") == 0

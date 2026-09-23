@@ -529,6 +529,13 @@ räknas i `LedgerService.correction_target`, som använder `_target_correction_p
 `create_correction` fick `voucher_date` och `description`, med originalets datum och `Correction
 of voucher …` som förval, så `/correct` och noteringarnas väg är oförändrade.
 
+F12 ändrade förvalet: originalets datum hamnade utanför målperioden när originalets period var
+låst (`voucher_date_outside_period`), i `/correct` (`create_posted_correction`), i
+`CorrectionNoteService.suggest` och i `create_draft`. Utan `voucher_date` väljer
+`create_correction` nu datum och period med `correction_target(original, idag)`, och
+`create_posted_correction` gör detsamma. Saknar räkenskapsåret öppen period svarar de därför
+`no_open_period` redan när rättelsen skapas, i stället för `period_locked` vid postningen.
+
 ### 7.3 Korrigeringsnoteringar
 
 `correction_notes` med status `pending` eller `suggested` visas i dag som syntetiska beslut som
@@ -547,6 +554,25 @@ inte går att besvara (`SPEC-beslut.md` §5: *"`correction`-raderna lever tills
 
 De gamla routerna för noteringar (`suggest`, `approve`, `dismiss`, `reject`) står kvar orörda,
 enligt `SPEC-skal.md` §3: de gamla sidorna tas bort vy för vy, inte här.
+
+Så byggdes det (F12):
+
+- `las_korrigeringar` med `voucher_id` svarar `{voucher_id, open_notes, history}`, där
+  `open_notes` är noteringarna med `pending`/`suggested` (`id`, `status`, `text`, `created_by`,
+  `created_at`). Utan `voucher_id` är svaret listan som förut. Argumenten och
+  verktygsbeskrivningen är orörda (cachat prefix); agentinstruktionen
+  (`docs/to_agent/02_bokforingsprocess.md`) säger var noteringarna finns.
+- Noteringen rörs inte vid förslaget. En `pending` notering går `pending → suggested → applied`
+  (`set_suggested` med B-verifikationens id, sedan `set_applied`) i postningens transaktion. Sattes
+  den `suggested` vid förslaget kunde den gamla sidans `…/approve` posta trådens utkast förbi
+  krokarna. En `suggested` notering från den gamla vägen blir `applied`; dess
+  `suggested_voucher_id` pekar kvar på den gamla sidans utkast, som blir liggande som utkast.
+- En notering som stängts medan förslaget väntade (avfärdad, avvisad, eller tillämpad av en
+  annan rättelse) vägrar postningen med `400 correction_note_mismatch`, och §9:s felinlägg
+  skrivs: en postad rättelse ska stänga sin notering.
+- `409`-kroppens `details` är: *"Svaret på en korrigeringsnotering är en postad rättelse: skriv
+  i Verifikationers chatt (view_key=bocker.verifikationer), där agenten föreslår rättelsen med
+  correction_of=…, correction_note_id=…"*.
 
 ### 7.4 Korrigeringens kontroller
 
@@ -593,6 +619,16 @@ Klienten anropar som i dag `POST /vouchers/{draft_id}/post` med nyckeln
    här rullar tillbaka postningen och blir `400 inactive_account` eller `400 account_not_found`.
 1. `status='posted'`, `posted_at`.
 2. Om `correction_of`: korrigeringshistoriken och, om den finns, noteringen `applied` (§7).
+   Så byggdes det (F12): `LedgerService.record_correction_history` (förut
+   `_record_correction_history`, som svalde alla fel) med originalet, den postade
+   B-verifikationen och de rättade raderna, alltså B-utkastets rader efter de första
+   `len(original.rows)`. `correction_reason` är B-verifikationens `description`, den text
+   människan såg på kortet och postade, följd av ` · notering: {note_text}` när rättelsen svarar
+   på en notering. `corrected_data.description` förblir originalets: `corrected_data` är
+   originalet så som det borde ha sett ut, inte B-verifikationen. Ett fel i historiken rullar
+   tillbaka hela postningen (`500`, inget nummer förbrukat). `/correct` beter sig likadant: där
+   svaldes felet förut och rättelsen postades utan historik; nu rullas den tillbaka och svarar
+   `500`, och `create_posted_correction` utan `_commit=False` öppnar en egen transaktion.
 3. Radens spårbarhet (migration 029, §6.1) länkas som en direkt postning gör det:
    `IntakeService.link_existing_voucher` och `BankInputService.link_posted_voucher`, med
    `_commit=False`.
@@ -656,7 +692,8 @@ Exakt `SPEC-chattyta.md` §4.3:
 - Chipens `tool` (F8): `posta_utkast` för `verifikation postad` (med `detail` och `voucher_id`),
   `kompletteringsflagga` för `kompletteringsflagga satt`, `vantar` för `{n} kvar` (F10), som
   står sist och räknas med `count_waiting(trådens vy)` efter postningens commit, så att det
-  postade förslaget inte längre räknas. `rättar …` kommer med korrigeringen i F12.
+  postade förslaget inte längre räknas. `rättar …` (F12) har `tool: "rattar"`, `detail`
+  `{serie}-{nummer}` och originalets `voucher_id`, och står direkt efter `verifikation postad`.
 
 Panelens *"Sista händelsen i kön: då slutar tråden med att juni är avstämd"* blir chipet
 `0 kvar`. Att juni är *avstämd* är ett omdöme, och omdömen är agentens.

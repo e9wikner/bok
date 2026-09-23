@@ -3450,9 +3450,9 @@ class TestCaseSixteenSyntheticIdsAreNotAnswerableHere:
         assert detail["code"] == "decision_not_answerable"
         assert f"/intake/{source_id}/agent-guidance" in detail["details"]
 
-    def test_a_correction_id_is_409_pointing_at_the_suggest_path(
-        self, client, auth_headers
-    ):
+    def test_a_correction_id_is_409_pointing_at_the_chat(self, client, auth_headers):
+        """SPEC-flode-verifikationer §7.3 (F12): the pointer is Verifikationer's
+        chat, no longer `…/suggest`."""
         voucher_id = _voucher_for_correction()
         note_id = _insert_correction_note(voucher_id, status="pending")
 
@@ -3466,7 +3466,8 @@ class TestCaseSixteenSyntheticIdsAreNotAnswerableHere:
         assert response.status_code == 409
         detail = response.json()["detail"]
         assert detail["code"] == "decision_not_answerable"
-        assert f"correction-notes/{note_id}/suggest" in detail["details"]
+        assert "Verifikationers chatt" in detail["details"]
+        assert f"correction_note_id={note_id}" in detail["details"]
         assert voucher_id in detail["details"]
 
     def test_a_synthetic_id_is_409_not_404_even_though_it_is_not_in_decisions(

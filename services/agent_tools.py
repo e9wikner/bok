@@ -45,7 +45,7 @@ session decides what a raise means.
 
 import uuid
 from datetime import date as DateType
-from typing import Any, Callable, Literal, Mapping, Optional
+from typing import Any, Callable, Literal, Mapping, Optional, Union
 
 from pydantic import BaseModel, Field
 from pydantic import ValidationError as PydanticValidationError
@@ -64,6 +64,7 @@ from domain.models import (
 from domain.validation import ValidationError
 from repositories.account_repo import AccountRepository
 from repositories.accounting_correction_repo import AccountingCorrectionRepository
+from repositories.correction_note_repo import CorrectionNoteRepository
 from repositories.period_repo import PeriodRepository
 from repositories.voucher_repo import VoucherRepository
 from services.agent_documents import ContentBlock, select_content_for_source
@@ -586,11 +587,37 @@ def _run_las_korrigeringar(
     capabilities: LLMCapabilities,
     idempotency_key: Optional[str] = None,
     tool_context: Optional[Mapping[str, Any]] = None,
-) -> list[dict]:
+) -> Union[list[dict], dict]:
+    """The correction history -- a list, as always, without `voucher_id`.
+
+    With `voucher_id` the answer also carries the voucher's open correction
+    notes (`pending`/`suggested`) with id and text, so the agent can bind a
+    correction to one with `foresla_verifikation`'s `correction_note_id`
+    (SPEC-flode-verifikationer §7.3, F12). Only the answer grew: the
+    arguments, and so the cached tool definitions, are unchanged.
+    """
     entries = AccountingCorrectionRepository.list(
         limit=args.limit, voucher_id=args.voucher_id
     )
-    return [_correction_dict(entry) for entry in entries]
+    history = [_correction_dict(entry) for entry in entries]
+    if args.voucher_id is None:
+        return history
+    notes = CorrectionNoteRepository.list_for_voucher(args.voucher_id)
+    return {
+        "voucher_id": args.voucher_id,
+        "open_notes": [
+            {
+                "id": note.id,
+                "status": note.status,
+                "text": note.note_text,
+                "created_by": note.created_by,
+                "created_at": note.created_at.isoformat(),
+            }
+            for note in notes
+            if note.status in ("pending", "suggested")
+        ],
+        "history": history,
+    }
 
 
 def _run_las_underlag(

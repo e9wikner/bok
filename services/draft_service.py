@@ -226,6 +226,7 @@ def draft_body(
 RECEIPT_POSTED_TOOL = "posta_utkast"
 RECEIPT_FLAG_TOOL = "kompletteringsflagga"
 RECEIPT_WAITING_TOOL = "vantar"
+RECEIPT_CORRECTS_TOOL = "rattar"
 
 
 def voucher_label(voucher: Voucher) -> str:
@@ -233,14 +234,22 @@ def voucher_label(voucher: Voucher) -> str:
     return f"{voucher.series.value}-{voucher.number}"
 
 
-def receipt_body(voucher: Voucher, accounts: Mapping[str, Account]) -> dict:
+def receipt_body(
+    voucher: Voucher,
+    accounts: Mapping[str, Account],
+    corrects: Optional[Voucher] = None,
+) -> dict:
     """The `receipt` post's body -- SPEC-chattyta.md §4.3, which
     `tests/test_flode_verifikationer.py` reads out of the client's fixture.
 
     One row per account, in the voucher's order, both numbers always: the
-    account's balance in the fiscal year before and after (§8.2)."""
+    account's balance in the fiscal year before and after (§8.2). A
+    correction names what it corrects: `B-7 postad · rättar A-118`."""
+    title = f"{voucher_label(voucher)} postad"
+    if corrects is not None:
+        title += f" · rättar {voucher_label(corrects)}"
     return {
-        "title": f"{voucher_label(voucher)} postad",
+        "title": title,
         "labels": ["var", "blir"],
         "rows": [
             {
@@ -257,10 +266,13 @@ def receipt_body(voucher: Voucher, accounts: Mapping[str, Account]) -> dict:
     }
 
 
-def receipt_traces(voucher: Voucher, waiting: int) -> List[dict]:
+def receipt_traces(
+    voucher: Voucher, waiting: int, corrects: Optional[Voucher] = None
+) -> List[dict]:
     """§8.2's chips. `waiting` is `DecisionService.count_waiting` for the
     thread's view, counted after the posting (§11.3): its `{n} kvar` chip
-    comes last. The correction's `rättar {serie}-{nummer}` is F12's."""
+    comes last. A correction's `rättar {serie}-{nummer}` follows
+    `verifikation postad`, pointing at the original."""
     traces: List[dict] = [
         {
             "tool": RECEIPT_POSTED_TOOL,
@@ -269,6 +281,15 @@ def receipt_traces(voucher: Voucher, waiting: int) -> List[dict]:
             "voucher_id": voucher.id,
         }
     ]
+    if corrects is not None:
+        traces.append(
+            {
+                "tool": RECEIPT_CORRECTS_TOOL,
+                "label": f"rättar {voucher_label(corrects)}",
+                "detail": voucher_label(corrects),
+                "voucher_id": corrects.id,
+            }
+        )
     # Derived, like SPEC-oversikt.md §3: no row in `attachments`.
     if voucher.missing_attachment:
         traces.append({"tool": RECEIPT_FLAG_TOOL, "label": "kompletteringsflagga satt"})
@@ -322,6 +343,11 @@ def _posting_error_texts(error: ValidationError, voucher_id: str) -> tuple:
         )
     if error.code == "account_not_found" and account:
         return (f"Konto {account} finns inte längre i kontoplanen.", as_written)
+    if error.code == "correction_note_mismatch":
+        return (
+            "Korrigeringsnoteringen som rättelsen svarar på är inte längre öppen.",
+            as_written,
+        )
     if error.code == "voucher_date_outside_period":
         return ("Verifikationens datum ligger utanför dess period.", as_written)
     return (
@@ -460,9 +486,11 @@ class DraftService:
         draft = ThreadDraftRepository.mark_posted(
             voucher.id, voucher.posted_at or datetime.now(), _commit=False
         )
-        # 2. TODO(F12): if draft.correction_of -- the correction history and,
-        #    when draft.correction_note_id is set, the note `applied` (§7),
-        #    here, before the traceability, inside the same transaction.
+        # 2. A correction: its history and, when it answers one, the note
+        #    `applied` (§7.1 step 5, §7.3) -- in the same transaction, so a
+        #    failure in either leaves the voucher unposted.
+        if draft.correction_of is not None:
+            self._record_correction(draft, voucher, actor)
         # 3. Traceability, as a direct posting links it.
         self._link_traceability(draft, voucher, actor)
 
@@ -571,12 +599,17 @@ class DraftService:
         draft = ThreadDraftRepository.get(voucher.id)
         if draft is None:
             return None
-        body = receipt_body(voucher, AccountRepository.get_all_as_dict())
+        corrects = (
+            VoucherRepository.get(draft.correction_of)
+            if draft.correction_of is not None
+            else None
+        )
+        body = receipt_body(voucher, AccountRepository.get_all_as_dict(), corrects)
         from services.decision_service import DecisionService
 
         # After the posting's commit: this draft no longer waits (§8.2).
         traces = receipt_traces(
-            voucher, DecisionService().count_waiting(draft.view_key)
+            voucher, DecisionService().count_waiting(draft.view_key), corrects
         )
         try:
             with db.transaction():
@@ -593,6 +626,77 @@ class DraftService:
             logger.info("Receipt for %s already written; skipped", voucher.id)
             return None
         return post
+
+    @staticmethod
+    def _record_correction(draft: ThreadDraft, voucher: Voucher, actor: str) -> None:
+        """Step 2 of §8.1 for a correction, inside the posting's transaction.
+
+        The history row gets the original, the posted B voucher and the
+        corrected rows: the B draft's rows after the reversal, which is always
+        the first `len(original.rows)` (§7.1). Its `correction_reason` is the
+        description the human saw on the card and posted -- plus the note's
+        text when the correction answers one, the human's own words. Raises
+        on failure, so the posting rolls back (testfall 38).
+
+        The note goes `pending -> suggested -> applied` here and not earlier:
+        a note left `pending` at proposal time cannot be approved through the
+        old page's `correction-notes/…/approve`, which would post the draft
+        past these hooks (§7.3). A note closed meanwhile (dismissed,
+        rejected, applied by another correction) refuses the posting with
+        `correction_note_mismatch`: a posted correction must close its note.
+        """
+        from repositories.correction_note_repo import CorrectionNoteRepository
+        from services.ledger import LedgerService
+
+        original = VoucherRepository.get(draft.correction_of or "")
+        if original is None:
+            raise ValidationError(
+                "voucher_not_found",
+                "Original voucher not found",
+                details=f"voucher_id={draft.correction_of}",
+            )
+        corrected_rows = [
+            {
+                "account": row.account_code,
+                "debit": row.debit,
+                "credit": row.credit,
+                "description": row.description,
+            }
+            for row in voucher.rows[len(original.rows) :]
+        ]
+        reason = voucher.description
+        note = None
+        if draft.correction_note_id is not None:
+            note = CorrectionNoteRepository.get(draft.correction_note_id)
+            if note is not None:
+                reason = f"{voucher.description} · notering: {note.note_text}"
+        LedgerService().record_correction_history(
+            original=original,
+            correction=voucher,
+            corrected_rows=corrected_rows,
+            reason=reason,
+            actor=actor,
+            _commit=False,
+        )
+
+        if draft.correction_note_id is None:
+            return
+        if note is not None and note.status == "pending":
+            note = CorrectionNoteRepository.set_suggested(
+                note.id, voucher.id, _commit=False
+            )
+        if note is not None and note.status == "suggested":
+            note = CorrectionNoteRepository.set_applied(note.id, _commit=False)
+        if note is None or note.status != "applied":
+            raise DraftError(
+                "correction_note_mismatch",
+                "The correction note is no longer open: the correction would "
+                "leave it as it is",
+                details=(
+                    f"correction_note_id={draft.correction_note_id}, "
+                    f"status={note.status if note else 'missing'}"
+                ),
+            )
 
     @staticmethod
     def _link_traceability(draft: ThreadDraft, voucher: Voucher, actor: str) -> None:

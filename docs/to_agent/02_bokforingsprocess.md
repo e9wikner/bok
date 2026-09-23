@@ -305,7 +305,11 @@ aldrig två förslag för samma sak.
 En rättelse av en postad verifikation är alltid ett förslag, aldrig
 `posta_verifikation`: lägg fram de rättade raderna — hur verifikationen borde
 ha sett ut — med originalets id i `correction_of`. Återföringen av originalet
-bygger servern; skicka den inte själv. Går förslaget inte att lägga fram, säg
-det till människan i svaret och posta aldrig en rättelse själv.
+bygger servern; skicka den inte själv. Har verifikationen en öppen
+korrigeringsnotering — `las_korrigeringar` med `voucher_id` visar dem under
+`open_notes` — och är det den rättelsen svarar på, ange noteringens id i
+`correction_note_id`; noteringen stängs när rättelsen postas. Går förslaget inte
+att lägga fram, säg det till människan i svaret och posta aldrig en rättelse
+själv.
 (`POST /api/v1/vouchers/{id}/correct` under "Korrigera fel" gäller en extern
 session som anropar API:t direkt, inte en tråd.)

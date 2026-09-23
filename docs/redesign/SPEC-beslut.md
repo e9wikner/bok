@@ -255,6 +255,8 @@ De två syntetiska källorna är **läsbara men inte besvarbara via den här mod
 `POST /decisions/{id}/answer` på ett `intake:`- eller `correction:`-id svarar `409` med
 `code: "decision_not_answerable"` och pekar på den befintliga vägen
 (`PUT /intake/{id}/agent-guidance`, `POST /vouchers/{id}/correction-notes/{note_id}/suggest`).
+För `correction:` pekar den sedan `flode-verifikationer` F12 i stället på Verifikationers chatt
+(`SPEC-flode-verifikationer.md` §7.3).
 
 Det är medvetet och det är hela priset för §11.2. Skälet att ändå unionera är att `open_decisions`
 i headern ska vara sann: en backlog som inte syns är en backlog som inte arbetas av. Skälet att

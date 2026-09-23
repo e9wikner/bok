@@ -284,7 +284,28 @@ oräknade. Testfallsnumren syftar på tabellerna i §14. Backendens tester ligge
   - Filer: `services/draft_service.py`, `services/ledger.py` (om `_target_correction_period`
     behöver ett datum), `tests/test_flode_verifikationer.py`
 
-- [ ] **F12 — Rättelsens postning och noteringarna**
+- [x] **F12 — Rättelsens postning och noteringarna**
+  - Gjort 2026-09-23: `DraftService.on_posting` steg 2 (`_record_correction`) skriver
+    korrigeringshistoriken med `LedgerService.record_correction_history` (förut
+    `_record_correction_history`, som svalde alla fel) i postningens transaktion: rättade rader =
+    B-utkastets rader efter de första `len(original.rows)`, `correction_reason` = rättelsens
+    `description`, plus ` · notering: {note_text}` när en notering finns. `corrected_data.description`
+    lämnades som originalets (`corrected_data` är originalet som det borde ha sett ut). En notering
+    går `pending → suggested → applied` i transaktionen, aldrig vid förslaget; en notering som
+    stängts medan förslaget väntade vägrar postningen med `400 correction_note_mismatch` och ett
+    felinlägg. Kvittot: `B-n postad · rättar A-m` och chipet `{"tool": "rattar", "label": "rättar
+    A-m", "detail": "A-m", "voucher_id": <originalet>}` direkt efter `verifikation postad`.
+    `las_korrigeringar` med `voucher_id` svarar `{voucher_id, open_notes, history}` (utan: listan
+    som förut), argumenten orörda; agentinstruktionen nämner `open_notes`. `409`-pekaren säger
+    Verifikationers chatt med `correction_of`/`correction_note_id`. **Datumbuggen:**
+    `create_correction` utan `voucher_date` och `create_posted_correction` använder
+    `correction_target(original, idag)`, så `/correct`, `suggest` och `create_draft` bokför en
+    rättelse av en låst period i den öppna med ett datum i den. **`/correct`:** ett fel i
+    historiken rullar nu tillbaka rättelsen (`500`) i stället för att posta utan historik;
+    `create_posted_correction` med förvalt `_commit` öppnar en egen transaktion. 15 nya tester (37
+    ×3, 38, 39 ×3, 41, 43, `las_korrigeringar` ×2, datum ×3, `/correct` rollback), sedda röda
+    först; `test_beslut`s pekartest uppdaterat. Specen §7.2, §7.3, §8.1, §8.2 och `SPEC-beslut.md`
+    §5 uppdaterade. Hela sviten: 1137 passed; `mypy .` 61 fel som före.
   - Acceptans: `on_posting` skriver korrigeringshistoriken, och sätter noteringen `applied` om
     `correction_note_id` finns, i postningens transaktion. Kvittot får titeln
     `B-{n} postad · rättar {serie}-{nummer}` och chipet `rättar …`. `las_korrigeringar` tar med

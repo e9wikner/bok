@@ -771,7 +771,7 @@ async def test_an_aborted_correction_leaves_no_trace(
         raise RuntimeError("simulated failure after the correction")
 
     monkeypatch.setattr(
-        "services.ledger.LedgerService._record_correction_history", explode
+        "services.ledger.LedgerService.record_correction_history", explode
     )
 
     failed = await async_client.post(
