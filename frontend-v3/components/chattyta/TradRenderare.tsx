@@ -1,6 +1,7 @@
 import { createContext, useContext } from "react";
 import { AlternativLista } from "@/components/chattyta/AlternativLista";
 import { BeslutKort } from "@/components/chattyta/BeslutKort";
+import { FelKort } from "@/components/chattyta/FelKort";
 import { FilInlagg } from "@/components/chattyta/FilInlagg";
 import { JamforelseRader, RadLista } from "@/components/chattyta/JamforelseRader";
 import { SkriverIndikator } from "@/components/chattyta/SkriverIndikator";
@@ -24,8 +25,8 @@ import type {
  * bara typade inlägg och `okant_kontrakt`. Därför läser ingen gren `body` på
  * sitt eget sätt, och här finns inga `?? ""`.
  *
- * Typer utan renderare än (`error`) blir samma rad som ett kontraktsbrott:
- * ärligt, inte tomt (plan.md, C4 → C5). C13 byter bara ut sin gren.
+ * Alla åtta typer har en renderare sedan C13; `OkantKontrakt` ritas bara för
+ * verkliga kontraktsbrott (§4.4), aldrig för en känd typ.
  *
  * `viewKey` behövs bara av beslutskorten och alternativlistan: statusen läses
  * per vy (§7), och inlägget bär ingen `view_key`. Utan den står de i öppet
@@ -87,9 +88,9 @@ export function InlaggRenderare({ inlagg, viewKey }: { inlagg: Inlagg; viewKey?:
       return <BeslutInlagg inlagg={inlagg} viewKey={viewKey} />;
     case "options":
       return <AlternativInlagg inlagg={inlagg} viewKey={viewKey} />;
-    // Byggs i C13.
     case "error":
-      return <OkantKontrakt typ={inlagg.type} id={inlagg.id} />;
+      // `Försök igen` bara med `retry_draft_id` (§9); kortet avgör det självt.
+      return <FelKort inlagg={inlagg} />;
     case "okant_kontrakt":
       return <OkantKontrakt typ={inlagg.ursprungligTyp} id={inlagg.id} />;
   }

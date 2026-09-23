@@ -257,7 +257,18 @@ Ingen uppgift rör Python.
   - Obs: testfall 25 trycker två gånger **utan** att låsningen hinner verka och kräver samma
     nyckel i båda anropen. `ChattFalt` får en `ref` för fokus och inget annat.
 
-- [ ] **C13 — `FelKort`**
+- [x] **C13 — `FelKort`**
+  - Gjort 2026-09-23: 16 tester (testfall 29, 30 m.fl.), sedda röda först och mutationsprövade;
+    388 gröna. Rubriken är `Något gick fel`, inte designens `Postningen misslyckades` — nästan
+    varje `error` servern skriver i dag är en tur som tog slut (`agent_turn_limit`,
+    `llm_connection_error`), och rubriken skulle påstå något om huvudboken som servern inte sagt.
+    Orsakskoden i metaraden bara när den ser ut som en kod. `Visa vad som hände` finns alltid;
+    utan spår säger den `Inga spår sparades för den här turen.` `Försök igen` är en egen
+    komponent som bara monteras med `retry_draft_id`, så dagens kort varken anropar hooken
+    eller kräver en `QueryClientProvider`. Efter C13 ritar ingen känd typ längre
+    `OkantKontrakt` — bara verkliga kontraktsbrott. Koordinatorn flyttade utfallstexterna
+    (`felText`, `lastTid`) till `hooks/usePostaUtkast.ts`: agenten hade kopierat dem från
+    `VerifikationsForslag.tsx`, och nätverksfelets mening får inte kunna glida isär i två kopior.
   - Acceptans: rubrik, orsak **och** konsekvens ur kroppen ordagrant. `Försök igen` bara när
     `retry_draft_id` finns, och då via `usePostaUtkast` med samma nyckel. `Visa vad som hände`
     fäller ut `traces[]` på plats.

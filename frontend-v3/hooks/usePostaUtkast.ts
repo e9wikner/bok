@@ -147,3 +147,50 @@ export function usePostaUtkast(draftId: string): UsePostaUtkast {
 
   return { lage, posta };
 }
+
+// ─── Utfallens text (SPEC-chattyta.md §8) ─────────────────────────────────
+// På ett ställe: `PostaKnappar` och `FelKort`s `Försök igen` visar samma utfall,
+// och nätverksfelets mening får aldrig glida till `Ingenting är bokfört` i
+// den ena kopian men inte den andra.
+
+/**
+ * `locked_at` som servern skrev den (`isoformat()`, lokal tid utan zon) →
+ * `2026-10-12 09:14`. Strängen skärs, den tolkas inte som en `Date`: utan
+ * tidszon skulle webbläsaren gissa en, och tiden bli en annan än serverns.
+ */
+export function lastTid(iso: string | null): string {
+  if (!iso) return "okänt datum";
+  const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(iso);
+  return m ? `${m[1]} ${m[2]}` : iso;
+}
+
+/**
+ * Texten för ett slut som inte är klart. Alla säger vad som hände med
+ * böckerna, eftersom det är det människan behöver veta (§8).
+ *
+ * `period_locked`: §8 skriver `Perioden {period}`, men `detail` bär bara
+ * `period_id` — ett UUID, ingen etikett. Att visa UUID:t vore brus, och att
+ * räkna ut månaden ur förslagets `meta` vore att tolka en sträng servern
+ * formulerat (antagande 3). Meningen utelämnar därför perioden; id:t står i
+ * `data-period-id` för den som felsöker.
+ *
+ * Nätverksfel: klienten vet INTE om servern hann posta. Därför påstås inte
+ * att ingenting är bokfört — bara att ett nytt försök är ofarligt, vilket
+ * nyckeln (och `409 already_posted`) garanterar.
+ */
+export function felText(lage: PostaLage): string | null {
+  switch (lage.lage) {
+    case "period_last":
+      return `Perioden är låst sedan ${lastTid(lage.locked_at)} av ${
+        lage.locked_by ?? "okänd"
+      }. Ingenting är bokfört.`;
+    case "andrad":
+      return "Förslaget har ändrats sedan du tryckte. Ingenting är bokfört.";
+    case "nekad":
+      return `Servern nekade postningen · ${lage.kod}. Ingenting är bokfört.`;
+    case "natverk":
+      return "Svaret kom inte fram, så det är oklart om postningen hann igenom. Försök igen ger samma verifikation, aldrig två.";
+    default:
+      return null;
+  }
+}

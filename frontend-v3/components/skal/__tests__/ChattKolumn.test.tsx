@@ -7,8 +7,9 @@ import { parseInlagg } from "@/lib/chattyta/parse";
 import type { Inlagg, RaInlagg } from "@/lib/chattyta/typer";
 import {
   FIXTUR_AGENT_TEXT,
-  FIXTUR_ERROR,
+  FIXTUR_OPTIONS,
   FIXTUR_USER_TEXT,
+  kropp,
 } from "@/lib/chattyta/__fixtures__/inlagg";
 
 // Tråden kommer ur `useTrad` sedan chattyta C5 — skalets egen mock är borta.
@@ -70,13 +71,26 @@ describe("tråden kommer ur useTrad och ritas av chattytans renderare", () => {
     );
   });
 
-  it("skalet bygger inga kort själv — en typ utan renderare blir okant_kontrakt, inte ett halvt kort", () => {
-    // FelKort är `chattyta` (C13). Tills det finns säger tråden ärligt att
-    // något finns (SPEC-chattyta.md §4.4). `decision` och `options` har sina
-    // renderare sedan C6/C7 och prövas i chattyta/__tests__/{beslut,alternativ}.test.tsx.
-    useTrad.mockImplementation(() => ({ ...tradSvar, inlagg: [typad(FIXTUR_ERROR)] }));
+  it("skalet bygger inga kort själv — ett kontraktsbrott blir okant_kontrakt, inte ett halvt kort", () => {
+    // Alla åtta typer har en renderare i `chattyta` sedan C13; raden återstår
+    // bara för brott (SPEC-chattyta.md §4.4). Här: ett `options` med två
+    // rekommenderade, som `parseInlagg` vägrar (§4.1).
+    const tvaRekommenderade = typad({
+      ...FIXTUR_OPTIONS,
+      body: {
+        ...kropp(FIXTUR_OPTIONS),
+        options: (kropp(FIXTUR_OPTIONS).options as Record<string, unknown>[]).map((o) => ({
+          ...o,
+          recommended: true,
+        })),
+      },
+    });
+    expect(tvaRekommenderade.type).toBe("okant_kontrakt");
+    useTrad.mockImplementation(() => ({ ...tradSvar, inlagg: [tvaRekommenderade] }));
     render(<ChattKolumn vyTitel="Verifikationer" viewKey="bocker.verifikationer" />);
-    expect(screen.getByText(`kortet kunde inte visas · error · ${FIXTUR_ERROR.id}`)).toBeInTheDocument();
+    expect(
+      screen.getByText(`kortet kunde inte visas · options · ${FIXTUR_OPTIONS.id}`)
+    ).toBeInTheDocument();
   });
 
   it("tråden är bottenankrad", () => {

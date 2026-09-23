@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type ReactNode } from "react";
-import { usePostaUtkast, type PostaLage } from "@/hooks/usePostaUtkast";
+import { felText, usePostaUtkast } from "@/hooks/usePostaUtkast";
 import type { DraftInlagg, KonteringsRad as KonteringsRadData } from "@/lib/chattyta/typer";
 import { formatBelopp } from "@/lib/skal/format";
 
@@ -120,48 +120,6 @@ function KonteringsRad({ rad }: { rad: KonteringsRadData }) {
 }
 
 // ─── Postningsknapparna (SPEC-chattyta.md §8, C12) ────────────────────────
-
-/**
- * `locked_at` som servern skrev den (`isoformat()`, lokal tid utan zon) →
- * `2026-10-12 09:14`. Strängen skärs, den tolkas inte som en `Date`: utan
- * tidszon skulle webbläsaren gissa en, och tiden bli en annan än serverns.
- */
-function lastTid(iso: string | null): string {
-  if (!iso) return "okänt datum";
-  const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(iso);
-  return m ? `${m[1]} ${m[2]}` : iso;
-}
-
-/**
- * Texten för ett slut som inte är klart. Alla säger vad som hände med
- * böckerna, eftersom det är det människan behöver veta (§8).
- *
- * `period_locked`: §8 skriver `Perioden {period}`, men `detail` bär bara
- * `period_id` — ett UUID, ingen etikett. Att visa UUID:t vore brus, och att
- * räkna ut månaden ur förslagets `meta` vore att tolka en sträng servern
- * formulerat (antagande 3). Meningen utelämnar därför perioden; id:t står i
- * `data-period-id` för den som felsöker.
- *
- * Nätverksfel: klienten vet INTE om servern hann posta. Därför påstås inte
- * att ingenting är bokfört — bara att ett nytt försök är ofarligt, vilket
- * nyckeln (och `409 already_posted`) garanterar.
- */
-function felText(lage: PostaLage): string | null {
-  switch (lage.lage) {
-    case "period_last":
-      return `Perioden är låst sedan ${lastTid(lage.locked_at)} av ${
-        lage.locked_by ?? "okänd"
-      }. Ingenting är bokfört.`;
-    case "andrad":
-      return "Förslaget har ändrats sedan du tryckte. Ingenting är bokfört.";
-    case "nekad":
-      return `Servern nekade postningen · ${lage.kod}. Ingenting är bokfört.`;
-    case "natverk":
-      return "Svaret kom inte fram, så det är oklart om postningen hann igenom. Försök igen ger samma verifikation, aldrig två.";
-    default:
-      return null;
-  }
-}
 
 const PRIMAR =
   "min-h-[44px] rounded-[8px] bg-bok-black px-[16px] text-[14px] font-medium text-bok-yta hover:bg-bok-black-hover aria-disabled:cursor-default aria-disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bok-lank";

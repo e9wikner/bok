@@ -171,14 +171,13 @@ describe("TradRenderare väljer komponent per type (SPEC §5)", () => {
     expect(screen.queryByText(OKANT)).toBeNull();
   });
 
-  it("error har ingen renderare än → okant_kontrakt-raden, inte tomt", () => {
-    rendera([typad(FIXTUR_ERROR)]);
-    const rad = screen.getByText(OKANT);
-    expect(rad).toHaveTextContent(`kortet kunde inte visas · error · ${FIXTUR_ERROR.id}`);
-    expect(rad.className).toContain("bok-mono");
-    expect(rad.className).toContain("text-[12px]");
-    // Ingen knapp: raden säger att något finns, inte vad man kan göra (§4.4).
-    expect(screen.queryAllByRole("button")).toHaveLength(0);
+  it("error → FelKort (C13), inte okant_kontrakt-raden", () => {
+    // Utan `retry_draft_id` frågar kortet ingenting och behöver ingen
+    // QueryClientProvider (§9). Knapparna prövas i fel.test.tsx.
+    const { container } = rendera([typad(FIXTUR_ERROR)]);
+    expect(container.querySelector(`[data-inlagg-id="${FIXTUR_ERROR.id}"]`)).not.toBeNull();
+    expect(screen.getByTestId("fel-text")).toHaveTextContent("Ingenting är bokfört.");
+    expect(screen.queryByText(OKANT)).toBeNull();
   });
 
   it("ett kontraktsbrott → okant_kontrakt med ursprungstypen, aldrig ett halvt kort", () => {
@@ -192,9 +191,13 @@ describe("TradRenderare väljer komponent per type (SPEC §5)", () => {
     const inlagg = typad(tvaRekommenderade);
     expect(inlagg.type).toBe("okant_kontrakt");
     rendera([inlagg]);
-    expect(screen.getByText(OKANT)).toHaveTextContent(
-      `kortet kunde inte visas · options · ${FIXTUR_OPTIONS.id}`
-    );
+    const rad = screen.getByText(OKANT);
+    expect(rad).toHaveTextContent(`kortet kunde inte visas · options · ${FIXTUR_OPTIONS.id}`);
+    // Sedan C13 är det här den enda vägen till raden: mono 12, ingen knapp —
+    // den säger att något finns, inte vad man kan göra (§4.4).
+    expect(rad.className).toContain("bok-mono");
+    expect(rad.className).toContain("text-[12px]");
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
   });
 
   it("ordningen är den inlägget kom i — renderaren flyttar inget", () => {
