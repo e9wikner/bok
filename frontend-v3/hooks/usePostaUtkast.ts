@@ -6,6 +6,7 @@ import axios from "axios";
 import {
   BESLUT_NYCKEL,
   OVERVIEW_NYCKEL,
+  hamtaVerifikation,
   postaUtkast,
   type PostaUtfall,
   type VerifikationSvar,
@@ -98,6 +99,24 @@ export function usePostaUtkast(draftId: string): UsePostaUtkast {
       if (timer.current) clearTimeout(timer.current);
     };
   }, []);
+
+  // Är utkastet redan postat — i en annan flik, eller före en omladdning —
+  // ska kortet säga det i stället för att erbjuda `Posta`. Bara från `redo`:
+  // ett tryck som hunnit före läsningen äger kortets läge.
+  useEffect(() => {
+    let aktuell = true;
+    hamtaVerifikation(draftId)
+      .then((v) => {
+        if (!aktuell || v?.status !== "posted") return;
+        setLage((nu) => (nu.lage === "redo" ? { lage: "postad", verifikation: v } : nu));
+      })
+      .catch(() => {
+        // Okänt läge: `Posta` står kvar. Ett tryck landar i `already_posted`.
+      });
+    return () => {
+      aktuell = false;
+    };
+  }, [draftId]);
 
   const vanta = (ms: number) =>
     new Promise<void>((klar) => {

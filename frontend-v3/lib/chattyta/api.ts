@@ -297,6 +297,20 @@ const strangEllerNull = (v: unknown): string | null => (typeof v === "string" ? 
  * voucher_date_outside_period`, `404`): det är inte kortets sak att gissa
  * vad de betyder.
  */
+/**
+ * Utkastets nuvarande läge i huvudboken. `draft`-inlägget ändras aldrig
+ * (antagande 2), så efter en omladdning är det här enda sättet att veta att
+ * det redan är postat. `null` när svaret inte går att läsa — då vet klienten
+ * ingenting, och kortet erbjuder `Posta` som förut (nyckeln skyddar).
+ */
+export async function hamtaVerifikation(id: string): Promise<VerifikationSvar | null> {
+  const svar = await apiClient.get<VerifikationSvar>(
+    `/api/v1/vouchers/${encodeURIComponent(id)}`
+  );
+  const v = svar?.data;
+  return v && typeof v.status === "string" ? v : null;
+}
+
 export async function postaUtkast(draftId: string): Promise<PostaUtfall> {
   const nyckel = await nyckelForUtkast(draftId);
   try {

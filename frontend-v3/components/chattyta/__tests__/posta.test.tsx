@@ -464,12 +464,16 @@ describe("nätverksfel och 5xx (§8-tabellens sista rad)", () => {
 describe("testfall 36: Ändra", () => {
   it("testfall 36: lägger fokus i kolumnens ChattFalt, fältet tomt, inget anrop", async () => {
     rendera();
+    // Kortet läser utkastets status när det monteras; `Ändra` själv frågar
+    // ingenting.
+    await waitFor(() => expect(get).toHaveBeenCalled());
+    const anropFore = get.mock.calls.length;
     await userEvent.click(screen.getByRole("button", { name: "Ändra" }));
     const falt = screen.getByLabelText(/Fråga om en post i verifikationer/i);
     expect(falt).toHaveFocus();
     expect(falt).toHaveValue("");
     expect(post).not.toHaveBeenCalled();
-    expect(get).not.toHaveBeenCalled();
+    expect(get).toHaveBeenCalledTimes(anropFore);
   });
 
   it("testfall 36: med flera kolumner i DOM:en (svepraden) hamnar fokus i kortets egen kolumn", async () => {
@@ -501,5 +505,42 @@ describe("testfall 36: Ändra", () => {
     expect(falt).toHaveFocus();
     expect(falt).toHaveValue("");
     expect(post).not.toHaveBeenCalled();
+  });
+});
+
+describe("ett utkast som redan är postat, efter en omladdning", () => {
+  // Inlägget ändras aldrig (antagande 2), så `draft`-inlägget ser likadant ut
+  // efter postningen. Utan en statusläsning erbjöd kortet `Posta` igen —
+  // ofarligt (det landade i `already_posted`), men ett erbjudande om något
+  // som redan är gjort.
+  const URL_GET = `/api/v1/vouchers/${encodeURIComponent(DRAFT_ID)}`;
+
+  it("status posted → klart läge med numret, utan att något postas", async () => {
+    get.mockImplementation(async (url: string) =>
+      url === URL_GET ? { status: 200, data: verifikation({ number: 121 }) } : { data: {} }
+    );
+    rendera();
+    expect(await screen.findByText(/Postad · A-121/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Posta/ })).not.toBeInTheDocument();
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it("status draft → Posta erbjuds som vanligt", async () => {
+    get.mockImplementation(async (url: string) =>
+      url === URL_GET ? { status: 200, data: verifikation({ status: "draft" }) } : { data: {} }
+    );
+    rendera();
+    await waitFor(() => expect(get).toHaveBeenCalledWith(URL_GET));
+    expect(postaKnapp()).toBeInTheDocument();
+  });
+
+  it("läsningen misslyckas → Posta erbjuds; nyckeln skyddar ändå mot en andra postning", async () => {
+    get.mockImplementation(async (url: string) => {
+      if (url === URL_GET) throw natverksFel();
+      return { data: {} };
+    });
+    rendera();
+    await waitFor(() => expect(get).toHaveBeenCalledWith(URL_GET));
+    expect(postaKnapp()).toBeInTheDocument();
   });
 });
