@@ -149,11 +149,29 @@ class ThreadBroker:
 
     def __init__(self) -> None:
         self._subscribers: dict[str, list[tuple[Any, Any]]] = {}
+        # What an in-flight turn has said so far, per thread: its
+        # `message.created` payload plus the accumulated `text` and the
+        # latest `activity`. The turn starts inside `POST .../messages` and
+        # the client subscribes after the response, so without this the
+        # first frames of the first answer went to nobody (SPEC-chattyta
+        # §15, question 5).
+        self._inflight: dict[str, dict] = {}
         self._guard = threading.Lock()
 
-    def subscribe(self, thread_id: str, queue: Any, loop: Any) -> None:
+    def subscribe(self, thread_id: str, queue: Any, loop: Any) -> Optional[dict]:
+        """Add a subscriber, and return the turn in progress, if any.
+
+        Taken under the same lock as `publish` updates it, so the snapshot
+        and the subscription agree: everything before is in the snapshot,
+        everything after arrives in the queue. The caller sends it as a
+        `message.created` carrying `text` and `activity` -- a client treats
+        that as "the placeholder is this", so a reconnect mid-turn replaces
+        its text rather than doubling it.
+        """
         with self._guard:
             self._subscribers.setdefault(thread_id, []).append((queue, loop))
+            snapshot = self._inflight.get(thread_id)
+            return dict(snapshot) if snapshot is not None else None
 
     def unsubscribe(self, thread_id: str, queue: Any) -> None:
         with self._guard:
@@ -181,6 +199,7 @@ class ThreadBroker:
         """
         frame = (event, data)
         with self._guard:
+            self._track_inflight(thread_id, event, data)
             targets = list(self._subscribers.get(thread_id, []))
         for queue, loop in targets:
             try:
@@ -189,6 +208,26 @@ class ThreadBroker:
                 # The loop closed while we held a reference to it -- the
                 # subscriber is gone. Never fatal to the session.
                 logger.debug("Dropped a thread event for a closed loop")
+
+    def _track_inflight(self, thread_id: str, event: str, data: dict) -> None:
+        """Keep `_inflight` in step with the frames. Called under the lock."""
+        if event == EVENT_MESSAGE_CREATED:
+            self._inflight[thread_id] = {**data, "text": "", "activity": None}
+            return
+        current = self._inflight.get(thread_id)
+        if current is None:
+            return
+        if event == EVENT_MESSAGE_DELTA and data.get("id") == current.get("id"):
+            if isinstance(data.get("text"), str):
+                current["text"] += data["text"]
+            if isinstance(data.get("activity"), str):
+                current["activity"] = data["activity"]
+        elif event == EVENT_MESSAGE_COMPLETED and data.get("run_id") == current.get(
+            "run_id"
+        ):
+            # The runner publishes `completed` once, for the turn's final
+            # post (`ThreadTurnRunner._publish_completed`).
+            del self._inflight[thread_id]
 
 
 _broker = ThreadBroker()

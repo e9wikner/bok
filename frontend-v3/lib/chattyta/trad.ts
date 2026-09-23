@@ -92,7 +92,18 @@ function handelse(t: TradTillstand, { event, data }: SseHandelse): TradTillstand
   switch (event) {
     case "message.created": {
       const run_id = typeof data.run_id === "string" ? data.run_id : data.id.slice(STROMMANDE_PREFIX.length);
-      return { ...t, strommande: { id: data.id, run_id, text: "", activity: null } };
+      // En sen prenumerant får en pågående tur som ett `created` med det
+      // som sagts hittills (`ThreadBroker.subscribe`). Texten ERSÄTTER, den
+      // läggs inte till — då dubblas inget vid en återanslutning mitt i.
+      return {
+        ...t,
+        strommande: {
+          id: data.id,
+          run_id,
+          text: typeof data.text === "string" ? data.text : "",
+          activity: typeof data.activity === "string" ? data.activity : null,
+        },
+      };
     }
 
     case "message.delta": {

@@ -36,6 +36,7 @@ from services.llm import UnknownModelError, get_model_info
 from services.thread_service import ThreadService
 from services.thread_stream import (
     EVENT_MESSAGE_COMPLETED,
+    EVENT_MESSAGE_CREATED,
     ThreadTurnRunner,
     format_sse,
     get_broker,
@@ -309,7 +310,7 @@ async def stream_thread(
     broker = get_broker()
     queue: asyncio.Queue = asyncio.Queue()
     loop = asyncio.get_running_loop()
-    broker.subscribe(thread.id, queue, loop)
+    in_progress = broker.subscribe(thread.id, queue, loop)
 
     # `since is not None`, not a truth test: `since=0` is a legitimate
     # cursor meaning "from the very beginning", and `seq` starts at 1.
@@ -319,6 +320,11 @@ async def stream_thread(
 
     async def _events() -> AsyncIterator[str]:
         try:
+            # A turn already under way: what it has said so far, first. If it
+            # finished before `missed` was read, its stored post follows and
+            # replaces the placeholder (SPEC-chattyta §15, question 5).
+            if in_progress is not None:
+                yield format_sse(EVENT_MESSAGE_CREATED, in_progress)
             for post in missed:
                 yield format_sse(EVENT_MESSAGE_COMPLETED, post_event_payload(post))
             while True:

@@ -161,6 +161,35 @@ describe("tradReducer — strömmen (§6.3)", () => {
     expect(listaInlagg(t)).toEqual([]);
   });
 
+  it("message.created med text och activity (en tur som redan pågick) blir platshållaren som den är", () => {
+    // Servern skickar det en sen prenumerant missat som ett `created` med
+    // det som sagts hittills (SPEC-chattyta §15, fråga 5).
+    const t = kor(
+      h("message.created", {
+        id: "streaming-r-1",
+        run_id: "r-1",
+        text: "148 500 kr i tre",
+        activity: "las_bankhandelser",
+      }),
+      delta("r-1", " fakturor.")
+    );
+    expect(t.strommande).toEqual({
+      id: "streaming-r-1",
+      run_id: "r-1",
+      text: "148 500 kr i tre fakturor.",
+      activity: "las_bankhandelser",
+    });
+  });
+
+  it("en återanslutning mitt i en tur ersätter texten i stället för att dubbla den", () => {
+    const t = kor(
+      skapad("r-1"),
+      delta("r-1", "148 500"),
+      h("message.created", { id: "streaming-r-1", run_id: "r-1", text: "148 500 kr", activity: null })
+    );
+    expect(t.strommande?.text).toBe("148 500 kr");
+  });
+
   it("delta {text} läggs till det strömmande inläggets text", () => {
     const t = kor(skapad("r-1"), delta("r-1", "Kund"), delta("r-1", "fordringar"));
     expect(t.strommande?.text).toBe("Kundfordringar");

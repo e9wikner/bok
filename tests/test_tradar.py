@@ -2565,6 +2565,53 @@ class TestStreamReconnect:
         ]
 
     @pytest.mark.asyncio
+    async def test_a_turn_under_way_is_sent_first_then_the_missed_posts(
+        self, current_fiscal_year
+    ):
+        """chattyta open question 5: the first answer in an empty thread lost
+        its opening frames, because the turn started before anyone listened."""
+        thread = ThreadRepository.get_or_create(
+            view_key="bocker.balans",
+            fiscal_year_id=current_fiscal_year.id,
+            model="opencode/claude-opus-5",
+        )
+        ThreadRepository.add_post(
+            thread_id=thread.id,
+            post_type="user_text",
+            actor="stefan",
+            body={"text": "Vad är kundfordringarna?"},
+        )
+        broker = get_broker()
+        broker.publish(
+            thread.id,
+            EVENT_MESSAGE_CREATED,
+            {
+                "id": "streaming-r7",
+                "type": "agent_text",
+                "actor": "agent",
+                "run_id": "r7",
+            },
+        )
+        broker.publish(
+            thread.id, EVENT_MESSAGE_DELTA, {"id": "streaming-r7", "text": "148 500"}
+        )
+        try:
+            response = await stream_thread(
+                view_key="bocker.balans", request=_FakeRequest(), since=0, actor="api"
+            )
+            frames = await _collect_frames(response, expected=2)
+        finally:
+            broker.publish(
+                thread.id, EVENT_MESSAGE_COMPLETED, {"id": "x", "run_id": "r7"}
+            )
+
+        assert frames[0]["event"] == EVENT_MESSAGE_CREATED
+        assert frames[0]["data"]["id"] == "streaming-r7"
+        assert frames[0]["data"]["text"] == "148 500"
+        assert frames[1]["event"] == EVENT_MESSAGE_COMPLETED
+        assert frames[1]["data"]["body"]["text"] == "Vad är kundfordringarna?"
+
+    @pytest.mark.asyncio
     async def test_the_replay_carries_the_same_shape_as_a_live_event(
         self, current_fiscal_year
     ):
@@ -3002,6 +3049,98 @@ class TestSseFraming:
             assert second.qsize() == 1
         finally:
             loop.close()
+
+    def test_a_late_subscriber_gets_the_turn_in_progress(self):
+        """chattyta open question 5: the turn starts inside `POST .../messages`
+        and the client subscribes after the response, so `message.created`
+        and the first deltas went to nobody. The broker keeps what an
+        in-flight turn has said so far and hands it to a new subscriber."""
+        import asyncio as asyncio_module
+
+        broker = ThreadBroker()
+        broker.publish(
+            "t1",
+            "message.created",
+            {
+                "id": "streaming-r1",
+                "type": "agent_text",
+                "actor": "agent",
+                "run_id": "r1",
+            },
+        )
+        broker.publish("t1", "message.delta", {"id": "streaming-r1", "text": "Jag "})
+        broker.publish(
+            "t1",
+            "message.delta",
+            {"id": "streaming-r1", "activity": "las_bankhandelser"},
+        )
+        broker.publish("t1", "message.delta", {"id": "streaming-r1", "text": "läser."})
+
+        loop = asyncio_module.new_event_loop()
+        try:
+            snapshot = broker.subscribe("t1", asyncio_module.Queue(), loop)
+        finally:
+            loop.close()
+
+        assert snapshot == {
+            "id": "streaming-r1",
+            "type": "agent_text",
+            "actor": "agent",
+            "run_id": "r1",
+            "text": "Jag läser.",
+            "activity": "las_bankhandelser",
+        }
+
+    def test_no_turn_in_progress_means_no_snapshot(self):
+        import asyncio as asyncio_module
+
+        broker = ThreadBroker()
+        loop = asyncio_module.new_event_loop()
+        try:
+            assert broker.subscribe("t1", asyncio_module.Queue(), loop) is None
+        finally:
+            loop.close()
+
+    def test_a_completed_turn_leaves_no_snapshot(self):
+        import asyncio as asyncio_module
+
+        broker = ThreadBroker()
+        broker.publish("t1", "message.created", {"id": "streaming-r1", "run_id": "r1"})
+        broker.publish("t1", "message.delta", {"id": "streaming-r1", "text": "Klart."})
+        broker.publish(
+            "t1",
+            "message.completed",
+            {"id": "p-9", "run_id": "r1", "type": "agent_text"},
+        )
+
+        loop = asyncio_module.new_event_loop()
+        try:
+            assert broker.subscribe("t1", asyncio_module.Queue(), loop) is None
+        finally:
+            loop.close()
+
+    def test_a_completed_post_from_another_run_keeps_the_snapshot(self):
+        """Only `ThreadTurnRunner` publishes `message.completed`, once, for
+        the turn's final post (`_publish_completed`). A completed frame that
+        does not carry the snapshot's run id -- here a post with none -- is
+        not the end of that turn."""
+        import asyncio as asyncio_module
+
+        broker = ThreadBroker()
+        broker.publish("t1", "message.created", {"id": "streaming-r1", "run_id": "r1"})
+        broker.publish(
+            "t1",
+            "message.completed",
+            {"id": "p-2", "run_id": None, "type": "user_text"},
+        )
+
+        loop = asyncio_module.new_event_loop()
+        try:
+            snapshot = broker.subscribe("t1", asyncio_module.Queue(), loop)
+        finally:
+            loop.close()
+
+        assert snapshot is not None and snapshot["run_id"] == "r1"
 
     def test_unsubscribing_removes_only_that_subscriber(self):
         import asyncio as asyncio_module
