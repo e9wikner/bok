@@ -749,8 +749,8 @@ beslut: låsningen går igenom och markerar väntande förslag i perioden som l�
   ett senare `Posta` ger `409 period_locked` utan nytt inlägg. Misslyckas inlägget loggas det och
   låsningen står kvar; `last_error_post_id` är då tomt, så nästa `Posta` skriver inlägget.
 - Förslaget räknas fortfarande som väntande (§11.3): det kräver människans eller agentens handling.
-  Vyn visar raden i `fel`-läget (§11.1) ur `last_error_code`; metan är densamma som efter ett
-  misslyckat tryck, *"postning misslyckades · ligger kvar"*, också när ingen har tryckt.
+  Vyn visar raden i `fel`-läget (§11.1) ur `last_error_code`; för `period_locked` är metan
+  *"perioden låst · ligger kvar"*, eftersom ingen postning behöver ha misslyckats.
 
 ### 9.1 `error`-inlägget
 
@@ -847,7 +847,8 @@ Ett trådutkast visas på ett enda ställe.
 | Öppet beslut | `väntar på dig · {källdatum}` | `vantar`, röd från sju dagar (`aldersTon`) |
 | Förslag väntar | `förslag väntar · {datum}` | `vantar` |
 | Rättelse väntar | `rättelse av {serie}-{nummer} väntar` | `vantar` |
-| Förslag med fel | `postning misslyckades · ligger kvar` | `fel` |
+| Förslag med fel, `period_locked` | `perioden låst · ligger kvar` | `fel` |
+| Förslag med fel, övriga koder | `postning misslyckades · ligger kvar` | `fel` |
 | Postas just nu | `{serie} · postas…`, grå, **inget nummer** | `pagaende` |
 | Nyss postad | `{serie}-{nummer} · postad HH:MM · {vem} · låst` | `ny` i 6 s |
 

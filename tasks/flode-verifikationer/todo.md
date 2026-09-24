@@ -433,6 +433,11 @@ oräknade. Testfallsnumren syftar på tabellerna i §14. Backendens tester ligge
     `POST /periods/{id}/lock`; 28:s låsare utan aktör, 29 och de andra F9-testerna låser förbi
     tjänsten som förut, eftersom de prövar postningens felväg. Hela sviten: 1151 passed; black,
     isort, flake8 rena; `mypy .` 61 fel som före; vitest 483 passed (klienten orörd).
+  - Följd 2026-09-24: vyraden för ett förslag med `last_error_code='period_locked'` säger nu
+    `perioden låst · ligger kvar` (fortfarande `fel`), eftersom låsningen kan markera förslaget utan
+    att någon tryckt; övriga koder behåller `postning misslyckades · ligger kvar`. Kortets rad
+    (`forslagFelText`) sade redan `Perioden är låst. Ingenting är bokfört.` och är orörd. Tester
+    sedda röda först i `bocker.test.ts`; vitest 484 passed. Spec §9 och §11.1 justerade.
   - Acceptans: låsning med väntande förslag lyckas och markerar dem; ett felinlägg per förslag med
     vem/när; andra utkast vägras som förut; `Posta` efteråt ger `409 period_locked` utan nytt
     inlägg; ersättning via `replaces_draft_id` fungerar; ett fel i inlägget ångrar inte låsningen.

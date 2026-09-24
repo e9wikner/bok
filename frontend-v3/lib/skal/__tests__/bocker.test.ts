@@ -276,10 +276,26 @@ describe("verifikationerVy: Väntar på beslut, Postade, Utkast (testfall 45)", 
     expect(f).toMatchObject({ id: "f", meta: "förslag väntar · 2026-09-18", variant: "vantar" });
     expect(f.ageDays).toBeUndefined();
     expect(r).toMatchObject({ id: "r", meta: "rättelse av A-118 väntar", variant: "vantar" });
-    expect(e).toMatchObject({ id: "e", meta: "postning misslyckades · ligger kvar", variant: "fel" });
+    expect(e).toMatchObject({ id: "e", meta: "perioden låst · ligger kvar", variant: "fel" });
     expect(sektion(vy, "Väntar på beslut")).toHaveLength(4);
     expect(vy.lage).toBe("vantar");
     expect(vy.status).toBe("4 väntar på dig");
+  });
+
+  it("felraden: period_locked säger att perioden låstes, andra koder att postningen misslyckades", () => {
+    const vy = verifikationerVy(AR, TOM, {
+      total: 2,
+      vouchers: [v({ id: "l" }), v({ id: "k" })],
+    }, {
+      beslut: [],
+      forslag: [
+        forslag({ draft_id: "l", last_error_code: "period_locked" }),
+        forslag({ draft_id: "k", last_error_code: "inactive_account" }),
+      ],
+    });
+    const [l, k] = sektion(vy, "Väntar på beslut");
+    expect(l).toMatchObject({ id: "l", meta: "perioden låst · ligger kvar", variant: "fel" });
+    expect(k).toMatchObject({ id: "k", meta: "postning misslyckades · ligger kvar", variant: "fel" });
   });
 
   it("ett förslag på ett öppet beslut står i beslutets ställe och räknas en gång (§11.3)", () => {

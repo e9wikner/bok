@@ -240,7 +240,7 @@ describe("den optimistiska raden (testfall 46)", () => {
     await waitFor(() =>
       expect(radFor("Kontorsmaterial, Clas Ohlson").getAttribute("data-variant")).toBe("fel")
     );
-    expect(vyn().getByText("postning misslyckades · ligger kvar")).toBeInTheDocument();
+    expect(vyn().getByText("perioden låst · ligger kvar")).toBeInTheDocument();
     expect(sektionsTitlar()).toEqual(["Väntar på beslut", "Postade"]);
     expect(vyn().queryByText(/postas…/)).toBeNull();
   });

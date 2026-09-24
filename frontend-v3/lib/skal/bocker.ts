@@ -335,7 +335,11 @@ function beslutsrad(b: BeslutSvar): VyRadData {
 function forslagsrad(f: ForslagStatusSvar, u: Verifikation): VyRadData {
   const rad = { id: f.draft_id, titel: u.description, hoger: formatBeloppHela(u.total_debit) };
   if (f.last_error_code) {
-    return { ...rad, meta: "postning misslyckades · ligger kvar", variant: "fel" };
+    // `period_locked` kan sättas av låsningen själv (F16) utan att någon
+    // tryckt `Posta` — då har ingen postning misslyckats.
+    const orsak =
+      f.last_error_code === "period_locked" ? "perioden låst" : "postning misslyckades";
+    return { ...rad, meta: `${orsak} · ligger kvar`, variant: "fel" };
   }
   if (f.correction_of) {
     const av = u.corrects ? ` av ${nummerAv(u.corrects)}` : "";
