@@ -2841,3 +2841,385 @@ def test_get_drafts_names_the_note_a_correction_answers(today, auth_headers):
 
     assert draft["draft_id"] == draft_id
     assert draft["correction_note_id"] == note.id
+
+
+# --- F15: hela flödet och append-only (testfall 48-49) -------------------------
+#
+# The agent's turns are scripted: each is the tool call a model would make,
+# through `execute_tool` with the thread's `tool_context`, and the human's
+# side goes through the HTTP routes. `ThreadTurnRunner.start` is replaced by a
+# recorder, so answering a decision "starts" a turn without a model, and the
+# scripted turn picks it up from there.
+
+
+def _turns(monkeypatch) -> list:
+    """Every turn the routes start, as `(thread, post, text)`, with the
+    runtime switched on so the answer route really tries to start one."""
+    from config import settings
+    from services.thread_stream import ThreadTurnRunner
+
+    turns: list = []
+    monkeypatch.setattr(settings, "agent_runtime_enabled", True)
+    monkeypatch.setattr(
+        ThreadTurnRunner,
+        "start",
+        lambda self, thread, post, text: turns.append((thread, post, text)),
+    )
+    return turns
+
+
+def _tool(name: str, arguments: dict, thread, trigger_post_id=None):
+    """One scripted tool call inside a thread turn."""
+    context: dict = {"thread": thread}
+    if trigger_post_id is not None:
+        context["proposals"] = ProposalSequence(thread.id, trigger_post_id)
+    return execute_tool(
+        name,
+        arguments,
+        actor="agent",
+        capabilities=_capabilities(),
+        tool_context=context,
+    )
+
+
+def _next_number(series: str) -> int:
+    row = db.execute(
+        "SELECT COALESCE(MAX(number), 0) + 1 AS n FROM vouchers "
+        "WHERE series = ? AND status = 'posted'",
+        (series,),
+    ).fetchone()
+    return row["n"]
+
+
+def _flow_books():
+    """September 2026 open; June 2026 with A-n posted in it and then locked
+    -- the voucher the correction is about."""
+    thread, september, trigger = _books()
+    june = _add_period(thread, 6)
+    original = _original(june)
+    _lock(june, at=datetime(2026, 7, 5, 16, 2))
+    return thread, september, june, original
+
+
+def _flow_decision_to_receipt(monkeypatch, auth_headers, thread, september):
+    """Testfall 48 (a): beslut → svar → förslag → Posta ×2 → kvitto."""
+    turns = _turns(monkeypatch)
+    client = _client()
+    decisions = DecisionService()
+    waiting_before = decisions.count_waiting(thread.view_key)
+
+    # Turn 1: the agent asks, with options, instead of guessing.
+    asked = _tool(
+        "be_om_beslut",
+        {
+            "title": "Kvitto Clas Ohlson 896 kr",
+            "reason": "Kvittot visar moms men inköpet kan vara privat.",
+            "consequence": "Ingenting är bokfört.",
+            "amount_ore": 89600,
+            "options": [
+                {
+                    "title": "Kontorsmateriel med moms",
+                    "rationale": "Samma butik som tidigare kontorsköp.",
+                    "account": "6110",
+                    "amount_ore": 89600,
+                    "recommended": True,
+                },
+                {
+                    "title": "Annat",
+                    "rationale": "Det är något annat.",
+                    "is_exit": True,
+                },
+            ],
+        },
+        thread,
+    )
+    decision_id = asked["decision_id"]
+    assert decisions.count_waiting(thread.view_key) == waiting_before + 1
+
+    # The human answers with the recommended option; the route starts a turn.
+    answered = client.post(
+        f"/api/v1/decisions/{decision_id}/answer",
+        json={"option_id": asked["options"][0]["option_id"]},
+        headers=auth_headers,
+    )
+    assert answered.status_code == 202, answered.text
+    assert answered.json()["decision"]["status"] == "answered"
+    [(turn_thread, answer_post, _text)] = turns
+    assert turn_thread.id == thread.id
+    assert answer_post.id == answered.json()["answer_post_id"]
+
+    # Turn 2: the agent proposes, carrying the decision.
+    proposed = _tool(
+        "foresla_verifikation",
+        _args(september, decision_id=decision_id).model_dump(mode="json"),
+        thread,
+        trigger_post_id=answer_post.id,
+    )
+    draft_id = proposed["draft_id"]
+    assert VoucherRepository.get(draft_id).number is None
+    # The answered decision and its proposal wait as one thing.
+    assert decisions.count_waiting(thread.view_key) == waiting_before + 1
+    [pending] = [
+        d
+        for d in _get_drafts(client, auth_headers, view_key=thread.view_key).json()[
+            "drafts"
+        ]
+        if d["draft_id"] == draft_id
+    ]
+    assert pending["status"] == "pending"
+    assert pending["decision_id"] == decision_id
+
+    # Posta, twice, with the same key.
+    expected = _next_number("A")
+    posted_before = _posted_count()
+    events = _record_events(monkeypatch)
+    key = str(uuid.uuid4())
+    first = _post_route(client, draft_id, auth_headers, key=key)
+    second = _post_route(client, draft_id, auth_headers, key=key)
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert second.headers.get("Idempotent-Replay") == "true"
+    assert first.json()["number"] == second.json()["number"] == expected
+    assert _posted_count() == posted_before + 1
+    voucher = VoucherRepository.get(draft_id)
+    assert voucher.status == VoucherStatus.POSTED
+    assert voucher.number == expected
+
+    receipts = [r for r in _receipts(thread) if r.body["voucher_id"] == draft_id]
+    assert len(receipts) == 1
+    assert receipts[0].body["title"] == f"A-{expected} postad"
+    assert ThreadDraftRepository.get(draft_id).receipt_post_id == receipts[0].id
+    assert [e for e in events if e[1] == "view.changed"] == [
+        (
+            thread.id,
+            "view.changed",
+            {
+                "view_key": thread.view_key,
+                "changed": {"voucher_id": draft_id, "kind": "voucher_posted"},
+            },
+        )
+    ]
+    assert decisions.count_waiting(thread.view_key) == waiting_before
+    assert receipts[0].traces[-1] == {
+        "tool": "vantar",
+        "label": f"{waiting_before} kvar",
+    }
+
+    [listed] = [
+        d
+        for d in _get_drafts(client, auth_headers, view_key=thread.view_key).json()[
+            "drafts"
+        ]
+        if d["draft_id"] == draft_id
+    ]
+    assert listed["status"] == "posted"
+    assert listed["voucher"] == {"series": "A", "number": expected}
+    return draft_id
+
+
+def _flow_correction(monkeypatch, auth_headers, thread, september, original):
+    """Testfall 48 (b): rättelse av en verifikation i en låst period →
+    B-utkast i den öppna perioden → Posta → historik och kvitto."""
+    client = _client()
+    trigger = ThreadRepository.add_post(
+        thread_id=thread.id,
+        post_type="user_text",
+        actor="api",
+        body={"text": f"A-{original.number} ska inte ha moms, rätta den."},
+    )
+    proposed = _tool(
+        "foresla_verifikation",
+        _correction_args(original).model_dump(mode="json", exclude_none=True),
+        thread,
+        trigger_post_id=trigger.id,
+    )
+    draft_id = proposed["draft_id"]
+    draft = VoucherRepository.get(draft_id)
+    assert draft.series.value == "B"
+    assert draft.number is None
+    assert draft.period_id == september.id
+    [post] = [p for p in _draft_posts(thread) if p.id == proposed["post_id"]]
+    assert post.body["consequence"].endswith(
+        f"Rättar A-{original.number} (juni 2026, låst sedan 2026-07-05) · "
+        "bokförs i september 2026, inte i juni 2026"
+    )
+    before = _list_vouchers(client, auth_headers)
+    assert before[original.id]["corrected_by"] is None
+    assert before[draft_id]["corrects"]["id"] == original.id
+
+    expected = _next_number("B")
+    response = _post_route(client, draft_id, auth_headers, key=str(uuid.uuid4()))
+
+    assert response.status_code == 200, response.text
+    assert response.json()["number"] == expected
+    [entry] = _history(original.id)
+    assert entry.corrected_voucher_id == draft_id
+    [receipt] = [r for r in _receipts(thread) if r.body["voucher_id"] == draft_id]
+    assert receipt.body["title"] == (
+        f"B-{expected} postad · rättar A-{original.number}"
+    )
+    after = _list_vouchers(client, auth_headers, status="posted")
+    assert after[original.id]["corrected_by"] == {
+        "id": draft_id,
+        "series": "B",
+        "number": expected,
+    }
+    assert after[draft_id]["corrects"] == {
+        "id": original.id,
+        "series": "A",
+        "number": original.number,
+    }
+    return draft_id
+
+
+def _flow_locked_between_proposal_and_press(auth_headers, thread, september):
+    """Testfall 48 (c): perioden låses mellan förslag och tryck."""
+    trigger = ThreadRepository.add_post(
+        thread_id=thread.id,
+        post_type="user_text",
+        actor="api",
+        body={"text": "Bokför pennorna också."},
+    )
+    proposed = _tool(
+        "foresla_verifikation",
+        _args(september, description="Pennor").model_dump(mode="json"),
+        thread,
+        trigger_post_id=trigger.id,
+    )
+    draft_id = proposed["draft_id"]
+    expected = _next_number("A")
+    posted_before = _posted_count()
+    errors_before = len(_errors(thread))
+    _lock(september)
+
+    response = _post_route(_client(), draft_id, auth_headers, key=str(uuid.uuid4()))
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "period_locked"
+    assert len(_errors(thread)) == errors_before + 1
+    assert ThreadDraftRepository.get(draft_id).last_error_code == "period_locked"
+    voucher = VoucherRepository.get(draft_id)
+    assert voucher.status == VoucherStatus.DRAFT
+    assert voucher.number is None
+    assert _posted_count() == posted_before
+    # No number was taken: the next one in A is still the one it would have got.
+    assert _next_number("A") == expected
+    october = PeriodRepository.create_period(
+        fiscal_year_id=thread.fiscal_year_id,
+        year=2026,
+        month=10,
+        start_date=date(2026, 10, 1),
+        end_date=date(2026, 10, 31),
+    )
+    ledger = LedgerService()
+    next_one = ledger.create_voucher(
+        series="A",
+        date=date(2026, 10, 1),
+        period_id=october.id,
+        description="Nästa",
+        rows_data=_ROWS,
+        created_by="test",
+    )
+    assert ledger.post_voucher(next_one.id).number == expected
+    return draft_id
+
+
+def test_case_48_decision_answer_proposal_post_receipt(
+    today, monkeypatch, auth_headers
+):
+    thread, september, _june, _original_voucher = _flow_books()
+    _flow_decision_to_receipt(monkeypatch, auth_headers, thread, september)
+
+
+def test_case_48_correction_of_a_locked_period(today, monkeypatch, auth_headers):
+    thread, september, _june, original = _flow_books()
+    _flow_correction(monkeypatch, auth_headers, thread, september, original)
+
+
+def test_case_48_period_locked_between_proposal_and_press(
+    today, monkeypatch, auth_headers
+):
+    thread, september, _june, _original_voucher = _flow_books()
+    _flow_locked_between_proposal_and_press(auth_headers, thread, september)
+
+
+def _posted_snapshot() -> dict:
+    """Every posted voucher and its rows, column for column."""
+    vouchers = {
+        row["id"]: dict(row)
+        for row in db.execute(
+            "SELECT * FROM vouchers WHERE status = 'posted' ORDER BY id"
+        ).fetchall()
+    }
+    rows = {
+        row["id"]: dict(row)
+        for row in db.execute(
+            "SELECT r.* FROM voucher_rows r JOIN vouchers v ON v.id = r.voucher_id "
+            "WHERE v.status = 'posted' ORDER BY r.id"
+        ).fetchall()
+    }
+    return {"vouchers": vouchers, "rows": rows}
+
+
+_TRIGGERS = {
+    "prevent_update_posted_vouchers": "vouchers",
+    "prevent_delete_posted_vouchers": "vouchers",
+    "prevent_update_rows_for_posted_vouchers": "voucher_rows",
+    "prevent_delete_rows_for_posted_vouchers": "voucher_rows",
+}
+
+
+def test_case_49_the_whole_flow_changes_no_posted_row(today, monkeypatch, auth_headers):
+    """Testfall 49: after every step of 48 the posted rows seen so far are
+    exactly as they were when posted, and the triggers still stand."""
+    thread, september, _june, original = _flow_books()
+    seen: dict = {"vouchers": {}, "rows": {}}
+
+    def check_and_extend() -> None:
+        now = _posted_snapshot()
+        for kind in ("vouchers", "rows"):
+            for row_id, before in seen[kind].items():
+                assert now[kind].get(row_id) == before, (kind, row_id)
+            seen[kind].update(now[kind])
+
+    check_and_extend()
+    posted = _flow_decision_to_receipt(monkeypatch, auth_headers, thread, september)
+    check_and_extend()
+    correction = _flow_correction(
+        monkeypatch, auth_headers, thread, september, original
+    )
+    check_and_extend()
+    _flow_locked_between_proposal_and_press(auth_headers, thread, september)
+    check_and_extend()
+
+    assert {original.id, posted, correction} <= set(seen["vouchers"])
+    assert len(seen["rows"]) >= 3 + 3 + 5
+
+    stored = {
+        row["name"]: row["tbl_name"]
+        for row in db.execute(
+            "SELECT name, tbl_name FROM sqlite_master WHERE type = 'trigger'"
+        ).fetchall()
+    }
+    for name, table in _TRIGGERS.items():
+        assert stored.get(name) == table, name
+
+    conn = db.connect()
+    row_id = next(iter(seen["rows"]))
+    attempts = [
+        (f"UPDATE vouchers SET description = 'x' WHERE id = '{posted}'", "posted"),
+        (
+            "UPDATE vouchers SET status = 'draft', number = NULL "
+            f"WHERE id = '{correction}'",
+            "posted",
+        ),
+        (f"DELETE FROM vouchers WHERE id = '{original.id}'", "posted"),
+        (f"UPDATE voucher_rows SET debit = 1 WHERE id = '{row_id}'", "rows"),
+        (f"DELETE FROM voucher_rows WHERE voucher_id = '{correction}'", "rows"),
+    ]
+    for sql, message in attempts:
+        with pytest.raises(sqlite3.IntegrityError, match=message):
+            conn.execute(sql)
+        conn.rollback()
+    check_and_extend()

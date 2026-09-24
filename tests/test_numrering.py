@@ -747,6 +747,36 @@ def test_12b_gap_check_is_quiet_when_each_year_is_contiguous(
     assert ComplianceService()._check_voucher_sequence() == []
 
 
+def test_12c_run_all_checks_keeps_one_open_issue_per_series_and_year(
+    ledger_service, test_period
+):
+    """F15: a gap in A 2026 and in A 2027 are two open issues, not one --
+    each carries its series and fiscal year as `entity_id` -- and a second
+    run adds neither again."""
+    from services.compliance import ComplianceService
+
+    period_2027 = _second_year_period(ledger_service)
+    for period in (test_period, period_2027):
+        for number in (1, 3):
+            ledger_service.post_voucher(
+                _draft(ledger_service, period).id, number=number
+            )
+
+    service = ComplianceService()
+    service.run_all_checks()
+    service.run_all_checks()
+
+    open_gaps = [
+        i for i in service.get_open_issues() if i.check_type == "voucher_sequence"
+    ]
+    assert len(open_gaps) == 2, [i.title for i in open_gaps]
+    assert {i.entity_id for i in open_gaps} == {
+        f"A:{test_period.fiscal_year_id}",
+        f"A:{period_2027.fiscal_year_id}",
+    }
+    assert {i.entity_type for i in open_gaps} == {"voucher_series"}
+
+
 def test_13_api_gives_null_number_for_draft(ledger_service, test_period, auth_headers):
     """Case 13, backend: a draft is `number: null` in the single read and the
     list, and a number once posted; its audit trail answers 200."""

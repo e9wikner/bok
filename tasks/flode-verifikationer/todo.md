@@ -367,7 +367,35 @@ oräknade. Testfallsnumren syftar på tabellerna i §14. Backendens tester ligge
     `frontend-v3/lib/skal/bocker.ts`, `frontend-v3/hooks/useBockerVyer.ts` (eller där vyns frågor
     bor), `frontend-v3/components/skal/Skal.tsx`
 
-- [ ] **F15 — Hela flödet, regression, omstart och modulen stängd**
+- [x] **F15 — Hela flödet, regression, omstart och modulen stängd**
+  - Gjort 2026-09-24: testfall 48 som tre tester och 49 som ett i
+    `tests/test_flode_verifikationer.py`, alla gröna direkt (de prövar F1–F14, inget nytt
+    beteende). Agentens turer är skriptade `execute_tool`-anrop med trådens `tool_context`;
+    `ThreadTurnRunner.start` ersätts av en inspelare med `agent_runtime_enabled` på, så svaret på
+    beslutet startar en tur och den skriptade turen tar vid från svarsinlägget. (a) `be_om_beslut`
+    med två alternativ → `POST /decisions/{id}/answer` (`202`) → `foresla_verifikation` med
+    `decision_id` → `POST /vouchers/{id}/post` två gånger med samma nyckel: en verifikation,
+    numret satt först vid postningen, ett kvitto, ett `view.changed`, `count_waiting` ner med
+    ett och `GET /drafts` → `posted`. (b) rättelse av A-1 i låst juni → B-utkast i september med
+    konsekvensraden → post → historik, `B-1 postad · rättar A-1`, `corrected_by`/`corrects` i
+    `GET /vouchers`. (c) låst mellan förslag och tryck → `409 period_locked`, ett `error`-inlägg,
+    nästa A-nummer oförbrukat. 49 kör (a)–(c) i en databas, jämför varje postad `vouchers`- och
+    `voucher_rows`-rad kolumn för kolumn efter varje steg, och prövar att de fyra triggrarna
+    finns och avvisar `UPDATE`/`DELETE`. **Luckkontrollen:** `_check_voucher_sequence` sätter
+    `entity_type='voucher_series'`, `entity_id='{serie}:{fiscal_year_id}'`, så `_issue_exists`
+    släpper in ett öppet ärende per serie och år (F3:s kända brist); testfall 12c i
+    `tests/test_numrering.py`, sett rött först. Repot har inga SIE4-filer; två handskrivna filer
+    (2025: A 1–3, B 1–2; 2026: A 1, 2, 4) importerades i en tom engångsdatabas: numren i databasen
+    är filernas, och kontrollen visar exakt en lucka, A-serien 2026, ingen annan; en andra körning
+    lägger inte till något. **Fynd, inte ändrat:** `LedgerService.lock_period` vägrar låsa en
+    period som har utkast (`400 draft_vouchers_exist`), så genom `POST /periods/{id}/lock` kan
+    fall (c) inte uppstå medan förslaget ligger i perioden — testerna låser genom repot, som F9.
+    Ett väntande förslag stoppar alltså månadsstängningen. **Visuellt inte kontrollerat:** ingen
+    `LLM_API_KEY`, och inloggningen i `/v4` kräver lösenord, som agenten inte skriver in. Flödet
+    gicks i stället igenom med `curl` mot en lokal server på en engångsdatabas, byggd med
+    skriptade verktygsanrop: räknaren 4 → 1, två tryck gav `200` + `Idempotent-Replay` och A-2, B-1
+    rättar A-1 i listan, tre kvitton i tråden. Hela sviten: 1146 passed; black, isort, flake8
+    rena; `mypy .` 61 fel som före; vitest 483 passed; lint, tsc och build gröna.
   - Acceptans: testfall 48, med skriptade verktygsanrop: beslut → svar → förslag → post → kvitto,
     och rättelse → post → kvitto. Testfall 49 och 50 gröna. Visuell kontroll i `/v4` mot riktig
     backend med riktig LLM: flödets sex steg, en rättelse av en verifikation i en låst period, och
@@ -378,3 +406,45 @@ oräknade. Testfallsnumren syftar på tabellerna i §14. Backendens tester ligge
   - Verifiera: `pytest tests/ -v`, `black --check .`, `isort --check .`, `flake8`, `mypy` (inga nya
     fel), `npm test`, `npm run lint`, `npx tsc --noEmit`, `NEXT_PUBLIC_SKAL=1 npm run build`.
   - Filer: `tests/test_flode_verifikationer.py`, spec, `tasks/README.md`
+
+---
+
+## Modulen är klar
+
+F1–F15 avbockade 2026-09-24. De nio framgångskriterierna i spec §16, ett och ett:
+
+1. Utkast har inget nummer; numret sätts vid postning, i ordning, utan luckor, och migrationen
+   kopierade varje postad rad — ✅ (testfall 1–13, 12c). Luckkontrollen per serie och
+   räkenskapsår, med ett öppet ärende för varje (F15). En SIE4-import i en tom databas behåller
+   filens nummer och visar bara filens egna luckor.
+2. Beslut → svar → förslag → `Posta` → kvitto mot riktig backend i `/v4` med riktig LLM —
+   **delvis**. Skriptat end-to-end (testfall 48 a) och via `curl` mot en lokal server. **Inte
+   sett i `/v4` och inte med en riktig LLM**: ingen `LLM_API_KEY` i miljön, och inloggningen
+   kräver lösenord.
+3. En rättelse ger ett B-förslag som säger vilken period det hamnar i; postad får den historik
+   och originalet visas som rättat — ✅ i test (32–43, 48 b) och via `curl` (`B-1` rättar `A-1`
+   i `GET /vouchers`). Vyns `rättad av`/`rättar` är sedd i vitest (45), inte i webbläsaren.
+4. Två tryck ger en verifikation, ett nummer och ett kvitto — ✅ (24, 48 a; live via `curl`:
+   `200`, sedan `200` med `Idempotent-Replay`, samma nummer).
+5. Låst period mitt i ger ett felkort med vem och när, inget bokfört, inget nummer förbrukat —
+   ✅ i test (28, 29, 46, 48 c). **Men:** låsvägen `POST /periods/{id}/lock` vägrar låsa en
+   period med utkast, så läget nås i dag bara genom att låsa förbi tjänsten. Se F15.
+6. Headerns räknare, mobilens märke och vyns väntar-sektion visar samma tal — ✅ i test (31, 45);
+   `GET /overview` följde postningarna live (4 → 1). Inte jämfört i webbläsaren.
+7. Förslagskortet visar rätt läge efter omladdning och i en annan flik — ✅ i test (44). Inte
+   sett i webbläsaren.
+8. Ingen postad rad ändras, triggrarna fungerar, ingen ny kolumn på `vouchers` — ✅ (1–4, 49).
+9. `pytest tests/ -v` (1146), `black`, `isort`, `flake8` rena; `mypy .` 61 fel som baslinjen;
+   `npm test` (483), `npm run lint`, `npx tsc --noEmit`, `NEXT_PUBLIC_SKAL=1 npm run build`
+   gröna — ✅.
+
+Kvar för beställaren:
+
+- **Visuell kontroll i `/v4`** med riktig LLM: F14:s lista — den optimistiska raden (inget blink
+  när `view.changed` kommer före svaret), `ny` i 6 s, två tryck på `Posta`, rättelse i låst
+  period (`rättelse av A-n väntar` → `rättad av`/`rättar`), röd rad från sju dagar, headerns
+  räknare mot vyns, `Postar fortfarande…`.
+- **Omstarten efter driftsättningen** (§4.4): tom databas, SIE4-filerna importerade igen,
+  `POST /api/v1/compliance/check`, och luckkontrollen jämförd med filerna.
+- **Beslut:** ska ett väntande trådförslag stoppa periodlåsningen (`draft_vouchers_exist`), eller
+  ska låsningen ersätta förslaget med ett `period_locked`-läge? I dag stoppar det.

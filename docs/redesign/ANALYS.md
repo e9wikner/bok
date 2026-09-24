@@ -159,6 +159,8 @@ idempotens, oversikt
 
 **Första leverans:** `idempotens` + `oversikt` + `agentruntime` + `tradar` + `beslut` + `skal` + `chattyta` + `flode-verifikationer` → Böcker · Verifikationer fungerar agent-first hela vägen.
 
+**Klar 2026-09-24.** Alla åtta moduler i första leveransen är byggda och testade (`tasks/README.md`). Kvar före driftsättning: visuell kontroll i `/v4` med riktig LLM, och efter den tom databas och omimport av SIE4-filerna (`SPEC-flode-verifikationer.md` §4.4).
+
 ### Konsekvens av att flöde 2 och 3 utgår
 
 Vyerna **Fakturering** och **Löner** finns kvar i informationsarkitekturen — v10 ritar dem som vyer, och de ska byggas som **läsvyer med tråd men utan skrivflöde**. Agenten kan svara på frågor om dem; den kan inte godkänna en lönekörning eller skicka en faktura. Skrivning sker tills vidare via befintliga endpoints, utanför redesignen.

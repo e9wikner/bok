@@ -5,7 +5,7 @@ C1–C14), och genom den på `beslut`, `tradar`, `skal`, `agentruntime` och `ide
 den sista modulen i första leveransen: när den är klar fungerar Böcker · Verifikationer
 agent-first hela vägen, **korrigering inräknad**. `flode-underlag` beror på den här.
 
-Status: **Fas 1 — skriven och godkänd 2026-09-23.** Fem beslut tagna av beställaren
+Status: **Klar 2026-09-24 (F1–F15).** Skriven och godkänd 2026-09-23. Fem beslut tagna av beställaren
 (§12.1–§12.5), och ett om driftsättningen (§4.4). Uppgifterna ligger i
 `tasks/flode-verifikationer/plan.md` och `tasks/flode-verifikationer/todo.md` (F1–F15).
 

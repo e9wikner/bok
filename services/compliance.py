@@ -260,7 +260,10 @@ class ComplianceService:
                         check_type="voucher_sequence",
                         severity="warning",
                         status="open",
-                        entity_type="voucher",
+                        # One open issue per series and fiscal year: the
+                        # key is what `_issue_exists` deduplicates on.
+                        entity_type="voucher_series",
+                        entity_id=f"{row['series']}:{row['fiscal_year_id']}",
                         title=(
                             f"🔢 Luckor i verifikationsnumrering "
                             f"({row['series']}-serien, räkenskapsår {year})"
