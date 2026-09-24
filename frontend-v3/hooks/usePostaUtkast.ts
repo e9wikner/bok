@@ -7,10 +7,15 @@ import {
   BESLUT_NYCKEL,
   DRAFTS_NYCKEL,
   OVERVIEW_NYCKEL,
+  VOUCHERS_NYCKEL,
   postaUtkast,
   type PostaUtfall,
   type VerifikationSvar,
 } from "@/lib/chattyta/api";
+import { postningKlar, startaPostning, taBortPostning } from "@/lib/chattyta/postningar";
+
+/** Så länge `Postar…` står innan knappen säger `Postar fortfarande…` (flode-verifikationer §11.2). */
+export const POSTAR_FORTFARANDE_MS = 3000;
 
 /**
  * Postningens tillstånd för ett utkast (SPEC-chattyta.md §8, C12). Delas av
@@ -51,6 +56,8 @@ export type PostaLage =
 
 export interface UsePostaUtkast {
   lage: PostaLage;
+  /** `postar` i mer än `POSTAR_FORTFARANDE_MS`: knappen byter text (§11.2). */
+  langsam: boolean;
   /** `Posta` och `Försök igen`. Ett anrop åt gången per kort; nyckeln skyddar resten. */
   posta: () => void;
 }
@@ -87,6 +94,18 @@ function nekadKod(fel: unknown): string {
 export function usePostaUtkast(draftId: string): UsePostaUtkast {
   const qc = useQueryClient();
   const [lage, setLage] = useState<PostaLage>({ lage: "redo" });
+  const [langsam, setLangsam] = useState(false);
+
+  // `Postar fortfarande…` efter 3 s utan svar (flode-verifikationer §11.2).
+  const postar = lage.lage === "postar";
+  useEffect(() => {
+    if (!postar) {
+      setLangsam(false);
+      return;
+    }
+    const t = setTimeout(() => setLangsam(true), POSTAR_FORTFARANDE_MS);
+    return () => clearTimeout(t);
+  }, [postar]);
 
   // Staten ritar låset; ref:en ÄR låset — två klick innan React hunnit
   // rendera `postar` ger annars två anrop. Det är bekvämlighet, inte
@@ -122,6 +141,10 @@ export function usePostaUtkast(draftId: string): UsePostaUtkast {
     if (upptagen.current) return;
     upptagen.current = true;
     setLage({ lage: "postar" });
+    // Den optimistiska raden i vyn (flode-verifikationer §11.2): överst i
+    // Postade, utan nummer, och händelsen ur Väntar. Den lever i cachen, så
+    // att vyn — en annan komponent — ser den.
+    startaPostning(qc, draftId);
 
     void (async () => {
       let slut: PostaLage;
@@ -132,26 +155,34 @@ export function usePostaUtkast(draftId: string): UsePostaUtkast {
           // vårt eget förra). Fråga igen med SAMMA nyckel; svaret blir den
           // lagrade postningen (SPEC-idempotens.md §6). Knappen står kvar i
           // `Postar…` hela tiden (§8).
-          if (!monterad.current) return;
+          if (!monterad.current) return taBortPostning(qc, draftId);
           await vanta(utfall.retry_after_ms);
-          if (!monterad.current) return;
+          if (!monterad.current) return taBortPostning(qc, draftId);
           utfall = await postaUtkast(draftId);
         }
         slut = tillLage(utfall);
       } catch (fel) {
         slut = { lage: "nekad", kod: nekadKod(fel) };
       }
-      if (!monterad.current) return;
+
+      // Raden i vyn får sitt slut även om kortet hann försvinna: postad
+      // (uppspelning och `already_posted` inräknade) byts mot serverns
+      // verifikation, allt annat tas bort och händelsen går tillbaka.
+      if (slut.lage === "postad") postningKlar(qc, draftId, slut.verifikation);
+      else taBortPostning(qc, draftId);
 
       // Varje svar kan ha ändrat förslagets rad: postad, eller
       // `last_error_code` satt (flode-verifikationer §10).
       void qc.invalidateQueries({ queryKey: DRAFTS_NYCKEL });
       if (slut.lage === "postad") {
-        // Huvudboken ändrades: headerns tal och vyns väntande beslut kan ha
-        // följt med. Kvittot och `view.changed` är producentens (§8, §12.1).
+        // Huvudboken ändrades: headerns tal, vyns listor och väntande beslut
+        // kan ha följt med. Kvittot och `view.changed` är producentens (§8,
+        // §12.1); vi väntar inte på dem.
         void qc.invalidateQueries({ queryKey: OVERVIEW_NYCKEL });
         void qc.invalidateQueries({ queryKey: BESLUT_NYCKEL });
+        void qc.invalidateQueries({ queryKey: VOUCHERS_NYCKEL });
       }
+      if (!monterad.current) return;
       // Låset släpps bara där ett nytt tryck är meningsfullt. Efter `postad`,
       // `period_last`, `andrad` och `nekad` finns ingen knapp att trycka på.
       if (slut.lage === "natverk") upptagen.current = false;
@@ -159,7 +190,7 @@ export function usePostaUtkast(draftId: string): UsePostaUtkast {
     })();
   }, [draftId, qc]);
 
-  return { lage, posta };
+  return { lage, langsam: postar && langsam, posta };
 }
 
 // ─── Utfallens text (SPEC-chattyta.md §8) ─────────────────────────────────

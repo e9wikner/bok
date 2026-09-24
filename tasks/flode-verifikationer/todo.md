@@ -341,7 +341,24 @@ oräknade. Testfallsnumren syftar på tabellerna i §14. Backendens tester ligge
   - Filer: `frontend-v3/hooks/useForslag.ts`, `frontend-v3/lib/chattyta/api.ts`,
     `frontend-v3/components/chattyta/VerifikationsForslag.tsx`, `frontend-v3/hooks/useTrad.ts`
 
-- [ ] **F14 — Vyn Verifikationer**
+- [x] **F14 — Vyn Verifikationer**
+  - Gjort 2026-09-24: `VoucherResponse` har `corrected_by`/`corrects` (`{id, series, number}`),
+    joinade i sidfrågan (`VOUCHER_SELECT_SQL`, delad av `get`, `list_all`, `list_for_period`);
+    bara en postad rättelse ger `corrected_by`. N+1 lagat i samma svep: raderna i en fråga per
+    sida (`_rows_for`, i bitar om 500) och kontonamnen en gång per sida. `GET /drafts` fick
+    `correction_note_id`. Klienten: `verifikationerVy` bygger Väntar på beslut (öppna beslut +
+    väntande trådförslag, radlägena i §11.1, `ageDays` på beslutsraden), Postade (med
+    `· rättad av`/`· rättar` och den optimistiska raden överst) och Utkast (utan trådens utkast).
+    `useVyer` läser beslut och förslag under trådens nycklar, listorna under `["vouchers", …]`.
+    Den optimistiska raden bor i cachen under `["postningar"]` (`lib/chattyta/postningar.ts`,
+    `hooks/usePostningar.ts`); `usePostaUtkast` skriver den och invaliderar också `["vouchers"]`
+    efter en postning. `Postar fortfarande…` efter 3 s (fanns inte). Tester, sedda röda först:
+    testfall 42 ×3 och `correction_note_id` i pytest; 45 ×5 och 46 ×3 (rena) i `bocker.test.ts`,
+    46 ×5 i `components/skal/__tests__/optimistisk.test.tsx`. Ändrade: två äldre
+    `verifikationerVy`-tester (ordning och rubrik), testfall 30:s nyckelmängd, och testfall 34:s
+    timerräkning (två timers till). Avvikelser i specen §7.5 och §11.2: ordningen, förslag i
+    beslutets ställe, statusens tal, `{vem}` = `du`, `fel` vid varje kod. Hela sviten: 1141
+    passed; `mypy .` 61 fel som före. vitest 483 passed; lint, tsc och build gröna.
   - Acceptans: sektionerna enligt §11.1, med trådutkast bara under Väntar. Radlägena finns, inklusive
     `rättelse väntar`. Den optimistiska raden följer §11.2 och har inget nummer medan den väntar.
     `rättad av`/`rättar` kommer ur en join i sidfrågan (backend) och visas i metan.

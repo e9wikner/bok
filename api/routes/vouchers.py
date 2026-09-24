@@ -21,6 +21,7 @@ from api.schemas import (
     RejectCorrectionNoteRequest,
     SuggestCorrectionNoteRequest,
     UpdateVoucherRequest,
+    VoucherRefResponse,
     VoucherResponse,
     VoucherRowResponse,
 )
@@ -925,11 +926,13 @@ async def list_vouchers(
                 missing_attachment=missing_attachment,
             )
 
+        # Read once for the page, not once per voucher (SPEC-oversikt §3).
+        account_names = AccountRepository.get_all_as_dict()
         return {
             "period_id": period_id,
             "status_filter": voucher_status,
             "total": total,
-            "vouchers": [_voucher_to_response(v) for v in vouchers],
+            "vouchers": [_voucher_to_response(v, account_names) for v in vouchers],
         }
     except Exception as e:
         raise HTTPException(
@@ -1065,10 +1068,11 @@ def _raise_correction_note_http_error(error: CorrectionNoteError) -> None:
     )
 
 
-def _voucher_to_response(voucher) -> VoucherResponse:
-    """Convert domain Voucher to response."""
-    # Look up account names
-    account_names = AccountRepository.get_all_as_dict()
+def _voucher_to_response(voucher, account_names=None) -> VoucherResponse:
+    """Convert domain Voucher to response. A list passes *account_names*,
+    read once for the page."""
+    if account_names is None:
+        account_names = AccountRepository.get_all_as_dict()
     total_debit = sum(row.debit for row in voucher.rows)
     total_credit = sum(row.credit for row in voucher.rows)
 
@@ -1119,4 +1123,12 @@ def _voucher_to_response(voucher) -> VoucherResponse:
         posted_at=voucher.posted_at,
         missing_attachment=missing_attachment,
         age_days=age_days,
+        corrected_by=_ref_response(voucher.corrected_by),
+        corrects=_ref_response(voucher.corrects),
     )
+
+
+def _ref_response(ref) -> Optional[VoucherRefResponse]:
+    if ref is None:
+        return None
+    return VoucherRefResponse(id=ref.id, series=ref.series, number=ref.number)

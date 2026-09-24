@@ -601,6 +601,14 @@ En postad verifikation som har rättats får meta `… · rättad av B-7`. En B-
 `… · rättar A-118`. Båda härleds ur `vouchers.correction_of`, med en join i sidfrågan och inte en
 fråga per rad, samma krav som `SPEC-oversikt.md` §3.
 
+Byggt i F14: `VoucherResponse` har `corrected_by` och `corrects`, båda `{id, series, number} |
+null`. `corrected_by` är den senast postade verifikationen vars `correction_of` pekar hit (en
+väntande rättelse räknas inte); `corrects` är verifikationen `correction_of` pekar på, också på
+ett utkast. Båda joinas in i sidfrågan (`VOUCHER_SELECT_SQL` i `voucher_repo.py`), som `get`,
+`list_all` och `list_for_period` delar. N+1 i listan är lagat i samma svep: sidans rader läses i
+en fråga (`_rows_for`), och kontonamnen en gång per sida i stället för per verifikation.
+Klienten visar `· rättar A-118` bara på en postad verifikation.
+
 ---
 
 ## 8. Postningen och kvittot
@@ -832,6 +840,35 @@ Ett trådutkast visas på ett enda ställe.
 - Den optimistiska raden lever bara i klientens cache. Efter en omladdning mitt i en postning
   visar vyn det servern svarar, och postningen är ett enda synkront anrop, så något mellanläge
   behövs inte.
+
+Byggt i F14 (klienten): `verifikationerVy(ar, postade, utkast, {beslut, forslag, postningar})`
+i `lib/skal/bocker.ts`; `useVyer` läser besluten och förslagen under samma nycklar och i samma
+cachade form som trådens `useBeslut`/`useForslag` (`status=all`, en fråga per vy som kort och vy
+delar), och verifikationslistorna under `["vouchers", "skal", …]` så att `view.changed` och
+`Posta` når dem. Den optimistiska raden ligger i TanStack-cachen under `["postningar"]`
+(`lib/chattyta/postningar.ts`): `usePostaUtkast` skriver den vid trycket och vid svaret, även om
+kortet hunnit försvinna, och tar bort den efter 6 s (`NY_POSTNING_MS` = `NY_MARKERING_MS`).
+**Avvikelser:**
+
+- **Sektionernas ordning** är Väntar på beslut, Postade, Utkast, och rubriken är `Postade` (förut
+  `Utkast` överst och `Senast postade`). Ett utkast utanför tråden behåller varianten `vantar`.
+- **Ett förslag på ett öppet beslut står i beslutets ställe.** Förslag som svarar på ett öppet
+  beslut i vyn (`decision_id`, eller `correction:{correction_note_id}` för en rättelse på en
+  notering) ersätter beslutsraden — även medan det postas, så att beslutet inte dyker upp i
+  Väntar under postningen. För det har `GET /drafts` fått fältet `correction_note_id`.
+- **Vyns status** är `{n} väntar på dig`, där `n` räknas med §11.3:s regel: en gång per beslut,
+  per notering och per fristående förslag. Två väntande förslag på samma besvarade beslut är två
+  rader men ett i talet. Utan något som väntar: `{n} utkast`, annars `{n} postade`.
+- **`{vem}` i `Nyss postad` är `du`.** `VoucherResponse` har ingen `posted_by`, och bara
+  klientens eget tryck ger läget `ny`. Klockslaget skärs ur `posted_at` som servern skrev det.
+- `förslag väntar · {datum}` tar verifikationens datum. Förslagsrader färgas inte med åldern;
+  bara beslutsraden får `ageDays` (`aldersTon`), som tabellen säger.
+- **Vid fel** tas raden bort och vyns förslagsfråga hämtas om; läget `fel` kommer ur serverns
+  `last_error_code`, alltså vid varje kod i §9, inte bara `period_locked`. Ett nätverksfel lägger
+  tillbaka händelsen som den var.
+- Headerns tal (`open_decisions`) räknas utan `view_key` (§11.3, sista stycket), vyns för
+  `bocker.verifikationer`. De är lika så länge inget väntar i Balansräkningens eller
+  Resultaträkningens trådar; de syntetiska besluten ligger alltid i Verifikationer.
 
 ### 11.3 Räknaren
 

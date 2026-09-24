@@ -21,6 +21,8 @@ export interface VyRadData {
   variant?: RadVariant;
   /** Summarad: samma vikt som designens `r.vikt` 500. */
   summa?: boolean;
+  /** Serverns `age_days`; färgar metan för `vantar`/`saknar` med `aldersTon`. */
+  ageDays?: number;
 }
 
 export interface VySektionData {

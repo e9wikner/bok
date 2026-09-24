@@ -106,6 +106,16 @@ class VoucherRow:
         return self.debit if self.is_debit() else self.credit
 
 
+@dataclass(frozen=True)
+class VoucherRef:
+    """Another voucher as the list names it: `B-7` (SPEC-flode-verifikationer
+    §7.5). Derived by the repository, never stored."""
+
+    id: str
+    series: str
+    number: Optional[int]
+
+
 @dataclass
 class Voucher:
     """Verifikation (accounting voucher - BFL §5 kap 6)."""
@@ -129,6 +139,10 @@ class Voucher:
     # voucher that was built in memory rather than read back.
     missing_attachment: Optional[bool] = None
     age_days: Optional[int] = None
+    # Derived from vouchers.correction_of (SPEC-flode-verifikationer §7.5):
+    # the posted correction of this voucher, and the voucher this one corrects.
+    corrected_by: Optional[VoucherRef] = None
+    corrects: Optional[VoucherRef] = None
 
     def is_posted(self) -> bool:
         """Check if voucher is posted (varaktighet - immutable)."""

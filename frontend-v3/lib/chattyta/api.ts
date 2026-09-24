@@ -252,6 +252,9 @@ export interface VerifikationSvar {
   period_id: string;
   status: string;
   posted_at?: string | null;
+  /** Serverns hela `VoucherResponse` har dem; vyns nyss postade rad läser dem (F14). */
+  description?: string;
+  total_debit?: number;
 }
 
 /**
@@ -433,6 +436,12 @@ export interface ForslagStatusSvar {
   decision_id: string | null;
   /** Originalets `vouchers.id` när förslaget är en rättelse. */
   correction_of: string | null;
+  /**
+   * Noteringen rättelsen svarar på (F14). Vyn viker förslaget in i det
+   * syntetiska beslutet `correction:{id}`, som `count_waiting` gör (§11.3).
+   * Valfri: en server från före F14 skickar den inte.
+   */
+  correction_note_id?: string | null;
   status: ForslagStatus;
   /** Det nya förslagets `draft_id` när det här är `superseded`. */
   replaced_by: string | null;

@@ -5,7 +5,7 @@ from datetime import date, datetime
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from db.database import db
-from domain.models import Voucher, VoucherRow
+from domain.models import Voucher, VoucherRef, VoucherRow
 from domain.types import VoucherSeries, VoucherStatus
 
 # Derived voucher fields (SPEC-oversikt.md §3). Never stored: migration 014
@@ -20,6 +20,72 @@ MISSING_ATTACHMENT_SQL = (
 AGE_DAYS_SQL = (
     "CAST(julianday(date('now', 'localtime')) - julianday(vouchers.date) AS INTEGER)"
 )
+
+
+# Every voucher read selects through this: the voucher's own columns, the two
+# derived fields above, and the two correction references (SPEC-flode-
+# verifikationer §7.5) joined in -- `corrected_by` is the latest *posted*
+# voucher whose correction_of points here; `corrects` is the voucher this one
+# points at. `vouchers` stays unaliased for the fragments above; a caller's
+# WHERE must qualify its columns with `vouchers.`.
+VOUCHER_SELECT_SQL = f"""
+    SELECT vouchers.*,
+           {MISSING_ATTACHMENT_SQL} AS missing_attachment,
+           {AGE_DAYS_SQL} AS age_days,
+           cb.id AS corrected_by_id,
+           cb.series AS corrected_by_series,
+           cb.number AS corrected_by_number,
+           co.id AS corrects_id,
+           co.series AS corrects_series,
+           co.number AS corrects_number
+    FROM vouchers
+    LEFT JOIN (
+        SELECT id, series, number, correction_of,
+               ROW_NUMBER() OVER (
+                   PARTITION BY correction_of ORDER BY posted_at DESC, number DESC
+               ) AS rank_in_original
+        FROM vouchers
+        WHERE status = 'posted' AND correction_of IS NOT NULL
+    ) cb ON cb.correction_of = vouchers.id AND cb.rank_in_original = 1
+    LEFT JOIN vouchers co ON co.id = vouchers.correction_of
+"""
+
+
+_IN_CHUNK = 500
+
+
+def _ref(row, prefix: str) -> Optional[VoucherRef]:
+    if row[f"{prefix}_id"] is None:
+        return None
+    return VoucherRef(
+        id=row[f"{prefix}_id"],
+        series=row[f"{prefix}_series"],
+        number=row[f"{prefix}_number"],
+    )
+
+
+def _voucher_from_row(row, rows: List[VoucherRow]) -> Voucher:
+    """A `Voucher` out of one `VOUCHER_SELECT_SQL` row and its rows."""
+    posted_at = row["posted_at"]
+    return Voucher(
+        id=row["id"],
+        series=VoucherSeries(row["series"]),
+        number=row["number"],
+        date=datetime.fromisoformat(row["date"]).date(),
+        period_id=row["period_id"],
+        description=row["description"],
+        status=VoucherStatus(row["status"]),
+        fiscal_year_id=row["fiscal_year_id"],
+        rows=rows,
+        correction_of=row["correction_of"],
+        created_at=datetime.fromisoformat(row["created_at"]),
+        created_by=row["created_by"],
+        posted_at=datetime.fromisoformat(posted_at) if posted_at else None,
+        missing_attachment=bool(row["missing_attachment"]),
+        age_days=row["age_days"],
+        corrected_by=_ref(row, "corrected_by"),
+        corrects=_ref(row, "corrects"),
+    )
 
 
 class VoucherRepository:
@@ -111,27 +177,39 @@ class VoucherRepository:
     def get(voucher_id: str) -> Optional[Voucher]:
         """Get voucher by ID with all rows.
 
-        The two derived fields ride along in this query, so reading a voucher
+        The derived fields ride along in this query, so reading a voucher
         costs no more than it did before they existed.
         """
-        sql = f"""
-            SELECT *,
-                   {MISSING_ATTACHMENT_SQL} AS missing_attachment,
-                   {AGE_DAYS_SQL} AS age_days
-            FROM vouchers WHERE id = ? LIMIT 1
-        """
-        cursor = db.execute(sql, (voucher_id,))
-        row = cursor.fetchone()
-
+        sql = f"{VOUCHER_SELECT_SQL} WHERE vouchers.id = ? LIMIT 1"
+        row = db.execute(sql, (voucher_id,)).fetchone()
         if not row:
             return None
+        rows = VoucherRepository._rows_for([voucher_id])
+        return _voucher_from_row(row, rows.get(voucher_id, []))
 
-        # Get rows
-        rows_sql = "SELECT * FROM voucher_rows WHERE voucher_id = ? ORDER BY created_at"
-        rows_cursor = db.execute(rows_sql, (voucher_id,))
-        rows = []
-        for row_data in rows_cursor.fetchall():
-            rows.append(
+    @staticmethod
+    def _rows_for(voucher_ids: Sequence[str]) -> Dict[str, List[VoucherRow]]:
+        """`{voucher_id: rows}` for every id, in one query -- a page of
+        vouchers reads its rows once, not once per voucher."""
+        ids = list(dict.fromkeys(voucher_ids))
+        if not ids:
+            return {}
+        found = []
+        # Chunked under SQLite's host-parameter limit: an unpaged list of a
+        # large ledger is still one query per 500 vouchers, not one per row.
+        for start in range(0, len(ids), _IN_CHUNK):
+            chunk = ids[start : start + _IN_CHUNK]
+            placeholders = ", ".join("?" for _ in chunk)
+            found.extend(
+                db.execute(
+                    f"SELECT * FROM voucher_rows WHERE voucher_id IN ({placeholders}) "
+                    f"ORDER BY created_at",
+                    tuple(chunk),
+                ).fetchall()
+            )
+        by_voucher: Dict[str, List[VoucherRow]] = {}
+        for row_data in found:
+            by_voucher.setdefault(row_data["voucher_id"], []).append(
                 VoucherRow(
                     id=row_data["id"],
                     voucher_id=row_data["voucher_id"],
@@ -142,50 +220,23 @@ class VoucherRepository:
                     created_at=datetime.fromisoformat(row_data["created_at"]),
                 )
             )
-
-        posted_at = row["posted_at"]
-        if posted_at:
-            posted_at = datetime.fromisoformat(posted_at)
-
-        return Voucher(
-            id=row["id"],
-            series=VoucherSeries(row["series"]),
-            number=row["number"],
-            date=datetime.fromisoformat(row["date"]).date(),
-            period_id=row["period_id"],
-            description=row["description"],
-            status=VoucherStatus(row["status"]),
-            fiscal_year_id=(
-                row["fiscal_year_id"] if "fiscal_year_id" in row.keys() else None
-            ),
-            rows=rows,
-            correction_of=row["correction_of"],
-            created_at=datetime.fromisoformat(row["created_at"]),
-            created_by=row["created_by"],
-            posted_at=posted_at,
-            missing_attachment=bool(row["missing_attachment"]),
-            age_days=row["age_days"],
-        )
+        return by_voucher
 
     @staticmethod
     def list_for_period(period_id: str, status: Optional[str] = None) -> List[Voucher]:
         """List vouchers for a period."""
-        sql = "SELECT id FROM vouchers WHERE period_id = ?"
+        sql = f"{VOUCHER_SELECT_SQL} WHERE vouchers.period_id = ?"
         params = [period_id]
 
         if status:
-            sql += " AND status = ?"
+            sql += " AND vouchers.status = ?"
             params.append(status)
 
-        sql += " ORDER BY date, series, number"
+        sql += " ORDER BY vouchers.date, vouchers.series, vouchers.number"
 
-        cursor = db.execute(sql, tuple(params))
-        vouchers = []
-        for row in cursor.fetchall():
-            voucher = VoucherRepository.get(row["id"])
-            if voucher:
-                vouchers.append(voucher)
-        return vouchers
+        page = db.execute(sql, tuple(params)).fetchall()
+        rows = VoucherRepository._rows_for([row["id"] for row in page])
+        return [_voucher_from_row(row, rows.get(row["id"], [])) for row in page]
 
     @staticmethod
     def list_all(
@@ -212,20 +263,22 @@ class VoucherRepository:
         params: list = []
 
         if status:
-            where_clauses.append("status = ?")
+            where_clauses.append("vouchers.status = ?")
             params.append(status)
 
         if fiscal_year_id:
-            where_clauses.append("fiscal_year_id = ?")
+            where_clauses.append("vouchers.fiscal_year_id = ?")
             params.append(fiscal_year_id)
 
         if exclude_series:
             placeholders = ", ".join(["?"] * len(exclude_series))
-            where_clauses.append(f"series NOT IN ({placeholders})")
+            where_clauses.append(f"vouchers.series NOT IN ({placeholders})")
             params.extend(exclude_series)
 
         if search:
-            where_clauses.append("(description LIKE ? OR CAST(number AS TEXT) LIKE ?)")
+            where_clauses.append(
+                "(vouchers.description LIKE ? OR CAST(vouchers.number AS TEXT) LIKE ?)"
+            )
             like = f"%{search}%"
             params.extend([like, like])
 
@@ -234,7 +287,7 @@ class VoucherRepository:
             # without an attachment is a draft, not a complement to chase.
             negation = "" if missing_attachment else "NOT "
             where_clauses.append(
-                f"(status = 'posted' AND {negation}{MISSING_ATTACHMENT_SQL})"
+                f"(vouchers.status = 'posted' AND {negation}{MISSING_ATTACHMENT_SQL})"
             )
 
         where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
@@ -256,26 +309,24 @@ class VoucherRepository:
             # puts NULL first in ASC and last in DESC; drafts go last in both
             # directions, after the posted series they have not joined yet.
             order_clause = (
-                f"number IS NULL, series {sort_dir}, number {sort_dir}, "
-                f"date {sort_dir}"
+                f"vouchers.number IS NULL, vouchers.series {sort_dir}, "
+                f"vouchers.number {sort_dir}, vouchers.date {sort_dir}"
             )
         else:
-            order_clause = f"date {sort_dir}, series, number"
+            order_clause = f"vouchers.date {sort_dir}, vouchers.series, vouchers.number"
 
-        # Fetch page
-        sql = f"SELECT id FROM vouchers{where_sql} ORDER BY {order_clause}"
+        # Fetch the page in one query, derived fields joined in, then every
+        # row of the page in one more (SPEC-oversikt §3: no query per row).
+        sql = f"{VOUCHER_SELECT_SQL}{where_sql} ORDER BY {order_clause}"
         page_params = list(params)
 
         if limit is not None:
             sql += " LIMIT ? OFFSET ?"
             page_params.extend([limit, offset])
 
-        cursor = db.execute(sql, tuple(page_params))
-        vouchers = []
-        for row in cursor.fetchall():
-            voucher = VoucherRepository.get(row["id"])
-            if voucher:
-                vouchers.append(voucher)
+        page = db.execute(sql, tuple(page_params)).fetchall()
+        rows = VoucherRepository._rows_for([row["id"] for row in page])
+        vouchers = [_voucher_from_row(row, rows.get(row["id"], [])) for row in page]
         return vouchers, total
 
     @staticmethod

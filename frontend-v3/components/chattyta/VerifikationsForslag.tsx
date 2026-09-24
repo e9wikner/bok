@@ -205,7 +205,7 @@ export function PostaKnappar({
   /** `last_error_code` ur `GET /drafts`: ett fel som ett nytt tryck inte rättar. */
   serverFel?: string | null;
 }) {
-  const { lage: egetLage, posta } = usePostaUtkast(draftId);
+  const { lage: egetLage, langsam, posta } = usePostaUtkast(draftId);
   const lage = medServerFel(egetLage, serverFel);
   const postar = lage.lage === "postar";
 
@@ -259,7 +259,13 @@ export function PostaKnappar({
           onClick={tryck}
           className={PRIMAR}
         >
-          {postar ? "Postar…" : lage.lage === "natverk" ? "Försök igen" : "Posta"}
+          {postar
+            ? langsam
+              ? "Postar fortfarande…"
+              : "Postar…"
+            : lage.lage === "natverk"
+              ? "Försök igen"
+              : "Posta"}
         </button>
       )}
       {onAndra && (

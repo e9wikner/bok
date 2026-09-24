@@ -400,8 +400,10 @@ describe("testfall 34: 409 request_in_flight", () => {
 
     fireEvent.click(postaKnapp());
     await tills(() => post.mock.calls.length === 1);
-    // Låt `409`-utfallet landa och väntetimern startas.
-    await tills(() => vi.getTimerCount() === fore + 1);
+    // Låt `409`-utfallet landa och väntetimern startas. Trycket självt
+    // startar två till (F14): `Postar fortfarande…` efter 3 s, och
+    // cachens städtimer för den optimistiska raden (`POSTNINGAR_NYCKEL`).
+    await tills(() => vi.getTimerCount() === fore + 3);
     expect(postaKnapp()).toHaveTextContent("Postar…");
 
     await act(async () => {

@@ -55,6 +55,7 @@ def _draft_response(item: DraftListItem) -> ThreadDraftResponse:
         post_id=draft.post_id,
         decision_id=draft.decision_id,
         correction_of=draft.correction_of,
+        correction_note_id=draft.correction_note_id,
         status=draft.status,
         replaced_by=draft.replaced_by,
         posted_at=draft.posted_at,

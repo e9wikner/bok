@@ -13,6 +13,8 @@ import { formatBeloppHela } from "@/lib/skal/format";
 import { formatVerifikationsnummer } from "@/lib/utils";
 import type { VyData, VyRadData, VySektionData } from "@/lib/skal/vydata";
 import type { OverviewFiscalYear } from "@/lib/skal/api";
+import type { BeslutSvar, ForslagStatusSvar } from "@/lib/chattyta/api";
+import type { Postning } from "@/lib/chattyta/postningar";
 
 // ─── API-svaren, bara de fält vyerna läser ────────────────────────────────
 
@@ -65,6 +67,18 @@ export interface Verifikation {
   status: string;
   total_debit: number;
   missing_attachment?: boolean;
+  posted_at?: string | null;
+  /** Den postade rättelsen av den här (flode-verifikationer §7.5). */
+  corrected_by?: VerifikationRef | null;
+  /** Verifikationen den här rättar. */
+  corrects?: VerifikationRef | null;
+}
+
+/** `api/schemas.py::VoucherRefResponse`. */
+export interface VerifikationRef {
+  id: string;
+  series: string;
+  number: number | null;
 }
 
 export interface Verifikationslista {
@@ -255,44 +269,173 @@ export function resultatVy(ar: OverviewFiscalYear, r: Resultatrakning): VyData {
   };
 }
 
+const nummerAv = (r: { series: string; number: number | null }) =>
+  formatVerifikationsnummer(r.number, r.series, "-");
+
+/** `2026-09-18T06:45:12` → `06:45`, skuren ur strängen som servern skrev den (lokal tid, ingen zon). */
+function klockslag(iso: string | null | undefined): string | null {
+  const m = iso ? /T(\d{2}:\d{2})/.exec(iso) : null;
+  return m ? m[1] : null;
+}
+
+/** `Nyss postad` (§11.1): `{serie}-{nummer} · postad HH:MM · {vem} · låst`. Bara klientens eget tryck blir `ny`, så `{vem}` är du. */
+function nyMeta(nummer: string, postadKl: string | null): string {
+  return `${nummer} · postad${postadKl ? ` ${postadKl}` : ""} · du · låst`;
+}
+
 function verifikationsrad(v: Verifikation): VyRadData {
-  const nummer = formatVerifikationsnummer(v.number, v.series, "-");
+  const nummer = nummerAv(v);
   const saknar = v.status === "posted" && v.missing_attachment === true;
+  const rattadAv = v.corrected_by ? ` · rättad av ${nummerAv(v.corrected_by)}` : "";
+  const rattar = v.status === "posted" && v.corrects ? ` · rättar ${nummerAv(v.corrects)}` : "";
   return {
     id: v.id,
     titel: v.description,
-    meta: `${nummer} · ${v.date}${saknar ? " · saknar underlag" : ""}`,
+    meta: `${nummer} · ${v.date}${saknar ? " · saknar underlag" : ""}${rattadAv}${rattar}`,
     hoger: formatBeloppHela(v.total_debit),
     variant: v.status === "draft" ? "vantar" : saknar ? "saknar" : undefined,
   };
 }
 
-/** Utkasten överst, sedan de senast daterade postade verifikationerna. */
+/** Vyns trådhändelser: öppna beslut, förslag och de optimistiska raderna. */
+export interface VantarUnderlag {
+  /** `GET /decisions?view_key=bocker.verifikationer&status=all`; bara `open` visas. */
+  beslut: readonly BeslutSvar[];
+  /** `GET /drafts?view_key=bocker.verifikationer&status=all`. */
+  forslag: readonly ForslagStatusSvar[];
+  /** §11.2, ur `POSTNINGAR_NYCKEL`. */
+  postningar?: readonly Postning[];
+}
+
+const INGET_UNDERLAG: VantarUnderlag = { beslut: [], forslag: [] };
+
+/**
+ * Det beslut ett väntande förslag svarar på, som vyn och `count_waiting`
+ * (§11.3) grupperar på: `decision_id`, annars noteringens syntetiska
+ * `correction:{id}`, annars förslaget självt.
+ */
+function vantarPa(f: ForslagStatusSvar): string {
+  if (f.decision_id) return f.decision_id;
+  if (f.correction_note_id) return `correction:${f.correction_note_id}`;
+  return `draft:${f.draft_id}`;
+}
+
+function beslutsrad(b: BeslutSvar): VyRadData {
+  const datum = b.source?.date;
+  return {
+    id: b.id,
+    titel: b.title,
+    meta: datum ? `väntar på dig · ${datum}` : "väntar på dig",
+    hoger: b.amount_ore === null ? "" : formatBeloppHela(b.amount_ore),
+    variant: "vantar",
+    ageDays: b.age_days,
+  };
+}
+
+function forslagsrad(f: ForslagStatusSvar, u: Verifikation): VyRadData {
+  const rad = { id: f.draft_id, titel: u.description, hoger: formatBeloppHela(u.total_debit) };
+  if (f.last_error_code) {
+    return { ...rad, meta: "postning misslyckades · ligger kvar", variant: "fel" };
+  }
+  if (f.correction_of) {
+    const av = u.corrects ? ` av ${nummerAv(u.corrects)}` : "";
+    return { ...rad, meta: `rättelse${av} väntar`, variant: "vantar" };
+  }
+  return { ...rad, meta: `förslag väntar · ${u.date}`, variant: "vantar" };
+}
+
+/** Den optimistiska raden (§11.2) när serverns lista inte har verifikationen än. */
+function postningsrad(p: Postning): VyRadData {
+  const titel = p.utkast?.titel ?? (p.lage === "postad" ? p.verifikation?.description : undefined) ?? "";
+  const belopp = p.utkast?.belopp ?? (p.lage === "postad" ? p.verifikation?.total_debit : undefined);
+  const hoger = belopp === undefined ? "" : formatBeloppHela(belopp);
+  if (p.lage === "pagaende") {
+    // Inget nummer: det finns inte än (§11.2).
+    return { id: p.draftId, titel, meta: `${p.utkast?.serie ?? ""} · postas…`, hoger, variant: "pagaende" };
+  }
+  const v = p.verifikation;
+  const nummer = v ? nummerAv(v) : (p.utkast?.serie ?? "");
+  return { id: p.draftId, titel, meta: nyMeta(nummer, klockslag(v?.posted_at)), hoger, variant: "ny" };
+}
+
+/**
+ * Tre sektioner (flode-verifikationer §11.1): **Väntar på beslut** (öppna
+ * beslut och väntande trådförslag), **Postade** (senast först, med den
+ * optimistiska raden överst, §11.2) och **Utkast** (utkast som inte är
+ * trådens). Ett trådutkast visas på ett enda ställe.
+ *
+ * Ett väntande förslag som svarar på ett öppet beslut står i beslutets
+ * ställe. Statusens tal räknas som `count_waiting` (§11.3): en gång per
+ * beslut, per notering och per fristående förslag — två förslag på samma
+ * besvarade beslut är två rader men en sak som väntar.
+ */
 export function verifikationerVy(
   ar: OverviewFiscalYear,
   postade: Verifikationslista,
-  utkast: Verifikationslista
+  utkast: Verifikationslista,
+  underlag: VantarUnderlag = INGET_UNDERLAG
 ): VyData {
+  const postningar = underlag.postningar ?? [];
+  const postas = new Set(postningar.map((p) => p.draftId));
+  const tradens = new Set(underlag.forslag.map((f) => f.draft_id));
+  const utkastPerId = new Map(utkast.vouchers.map((u) => [u.id, u]));
+
+  // Väntar på beslut.
+  const oppna = underlag.beslut.filter((b) => b.status === "open");
+  const oppnaIds = new Set(oppna.map((b) => b.id));
+  const vantande = underlag.forslag.filter((f) => f.status === "pending");
+  // Beslut som ett förslag står i stället för — också medan förslaget postas,
+  // annars dyker beslutet upp i Väntar under postningen.
+  const ersatta = new Set(vantande.map(vantarPa).filter((k) => oppnaIds.has(k)));
+  const synligaForslag = vantande.filter((f) => !postas.has(f.draft_id));
+  const vantarRader: VyRadData[] = [
+    ...oppna.filter((b) => !ersatta.has(b.id)).map(beslutsrad),
+    ...synligaForslag.flatMap((f) => {
+      const u = utkastPerId.get(f.draft_id);
+      return u ? [forslagsrad(f, u)] : [];
+    }),
+  ];
+  const antalVantar = new Set([
+    ...oppna.filter((b) => !ersatta.has(b.id)).map((b) => b.id),
+    ...synligaForslag.map(vantarPa),
+  ]).size;
+
+  // Postade: de optimistiska överst, sedan serverns lista.
+  const postadePerId = new Map(postade.vouchers.map((v) => [v.id, v]));
+  const nyss = new Set(postningar.filter((p) => p.lage === "postad").map((p) => p.draftId));
+  const optimistiska = postningar.map((p): VyRadData => {
+    const v = postadePerId.get(p.draftId);
+    if (p.lage === "postad" && v) {
+      return { ...verifikationsrad(v), variant: "ny", meta: nyMeta(nummerAv(v), klockslag(v.posted_at)) };
+    }
+    return postningsrad(p);
+  });
+  const postadeRader = [
+    ...optimistiska,
+    ...postade.vouchers.filter((v) => !postas.has(v.id) && !nyss.has(v.id)).map(verifikationsrad),
+  ];
+
+  // Utkast: bara de som inte är trådens (och inte postas just nu).
+  const egnaUtkast = utkast.vouchers.filter((u) => !tradens.has(u.id) && !postas.has(u.id));
+
   const sektioner: VySektionData[] = [];
-  if (utkast.vouchers.length > 0) {
-    sektioner.push({ titel: "Utkast", rader: utkast.vouchers.map(verifikationsrad) });
-  }
-  if (postade.vouchers.length > 0) {
-    sektioner.push({
-      titel: "Senast postade",
-      rader: postade.vouchers.map(verifikationsrad),
-    });
+  if (vantarRader.length > 0) sektioner.push({ titel: "Väntar på beslut", rader: vantarRader });
+  if (postadeRader.length > 0) sektioner.push({ titel: "Postade", rader: postadeRader });
+  if (egnaUtkast.length > 0) {
+    sektioner.push({ titel: "Utkast", rader: egnaUtkast.map(verifikationsrad) });
   }
 
   const tomt = sektioner.length === 0;
   const visade = postade.vouchers.length;
   return {
-    lage: tomt ? "tomt" : utkast.total > 0 ? "vantar" : "normal",
+    lage: tomt ? "tomt" : antalVantar > 0 || egnaUtkast.length > 0 ? "vantar" : "normal",
     status: tomt
       ? "inga verifikationer"
-      : utkast.total > 0
-        ? `${utkast.total} utkast`
-        : `${postade.total} postade`,
+      : antalVantar > 0
+        ? `${antalVantar} väntar på dig`
+        : egnaUtkast.length > 0
+          ? `${egnaUtkast.length} utkast`
+          : `${postade.total} postade`,
     period: `${arsrubrik(ar)} · ${postade.total} postade verifikationer`,
     sektioner,
     fot:

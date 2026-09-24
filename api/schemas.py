@@ -127,6 +127,14 @@ class CorrectionNoteResponse(BaseModel):
     resolved_at: Optional[DateTimeType] = None
 
 
+class VoucherRefResponse(BaseModel):
+    """Another voucher named in the list's meta, e.g. `B-7`."""
+
+    id: str
+    series: str
+    number: Optional[int]
+
+
 class VoucherResponse(BaseModel):
     """Response model for voucher."""
 
@@ -150,6 +158,12 @@ class VoucherResponse(BaseModel):
         False, description="True when no attachment is linked to the voucher"
     )
     age_days: int = Field(0, description="Whole days since the voucher date")
+    corrected_by: Optional[VoucherRefResponse] = Field(
+        None, description="The posted voucher that corrects this one"
+    )
+    corrects: Optional[VoucherRefResponse] = Field(
+        None, description="The voucher this one corrects (correction_of)"
+    )
 
 
 # Overview Schemas
@@ -621,6 +635,9 @@ class ThreadDraftResponse(BaseModel):
     post_id: str
     decision_id: Optional[str] = None
     correction_of: Optional[str] = None
+    # The note a correction answers; the view folds the pending draft into the
+    # synthetic `correction:{note}` decision it answers (§11.1, F14).
+    correction_note_id: Optional[str] = None
     status: str
     replaced_by: Optional[str] = None
     posted_at: Optional[DateTimeType] = None

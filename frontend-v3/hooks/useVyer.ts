@@ -1,6 +1,10 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { BESLUT_GRANS, beslutStatusNyckel } from "@/hooks/useBeslut";
+import { FORSLAG_GRANS, forslagNyckel } from "@/hooks/useForslag";
+import { usePostningar } from "@/hooks/usePostningar";
+import { VOUCHERS_NYCKEL, hamtaBeslut, hamtaForslag } from "@/lib/chattyta/api";
 import type { OverviewFiscalYear } from "@/lib/skal/api";
 import { betalaApi, faktureringVy, lonerVy } from "@/lib/skal/betala";
 import { VERIFIKATIONER_ANTAL, balansVy, bockerApi, resultatVy, verifikationerVy } from "@/lib/skal/bocker";
@@ -56,18 +60,37 @@ export function useVyer(
     enabled: bocker,
     staleTime,
   });
+  // Under `VOUCHERS_NYCKEL`, så att `view.changed` (`useTrad`) och en
+  // postning (`usePostaUtkast`) når listorna utan att känna till vyn.
   const postade = useQuery({
-    queryKey: ["skal", "verifikationer", id, "posted"],
+    queryKey: [...VOUCHERS_NYCKEL, "skal", id, "posted"],
     queryFn: () => bockerApi.getVerifikationer(id, "posted", VERIFIKATIONER_ANTAL),
     enabled: bocker,
     staleTime,
   });
   const utkast = useQuery({
-    queryKey: ["skal", "verifikationer", id, "draft"],
+    queryKey: [...VOUCHERS_NYCKEL, "skal", id, "draft"],
     queryFn: () => bockerApi.getVerifikationer(id, "draft"),
     enabled: bocker,
     staleTime,
   });
+  // Väntar på beslut (flode-verifikationer §11.1). Samma nycklar och samma
+  // cachade form som trådens `useBeslut`/`useForslag` — en fråga per vy, som
+  // korten och vyn delar; bara `select` skiljer, och den är per observatör.
+  const verifikationer = "bocker.verifikationer";
+  const beslut = useQuery({
+    queryKey: beslutStatusNyckel(verifikationer),
+    queryFn: () => hamtaBeslut({ viewKey: verifikationer, status: "all", limit: BESLUT_GRANS }),
+    enabled: bocker,
+    staleTime,
+  });
+  const forslag = useQuery({
+    queryKey: forslagNyckel(verifikationer),
+    queryFn: () => hamtaForslag({ viewKey: verifikationer, status: "all", limit: FORSLAG_GRANS }),
+    enabled: bocker,
+    staleTime,
+  });
+  const postningar = usePostningar();
   const fakturor = useQuery({
     queryKey: ["skal", "fakturor"],
     queryFn: betalaApi.getFakturor,
@@ -99,7 +122,11 @@ export function useVyer(
   return {
     "bocker.balans": utanAr ?? vy([balans, resultat], (b, r) => balansVy(ar!, b, r)),
     "bocker.resultat": utanAr ?? vy([resultat], (r) => resultatVy(ar!, r)),
-    "bocker.verifikationer": utanAr ?? vy([postade, utkast], (p, u) => verifikationerVy(ar!, p, u)),
+    "bocker.verifikationer":
+      utanAr ??
+      vy([postade, utkast, beslut, forslag], (p, u, b, f) =>
+        verifikationerVy(ar!, p, u, { beslut: b.decisions, forslag: f.drafts, postningar })
+      ),
     "betala.fakturering": vy([fakturor], faktureringVy),
     "betala.loner": vy([loner], lonerVy),
     "bokslut.rapporter": vy([rakenskapsar], rapporterVy),

@@ -1703,6 +1703,7 @@ def test_case_30_get_drafts_gives_status_and_voucher_only_when_posted(auth_heade
             "post_id",
             "decision_id",
             "correction_of",
+            "correction_note_id",
             "status",
             "replaced_by",
             "posted_at",
@@ -2733,3 +2734,110 @@ def test_correct_route_rolls_back_when_the_history_fails(
     assert response.status_code == 500
     assert _count("vouchers") == 1
     assert _count("correction_history") == 0
+
+
+# --- F14: vyns meta (testfall 42) ---------------------------------------------
+
+
+def _list_vouchers(client, headers, **params):
+    response = client.get("/api/v1/vouchers", headers=headers, params=params)
+    assert response.status_code == 200, response.text
+    return {v["id"]: v for v in response.json()["vouchers"]}
+
+
+def test_case_42_corrected_by_and_corrects_in_the_list(today, auth_headers):
+    thread, september, trigger = _books()
+    original = _original(september)
+    untouched = _original(september, day=19)
+    draft_id = _proposed_correction(thread, trigger, original)
+    client = _client()
+    assert _post_route(client, draft_id, auth_headers).status_code == 200
+
+    listed = _list_vouchers(client, auth_headers, status="posted")
+
+    assert listed[original.id]["corrected_by"] == {
+        "id": draft_id,
+        "series": "B",
+        "number": 1,
+    }
+    assert listed[original.id]["corrects"] is None
+    assert listed[draft_id]["corrects"] == {
+        "id": original.id,
+        "series": "A",
+        "number": 1,
+    }
+    assert listed[draft_id]["corrected_by"] is None
+    assert listed[untouched.id]["corrected_by"] is None
+    assert listed[untouched.id]["corrects"] is None
+    # The single read carries the same fields.
+    single = client.get(f"/api/v1/vouchers/{original.id}", headers=auth_headers)
+    assert single.json()["corrected_by"]["number"] == 1
+
+
+def test_case_42_a_waiting_correction_is_not_corrected_by(today, auth_headers):
+    thread, september, trigger = _books()
+    original = _original(september)
+    draft_id = _proposed_correction(thread, trigger, original)
+
+    listed = _list_vouchers(_client(), auth_headers)
+
+    assert listed[original.id]["corrected_by"] is None
+    # The draft already says what it corrects; it just has no number yet.
+    assert listed[draft_id]["corrects"] == {
+        "id": original.id,
+        "series": "A",
+        "number": 1,
+    }
+    assert listed[draft_id]["number"] is None
+
+
+def test_case_42_the_list_does_not_query_per_row(today, monkeypatch, auth_headers):
+    """No N+1 (SPEC-oversikt §3): the number of statements a page costs does
+    not grow with the number of vouchers on it."""
+    thread, september, trigger = _books()
+    original = _original(september)
+    draft_id = _proposed_correction(thread, trigger, original)
+    client = _client()
+    assert _post_route(client, draft_id, auth_headers).status_code == 200
+
+    real_execute = db.execute
+
+    def statements_for_one_page() -> list:
+        statements: list = []
+
+        def counting(sql, *args, **kwargs):
+            statements.append(sql)
+            return real_execute(sql, *args, **kwargs)
+
+        monkeypatch.setattr(db, "execute", counting)
+        try:
+            _list_vouchers(client, auth_headers, status="posted")
+        finally:
+            monkeypatch.setattr(db, "execute", real_execute)
+        return statements
+
+    few = statements_for_one_page()
+    for day in (19, 20, 21, 22):
+        _original(september, day=day)
+    many = statements_for_one_page()
+
+    assert len(many) == len(few)
+    assert len([s for s in many if "FROM vouchers" in s]) <= 2
+
+
+def test_get_drafts_names_the_note_a_correction_answers(today, auth_headers):
+    """F14: the view folds a waiting correction into the `correction:{note}`
+    decision it answers, as `count_waiting` does (§11.1, §11.3)."""
+    thread, september, trigger = _books()
+    original = _original(september)
+    note = _note(original)
+    draft_id = _proposed_correction(
+        thread, trigger, original, correction_note_id=note.id
+    )
+
+    [draft] = _get_drafts(_client(), auth_headers, view_key=thread.view_key).json()[
+        "drafts"
+    ]
+
+    assert draft["draft_id"] == draft_id
+    assert draft["correction_note_id"] == note.id
