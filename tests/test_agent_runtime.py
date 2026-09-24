@@ -39,7 +39,7 @@ import json
 import uuid
 from calendar import monthrange
 from datetime import date
-from typing import Optional
+from typing import Callable, Optional
 
 import httpx
 import pytest
@@ -507,6 +507,55 @@ class TestModelRegistry:
             <= price.input_ore_per_million_tokens
         )
 
+    def test_zen_model_resolves_to_zen_provider_and_bare_api_model(self):
+        info = get_model_info("opencode/claude-opus-5")
+
+        assert info.provider == "opencode"
+        assert info.api_model == "claude-opus-5"
+
+    @pytest.mark.parametrize(
+        "model, protocol",
+        [
+            ("opencode-go/glm-5.3", "chat"),
+            ("opencode-go/glm-5.3-flash", "chat"),
+            ("opencode-go/kimi-k3", "chat"),
+            ("opencode-go/deepseek-v4-pro", "chat"),
+            ("opencode-go/deepseek-v4.1-flash", "chat"),
+            # Go serves these over Messages although they are not Claude --
+            # the reason the registry is explicit rather than name-inferred.
+            ("opencode-go/qwen3.8-max", "messages"),
+            ("opencode-go/minimax-m3", "messages"),
+        ],
+    )
+    def test_go_models_resolve_to_go_provider_and_their_protocol(self, model, protocol):
+        info = get_model_info(model)
+
+        assert info.provider == "opencode-go"
+        assert info.protocol == protocol
+        assert info.api_model == model.removeprefix("opencode-go/")
+
+    def test_go_id_under_the_zen_prefix_is_unknown(self):
+        with pytest.raises(UnknownModelError):
+            get_model_info("opencode/glm-5.3")
+
+    def test_unknown_prefix_is_unknown(self):
+        with pytest.raises(UnknownModelError):
+            get_model_info("glm-5.3")
+
+    def test_every_registered_model_has_a_known_provider(self):
+        from services.llm import _MODELS
+
+        for model in _MODELS:
+            assert model.partition("/")[0] in ("opencode", "opencode-go"), model
+
+    def test_api_model_id_strips_only_known_prefixes(self):
+        from services.llm import api_model_id
+
+        assert api_model_id("opencode-go/kimi-k3") == "kimi-k3"
+        assert api_model_id("opencode/gpt-5.5") == "gpt-5.5"
+        assert api_model_id("claude-opus-5") == "claude-opus-5"
+        assert api_model_id("other/model") == "other/model"
+
     def test_price_lookup_for_known_chat_model_also_has_expected_shape(self):
         info = get_model_info("opencode/gpt-5.5")
         price = info.price
@@ -531,19 +580,69 @@ class TestAgentRuntimeConfig:
     def test_llm_base_url_has_opencode_zen_default(self):
         assert Settings().llm_base_url == "https://opencode.ai/zen/v1"
 
-    def test_llm_default_model_is_a_priced_claude_model(self):
+    def test_llm_default_model_is_a_priced_go_model(self):
         # The default must itself resolve via get_model_info -- a default
         # that isn't priced would violate SPEC §2 on day one.
         info = get_model_info(Settings().llm_default_model)
-        assert info.protocol == "messages"
+        assert info.model == "opencode-go/glm-5.3"
+        assert info.provider == "opencode-go"
+        assert info.protocol == "chat"
 
-    def test_the_four_caps_have_specs_stated_defaults(self):
-        settings = Settings()
+    def test_llm_go_base_url_has_opencode_go_default(self):
+        assert Settings().llm_go_base_url == "https://opencode.ai/zen/go/v1"
+
+    def test_go_gateway_falls_back_to_the_zen_key(self, monkeypatch):
+        monkeypatch.setenv("LLM_API_KEY", "shared-key")
+        monkeypatch.delenv("LLM_GO_API_KEY", raising=False)
+        s = Settings()
+
+        assert s.gateway_for("opencode-go") == (s.llm_go_base_url, "shared-key")
+        assert s.gateway_for("opencode") == (s.llm_base_url, "shared-key")
+
+    def test_go_gateway_uses_its_own_key_when_set(self, monkeypatch):
+        monkeypatch.setenv("LLM_API_KEY", "zen-key")
+        monkeypatch.setenv("LLM_GO_API_KEY", "go-key")
+        s = Settings()
+
+        assert s.gateway_for("opencode-go")[1] == "go-key"
+        assert s.gateway_for("opencode")[1] == "zen-key"
+
+    def test_the_caps_defaults(self, monkeypatch):
+        for name in (
+            "AGENT_MAX_OUTPUT_TOKENS_PER_ITEM",
+            "AGENT_MAX_TOKENS_PER_TURN",
+            "AGENT_DAILY_BUDGET_ORE",
+        ):
+            monkeypatch.delenv(name, raising=False)
+        settings = Settings(_env_file=None)
 
         assert settings.agent_max_tool_turns_per_item == 25
-        assert settings.agent_max_output_tokens_per_item == 32000
-        assert settings.agent_daily_budget_ore == 5000  # 50 kr, per SPEC §6.5/§8
         assert settings.agent_max_items_per_pass == 20
+        # Token and cost caps are opt-in.
+        assert settings.agent_max_output_tokens_per_item is None
+        assert settings.agent_max_tokens_per_turn is None
+        assert settings.agent_daily_budget_ore is None
+
+    def test_an_empty_cap_variable_means_no_cap(self, monkeypatch):
+        monkeypatch.setenv("AGENT_DAILY_BUDGET_ORE", "")
+        monkeypatch.setenv("AGENT_MAX_OUTPUT_TOKENS_PER_ITEM", " ")
+        monkeypatch.setenv("AGENT_MAX_TOKENS_PER_TURN", "16000")
+
+        settings = Settings(_env_file=None)
+
+        assert settings.agent_daily_budget_ore is None
+        assert settings.agent_max_output_tokens_per_item is None
+        assert settings.agent_max_tokens_per_turn == 16000
+
+    def test_no_daily_budget_never_refuses(self, monkeypatch):
+        monkeypatch.setattr(settings, "agent_daily_budget_ore", None)
+
+        class _Spent:
+            @staticmethod
+            def sum_cost_today_ore() -> int:
+                return 10**9
+
+        ensure_daily_budget_available(_Spent)  # type: ignore[arg-type]
 
     def test_daily_budget_ore_can_be_flipped_via_env_var(self, monkeypatch):
         monkeypatch.setenv("AGENT_DAILY_BUDGET_ORE", "1234")
@@ -972,6 +1071,14 @@ _EXPECTED_TOOL_NAMES = [
     "las_bankhandelser",
     "posta_verifikation",
     "registrera_avstaende",
+    # The tenth, added last on purpose (SPEC-beslut.md §11.3, task B5).
+    # Appended here rather than inserted: the nine above keep their exact
+    # positions, because this list is the cached prompt prefix's order and a
+    # reorder is a silent cache-buster (SPEC §6.6).
+    "be_om_beslut",
+    # The eleventh, appended the same way (SPEC-flode-verifikationer.md
+    # §5.7, §12.1, task F7): the ten above keep their positions.
+    "foresla_verifikation",
 ]
 
 
@@ -1006,9 +1113,14 @@ class TestAppendOnlyToolSurface:
     adds a "convenient" tool that can edit or delete a posted voucher.
     """
 
-    def test_tool_names_are_exactly_the_nine_allowed_tools(self):
+    def test_tool_names_are_exactly_the_allowed_tools(self):
+        """Eleven since `flode-verifikationer` (SPEC §5.7). The count is asserted
+        against the expected list rather than a literal, so adding a tool
+        without adding it there still fails -- which is the point: this is
+        the append-only rule's only automatic check through the agent's
+        surface, and it must break when the surface grows."""
         assert {t["name"] for t in AGENT_TOOL_DEFINITIONS} == set(_EXPECTED_TOOL_NAMES)
-        assert len(AGENT_TOOL_DEFINITIONS) == 9
+        assert len(AGENT_TOOL_DEFINITIONS) == len(_EXPECTED_TOOL_NAMES)
 
     def test_no_tool_name_contains_a_mutate_or_delete_verb(self):
         forbidden_fragments = [
@@ -1052,8 +1164,30 @@ class TestAppendOnlyToolSurface:
                     phrase not in haystack
                 ), f"tool {tool['name']!r} description contains {phrase!r}"
 
-    def test_only_two_tools_are_documented_as_writing_anything(self):
-        write_tool_names = {"posta_verifikation", "registrera_avstaende"}
+    def test_only_the_writing_tools_are_undocumented_as_read_only(self):
+        """Four write, and each one names what it writes.
+
+        `be_om_beslut` joined them with `beslut` (SPEC-beslut.md §11.3). It
+        writes to `decisions`, `decision_options` and `thread_posts` and to
+        nothing else — never `vouchers`, `voucher_rows`, `periods` or
+        `fiscal_years` (SPEC-beslut.md §8), which is why testfall 26 in
+        `tests/test_beslut.py` counts ledger rows around a call to it.
+        Calling it read-only here would be the lie this test exists to
+        catch.
+
+        `foresla_verifikation` joined them with `flode-verifikationer`
+        (SPEC-flode-verifikationer.md §5.1). It writes a draft voucher --
+        no number, never posted -- a `thread_drafts` row and a `draft` post.
+        It is not read-only, so it is not allowed to say it is; and like
+        `be_om_beslut` it must not name the general ledger, which the next
+        test keeps for `posta_verifikation` alone.
+        """
+        write_tool_names = {
+            "posta_verifikation",
+            "registrera_avstaende",
+            "be_om_beslut",
+            "foresla_verifikation",
+        }
         read_tool_names = set(_EXPECTED_TOOL_NAMES) - write_tool_names
         for tool in AGENT_TOOL_DEFINITIONS:
             if tool["name"] in read_tool_names:
@@ -1438,8 +1572,16 @@ class FakeLLMClient:
         messages: list[dict],
         tools: list[dict],
         model: str,
-        max_tokens: int,
+        max_tokens: Optional[int],
+        on_text: Optional[Callable[[str], None]] = None,
+        on_tool_call: Optional[Callable[[str], None]] = None,
     ) -> LLMTurn:
+        # `on_text`/`on_tool_call` are SPEC-tradar.md T5's streaming hooks.
+        # This double accepts them so it still satisfies `LLMClient`
+        # structurally, and calls `on_tool_call` because `AgentWorker` now
+        # reports the live tool name through it -- but it never streams
+        # text: a document pass has nobody watching it write, and
+        # `AgentWorker` passes no `on_text` at all.
         self.calls.append(
             {
                 "system": system,
@@ -1449,9 +1591,11 @@ class FakeLLMClient:
                 "max_tokens": max_tokens,
             }
         )
-        if len(self._turns) > 1:
-            return self._turns.pop(0)
-        return self._turns[0]
+        turn = self._turns.pop(0) if len(self._turns) > 1 else self._turns[0]
+        if on_tool_call is not None:
+            for tool_call in turn.tool_calls:
+                on_tool_call(tool_call.name)
+        return turn
 
 
 def _run_test_session(
@@ -2275,6 +2419,21 @@ class TestBuildLlmClient:
         assert client.capabilities.cache_breakpoint is True
         assert client.capabilities.pdf_document_blocks is True
 
+    def test_session_id_and_user_agent_reach_both_adapters(self, monkeypatch):
+        # OpenCode Go answers 400 `MissingSessionID` without
+        # `x-opencode-session`, and wants the client's own user agent
+        # (https://opencode.ai/docs/go/#where-can-i-use-it).
+        monkeypatch.setattr(settings, "llm_api_key", "dummy-test-key")
+
+        for model in ("opencode-go/glm-5.3", "opencode/claude-opus-5"):
+            client = build_llm_client(model, session_id="bok-thread-7")
+            headers = client._client.default_headers  # type: ignore[attr-defined]
+            assert headers["x-opencode-session"] == "bok-thread-7"
+            assert headers["User-Agent"] == "bok-agent/1.0"
+
+        without = build_llm_client("opencode-go/glm-5.3")
+        assert "x-opencode-session" not in without._client.default_headers  # type: ignore[attr-defined]
+
     def test_chat_protocol_resolves_to_a_chat_client(self, monkeypatch):
         from services.llm.chat import ChatClient
 
@@ -2294,6 +2453,39 @@ class TestBuildLlmClient:
         assert client.capabilities.pdf_document_blocks is False
         assert client.capabilities.refusal_stop_reason is False
 
+    @pytest.mark.parametrize(
+        "model, base_url",
+        [
+            ("opencode-go/glm-5.3", "https://go.example/v1"),
+            ("opencode-go/minimax-m3", "https://go.example/v1"),
+            ("opencode/gpt-5.5", "https://zen.example/v1"),
+            ("opencode/claude-opus-5", "https://zen.example/v1"),
+        ],
+    )
+    def test_model_prefix_picks_the_gateway(self, monkeypatch, model, base_url):
+        import services.llm.chat as chat_module
+        import services.llm.messages as messages_module
+
+        monkeypatch.setattr(settings, "llm_base_url", "https://zen.example/v1")
+        monkeypatch.setattr(settings, "llm_go_base_url", "https://go.example/v1")
+        monkeypatch.setattr(settings, "llm_api_key", "zen-key")
+        monkeypatch.setattr(settings, "llm_go_api_key", "go-key")
+        constructed: list[dict] = []
+
+        def fake_sdk(**kwargs):
+            constructed.append(kwargs)
+            return object()
+
+        monkeypatch.setattr(messages_module.anthropic, "Anthropic", fake_sdk)
+        monkeypatch.setattr(chat_module.openai, "OpenAI", fake_sdk)
+
+        build_llm_client(model)
+
+        expected_key = "go-key" if model.startswith("opencode-go/") else "zen-key"
+        assert len(constructed) == 1
+        assert constructed[0]["api_key"] == expected_key
+        assert constructed[0]["base_url"] == base_url
+
     def test_unsupported_protocol_raises_unsupported_protocol_error(self, monkeypatch):
         # Every real model registered in services/llm/__init__.py resolves
         # to "messages" or "chat" (SPEC §2's two built adapters) -- there is
@@ -2308,6 +2500,8 @@ class TestBuildLlmClient:
             model="some/gemini-model",
             protocol="gemini",  # type: ignore[arg-type]
             price=get_model_info("opencode/claude-opus-5").price,
+            provider="opencode",
+            api_model="gemini-model",
         )
         monkeypatch.setattr(
             agent_runtime_module, "get_model_info", lambda model: fake_info

@@ -1,6 +1,6 @@
 """The agent's tool surface (docs/redesign/SPEC-agentruntime.md §6.4).
 
-Nine tools, each a specific, typed action -- never a generic bash, SQL,
+The original nine tools, each a specific, typed action -- never a generic bash, SQL,
 filesystem, or HTTP tool (SPEC §10's "Aldrig" list). Every allowed action a
 model can take is its own function with its own Pydantic argument schema, so
 each one can be validated, logged, and rendered independently, and so that
@@ -8,7 +8,25 @@ the append-only guarantee (CLAUDE.md) can be checked *structurally*: test
 case 17 asserts directly against ``AGENT_TOOL_DEFINITIONS`` that no tool
 name or description implies the ability to edit or delete a posted voucher.
 
-``posta_verifikation`` is the only tool that writes to the general ledger,
+A tenth, ``be_om_beslut``, was added by the ``beslut`` module
+(``docs/redesign/SPEC-beslut.md`` §6.4, §8, §11.3) -- the one exception
+SPEC-tradar.md §8.2 asks for a question first about, asked and answered
+there. It is appended last in ``_TOOL_SPECS`` rather than inserted among
+the nine above, since that order is part of the cached system-prompt
+prefix (SPEC-agentruntime §6.6), and it writes only to ``decisions`` /
+``decision_options`` / ``thread_posts`` -- test case 17 above still passes
+unchanged against the extended list (SPEC-beslut.md §8, testfall 26).
+
+An eleventh, ``foresla_verifikation``, was added by ``flode-verifikationer``
+(``docs/redesign/SPEC-flode-verifikationer.md`` §5, §12.1) and appended after
+``be_om_beslut`` for the same reason (§5.7, testfall 22). It writes a draft
+voucher -- no number, never posted -- with its ``thread_drafts`` row and
+``draft`` post; the human posts it. A correction of a posted voucher always
+goes through it with ``correction_of`` (§12.5), never through
+``posta_verifikation`` -- a rule the agent's instructions already state,
+while the branch itself answers ``not_implemented`` until F11 builds it.
+
+``posta_verifikation`` is the only tool that posts to the general ledger,
 and it goes through the exact same code as ``POST /api/v1/agent/vouchers``
 (``services/voucher_posting.post_agent_voucher``, A1) -- same
 ``VoucherValidator``, same transaction, same idempotency key.
@@ -27,7 +45,7 @@ session decides what a raise means.
 
 import uuid
 from datetime import date as DateType
-from typing import Any, Callable, Literal, Optional
+from typing import Any, Callable, Literal, Mapping, Optional, Union
 
 from pydantic import BaseModel, Field
 from pydantic import ValidationError as PydanticValidationError
@@ -36,6 +54,7 @@ from domain.models import (
     Account,
     BankInput,
     CorrectionHistory,
+    Decision,
     IntakeProcessingAttempt,
     IntakeSource,
     Period,
@@ -45,6 +64,7 @@ from domain.models import (
 from domain.validation import ValidationError
 from repositories.account_repo import AccountRepository
 from repositories.accounting_correction_repo import AccountingCorrectionRepository
+from repositories.correction_note_repo import CorrectionNoteRepository
 from repositories.period_repo import PeriodRepository
 from repositories.voucher_repo import VoucherRepository
 from services.agent_documents import ContentBlock, select_content_for_source
@@ -82,6 +102,63 @@ def derive_posting_idempotency_key(source_id: str) -> str:
     and replays instead of posting a second voucher.
     """
     return str(uuid.uuid5(BOK_NAMESPACE, f"intake:{source_id}"))
+
+
+def derive_thread_posting_idempotency_key(thread_id: str, post_id: str) -> str:
+    """``uuid5(BOK_NAMESPACE, f"thread:{thread_id}:{post_id}")`` --
+    SPEC-tradar.md §6.4.
+
+    The second namespace beside ``intake:{source_id}``, and the same idea:
+    one intent, one key. The key hangs on the **triggering user post**, never
+    on the time -- two presses of the same message derive the same key and
+    therefore get ``409`` with the voucher that already exists, instead of two
+    postings in a book that cannot be tidied up afterwards.
+    """
+    return str(uuid.uuid5(BOK_NAMESPACE, f"thread:{thread_id}:{post_id}"))
+
+
+def derive_thread_proposal_idempotency_key(thread_id: str, post_id: str, n: int) -> str:
+    """``uuid5(BOK_NAMESPACE, f"thread:{thread_id}:{post_id}:{n}")`` --
+    SPEC-flode-verifikationer.md §5.5.
+
+    ``n`` is the proposal's place among the turn's ``foresla_verifikation``
+    calls, so two proposals in one turn get two keys, and a turn run again
+    from the start gets the same ones. The key is reserved under its own
+    endpoint string (``services.draft_service.FORESLA_VERIFIKATION_ENDPOINT``)
+    and never collides with the posting key above, which has no ``:{n}``.
+    """
+    return str(uuid.uuid5(BOK_NAMESPACE, f"thread:{thread_id}:{post_id}:{n}"))
+
+
+class ProposalSequence:
+    """``n`` in ``thread:{thread_id}:{post_id}:{n}`` for one thread turn
+    (SPEC-flode-verifikationer.md §5.5).
+
+    The thread entry point (``services/thread_session.py``) puts a fresh one
+    in ``tool_context["proposals"]`` per turn, for the user post that
+    triggered it; ``run_tool_loop`` forwards it unread like the rest of the
+    mapping, so the runtime still does not know what a thread is. Only
+    ``_run_foresla_verifikation`` opens it.
+
+    ``n`` advances only when a proposal is made or replayed. A call refused
+    by a check claims no slot (its key is released), so a model that gets a
+    proposal wrong and corrects it in the same turn uses one slot, not two
+    -- which is what makes the key the same when the turn is run again,
+    however many corrections it took the first time.
+    """
+
+    def __init__(self, thread_id: str, post_id: str):
+        self.thread_id = thread_id
+        self.post_id = post_id
+        self.n = 1
+
+    def key(self) -> str:
+        return derive_thread_proposal_idempotency_key(
+            self.thread_id, self.post_id, self.n
+        )
+
+    def advance(self) -> None:
+        self.n += 1
 
 
 class PostingConflictError(Exception):
@@ -194,6 +271,32 @@ class PostaVerifikationArgs(BaseModel):
     bank_transaction_ids: list[str] = Field(default_factory=list)
 
 
+class ForeslaVerifikationArgs(BaseModel):
+    """Föreslå en verifikation i tråden, för människan att posta
+    (SPEC-flode-verifikationer.md §5).
+
+    Skapar ett utkast utan nummer och ett kort i tråden. Postar aldrig:
+    människans tryck på `Posta` är godkännandet. `description` blir
+    verifikationens text ordagrant; `footnote` visas bara i kortet. Serien
+    väljer servern. Radtypen och spårbarhetsfälten är samma som
+    ``posta_verifikation``s, så ett förslag som postas bär exakt det en
+    direkt postning hade burit.
+    """
+
+    description: str
+    rows: list[PostaVerifikationRow] = Field(..., min_length=2)
+    date: Optional[DateType] = None
+    period_id: Optional[str] = None
+    footnote: Optional[str] = None
+    decision_id: Optional[str] = None
+    replaces_draft_id: Optional[str] = None
+    correction_of: Optional[str] = None
+    correction_note_id: Optional[str] = None
+    intake_source_ids: list[str] = Field(default_factory=list)
+    bank_input_ids: list[str] = Field(default_factory=list)
+    bank_transaction_ids: list[str] = Field(default_factory=list)
+
+
 class RegistreraAvstaendeArgs(BaseModel):
     """Registrera ett dokumenterat avstående för ett underlag i intagskön.
 
@@ -204,6 +307,73 @@ class RegistreraAvstaendeArgs(BaseModel):
     summary: str
     error_detail: str
     warnings: Optional[list[str]] = None
+
+
+class BeOmBeslutSource(BaseModel):
+    """Underlaget ett beslut hänger på, om det har ett -- ett kvitto i kön
+    eller en rättelse. Utelämnas för ett beslut som uppstår mitt i ett
+    samtal utan något underlag bakom sig."""
+
+    kind: str
+    id: str
+    date: Optional[DateType] = None
+
+
+class BeOmBeslutOption(BaseModel):
+    """Ett alternativ i den lista som visas under ett beslut (SPEC-beslut.md
+    §6.3). Servern -- inte klienten -- äger varje fält här: `rationale` och
+    `recommended` skrivs ordagrant/exakt som satta, aldrig omräknade."""
+
+    title: str
+    rationale: str
+    account: Optional[str] = None
+    amount_ore: Optional[int] = None
+    recommended: bool = Field(
+        False,
+        description=(
+            "Högst ett alternativ i listan får ha recommended=True -- "
+            "servern avvisar hela listan annars."
+        ),
+    )
+    is_exit: bool = Field(
+        False,
+        description=(
+            "Sista alternativet i listan måste ha is_exit=True -- en väg "
+            "ut som inte ändrar böckerna. Servern avvisar listan annars."
+        ),
+    )
+
+
+class BeOmBeslutArgs(BaseModel):
+    """Lägg fram ett beslut för människan att ta ställning till, mitt i ett
+    samtal (SPEC-beslut.md §6.4).
+
+    Skriver ett `decision`-inlägg (och ett `options`-inlägg när `options`
+    är ifyllt) i tråden, en rad i `decisions`, och rader i
+    `decision_options`. Postar ingenting, ändrar ingenting och läser
+    ingenting utanför sina egna tabeller -- vägen till huvudboken går bara
+    genom ``posta_verifikation``, aldrig genom det här verktyget.
+
+    Hör till ett samtal i en vy, inte till ett underlag i intagskön --
+    ``registrera_avstaende`` är motsvarigheten där.
+    """
+
+    title: str
+    reason: str
+    consequence: str
+    amount_ore: Optional[int] = None
+    source: Optional[BeOmBeslutSource] = None
+    options: list[BeOmBeslutOption] = Field(
+        default_factory=list,
+        description=(
+            "Sista alternativet ska alltid vara en väg ut (is_exit=True), "
+            "och högst ett får vara recommended=True -- servern avvisar "
+            "listan annars. En tom lista är tillåten för ett beslut utan "
+            "färdiga alternativ."
+        ),
+    )
+    kind: Literal["abstention", "approval"] = "abstention"
+    footnote: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -308,6 +478,32 @@ def _intake_attempt_dict(attempt: IntakeProcessingAttempt) -> dict:
     }
 
 
+def _decision_dict(decision: Decision) -> dict:
+    """`be_om_beslut`'s result -- includes each option's `option_id` so the
+    agent's own text (its reply after the tool call) can refer to one
+    (SPEC-beslut.md §6.4)."""
+    return {
+        "decision_id": decision.id,
+        "status": decision.status,
+        "post_id": decision.post_id,
+        "thread_id": decision.thread_id,
+        "title": decision.title,
+        "amount_ore": decision.amount_ore,
+        "options": [
+            {
+                "option_id": option.id,
+                "title": option.title,
+                "account": option.account,
+                "amount_ore": option.amount_ore,
+                "rationale": option.rationale,
+                "recommended": option.recommended,
+                "is_exit": option.is_exit,
+            }
+            for option in decision.options
+        ],
+    }
+
+
 def _bank_input_dict(bank_input: BankInput) -> dict:
     return {
         "id": bank_input.id,
@@ -335,14 +531,24 @@ def _bank_input_dict(bank_input: BankInput) -> dict:
 
 
 def _run_las_kontoplan(
-    args: LasKontoplanArgs, *, actor: str, capabilities: LLMCapabilities
+    args: LasKontoplanArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> list[dict]:
     accounts = AccountRepository.list_all(active_only=args.active_only)
     return [_account_dict(account) for account in accounts]
 
 
 def _run_las_perioder(
-    args: LasPerioderArgs, *, actor: str, capabilities: LLMCapabilities
+    args: LasPerioderArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> list[dict]:
     if args.fiscal_year_id:
         periods = PeriodRepository.list_periods(args.fiscal_year_id)
@@ -354,7 +560,12 @@ def _run_las_perioder(
 
 
 def _run_las_verifikationer(
-    args: LasVerifikationerArgs, *, actor: str, capabilities: LLMCapabilities
+    args: LasVerifikationerArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> dict:
     if args.period_id:
         all_vouchers = VoucherRepository.list_for_period(
@@ -370,16 +581,52 @@ def _run_las_verifikationer(
 
 
 def _run_las_korrigeringar(
-    args: LasKorrigeringarArgs, *, actor: str, capabilities: LLMCapabilities
-) -> list[dict]:
+    args: LasKorrigeringarArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> Union[list[dict], dict]:
+    """The correction history -- a list, as always, without `voucher_id`.
+
+    With `voucher_id` the answer also carries the voucher's open correction
+    notes (`pending`/`suggested`) with id and text, so the agent can bind a
+    correction to one with `foresla_verifikation`'s `correction_note_id`
+    (SPEC-flode-verifikationer §7.3, F12). Only the answer grew: the
+    arguments, and so the cached tool definitions, are unchanged.
+    """
     entries = AccountingCorrectionRepository.list(
         limit=args.limit, voucher_id=args.voucher_id
     )
-    return [_correction_dict(entry) for entry in entries]
+    history = [_correction_dict(entry) for entry in entries]
+    if args.voucher_id is None:
+        return history
+    notes = CorrectionNoteRepository.list_for_voucher(args.voucher_id)
+    return {
+        "voucher_id": args.voucher_id,
+        "open_notes": [
+            {
+                "id": note.id,
+                "status": note.status,
+                "text": note.note_text,
+                "created_by": note.created_by,
+                "created_at": note.created_at.isoformat(),
+            }
+            for note in notes
+            if note.status in ("pending", "suggested")
+        ],
+        "history": history,
+    }
 
 
 def _run_las_underlag(
-    args: LasUnderlagArgs, *, actor: str, capabilities: LLMCapabilities
+    args: LasUnderlagArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> dict:
     intake = IntakeService()
     if args.source_id:
@@ -394,7 +641,12 @@ def _run_las_underlag(
 
 
 def _run_hamta_underlagsfil(
-    args: HamtaUnderlagsfilArgs, *, actor: str, capabilities: LLMCapabilities
+    args: HamtaUnderlagsfilArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> ContentBlock:
     intake = IntakeService()
     source = intake.get_source(args.source_id)
@@ -408,7 +660,12 @@ def _run_hamta_underlagsfil(
 
 
 def _run_las_bankhandelser(
-    args: LasBankhandelserArgs, *, actor: str, capabilities: LLMCapabilities
+    args: LasBankhandelserArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> dict:
     bank_inputs = BankInputService()
     if args.bank_input_id:
@@ -416,7 +673,12 @@ def _run_las_bankhandelser(
     return bank_inputs.agent_queue_items(limit=args.limit, offset=args.offset)
 
 
-def _post_voucher(args: PostaVerifikationArgs, *, actor: str) -> dict:
+def _post_voucher(
+    args: PostaVerifikationArgs,
+    *,
+    actor: str,
+    idempotency_key: Optional[str] = None,
+) -> dict:
     request = VoucherPostingRequest(
         date=args.date,
         period_id=args.period_id,
@@ -429,8 +691,7 @@ def _post_voucher(args: PostaVerifikationArgs, *, actor: str) -> dict:
         bank_transaction_ids=args.bank_transaction_ids,
     )
 
-    idempotency_key: Optional[str] = None
-    if args.intake_source_ids:
+    if idempotency_key is None and args.intake_source_ids:
         # SPEC §6.4's uuid5 formula assumes exactly one primary intake
         # source per posting ("En post i taget", §6.2): the first id drives
         # the key even when more are listed for traceability (e.g. a
@@ -440,6 +701,13 @@ def _post_voucher(args: PostaVerifikationArgs, *, actor: str) -> dict:
         # exactly one posting intent per tool call, and the first source is
         # its anchor.
         idempotency_key = derive_posting_idempotency_key(args.intake_source_ids[0])
+    # An explicit key wins over the derived one: a thread posting's key is
+    # `thread:{thread_id}:{post_id}` (SPEC-tradar.md §6.4), hung on the user
+    # post that triggered it, and that is the tighter guarantee -- it holds
+    # whether or not the model happened to list an intake source. The
+    # source-level protection is not lost by it: an intake source can only
+    # ever be linked to one voucher (`IntakeService._ensure_can_record_
+    # outcome`), whichever key the posting travelled under.
 
     idempotency = IdempotencyService()
     reserved = False
@@ -482,13 +750,23 @@ def _post_voucher(args: PostaVerifikationArgs, *, actor: str) -> dict:
 
 
 def _run_posta_verifikation(
-    args: PostaVerifikationArgs, *, actor: str, capabilities: LLMCapabilities
+    args: PostaVerifikationArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> dict:
-    return _post_voucher(args, actor=actor)
+    return _post_voucher(args, actor=actor, idempotency_key=idempotency_key)
 
 
 def _run_registrera_avstaende(
-    args: RegistreraAvstaendeArgs, *, actor: str, capabilities: LLMCapabilities
+    args: RegistreraAvstaendeArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> dict:
     attempt = IntakeService().record_failed(
         source_id=args.source_id,
@@ -498,6 +776,123 @@ def _run_registrera_avstaende(
         warnings=args.warnings,
     )
     return _intake_attempt_dict(attempt)
+
+
+def _run_be_om_beslut(
+    args: BeOmBeslutArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """SPEC-beslut.md §6.4, §7 gräns 6 ("fråga först": a decision without a
+    `thread_id`). `tool_context` is the opaque mapping `run_tool_loop` and
+    `execute_tool` hand to every handler without reading it; this is the
+    one handler that opens it, because a decision literally cannot exist
+    without the thread it was raised in.
+
+    The thread lives in a mapping rather than in an argument of its own
+    precisely so the runtime can carry it without naming it: SPEC-tradar.md
+    §8.1 forbids `services/agent_session.py` from knowing what a thread is,
+    and SPEC-beslut.md §7.6 draws the same line for a decision. The
+    knowledge stops here, in the tool layer, which is where it belongs.
+
+    A missing thread (the document path, or a bare `execute_tool` call) is
+    not silently skipped and not silently defaulted to some thread -- it
+    raises, so that a decision missing its `thread_id` never occurs
+    quietly.
+    """
+    thread = (tool_context or {}).get("thread")
+    if thread is None:
+        raise ValidationError(
+            code="decision_requires_thread",
+            message="be_om_beslut can only be called from a thread turn",
+            details=(
+                "This tool belongs to a thread turn (SPEC-beslut.md §7: a "
+                "decision without a thread_id is exactly the silent "
+                "'fråga först' case the module must not allow). The "
+                "document path's equivalent is registrera_avstaende."
+            ),
+        )
+
+    # Deferred import -- AGENTS.md's rule against import cycles at module
+    # load time: `services.decision_service` imports `repositories.thread_repo`
+    # and this module is imported by `services.agent_session` long before any
+    # tool call happens, so the import has to wait until the handler runs.
+    from services.decision_service import DecisionService
+
+    decision = DecisionService().create(
+        thread,
+        title=args.title,
+        reason=args.reason,
+        consequence=args.consequence,
+        kind=args.kind,
+        amount_ore=args.amount_ore,
+        source=args.source.model_dump() if args.source is not None else None,
+        options=[option.model_dump() for option in args.options],
+        footnote=args.footnote,
+        actor=actor,
+    )
+    return _decision_dict(decision)
+
+
+def _run_foresla_verifikation(
+    args: ForeslaVerifikationArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """SPEC-flode-verifikationer.md §5. Not terminal: like ``be_om_beslut``
+    it writes a card in the thread and the turn goes on to its answer.
+
+    Opens ``tool_context`` for two things: the ``thread`` (a draft card
+    cannot exist outside the thread it was proposed in -- missing, it is
+    ``draft_requires_thread``, never a silent default) and the turn's
+    ``proposals`` sequence, which gives the §5.5 key. Without a sequence (a
+    bare ``execute_tool`` call) the proposal is made without a key.
+    ``idempotency_key`` -- the posting key -- is deliberately not used: a
+    proposal and a posting from the same post must never share one.
+    """
+    context = tool_context or {}
+    thread = context.get("thread")
+    if thread is None:
+        raise ValidationError(
+            code="draft_requires_thread",
+            message="foresla_verifikation can only be called from a thread turn",
+            details=(
+                "A proposal is a card in a thread for a human to post "
+                "(SPEC-flode-verifikationer.md §5.3). The document path's "
+                "equivalents are posta_verifikation and registrera_avstaende."
+            ),
+        )
+    proposals = context.get("proposals")
+
+    # Deferred import -- the same import-cycle rule as `_run_be_om_beslut`.
+    from services.draft_service import DraftService
+
+    result = DraftService().propose(
+        thread,
+        description=args.description,
+        rows=[row.model_dump() for row in args.rows],
+        date=args.date,
+        period_id=args.period_id,
+        footnote=args.footnote,
+        decision_id=args.decision_id,
+        replaces_draft_id=args.replaces_draft_id,
+        correction_of=args.correction_of,
+        correction_note_id=args.correction_note_id,
+        intake_source_ids=args.intake_source_ids,
+        bank_input_ids=args.bank_input_ids,
+        bank_transaction_ids=args.bank_transaction_ids,
+        actor=actor,
+        idempotency_key=proposals.key() if proposals is not None else None,
+    )
+    if proposals is not None:
+        proposals.advance()
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -581,6 +976,31 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
         RegistreraAvstaendeArgs,
         _run_registrera_avstaende,
     ),
+    (
+        "be_om_beslut",
+        "Lägg fram ett beslut för människan att ta ställning till, mitt i "
+        "ett samtal, med en motivering och en konsekvens -- och valfritt en "
+        "lista med alternativ. Postar ingenting, ändrar ingenting och rör "
+        "bara beslutets egna tabeller: skriver ett kort i tråden och en rad "
+        "i beslutskön, aldrig i bokföringen. Hör till ett samtal i en vy "
+        "-- för ett underlag i intagskön, använd registrera_avstaende "
+        "i stället.",
+        BeOmBeslutArgs,
+        _run_be_om_beslut,
+    ),
+    (
+        "foresla_verifikation",
+        "Lägg fram en verifikation som ett förslag för människan att posta: "
+        "skapar ett utkast utan nummer och ett kort i tråden. Postar aldrig "
+        "-- människan postar förslaget med ett tryck, och numret sätts först "
+        "vid postningen. Ange decision_id när förslaget följer på ett "
+        "besvarat beslut, och replaces_draft_id när människan vill ändra ett "
+        "väntande förslag. Hör till ett samtal i en vy -- "
+        "för ett underlag i intagskön, använd posta_verifikation eller "
+        "registrera_avstaende i stället.",
+        ForeslaVerifikationArgs,
+        _run_foresla_verifikation,
+    ),
 )
 
 #: Anthropic tool-definition shape: {"name", "description", "input_schema"}.
@@ -606,18 +1026,52 @@ def execute_tool(
     *,
     actor: str,
     capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> Any:
     """Validate and run one model-requested tool call.
+
+    ``idempotency_key`` is the caller's own key for a posting made during
+    this session, and only ``posta_verifikation`` reads it -- the thread
+    path passes ``thread:{thread_id}:{post_id}`` (SPEC-tradar.md §6.4), the
+    document path passes nothing and lets the key be derived from the intake
+    source. It is handed to every handler rather than branched on here, so
+    that the dispatcher stays a table lookup with no special case in it.
+
+    ``tool_context`` is the same idea for everything a tool may need that
+    only its caller can know. The thread path puts its ``Thread`` in it;
+    the document path (``run_session``) passes nothing. Only
+    ``be_om_beslut`` and ``foresla_verifikation`` open it -- a decision
+    cannot exist without the thread it was raised in, nor a proposal
+    without the thread it is a card in; ``foresla_verifikation`` also reads
+    the turn's ``proposals`` sequence from it, which the thread path always
+    sets. It is handed to every handler rather than branched on here, for
+    the same reason ``idempotency_key`` is: the dispatcher stays a table
+    lookup with no special case in it.
+
+    It is a mapping rather than a typed argument so that the layer above
+    can forward it without naming what is inside: SPEC-tradar.md §8.1 keeps
+    ``services/agent_session.py`` ignorant of what a thread is, and
+    SPEC-beslut.md §7.6 keeps it ignorant of what a decision is. Both
+    survive because the knowledge stops here.
+
+    **This adds no tool.** ``AGENT_TOOL_DEFINITIONS`` is unchanged, byte for
+    byte, including ``_TOOL_SPECS``' order (SPEC-agentruntime §6.6: the tool
+    list is part of the cached prefix). The key is how the *caller*
+    identifies its posting intent; it is not something a model can ask for,
+    and it is not in any tool's ``input_schema``. Neither is
+    ``tool_context``.
 
     Returns a JSON-serializable result on success. Raises on failure --
     either ``domain.validation.ValidationError`` (unknown tool name, or
     arguments that fail the tool's own Pydantic schema) or whatever domain
     exception the backing repository/service call itself raises
     (``IntakeError``, ``BankInputError``, ``DocumentUnreadableError``,
-    ``PostingConflictError``, ...). None of these are caught and converted
-    here -- wrapping a raised exception into a ``tool_result`` with
-    ``is_error: true`` is the session's (A8) job, since only the session
-    holds the ``ToolCall.id`` needed to build that content block.
+    ``PostingConflictError``, ``services.decision_service.DecisionError``,
+    ...). None of these are caught and converted here -- wrapping a raised
+    exception into a ``tool_result`` with ``is_error: true`` is the
+    session's (A8) job, since only the session holds the ``ToolCall.id``
+    needed to build that content block.
     """
     entry = _TOOL_HANDLERS.get(name)
     if entry is None:
@@ -635,4 +1089,10 @@ def execute_tool(
             message=f"Invalid arguments for tool {name!r}",
             details=str(exc),
         ) from exc
-    return handler(parsed_args, actor=actor, capabilities=capabilities)
+    return handler(
+        parsed_args,
+        actor=actor,
+        capabilities=capabilities,
+        idempotency_key=idempotency_key,
+        tool_context=tool_context,
+    )

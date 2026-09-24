@@ -191,8 +191,11 @@ async def lock_period(
     """
     Lock period (irreversible - BFL varaktighet requirement).
 
-    All draft vouchers must be posted or deleted before locking.
-    Once locked, no new vouchers can be added to this period.
+    All draft vouchers must be posted or deleted before locking
+    (`400 draft_vouchers_exist`) -- except a thread's pending proposals: the
+    lock goes through and marks them `period_locked`, with an error post in
+    their thread (SPEC-flode-verifikationer §9, F16). Once locked, no new
+    vouchers can be added to this period.
     """
     try:
         period = ledger.lock_period(period_id, actor=actor)

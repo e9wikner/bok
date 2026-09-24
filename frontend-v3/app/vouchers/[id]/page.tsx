@@ -28,7 +28,7 @@ import type {
   Voucher,
   VoucherSourceContext,
 } from "@/lib/api";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, formatVerifikationsnummer } from "@/lib/utils";
 import {
   ArrowLeft,
   FileText,
@@ -326,7 +326,7 @@ export default function VoucherDetailPage() {
         ok: true,
         msg:
           voucher.status === "posted"
-            ? `Korrigering bokförd som ${saved.series}${saved.number}.`
+            ? `Korrigering bokförd som ${formatVerifikationsnummer(saved.number, saved.series)}.`
             : "Ändring sparad.",
       });
       queryClient.invalidateQueries({ queryKey: ["voucher", id] });
@@ -478,7 +478,7 @@ export default function VoucherDetailPage() {
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl lg:text-3xl font-bold tracking-tight">
-              Verifikation {voucher.number}
+              {voucher.number == null ? "Verifikation" : `Verifikation ${voucher.number}`}
             </h1>
             <Badge
               variant={
@@ -568,7 +568,7 @@ export default function VoucherDetailPage() {
             <div>
               <p className="text-xs text-muted-foreground">Nummer</p>
               <p className="font-medium">
-                {voucher.number}
+                {formatVerifikationsnummer(voucher.number)}
               </p>
             </div>
           </CardContent>

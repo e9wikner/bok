@@ -77,8 +77,12 @@ from services.llm import (
     LLMRateLimitError,
     LLMTurn,
     StopReason,
+    StreamTextHook,
+    StreamToolCallHook,
     ToolCall,
     Usage,
+    api_model_id,
+    gateway_headers,
 )
 
 # Normalizes OpenAI's Chat Completions `finish_reason` -> services.llm.StopReason.
@@ -216,15 +220,26 @@ class ChatClient:
         cache_breakpoint=False,
         pdf_document_blocks=False,
         refusal_stop_reason=False,
+        # This one it *can* do (SPEC-tradar.md §12.1): the SDK's own
+        # `chat.completions.stream(...)` helper yields the raw chunks, and
+        # a chunk carries both the content delta and -- on the first chunk
+        # of each tool call -- that call's name. See `run_turn`.
+        streaming=True,
     )
 
-    def __init__(self, api_key: str, base_url: str) -> None:
+    def __init__(
+        self, api_key: str, base_url: str, session_id: Optional[str] = None
+    ) -> None:
         # Plain constructor args, not `config.settings` read here directly --
         # matches `MessagesClient`'s constructor exactly, for the same
         # reason: the factory (`services/agent_runtime.py::build_llm_client`)
         # wires this to `settings.llm_api_key`/`settings.llm_base_url`, and
         # this class stays trivial to construct with a dummy key in tests.
-        self._client = openai.OpenAI(api_key=api_key, base_url=base_url)
+        self._client = openai.OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            default_headers=gateway_headers(session_id),
+        )
 
     def run_turn(
         self,
@@ -232,8 +247,24 @@ class ChatClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
         model: str,
-        max_tokens: int,
+        max_tokens: Optional[int],
+        on_text: Optional[StreamTextHook] = None,
+        on_tool_call: Optional[StreamToolCallHook] = None,
     ) -> LLMTurn:
+        """One turn, optionally reporting increments as they arrive.
+
+        With either hook given this goes through the installed SDK's
+        `chat.completions.stream(...)` helper, dispatching each event
+        through `dispatch_stream_event` and then taking
+        `get_final_completion()` -- the same `ChatCompletion` shape
+        `normalize_response` already handles, so nothing downstream learns
+        that a stream happened.
+
+        With neither hook given it stays on plain `.create(...)`: the
+        unstreamed path is unchanged, and this protocol's streaming mode
+        reports usage only when asked to, which is a difference not worth
+        taking on for a caller that isn't listening anyway.
+        """
         translated_tools = self.translate_tools(tools)
         translated_messages = self.translate_messages(system, messages)
         # Built as a plain `dict[str, Any]` and passed via `**kwargs`, not as
@@ -247,9 +278,12 @@ class ChatClient:
         # runtime. `**kwargs: dict[str, Any]` unpacks as `Any` per key, which
         # is what keeps `mypy .` clean here without a `cast` per argument.
         kwargs: dict[str, Any] = {
-            "model": model,
+            # The bare id: the gateway prefix is config, not wire.
+            "model": api_model_id(model),
             "messages": translated_messages,
             "tools": translated_tools,
+        }
+        if max_tokens is not None:
             # `max_completion_tokens`, not the deprecated `max_tokens`:
             # confirmed against the installed `openai>=2.0` SDK's
             # `CompletionCreateParamsBase` (`completion_create_params.py`)
@@ -260,10 +294,12 @@ class ChatClient:
             # DeepSeek, Kimi, GLM, MiniMax) include reasoning models, so the
             # deprecated parameter is the wrong default to reach for here
             # even though both still exist on the installed SDK.
-            "max_completion_tokens": max_tokens,
-        }
+            kwargs["max_completion_tokens"] = max_tokens
         try:
-            response = self._client.chat.completions.create(**kwargs)
+            if on_text is not None or on_tool_call is not None:
+                response = self._stream_completion(kwargs, on_text, on_tool_call)
+            else:
+                response = self._client.chat.completions.create(**kwargs)
         except openai.RateLimitError as exc:
             # Checked before APIConnectionError, mirroring
             # `MessagesClient.run_turn`: RateLimitError is an
@@ -282,6 +318,44 @@ class ChatClient:
                 f"Connection error talking to the Chat Completions API: {exc.message}"
             ) from exc
         return self.normalize_response(response)
+
+    def _stream_completion(
+        self,
+        kwargs: dict[str, Any],
+        on_text: Optional[StreamTextHook],
+        on_tool_call: Optional[StreamToolCallHook],
+    ) -> ChatCompletion:
+        """Run the request through the SDK's streaming helper and return the
+        assembled `ChatCompletion`.
+
+        `stream_options={"include_usage": True}` is what keeps
+        `response.usage` populated: on this protocol a streamed completion
+        reports no usage at all unless it is asked to, and
+        `normalize_response` treating a missing `usage` as zero would make
+        every streamed thread turn free in `compute_cost_ore` -- a daily cap
+        that silently stops counting is worse than no cap.
+
+        Tool-call names are announced once each, as the first chunk of each
+        call arrives: `_ChatStreamDispatcher` keeps the small amount of
+        per-turn state that requires, since a name repeats across the
+        argument chunks that follow it.
+        """
+        dispatcher = _ChatStreamDispatcher(on_text=on_text, on_tool_call=on_tool_call)
+        stream_kwargs = dict(kwargs)
+        stream_kwargs["stream_options"] = {"include_usage": True}
+        with self._client.chat.completions.stream(**stream_kwargs) as stream:
+            for event in stream:
+                dispatcher.dispatch(event)
+            try:
+                return stream.get_final_completion()
+            except openai.LengthFinishReasonError as exc:
+                # The helper refuses to hand back a completion cut off by
+                # `finish_reason == "length"`, but the exception carries it.
+                # Returned as is, it normalizes to `stop="max_tokens"` -- a
+                # truncated turn the session abstains on -- exactly as the
+                # unstreamed `.create(...)` path already does, and its usage
+                # still reaches the daily cap.
+                return exc.completion
 
     # -----------------------------------------------------------------
     # Translation: Anthropic tool-definition shape -> OpenAI function-tool
@@ -427,6 +501,57 @@ class ChatClient:
 # ---------------------------------------------------------------------------
 # Message translation helpers (module-level, pure)
 # ---------------------------------------------------------------------------
+
+
+class _ChatStreamDispatcher:
+    """Routes this protocol's stream events to the hooks (task T5).
+
+    Reads the *raw chunk* events (`type == "chunk"`) rather than the SDK's
+    synthesized higher-level ones, because a chunk carries both things the
+    thread needs in one place: `delta.content` (the text increment) and
+    `delta.tool_calls[].function.name`, which the wire only sends on the
+    first chunk of each tool call. The synthesized
+    `tool_calls.function.arguments.delta` event repeats the name on every
+    argument fragment, which would make `SkriverIndikator` flicker through
+    the same name a dozen times per call.
+
+    The `_announced` set is still kept: a provider that repeated the name
+    on a later chunk would otherwise announce the same call twice, and one
+    tool call is one activity, however the gateway chooses to frame it.
+    """
+
+    def __init__(
+        self,
+        on_text: Optional[StreamTextHook] = None,
+        on_tool_call: Optional[StreamToolCallHook] = None,
+    ) -> None:
+        self._on_text = on_text
+        self._on_tool_call = on_tool_call
+        self._announced: set[int] = set()
+
+    def dispatch(self, event: Any) -> None:
+        if getattr(event, "type", None) != "chunk":
+            return
+        choices = getattr(event.chunk, "choices", None) or []
+        if not choices:
+            # The final usage-only chunk that `include_usage` adds has no
+            # choices at all.
+            return
+        delta = choices[0].delta
+        if delta is None:
+            return
+        content = getattr(delta, "content", None)
+        if content and self._on_text is not None:
+            self._on_text(content)
+        if self._on_tool_call is None:
+            return
+        for tool_call in getattr(delta, "tool_calls", None) or []:
+            function = getattr(tool_call, "function", None)
+            name = getattr(function, "name", None)
+            if not name or tool_call.index in self._announced:
+                continue
+            self._announced.add(tool_call.index)
+            self._on_tool_call(name)
 
 
 def _translate_one_message(message: dict[str, Any]) -> list[dict[str, Any]]:

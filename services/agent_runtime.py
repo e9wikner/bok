@@ -131,7 +131,7 @@ def ensure_daily_budget_available(
 ) -> None:
     """Raise `DailyBudgetExhaustedError` if today's spend already meets or
     exceeds `config.settings.agent_daily_budget_ore` (SPEC §6.5's "kostnad
-    per dygn" cap, 5000 öre / 50 kr by default).
+    per dygn" cap). Does nothing when no budget is configured.
 
     `agent_run_repo` accepts `AgentRunRepository` itself (all of its methods
     are `@staticmethod`, so the class is callable exactly like an instance --
@@ -161,11 +161,13 @@ def ensure_daily_budget_available(
     Comparison is `>=`, not `>`: a spend exactly equal to the budget has
     exhausted it, matching SPEC §6.5's "redan nått" framing in test case 8.
     """
+    budget_ore = settings.agent_daily_budget_ore
+    if budget_ore is None:
+        # No budget configured: the cap is opt-in.
+        return
     spent_ore = agent_run_repo.sum_cost_today_ore()
-    if spent_ore >= settings.agent_daily_budget_ore:
-        raise DailyBudgetExhaustedError(
-            spent_ore=spent_ore, budget_ore=settings.agent_daily_budget_ore
-        )
+    if spent_ore >= budget_ore:
+        raise DailyBudgetExhaustedError(spent_ore=spent_ore, budget_ore=budget_ore)
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +197,7 @@ class UnsupportedProtocolError(Exception):
         self.protocol = protocol
 
 
-def build_llm_client(model: str) -> LLMClient:
+def build_llm_client(model: str, session_id: Optional[str] = None) -> LLMClient:
     """Resolve `model` to its protocol and construct the matching adapter.
 
     Called once per pass by `AgentWorker.run_pass_once` (not once per item --
@@ -211,19 +213,23 @@ def build_llm_client(model: str) -> LLMClient:
     `grep -r "^import anthropic\\|^from anthropic\\|^import openai\\|^from openai" services/agent_runtime.py`
     empty, per SPEC §4/§10's "anthropic/openai importeras bara i
     services/llm/".
+
+    `session_id` becomes the `x-opencode-session` header: stable for one
+    conversation, which Go requires (`services.llm.gateway_headers`).
     """
-    protocol = get_model_info(model).protocol
-    if protocol == "messages":
+    info = get_model_info(model)
+    # Zen or Go, by the model id's prefix -- the protocol is independent of
+    # the gateway (Go serves Messages too).
+    base_url, api_key = settings.gateway_for(info.provider)
+    if info.protocol == "messages":
         from services.llm.messages import MessagesClient
 
-        return MessagesClient(
-            api_key=settings.llm_api_key, base_url=settings.llm_base_url
-        )
-    if protocol == "chat":
+        return MessagesClient(api_key=api_key, base_url=base_url, session_id=session_id)
+    if info.protocol == "chat":
         from services.llm.chat import ChatClient
 
-        return ChatClient(api_key=settings.llm_api_key, base_url=settings.llm_base_url)
-    raise UnsupportedProtocolError(protocol)
+        return ChatClient(api_key=api_key, base_url=base_url, session_id=session_id)
+    raise UnsupportedProtocolError(info.protocol)
 
 
 # ---------------------------------------------------------------------------
@@ -279,18 +285,16 @@ class AgentWorker:
     """
 
     def __init__(self) -> None:
-        #: Best-effort "what is this pass doing right now" snapshot for
-        #: `GET /agent/status` (SPEC §8, task A11). Deliberately coarse:
-        #: `services.agent_session.run_session` has no per-tool-call hook to
-        #: thread a callback through without touching its manual tool loop
-        #: (task A8), so `current_activity` only ever distinguishes "a
-        #: session is running for `current_source_id`" (`"processing"`) from
-        #: "idle between items" (`None`) -- it is not the literal tool name
-        #: the SPEC §8 example shows (`"las_kontoplan"`). `current_source_id`
-        #: *is* exact: it is set/cleared right here in `run_pass_once`, one
-        #: layer above `run_session`, so it costs nothing to get precisely
-        #: right. See `api/routes/agent.py`'s `GET /agent/status` docstring
-        #: for the same note from the consumer's side.
+        #: "What is this pass doing right now" for `GET /agent/status`
+        #: (SPEC §8, task A11). `current_activity` starts out as the coarse
+        #: `"processing"` when an item's session begins and is then replaced
+        #: by the literal tool name as each tool call starts -- exactly the
+        #: `"las_kontoplan"` SPEC §8's example shows. A11 could not do that:
+        #: the loop had no per-tool-call hook to thread a callback through.
+        #: SPEC-tradar.md T5 added one (`on_tool_call`), and
+        #: `run_pass_once` passes it straight into `run_session` below.
+        #: `current_source_id` was always exact -- it is set and cleared one
+        #: layer above `run_session`. Both are `None` between items.
         self.current_source_id: Optional[str] = None
         self.current_activity: Optional[str] = None
 
@@ -321,11 +325,12 @@ class AgentWorker:
         self,
         model: Optional[str] = None,
         trigger: str = "manual",
-        client_factory: Callable[[str], LLMClient] = build_llm_client,
+        client_factory: Optional[Callable[[str], LLMClient]] = None,
     ) -> Optional[AgentRun]:
         """Run exactly one pass over the pending intake queue (SPEC §6.2).
 
-        `client_factory` defaults to the real `build_llm_client` and exists
+        `client_factory` defaults to the real `build_llm_client` (with the
+        run's id as the gateway session) and exists
         purely for tests to inject a fake `LLMClient` without monkeypatching
         module state -- every test in this file except the lock/enabled
         ones (SPEC §9 test cases 13, 16) calls this method directly with a
@@ -338,22 +343,49 @@ class AgentWorker:
         Sequencing, exactly as SPEC §6.2 orders it:
 
         1. Reap abandoned runs (`_reap_abandoned_runs`).
-        2. Resolve the model and look it up -- `UnknownModelError` propagates
+        2. Send decision reminders (SPEC-beslut.md §6.5) -- see the comment
+           at that call site below for why it sits here, before step 5's
+           empty-queue return.
+        3. Resolve the model and look it up -- `UnknownModelError` propagates
            unhandled, before any `agent_runs` row exists (SPEC §2).
-        3. Check the daily budget -- `DailyBudgetExhaustedError` propagates
+        4. Check the daily budget -- `DailyBudgetExhaustedError` propagates
            unhandled, before any `agent_runs` row exists (SPEC §9 test case 8).
-        4. Fetch the queue, capped at `settings.agent_max_items_per_pass`
+        5. Fetch the queue, capped at `settings.agent_max_items_per_pass`
            (the fourth cap, SPEC §6.5).
-        5. Empty queue -> return `None`.
-        6. Create the `agent_runs` row.
-        7. One item at a time: re-check the daily budget; optionally log a
+        6. Empty queue -> return `None`.
+        7. Create the `agent_runs` row.
+        8. One item at a time: re-check the daily budget; optionally log a
            processing attempt; resolve and read the file; run one session;
            handle `LLMConnectionError`/`LLMRateLimitError` by ending the pass
            with `status='failed'`; otherwise accumulate usage/items/events
            from the `SessionOutcome`.
-        8. Mark the run `status='completed'` once the queue is exhausted.
+        9. Mark the run `status='completed'` once the queue is exhausted.
         """
         self._reap_abandoned_runs()
+
+        # SPEC-beslut.md §6.5: "Ett beslut som legat mer än sju dagar
+        # påminner agenten om en gång, inte varje körning" -- checked "in
+        # the intake pass's existing cycle", not gated on that pass having
+        # anything to process. This call sits here, before the model is
+        # resolved and before step 6's `if not sources: return None` below,
+        # specifically so an empty pending queue can never make it skip: a
+        # reminder that only fires when there happens to be intake to
+        # process is not the rule SPEC-beslut.md describes, and a test
+        # proves exactly that by calling this method with an empty queue.
+        # Wrapped so a reminder failure is logged and this pass continues
+        # regardless -- a decision that could not be reminded about is not
+        # a reason to stop bookkeeping (`DecisionService.send_reminders`
+        # already isolates one failing decision from the rest; this is the
+        # outer net for a wholly unexpected failure in that call itself).
+        # Deferred import, never at module level (AGENTS.md) -- this module
+        # does not know what a decision is beyond asking the service to run
+        # its own check.
+        try:
+            from services.decision_service import DecisionService
+
+            DecisionService().send_reminders()
+        except Exception:
+            logger.exception("Agent pass: could not send decision reminders")
 
         resolved_model = model or settings.llm_default_model
         model_info = get_model_info(resolved_model)
@@ -381,7 +413,10 @@ class AgentWorker:
             len(sources),
         )
 
-        client = client_factory(resolved_model)
+        if client_factory is None:
+            client = build_llm_client(resolved_model, session_id=f"bok-run-{run.id}")
+        else:
+            client = client_factory(resolved_model)
         open_periods = [
             period
             for period in PeriodRepository.list_all_periods()
@@ -450,6 +485,7 @@ class AgentWorker:
                         today=date.today(),
                         model=resolved_model,
                         actor="agent",
+                        on_tool_call=self._note_tool_call,
                     )
                 except LLMConnectionError as exc:
                     logger.error(
@@ -500,6 +536,16 @@ class AgentWorker:
         AgentRunRepository.update_status(run.id, "completed")
         logger.info("Agent run %s completed", run.id)
         return AgentRunRepository.get(run.id)
+
+    def _note_tool_call(self, tool_name: str) -> None:
+        """`on_tool_call` for the document pass: report the live tool name.
+
+        Deliberately no text hook alongside it. `GET /agent/status` shows
+        what the agent is *doing*, and a document pass has no one watching
+        it write; accumulating its prose here would be a second copy of what
+        `agent_run_events` already stores, kept in memory for nobody.
+        """
+        self.current_activity = tool_name
 
     def _record_outcome(
         self,
@@ -823,12 +869,21 @@ class AgentRunner:
                 self._pass_in_progress = False
 
     def status(self) -> dict:
-        """Snapshot for the status endpoint. A11 (not built yet) composes
-        the full `GET /agent/status` payload (SPEC §8) on top of this plus
-        `AgentRunRepository.get_current()`/`get_last_completed_or_failed()`/
-        `sum_cost_today_ore()` -- this just exposes what only `AgentRunner`
-        itself knows: whether it's enabled/running and what its last
-        in-thread pass attempt did.
+        """Snapshot for the status endpoint (SPEC-agentruntime §8).
+
+        `api/routes/agent.py` composes the full `GET /agent/status` payload
+        on top of this plus `AgentRunRepository.get_current()`/
+        `get_last_completed_or_failed()`/`sum_cost_today_ore()` -- this just
+        exposes what only `AgentRunner` itself knows: whether it's
+        enabled/running and what its last in-thread pass attempt did.
+
+        `paused_reason` is here rather than derived at the endpoint because
+        `AgentRunner` is the only thing that knows *why* it is not running:
+        whether the switch is off, or the flock is held by another process.
+        SPEC-tradar.md §7 requires it to stay put for as long as the agent
+        is paused, "inte bara i felinlägget" -- so it is computed from
+        current state on every call, never remembered from an event that has
+        already scrolled past.
         """
         return {
             "enabled": settings.agent_runtime_enabled,
@@ -836,7 +891,31 @@ class AgentRunner:
             "pass_in_progress": self._pass_in_progress,
             "last_run_id": self._last_run_id,
             "last_error": self._last_error,
+            "paused_reason": self.paused_reason(),
         }
+
+    def paused_reason(self) -> Optional[str]:
+        """Why the agent is paused, or `None` when it is not.
+
+        Three states, in the order they are decided:
+
+        1. The switch is off (`AGENT_RUNTIME_ENABLED=false`) -- deliberate,
+           and the most common reason on a developer's machine.
+        2. The switch is on but the thread is not alive -- the flock is held
+           by another process, or `start()` was never called.
+        3. Otherwise not paused.
+
+        Deliberately not "the daily budget is spent": that is a cap on
+        spending, not a pause of the agent, and the endpoint reports it
+        separately as `cost_today_ore`/`budget_today_ore` -- conflating them
+        would make a budget that resets at midnight look like a fault
+        somebody has to clear.
+        """
+        if not settings.agent_runtime_enabled:
+            return "agent_runtime_disabled"
+        if not self.running:
+            return "agent_runtime_not_started"
+        return None
 
 
 _worker = AgentWorker()
@@ -866,3 +945,38 @@ def stop_agent_runtime() -> None:
 def agent_runtime_status() -> dict:
     """Status of the agent runtime, for the status endpoint (A11)."""
     return _runner.status()
+
+
+#: The three named modes `komponenter.md`'s `AgentStatus` shows, and the only
+#: values `AgentStatusResponse.state` ever takes (SPEC-tradar.md §7).
+AGENT_STATE_WORKING = "arbetar"
+AGENT_STATE_POSTING = "postar"
+AGENT_STATE_PAUSED = "pausad"
+AGENT_STATE_IDLE = "vilande"
+
+
+def agent_state(current_activity: Optional[str], paused_reason: Optional[str]) -> str:
+    """Which of the named modes the agent is in right now (§7).
+
+    `komponenter.md` names three -- "Agenten arbetar", "Agenten postar",
+    "Agenten pausad" -- and the interface needs a fourth for the ordinary
+    case of nothing happening, which the design draws as no indicator at
+    all rather than as a mode.
+
+    "Postar" is `posta_verifikation` specifically, not any tool call: it is
+    the one activity that changes the books, and it is what the design's
+    example (`Postar verifikation A-118…`) is about. Telling it apart from
+    "arbetar" is possible only because T5's hook reports the live tool name.
+
+    **The agent mode is global, not per view** (§7, and the design's own
+    open question 2): there is one worker, one flock and one budget. A mode
+    per page would be an invention in the interface with nothing behind it
+    in the system.
+    """
+    if paused_reason is not None:
+        return AGENT_STATE_PAUSED
+    if current_activity == "posta_verifikation":
+        return AGENT_STATE_POSTING
+    if current_activity is not None:
+        return AGENT_STATE_WORKING
+    return AGENT_STATE_IDLE

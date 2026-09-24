@@ -179,9 +179,7 @@ def _invoice_summary(invoices) -> dict:
         "total_remaining": total_amount - paid_amount,
         "invoice_count": len(invoices),
         "paid_count": sum(1 for inv in invoices if inv.status == "paid"),
-        "overdue_count": sum(
-            1 for inv in invoices if inv.status == "overdue" or inv.is_overdue()
-        ),
+        "overdue_count": sum(1 for inv in invoices if inv.counts_as_overdue()),
     }
 
 

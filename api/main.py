@@ -24,6 +24,8 @@ from api.routes import (
     company_info,
     compliance,
     customers,
+    decisions,
+    drafts,
     export_pdf,
     export_sie4,
     export_sru,
@@ -33,11 +35,13 @@ from api.routes import (
     invoice_drafts,
     invoices,
     k2_reports,
+    overview,
     payroll,
     periods,
     reports,
     sru_mappings,
     tax_ink2,
+    threads,
     vat,
     vouchers,
 )
@@ -148,6 +152,18 @@ app.include_router(tax_ink2.router)
 
 # Payroll
 app.include_router(payroll.router)
+
+# Sidöversikt (header counters for the three pages)
+app.include_router(overview.router)
+
+# Tråd per vy (chatten hör till vyn, inte till appen)
+app.include_router(threads.router)
+
+# Beslut: unionen av tre källor (SPEC-beslut.md §5, §6.1)
+app.include_router(decisions.router)
+
+# Trådens förslag och vad som hände med dem (SPEC-flode-verifikationer.md §10)
+app.include_router(drafts.router)
 
 
 @app.get("/health", tags=["health"])

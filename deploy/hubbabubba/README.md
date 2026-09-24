@@ -20,7 +20,8 @@ one-time setup that does need an admin shell.
 | `deploy.sh` | Run as `e9wikner` on hubbabubba. Pulls source, builds both images, installs the quadlets, restarts, health-checks. |
 | `bok-api.container` | Quadlet for the API. Installed to `~/.config/containers/systemd/`. |
 | `bok-frontend.container` | Quadlet for the frontend. |
-| `/srv/appdata/bok/bok.env` | **Not in git.** The three secrets, `mode 600`, `e9wikner`-owned. |
+| `/srv/appdata/bok/bok.env` | **Not in git.** The three secrets plus the optional settings below, `mode 600`, `e9wikner`-owned. |
+| `/srv/appdata/bok/backups/` | Database copies `deploy.sh` takes before starting new code. The five newest are kept. |
 | `/srv/appdata/bok/dropzone` | **Not created here.** The `Bokforing` SMB share, owned by the hubbabubba repo — see "Folder intake" below. |
 
 ## One-time setup (admin / `rsw` shell)
@@ -51,6 +52,27 @@ AUTH_PASSWORD=<openssl rand -base64 24>
 `AUTH_USERNAME` is `admin` (set in `bok-api.container`, not a secret). Save the
 `AUTH_PASSWORD` in a password manager — it is the web-UI login.
 
+### Optional settings in `bok.env`
+
+Everything below is off or defaulted when absent.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `NEXT_PUBLIC_SKAL` | unset | `1` builds the frontend with the new shell at `/v4` (`docs/redesign/SPEC-skal.md` §3). It takes effect at **build** time: `deploy.sh` passes it as a build arg and rebuilds the frontend when the value changes. The 24 existing pages are unaffected either way. |
+| `AGENT_RUNTIME_ENABLED` | `False` | `true` starts the internal agent worker (`docs/redesign/SPEC-agentruntime.md`), which books pending intake with an LLM. It costs money, so it is off unless you say so. `deploy.sh` refuses to run if it is `true` and `LLM_API_KEY` is empty. |
+| `LLM_API_KEY` | empty | The LLM gateway key. Never logged or returned by any endpoint. |
+| `LLM_BASE_URL` | `https://opencode.ai/zen/v1` | The OpenCode Zen gateway, for `opencode/…` models. |
+| `LLM_GO_BASE_URL` | `https://opencode.ai/zen/go/v1` | The OpenCode Go gateway, for `opencode-go/…` models. The model id's prefix picks the gateway, so both can be used side by side. |
+| `LLM_GO_API_KEY` | empty | Key for the Go gateway. When it is empty, `LLM_API_KEY` is used. |
+| `LLM_DEFAULT_MODEL` | `opencode-go/glm-5.3` | The model a pass uses unless told otherwise. It must have a row in `services/llm/__init__.py`. |
+| `AGENT_DAILY_BUDGET_ORE` | *(unset)* | Optional daily spend cap in öre, e.g. `5000` for 50 kr. The agent pauses when it is reached. Unset or empty: no cap. |
+| `AGENT_MAX_OUTPUT_TOKENS_PER_ITEM`, `AGENT_MAX_TOKENS_PER_TURN` | *(unset)* | Optional token caps: cumulative output per document or thread turn, and output per model call. Unset or empty: no cap (a Messages-protocol model still gets `max_tokens` 32000, which that protocol requires). |
+| `AGENT_MAX_ITEMS_PER_PASS`, `AGENT_MAX_TOOL_TURNS_PER_ITEM`, `AGENT_THREAD_WINDOW_TOKENS` | `20`, `25`, `12000` | The other caps; see `config.py`. |
+
+The backend settings are read when `bok-api` starts, so a change needs only
+`systemctl --user restart bok-api.service`. `NEXT_PUBLIC_SKAL` needs a
+`deploy.sh` run.
+
 `/srv/appdata` is on the snapshotted, backed-up `@docker` Btrfs subvolume, so
 the SQLite database and `bok.env` are covered by the hubbabubba backup tiers
 with no extra configuration.
@@ -64,23 +86,51 @@ ssh hubbabubba
 
 What it does:
 
-1. Clone/`git pull` the source into `/srv/appdata/bok/src`.
-2. `podman build` `bok-api:latest` (repo root) and `bok-frontend:latest`
-   (`frontend-v3/`) — only when the source changed, unless `--force-build`.
-   The previous images are retagged `:previous` first.
-3. Copy the two `.container` files into `~/.config/containers/systemd/` and
+1. Create any missing folders of the dropzone contract (below).
+2. Clone/`git pull` the source into `/srv/appdata/bok/src` (after switching
+   branch if `--branch` is given).
+3. `podman build` `bok-api:latest` (repo root) and `bok-frontend:latest`
+   (`frontend-v3/`), but only when the source or `NEXT_PUBLIC_SKAL` changed, or
+   with `--force-build`. The previous images are retagged `:previous` first.
+4. If it built: stop `bok-api` and copy the database to
+   `/srv/appdata/bok/backups/<timestamp>/`. New code can carry migrations,
+   and they run when `bok-api` starts.
+5. Copy the two `.container` files into `~/.config/containers/systemd/` and
    `systemctl --user daemon-reload`.
-4. `systemctl --user restart bok-api bok-frontend`.
-5. Create any missing folders of the dropzone contract (below).
-6. Curl `/health` on `:8000` and `:3000`, check the DB file ownership, and
-   print the dropzone scanner's status.
+6. `systemctl --user restart bok-api bok-frontend`.
+7. Curl `/health` on `:8000` and `:3000`, check the DB file ownership, and
+   print the dropzone scanner's and the agent's status (plus `/v4`'s HTTP code
+   when the shell is on).
 
 `[Install] WantedBy=default.target` in the quadlets means both units come back
 on reboot automatically — no `systemctl enable` needed (linger is already on
 for `e9wikner`).
 
 Flags: `--no-build` (quadlet + restart only), `--force-build` (rebuild even if
-the source is unchanged).
+the source is unchanged), `--no-pull` (deploy the checkout as it stands),
+`--branch=NAME` (switch the checkout to `origin/NAME` first).
+
+## Previewing an unmerged branch (v4)
+
+The redesign lives on `redesign-v4` until the whole first delivery is done. To
+run it on the box without merging:
+
+```bash
+# once: in /srv/appdata/bok/bok.env
+NEXT_PUBLIC_SKAL=1
+# optional: AGENT_RUNTIME_ENABLED=true and LLM_API_KEY=... (see the table above)
+
+~/Development/bok/deploy/hubbabubba/deploy.sh --branch=redesign-v4
+```
+
+The checkout **stays** on that branch. Later plain `deploy.sh` runs
+fast-forward `redesign-v4`, not `main`. To go back:
+`deploy.sh --branch=main`.
+
+The branch adds migrations 023–026. All four are additive (new tables and one
+nullable column, `periods.locked_by`), and the migration runner skips versions
+it does not know. That means `main`'s code runs against the migrated database,
+and going back to `main` needs no database restore.
 
 ## Verify
 
@@ -106,8 +156,25 @@ podman tag bok-frontend:previous bok-frontend:latest
 systemctl --user restart bok-api.service bok-frontend.service
 ```
 
-For a bad database (not a bad build), restore the `/srv/appdata` Btrfs
-snapshot — see `docs/backup.md` in the `hubbabubba` repo.
+A code rollback leaves the database alone, and it should. Migrations only add
+things, so older code runs against a newer schema.
+
+For a bad database (not a bad build), restore a copy. **Anything booked after
+the copy is lost**, and posted vouchers are bookkeeping records under BFL. So
+check the audit trail for postings made after the copy, and plan to re-post
+them, before you restore:
+
+```bash
+systemctl --user stop bok-api.service
+ls /srv/appdata/bok/backups/                   # pick the timestamp
+rm -f /srv/appdata/bok/data/bokfoering.db-wal /srv/appdata/bok/data/bokfoering.db-shm
+cp -p /srv/appdata/bok/backups/<timestamp>/* /srv/appdata/bok/data/
+systemctl --user start bok-api.service
+```
+
+The per-deploy copies are the only "just before the migration" point. For
+anything older, use the `/srv/appdata` Btrfs snapshot. See `docs/backup.md` in
+the `hubbabubba` repo.
 
 ## Folder intake (the `Bokforing` SMB share)
 
@@ -196,6 +263,7 @@ journalctl --user -u bok-api.service | grep -i dropzone
 ## Rotate a secret
 
 Edit `/srv/appdata/bok/bok.env` and `systemctl --user restart bok-api.service`.
+That covers `LLM_API_KEY` too.
 
 ## Config knobs
 

@@ -1,6 +1,8 @@
 """API routes for vouchers."""
 
-from typing import Optional
+import logging
+from datetime import date
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status as http_status
@@ -19,6 +21,7 @@ from api.schemas import (
     RejectCorrectionNoteRequest,
     SuggestCorrectionNoteRequest,
     UpdateVoucherRequest,
+    VoucherRefResponse,
     VoucherResponse,
     VoucherRowResponse,
 )
@@ -30,8 +33,11 @@ from repositories.audit_repo import AuditRepository
 from repositories.bank_input_repo import BankInputRepository
 from repositories.intake_repo import IntakeRepository
 from services.correction_notes import CorrectionNoteError, CorrectionNoteService
+from services.draft_service import DraftService, SourceAlreadyBookedError
 from services.idempotency import IdempotencyOutcome, IdempotencyService
 from services.ledger import LedgerService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/vouchers", tags=["vouchers"])
 
@@ -270,6 +276,15 @@ async def create_voucher(
     try:
         rows_data = [r.model_dump() for r in request.rows]
 
+        # A draft has no number (SPEC flode-verifikationer §4.3), so an
+        # explicit one can only be honoured when the voucher is posted now.
+        if request.number is not None and not request.auto_post:
+            raise ValidationError(
+                "number_requires_auto_post",
+                "An explicit voucher number is set at posting",
+                "pass auto_post=true together with number",
+            )
+
         voucher = ledger.create_voucher(
             series=request.series,
             date=request.date,
@@ -277,12 +292,13 @@ async def create_voucher(
             description=request.description,
             rows_data=rows_data,
             created_by=actor,
-            number=request.number,
         )
 
         # Auto-post if requested
         if request.auto_post:
-            voucher = ledger.post_voucher(voucher.id, actor=actor)
+            voucher = ledger.post_voucher(
+                voucher.id, actor=actor, number=request.number
+            )
 
         return _voucher_to_response(voucher)
 
@@ -439,23 +455,198 @@ async def post_voucher(
     voucher_id: str,
     ledger: LedgerService = Depends(get_ledger_service),
     actor: str = Depends(get_current_actor),
+    idempotency_key: Optional[str] = Depends(get_idempotency_key),
 ):
     """
     Post voucher (make immutable - BFL varaktighet requirement).
 
     Once posted, a voucher can only be corrected via a correction voucher (B-series),
     never edited directly.
+
+    The key is what the chat's Posta button sends (SPEC-chattyta §8). Posting
+    only flips the draft's own status, so a second request cannot make a
+    second voucher -- but two requests arriving at the same instant could both
+    pass validation and both write a `posted` audit row. Under a key the
+    second is `request_in_flight` or a replay instead.
+    """
+    idempotency = IdempotencyService()
+    endpoint = _post_endpoint(voucher_id)
+    replay = _begin_idempotent(idempotency, idempotency_key, endpoint, {}, actor)
+    if replay is not None:
+        # A replay of a completed posting: the receipt may be what the first
+        # request never got to (SPEC-flode-verifikationer §8.1).
+        _after_posting(voucher_id, actor)
+        return replay
+
+    try:
+        return _post_and_record(
+            voucher_id=voucher_id,
+            ledger=ledger,
+            actor=actor,
+            idempotency=idempotency,
+            idempotency_key=idempotency_key,
+            endpoint=endpoint,
+        )
+    except Exception:
+        # A refusal (locked period, already posted) is an answer, not a
+        # completed posting: free the key so the caller can act on it.
+        if idempotency_key:
+            idempotency.release(idempotency_key, endpoint)
+        raise
+
+
+def _post_endpoint(voucher_id: str) -> str:
+    """Scoped to the voucher, like `_correct_endpoint`: the body is empty."""
+    return f"POST /api/v1/vouchers/{voucher_id}/post"
+
+
+def _post_and_record(
+    voucher_id: str,
+    ledger: LedgerService,
+    actor: str,
+    idempotency: IdempotencyService,
+    idempotency_key: Optional[str],
+    endpoint: str,
+) -> VoucherResponse:
+    """The posting, a thread draft's hooks and the key row, in one transaction.
+
+    `DraftService.on_posting` is steps 1-3 of SPEC-flode-verifikationer
+    §8.1: a thread draft's row goes `posted` and its underlag and bank
+    transactions are linked. Anything it raises -- `source_already_booked`
+    included -- rolls the whole posting back: no number is taken. Steps 4-5
+    (receipt, publication) run after the commit, in `_after_posting`.
     """
     try:
-        voucher = ledger.post_voucher(voucher_id, actor=actor)
-        return _voucher_to_response(voucher)
-
+        with db.transaction():
+            voucher = ledger.post_voucher(voucher_id, actor=actor, _commit=False)
+            DraftService().on_posting(voucher, actor=actor, _commit=False)
+            response = _voucher_to_response(voucher)
+            if idempotency_key:
+                idempotency.complete(
+                    key=idempotency_key,
+                    endpoint=endpoint,
+                    response_status=http_status.HTTP_200_OK,
+                    response_payload=jsonable_encoder(response),
+                    entity_type="voucher",
+                    entity_id=voucher.id,
+                    _commit=False,
+                )
+            # From the period, as `LedgerService.post_voucher` does:
+            # `Voucher.fiscal_year_id` is optional and may be unset.
+            period = ledger.periods.get_period(voucher.period_id)
+            fiscal_year_id = period.fiscal_year_id if period else None
+            is_opening_balance = voucher.series.value == "IB"
     except ValidationError as e:
+        # The transaction is rolled back here.
+        if e.code == "already_posted":
+            # Posted by an earlier request whose receipt may have failed.
+            _after_posting(voucher_id, actor)
+        else:
+            _after_failed_posting(voucher_id, e, actor)
         raise _posting_http_error(e, ledger, voucher_id)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
+
+    _after_posting(voucher_id, actor)
+
+    # `post_voucher(_commit=False)` skips the opening-balance update, so it
+    # runs here: after the commit and best-effort, as in `_correct_and_record`.
+    if fiscal_year_id and not is_opening_balance:
+        try:
+            from services.opening_balance import OpeningBalanceService
+
+            OpeningBalanceService().update_opening_balances_for_next_year(
+                fiscal_year_id, actor
+            )
+        except Exception:
+            pass
+
+    return response
+
+
+def _after_posting(voucher_id: str, actor: str) -> None:
+    """Steps 4-5 of SPEC-flode-verifikationer §8.1 for a thread draft: the
+    `receipt` post and its publication. A no-op for any other voucher, and
+    for one whose receipt is already written, so it is called after every
+    posting and on every replay of one.
+
+    Best-effort by design: the posting is committed, and a failure in the
+    thread layer must not turn a successful posting into an error. A replay
+    with the same key resumes it.
+    """
+    try:
+        voucher = LedgerService().vouchers.get(voucher_id)
+        if voucher is not None and voucher.status.value == "posted":
+            DraftService().on_posted(voucher, actor=actor)
+    except Exception:
+        logger.exception("Receipt for posted voucher %s failed", voucher_id)
+
+
+def _after_failed_posting(voucher_id: str, error: ValidationError, actor: str) -> None:
+    """SPEC-flode-verifikationer §9 for a thread draft: one `error` post per
+    draft and code, in its own transaction, after the posting's rollback. A
+    no-op for any other voucher.
+
+    Best-effort, like `_after_posting`: the HTTP answer is the refusal, and a
+    failure in the thread layer must not change it. Network errors and 5xx
+    never reach here -- the server does not know about the first, and the
+    second is not a refusal.
+    """
+    try:
+        DraftService().on_posting_failed(voucher_id, error, actor=actor)
+    except Exception:
+        logger.exception("Error post for voucher %s failed", voucher_id)
+
+
+def _begin_idempotent(
+    idempotency: IdempotencyService,
+    idempotency_key: Optional[str],
+    endpoint: str,
+    body: dict,
+    actor: str,
+) -> Optional[JSONResponse]:
+    """Reserve the key, or answer for it (SPEC-idempotens §6).
+
+    Returns the stored response to replay, raises for a mismatch or a request
+    still in flight, and returns `None` when the caller should go ahead --
+    with the key reserved, or with no key at all.
+    """
+    if not idempotency_key:
+        return None
+    outcome = idempotency.begin(
+        key=idempotency_key, endpoint=endpoint, body=body, actor=actor
+    )
+    if outcome.kind == IdempotencyOutcome.REPLAY:
+        return JSONResponse(
+            status_code=outcome.response_status or http_status.HTTP_200_OK,
+            content=outcome.response_payload,
+            headers={"Idempotent-Replay": "true"},
+        )
+    if outcome.kind == IdempotencyOutcome.MISMATCH:
+        raise HTTPException(
+            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "error": "Idempotency-Key already used for a different request",
+                "code": "idempotency_key_reuse",
+                "details": "The same key must carry the same request body",
+                "original_fingerprint": outcome.original_fingerprint,
+            },
+        )
+    if outcome.kind == IdempotencyOutcome.IN_FLIGHT:
+        raise HTTPException(
+            status_code=http_status.HTTP_409_CONFLICT,
+            detail={
+                "error": "A request with this Idempotency-Key is in flight",
+                "code": "request_in_flight",
+                "details": "Retry with the same key to get the stored response",
+                "retry_after_ms": 500,
+            },
+        )
+    return None
 
 
 def _posting_http_error(
@@ -469,12 +660,25 @@ def _posting_http_error(
     ledger is simply already in a state that settles it. A client retrying
     after a timeout has to be able to render the done state, not an error.
     """
-    detail = {"error": exc.message, "code": exc.code, "details": exc.details}
+    detail: dict[str, Any] = {
+        "error": exc.message,
+        "code": exc.code,
+        "details": exc.details,
+    }
 
     if exc.code == "already_posted":
         voucher = ledger.vouchers.get(voucher_id)
         if voucher:
             detail["voucher"] = jsonable_encoder(_voucher_to_response(voucher))
+        return HTTPException(status_code=http_status.HTTP_409_CONFLICT, detail=detail)
+
+    if isinstance(exc, SourceAlreadyBookedError):
+        # F6's open risk: the intake flow booked the same underlag while the
+        # proposal waited. Nothing was posted; say which voucher has it.
+        detail["booked_by"] = exc.booked_by()
+        return HTTPException(status_code=http_status.HTTP_409_CONFLICT, detail=detail)
+
+    if exc.code == "source_not_linkable":
         return HTTPException(status_code=http_status.HTTP_409_CONFLICT, detail=detail)
 
     if exc.code == "period_locked":
@@ -511,42 +715,11 @@ async def correct_voucher(
     """
     idempotency = IdempotencyService()
     endpoint = _correct_endpoint(voucher_id)
-    reserved = False
-
-    if idempotency_key:
-        outcome = idempotency.begin(
-            key=idempotency_key,
-            endpoint=endpoint,
-            body=jsonable_encoder(request),
-            actor=actor,
-        )
-        if outcome.kind == IdempotencyOutcome.REPLAY:
-            return JSONResponse(
-                status_code=outcome.response_status or http_status.HTTP_200_OK,
-                content=outcome.response_payload,
-                headers={"Idempotent-Replay": "true"},
-            )
-        if outcome.kind == IdempotencyOutcome.MISMATCH:
-            raise HTTPException(
-                status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail={
-                    "error": "Idempotency-Key already used for a different request",
-                    "code": "idempotency_key_reuse",
-                    "details": "The same key must carry the same request body",
-                    "original_fingerprint": outcome.original_fingerprint,
-                },
-            )
-        if outcome.kind == IdempotencyOutcome.IN_FLIGHT:
-            raise HTTPException(
-                status_code=http_status.HTTP_409_CONFLICT,
-                detail={
-                    "error": "A request with this Idempotency-Key is in flight",
-                    "code": "request_in_flight",
-                    "details": "Retry with the same key to get the stored response",
-                    "retry_after_ms": 500,
-                },
-            )
-        reserved = True
+    replay = _begin_idempotent(
+        idempotency, idempotency_key, endpoint, jsonable_encoder(request), actor
+    )
+    if replay is not None:
+        return replay
 
     try:
         return _correct_and_record(
@@ -559,7 +732,7 @@ async def correct_voucher(
             endpoint=endpoint,
         )
     except Exception:
-        if reserved and idempotency_key:
+        if idempotency_key:
             idempotency.release(idempotency_key, endpoint)
         raise
 
@@ -691,8 +864,14 @@ async def list_vouchers(
     search: str = Query(None, description="Search in description or voucher number"),
     limit: int = Query(None, description="Max vouchers to return (pagination)"),
     offset: int = Query(0, description="Number of vouchers to skip (pagination)"),
-    sort_by: str = Query(None, description="Sort by: date or number"),
-    sort_order: str = Query("desc", description="Sort direction: asc or desc"),
+    sort_by: str = Query(None, description="Sort by: date, number or age"),
+    sort_order: str = Query(
+        None, description="Sort direction: asc or desc (age defaults to asc)"
+    ),
+    missing_attachment: bool = Query(
+        None,
+        description="true: only posted vouchers without attachment, false: only with",
+    ),
     exclude_series: str = Query(
         None, description="Comma-separated list of series to exclude (e.g., 'IB')"
     ),
@@ -705,6 +884,8 @@ async def list_vouchers(
     If period_id is omitted, returns vouchers from all periods.
     Supports server-side search on description and voucher number.
     Use exclude_series to hide special vouchers like opening balances (IB).
+    Use missing_attachment=true with sort_by=age for the vouchers that still
+    need a receipt, oldest first.
     """
     try:
         status_filter = voucher_status if voucher_status != "all" else None
@@ -721,6 +902,16 @@ async def list_vouchers(
                 vouchers = [
                     v for v in vouchers if v.series.value not in exclude_series_list
                 ]
+            # Same meaning as the SQL branch below: the flag only applies to
+            # posted vouchers. Silently ignoring it here would hand a view that
+            # asked for "missing attachment" the whole ledger back.
+            if missing_attachment is not None:
+                vouchers = [
+                    v
+                    for v in vouchers
+                    if v.status.value == "posted"
+                    and bool(v.missing_attachment) is missing_attachment
+                ]
             total = len(vouchers)
         else:
             vouchers, total = ledger.vouchers.list_all(
@@ -732,13 +923,16 @@ async def list_vouchers(
                 sort_order=sort_order,
                 fiscal_year_id=fiscal_year_id,
                 exclude_series=exclude_series_list,
+                missing_attachment=missing_attachment,
             )
 
+        # Read once for the page, not once per voucher (SPEC-oversikt §3).
+        account_names = AccountRepository.get_all_as_dict()
         return {
             "period_id": period_id,
             "status_filter": voucher_status,
             "total": total,
-            "vouchers": [_voucher_to_response(v) for v in vouchers],
+            "vouchers": [_voucher_to_response(v, account_names) for v in vouchers],
         }
     except Exception as e:
         raise HTTPException(
@@ -874,12 +1068,25 @@ def _raise_correction_note_http_error(error: CorrectionNoteError) -> None:
     )
 
 
-def _voucher_to_response(voucher) -> VoucherResponse:
-    """Convert domain Voucher to response."""
-    # Look up account names
-    account_names = AccountRepository.get_all_as_dict()
+def _voucher_to_response(voucher, account_names=None) -> VoucherResponse:
+    """Convert domain Voucher to response. A list passes *account_names*,
+    read once for the page."""
+    if account_names is None:
+        account_names = AccountRepository.get_all_as_dict()
     total_debit = sum(row.debit for row in voucher.rows)
     total_credit = sum(row.credit for row in voucher.rows)
+
+    # Derived, never stored (SPEC-oversikt.md §3). A voucher read back from the
+    # repository carries both; one just built in memory does not, and a voucher
+    # that has only just been created has no attachment and no age.
+    missing_attachment = (
+        True if voucher.missing_attachment is None else voucher.missing_attachment
+    )
+    age_days = (
+        max((date.today() - voucher.date).days, 0)
+        if voucher.age_days is None
+        else voucher.age_days
+    )
 
     return VoucherResponse(
         id=voucher.id,
@@ -914,4 +1121,14 @@ def _voucher_to_response(voucher) -> VoucherResponse:
         created_at=voucher.created_at,
         created_by=voucher.created_by,
         posted_at=voucher.posted_at,
+        missing_attachment=missing_attachment,
+        age_days=age_days,
+        corrected_by=_ref_response(voucher.corrected_by),
+        corrects=_ref_response(voucher.corrects),
     )
+
+
+def _ref_response(ref) -> Optional[VoucherRefResponse]:
+    if ref is None:
+        return None
+    return VoucherRefResponse(id=ref.id, series=ref.series, number=ref.number)

@@ -82,3 +82,27 @@ class BankInputStatus(str, Enum):
     PENDING = "pending"
     PROCESSED = "processed"
     FAILED = "failed"
+
+
+class ThreadViewKey(str, Enum):
+    """The seven views a thread can belong to (SPEC-tradar.md §5).
+
+    `README.md`: "Chatten hör till vyn, inte till appen. Varje vy har sin
+    egen tråd." The list is **closed and validated** — an unknown key gives
+    `404`, not an empty thread, because a typo in the client would otherwise
+    create a thread nobody ever finds their way back to.
+
+    No company part. Decision §12.2: single-tenant, and a `view_key` that
+    carried the company would look like a separation boundary without being
+    one, since the bookkeeping it refers to is not separated either. The
+    company goes in the day multi-tenancy is built for real, through the
+    whole stack.
+    """
+
+    BOCKER_BALANS = "bocker.balans"
+    BOCKER_RESULTAT = "bocker.resultat"
+    BOCKER_VERIFIKATIONER = "bocker.verifikationer"
+    BETALA_FAKTURERING = "betala.fakturering"
+    BETALA_LONER = "betala.loner"
+    BOKSLUT_RAPPORTER = "bokslut.rapporter"
+    BOKSLUT_ATGARDER = "bokslut.atgarder"

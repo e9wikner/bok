@@ -12,6 +12,7 @@ import {
   useInvoicingInstructionVersions,
 } from "@/hooks/useData";
 import { api } from "@/lib/api";
+import { formatVerifikationsnummer } from "@/lib/utils";
 import { Brain, FileText, History, Target } from "lucide-react";
 
 export default function LearningPage() {
@@ -168,11 +169,11 @@ export default function LearningPage() {
                   <div key={correction.id} className="rounded-lg border p-3">
                     <div className="flex flex-wrap items-center gap-2 text-sm">
                       <span className="font-mono">
-                        {correction.original_voucher?.series}{correction.original_voucher?.number}
+                        {formatVerifikationsnummer(correction.original_voucher?.number, correction.original_voucher?.series)}
                       </span>
                       <span className="text-muted-foreground">korrigerad med</span>
                       <span className="font-mono">
-                        {correction.correction_voucher?.series}{correction.correction_voucher?.number}
+                        {formatVerifikationsnummer(correction.correction_voucher?.number, correction.correction_voucher?.series)}
                       </span>
                     </div>
                     <p className="mt-1 text-sm text-muted-foreground">

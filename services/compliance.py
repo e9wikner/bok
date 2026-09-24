@@ -230,11 +230,18 @@ class ComplianceService:
         """
         issues = []
 
+        # Numbers restart at 1 each fiscal year, so the series is only
+        # contiguous within a year: grouped on series alone, one year's
+        # vouchers hide another year's gap (SPEC-flode-verifikationer §4.5).
         rows = db.execute("""
-            SELECT series, MIN(number) as min_num, MAX(number) as max_num, COUNT(*) as cnt
-            FROM vouchers
-            WHERE status = 'posted'
-            GROUP BY series
+            SELECT v.series, v.fiscal_year_id, fy.start_date, fy.end_date,
+                   MIN(v.number) as min_num, MAX(v.number) as max_num,
+                   COUNT(*) as cnt
+            FROM vouchers v
+            LEFT JOIN fiscal_years fy ON fy.id = v.fiscal_year_id
+            WHERE v.status = 'posted'
+            GROUP BY v.series, v.fiscal_year_id
+            ORDER BY fy.start_date, v.series
         """).fetchall()
 
         for row in rows:
@@ -242,16 +249,28 @@ class ComplianceService:
             actual = row["cnt"]
             if actual < expected:
                 gaps = expected - actual
+                year = (
+                    f"{row['start_date']} – {row['end_date']}"
+                    if row["start_date"]
+                    else row["fiscal_year_id"]
+                )
                 issues.append(
                     ComplianceIssue(
                         id=str(uuid.uuid4()),
                         check_type="voucher_sequence",
                         severity="warning",
                         status="open",
-                        entity_type="voucher",
-                        title=f"🔢 Luckor i verifikationsnumrering ({row['series']}-serien)",
+                        # One open issue per series and fiscal year: the
+                        # key is what `_issue_exists` deduplicates on.
+                        entity_type="voucher_series",
+                        entity_id=f"{row['series']}:{row['fiscal_year_id']}",
+                        title=(
+                            f"🔢 Luckor i verifikationsnumrering "
+                            f"({row['series']}-serien, räkenskapsår {year})"
+                        ),
                         description=(
                             f"Det finns {gaps} luckor i {row['series']}-serien "
+                            f"för räkenskapsåret {year} "
                             f"(nummer {row['min_num']}-{row['max_num']}, {actual} verifikationer). "
                             f"Enligt BFL 5 kap 6§ ska verifikationer numreras löpande."
                         ),
@@ -391,39 +410,40 @@ class ComplianceService:
         """
         issues = []
 
-        # Count vouchers over a certain amount without attachments
-        try:
-            row = db.execute("""
-                SELECT COUNT(DISTINCT v.id) as cnt
-                FROM vouchers v
-                LEFT JOIN voucher_attachments va ON va.voucher_id = v.id
-                WHERE v.status = 'posted'
-                AND va.id IS NULL
-                AND EXISTS (
-                    SELECT 1 FROM voucher_rows vr
-                    WHERE vr.voucher_id = v.id
-                    AND (vr.debit > 50000 OR vr.credit > 50000)
-                )
-            """).fetchone()
+        # Count vouchers over a certain amount without attachments.
+        # The table is `attachments` (001_initial_schema.sql); the threshold is
+        # in öre, so > 50000 is > 500 SEK. A broken schema must surface, not
+        # be swallowed — this check was silent for its entire life.
+        row = db.execute("""
+            SELECT COUNT(*) as cnt
+            FROM vouchers v
+            WHERE v.status = 'posted'
+            AND NOT EXISTS (
+                SELECT 1 FROM attachments a WHERE a.voucher_id = v.id
+            )
+            AND EXISTS (
+                SELECT 1 FROM voucher_rows vr
+                WHERE vr.voucher_id = v.id
+                AND (vr.debit > 50000 OR vr.credit > 50000)
+            )
+        """).fetchone()
 
-            if row and row["cnt"] > 0:
-                issues.append(
-                    ComplianceIssue(
-                        id=str(uuid.uuid4()),
-                        check_type="missing_attachments",
-                        severity="info",
-                        status="open",
-                        title=f"📎 {row['cnt']} verifikationer >500 SEK saknar underlag",
-                        description=(
-                            f"Det finns {row['cnt']} bokförda verifikationer med belopp över 500 SEK "
-                            f"som saknar bifogat underlag (kvitto/faktura). "
-                            f"Enligt BFL bör verifikationer styrkas med underlag."
-                        ),
-                        recommendation="Bifoga kvitton eller fakturor till relevanta verifikationer.",
-                    )
+        if row and row["cnt"] > 0:
+            issues.append(
+                ComplianceIssue(
+                    id=str(uuid.uuid4()),
+                    check_type="missing_attachments",
+                    severity="info",
+                    status="open",
+                    title=f"📎 {row['cnt']} verifikationer >500 SEK saknar underlag",
+                    description=(
+                        f"Det finns {row['cnt']} bokförda verifikationer med belopp över 500 SEK "
+                        f"som saknar bifogat underlag (kvitto/faktura). "
+                        f"Enligt BFL bör verifikationer styrkas med underlag."
+                    ),
+                    recommendation="Bifoga kvitton eller fakturor till relevanta verifikationer.",
                 )
-        except Exception:
-            pass  # attachments table might not exist
+            )
 
         return issues
 

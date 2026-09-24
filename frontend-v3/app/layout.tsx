@@ -10,6 +10,14 @@ const geistSans = localFont({
   weight: "100 900",
 });
 
+// Geist Mono bär varje belopp, datum och verifikationsnummer i skalet.
+// Filen har legat i repot oladdad; utan den faller designen på första raden.
+const geistMono = localFont({
+  src: "./fonts/GeistMonoVF.woff",
+  variable: "--font-geist-mono",
+  weight: "100 900",
+});
+
 export const metadata: Metadata = {
   title: "BokAi - Bokföringssystem",
   description: "Modernt bokföringssystem för svenska företag",
@@ -22,7 +30,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="sv" suppressHydrationWarning>
-      <body className={`${geistSans.variable} font-sans antialiased`}>
+      <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}>
         <Providers>
           <AuthGuard>
             <AppShell>{children}</AppShell>

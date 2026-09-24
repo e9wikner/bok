@@ -41,8 +41,12 @@ from services.llm import (
     LLMRateLimitError,
     LLMTurn,
     StopReason,
+    StreamTextHook,
+    StreamToolCallHook,
     ToolCall,
     Usage,
+    api_model_id,
+    gateway_headers,
 )
 
 # Normalizes anthropic.types.StopReason -> services.llm.StopReason.
@@ -81,6 +85,13 @@ class UnrecognizedStopReasonError(Exception):
         self.stop_reason = stop_reason
 
 
+#: `max_tokens` when no per-turn cap is configured. The Messages protocol
+#: will not take a request without one, so this is the protocol's floor, not
+#: a policy: large enough that thinking plus an answer fits. A model whose
+#: own output limit is lower needs `AGENT_MAX_TOKENS_PER_TURN` set.
+MESSAGES_MAX_TOKENS_FALLBACK = 32000
+
+
 class MessagesClient:
     """`LLMClient` adapter for Anthropic's Messages API (SPEC §2).
 
@@ -96,14 +107,23 @@ class MessagesClient:
         cache_breakpoint=True,
         pdf_document_blocks=True,
         refusal_stop_reason=True,
+        # The stream was always there -- `.stream()` below has been the call
+        # since A5; what was missing was anything listening. See `run_turn`.
+        streaming=True,
     )
 
-    def __init__(self, api_key: str, base_url: str) -> None:
+    def __init__(
+        self, api_key: str, base_url: str, session_id: Optional[str] = None
+    ) -> None:
         # Plain constructor args, not `config.settings` read here directly --
         # the factory that wires this to `settings.llm_api_key` /
         # `settings.llm_base_url` lives elsewhere (A8/A10), so this class
         # stays trivial to construct with a dummy key in tests.
-        self._client = anthropic.Anthropic(api_key=api_key, base_url=base_url)
+        self._client = anthropic.Anthropic(
+            api_key=api_key,
+            base_url=base_url,
+            default_headers=gateway_headers(session_id),
+        )
 
     def run_turn(
         self,
@@ -111,11 +131,34 @@ class MessagesClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
         model: str,
-        max_tokens: int,
+        max_tokens: Optional[int],
+        on_text: Optional[StreamTextHook] = None,
+        on_tool_call: Optional[StreamToolCallHook] = None,
     ) -> LLMTurn:
+        """One turn, optionally reporting increments as they arrive.
+
+        This adapter has always streamed -- `.stream()` is the call A5 wrote
+        -- and always thrown every increment away, because
+        `get_final_message()` on its own silently drains the iterator. The
+        hooks (SPEC-tradar.md §12.1, task T5) pick up what was already
+        passing through: with either one given, the events are iterated
+        first and dispatched through `dispatch_stream_event`, and
+        `get_final_message()` then returns the same assembled message it
+        would have returned anyway.
+
+        With neither hook given, nothing is iterated and the call is byte
+        for byte what it was before -- there is no reason to walk a stream
+        no one is listening to, and it keeps the unstreamed path (and its
+        tests) untouched.
+        """
         kwargs = self.build_request_kwargs(system, messages, tools, model, max_tokens)
         try:
             with self._client.messages.stream(**kwargs) as stream:
+                if on_text is not None or on_tool_call is not None:
+                    for event in stream:
+                        dispatch_stream_event(
+                            event, on_text=on_text, on_tool_call=on_tool_call
+                        )
                 final_message = stream.get_final_message()
         except anthropic.RateLimitError as exc:
             # Checked before APIConnectionError: RateLimitError is an
@@ -142,7 +185,7 @@ class MessagesClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
         model: str,
-        max_tokens: int,
+        max_tokens: Optional[int],
     ) -> dict[str, Any]:
         """Build the kwargs for `anthropic.Anthropic(...).messages.stream(...)`.
 
@@ -165,8 +208,12 @@ class MessagesClient:
         ]
 
         return {
-            "model": model,
-            "max_tokens": max_tokens,
+            # The bare id: the gateway prefix is config, not wire.
+            "model": api_model_id(model),
+            # Required on this protocol: "no cap" still has to name one.
+            "max_tokens": (
+                max_tokens if max_tokens is not None else MESSAGES_MAX_TOKENS_FALLBACK
+            ),
             "system": system_blocks,
             "messages": messages,
             "tools": tools,
@@ -229,6 +276,47 @@ class MessagesClient:
             stop=stop,
             usage=normalized_usage,
         )
+
+
+def dispatch_stream_event(
+    event: Any,
+    *,
+    on_text: Optional[StreamTextHook] = None,
+    on_tool_call: Optional[StreamToolCallHook] = None,
+) -> None:
+    """Route one `MessageStream` event to the hooks that want it.
+
+    Pure in the sense that matters here -- it touches no network and holds
+    no state -- so it can be tested against recorded raw events built with
+    `model_validate(...)`, the same way `normalize_message` is tested
+    against recorded messages (SPEC-tradar.md §9: "adaptertester mot
+    inspelade råsvar").
+
+    Two of the SDK's event types carry what the thread needs, confirmed
+    against the installed `anthropic` SDK:
+
+    - `TextEvent` (`type == "text"`): `.text` is the *delta*, `.snapshot`
+      the accumulated text so far. The delta is what goes out, because
+      `message.delta` on the wire is an increment, not a growing prefix.
+    - `RawContentBlockStartEvent` (`type == "content_block_start"`) whose
+      `content_block` is a `tool_use` block: fires once per tool call, as
+      the model starts asking for it, which is the earliest point a
+      `SkriverIndikator` can name what is happening.
+
+    Every other event -- `thinking`, `signature`, `input_json`, the message
+    start/delta/stop frames -- is ignored. `thinking` deliberately so: it is
+    the model's internal reasoning, not its answer, exactly as
+    `normalize_message` refuses to concatenate it into `text`.
+    """
+    event_type = getattr(event, "type", None)
+    if event_type == "text":
+        if on_text is not None:
+            on_text(event.text)
+        return
+    if event_type == "content_block_start" and on_tool_call is not None:
+        block = event.content_block
+        if getattr(block, "type", None) == "tool_use":
+            on_tool_call(block.name)
 
 
 def _retry_after_seconds(exc: "anthropic.RateLimitError") -> Optional[float]:

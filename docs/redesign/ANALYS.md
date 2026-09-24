@@ -88,7 +88,7 @@ Konsekvens för planeringen: `POST /threads/{view_key}/messages` är inte ett CR
 | 3 | Idempotensnyckel på utkast | **Saknas helt** | Inga `Idempotency-Key` någonstans. Kritiskt: utan den ger dubbeltryck två verifikationer i en append-only-bok som inte kan städas. |
 | 4 | `period_locked` som eget fel | Delvis | Låsning finns (`POST /periods/{id}/lock`), men felet kommer inte typat med vem/när. Flöde 1:s svåra fall kräver det. |
 | 5 | `POST /payroll/runs/{id}/approve` med fyra spår | **2 av 4 spår existerar inte** | `payslips` och `voucher` finns. `payment_file` (betalfil, `cancellable_until`) och `agi` — 0 träffar på `betalfil\|payment_file\|agi\|bankgiro\|pain.001` i `services/payroll.py`. Flöde 2 är ritat mot funktioner som inte finns. |
-| 6 | `GET /vouchers?missing_attachment=true` | Billigare än det låter | Logiken finns redan i `services/compliance.py:359` (`_check_missing_attachments`). Saknas som queryparam + persistent flagga på verifikationen. |
+| 6 | `GET /vouchers?missing_attachment=true` | **Saknas — och kontrollen är död kod** | Rättat 2026-09-21: `_check_missing_attachments` joinar mot `voucher_attachments`, en tabell som inte finns, och sväljer felet — den har aldrig gett en issue. Flaggan kan inte heller bli en kolumn: migration 014 avbryter varje `UPDATE` på postat. Se `SPEC-oversikt.md` §2–§3. |
 | 7 | `POST /intake/{id}/interpret` | **Saknas** | Utläsning av leverantör/datum/belopp/moms + matchning mot bankhändelse med `hypothesis`. Det är en LLM-uppgift → hör ihop med §4. |
 | 8 | `GET /agent/status` | **Saknas** | Kan inte finnas förrän agenten har ett liv att rapportera om. |
 | 9 | `GET /overview` | **Saknas** | Enkel aggregering. Låg risk, hög effekt (headern blinkar annars). |
@@ -159,6 +159,8 @@ idempotens, oversikt
 
 **Första leverans:** `idempotens` + `oversikt` + `agentruntime` + `tradar` + `beslut` + `skal` + `chattyta` + `flode-verifikationer` → Böcker · Verifikationer fungerar agent-first hela vägen.
 
+**Klar 2026-09-24.** Alla åtta moduler i första leveransen är byggda och testade (`tasks/README.md`). Kvar före driftsättning: visuell kontroll i `/v4` med riktig LLM, och efter den tom databas och omimport av SIE4-filerna (`SPEC-flode-verifikationer.md` §4.4).
+
 ### Konsekvens av att flöde 2 och 3 utgår
 
 Vyerna **Fakturering** och **Löner** finns kvar i informationsarkitekturen — v10 ritar dem som vyer, och de ska byggas som **läsvyer med tråd men utan skrivflöde**. Agenten kan svara på frågor om dem; den kan inte godkänna en lönekörning eller skicka en faktura. Skrivning sker tills vidare via befintliga endpoints, utanför redesignen.
@@ -178,7 +180,9 @@ Beslutet att **ersätta** `frontend-v3` betyder att 24 sidor ska rymmas i 3. Des
 | `invoices/customers`, `invoices/articles`, `invoices/drafts`, `invoices/new` | Fakturering | Men flöde 3 är ur scope — behålls de som formulär? |
 | `vouchers/new`, `vouchers/intake` | Böcker · Verifikationer | Ersätts de av chatten, eller finns de kvar som manuell väg? |
 
-Tre vägar: (a) en fjärde sida "Inställningar" utanför designen, (b) sidorna behålls som egna rutter utanför skalet, (c) de utgår och funktionen flyttas till agenten. Det här är ett designbeslut som inte är taget, och det blockerar `skal`-specen — inte de andra nio.
+Tre vägar: (a) en fjärde sida "Inställningar" utanför designen, (b) sidorna behålls som egna rutter utanför skalet, (c) de utgår och funktionen flyttas till agenten.
+
+**Beslutat 2026-09-21: väg (b).** Skalet byggs bredvid, bakom flagga; de 24 sidorna står orörda och tas bort vy för vy när motsvarigheten är klar. Det är samma motdrag som §7 redan föreskriver mot big-bang-rewrite. Tabellen ovan besvaras alltså per rad, av den modul som ersätter raden — inte här. Revisionsspåret är skälet att ordningen spelar roll: `audit` är ett BFL-krav och får inte försvinna före sin ersättare. Se `SPEC-skal.md` §3.
 
 ## 9. Frågor som kvarstår
 
@@ -186,8 +190,14 @@ Besvarade: agentens hemvist, scope, frontendstrategi (se toppen av dokumentet).
 
 Kvar innan modulspecarna skrivs:
 
-1. **Sidorna utan hemvist** (§8b). Blockerar `skal`, ingen annan modul.
-2. **Enbolag bekräftat?** `view_key` bär bolaget från dag ett eller inte alls.
-3. **Förslagschips: ja eller nej?** (§6.1)
-4. **Var går gränsen för agentens text?** Den får aldrig bli en verifikations `description` utan mänskligt beslut — men var exakt går linjen?
-5. Designens tre egna: trådlängd över årsskiften, agentläge globalt eller per sida, tröskeln för beslutskort kontra val.
+1. ~~**Sidorna utan hemvist** (§8b). Blockerar `skal`, ingen annan modul.~~ **Besvarad 2026-09-21:
+   bakom flagga, gamla kvar** — väg (b). Skalet ligger på `/v4` bakom `NEXT_PUBLIC_SKAL`, headern
+   har exakt tre sidor, och de 24 gamla rutterna står orörda och tas bort vy för vy när
+   motsvarigheten är i bruk. `SPEC-skal.md` §3. Frågan besvaras därmed per sida, av den modul som
+   ersätter sidan — den blockerar ingen längre.
+2. ~~**Enbolag bekräftat?** `view_key` bär bolaget från dag ett eller inte alls.~~ **Besvarad 2026-09-21: enbolag.** `view_key` är bara vyn. `SPEC-tradar.md` §12.2.
+3. ~~**Förslagschips: ja eller nej?** (§6.1)~~ **Besvarad 2026-09-21: nej, ren text.**
+   `README.md` och `komponenter.md` säger det båda uttryckligen; skärmbilden är en påslagen växel
+   i prototypen. `SPEC-skal.md` §2.1.
+4. **Var går gränsen för agentens text?** Den får aldrig bli en verifikations `description` utan mänskligt beslut — men var exakt går linjen? **Delvis besvarad:** agentens text lagras som `thread_posts`, aldrig som `description`, och ett fönster som inte ryms utelämnas i stället för att sammanfattas (`SPEC-tradar.md` §4, §6.3). Var gränsen går vid ett *mänskligt godkänt* förslag hör till `beslut`.
+5. Designens tre egna: ~~trådlängd över årsskiften~~ (**besvarad: en tråd per räkenskapsår**, `SPEC-tradar.md` §12.3), ~~agentläge globalt eller per sida~~ (**besvarad: globalt**, `SPEC-tradar.md` §7), tröskeln för beslutskort kontra val (**kvar** — hör till `beslut`).

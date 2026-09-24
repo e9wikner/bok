@@ -253,6 +253,47 @@ def test_agent_process_doc_describes_the_internal_runtime_path():
     assert "scripts/bok-curl" in text
 
 
+def test_agent_process_doc_distinguishes_a_thread_reply_from_an_abstention():
+    """SPEC-tradar.md §11/T13: the one thing the thread path changed about
+    what the agent *does*.
+
+    A turn that ends with no tool call is an unresolved outcome for a
+    document (`agent_no_outcome`) and a perfectly good *answer* in a thread.
+    This directory is literally the system prompt, and it is shared byte for
+    byte by both entry points (test case 12), so it has to name both -- a
+    model reading only the document rule would treat answering a question as
+    a failure and reach for `registrera_avstaende` to close the turn.
+    """
+    text = PROCESS_DOC_PATH.read_text(encoding="utf-8")
+
+    # Both entry points are named, and each one's outcomes with it.
+    assert "Ett underlagspass ur kön" in text
+    assert "Ett meddelande i en tråd" in text
+    assert "ett rent svar ett fullgott utfall" in text
+    assert "oavslutat utfall" in text
+
+    # And the misuse the distinction exists to prevent is called out.
+    assert "inte för att avsluta ett samtal" in text
+    assert "Ett samtalssvar i en tråd är inte ett" in text
+
+
+def test_agent_process_doc_keeps_the_ledger_rules_identical_on_both_paths():
+    """The threshold for posting does not move because a human asked.
+
+    SPEC-tradar.md antagande 4: "En agent som postar från ett chattsvar går
+    samma väg som en agent som postar från ett underlag." If this ever reads
+    as two different standards, the thread has become a softer way into the
+    general ledger.
+    """
+    text = PROCESS_DOC_PATH.read_text(encoding="utf-8")
+
+    assert "Tröskeln för att posta är densamma oavsett vem" in text
+    assert "samma verktyg, samma skrivväg till" in text
+    assert "samma immutabilitet" in text
+    # Unchanged, and still stated unconditionally.
+    assert "Postade verifikationer är immutabla" in text
+
+
 @pytest.mark.asyncio
 async def test_agent_entrypoint_excludes_sensitive_or_company_state_fields(
     async_client,
@@ -312,6 +353,113 @@ async def test_placeholder_agent_routes_are_removed(async_client):
             json=payload,
         )
         assert response.status_code in {404, 405}
+
+
+def test_agent_process_doc_describes_be_om_beslut_and_when_to_use_it():
+    """SPEC-beslut.md §6.4, §8: the tool exists, and the distinction from
+    ``registrera_avstaende`` this task builds on -- a decision arising in a
+    conversation in a view versus a `failed` attempt on a queued source.
+    """
+    text = PROCESS_DOC_PATH.read_text(encoding="utf-8")
+
+    assert "be_om_beslut" in text
+    assert "Det postar\ningenting, det ändrar ingenting" in text
+    assert "hör till ett beslut som uppstår i ett samtal i en vy" in text
+    assert (
+        "`registrera_avstaende` hör till ett underlag i intagskön och "
+        "skriver ett\n`failed`-försök" in text
+    )
+
+
+def test_agent_process_doc_states_the_decision_options_threshold():
+    """SPEC-beslut.md §11.1: the rule the agent needs to be able to follow --
+    an options list that changes the books without an open decision behind
+    it is rejected by the server.
+    """
+    text = PROCESS_DOC_PATH.read_text(encoding="utf-8")
+
+    assert (
+        "varje ändring i böckerna som en människa väljer är antingen tagen\n"
+        "inuti ett redan öppet beslut, eller själv ett beslut" in text
+    )
+    assert "**avvisas av servern**" in text
+    assert "Lägg fram beslutet först, lägg alternativen under" in text
+
+
+def test_agent_process_doc_states_the_options_list_contract_rules():
+    """SPEC-beslut.md §6.3/§11.1: the two server-enforced rules on the
+    alternative list, not a client styling choice.
+    """
+    text = PROCESS_DOC_PATH.read_text(encoding="utf-8")
+
+    assert "serverregler, inte stilfrågor" in text
+    assert "högst ett alternativ får vara `recommended`" in text
+    assert "sista alternativet ska alltid vara en väg ut" in text
+
+
+def test_agent_process_doc_says_the_agents_own_text_is_stored_verbatim():
+    """SPEC-beslut.md §6.4/plan.md: `reason`, `consequence` and each
+    option's `rationale` are shown to the human exactly as written -- a
+    reason to write them for a reader, not a log.
+    """
+    text = PROCESS_DOC_PATH.read_text(encoding="utf-8")
+
+    assert (
+        "`reason`, `consequence` och varje alternativs `rationale` lagras "
+        "och visas för\nmänniskan ordagrant" in text
+    )
+
+
+def _process_doc_flat() -> str:
+    """The process doc with its line wrapping undone, so an assertion pins
+    the sentence and not where the editor happened to break it."""
+    return " ".join(PROCESS_DOC_PATH.read_text(encoding="utf-8").split())
+
+
+def test_agent_process_doc_describes_foresla_verifikation():
+    """SPEC-flode-verifikationer.md §5.1, §5.7: the eleventh tool exists,
+    it never posts, the human does, and the number comes with the posting.
+    """
+    text = _process_doc_flat()
+
+    assert "## Lägg fram ett förslag" in text
+    assert "`foresla_verifikation` skapar ett förslag" in text
+    assert "Det postar aldrig" in text
+    assert "numret sätts först då" in text
+
+
+def test_agent_process_doc_says_when_to_propose_and_when_to_post_directly():
+    """SPEC-flode-verifikationer.md §12.2 with SPEC-beslut.md §11.1: a
+    proposal after an answered decision carries `decision_id`, direct
+    posting stays for what the agent is sure of -- and a proposal is not a
+    softer way around the abstention list.
+    """
+    text = _process_doc_flat()
+
+    assert "människan har besvarat ett beslut" in text
+    assert "ange beslutets id i `decision_id`" in text
+    assert "vill att människan ser konteringen innan den bokförs" in text
+    assert "Posta direkt med `posta_verifikation` när" in text
+    assert "Ett förslag är inte ett sätt att slippa avstå" in text
+    assert "`replaces_draft_id`" in text
+    # The threshold for posting is still stated, unchanged, for both paths.
+    assert "Tröskeln för att posta är densamma oavsett vem" in text
+
+
+def test_agent_process_doc_says_a_correction_is_always_a_proposal():
+    """SPEC-flode-verifikationer.md §12.5: the agent may post directly, but
+    never a correction. It goes through a proposal the human posts, with
+    `correction_of` -- and if that cannot be made, the agent says so rather
+    than posting the correction itself.
+    """
+    text = _process_doc_flat()
+
+    assert (
+        "En rättelse av en postad verifikation är alltid ett förslag, aldrig "
+        "`posta_verifikation`" in text
+    )
+    assert "originalets id i `correction_of`" in text
+    assert "posta aldrig en rättelse själv" in text
 
 
 def test_agent_system_access_doc_does_not_advertise_removed_schema_routes():

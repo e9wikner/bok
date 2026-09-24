@@ -122,3 +122,113 @@
     flex-wrap: nowrap;
   }
 }
+
+/* ─── Designtokens för skalet (modul `skal`) ───────────────────────────
+ *
+ * Värdena kommer ur design_handoff_bokai/README.md §Design tokens och är
+ * avsedda, inte ungefärliga. Prefixet --bok- finns för att de ska kunna
+ * ligga BREDVID shadcn-variablerna ovan utan att röra dem: de 24 gamla
+ * sidorna står på dem, och modulen `skal` får inte ändra en enda av dem.
+ * Se docs/redesign/SPEC-skal.md §7.
+ *
+ * TVÅ TONER BÄR BETYDELSE OCH FÅR INTE DEKORERA:
+ *   gult (--bok-vantar-*) = något väntar på människan
+ *   grönt (--bok-klart-*) = något är postat och låst
+ * Använd dem aldrig för att göra en yta trevlig.
+ * ------------------------------------------------------------------- */
+:root {
+  /* Ytor och bläck */
+  --bok-app: #f4f4f5;
+  --bok-yta: #fff;
+  --bok-yta-svag: #fafafa;
+  --bok-yta-falt: #fbfbfc;
+  --bok-black: #0a0f1a;
+  --bok-black-hover: #27272a;
+
+  /* Text */
+  --bok-text: #0a0f1a;
+  --bok-text-2: #3f3f46;
+  --bok-text-dampad: #52525b;
+  --bok-text-svag: #6b7280;
+  --bok-meta: #9ca3af;
+
+  /* Linjer och kanter */
+  --bok-linje: #e5e7eb;
+  --bok-linje-svag: #f1f1f4;
+  --bok-linje-svagast: #f4f4f5;
+  --bok-kant: #d4d4d8;
+  --bok-kant-streckad: #c7c7cc;
+
+  /* Länk / aktiv */
+  --bok-lank: #2563d9;
+  --bok-lank-hover: #1b49a3;
+
+  /* Väntar — gult. Betyder: väntar på människan. */
+  --bok-vantar-yta: #fffbeb;
+  --bok-vantar-kant: #fde68a;
+  --bok-vantar-text: #92400e;
+  --bok-vantar-meta: #b45309;
+  --bok-vantar-prick: #f59e0b;
+
+  /* Fel — rött. */
+  --bok-fel-yta: #fef2f2;
+  --bok-fel-kant: #fecaca;
+  --bok-fel-rubrik: #b91c1c;
+  --bok-fel-text: #7f1d1d;
+  --bok-fel-meta: #dc2626;
+
+  /* Klart — grönt. Betyder: postat och låst. */
+  --bok-klart-yta: #f0fdf4;
+  --bok-klart-kant: #bbf7d0;
+  --bok-klart-text: #166534;
+  --bok-klart-meta: #15803d;
+  --bok-klart-prick: #16a34a;
+
+  /* Egen bubbla i tråden */
+  --bok-bubbla: #eef0f3;
+
+  /* Skuggor */
+  --bok-skugga-kort: 0 1px 3px rgba(10, 15, 26, 0.06);
+  --bok-skugga-meny: 0 14px 36px rgba(10, 15, 26, 0.16);
+  --bok-skugga-chattlist: 0 -8px 20px rgba(10, 15, 26, 0.06);
+
+  /* Fasta mått. De enda som är fasta. */
+  --bok-header-desktop: 62px;
+  --bok-header-mobil: 56px;
+  --bok-fot-desktop: 48px;
+  --bok-vykolumn: 470px;
+  --bok-chattrad-mobil: 260px;
+  --bok-traffyta: 44px;
+
+  /* Vikt 500 är den tyngsta vikt som används. Ingen fet text. */
+  --bok-vikt-medel: 500;
+}
+
+@layer utilities {
+  /* Alla belopp, datum, verifikationsnummer och versala etiketter. */
+  .bok-mono {
+    font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
+  }
+  .bok-tal {
+    font-variant-numeric: tabular-nums;
+  }
+  /* Versal monoetikett, t.ex. AGENTEN · 06:41 eller sektionsrubriker. */
+  .bok-etikett {
+    font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .bok-dold-skroll {
+    scrollbar-width: none;
+  }
+  .bok-dold-skroll::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Svepet får animeras — men inte för den som bett om mindre rörelse. */
+@media (prefers-reduced-motion: reduce) {
+  .bok-svep {
+    scroll-behavior: auto;
+  }
+}

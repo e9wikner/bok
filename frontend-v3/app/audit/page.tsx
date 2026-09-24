@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useAuditLog } from "@/hooks/useData";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatVerifikationsnummer } from "@/lib/utils";
 import { ScrollText, RefreshCw, Search } from "lucide-react";
 
 const ACTION_SHORT: Record<string, string> = {
@@ -66,7 +66,7 @@ export default function AuditLogPage() {
     const parts: string[] = [];
     
     if (payload.series && payload.number !== undefined) {
-      parts.push(`${payload.series}${payload.number}`);
+      parts.push(formatVerifikationsnummer(payload.number, payload.series));
     }
     if (payload.year) {
       parts.push(`${payload.year}`);
