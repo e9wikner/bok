@@ -17,7 +17,14 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
-import { BESLUT_NYCKEL, hamtaTrad, OVERVIEW_NYCKEL, skickaMeddelande } from "@/lib/chattyta/api";
+import {
+  BESLUT_NYCKEL,
+  DRAFTS_NYCKEL,
+  hamtaTrad,
+  OVERVIEW_NYCKEL,
+  skickaMeddelande,
+  VOUCHERS_NYCKEL,
+} from "@/lib/chattyta/api";
 import { oppnaStrom, type SseHandelse } from "@/lib/chattyta/strom";
 import {
   listaInlagg,
@@ -33,6 +40,13 @@ import type { Inlagg } from "@/lib/chattyta/typer";
  * nya alternativ, eller människans fritext som agenten kan ha tolkat som svar.
  */
 const BESLUTSTYPER = new Set(["decision", "options", "user_text"]);
+
+/**
+ * Inlägg vars ankomst kan ändra ett förslags status (flode-verifikationer
+ * §10): ett nytt förslag (det förra blir `superseded`), ett kvitto (postat)
+ * och ett felinlägg (`last_error_code`).
+ */
+const FORSLAGSTYPER = new Set(["draft", "receipt", "error"]);
 
 /** Allt som hör till EN vy. Byts ut hel vid vybyte (§6.2 punkt 5). */
 interface Vy {
@@ -71,14 +85,19 @@ export function useTrad(viewKey: string): UseTrad {
     (h: SseHandelse) => {
       dispatch({ typ: "handelse", handelse: h });
       if (h.event === "view.changed") {
-        // Vyns rader är `flode-verifikationer`s; här blir bara headern och
-        // besluten inaktuella (§6.3).
+        // Headern, besluten, förslagen och verifikationslistan kan alla ha
+        // följt med (§6.3; flode-verifikationer §14.4 testfall 47).
         void qc.invalidateQueries({ queryKey: OVERVIEW_NYCKEL });
         void qc.invalidateQueries({ queryKey: BESLUT_NYCKEL });
+        void qc.invalidateQueries({ queryKey: DRAFTS_NYCKEL });
+        void qc.invalidateQueries({ queryKey: VOUCHERS_NYCKEL });
       } else if (h.event === "message.completed") {
         const typ = (h.data as { type?: unknown } | null)?.type;
         if (typeof typ === "string" && BESLUTSTYPER.has(typ)) {
           void qc.invalidateQueries({ queryKey: BESLUT_NYCKEL });
+        }
+        if (typeof typ === "string" && FORSLAGSTYPER.has(typ)) {
+          void qc.invalidateQueries({ queryKey: DRAFTS_NYCKEL });
         }
       }
     },

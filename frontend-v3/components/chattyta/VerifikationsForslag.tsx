@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, type ReactNode } from "react";
-import { felText, usePostaUtkast } from "@/hooks/usePostaUtkast";
+import { felText, usePostaUtkast, type PostaLage } from "@/hooks/usePostaUtkast";
+import type { ForslagStatusSvar } from "@/lib/chattyta/api";
 import type { DraftInlagg, KonteringsRad as KonteringsRadData } from "@/lib/chattyta/typer";
 import { formatBelopp } from "@/lib/skal/format";
 
@@ -16,16 +17,29 @@ import { formatBelopp } from "@/lib/skal/format";
  * Knappraden är en slot (`knappar`). `TradRenderare` fyller den med
  * `PostaKnappar` (C12, längre ned). Kortet självt vet inget om postning, så
  * att det kan ritas utan nät och utan `QueryClientProvider`.
+ *
+ * **Lägena** (flode-verifikationer §10, F13) kommer ur `forslag`, raden ur
+ * `GET /drafts` som `TradRenderare` slår upp med `useForslag`:
+ * - saknas (frågan har inte svarat, misslyckades, eller raden finns inte)
+ *   eller `pending`: som i dag, med knapparna. `last_error_code` hanteras av
+ *   `PostaKnappar` (felraden, ingen `Posta`);
+ * - `posted`: `Postad · {serie}-{nummer}` ur `voucher`, inga knappar;
+ * - `superseded`: `Ersatt av ett nytt förslag`, inga knappar.
+ * Konsekvensnotisen står kvar i alla fyra.
  */
 export function VerifikationsForslag({
   inlagg,
   knappar,
+  forslag,
 }: {
   inlagg: DraftInlagg;
-  /** `PostaKnappar`, eller ingenting. */
+  /** `PostaKnappar`, eller ingenting. Ritas bara i `pending`. */
   knappar?: ReactNode;
+  /** Förslagets rad ur `GET /drafts`, eller `undefined` när den inte är känd. */
+  forslag?: ForslagStatusSvar;
 }) {
   const { title, meta, rows, footnote, consequence } = inlagg.body;
+  const status = forslag?.status;
 
   return (
     <div
@@ -81,8 +95,25 @@ export function VerifikationsForslag({
         data-testid="forslag-knapprad"
         className="flex flex-wrap items-center gap-[10px] px-[18px] pb-[16px] pt-[14px]"
       >
-        {knappar}
-        <span className="bok-mono text-[12px] text-bok-text-dampad">{consequence}</span>
+        {status === "posted" ? (
+          <PostadEtikett
+            text={forslag?.voucher ? `Postad · ${forslag.voucher.series}-${forslag.voucher.number}` : "Postad"}
+          />
+        ) : status === "superseded" ? (
+          <span
+            role="status"
+            data-testid="forslag-ersatt"
+            className="bok-mono rounded-full border border-bok-linje bg-bok-linje-svagast px-[10px] py-[3px] text-[12px] text-bok-text-dampad"
+          >
+            Ersatt av ett nytt förslag
+          </span>
+        ) : (
+          knappar
+        )}
+        {/* `whitespace-pre-line`: en rättelses konsekvens har två rader (§7.2). */}
+        <span className="bok-mono whitespace-pre-line text-[12px] text-bok-text-dampad">
+          {consequence}
+        </span>
       </div>
     </div>
   );
@@ -140,14 +171,42 @@ const SEKUNDAR =
  * knapp som skickar en färdig mening är ett förvalt yttrande, samma sak som
  * förslagschipsen som togs bort (SPEC-skal.md §2.1).
  */
+/** Klartonens `Postad · A-118`. Delas av klickets utfall och `posted` ur `GET /drafts`. */
+const PostadEtikett = ({ text, etikettRef }: { text: string; etikettRef?: (el: HTMLElement | null) => void }) => (
+  <span
+    ref={etikettRef}
+    tabIndex={-1}
+    role="status"
+    data-testid="posta-klart"
+    className="bok-mono rounded-full border border-bok-klart-kant bg-bok-klart-yta px-[10px] py-[3px] text-[12px] text-bok-klart-text outline-none"
+  >
+    {text}
+  </span>
+);
+
+/**
+ * Kortets läge: klickets eget utfall, utom när det inte säger något
+ * (`redo`) eller inte vet något (`natverk`) och servern har ett fel på
+ * förslaget (`last_error_code`, flode-verifikationer §10). Klickets fel går
+ * före serverns kod, eftersom det bär mer (vem som låste, vilket nummer).
+ */
+function medServerFel(lage: PostaLage, serverFel: string | null | undefined): PostaLage {
+  if (!serverFel || (lage.lage !== "redo" && lage.lage !== "natverk")) return lage;
+  return { lage: "avvisad", kod: serverFel, bokford_pa: null };
+}
+
 export function PostaKnappar({
   draftId,
   onAndra,
+  serverFel,
 }: {
   draftId: string;
   onAndra?: () => void;
+  /** `last_error_code` ur `GET /drafts`: ett fel som ett nytt tryck inte rättar. */
+  serverFel?: string | null;
 }) {
-  const { lage, posta } = usePostaUtkast(draftId);
+  const { lage: egetLage, posta } = usePostaUtkast(draftId);
+  const lage = medServerFel(egetLage, serverFel);
   const postar = lage.lage === "postar";
 
   // Efter ett tryck försvinner knappen människan stod på. Fokus går till
@@ -171,17 +230,7 @@ export function PostaKnappar({
 
   if (lage.lage === "postad") {
     const v = lage.verifikation;
-    return (
-      <span
-        ref={satUtfall}
-        tabIndex={-1}
-        role="status"
-        data-testid="posta-klart"
-        className="bok-mono rounded-full border border-bok-klart-kant bg-bok-klart-yta px-[10px] py-[3px] text-[12px] text-bok-klart-text outline-none"
-      >
-        {v ? `Postad · ${v.series}-${v.number}` : "Postad"}
-      </span>
-    );
+    return <PostadEtikett etikettRef={satUtfall} text={v ? `Postad · ${v.series}-${v.number}` : "Postad"} />;
   }
 
   const fel = felText(lage);

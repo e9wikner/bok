@@ -778,12 +778,23 @@ Bearer-auth. `posted_at` och `created_at` är ISO-8601-tider.
 | Status | Kortet |
 |---|---|
 | `pending` | Som i dag: `Posta`, `Ändra`, konsekvensnotis |
-| `pending` + `last_error_code` | Som i dag, med felraden kvar. Ingen `Posta` vid `period_locked` |
+| `pending` + `last_error_code` | Som i dag, med felraden kvar. Ingen `Posta` vid någon kod (se nedan) |
 | `posted` | Klart: `Postad · {serie}-{nummer}`, inga knappar |
 | `superseded` | `Ersatt av ett nytt förslag`, inga knappar |
 
 Frågan invalideras på `view.changed`, på `message.completed` med typen `draft`, `receipt` eller
 `error`, och efter varje svar på `Posta`.
+
+Klienten (F13): `useForslag(viewKey)` (`frontend-v3/hooks/useForslag.ts`) frågar
+`status=all&limit=200` under `["drafts", viewKey]` och ger ett uppslag `draft_id → rad`, eller
+`undefined` innan svaret finns (kortet står då som `pending`). `view.changed` invaliderar också
+`["vouchers"]` (testfall 47). **Avvikelser:** ingen `Posta` vid *någon* `last_error_code`, inte
+bara `period_locked`: varje kod i §9 kommer ur ett fel som samma utkast inte kan komma förbi
+(`retry_draft_id` är `null` för alla). Felraden efter en omladdning är klientens korta mening per
+kod (`forslagFelText`), utan vem/när eller nummer, eftersom raden bara bär koden; klickets eget
+svar går före och bär `booked_by.voucher_number`. Kortets statusläsning per kort
+(`GET /vouchers/{id}`, från `chattyta` C12) är borttagen: ett anrop per vy. Kvittots `traces[]`
+ritas nu som chip under jämförelsen; det gjordes inte förut.
 
 ---
 

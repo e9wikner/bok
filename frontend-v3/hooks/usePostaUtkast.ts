@@ -5,8 +5,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 import {
   BESLUT_NYCKEL,
+  DRAFTS_NYCKEL,
   OVERVIEW_NYCKEL,
-  hamtaVerifikation,
   postaUtkast,
   type PostaUtfall,
   type VerifikationSvar,
@@ -27,6 +27,9 @@ import {
  *   så det finns inget att trycka på.
  * - `natverk`: vi vet inte om servern hann; samma nyckel gör ett nytt
  *   försök ofarligt, därför `Försök igen`.
+ * - `avvisad`: servern vägrade utkastet och skrev ett felinlägg
+ *   (flode-verifikationer §9: `source_already_booked`, `source_not_linkable`,
+ *   `inactive_account`, `account_not_found`, `correction_note_mismatch`). Slut.
  * - `nekad`: ett svar utanför §8 (t.ex. `400 voucher_date_outside_period`).
  *   Servern har sagt nej till just det här utkastet; ett omförsök ger samma
  *   nej. `kod` är serverns, oöversatt — klienten gissar inte vad den betyder.
@@ -43,6 +46,7 @@ export type PostaLage =
     }
   | { lage: "andrad" }
   | { lage: "natverk" }
+  | { lage: "avvisad"; kod: string; bokford_pa: string | null }
   | { lage: "nekad"; kod: string };
 
 export interface UsePostaUtkast {
@@ -66,6 +70,8 @@ function tillLage(utfall: Exclude<PostaUtfall, { utfall: "pagar" }>): PostaLage 
       };
     case "nyckel_ateranvand":
       return { lage: "andrad" };
+    case "avvisad":
+      return { lage: "avvisad", kod: utfall.kod, bokford_pa: utfall.bokford_pa };
     case "natverk":
       return { lage: "natverk" };
   }
@@ -100,23 +106,9 @@ export function usePostaUtkast(draftId: string): UsePostaUtkast {
     };
   }, []);
 
-  // Är utkastet redan postat — i en annan flik, eller före en omladdning —
-  // ska kortet säga det i stället för att erbjuda `Posta`. Bara från `redo`:
-  // ett tryck som hunnit före läsningen äger kortets läge.
-  useEffect(() => {
-    let aktuell = true;
-    hamtaVerifikation(draftId)
-      .then((v) => {
-        if (!aktuell || v?.status !== "posted") return;
-        setLage((nu) => (nu.lage === "redo" ? { lage: "postad", verifikation: v } : nu));
-      })
-      .catch(() => {
-        // Okänt läge: `Posta` står kvar. Ett tryck landar i `already_posted`.
-      });
-    return () => {
-      aktuell = false;
-    };
-  }, [draftId]);
+  // Om utkastet redan är postat, ersatt eller har fallit på ett fel vet
+  // `GET /drafts` (`useForslag`, flode-verifikationer §10); kortet läser det
+  // där, en gång per vy — inte här, en gång per kort.
 
   const vanta = (ms: number) =>
     new Promise<void>((klar) => {
@@ -151,6 +143,9 @@ export function usePostaUtkast(draftId: string): UsePostaUtkast {
       }
       if (!monterad.current) return;
 
+      // Varje svar kan ha ändrat förslagets rad: postad, eller
+      // `last_error_code` satt (flode-verifikationer §10).
+      void qc.invalidateQueries({ queryKey: DRAFTS_NYCKEL });
       if (slut.lage === "postad") {
         // Huvudboken ändrades: headerns tal och vyns väntande beslut kan ha
         // följt med. Kvittot och `view.changed` är producentens (§8, §12.1).
@@ -205,11 +200,40 @@ export function felText(lage: PostaLage): string | null {
       }. Ingenting är bokfört.`;
     case "andrad":
       return "Förslaget har ändrats sedan du tryckte. Ingenting är bokfört.";
+    case "avvisad":
+      return forslagFelText(lage.kod, lage.bokford_pa);
     case "nekad":
-      return `Servern nekade postningen · ${lage.kod}. Ingenting är bokfört.`;
+      return forslagFelText(lage.kod, null);
     case "natverk":
       return "Svaret kom inte fram, så det är oklart om postningen hann igenom. Försök igen ger samma verifikation, aldrig två.";
     default:
       return null;
+  }
+}
+
+/**
+ * Kortets korta sammanfattning av ett postningsfel som servern har skrivit
+ * ett felinlägg om (flode-verifikationer §9). Tråden bär orsaken i sin helhet;
+ * här står bara vad som hände, och att ingenting är bokfört. Används både för
+ * klickets eget svar och för `last_error_code` ur `GET /drafts` — efter en
+ * omladdning finns bara koden, därför klarar sig varje mening utan detaljer.
+ */
+export function forslagFelText(kod: string, bokfordPa: string | null): string {
+  const slut = " Ingenting är bokfört.";
+  switch (kod) {
+    case "period_locked":
+      return `Perioden är låst.${slut}`;
+    case "source_already_booked":
+      return `Underlaget är redan bokfört på ${bokfordPa ?? "en annan verifikation"}.${slut}`;
+    case "source_not_linkable":
+      return `Underlaget kan inte längre kopplas till en verifikation.${slut}`;
+    case "inactive_account":
+      return `Ett konto i förslaget har inaktiverats i kontoplanen.${slut}`;
+    case "account_not_found":
+      return `Ett konto i förslaget finns inte längre i kontoplanen.${slut}`;
+    case "correction_note_mismatch":
+      return `Korrigeringsnoteringen gäller inte längre för den här rättelsen.${slut}`;
+    default:
+      return `Servern nekade postningen · ${kod}.${slut}`;
   }
 }

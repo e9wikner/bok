@@ -5,9 +5,10 @@ import { FelKort } from "@/components/chattyta/FelKort";
 import { FilInlagg } from "@/components/chattyta/FilInlagg";
 import { JamforelseRader, RadLista } from "@/components/chattyta/JamforelseRader";
 import { SkriverIndikator } from "@/components/chattyta/SkriverIndikator";
-import { TradInlagg } from "@/components/chattyta/TradInlagg";
+import { SparChipRad, TradInlagg } from "@/components/chattyta/TradInlagg";
 import { PostaKnappar, VerifikationsForslag } from "@/components/chattyta/VerifikationsForslag";
 import { useBeslut } from "@/hooks/useBeslut";
+import { useForslag } from "@/hooks/useForslag";
 import { skriverText } from "@/lib/chattyta/etiketter";
 import { arOptimistisk } from "@/lib/chattyta/trad";
 import type { Strommande } from "@/lib/chattyta/trad";
@@ -149,9 +150,16 @@ export function InlaggRenderare({ inlagg, viewKey }: { inlagg: Inlagg; viewKey?:
     case "user_file":
       return <FilInlagg inlagg={inlagg} />;
     case "receipt":
-      return <JamforelseRader kropp={inlagg.body} />;
+      // Kvittots chip (`verifikation postad`, `rättar …`, `{n} kvar`;
+      // flode-verifikationer §8.2) under jämförelsen.
+      return (
+        <div className="flex max-w-[560px] flex-col gap-2">
+          <JamforelseRader kropp={inlagg.body} />
+          {inlagg.traces && <SparChipRad spar={inlagg.traces} />}
+        </div>
+      );
     case "draft":
-      return <ForslagInlagg inlagg={inlagg} />;
+      return <ForslagInlagg inlagg={inlagg} viewKey={viewKey} />;
     case "decision":
       return <BeslutInlagg inlagg={inlagg} viewKey={viewKey} />;
     case "options":
@@ -195,12 +203,21 @@ function AlternativInlagg({ inlagg, viewKey }: { inlagg: OptionsInlagg; viewKey?
  * `draft_id` och inget annat att posta med — nyckeln görs i `postaUtkast`
  * (antagande 4, C11).
  */
-function ForslagInlagg({ inlagg }: { inlagg: DraftInlagg }) {
+function ForslagInlagg({ inlagg, viewKey }: { inlagg: DraftInlagg; viewKey?: string }) {
   const fokuseraFalt = useContext(ChattFaltFokus);
+  // Statusen ur `GET /drafts`, en fråga per vy (flode-verifikationer §10).
+  const forslag = useForslag(viewKey)?.get(inlagg.body.draft_id);
   return (
     <VerifikationsForslag
       inlagg={inlagg}
-      knappar={<PostaKnappar draftId={inlagg.body.draft_id} onAndra={fokuseraFalt ?? undefined} />}
+      forslag={forslag}
+      knappar={
+        <PostaKnappar
+          draftId={inlagg.body.draft_id}
+          onAndra={fokuseraFalt ?? undefined}
+          serverFel={forslag?.last_error_code}
+        />
+      }
     />
   );
 }

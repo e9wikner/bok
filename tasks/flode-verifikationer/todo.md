@@ -315,7 +315,25 @@ oräknade. Testfallsnumren syftar på tabellerna i §14. Backendens tester ligge
   - Filer: `services/draft_service.py`, `services/agent_tools.py` (`_run_las_korrigeringar`),
     `services/decision_service.py` (pekaren), `tests/test_flode_verifikationer.py`
 
-- [ ] **F13 — Förslagskortets lägen**
+- [x] **F13 — Förslagskortets lägen**
+  - Gjort 2026-09-23: `useForslag(viewKey)` (`hooks/useForslag.ts`) läser
+    `GET /drafts?status=all&limit=200` under `["drafts", viewKey]` och ger ett uppslag
+    `draft_id → rad`; `ForslagInlagg` i `TradRenderare` slår upp kortets rad och ger den till
+    `VerifikationsForslag` (`posted` → `Postad · A-n` ur `voucher`, `superseded` → `Ersatt av
+    ett nytt förslag`, båda utan knappar) och `last_error_code` till `PostaKnappar` (felraden,
+    ingen `Posta`, `Ändra` kvar). Innan svaret: kortet som i dag. `hamtaVerifikation` och
+    statusläsningen per kort (C12) borttagna. `postaUtkast` ger `avvisad` för `409
+    source_already_booked` (med `booked_by.voucher_number`), `409 source_not_linkable` och `400
+    inactive_account`/`account_not_found`/`correction_note_mismatch`; texterna i
+    `forslagFelText`. `useTrad`: `view.changed` invaliderar också `["drafts"]` och `["vouchers"]`,
+    `message.completed` av `draft`/`receipt`/`error` invaliderar `["drafts"]`; `usePostaUtkast`
+    invaliderar `["drafts"]` efter varje svar. Konsekvensen `whitespace-pre-line`. Kvittots chip
+    ritades inte alls; nu under `JamforelseRader`. Nya tester i
+    `components/chattyta/__tests__/forslagslagen.test.tsx` (44, `\n`, nya felkoder, chipen) och
+    `useTrad.test.tsx` (47), sedda röda först. Ändrade: `posta.test.tsx`s omladdningsblock läser
+    nu `GET /drafts` i stället för `GET /vouchers/{id}`, och testfall 34 räknar väntetimern
+    ovanpå TanStack Querys egna. Avvikelser i specen §10. vitest 470 passed; lint, tsc och
+    build gröna.
   - Acceptans: en `useForslag(viewKey)`-fråga mot `GET /drafts`, med ett anrop per vy, samma
     mönster som besluten. `VerifikationsForslag` visar fyra lägen enligt §10. Frågan invalideras
     enligt §10 sista stycket.

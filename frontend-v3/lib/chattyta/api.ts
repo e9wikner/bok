@@ -277,8 +277,23 @@ export type PostaUtfall =
       /** Servern ersätter redan `null` med `"okänd"`, men kontraktet (§2) tillåter `null`. */
       locked_by: string | null;
     }
+  /**
+   * Servern vägrade just det här utkastet på ett sätt som inte ändras av ett
+   * nytt försök (flode-verifikationer §9): `409 source_already_booked`,
+   * `409 source_not_linkable` och de kända valideringsfelen i `400`
+   * (`AVVISANDE_400`). Servern skriver ett `error`-inlägg i tråden; kortet
+   * visar bara en kort sammanfattning. `bokford_pa` är `booked_by.voucher_number`
+   * (t.ex. `A-1`) när servern angav den.
+   */
+  | { utfall: "avvisad"; kod: string; bokford_pa: string | null }
   /** `status: null` = inget svar alls (nätverket). */
   | { utfall: "natverk"; status: number | null };
+
+/**
+ * `400`-koderna som `on_posting_failed` skriver ett felinlägg för och som
+ * kortet har en egen mening för. Andra `400` kastas vidare som förut.
+ */
+const AVVISANDE_400 = new Set(["inactive_account", "account_not_found", "correction_note_mismatch"]);
 
 /** Servern har ingen `retry_after_ms` att ge i något känt fall; 500 ms är vad den skickar i dag. */
 const STANDARD_VANTAN_MS = 500;
@@ -307,20 +322,6 @@ const strangEllerNull = (v: unknown): string | null => (typeof v === "string" ? 
  * voucher_date_outside_period`, `404`): det är inte kortets sak att gissa
  * vad de betyder.
  */
-/**
- * Utkastets nuvarande läge i huvudboken. `draft`-inlägget ändras aldrig
- * (antagande 2), så efter en omladdning är det här enda sättet att veta att
- * det redan är postat. `null` när svaret inte går att läsa — då vet klienten
- * ingenting, och kortet erbjuder `Posta` som förut (nyckeln skyddar).
- */
-export async function hamtaVerifikation(id: string): Promise<VerifikationSvar | null> {
-  const svar = await apiClient.get<VerifikationSvar>(
-    `/api/v1/vouchers/${encodeURIComponent(id)}`
-  );
-  const v = svar?.data;
-  return v && typeof v.status === "string" ? v : null;
-}
-
 export async function postaUtkast(draftId: string): Promise<PostaUtfall> {
   const nyckel = await nyckelForUtkast(draftId);
   try {
@@ -356,6 +357,20 @@ export async function postaUtkast(draftId: string): Promise<PostaUtfall> {
       };
     }
     if (status === 422 && kod === "idempotency_key_reuse") return { utfall: "nyckel_ateranvand" };
+    if (status === 409 && kod === "source_already_booked") {
+      const bokfordAv = detalj?.booked_by;
+      const nummer =
+        typeof bokfordAv === "object" && bokfordAv !== null
+          ? strangEllerNull((bokfordAv as Record<string, unknown>).voucher_number)
+          : null;
+      return { utfall: "avvisad", kod, bokford_pa: nummer };
+    }
+    if (
+      (status === 409 && kod === "source_not_linkable") ||
+      (status === 400 && typeof kod === "string" && AVVISANDE_400.has(kod))
+    ) {
+      return { utfall: "avvisad", kod: kod as string, bokford_pa: null };
+    }
     if (status === 409 && kod === "period_locked") {
       return {
         utfall: "period_last",
@@ -386,3 +401,68 @@ export const OVERVIEW_NYCKEL = ["overview"] as const;
  * i unionen (§10) — så roten invalideras hel, inte per vy.
  */
 export const BESLUT_NYCKEL = ["decisions"] as const;
+
+/**
+ * `useVouchers` (`hooks/useData.ts`) lägger sina nycklar under `["vouchers", …]`.
+ * `view.changed` invaliderar roten (flode-verifikationer §14.4, testfall 47).
+ */
+export const VOUCHERS_NYCKEL = ["vouchers"] as const;
+
+/**
+ * Roten för förslagens status (flode-verifikationer §10). `useForslag` lägger
+ * vyns fråga under den, `[...DRAFTS_NYCKEL, viewKey]`. Invalideras hel av
+ * `useTrad` (`view.changed`, `message.completed` av typerna
+ * `draft`/`receipt`/`error`) och av `usePostaUtkast` efter varje svar.
+ */
+export const DRAFTS_NYCKEL = ["drafts"] as const;
+
+// ─── Förslagens status (flode-verifikationer §10, F13) ───────────────────
+
+/** `thread_drafts.status`. */
+export type ForslagStatus = "pending" | "posted" | "superseded";
+
+/** Frågans filter; `all` är inget läge ett förslag kan ha. */
+export type ForslagFilter = ForslagStatus | "all";
+
+/** En rad ur `GET /drafts`, fält för fält (`api/routes/drafts.py`). */
+export interface ForslagStatusSvar {
+  /** `vouchers.id` — samma som `draft`-inläggets `body.draft_id`. */
+  draft_id: string;
+  /** `draft`-inläggets `id`. */
+  post_id: string;
+  decision_id: string | null;
+  /** Originalets `vouchers.id` när förslaget är en rättelse. */
+  correction_of: string | null;
+  status: ForslagStatus;
+  /** Det nya förslagets `draft_id` när det här är `superseded`. */
+  replaced_by: string | null;
+  posted_at: string | null;
+  /** Bara när `status='posted'` — enda stället klienten får ett nummer ifrån. */
+  voucher: { series: string; number: number } | null;
+  /** Senaste postningsfelets kod (§9), eller `null`. */
+  last_error_code: string | null;
+  created_at: string;
+}
+
+export interface ForslagListSvar {
+  /** Äldst först. */
+  drafts: ForslagStatusSvar[];
+  /** Antalet före `limit`. */
+  total: number;
+}
+
+/** `GET /drafts?view_key=…` — `view_key` krävs av servern. */
+export async function hamtaForslag({
+  viewKey,
+  status,
+  limit,
+}: {
+  viewKey: string;
+  status?: ForslagFilter;
+  limit?: number;
+}): Promise<ForslagListSvar> {
+  const { data } = await apiClient.get<ForslagListSvar>("/api/v1/drafts", {
+    params: { view_key: viewKey, status, limit },
+  });
+  return data;
+}

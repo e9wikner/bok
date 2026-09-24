@@ -4,7 +4,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthContext, type AuthContextType } from "@/hooks/useAuth";
 import { useTrad } from "@/hooks/useTrad";
-import { BESLUT_NYCKEL, OVERVIEW_NYCKEL, type TradSvar } from "@/lib/chattyta/api";
+import {
+  BESLUT_NYCKEL,
+  DRAFTS_NYCKEL,
+  OVERVIEW_NYCKEL,
+  VOUCHERS_NYCKEL,
+  type TradSvar,
+} from "@/lib/chattyta/api";
 import type { SseHandelse, StromAlternativ } from "@/lib/chattyta/strom";
 import type { RaInlagg } from "@/lib/chattyta/typer";
 import { FIXTUR_AGENT_TEXT, FIXTUR_USER_TEXT } from "@/lib/chattyta/__fixtures__/inlagg";
@@ -349,6 +355,39 @@ describe("useTrad — invalidering av frågorna (§6.3, §7)", () => {
     });
     expect(nycklar(spion)).toEqual(expect.arrayContaining([OVERVIEW_NYCKEL, BESLUT_NYCKEL]));
   });
+
+  it("testfall 47: view.changed invaliderar vouchers, decisions, drafts och overview", async () => {
+    const { spion } = await medStrom();
+    sand("view.changed", {
+      view_key: "verifikationer",
+      changed: { voucher_id: "v-1", kind: "voucher_posted" },
+    });
+    expect(nycklar(spion)).toEqual(
+      expect.arrayContaining([VOUCHERS_NYCKEL, BESLUT_NYCKEL, DRAFTS_NYCKEL, OVERVIEW_NYCKEL])
+    );
+  });
+
+  it("vouchers-nyckeln är roten för useVouchers (hooks/useData.ts)", () => {
+    expect(VOUCHERS_NYCKEL).toEqual(["vouchers"]);
+  });
+
+  it.each(["draft", "receipt", "error"])(
+    "testfall 47: message.completed av typen %s invaliderar drafts-frågan (flode-verifikationer §10)",
+    async (typ) => {
+      const { spion } = await medStrom();
+      sand("message.completed", { ...agent("p-1", 1, "x"), type: typ });
+      expect(nycklar(spion)).toContainEqual(DRAFTS_NYCKEL);
+    }
+  );
+
+  it.each(["decision", "options", "user_text"])(
+    "message.completed av typen %s rör inte drafts-frågan",
+    async (typ) => {
+      const { spion } = await medStrom();
+      sand("message.completed", { ...agent("p-1", 1, "x"), type: typ });
+      expect(nycklar(spion)).not.toContainEqual(DRAFTS_NYCKEL);
+    }
+  );
 
   it("overview-nyckeln är skalets (hooks/useSkal.ts)", () => {
     expect(OVERVIEW_NYCKEL).toEqual(["overview"]);

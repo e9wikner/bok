@@ -392,11 +392,16 @@ describe("testfall 34: 409 request_in_flight", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     post.mockRejectedValueOnce(iFlykt(800)).mockResolvedValueOnce(svar200());
     rendera();
+    // Kortet frågar `GET /drafts` (F13), och TanStack Query har egna timers.
+    // Låt frågan landa först och räkna väntetimern ovanpå dem.
+    await tills(() => get.mock.calls.length === 1);
+    await tills(() => !qc.isFetching());
+    const fore = vi.getTimerCount();
 
     fireEvent.click(postaKnapp());
     await tills(() => post.mock.calls.length === 1);
     // Låt `409`-utfallet landa och väntetimern startas.
-    await tills(() => vi.getTimerCount() === 1);
+    await tills(() => vi.getTimerCount() === fore + 1);
     expect(postaKnapp()).toHaveTextContent("Postar…");
 
     await act(async () => {
@@ -510,14 +515,35 @@ describe("testfall 36: Ändra", () => {
 
 describe("ett utkast som redan är postat, efter en omladdning", () => {
   // Inlägget ändras aldrig (antagande 2), så `draft`-inlägget ser likadant ut
-  // efter postningen. Utan en statusläsning erbjöd kortet `Posta` igen —
-  // ofarligt (det landade i `already_posted`), men ett erbjudande om något
-  // som redan är gjort.
-  const URL_GET = `/api/v1/vouchers/${encodeURIComponent(DRAFT_ID)}`;
+  // efter postningen. Statusen läses per vy ur `GET /drafts`
+  // (flode-verifikationer §10, F13) — inte längre ur `GET /vouchers/{id}`
+  // per kort, som C12 gjorde innan producenten fanns.
+  const URL_DRAFTS = "/api/v1/drafts";
+  const rad = (over: Record<string, unknown>) => ({
+    draft_id: DRAFT_ID,
+    post_id: FIXTUR_DRAFT.id,
+    decision_id: null,
+    correction_of: null,
+    status: "pending",
+    replaced_by: null,
+    posted_at: null,
+    voucher: null,
+    last_error_code: null,
+    created_at: "2026-09-18T06:41:00",
+    ...over,
+  });
 
   it("status posted → klart läge med numret, utan att något postas", async () => {
     get.mockImplementation(async (url: string) =>
-      url === URL_GET ? { status: 200, data: verifikation({ number: 121 }) } : { data: {} }
+      url === URL_DRAFTS
+        ? {
+            status: 200,
+            data: {
+              drafts: [rad({ status: "posted", voucher: { series: "A", number: 121 } })],
+              total: 1,
+            },
+          }
+        : { data: {} }
     );
     rendera();
     expect(await screen.findByText(/Postad · A-121/)).toBeInTheDocument();
@@ -525,22 +551,22 @@ describe("ett utkast som redan är postat, efter en omladdning", () => {
     expect(post).not.toHaveBeenCalled();
   });
 
-  it("status draft → Posta erbjuds som vanligt", async () => {
+  it("status pending → Posta erbjuds som vanligt", async () => {
     get.mockImplementation(async (url: string) =>
-      url === URL_GET ? { status: 200, data: verifikation({ status: "draft" }) } : { data: {} }
+      url === URL_DRAFTS ? { status: 200, data: { drafts: [rad({})], total: 1 } } : { data: {} }
     );
     rendera();
-    await waitFor(() => expect(get).toHaveBeenCalledWith(URL_GET));
+    await waitFor(() => expect(get).toHaveBeenCalledWith(URL_DRAFTS, expect.anything()));
     expect(postaKnapp()).toBeInTheDocument();
   });
 
   it("läsningen misslyckas → Posta erbjuds; nyckeln skyddar ändå mot en andra postning", async () => {
     get.mockImplementation(async (url: string) => {
-      if (url === URL_GET) throw natverksFel();
+      if (url === URL_DRAFTS) throw natverksFel();
       return { data: {} };
     });
     rendera();
-    await waitFor(() => expect(get).toHaveBeenCalledWith(URL_GET));
+    await waitFor(() => expect(get).toHaveBeenCalledWith(URL_DRAFTS, expect.anything()));
     expect(postaKnapp()).toBeInTheDocument();
   });
 });
