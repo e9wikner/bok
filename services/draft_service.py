@@ -300,6 +300,10 @@ def receipt_traces(
 #: The consequence every failed posting shares: the posting rolled back.
 _NOTHING_CHANGED = "Ingenting har ändrats i bokföringen."
 
+#: The code a posting in a locked period gets, and the one a lock of the
+#: period marks its pending drafts with (F16).
+_PERIOD_LOCKED = "period_locked"
+
 #: Failures that are not failures for the thread: the voucher is posted, and
 #: the receipt path (`on_posted`) owns what the thread says.
 _NOT_A_FAILURE = frozenset({"already_posted"})
@@ -592,6 +596,76 @@ class DraftService:
             draft.thread_id, EVENT_MESSAGE_COMPLETED, post_event_payload(post)
         )
         return post
+
+    # -- the period lock (F16) --------------------------------------------
+
+    @staticmethod
+    def mark_period_locked(period_id: str) -> List[ThreadDraft]:
+        """The pending drafts in `period_id` get `last_error_code=
+        'period_locked'`, inside `LedgerService.lock_period`'s transaction:
+        never commits. They stay `pending` -- still drafts, so the agent can
+        replace them with `replaces_draft_id` in an open period (§6.2).
+
+        A draft that already has its `period_locked` post is left as it is
+        (§9.1: one post per draft and code). Returns the marked rows, for
+        `on_period_locked` after the commit."""
+        marked = []
+        for draft in ThreadDraftRepository.pending_in_period(period_id):
+            if not _needs_error_post(draft, _PERIOD_LOCKED):
+                continue
+            marked.append(
+                ThreadDraftRepository.set_error(
+                    draft.voucher_id, _PERIOD_LOCKED, None, _commit=False
+                )
+            )
+        return marked
+
+    def on_period_locked(
+        self, period_id: str, drafts: Sequence[ThreadDraft], *, actor: str
+    ) -> List[ThreadPost]:
+        """After the lock has committed: one `error` post per marked draft,
+        with the text a refused posting in a locked period gets (§9.1, vem
+        och när), published as `message.completed` by `on_posting_failed`,
+        and one `view.changed` per thread so the card and the view follow.
+
+        Best-effort per draft: a failure is logged and leaves the lock, and
+        the row's `last_error_post_id` stays empty -- so the next press on
+        `Posta` writes the post instead (§9.1)."""
+        error = ValidationError(
+            _PERIOD_LOCKED,
+            "Period is locked - cannot post vouchers in it",
+            f"period_id={period_id}",
+        )
+        posts = []
+        for draft in drafts:
+            try:
+                post = self.on_posting_failed(draft.voucher_id, error, actor=actor)
+            except Exception:
+                logger.exception(
+                    "Error post for draft %s in locked period %s failed",
+                    draft.voucher_id,
+                    period_id,
+                )
+                continue
+            if post is not None:
+                posts.append(post)
+
+        from services.thread_stream import EVENT_VIEW_CHANGED, get_broker
+
+        threads = dict.fromkeys((d.thread_id, d.view_key) for d in drafts)
+        for thread_id, view_key in threads:
+            try:
+                get_broker().publish(
+                    thread_id,
+                    EVENT_VIEW_CHANGED,
+                    {
+                        "view_key": view_key,
+                        "changed": {"period_id": period_id, "kind": "period_locked"},
+                    },
+                )
+            except Exception:
+                logger.exception("view.changed for thread %s failed", thread_id)
+        return posts
 
     def _write_receipt(self, voucher: Voucher, *, actor: str) -> Optional[ThreadPost]:
         """The `receipt` post and `receipt_post_id`, in one transaction.

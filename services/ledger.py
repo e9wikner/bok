@@ -1,5 +1,6 @@
 """Ledger service - core accounting logic."""
 
+import logging
 from datetime import date, datetime
 from typing import Dict, List, Optional, Tuple
 
@@ -15,6 +16,8 @@ from repositories.account_repo import AccountRepository
 from repositories.audit_repo import AuditRepository
 from repositories.period_repo import PeriodRepository
 from repositories.voucher_repo import VoucherRepository
+
+logger = logging.getLogger(__name__)
 
 
 def _today() -> date:
@@ -617,29 +620,57 @@ class LedgerService:
 
         PeriodValidator.validate_can_lock(period)
 
-        # Check that no draft vouchers exist in period
-        drafts = self.vouchers.list_for_period(period_id, status="draft")
-        if drafts:
-            raise ValidationError(
-                "draft_vouchers_exist",
-                f"Cannot lock period - {len(drafts)} draft vouchers exist",
-                "all vouchers must be posted or deleted before locking",
+        # Deferred import (AGENTS.md: service-to-service imports wait until
+        # the method runs).
+        from db.database import db
+        from repositories.thread_draft_repo import ThreadDraftRepository
+        from services.draft_service import DraftService
+
+        drafts_service = DraftService()
+        with db.transaction():
+            # Lock first, recording who did it (SPEC-idempotens §5): the
+            # write lock is then held, so the drafts read below are the ones
+            # the lock applies to.
+            self.periods.lock_period(period_id, actor=actor, _commit=False)
+
+            # A pending thread proposal does not stop the lock: it is marked
+            # `period_locked` instead (flode-verifikationer F16, beslut
+            # 2026-09-24). Every other draft still does.
+            proposals = {
+                d.voucher_id for d in ThreadDraftRepository.pending_in_period(period_id)
+            }
+            drafts = [
+                d
+                for d in self.vouchers.list_for_period(period_id, status="draft")
+                if d.id not in proposals
+            ]
+            if drafts:
+                raise ValidationError(
+                    "draft_vouchers_exist",
+                    f"Cannot lock period - {len(drafts)} draft vouchers exist",
+                    "all vouchers must be posted or deleted before locking",
+                )
+            marked = drafts_service.mark_period_locked(period_id)
+
+            self.audit.log(
+                entity_type="period",
+                entity_id=period_id,
+                action=AuditAction.LOCKED.value,
+                actor=actor,
+                payload={
+                    "period": f"{period.year}-{period.month:02d}",
+                    "locked_at": datetime.now().isoformat(),
+                    "drafts_marked": [d.voucher_id for d in marked],
+                },
+                _commit=False,
             )
 
-        # Lock period, recording who did it (SPEC-idempotens §5)
-        self.periods.lock_period(period_id, actor=actor)
-
-        # Log
-        self.audit.log(
-            entity_type="period",
-            entity_id=period_id,
-            action=AuditAction.LOCKED.value,
-            actor=actor,
-            payload={
-                "period": f"{period.year}-{period.month:02d}",
-                "locked_at": datetime.now().isoformat(),
-            },
-        )
+        # After the commit: the thread's side. It must never undo the lock.
+        if marked:
+            try:
+                drafts_service.on_period_locked(period_id, marked, actor=actor)
+            except Exception:
+                logger.exception("Thread posts for locked period %s failed", period_id)
 
         return self.periods.get_period(period_id)
 

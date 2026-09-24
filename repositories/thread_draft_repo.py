@@ -210,6 +210,19 @@ class ThreadDraftRepository:
         return ThreadDraftRepository._row_to_draft(row) if row else None
 
     @staticmethod
+    def pending_in_period(period_id: str) -> List[ThreadDraft]:
+        """The pending drafts whose voucher lies in `period_id`, oldest
+        first -- what a lock of the period marks `period_locked` (F16)."""
+        rows = db.execute(
+            "SELECT td.* FROM thread_drafts td "
+            "JOIN vouchers v ON v.id = td.voucher_id "
+            "WHERE td.status = 'pending' AND v.period_id = ? "
+            "ORDER BY td.created_at, td.rowid",
+            (period_id,),
+        ).fetchall()
+        return [ThreadDraftRepository._row_to_draft(r) for r in rows]
+
+    @staticmethod
     def mark_posted(
         voucher_id: str, posted_at: datetime, _commit: bool = True
     ) -> ThreadDraft:

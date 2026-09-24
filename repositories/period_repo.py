@@ -226,15 +226,20 @@ class PeriodRepository:
         return periods
 
     @staticmethod
-    def lock_period(period_id: str, actor: Optional[str] = None) -> bool:
+    def lock_period(
+        period_id: str, actor: Optional[str] = None, _commit: bool = True
+    ) -> bool:
         """Lock period (irreversible - BFL varaktighet requirement).
 
         Records who locked it, so a later conflict can name them instead of
-        leaving the caller to dig through the audit log.
+        leaving the caller to dig through the audit log. `_commit=False`
+        lets `LedgerService.lock_period` mark the period's pending thread
+        drafts in the same transaction (F16).
         """
         sql = "UPDATE periods SET locked = 1, locked_at = ?, locked_by = ? WHERE id = ?"
         db.execute(sql, (datetime.now(), actor, period_id))
-        db.commit()
+        if _commit:
+            db.commit()
         return True
 
     @staticmethod

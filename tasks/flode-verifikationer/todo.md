@@ -390,7 +390,8 @@ oräknade. Testfallsnumren syftar på tabellerna i §14. Backendens tester ligge
     lägger inte till något. **Fynd, inte ändrat:** `LedgerService.lock_period` vägrar låsa en
     period som har utkast (`400 draft_vouchers_exist`), så genom `POST /periods/{id}/lock` kan
     fall (c) inte uppstå medan förslaget ligger i perioden — testerna låser genom repot, som F9.
-    Ett väntande förslag stoppar alltså månadsstängningen. **Visuellt inte kontrollerat:** ingen
+    Ett väntande förslag stoppar alltså månadsstängningen. (Besvarat: beställarens beslut
+    2026-09-24, genomfört i F16.) **Visuellt inte kontrollerat:** ingen
     `LLM_API_KEY`, och inloggningen i `/v4` kräver lösenord, som agenten inte skriver in. Flödet
     gicks i stället igenom med `curl` mot en lokal server på en engångsdatabas, byggd med
     skriptade verktygsanrop: räknaren 4 → 1, två tryck gav `200` + `Idempotent-Replay` och A-2, B-1
@@ -407,11 +408,44 @@ oräknade. Testfallsnumren syftar på tabellerna i §14. Backendens tester ligge
     fel), `npm test`, `npm run lint`, `npx tsc --noEmit`, `NEXT_PUBLIC_SKAL=1 npm run build`.
   - Filer: `tests/test_flode_verifikationer.py`, spec, `tasks/README.md`
 
+- [x] **F16 — Låsningen markerar väntande förslag**
+  - Gjort 2026-09-24: beställarens beslut samma dag. `LedgerService.lock_period` låser nu i en
+    transaktion: först `UPDATE periods` (skrivlåset hålls, så utkasten som läses sedan är de
+    låsningen gäller), sedan kontrollen av utkast, där väntande trådförslag i perioden
+    (`ThreadDraftRepository.pending_in_period`, join mot `vouchers.period_id`) räknas bort.
+    Övriga utkast (gamla sidornas, korrigeringsnoteringarnas, IB) ger `400 draft_vouchers_exist`
+    som förut, men talet i meddelandet räknar nu bara dem; transaktionen rullas tillbaka och
+    ingenting markeras. Förslagen får `last_error_code='period_locked'` med `set_error(…,
+    post_id=None)` (`DraftService.mark_period_locked`) och audit-raden `drafts_marked`, i samma
+    commit. Efter commit skriver `DraftService.on_period_locked` ett `error`-inlägg per förslag
+    genom `on_posting_failed` (F9:s text med vem/när, `message.completed`, dedupliceringen), och
+    ett `view.changed` per tråd med `{"period_id", "kind": "period_locked"}`. Ett fel där loggas
+    och ångrar inte låsningen; `last_error_post_id` blir då tomt, så nästa `Posta` skriver
+    inlägget (§9.1). Förslaget ligger kvar `pending`, och `replaces_draft_id` i en öppen period
+    fungerar: ingen trigger eller kontroll stoppar `delete_draft` i en låst period. Följdeffekter,
+    kontrollerade: SIE4-exporten, rapporterna (K2, moms, SRU, PDF, compliance) och huvudbok/
+    råbalans läser bara `posted`; det finns ingen årslåsning i koden (`lock_fiscal_year` har
+    ingen anropare); `count_waiting` räknar ett låst förslag som väntande (behållet); vyn visar
+    `fel`-läget ur `last_error_code`, med metan `postning misslyckades · ligger kvar` (se spec
+    §9). Tester, sedda röda först: fem `test_f16_*` (låsning med två förslag i två trådar och ett
+    i en annan period, andra utkast vägras, `Posta` efteråt ger `409` utan nytt inlägg, ersättning
+    i oktober, fel i inlägget). Testfall 28 och 48 c (och därmed 49) låser nu via
+    `POST /periods/{id}/lock`; 28:s låsare utan aktör, 29 och de andra F9-testerna låser förbi
+    tjänsten som förut, eftersom de prövar postningens felväg. Hela sviten: 1151 passed; black,
+    isort, flake8 rena; `mypy .` 61 fel som före; vitest 483 passed (klienten orörd).
+  - Acceptans: låsning med väntande förslag lyckas och markerar dem; ett felinlägg per förslag med
+    vem/när; andra utkast vägras som förut; `Posta` efteråt ger `409 period_locked` utan nytt
+    inlägg; ersättning via `replaces_draft_id` fungerar; ett fel i inlägget ångrar inte låsningen.
+  - Verifiera: `pytest tests/`, `black`, `isort`, `flake8`, `mypy` (inga nya fel), `npm test`.
+  - Filer: `services/ledger.py`, `services/draft_service.py`, `repositories/thread_draft_repo.py`,
+    `repositories/period_repo.py`, `api/routes/periods.py`, `tests/test_flode_verifikationer.py`,
+    spec §6.2 och §9
+
 ---
 
 ## Modulen är klar
 
-F1–F15 avbockade 2026-09-24. De nio framgångskriterierna i spec §16, ett och ett:
+F1–F15 avbockade 2026-09-24; F16 (beställarens beslut om låsningen) samma dag. De nio framgångskriterierna i spec §16, ett och ett:
 
 1. Utkast har inget nummer; numret sätts vid postning, i ordning, utan luckor, och migrationen
    kopierade varje postad rad — ✅ (testfall 1–13, 12c). Luckkontrollen per serie och
@@ -427,14 +461,14 @@ F1–F15 avbockade 2026-09-24. De nio framgångskriterierna i spec §16, ett och
 4. Två tryck ger en verifikation, ett nummer och ett kvitto — ✅ (24, 48 a; live via `curl`:
    `200`, sedan `200` med `Idempotent-Replay`, samma nummer).
 5. Låst period mitt i ger ett felkort med vem och när, inget bokfört, inget nummer förbrukat —
-   ✅ i test (28, 29, 46, 48 c). **Men:** låsvägen `POST /periods/{id}/lock` vägrar låsa en
-   period med utkast, så läget nås i dag bara genom att låsa förbi tjänsten. Se F15.
+   ✅ i test (28, 29, 46, 48 c, F16). Låsvägen `POST /periods/{id}/lock` låser nu en period med
+   väntande trådförslag och markerar dem (F16), och 28 och 48 c låser genom den.
 6. Headerns räknare, mobilens märke och vyns väntar-sektion visar samma tal — ✅ i test (31, 45);
    `GET /overview` följde postningarna live (4 → 1). Inte jämfört i webbläsaren.
 7. Förslagskortet visar rätt läge efter omladdning och i en annan flik — ✅ i test (44). Inte
    sett i webbläsaren.
 8. Ingen postad rad ändras, triggrarna fungerar, ingen ny kolumn på `vouchers` — ✅ (1–4, 49).
-9. `pytest tests/ -v` (1146), `black`, `isort`, `flake8` rena; `mypy .` 61 fel som baslinjen;
+9. `pytest tests/ -v` (1146; 1151 efter F16), `black`, `isort`, `flake8` rena; `mypy .` 61 fel som baslinjen;
    `npm test` (483), `npm run lint`, `npx tsc --noEmit`, `NEXT_PUBLIC_SKAL=1 npm run build`
    gröna — ✅.
 
@@ -446,5 +480,8 @@ Kvar för beställaren:
   räknare mot vyns, `Postar fortfarande…`.
 - **Omstarten efter driftsättningen** (§4.4): tom databas, SIE4-filerna importerade igen,
   `POST /api/v1/compliance/check`, och luckkontrollen jämförd med filerna.
-- **Beslut:** ska ett väntande trådförslag stoppa periodlåsningen (`draft_vouchers_exist`), eller
-  ska låsningen ersätta förslaget med ett `period_locked`-läge? I dag stoppar det.
+
+Besvarat:
+
+- **Beslut 2026-09-24:** ett väntande trådförslag stoppar inte periodlåsningen. Låsningen går
+  igenom och markerar förslagen `period_locked` (F16). Frågan kom från F15:s fynd.

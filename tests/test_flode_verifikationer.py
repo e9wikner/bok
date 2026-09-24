@@ -1362,8 +1362,10 @@ def _fixture_error_keys() -> set:
 
 
 def _lock(period, actor="stefan", at=datetime(2026, 9, 30, 9, 14)):
-    """Lock the period as `POST /periods/{id}/lock` does, at a known time so
-    the post's text can be asserted on."""
+    """Lock the period past the service, at a known time and with any actor
+    (also none), so the text of the post a later press writes can be
+    asserted on. It marks no draft: the route's lock does (F16, testfall 28
+    and 48 c use it)."""
     PeriodRepository.lock_period(period.id, actor=actor)
     db.execute("UPDATE periods SET locked_at = ? WHERE id = ?", (at, period.id))
     db.commit()
@@ -1378,25 +1380,29 @@ def _posted_count() -> int:
 def test_case_28_period_locked_between_proposal_and_press(monkeypatch, auth_headers):
     thread, period, trigger = _books()
     draft_id = _proposed(thread, period, trigger)
-    _lock(period)
     events = _record_events(monkeypatch)
+    client = _client()
 
-    response = _post_route(_client(), draft_id, auth_headers, key=str(uuid.uuid4()))
+    # The lock goes through the route (F16): the pending proposal does not
+    # stop it, and the error post is written by the lock, not the press.
+    locked = client.post(f"/api/v1/periods/{period.id}/lock", headers=auth_headers)
+    assert locked.status_code == 200, locked.text
+    locked_at = PeriodRepository.get_period(period.id).locked_at
+    when = locked_at.strftime("%Y-%m-%d %H:%M")
+
+    response = _post_route(client, draft_id, auth_headers, key=str(uuid.uuid4()))
 
     # The HTTP answer is T7's, unchanged.
     assert response.status_code == 409, response.text
     detail = response.json()["detail"]
     assert detail["code"] == "period_locked"
-    assert detail["locked_by"] == "stefan"
+    assert detail["locked_by"] == "api"
     assert detail["period_id"] == period.id
 
     [error] = _errors(thread)
     assert set(error.body) == _fixture_error_keys()
     assert error.body == {
-        "cause": (
-            "Perioden september 2026 låstes 2026-09-30 09:14 av stefan "
-            "medan förslaget låg."
-        ),
+        "cause": (f"Perioden september 2026 låstes {when} av api medan förslaget låg."),
         "consequence": (
             "Ingenting har ändrats i bokföringen. Förslaget ligger kvar men "
             "kan inte postas i september 2026."
@@ -1410,8 +1416,10 @@ def test_case_28_period_locked_between_proposal_and_press(monkeypatch, auth_head
     assert row.last_error_code == "period_locked"
     assert row.last_error_post_id == error.id
 
-    assert [(e[0], e[1], e[2]["id"], e[2]["type"]) for e in events] == [
-        (thread.id, "message.completed", error.id, "error")
+    # One post and one view change, both from the lock; the press adds none.
+    assert [(e[0], e[1], e[2].get("id"), e[2].get("type")) for e in events] == [
+        (thread.id, "message.completed", error.id, "error"),
+        (thread.id, "view.changed", None, None),
     ]
 
     # Nothing booked, no number taken: the next posting in A is A-1.
@@ -3091,14 +3099,20 @@ def _flow_locked_between_proposal_and_press(auth_headers, thread, september):
     expected = _next_number("A")
     posted_before = _posted_count()
     errors_before = len(_errors(thread))
-    _lock(september)
+    client = _client()
+    # Through the route (F16): the pending proposal does not stop the lock,
+    # which marks it and writes its error post.
+    locked = client.post(f"/api/v1/periods/{september.id}/lock", headers=auth_headers)
+    assert locked.status_code == 200, locked.text
+    assert len(_errors(thread)) == errors_before + 1
+    assert ThreadDraftRepository.get(draft_id).last_error_code == "period_locked"
 
-    response = _post_route(_client(), draft_id, auth_headers, key=str(uuid.uuid4()))
+    response = _post_route(client, draft_id, auth_headers, key=str(uuid.uuid4()))
 
     assert response.status_code == 409, response.text
     assert response.json()["detail"]["code"] == "period_locked"
     assert len(_errors(thread)) == errors_before + 1
-    assert ThreadDraftRepository.get(draft_id).last_error_code == "period_locked"
+    assert ThreadDraftRepository.get(draft_id).status == "pending"
     voucher = VoucherRepository.get(draft_id)
     assert voucher.status == VoucherStatus.DRAFT
     assert voucher.number is None
@@ -3223,3 +3237,204 @@ def test_case_49_the_whole_flow_changes_no_posted_row(today, monkeypatch, auth_h
             conn.execute(sql)
         conn.rollback()
     check_and_extend()
+
+
+# --- F16: låsningen markerar väntande förslag ----------------------------------
+#
+# Beställarens beslut 2026-09-24: ett väntande trådförslag stoppar inte
+# `POST /periods/{id}/lock`. Låsningen går igenom, förslaget får
+# `last_error_code='period_locked'` i samma transaktion, och efter commit ett
+# `error`-inlägg (F9:s text) i sin tråd. Andra utkast stoppar som förut.
+
+
+def _lock_route(client, period, headers):
+    return client.post(f"/api/v1/periods/{period.id}/lock", headers=headers)
+
+
+def _locked_cause(period_id: str, actor: str = "api") -> str:
+    period = PeriodRepository.get_period(period_id)
+    assert period is not None and period.locked and period.locked_at is not None
+    when = period.locked_at.strftime("%Y-%m-%d %H:%M")
+    return f"Perioden september 2026 låstes {when} av {actor} medan förslaget låg."
+
+
+def test_f16_lock_with_pending_proposals_locks_and_marks_them(
+    monkeypatch, auth_headers
+):
+    thread, period, trigger = _books()
+    other = ThreadRepository.get_or_create(
+        view_key="bocker.huvudbok",
+        fiscal_year_id=thread.fiscal_year_id,
+        model="opencode/claude-opus-5",
+    )
+    other_trigger = _post(other.id, "user_text")
+    first = _proposed(thread, period, trigger)
+    second = _propose(
+        other,
+        _args(period, description="Pennor"),
+        ProposalSequence(other.id, other_trigger.id),
+    )["draft_id"]
+    # A proposal in another, open period is not touched.
+    october = _add_period(thread, 10)
+    elsewhere = _propose(
+        thread,
+        _args(october, date="2026-10-02", description="Oktober"),
+        ProposalSequence(thread.id, _post(thread.id, "user_text").id),
+    )["draft_id"]
+    events = _record_events(monkeypatch)
+
+    response = _lock_route(_client(), period, auth_headers)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["locked"] is True
+    assert PeriodRepository.get_period(period.id).locked_by == "api"
+
+    for draft_id, owner in ((first, thread), (second, other)):
+        [error] = _errors(owner)
+        assert error.actor == "api"
+        assert error.body == {
+            "cause": _locked_cause(period.id),
+            "consequence": (
+                "Ingenting har ändrats i bokföringen. Förslaget ligger kvar men "
+                "kan inte postas i september 2026."
+            ),
+            "retry_draft_id": None,
+        }
+        row = ThreadDraftRepository.get(draft_id)
+        # Still a pending draft: the agent can replace it in an open period.
+        assert row.status == "pending"
+        assert row.last_error_code == "period_locked"
+        assert row.last_error_post_id == error.id
+        voucher = VoucherRepository.get(draft_id)
+        assert voucher.status == VoucherStatus.DRAFT
+        assert voucher.number is None
+        assert (owner.id, "message.completed", error.id, "error") in [
+            (e[0], e[1], e[2].get("id"), e[2].get("type")) for e in events
+        ]
+        assert (
+            owner.id,
+            "view.changed",
+            {
+                "view_key": owner.view_key,
+                "changed": {"period_id": period.id, "kind": "period_locked"},
+            },
+        ) in events
+
+    untouched = ThreadDraftRepository.get(elsewhere)
+    assert untouched.last_error_code is None
+    assert len(events) == 4
+    assert _posted_count() == 0
+    # A locked proposal still waits: it needs the human or the agent.
+    assert DecisionService().count_waiting(thread.view_key) == 2
+    listed = {
+        d["draft_id"]: d
+        for d in _get_drafts(_client(), auth_headers, view_key=thread.view_key).json()[
+            "drafts"
+        ]
+    }
+    assert listed[first]["status"] == "pending"
+    assert listed[first]["last_error_code"] == "period_locked"
+
+
+def test_f16_other_drafts_still_refuse_the_lock(monkeypatch, auth_headers):
+    thread, period, trigger = _books()
+    draft_id = _proposed(thread, period, trigger)
+    LedgerService().create_voucher(
+        series="A",
+        date=date(2026, 9, 18),
+        period_id=period.id,
+        description="Utan tråd",
+        rows_data=_ROWS,
+        created_by="test",
+    )
+    events = _record_events(monkeypatch)
+
+    response = _lock_route(_client(), period, auth_headers)
+
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"]["code"] == "draft_vouchers_exist"
+    assert "1 draft vouchers" in response.json()["detail"]["error"]
+    assert PeriodRepository.get_period(period.id).locked is False
+    row = ThreadDraftRepository.get(draft_id)
+    assert row.last_error_code is None
+    assert _errors(thread) == []
+    assert events == []
+
+
+def test_f16_posta_after_the_lock_gives_409_and_no_new_post(monkeypatch, auth_headers):
+    thread, period, trigger = _books()
+    draft_id = _proposed(thread, period, trigger)
+    client = _client()
+    assert _lock_route(client, period, auth_headers).status_code == 200
+    [error] = _errors(thread)
+    events = _record_events(monkeypatch)
+
+    responses = [
+        _post_route(client, draft_id, auth_headers, key=str(uuid.uuid4())),
+        _post_route(client, draft_id, auth_headers),
+    ]
+
+    for response in responses:
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"]["code"] == "period_locked"
+        assert response.json()["detail"]["locked_by"] == "api"
+    assert _errors(thread) == [error]
+    assert ThreadDraftRepository.get(draft_id).last_error_post_id == error.id
+    assert events == []
+    assert _posted_count() == 0
+
+
+def test_f16_a_locked_proposal_is_replaced_in_an_open_period(auth_headers):
+    thread, period, trigger = _books()
+    proposals = ProposalSequence(thread.id, trigger.id)
+    old = _propose(thread, _args(period), proposals)
+    assert _lock_route(_client(), period, auth_headers).status_code == 200
+    october = _add_period(thread, 10)
+
+    new = _propose(
+        thread,
+        _args(october, date="2026-10-01", replaces_draft_id=old["draft_id"]),
+        proposals,
+    )
+
+    assert new["period_id"] == october.id
+    assert VoucherRepository.get(old["draft_id"]) is None
+    old_row = ThreadDraftRepository.get(old["draft_id"])
+    assert old_row.status == "superseded"
+    assert old_row.replaced_by == new["draft_id"]
+    posted = _post_route(_client(), new["draft_id"], auth_headers)
+    assert posted.status_code == 200, posted.text
+    assert posted.json()["number"] == 1
+
+
+def test_f16_a_failed_error_post_does_not_undo_the_lock(monkeypatch, auth_headers):
+    thread, period, trigger = _books()
+    draft_id = _proposed(thread, period, trigger)
+    real_add_post = ThreadRepository.add_post
+
+    def failing_add_post(thread_id, post_type, *args, **kwargs):
+        if post_type == "error":
+            raise RuntimeError("tråden är nere")
+        return real_add_post(thread_id, post_type, *args, **kwargs)
+
+    monkeypatch.setattr(ThreadRepository, "add_post", staticmethod(failing_add_post))
+    client = _client()
+
+    response = _lock_route(client, period, auth_headers)
+
+    assert response.status_code == 200, response.text
+    assert PeriodRepository.get_period(period.id).locked is True
+    row = ThreadDraftRepository.get(draft_id)
+    assert row.status == "pending"
+    assert row.last_error_code == "period_locked"
+    assert row.last_error_post_id is None
+    assert _errors(thread) == []
+
+    # The next press writes the post the lock could not (§9.1: none yet for
+    # this code), and only one.
+    monkeypatch.setattr(ThreadRepository, "add_post", staticmethod(real_add_post))
+    assert _post_route(client, draft_id, auth_headers).status_code == 409
+    assert _post_route(client, draft_id, auth_headers).status_code == 409
+    [error] = _errors(thread)
+    assert error.body["cause"] == _locked_cause(period.id)
+    assert ThreadDraftRepository.get(draft_id).last_error_post_id == error.id

@@ -5,9 +5,10 @@ C1–C14), och genom den på `beslut`, `tradar`, `skal`, `agentruntime` och `ide
 den sista modulen i första leveransen: när den är klar fungerar Böcker · Verifikationer
 agent-first hela vägen, **korrigering inräknad**. `flode-underlag` beror på den här.
 
-Status: **Klar 2026-09-24 (F1–F15).** Skriven och godkänd 2026-09-23. Fem beslut tagna av beställaren
-(§12.1–§12.5), och ett om driftsättningen (§4.4). Uppgifterna ligger i
-`tasks/flode-verifikationer/plan.md` och `tasks/flode-verifikationer/todo.md` (F1–F15).
+Status: **Klar 2026-09-24 (F1–F16).** Skriven och godkänd 2026-09-23. Fem beslut tagna av beställaren
+(§12.1–§12.5), ett om driftsättningen (§4.4) och ett om periodlåsningen (§9, 2026-09-24).
+Uppgifterna ligger i `tasks/flode-verifikationer/plan.md` och `tasks/flode-verifikationer/todo.md`
+(F1–F16).
 
 ---
 
@@ -464,6 +465,10 @@ pending ──Posta lyckas──→ posted
   nummer (§4) lämnar det inget hål.
 - **Ett misslyckat försök ändrar inte status.** `last_error_code` sätts och utkastet ligger kvar,
   som panelen säger: *"förslaget ligger kvar så att försöket kan göras om"*.
+- **En låsning av perioden ändrar inte heller status** (beslut 2026-09-24, F16). Ett väntande
+  förslag i perioden får `last_error_code='period_locked'` och ligger kvar `pending`, som utkast i
+  den låsta perioden, tills agenten ersätter det med `replaces_draft_id` i en öppen period (då tas
+  det bort som vanligt; ingen trigger hindrar att ett utkast i en låst period tas bort). Se §9.
 - Ett ersatt eller postat utkast kan aldrig gå tillbaka.
 
 `ThreadDraftRepository` håller livscykeln, inte anroparna: varje ändring är ett `UPDATE … WHERE
@@ -727,6 +732,25 @@ tråden: där tar kvittot över (§8.1).
 
 Ett B-utkast kan också träffas av `period_locked`, om målperioden låses emellan. Svaret är
 detsamma. Agentens nästa förslag hamnar i nästa öppna period, och §7.2:s rad säger det.
+
+**Låsningen och väntande förslag — BESLUTAT 2026-09-24 (F16).** F15 fann att
+`LedgerService.lock_period` vägrade låsa en period med utkast (`400 draft_vouchers_exist`), så ett
+väntande förslag stoppade månadsstängningen och läget ovan nåddes bara förbi tjänsten. Beställarens
+beslut: låsningen går igenom och markerar väntande förslag i perioden som låsta. Så här:
+
+- `POST /periods/{id}/lock` låser i en transaktion: `UPDATE periods` först, sedan kontrollen av
+  utkast, där trådförslag med `status='pending'` räknas bort. **Andra utkast** (de gamla sidornas,
+  korrigeringsnoteringarnas, IB) stoppar som förut med `draft_vouchers_exist`, och då markeras
+  inget. Varje väntande förslag i perioden får `last_error_code='period_locked'` i samma commit.
+- Efter commit: ett `error`-inlägg per förslag i dess tråd, samma text som ovan (§9.1, vem/när ur
+  perioden), `message.completed` för inlägget och ett `view.changed` per tråd med
+  `{"period_id": …, "kind": "period_locked"}`. Aktören är låsaren.
+- Dedupliceringen gäller: ett förslag som redan har sitt `period_locked`-inlägg får inget nytt, och
+  ett senare `Posta` ger `409 period_locked` utan nytt inlägg. Misslyckas inlägget loggas det och
+  låsningen står kvar; `last_error_post_id` är då tomt, så nästa `Posta` skriver inlägget.
+- Förslaget räknas fortfarande som väntande (§11.3): det kräver människans eller agentens handling.
+  Vyn visar raden i `fel`-läget (§11.1) ur `last_error_code`; metan är densamma som efter ett
+  misslyckat tryck, *"postning misslyckades · ligger kvar"*, också när ingen har tryckt.
 
 ### 9.1 `error`-inlägget
 
