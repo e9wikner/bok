@@ -28,6 +28,7 @@ from domain.intake_link import IntakeLinkBasis, LinkBasis, LinkResult
 from domain.interpretation import Interpretation
 from domain.models import IntakeSource, Voucher
 from domain.types import IntakeStatus, VoucherStatus
+from repositories.decision_repo import DecisionRepository
 from repositories.intake_link_repo import IntakeLinkRepository
 from repositories.intake_repo import IntakeRepository
 from repositories.interpretation_repo import InterpretationRepository
@@ -99,9 +100,17 @@ class IntakeLinkService:
         actor: str,
         thread_id: Optional[str] = None,
         agent_run_id: Optional[str] = None,
+        decisions_allowed: bool = True,
     ) -> LinkResult:
         """Link *source_id* to the posted *voucher_id*, or raise an
         `IntakeLinkError` without writing anything.
+
+        *thread_id* is the thread turn's thread: a decision must then be in
+        that thread. `None` for the intake pass and the route. The pass
+        passes `decisions_allowed=False` (§6.7: a decision belongs to a
+        thread, and the pass has none), so only `exact_match` applies there;
+        the route keeps it, and links with a decision answered in any
+        thread (§7).
 
         A second call for a source already linked to the same voucher after
         the fact is a replay (§6.5): the same answer with `replayed: true`,
@@ -133,7 +142,11 @@ class IntakeLinkService:
 
         voucher = self._voucher(voucher_id)
         interpretation = self._interpretation(source_id, voucher)
-        basis_kind = self._basis(source_id, voucher, interpretation, decision_id)
+        if decision_id is not None and decisions_allowed:
+            self._decision(decision_id, source_id, thread_id)
+            basis_kind: LinkBasis = "decision"
+        else:
+            basis_kind = self._exact_match(source_id, voucher, interpretation)
 
         number = _number(voucher)
         basis = IntakeLinkBasis(
@@ -221,14 +234,15 @@ class IntakeLinkService:
             )
         return interpretation
 
-    def _basis(
-        self,
-        source_id: str,
-        voucher: Voucher,
-        interpretation: Interpretation,
-        decision_id: Optional[str],
+    @staticmethod
+    def _exact_match(
+        source_id: str, voucher: Voucher, interpretation: Interpretation
     ) -> LinkBasis:
-        """Check 9 (§6.4): `exact_match` or `link_requires_decision`."""
+        """Check 9 without a decision (§6.4): the latest interpretation's
+        match is `exact`, it is this voucher, and it is still open now.
+        `exact_no_date` is not enough (`SPEC-underlagstolkning.md` §12.6 d).
+        Otherwise `link_requires_decision`, with the match kind, so the
+        agent knows to lay out a decision."""
         match = interpretation.match
         if (
             match is not None
@@ -244,6 +258,53 @@ class IntakeLinkService:
             f"source_id={source_id}, voucher={_number(voucher)}, "
             f"match_kind={match.kind if match is not None else 'none'}",
         )
+
+    @staticmethod
+    def _decision(decision_id: str, source_id: str, thread_id: Optional[str]) -> None:
+        """Check 9 with a decision (§6.4's table, in its order). The last
+        row is the only way the server can read a *no* out of the answer:
+        an option with `is_exit`. Free text is let through -- every
+        decision can be answered in free text (`README.md`) -- and the agent
+        carries reading it right (§13.4)."""
+        decision = DecisionRepository.get(decision_id)
+        if decision is None:
+            raise LinkNotFoundError(
+                "decision_not_found",
+                "Decision not found",
+                f"decision_id={decision_id}",
+            )
+        if decision.status != "answered":
+            code = (
+                "decision_superseded"
+                if decision.status == "superseded"
+                else "decision_still_open"
+            )
+            raise LinkConflictError(
+                code,
+                "Only an answered decision is a basis for a link",
+                f"decision_id={decision_id}, status={decision.status}",
+            )
+        if decision.source_kind != "intake_source" or decision.source_id != source_id:
+            raise LinkRejectedError(
+                "decision_not_for_source",
+                "The decision is not about this underlag",
+                f"decision_id={decision_id}, source_kind={decision.source_kind}, "
+                f"source_id={decision.source_id}",
+            )
+        if thread_id is not None and decision.thread_id != thread_id:
+            raise LinkRejectedError(
+                "decision_not_in_thread",
+                "The decision belongs to another thread",
+                f"decision_id={decision_id}",
+            )
+        if decision.answer_option_id is not None:
+            option = DecisionRepository.get_option(decision.answer_option_id)
+            if option is not None and option.is_exit:
+                raise LinkConflictError(
+                    "decision_declined",
+                    "The decision was answered with its way out",
+                    f"decision_id={decision_id}, option={option.title}",
+                )
 
     # -- helpers ------------------------------------------------------------
 

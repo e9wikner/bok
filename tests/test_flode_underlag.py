@@ -1013,3 +1013,221 @@ def test_fu3_service_has_no_sql():
     source = (REPO_ROOT / "services" / "intake_link.py").read_text(encoding="utf-8")
     assert "db.execute" not in source
     assert not re.search(r"\b(SELECT|INSERT|UPDATE|DELETE)\b", source)
+
+
+# ---------------------------------------------------------------------------
+# FU4 — the decision basis (check 9, D1, §6.4; testfall 4-7, 10, 11)
+# ---------------------------------------------------------------------------
+
+
+def _diff_case(period_id: str, *, status: str = "pending"):
+    """A-118, a source in *status* interpreted as `amount_diff` against it,
+    and the thread the decision will be in."""
+    voucher_id = a118(period_id)
+    source_id = make_source(status)
+    interpret(source_id, "amount_diff")
+    return voucher_id, source_id, make_thread(period_id)
+
+
+def test_04_amount_diff_with_option_1_links_on_the_decision(period_id):
+    """Testfall 4: `basis = decision`, the decision in the basis and in
+    `link_reason`."""
+    from repositories.intake_link_repo import IntakeLinkRepository
+
+    voucher_id, source_id, thread = _diff_case(period_id)
+    decision = make_decision(thread, source_id, answer=1)
+
+    result = link(source_id, voucher_id, decision_id=decision.id, thread_id=thread.id)
+
+    assert (result.basis, result.decision_id, result.replayed) == (
+        "decision",
+        decision.id,
+        False,
+    )
+    basis = IntakeLinkRepository.get_for_source(source_id)
+    assert basis is not None
+    assert (basis.basis, basis.decision_id, basis.thread_id) == (
+        "decision",
+        decision.id,
+        thread.id,
+    )
+    vis = IntakeRepository.get_link_by_source_id(source_id)
+    assert vis is not None
+    assert vis.link_reason == (
+        f"decision={decision.id} interpretation={result.interpretation_id}"
+    )
+    assert source_status(source_id) == "processed"
+
+
+def test_05_exit_option_is_declined(period_id):
+    """Testfall 5: the answer is the exit ("Det är ett annat köp")."""
+    from services.intake_link import LinkConflictError
+
+    voucher_id, source_id, thread = _diff_case(period_id)
+    decision = make_decision(thread, source_id, answer=3)
+    before = link_state()
+
+    error = link_error(
+        source_id, voucher_id, decision_id=decision.id, thread_id=thread.id
+    )
+
+    assert isinstance(error, LinkConflictError)
+    assert error.code == "decision_declined"
+    assert link_state() == before
+
+
+def test_06_free_text_links(period_id):
+    """Testfall 6: free text is let through (§6.4, §13.4)."""
+    voucher_id, source_id, thread = _diff_case(period_id)
+    decision = make_decision(thread, source_id, answer="Ja, koppla det")
+
+    result = link(source_id, voucher_id, decision_id=decision.id, thread_id=thread.id)
+
+    assert result.basis == "decision"
+
+
+def test_07_open_superseded_other_source_other_thread(period_id):
+    """Testfall 7: the four refusals, in §6.4's order, nothing written."""
+    from services.decision_service import DecisionService
+    from services.intake_link import (
+        LinkConflictError,
+        LinkNotFoundError,
+        LinkRejectedError,
+    )
+
+    voucher_id, source_id, thread = _diff_case(period_id)
+    other_thread = make_thread(period_id, view_key="bocker.balans")
+    open_decision = make_decision(thread, source_id, answer=None)
+    superseded = make_decision(thread, source_id, answer=None)
+    DecisionService().supersede(superseded.id)
+    about_another = make_decision(thread, make_source(), answer=1)
+    elsewhere = make_decision(other_thread, source_id, answer=1)
+    before = link_state()
+
+    cases = [
+        ("nope", LinkNotFoundError, "decision_not_found"),
+        (open_decision.id, LinkConflictError, "decision_still_open"),
+        (superseded.id, LinkConflictError, "decision_superseded"),
+        (about_another.id, LinkRejectedError, "decision_not_for_source"),
+        (elsewhere.id, LinkRejectedError, "decision_not_in_thread"),
+    ]
+    for decision_id, error_type, code in cases:
+        error = link_error(
+            source_id, voucher_id, decision_id=decision_id, thread_id=thread.id
+        )
+        assert isinstance(error, error_type), code
+        assert error.code == code
+    assert link_state() == before
+
+
+def test_07_decision_about_a_voucher_is_not_for_the_source(period_id):
+    """`source.kind` must be `intake_source`, not only the id."""
+    voucher_id, source_id, thread = _diff_case(period_id)
+    decision = make_decision(thread, source_id, answer=1, source_kind="voucher")
+
+    error = link_error(
+        source_id, voucher_id, decision_id=decision.id, thread_id=thread.id
+    )
+
+    assert error.code == "decision_not_for_source"
+
+
+def test_fu4_without_a_thread_the_decision_is_not_bound_to_one(period_id):
+    """`decision_not_in_thread` only when `thread_id` is set: the route
+    (§7) links with a decision answered in any thread."""
+    voucher_id, source_id, thread = _diff_case(period_id)
+    decision = make_decision(thread, source_id, answer=2)
+
+    result = link(source_id, voucher_id, decision_id=decision.id)
+
+    assert result.basis == "decision"
+
+
+def test_fu4_the_pass_links_on_exact_match_only(period_id):
+    """§6.7: from the intake pass (the tool without a thread) only
+    `exact_match` applies; a decision id gives `link_requires_decision`."""
+    voucher_id, source_id, thread = _diff_case(period_id)
+    decision = make_decision(thread, source_id, answer=2)
+
+    error = link_error(
+        source_id, voucher_id, decision_id=decision.id, decisions_allowed=False
+    )
+
+    assert error.code == "link_requires_decision"
+
+
+def test_fu4_a_decision_also_links_an_exact_match(period_id):
+    """With a decision the basis is the decision, whatever the match."""
+    voucher_id = a118(period_id)
+    source_id = make_source()
+    interpret(source_id, "exact_no_date")
+    thread = make_thread(period_id)
+    decision = make_decision(thread, source_id, answer=2)
+
+    result = link(source_id, voucher_id, decision_id=decision.id, thread_id=thread.id)
+
+    assert result.basis == "decision"
+
+
+def test_fu4_replay_with_another_decision_writes_nothing(period_id):
+    """§6.5: same voucher, another decision -- a replay; the basis is not
+    rewritten."""
+    voucher_id, source_id, thread = _diff_case(period_id)
+    first = make_decision(thread, source_id, answer=1)
+    second = make_decision(thread, source_id, answer=2)
+    link(source_id, voucher_id, decision_id=first.id, thread_id=thread.id)
+    state = link_state()
+
+    replay = link(source_id, voucher_id, decision_id=second.id, thread_id=thread.id)
+
+    assert replay.replayed is True
+    assert replay.decision_id == first.id
+    assert link_state() == state
+
+
+def test_10_expected_only_sie4_voucher_links_with_a_decision(period_id):
+    """Testfall 10: a SIE4-imported voucher is never a candidate; after an
+    interpretation with `expected_voucher_id` it stands as `expected`, and
+    an answered decision links it."""
+    imported = posted_purchase(period_id, created_by="sie4_import")
+    source_id = make_source()
+    result = interpret(source_id, "amount_diff", expected_voucher_id=imported)
+    assert imported not in {c["voucher_id"] for c in result["candidates"]}
+    assert result["expected"]["voucher_id"] == imported
+    thread = make_thread(period_id)
+    decision = make_decision(thread, source_id, answer=2)
+
+    linked = link(source_id, imported, decision_id=decision.id, thread_id=thread.id)
+
+    assert (linked.voucher_id, linked.basis) == (imported, "decision")
+
+
+def test_11_failed_after_the_pass_abstained_links_and_leaves_decisions(
+    period_id, client, auth_headers
+):
+    """Testfall 11: the pass abstained (`failed`), the thread decides, the
+    link goes through -- and the synthetic `intake:` decision is gone from
+    `GET /decisions`."""
+    from services.intake import IntakeService
+
+    voucher_id, source_id, thread = _diff_case(period_id)
+    IntakeService().record_failed(
+        source_id,
+        summary="Matchar A-118 med differens",
+        error_detail="A-118: 4 600 kr mot 4 480 kr",
+        actor="agent",
+    )
+
+    def open_ids():
+        resp = client.get("/api/v1/decisions", headers=auth_headers)
+        assert resp.status_code == 200, resp.text
+        return {d["id"] for d in resp.json()["decisions"]}
+
+    assert f"intake:{source_id}" in open_ids()
+    decision = make_decision(thread, source_id, answer=2)
+
+    result = link(source_id, voucher_id, decision_id=decision.id, thread_id=thread.id)
+
+    assert result.basis == "decision"
+    assert source_status(source_id) == "processed"
+    assert f"intake:{source_id}" not in open_ids()

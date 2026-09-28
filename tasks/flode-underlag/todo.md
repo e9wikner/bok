@@ -118,7 +118,19 @@ till dem.
     (monkeypatch på repositoryt) och kräver att länk, försök och status inte står kvar. Testfall
     18 jämför innehållet i `vouchers` och `voucher_rows`, inte radantalet.
 
-- [ ] **FU4 — Beslutsbelägget (kontroll 9, D1)**
+- [x] **FU4 — Beslutsbelägget (kontroll 9, D1)**
+  - Gjort 2026-09-28: 11 tester i `tests/test_flode_underlag.py` (testfall 4, 5, 6, 7 med alla
+    fyra fel plus `decision_not_found` och `source_kind` fel, 10, 11 över `GET /decisions`, plus
+    beslut utan tråd, passet, beslut vid exakt match och uppspelning med annat beslut), alla sedda
+    röda först. Med `decision_id` är belägget alltid `decision`, oavsett matchningens slag.
+    `decision_not_in_thread` bara när `thread_id` är satt, så routen (§7) kopplar med ett beslut
+    ur vilken tråd som helst. **Tillägg:** `link(…, decisions_allowed=True)`; passet (verktyget
+    utan tråd, FU5) skickar `False` och får då `link_requires_decision` även med ett
+    `decision_id` (§6.7). Felklasser: `decision_not_found` 404, `decision_still_open`/
+    `decision_superseded`/`decision_declined` 409, `decision_not_for_source`/
+    `decision_not_in_thread` 400 (det senare står inte i §7:s tabell; det kan inte uppstå över
+    HTTP). Alternativet läses med `DecisionRepository.get_option`; ingen ny SQL. Hela sviten
+    1361 gröna. mypy 61.
   - Beror på: FU3
   - Acceptans: `decision_id` i `IntakeLinkService.link` prövas enligt §6.4:s tabell, i den
     ordningen: `decision_not_found`, `decision_still_open`/`decision_superseded`,
