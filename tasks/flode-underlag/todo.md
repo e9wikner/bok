@@ -474,7 +474,21 @@ till dem.
     `page_count`. Sidräkningen är en funktion i `services/agent_documents.py` (som redan importerar
     `PdfReader`); routen läser filen genom `IntakeService.resolve_source_file`.
 
-- [ ] **FU18 — Skriptade flöden och backendens regression**
+- [x] **FU18 — Skriptade flöden och backendens regression**
+  - Gjort 2026-09-28: 7 tester i `tests/test_flode_underlag_pass.py` (testfall 39, 40, 41, 42,
+    plus exakt match i tråden utan beslut (§1 Framgång) och en skriptad modell som postar eller
+    föreslår ett exakt matchande kvitto ändå, parametriserat), alla gröna direkt — inget fel i
+    en tidigare uppgift. 39/40 genom `AgentWorker.run_pass_once` med en bild uppladdad i
+    intagsroten; 41/42 genom `POST /threads/…/messages` utan text (D8, med
+    `agent_runtime_enabled` av, så att routen inte startar turen) och `ThreadTurnRunner.run`,
+    svaret genom `POST /decisions/{id}/answer` och i 42 `Posta` genom `POST
+    /vouchers/{id}/post`. **Öppen punkt (från FU5):** i 39 slutar passets session på ett bart
+    `end` efter kopplingen, som passet räknar som `abstained: agent_no_outcome`
+    (`items_abstained`, sista `agent_run_events` är `abstained`); källan är `processed`, har
+    ingen `failed`-rad och inget avstående registreras. Ett terminalt `koppla_underlag` i
+    dokumentpolicyn vore en ändring i `agent_session` och §6.1 ("inte terminalt"), så den är
+    inte gjord. Regression: `pytest tests/` 1459 gröna, `black --check`, `isort --check`,
+    `flake8` rena, `mypy .` 60 (baslinjen 61).
   - Beror på: FU5, FU9, FU10, FU11, FU13, FU14
   - Acceptans: testfall 39 och 40 med `agentruntime`s skriptade klient (`FakeLLMClient` ur
     `tests/test_agent_runtime.py`) genom `AgentWorker.run_pass_once`; 41 och 42 som skriptade
