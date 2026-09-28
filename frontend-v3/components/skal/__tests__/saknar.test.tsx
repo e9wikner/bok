@@ -124,7 +124,8 @@ describe("en koppling (testfall 49c)", () => {
     });
 
     await waitFor(() => expect(radFor("Förbrukningsinventarier").getAttribute("data-variant")).toBe("ny"));
-    expect(vyn().getByText("A-118 · kvitto kopplat 08:20")).toBeInTheDocument();
+    // Metaraden bär också kvittolänken (FU23).
+    expect(vyn().getByText(/^A-118 · kvitto kopplat 08:20/)).toBeInTheDocument();
     expect(vyn().getAllByText("Förbrukningsinventarier")).toHaveLength(1);
     await waitFor(() => expect(vyn().queryByText("A-118 · kvitto saknas sedan 3 dgr")).toBeNull());
   });

@@ -96,6 +96,42 @@ export async function laddaUppUnderlag(fil: File): Promise<UnderlagSvar> {
   return data;
 }
 
+/** Hur länge blob-adressen lever efter att fönstret fått den. */
+const BLOB_LIVSTID_MS = 60_000;
+
+/**
+ * Öppna en källa i intagskön i ett nytt fönster (SPEC-flode-underlag.md
+ * §10.4). `GET /intake/{id}/file` kräver bearer, så filen hämtas som blob
+ * genom `apiClient` — aldrig en vanlig `href`.
+ *
+ * Fönstret öppnas i trycket, INNAN något hämtas: ett `window.open` efter en
+ * `await` blockeras som popup. Därför kan källan också ges som en funktion
+ * som slår upp den (vyns kvittolänk läser `source-context` först, FU23).
+ * Svarar `false`, och stänger fönstret, när det inte fanns någon källa; ett
+ * fel stänger fönstret och kastas vidare.
+ */
+export async function oppnaUnderlag(kalla: string | (() => Promise<string | null>)): Promise<boolean> {
+  const fonster = window.open("", "_blank");
+  try {
+    const sourceId = typeof kalla === "string" ? kalla : await kalla();
+    if (sourceId === null) {
+      fonster?.close();
+      return false;
+    }
+    const { data } = await apiClient.get<Blob>(`/api/v1/intake/${encodeURIComponent(sourceId)}/file`, {
+      responseType: "blob",
+    });
+    const url = URL.createObjectURL(data);
+    if (fonster) fonster.location.href = url;
+    else window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), BLOB_LIVSTID_MS);
+    return true;
+  } catch (fel) {
+    fonster?.close();
+    throw fel;
+  }
+}
+
 // ─── Beslut (SPEC-beslut.md §6.1, SPEC-chattyta.md §7, §10) ──────────────
 
 /**

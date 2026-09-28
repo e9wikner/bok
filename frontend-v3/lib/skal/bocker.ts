@@ -13,7 +13,7 @@ import { formatBeloppHela } from "@/lib/skal/format";
 import { formatVerifikationsnummer } from "@/lib/utils";
 import type { VyData, VyRadData, VySektionData } from "@/lib/skal/vydata";
 import type { OverviewFiscalYear } from "@/lib/skal/api";
-import type { BeslutSvar, ForslagStatusSvar } from "@/lib/chattyta/api";
+import { oppnaUnderlag, type BeslutSvar, type ForslagStatusSvar } from "@/lib/chattyta/api";
 import type { Koppling } from "@/lib/chattyta/kopplingar";
 import type { Postning } from "@/lib/chattyta/postningar";
 
@@ -95,6 +95,38 @@ export interface Verifikationslista {
   vouchers: Verifikation[];
 }
 
+/**
+ * `GET /vouchers/{id}/source-context`, det kvittolänken läser. En källa
+ * via en hänvisning (A-121 → kvittot via A-118, FU16) står bland de andra
+ * med `via_voucher_id`.
+ */
+export interface Kallkontext {
+  source_material: Array<{
+    kind: string;
+    id: string;
+    original_filename?: string;
+    via_voucher_id?: string | null;
+  }>;
+}
+
+/**
+ * Källan kvittolänken öppnar: en kopplad `voucher_source`, och bara om
+ * ingen finns en via hänvisningen. Bankfiler är inga kvitton.
+ */
+export function kvittoKalla(ctx: Kallkontext): string | null {
+  const kallor = (ctx.source_material ?? []).filter((k) => k.kind === "voucher_source");
+  const egen = kallor.find((k) => !k.via_voucher_id);
+  return (egen ?? kallor[0])?.id ?? null;
+}
+
+/**
+ * Öppna verifikationens kvitto. `source-context` hämtas här, när länken
+ * används — inte per rad (FU23). `false` när verifikationen inte har något.
+ */
+export function oppnaKvitto(voucherId: string): Promise<boolean> {
+  return oppnaUnderlag(async () => kvittoKalla(await bockerApi.getKallkontext(voucherId)));
+}
+
 /** Så många postade verifikationer visas; resten finns i /vouchers. */
 export const VERIFIKATIONER_ANTAL = 50;
 
@@ -143,6 +175,13 @@ export const bockerApi = {
    * underlag, äldst först — `sort_by=age` är stigande som standard
    * (`VoucherRepository.list_all`). Samma predikat som headerns räknare.
    */
+  getKallkontext: async (voucherId: string): Promise<Kallkontext> => {
+    const { data } = await apiClient.get<Kallkontext>(
+      `/api/v1/vouchers/${encodeURIComponent(voucherId)}/source-context`
+    );
+    return data;
+  },
+
   getSaknarUnderlag: async (fiscalYearId: string): Promise<Verifikationslista> => {
     const { data } = await apiClient.get<Verifikationslista>("/api/v1/vouchers", {
       params: {
@@ -328,13 +367,24 @@ function verifikationsrad(v: Verifikation): VyRadData {
   const rattadAv = v.corrected_by ? ` · rättad av ${nummerAv(v.corrected_by)}` : "";
   const rattar = v.status === "posted" && v.corrects ? ` · rättar ${nummerAv(v.corrects)}` : "";
   const korr = v.status === "posted" ? korrigering(v) : "";
-  return {
+  const rad: VyRadData = {
     id: v.id,
     titel: v.description,
     meta: `${nummer} · ${v.date}${saknar ? " · saknar underlag" : ""}${rattadAv}${rattar}${korr}`,
     hoger: formatBeloppHela(v.total_debit),
     variant: v.status === "draft" ? "vantar" : saknar ? "saknar" : undefined,
   };
+  if (harUnderlag(v)) rad.kvitto = { voucherId: v.id, nummer };
+  return rad;
+}
+
+/**
+ * Raden får kvittolänken (FU23) när den är postad och inte saknar underlag.
+ * En rättelse får den inte: dess underlag är originalet (D3). Om underlaget
+ * är ett kvitto vet klienten först när länken används.
+ */
+function harUnderlag(v: Pick<Verifikation, "status" | "missing_attachment" | "corrects">): boolean {
+  return v.status === "posted" && v.missing_attachment === false && !v.corrects;
 }
 
 /** `Saknar underlag` (§10.4): `{serie}-{nummer} · kvitto saknas sedan {n} dgr`, `n` = serverns `age_days`. */
@@ -363,13 +413,14 @@ function nyssKoppladRad(v: KoppladVerifikation, k: Koppling): VyRadData {
     meta: `${nummerAv(v)} · kvitto kopplat ${k.klockslag}${korrigering(v)}`,
     hoger: formatBeloppHela(v.total_debit),
     variant: "ny",
+    kvitto: { voucherId: v.id, nummer: nummerAv(v) },
   };
 }
 
 /** `Kopplad`, efter markeringen: `{serie}-{nummer} · {datum} · kvitto kopplat`. */
 function koppladRad(v: Verifikation): VyRadData {
   return {
-    ...verifikationsrad({ ...v, missing_attachment: false }),
+    ...verifikationsrad({ ...v, status: "posted", missing_attachment: false }),
     meta: `${nummerAv(v)} · ${v.date} · kvitto kopplat${korrigering(v)}`,
   };
 }

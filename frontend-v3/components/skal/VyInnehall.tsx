@@ -77,6 +77,7 @@ export function VyInnehall({
                   variant={rad.variant}
                   summa={rad.summa}
                   ageDays={rad.ageDays}
+                  kvitto={rad.kvitto}
                   storlek={variant}
                 />
               ))}

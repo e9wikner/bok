@@ -23,6 +23,11 @@ export interface VyRadData {
   summa?: boolean;
   /** Serverns `age_days`; färgar metan för `vantar`/`saknar` med `aldersTon`. */
   ageDays?: number;
+  /**
+   * Radens länk till kvittot (SPEC-flode-underlag.md §10.4, FU23). Källan
+   * slås upp först när länken används, inte per rad.
+   */
+  kvitto?: { voucherId: string; nummer: string };
 }
 
 export interface VySektionData {

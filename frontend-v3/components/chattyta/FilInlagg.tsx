@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import apiClient from "@/lib/api";
+import { oppnaUnderlag } from "@/lib/chattyta/api";
 import type { UserFileInlagg } from "@/lib/chattyta/typer";
 
 /**
@@ -20,33 +20,8 @@ import type { UserFileInlagg } from "@/lib/chattyta/typer";
  *
  * Kortet har en länk som öppnar filen (SPEC-flode-underlag.md §10.4). Inte
  * en vanlig `href`: `GET /intake/{id}/file` kräver bearer, så filen hämtas
- * som blob genom `apiClient` (`oppnaUnderlag`).
+ * som blob genom `apiClient` (`oppnaUnderlag`, `lib/chattyta/api.ts`).
  */
-
-/** Hur länge blob-adressen lever efter att fönstret fått den. */
-const BLOB_LIVSTID_MS = 60_000;
-
-/**
- * Öppna en källa i intagskön i ett nytt fönster. Fönstret öppnas i trycket,
- * INNAN hämtningen — ett `window.open` efter en `await` blockeras som
- * popup. Går hämtningen fel stängs fönstret och felet kastas vidare.
- * Används också av vyns kvittolänk (FU23).
- */
-export async function oppnaUnderlag(sourceId: string): Promise<void> {
-  const fonster = window.open("", "_blank");
-  try {
-    const { data } = await apiClient.get<Blob>(`/api/v1/intake/${encodeURIComponent(sourceId)}/file`, {
-      responseType: "blob",
-    });
-    const url = URL.createObjectURL(data);
-    if (fonster) fonster.location.href = url;
-    else window.open(url, "_blank");
-    setTimeout(() => URL.revokeObjectURL(url), BLOB_LIVSTID_MS);
-  } catch (fel) {
-    fonster?.close();
-    throw fel;
-  }
-}
 
 const siffror = (n: number, decimaler: number) =>
   new Intl.NumberFormat("sv-SE", { maximumFractionDigits: decimaler }).format(n);

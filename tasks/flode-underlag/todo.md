@@ -422,7 +422,7 @@ till dem.
     `apiClient` och fönstret får blob-adressen; ett fel stänger fönstret och kortet säger
     `filen kunde inte öppnas`. `receipt.source_id` (§9.3) tas inte in i typen — kroppen släpps igenom.
 
-- [ ] **FU23 — Kvittot från verifikationen (§10.4, 49d)**
+- [x] **FU23 — Kvittot från verifikationen (§10.4, 49d)**
   - Beror på: FU21, FU16
   - Acceptans: en rad i `Postade` med kopplade källor eller en hänvisning får en länk som öppnar
     kvittot (för A-121 via A-118), ur `GET /vouchers/{id}/source-context`. Hämtas när länken
@@ -432,6 +432,14 @@ till dem.
     `frontend-v3/components/skal/VyRad.tsx`
   - Obs: avvikelse 6 — `/v4` har ingen raddetalj. Bygg det minsta som bär länken; en detaljpanel
     är ett "fråga först".
+  - Gjort 2026-09-28: `components/skal/__tests__/kvitto.test.tsx` (klientdelen av 49d). `VyRadData`
+    får `kvitto: {voucherId, nummer}` och `VyRad` en länk `kvitto` i metaraden; `VyInnehall.tsx` för
+    vidare fältet (en rad, utanför listan). Klienten vet inte per rad om underlaget är ett kvitto, så
+    länken står på postade rader som inte saknar underlag och inte är rättelser; vid tryck hämtas
+    `source-context` och `kvittoKalla` väljer en direkt kopplad `voucher_source`, annars en med
+    `via_voucher_id` (FU16:s form antagen), och bankfiler aldrig. Utan källa säger länken `inget
+    kvitto`. `oppnaUnderlag` flyttade från `FilInlagg.tsx` till `lib/chattyta/api.ts` och tar också en
+    uppslagsfunktion, så att fönstret öppnas i trycket före båda hämtningarna. Ingen detaljpanel.
 
 ## Stängning
 

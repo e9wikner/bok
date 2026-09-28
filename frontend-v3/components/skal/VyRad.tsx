@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { aldersTon } from "@/lib/chattyta/alder";
+import { oppnaKvitto } from "@/lib/skal/bocker";
 import type { RadVariant } from "@/lib/skal/vydata";
 
 /**
@@ -54,6 +55,7 @@ export function VyRad({
   summa = false,
   storlek = "desktop",
   ageDays,
+  kvitto,
 }: {
   titel: string;
   meta?: string;
@@ -63,6 +65,11 @@ export function VyRad({
   storlek?: "desktop" | "mobil";
   /** Serverns `age_days`; färgar metaraden för `saknar`/`vantar` (§10). */
   ageDays?: number;
+  /**
+   * Länken till verifikationens kvitto (SPEC-flode-underlag.md §10.4, FU23).
+   * `/v4` har ingen raddetalj; det här är det minsta som bär länken.
+   */
+  kvitto?: { voucherId: string; nummer: string };
 }) {
   // Markeringen tas bort av sig själv; raden ligger kvar.
   const [nyAktiv, setNyAktiv] = useState(variant === "ny");
@@ -93,12 +100,13 @@ export function VyRad({
         >
           {titel}
         </span>
-        {meta && (
+        {(meta || kvitto) && (
           <span
             className={`bok-mono ${storlek === "desktop" ? "text-[11px]" : "text-[12px]"}`}
             style={{ color: metaFarg(variant, ageDays) }}
           >
             {meta}
+            {kvitto && <KvittoLank {...kvitto} forsta={!meta} />}
           </span>
         )}
       </span>
@@ -111,6 +119,33 @@ export function VyRad({
         {hoger}
       </span>
     </div>
+  );
+}
+
+/**
+ * `kvitto`, som en länk i metaraden. Källan slås upp i `source-context` när
+ * den trycks (`oppnaKvitto`), inte när raden ritas. Utan kvitto, eller vid
+ * ett fel, säger länken det i stället för att öppna ett tomt fönster.
+ */
+function KvittoLank({ voucherId, nummer, forsta }: { voucherId: string; nummer: string; forsta: boolean }) {
+  const [lage, setLage] = useState<"redo" | "saknas" | "fel">("redo");
+  return (
+    <>
+      {!forsta && " · "}
+      <button
+        type="button"
+        aria-label={`Öppna kvittot till ${nummer}`}
+        onClick={() => {
+          setLage("redo");
+          oppnaKvitto(voucherId)
+            .then((fanns) => setLage(fanns ? "redo" : "saknas"))
+            .catch(() => setLage("fel"));
+        }}
+        className="text-bok-lank underline-offset-2 hover:text-bok-lank-hover hover:underline"
+      >
+        {lage === "saknas" ? "inget kvitto" : lage === "fel" ? "kunde inte öppnas" : "kvitto"}
+      </button>
+    </>
   );
 }
 
