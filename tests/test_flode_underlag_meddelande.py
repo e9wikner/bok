@@ -114,3 +114,87 @@ def test_34_no_text_and_no_attachment_is_422(
 
     assert resp.status_code == 422
     assert started == []
+
+
+# ---------------------------------------------------------------------------
+# FU17 — the page count of a pdf in `user_file` (§10.4, avvikelse 4)
+# ---------------------------------------------------------------------------
+
+
+def _pdf(pages: int) -> bytes:
+    import io
+
+    from pypdf import PdfWriter
+
+    writer = PdfWriter()
+    for _ in range(pages):
+        writer.add_blank_page(width=595, height=842)
+    buf = io.BytesIO()
+    writer.write(buf)
+    return buf.getvalue()
+
+
+def _upload(content: bytes, name: str, mime: str) -> str:
+    from services.intake import IntakeService
+
+    return (
+        IntakeService()
+        .create_source_from_upload_content(
+            filename=name,
+            content_type=mime,
+            content=content,
+            explanation=None,
+            source_type=None,
+            actor="stefan",
+        )
+        .id
+    )
+
+
+def _pages_for(client, auth_headers, source_id: str):
+    resp = client.post(
+        URL, headers=auth_headers, json={"text": "", "attachments": [source_id]}
+    )
+    assert resp.status_code == 201, resp.text
+    [post] = resp.json()["posts"]
+    return post["body"]["pages"]
+
+
+def test_fu17_a_two_page_pdf_has_pages_2(
+    client, auth_headers, period_id, intake_dir, started
+):
+    source_id = _upload(_pdf(2), "faktura.pdf", "application/pdf")
+
+    assert _pages_for(client, auth_headers, source_id) == 2
+
+
+def test_fu17_an_image_has_no_pages(
+    client, auth_headers, period_id, intake_dir, started
+):
+    source_id = _upload(b"\x89PNG\r\n\x1a\n kvitto", "kvitto.png", "image/png")
+
+    assert _pages_for(client, auth_headers, source_id) is None
+
+
+def test_fu17_a_broken_pdf_has_no_pages_and_no_error(
+    client, auth_headers, period_id, intake_dir, started
+):
+    source_id = _upload(b"%PDF-1.4 not really", "trasig.pdf", "application/pdf")
+
+    assert _pages_for(client, auth_headers, source_id) is None
+
+
+def test_fu17_a_missing_file_has_no_pages_and_no_error(
+    client, auth_headers, period_id, started
+):
+    """A pdf source whose file is not in storage: the card still stands."""
+    source_id = make_source(mime_type="application/pdf", filename="borta.pdf")
+
+    assert _pages_for(client, auth_headers, source_id) is None
+
+
+def test_fu17_count_pdf_pages_is_pure():
+    from services.agent_documents import count_pdf_pages
+
+    assert count_pdf_pages(_pdf(3)) == 3
+    assert count_pdf_pages(b"not a pdf") is None

@@ -454,7 +454,15 @@ till dem.
   - Obs: avvikelse 6 — `GET /vouchers/{id}` returnerar inga källor; det gör `source-context`
     (`api/routes/vouchers.py:316`). Ingen ny route.
 
-- [ ] **FU17 — Sidantalet i `user_file` för pdf (§10.4)**
+- [x] **FU17 — Sidantalet i `user_file` för pdf (§10.4)**
+  - Gjort 2026-09-28: 5 tester i `tests/test_flode_underlag_meddelande.py` (pdf med två sidor ger
+    `2`, bild ger `null`, trasig pdf ger `null` och `201`, pdf vars fil saknas ger `null` och
+    `201`, `count_pdf_pages` ren), 2 sedda röda först; de tre `null`-fallen var gröna redan
+    (fältet var alltid `null`) och står kvar som vakter. Avvikelse 4: fältet heter `pages`, inget
+    `page_count`. `count_pdf_pages(bytes) -> int | None` i `services/agent_documents.py`;
+    `_pdf_pages(source)` i `api/routes/threads.py` läser filen genom
+    `IntakeService.resolve_source_file` och loggar i stället för att fela. Klienten behöver ingen
+    ändring. Hela sviten 1452 gröna. mypy 60.
   - Beror på: FU14
   - Acceptans: `_attachment_posts` (`api/routes/threads.py:230`) fyller i `pages` för en pdf med
     sidantalet ur `pypdf`; `null` för bilder och för en pdf som inte går att läsa.

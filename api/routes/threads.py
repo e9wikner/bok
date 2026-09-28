@@ -27,11 +27,13 @@ from api.schemas import (
     ThreadResponse,
 )
 from config import settings
-from domain.models import Thread, ThreadPost
+from domain.models import IntakeSource, Thread, ThreadPost
 from domain.types import ThreadViewKey
 from repositories.intake_repo import IntakeRepository
 from repositories.period_repo import PeriodRepository
 from repositories.thread_repo import ThreadRepository
+from services.agent_documents import count_pdf_pages
+from services.intake import IntakeService
 from services.llm import UnknownModelError, get_model_info
 from services.thread_service import ThreadService
 from services.thread_stream import (
@@ -267,11 +269,27 @@ def _attachment_posts(
                 thread,
                 filename=source.original_filename,
                 size_bytes=source.size_bytes,
+                pages=_pdf_pages(source),
                 intake_source_id=source.id,
                 actor=actor,
             )
         )
     return posts
+
+
+def _pdf_pages(source: IntakeSource) -> Optional[int]:
+    """`pages` for the file card (SPEC-flode-underlag.md §10.4, avvikelse
+    4): a pdf's page count, `None` for an image, and `None` -- not an error
+    -- for a pdf that cannot be found or read. The file is read through
+    `IntakeService.resolve_source_file`, inside the intake root."""
+    if source.mime_type != "application/pdf":
+        return None
+    try:
+        path = IntakeService().resolve_source_file(source)
+        return count_pdf_pages(path.read_bytes())
+    except Exception:
+        logger.warning("Could not count the pages of source %s", source.id)
+        return None
 
 
 @router.get("/{view_key}/stream")
