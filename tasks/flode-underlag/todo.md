@@ -233,7 +233,20 @@ till dem.
     `services/agent_tools.py` här (FU5 äger den); går felet genom verktyget som `IntakeError`
     räcker det.
 
-- [ ] **FU8 — Jämförelseinlägget (§9.1, D6)**
+- [x] **FU8 — Jämförelseinlägget (§9.1, D6)**
+  - Gjort 2026-09-28: 8 tester i `tests/test_flode_underlag_trad.py` (testfall 25 med
+    `message.completed`, 26, 27 både utan tråd och över `POST …/interpretation`, 28, `expected`
+    som är matchen ger ett inlägg, utan moms på ena sidan/utan hypotes, gemensam transaktion,
+    radbyggaren ren), 6 sedda röda först; 26 och 27 var gröna redan och står kvar som vakter.
+    Rent i `services/interpretation.py`: `comparison_rows(part)` (återanvänds av FU9),
+    `comparison_body(part, *, vendor, document_date)` och `comparison_parts(match, expected)`
+    (`expected` först, `exact` hoppas över, samma verifikation en gång). `title` är `Kvitto
+    {leverantör} {datum} mot {nummer}` med de delar som finns. `InterpretationService.interpret`
+    skriver raden och inläggen i en `db.transaction()` och publicerar `message.completed` efter
+    commit (inlägget saknar `run_id`, så turens pågående meddelande lämnas orört; `DraftService.
+    propose` publicerar inte sitt `draft`-inlägg, så formen är `on_posted`s). Inläggets `actor`
+    är tolkningens. `repositories/interpretation_repo.py` behövde ingen ändring: `insert` hade
+    redan `_commit`. `underlagstolkning` 33 grön oförändrad. Hela sviten 1414 gröna. mypy 61.
   - Beror på: FU1 (hjälparna)
   - Acceptans: en ren radbyggare (`comparison_body(interpretation_part, voucher_number) -> dict`,
     namnet valfritt) i `services/interpretation.py`: `title`, `labels ["kvitto", "{nummer}"]`,

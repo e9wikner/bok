@@ -439,3 +439,85 @@ def _format_kr(value_ore: int) -> str:
     sign = "-" if value_ore < 0 else ""
     kr, ore = divmod(abs(value_ore), 100)
     return f"{sign}{kr:,}".replace(",", " ") + f",{ore:02d}"
+
+
+# ---------------------------------------------------------------------------
+# The comparison in the thread (SPEC-flode-underlag.md §9.1, §9.3, D6, D7)
+# ---------------------------------------------------------------------------
+
+#: `JamforelseRader`'s labels for a receipt against a voucher
+#: (SPEC-chattyta.md §4.3): the document on the left, the voucher right.
+COMPARISON_DOCUMENT_LABEL = "kvitto"
+
+
+def comparison_rows(part: Candidate) -> List[Dict[str, Any]]:
+    """The two numbers per row, as the interpretation stored them: the
+    amount including VAT, and the input VAT when both sides have one.
+    Shared by the comparison post and the receipt after a link (§9.3: "samma
+    som jämförelseinlägget, ur samma tolkning")."""
+    rows: List[Dict[str, Any]] = [
+        {
+            "key": "Belopp",
+            "text": "inklusive moms",
+            "left_ore": part.amounts["document_ore"],
+            "right_ore": part.amounts["voucher_ore"],
+        }
+    ]
+    document_vat = part.vat.get("document_ore")
+    voucher_vat = part.vat.get("voucher_ore")
+    if document_vat is not None and voucher_vat is not None:
+        rows.append(
+            {
+                "key": "Moms",
+                "text": "ingående moms",
+                "left_ore": document_vat,
+                "right_ore": voucher_vat,
+            }
+        )
+    return rows
+
+
+def comparison_body(
+    part: Candidate,
+    *,
+    vendor: Optional[str],
+    document_date: Optional[date],
+) -> Dict[str, Any]:
+    """§9.1's `receipt` body for one voucher the underlag was compared
+    with: `part` is the interpretation's `match`, its `expected` or a
+    candidate. `note` is the server's hypothesis verbatim (§7.5) and only
+    that -- left out when there is none (D7). Pure: the caller writes it."""
+    number = part.voucher_number or part.voucher_id
+    title = " ".join(
+        str(piece)
+        for piece in ("Kvitto", vendor, document_date, "mot", number)
+        if piece is not None and piece != ""
+    )
+    body: Dict[str, Any] = {
+        "title": title,
+        "labels": [COMPARISON_DOCUMENT_LABEL, number],
+        "rows": comparison_rows(part),
+    }
+    found = getattr(part, "hypothesis", None)
+    if found and found.get("text"):
+        body["note"] = found["text"]
+    body["voucher_id"] = part.voucher_id
+    return body
+
+
+def comparison_parts(
+    match: Optional[Match], compared: Optional[Expected]
+) -> List[Candidate]:
+    """Which comparisons a thread gets (§9.1): `expected` first -- it is
+    what the agent asked for -- then `match` when it is another voucher.
+    An `exact` one is skipped: the link that follows carries the rows."""
+    parts: List[Candidate] = []
+    if compared is not None and compared.kind != "exact":
+        parts.append(compared)
+    if (
+        match is not None
+        and match.kind != "exact"
+        and (compared is None or match.voucher_id != compared.voucher_id)
+    ):
+        parts.append(match)
+    return parts

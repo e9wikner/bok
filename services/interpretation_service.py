@@ -8,6 +8,8 @@ underlag, runs the checks (§6.3-§6.4), matches it against the ledger
 its `POST`, for a session without the tool (§12.6 f).
 Read-only against the books: nothing here writes to `vouchers`,
 `voucher_intake_sources`, `attachments` or `intake_sources` (testfall 33).
+In a thread it also writes the comparison post(s) of
+SPEC-flode-underlag.md §9.1 -- a post in the thread, not the books.
 
 The pure logic -- checks, confidence, ranking, `expected`, hypothesis --
 is `services/interpretation.py`, which reads no file and has no database.
@@ -16,14 +18,18 @@ layer, asks the repositories for candidates and saves the row. Still no
 SQL of its own (AGENTS.md's layering; spec §4).
 """
 
+import logging
 from datetime import date
-from typing import Any, Dict, Optional, Protocol
+from typing import Any, Dict, List, Optional, Protocol
 
+from db.database import db
 from domain.interpretation import Interpretation
+from domain.models import ThreadPost
 from domain.types import IntakeStatus
 from domain.validation import ValidationError
 from repositories.intake_repo import IntakeRepository
 from repositories.interpretation_repo import InterpretationRepository
+from repositories.thread_repo import ThreadRepository
 from repositories.voucher_repo import VoucherRepository
 from services.agent_documents import extract_pdf_text
 from services.intake import IntakeConflictError, IntakeError, IntakeService
@@ -32,11 +38,15 @@ from services.interpretation import (
     DATE_WINDOW_DAYS_BEFORE,
     MatchRead,
     amount_window_ore,
+    comparison_body,
+    comparison_parts,
     confidence,
     expected,
     match_document,
     run_checks,
 )
+
+logger = logging.getLogger(__name__)
 
 _PDF_MIME_TYPE = "application/pdf"
 
@@ -107,26 +117,46 @@ class InterpretationService:
         compared = expected(args, expected_row, matching) if expected_row else None
 
         read = _read(args)
-        interpretation = InterpretationRepository.insert(
-            Interpretation(
-                intake_source_id=source.id,
-                vendor=args.vendor,
-                document_date=args.document_date,
-                currency=args.currency,
-                total_ore=args.total_ore,
-                vat_ore=args.vat_ore,
-                lines=read["lines"],
-                checks=checks.to_dict(),
-                confidence=confidence(checks),
-                match=matching.match,
-                candidates=matching.candidates,
-                expected_voucher_id=args.expected_voucher_id,
-                expected=compared,
-                actor=actor,
-                agent_run_id=agent_run_id,
-                thread_id=thread_id,
-            )
+        row = Interpretation(
+            intake_source_id=source.id,
+            vendor=args.vendor,
+            document_date=args.document_date,
+            currency=args.currency,
+            total_ore=args.total_ore,
+            vat_ore=args.vat_ore,
+            lines=read["lines"],
+            checks=checks.to_dict(),
+            confidence=confidence(checks),
+            match=matching.match,
+            candidates=matching.candidates,
+            expected_voucher_id=args.expected_voucher_id,
+            expected=compared,
+            actor=actor,
+            agent_run_id=agent_run_id,
+            thread_id=thread_id,
         )
+        # SPEC-flode-underlag.md §9.1 (D6): in a thread, the comparison is
+        # the server's post, in the same transaction as the interpretation
+        # it shows, and published after the commit.
+        posts: List[ThreadPost] = []
+        with db.transaction():
+            interpretation = InterpretationRepository.insert(row, _commit=False)
+            if thread_id is not None:
+                for part in comparison_parts(matching.match, compared):
+                    posts.append(
+                        ThreadRepository.add_post(
+                            thread_id=thread_id,
+                            post_type="receipt",
+                            actor=actor,
+                            body=comparison_body(
+                                part,
+                                vendor=args.vendor,
+                                document_date=args.document_date,
+                            ),
+                            _commit=False,
+                        )
+                    )
+        _publish(posts)
         return {
             "interpretation_id": interpretation.id,
             "source_id": source.id,
@@ -234,6 +264,28 @@ class InterpretationService:
             return None
         intake = IntakeService()
         return extract_pdf_text(intake.resolve_source_file(source).read_bytes())
+
+
+def _publish(posts: List[ThreadPost]) -> None:
+    """`message.completed` for each comparison post, after the commit --
+    the same event `DraftService.on_posted` sends for its receipt. A post
+    without `run_id`, so the turn's own in-flight message is left alone.
+    Never fatal: the posts are stored and the next read shows them."""
+    if not posts:
+        return
+    from services.thread_stream import (
+        EVENT_MESSAGE_COMPLETED,
+        get_broker,
+        post_event_payload,
+    )
+
+    for post in posts:
+        try:
+            get_broker().publish(
+                post.thread_id, EVENT_MESSAGE_COMPLETED, post_event_payload(post)
+            )
+        except Exception:
+            logger.exception("Comparison post %s was not published", post.id)
 
 
 def _read(args: MatchRead) -> Dict[str, Any]:
