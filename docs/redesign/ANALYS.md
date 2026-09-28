@@ -163,6 +163,8 @@ idempotens, oversikt
 
 **`underlagstolkning` klar 2026-09-28** (U1–U15, `tasks/underlagstolkning/todo.md`). Avvikelse från tabellen ovan: ingen `POST /intake/{id}/interpret` med eget LLM-anrop — tolkningen är agentverktyget `tolka_underlag` och läsvägen `GET /intake/{id}/interpretation` (`SPEC-underlagstolkning.md` §12.1); `POST /intake/{id}/interpretation` tar emot en läsning från en session utan verktyget, utan LLM-anrop (§8). Kvar för beställaren: kriterium 6 med riktig LLM. Nästa: `flode-underlag`.
 
+**`flode-underlag` specad och godkänd 2026-09-28** (`SPEC-flode-underlag.md`, beslut D1–D10). Tillägg till kartan: `underlag-ersatt` — att ersätta ett felkopplat underlag med spår, vilket panelen kräver men som kräver en ombyggnad av `voucher_intake_sources` (D10). Beror på `flode-underlag` och byggs direkt efter den.
+
 ### Konsekvens av att flöde 2 och 3 utgår
 
 Vyerna **Fakturering** och **Löner** finns kvar i informationsarkitekturen — v10 ritar dem som vyer, och de ska byggas som **läsvyer med tråd men utan skrivflöde**. Agenten kan svara på frågor om dem; den kan inte godkänna en lönekörning eller skicka en faktura. Skrivning sker tills vidare via befintliga endpoints, utanför redesignen.
