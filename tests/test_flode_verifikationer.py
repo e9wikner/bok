@@ -853,13 +853,17 @@ _FIRST_TEN_SHA256 = "503ba62181d07802fb1a2c521e9453a4d2f213098f3e2aa73a20e67f625
 def test_case_22_foresla_verifikation_is_last_and_the_first_ten_are_unchanged():
     """SPEC §5.7: appended last, the one change that moves none of the ten
     before it. The names catch a reorder; the hash catches an edit to a
-    description or a schema that leaves the names where they were."""
+    description or a schema that leaves the names where they were.
+
+    `underlagstolkning` has since appended `tolka_underlag` after it
+    (SPEC-underlagstolkning.md §6.6), so it is eleventh rather than last;
+    what comes after it is that module's testfall 34."""
     names = [tool["name"] for tool in AGENT_TOOL_DEFINITIONS]
 
-    assert names == _FIRST_TEN + ["foresla_verifikation"]
+    assert names == _FIRST_TEN + ["foresla_verifikation", "tolka_underlag"]
     first_ten = json.dumps(AGENT_TOOL_DEFINITIONS[:10], ensure_ascii=False)
     assert hashlib.sha256(first_ten.encode("utf-8")).hexdigest() == _FIRST_TEN_SHA256
-    assert AGENT_TOOL_DEFINITIONS[-1]["input_schema"] == (
+    assert AGENT_TOOL_DEFINITIONS[10]["input_schema"] == (
         ForeslaVerifikationArgs.model_json_schema()
     )
 

@@ -1079,6 +1079,9 @@ _EXPECTED_TOOL_NAMES = [
     # The eleventh, appended the same way (SPEC-flode-verifikationer.md
     # §5.7, §12.1, task F7): the ten above keep their positions.
     "foresla_verifikation",
+    # The twelfth, appended the same way (SPEC-underlagstolkning.md §6.6,
+    # task U7): the eleven above keep their positions.
+    "tolka_underlag",
 ]
 
 
@@ -1114,7 +1117,7 @@ class TestAppendOnlyToolSurface:
     """
 
     def test_tool_names_are_exactly_the_allowed_tools(self):
-        """Eleven since `flode-verifikationer` (SPEC §5.7). The count is asserted
+        """Twelve since `underlagstolkning` (SPEC §6.6). The count is asserted
         against the expected list rather than a literal, so adding a tool
         without adding it there still fails -- which is the point: this is
         the append-only rule's only automatic check through the agent's
@@ -1165,7 +1168,7 @@ class TestAppendOnlyToolSurface:
                 ), f"tool {tool['name']!r} description contains {phrase!r}"
 
     def test_only_the_writing_tools_are_undocumented_as_read_only(self):
-        """Four write, and each one names what it writes.
+        """Five write, and each one names what it writes.
 
         `be_om_beslut` joined them with `beslut` (SPEC-beslut.md §11.3). It
         writes to `decisions`, `decision_options` and `thread_posts` and to
@@ -1181,12 +1184,18 @@ class TestAppendOnlyToolSurface:
         It is not read-only, so it is not allowed to say it is; and like
         `be_om_beslut` it must not name the general ledger, which the next
         test keeps for `posta_verifikation` alone.
+
+        `tolka_underlag` joined them with `underlagstolkning`
+        (SPEC-underlagstolkning.md §6.1): read-only against the books, but
+        it writes an `intake_interpretations` row, so it does not say
+        "Skrivskyddat" either.
         """
         write_tool_names = {
             "posta_verifikation",
             "registrera_avstaende",
             "be_om_beslut",
             "foresla_verifikation",
+            "tolka_underlag",
         }
         read_tool_names = set(_EXPECTED_TOOL_NAMES) - write_tool_names
         for tool in AGENT_TOOL_DEFINITIONS:
@@ -1196,6 +1205,10 @@ class TestAppendOnlyToolSurface:
                 ), f"read tool {tool['name']!r} should say it is read-only"
 
     def test_posta_verifikation_is_the_only_tool_that_touches_the_ledger(self):
+        """`tolka_underlag`'s description names the ledger as what it
+        matches against -- SPEC-underlagstolkning.md §6.2, verbatim -- so it
+        is the one exception, and only while it also says it changes
+        nothing in the books."""
         description = next(
             t["description"]
             for t in AGENT_TOOL_DEFINITIONS
@@ -1203,7 +1216,9 @@ class TestAppendOnlyToolSurface:
         )
         assert "huvudboken" in description.lower()
         for tool in AGENT_TOOL_DEFINITIONS:
-            if tool["name"] != "posta_verifikation":
+            if tool["name"] == "tolka_underlag":
+                assert "ändrar ingenting i bokföringen" in tool["description"]
+            elif tool["name"] != "posta_verifikation":
                 assert "huvudboken" not in tool["description"].lower()
 
 

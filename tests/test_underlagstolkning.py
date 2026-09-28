@@ -7,6 +7,7 @@ gets its own section. Test case numbers refer to the tables in spec §10.
 Per the spec no LLM is ever called from a test.
 """
 
+import hashlib
 import json
 import re
 import sqlite3
@@ -1737,19 +1738,13 @@ def _voucher_number(voucher_id: str) -> str:
     return f"{row['series']}-{row['number']}"
 
 
-def test_15_confidence_or_hypothesis_in_the_arguments_is_invalid(monkeypatch):
+def test_15_confidence_or_hypothesis_in_the_arguments_is_invalid():
     """Testfall 15: the fields do not exist, and `extra="forbid"` makes
     sending them `invalid_tool_arguments` instead of silently dropping
-    them. Routed through `execute_tool` with the handler registered for
-    the test only -- the tool list itself is U7."""
+    them. Routed through `execute_tool` and the real tool list (U7)."""
     from domain.validation import ValidationError
     from services import agent_tools
 
-    monkeypatch.setitem(
-        agent_tools._TOOL_HANDLERS,
-        "tolka_underlag",
-        (agent_tools.TolkaUnderlagArgs, agent_tools._run_tolka_underlag),
-    )
     for extra in ({"confidence": "high"}, {"hypothesis": {"text": "Pant"}}):
         with pytest.raises(ValidationError) as exc:
             agent_tools.execute_tool(
@@ -1815,6 +1810,9 @@ def test_u6_only_tolka_underlag_forbids_extra_fields():
     assert TolkaUnderlagArgs.model_config.get("extra") == "forbid"
     assert TolkaUnderlagLine.model_config.get("extra") == "forbid"
     for tool in AGENT_TOOL_DEFINITIONS:
+        if tool["name"] == "tolka_underlag":
+            assert "additionalProperties" in json.dumps(tool["input_schema"])
+            continue
         assert "additionalProperties" not in json.dumps(tool["input_schema"]), tool[
             "name"
         ]
@@ -2152,3 +2150,64 @@ def test_u6_voucher_candidate_row_is_one_posted_voucher_any_window(
     draft = _purchase(period_id, total=1000, day=2, post=False)
     assert VoucherRepository.candidate_row(draft) is None
     assert VoucherRepository.candidate_row("no-such-voucher") is None
+
+
+# ---------------------------------------------------------------------------
+# U7 — the tool list: `tolka_underlag` last (§6.2, §6.6; testfall 34)
+# ---------------------------------------------------------------------------
+
+# sha256 of `json.dumps(AGENT_TOOL_DEFINITIONS[:11])`, taken on `9523c81`,
+# before U7 touched `_TOOL_SPECS`. No `sort_keys`: the key order inside each
+# definition is part of the bytes the model is sent, and so of the cached
+# prefix (SPEC-agentruntime §6.6).
+_FIRST_ELEVEN_SHA256 = (
+    "fb742d38defdbfd4b9243def499d30a4917779f6a57c8e2199a7c67b31480ad6"
+)
+
+
+def _spec_6_2_description() -> str:
+    """The block quote under "Beskrivning i verktygslistan:" in §6.2,
+    its lines joined with a space -- read from the spec so that "verbatim"
+    is checked against the spec itself, not a copy of it."""
+    spec = (REPO_ROOT / "docs" / "redesign" / "SPEC-underlagstolkning.md").read_text()
+    after = spec.split("Beskrivning i verktygslistan:\n\n", 1)[1]
+    quoted = []
+    for line in after.splitlines():
+        if not line.startswith("> "):
+            break
+        quoted.append(line[2:].strip())
+    return " ".join(quoted)
+
+
+def test_34_tolka_underlag_is_last_and_the_first_eleven_are_unchanged():
+    """Testfall 34: appended last, the twelfth tool; the names catch a
+    reorder, the hash an edit to a description or schema before it."""
+    from services.agent_tools import AGENT_TOOL_DEFINITIONS, TolkaUnderlagArgs
+
+    assert len(AGENT_TOOL_DEFINITIONS) == 12
+    assert [t["name"] for t in AGENT_TOOL_DEFINITIONS][-2:] == [
+        "foresla_verifikation",
+        "tolka_underlag",
+    ]
+    first_eleven = json.dumps(AGENT_TOOL_DEFINITIONS[:11])
+    assert hashlib.sha256(first_eleven.encode()).hexdigest() == _FIRST_ELEVEN_SHA256
+    assert AGENT_TOOL_DEFINITIONS[-1]["input_schema"] == (
+        TolkaUnderlagArgs.model_json_schema()
+    )
+
+
+def test_34_the_description_is_section_6_2_verbatim():
+    from services.agent_tools import AGENT_TOOL_DEFINITIONS
+
+    expected = _spec_6_2_description()
+    assert expected.startswith("Lämna det du läst ur ett underlag")
+    assert expected.endswith("för samma underlag.")
+    assert AGENT_TOOL_DEFINITIONS[-1]["description"] == expected
+
+
+def test_u7_the_docstrings_say_twelve_tools():
+    from services import agent_tools
+
+    assert "twelfth" in (agent_tools.__doc__ or "")
+    assert "tolka_underlag" in (agent_tools.__doc__ or "")
+    assert "twelve" in (agent_tools.execute_tool.__doc__ or "")

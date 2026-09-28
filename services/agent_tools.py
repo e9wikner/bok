@@ -26,6 +26,14 @@ goes through it with ``correction_of`` (§12.5), never through
 ``posta_verifikation`` -- a rule the agent's instructions already state,
 while the branch itself answers ``not_implemented`` until F11 builds it.
 
+A twelfth, ``tolka_underlag``, was added by ``underlagstolkning``
+(``docs/redesign/SPEC-underlagstolkning.md`` §6) and appended after
+``foresla_verifikation`` for the same reason (§6.6, testfall 34): the eleven
+before it are unchanged byte for byte. It hands the server what the model
+read from an underlag for checks and a match against the ledger, and writes
+one ``intake_interpretations`` row -- it links nothing and changes nothing
+in the books. It is not terminal.
+
 ``posta_verifikation`` is the only tool that posts to the general ledger,
 and it goes through the exact same code as ``POST /api/v1/agent/vouchers``
 (``services/voucher_posting.post_agent_voucher``, A1) -- same
@@ -1072,6 +1080,18 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
         ForeslaVerifikationArgs,
         _run_foresla_verifikation,
     ),
+    (
+        "tolka_underlag",
+        "Lämna det du läst ur ett underlag (leverantör, datum, belopp, moms, "
+        "rader) för kontroll och matchning mot huvudboken. Servern stämmer av "
+        "momsen och textlagret, letar efter en postad verifikation som saknar "
+        "underlag och räknar differensen. Sparar tolkningen men kopplar "
+        "ingenting och ändrar ingenting i bokföringen. Anropa efter "
+        "hamta_underlagsfil och före posta_verifikation eller "
+        "foresla_verifikation för samma underlag.",
+        TolkaUnderlagArgs,
+        _run_tolka_underlag,
+    ),
 )
 
 #: Anthropic tool-definition shape: {"name", "description", "input_schema"}.
@@ -1100,7 +1120,8 @@ def execute_tool(
     idempotency_key: Optional[str] = None,
     tool_context: Optional[Mapping[str, Any]] = None,
 ) -> Any:
-    """Validate and run one model-requested tool call.
+    """Validate and run one model-requested tool call -- one of the twelve
+    tools in ``_TOOL_SPECS``, the last of them ``tolka_underlag``.
 
     ``idempotency_key`` is the caller's own key for a posting made during
     this session, and only ``posta_verifikation`` reads it -- the thread
@@ -1116,7 +1137,9 @@ def execute_tool(
     cannot exist without the thread it was raised in, nor a proposal
     without the thread it is a card in; ``foresla_verifikation`` also reads
     the turn's ``proposals`` sequence from it, which the thread path always
-    sets. It is handed to every handler rather than branched on here, for
+    sets. ``tolka_underlag`` opens it too, but only for traceability
+    (``thread`` and ``agent_run_id``, SPEC-underlagstolkning.md §6.6) and
+    works without it. It is handed to every handler rather than branched on here, for
     the same reason ``idempotency_key`` is: the dispatcher stays a table
     lookup with no special case in it.
 

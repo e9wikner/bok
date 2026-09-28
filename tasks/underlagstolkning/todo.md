@@ -208,7 +208,21 @@ oräknade. Testfallsnumren syftar på tabellerna i §10. Backendens tester ligge
     det kommer ifrån i stället för att lägga till det i förbifarten. Testfall 33 jämför de fyra
     tabellerna/kolumnerna före och efter, inte bara radantalet.
 
-- [ ] **U7 — Verktygslistan**
+- [x] **U7 — Verktygslistan**
+  - Gjort 2026-09-28: `tolka_underlag` sist i `_TOOL_SPECS`, det tolfte verktyget. Testfall 34
+    (tre tester, sedda röda först): sha256 av `json.dumps(AGENT_TOOL_DEFINITIONS[:11])` tagen på
+    `9523c81` och hårdkodad; beskrivningen jämförs mot blockcitatet i §6.2 läst ur spec-filen;
+    docstringarna säger tolv. `agentruntime` 17 (tolfte namnet, `tolka_underlag` bland de
+    skrivande — den skriver `intake_interpretations` och säger inte "Skrivskyddat") och
+    `flode-verifikationer` 22 (namnlistan, `[-1]` → `[10]`) uppdaterade. **Avvikelse:** §6.2:s
+    ordagranna beskrivning säger "matchning mot huvudboken", och tre tester förbjöd
+    "huvudboken" utanför `posta_verifikation`: `agentruntime` 17, `beslut` 26
+    (`tests/test_beslut.py`) och `tradar` 14 (`tests/test_tradar.py`). `tolka_underlag` är
+    där ett smalt undantag, bara så länge beskrivningen också säger "ändrar ingenting i
+    bokföringen". `beslut` 25 räknar också listan (11 → 12). U6:s testfall 15 går nu genom
+    den riktiga listan, utan `monkeypatch`, och `test_u6_only_tolka_underlag_forbids_extra_fields`
+    undantar `tolka_underlag` själv (och kräver `additionalProperties` där). Hela sviten
+    1274 gröna, mypy 61.
   - Acceptans: `tolka_underlag` sist i `_TOOL_SPECS`, med beskrivningen i §6.2 ordagrant. De elva
     första oförändrade byte för byte. Modulens och `execute_tool`s docstrings säger tolv verktyg.
   - Verifiera: testfall 34 (sha256 av `json.dumps(AGENT_TOOL_DEFINITIONS[:11])` tagen på commiten
