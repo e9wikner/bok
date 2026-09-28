@@ -1605,3 +1605,550 @@ def test_u5_amount_format_is_the_same_as_pdf_exports(ore):
     from services.pdf_export import format_sek
 
     assert _format_kr(ore) == format_sek(ore)
+
+
+# ---------------------------------------------------------------------------
+# U6 — `tolka_underlag`: arguments, handler and orchestration (§6, §7;
+# testfall 15, 16, 25, 33, 35, 36), against the test database
+# ---------------------------------------------------------------------------
+
+U6_DAY = date(2026, 3, 15)
+
+#: Flöde 4's receipt as the model sends it (§6.5), dated inside the
+#: `period_id` fixture's March.
+U6_ARGS: dict = {
+    "vendor": "Elektronikhuset",
+    "document_date": "2026-03-15",
+    "currency": "SEK",
+    "total_ore": 460000,
+    "vat_ore": 89600,
+    "lines": [
+        {"text": "USB-C docka", "amount_ore": 448000, "vat_rate": 25},
+        {"text": "Pant", "amount_ore": 12000, "vat_rate": 0},
+    ],
+}
+
+#: The receipt's text layer: 3 704 + 896 = 4 600, the pant carries no VAT.
+U6_TEXT_LINES = [
+    "Elektronikhuset AB",
+    "Kvitto 2026-03-15",
+    "USB-C docka 4 480,00 kr",
+    "Pant 120,00 kr",
+    "Netto 3 704,00 kr",
+    "Moms 896,00 kr",
+    "Att betala 4 600,00 kr",
+]
+
+
+def _text_pdf(lines: Sequence[str]) -> bytes:
+    """A one-page PDF with *lines* as a real text layer (Helvetica, BT/Tj),
+    the same construction as `test_agent_runtime._build_text_pdf_bytes`."""
+    import io
+
+    from pypdf import PdfWriter
+    from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=595, height=842)
+    font = DictionaryObject()
+    font[NameObject("/Type")] = NameObject("/Font")
+    font[NameObject("/Subtype")] = NameObject("/Type1")
+    font[NameObject("/BaseFont")] = NameObject("/Helvetica")
+    font[NameObject("/Encoding")] = NameObject("/WinAnsiEncoding")
+    fonts = DictionaryObject()
+    fonts[NameObject("/F1")] = writer._add_object(font)
+    resources = DictionaryObject()
+    resources[NameObject("/Font")] = fonts
+    page[NameObject("/Resources")] = resources
+    content = ["BT", "/F1 12 Tf", "50 800 Td", "14 TL"]
+    for i, line in enumerate(lines):
+        if i:
+            content.append("T*")
+        content.append(f"({line}) Tj")
+    content.append("ET")
+    stream = DecodedStreamObject()
+    stream.set_data("\n".join(content).encode("latin-1"))
+    page[NameObject("/Contents")] = writer._add_object(stream)
+    buf = io.BytesIO()
+    writer.write(buf)
+    return buf.getvalue()
+
+
+@pytest.fixture
+def intake_dir(tmp_path):
+    """`settings.intake_dir` under *tmp_path* for the test, so a source's
+    file resolves inside the intake root."""
+    original = settings.intake_dir
+    settings.intake_dir = str(tmp_path / "intake")
+    yield settings.intake_dir
+    settings.intake_dir = original
+
+
+def _upload(content: bytes, *, name: str = "kvitto.pdf", mime="application/pdf"):
+    from services.intake import IntakeService
+
+    return IntakeService().create_source_from_upload_content(
+        filename=name,
+        content_type=mime,
+        content=content,
+        explanation="Kvitto Elektronikhuset",
+        source_type="receipt",
+        actor="api",
+    )
+
+
+def _u6_capabilities():
+    from services.llm import LLMCapabilities
+
+    return LLMCapabilities(
+        cache_breakpoint=True,
+        pdf_document_blocks=True,
+        refusal_stop_reason=True,
+        streaming=True,
+    )
+
+
+def _tolka(source_id: str, tool_context=None, **overrides) -> dict:
+    """One `tolka_underlag` call through its handler, with the arguments
+    validated by the tool's own model as `execute_tool` would."""
+    from services.agent_tools import TolkaUnderlagArgs, _run_tolka_underlag
+
+    arguments = {**U6_ARGS, "source_id": source_id, **overrides}
+    return _run_tolka_underlag(
+        TolkaUnderlagArgs.model_validate(arguments),
+        actor="agent",
+        capabilities=_u6_capabilities(),
+        tool_context=tool_context,
+    )
+
+
+def _a118(period_id: str) -> str:
+    """Flöde 4's A-118: 4 480 kr with 896 kr input VAT, paid by card the
+    same day -- posted by the bank path, without underlag."""
+    voucher_id = _purchase(period_id, total=448000, vat=89600, day=15)
+    _bank_transaction(voucher_id, day=15, amount=-448000)
+    return voucher_id
+
+
+def _voucher_number(voucher_id: str) -> str:
+    row = db.execute(
+        "SELECT series, number FROM vouchers WHERE id = ?", (voucher_id,)
+    ).fetchone()
+    return f"{row['series']}-{row['number']}"
+
+
+def test_15_confidence_or_hypothesis_in_the_arguments_is_invalid(monkeypatch):
+    """Testfall 15: the fields do not exist, and `extra="forbid"` makes
+    sending them `invalid_tool_arguments` instead of silently dropping
+    them. Routed through `execute_tool` with the handler registered for
+    the test only -- the tool list itself is U7."""
+    from domain.validation import ValidationError
+    from services import agent_tools
+
+    monkeypatch.setitem(
+        agent_tools._TOOL_HANDLERS,
+        "tolka_underlag",
+        (agent_tools.TolkaUnderlagArgs, agent_tools._run_tolka_underlag),
+    )
+    for extra in ({"confidence": "high"}, {"hypothesis": {"text": "Pant"}}):
+        with pytest.raises(ValidationError) as exc:
+            agent_tools.execute_tool(
+                "tolka_underlag",
+                {**U6_ARGS, "source_id": "s-1", **extra},
+                actor="agent",
+                capabilities=_u6_capabilities(),
+            )
+        assert exc.value.code == "invalid_tool_arguments"
+        assert next(iter(extra)) in str(exc.value.details)
+
+    # A line may not carry one either.
+    line = {"text": "Pant", "amount_ore": 12000, "confidence": "high"}
+    with pytest.raises(ValidationError) as exc:
+        agent_tools.execute_tool(
+            "tolka_underlag",
+            {**U6_ARGS, "source_id": "s-1", "lines": [line]},
+            actor="agent",
+            capabilities=_u6_capabilities(),
+        )
+    assert exc.value.code == "invalid_tool_arguments"
+
+
+def test_u6_args_are_section_6_2():
+    from pydantic import ValidationError as PydanticError
+
+    from services.agent_tools import TolkaUnderlagArgs, TolkaUnderlagLine
+
+    assert list(TolkaUnderlagArgs.model_fields) == [
+        "source_id",
+        "vendor",
+        "document_date",
+        "currency",
+        "total_ore",
+        "vat_ore",
+        "lines",
+        "expected_voucher_id",
+    ]
+    assert list(TolkaUnderlagLine.model_fields) == ["text", "amount_ore", "vat_rate"]
+    minimal = TolkaUnderlagArgs.model_validate({"source_id": "s", "total_ore": 0})
+    assert (minimal.currency, minimal.lines, minimal.vat_ore) == ("SEK", [], None)
+    for bad in (
+        {"total_ore": -1},
+        {"vat_ore": -1},
+        {"currency": "sek"},
+        {"lines": [{"text": "", "amount_ore": 1}]},
+        {"lines": [{"text": "A", "amount_ore": 1, "vat_rate": 20}]},
+        {"lines": [{"text": "A", "amount_ore": 1}] * 101},
+    ):
+        with pytest.raises(PydanticError):
+            TolkaUnderlagArgs.model_validate({"source_id": "s", "total_ore": 1, **bad})
+
+
+def test_u6_only_tolka_underlag_forbids_extra_fields():
+    """`extra="forbid"` puts `additionalProperties: false` in a schema, and
+    the schemas are the cached prefix: no other tool's model may get it."""
+    from services.agent_tools import (
+        AGENT_TOOL_DEFINITIONS,
+        TolkaUnderlagArgs,
+        TolkaUnderlagLine,
+    )
+
+    assert TolkaUnderlagArgs.model_config.get("extra") == "forbid"
+    assert TolkaUnderlagLine.model_config.get("extra") == "forbid"
+    for tool in AGENT_TOOL_DEFINITIONS:
+        assert "additionalProperties" not in json.dumps(tool["input_schema"]), tool[
+            "name"
+        ]
+
+
+def test_16_flode4_the_whole_way_against_the_database(
+    period_id, purchase_accounts, intake_dir
+):
+    """Testfall 16 the whole way: a PDF receipt of 4 600 kr against A-118's
+    4 480 kr the same day -> `amount_diff`, `diff_ore = 12000`, the
+    hypothesis on the pant line, equal VAT; the text layer agrees."""
+    voucher_id = _a118(period_id)
+    number = _voucher_number(voucher_id)
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+
+    result = _tolka(source.id)
+
+    assert list(result) == [
+        "interpretation_id",
+        "source_id",
+        "read",
+        "checks",
+        "confidence",
+        "match",
+        "candidates",
+        "expected",
+    ]
+    assert result["source_id"] == source.id
+    assert result["checks"] == {
+        "lines_sum": "ok",
+        "vat_rate": "ok",
+        "vat_share": "not_applicable",
+        "text_layer": "agrees",
+        "date": "ok",
+        "currency": "sek",
+    }
+    assert result["confidence"] == "high"
+    match = result["match"]
+    assert match["kind"] == "amount_diff"
+    assert match["voucher_id"] == voucher_id
+    assert match["voucher_number"] == number
+    assert match["voucher_date"] == "2026-03-15"
+    assert match["amounts"] == {"document_ore": 460000, "voucher_ore": 448000}
+    assert match["diff_ore"] == 12000
+    assert match["date_diff_days"] == 0
+    assert match["vat"] == {"document_ore": 89600, "voucher_ore": 89600, "equal": True}
+    assert match["bank_transaction"]["amount_ore"] == -448000
+    assert match["bank_transaction"]["counterpart_name"] == "ELEKTRONIKHUSET"
+    assert match["hypothesis"] == {
+        "text": "Skillnaden på 120,00 kr motsvarar raden ”Pant” på underlaget.",
+        "basis": "line_items",
+        "lines": [1],
+    }
+    assert [c["voucher_id"] for c in result["candidates"]] == [voucher_id]
+    assert result["expected"] is None
+
+    # The row is what was answered: the same read, checks and match.
+    saved = InterpretationRepository.latest_for_source(source.id)
+    assert saved is not None
+    assert saved.id == result["interpretation_id"]
+    assert saved.actor == "agent"
+    assert saved.confidence == "high"
+    assert saved.checks == result["checks"]
+    assert saved.match is not None and saved.match.to_dict() == match
+    assert [c.to_dict() for c in saved.candidates] == result["candidates"]
+    assert saved.lines == U6_ARGS["lines"]
+    assert (saved.vendor, saved.document_date) == ("Elektronikhuset", U6_DAY)
+    assert (saved.total_ore, saved.vat_ore) == (460000, 89600)
+    assert saved.expected_voucher_id is None
+    assert json.loads(json.dumps(result)) == result  # JSON-serialisable
+
+
+def test_u6_read_is_what_the_model_sent_unchanged(
+    period_id, purchase_accounts, intake_dir
+):
+    """§6.5: `read` is the model's claims as sent -- no `source_id`, no
+    `expected_voucher_id`, nothing added or normalised."""
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+    lines = [{"text": "Docka", "amount_ore": 460000, "vat_rate": None}]
+
+    result = _tolka(source.id, vendor=None, lines=lines)
+
+    assert result["read"] == {**U6_ARGS, "vendor": None, "lines": lines}
+    assert list(result["read"]) == [
+        "vendor",
+        "document_date",
+        "currency",
+        "total_ore",
+        "vat_ore",
+        "lines",
+    ]
+
+
+def test_u6_image_source_has_no_text_layer_and_is_medium(
+    period_id, purchase_accounts, intake_dir
+):
+    """An image is not read for a text layer (§6.3): `not_available`,
+    and at best `medium`."""
+    _a118(period_id)
+    source = _upload(b"\x89PNG\r\n\x1a\n fake", name="kvitto.png", mime="image/png")
+
+    result = _tolka(source.id)
+
+    assert result["checks"]["text_layer"] == "not_available"
+    assert result["confidence"] == "medium"
+    assert result["match"]["diff_ore"] == 12000
+
+
+def test_u6_text_layer_disagreeing_is_low(period_id, purchase_accounts, intake_dir):
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+
+    result = _tolka(source.id, total_ore=406000, lines=[])
+
+    assert result["checks"]["text_layer"] == "disagrees"
+    assert result["confidence"] == "low"
+
+
+def test_u6_ambiguous_candidates_give_no_match(
+    period_id, purchase_accounts, intake_dir
+):
+    """§7.3 against the database: two equal candidates, no vendor hit ->
+    `match = null`, both in `candidates`."""
+    first = _purchase(period_id, total=460000, vat=92000, day=15)
+    second = _purchase(period_id, total=460000, vat=92000, day=15)
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+
+    result = _tolka(source.id, vendor=None)
+
+    assert result["match"] is None
+    assert {c["voucher_id"] for c in result["candidates"]} == {first, second}
+    saved = InterpretationRepository.latest_for_source(source.id)
+    assert saved is not None and saved.match is None
+    assert len(saved.candidates) == 2
+
+
+def test_u6_expected_is_computed_against_that_voucher_even_outside_the_windows(
+    period_id, purchase_accounts, intake_dir
+):
+    """§7.3: `expected_voucher_id` does not change the ranking; `expected`
+    is counted in full against that voucher, even three weeks off and far
+    outside the amount window, with `is_best_match = false`."""
+    a118 = _a118(period_id)
+    elsewhere = _purchase(period_id, total=99000, vat=19800, day=1)
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+
+    result = _tolka(source.id, expected_voucher_id=elsewhere)
+
+    assert result["match"]["voucher_id"] == a118
+    expected = result["expected"]
+    assert expected["voucher_id"] == elsewhere
+    assert expected["voucher_number"] == _voucher_number(elsewhere)
+    assert expected["diff_ore"] == 460000 - 99000
+    assert expected["date_diff_days"] == -14
+    assert expected["vat"] == {
+        "document_ore": 89600,
+        "voucher_ore": 19800,
+        "equal": False,
+    }
+    assert expected["kind"] == "amount_diff"
+    assert expected["is_best_match"] is False
+    assert expected["bank_transaction"] is None
+    saved = InterpretationRepository.latest_for_source(source.id)
+    assert saved is not None and saved.expected_voucher_id == elsewhere
+
+    again = _tolka(source.id, expected_voucher_id=a118)
+    assert again["expected"]["is_best_match"] is True
+    assert again["expected"]["hypothesis"] == again["match"]["hypothesis"]
+    assert again["expected"]["bank_transaction"] == again["match"]["bank_transaction"]
+
+
+def test_u6_expected_voucher_that_is_not_posted_is_refused(
+    period_id, purchase_accounts, intake_dir
+):
+    """An `expected_voucher_id` with no posted voucher behind it is a hard
+    error, and nothing is saved -- there is nothing to compare with, and
+    the column is a foreign key."""
+    from domain.validation import ValidationError
+
+    draft = _purchase(period_id, total=448000, vat=89600, day=15, post=False)
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+
+    for voucher_id in ("no-such-voucher", draft):
+        with pytest.raises(ValidationError) as exc:
+            _tolka(source.id, expected_voucher_id=voucher_id)
+        assert exc.value.code == "expected_voucher_not_found"
+    assert InterpretationRepository.count_for_source(source.id) == 0
+
+
+def test_25_currency_eur_the_whole_way(period_id, purchase_accounts, intake_dir):
+    """Testfall 25 against the database: an exact SEK candidate exists,
+    but a EUR document is not matched -- and `expected` is null too (§7.1:
+    no matching in another currency)."""
+    a118 = _purchase(period_id, total=460000, vat=89600, day=15)
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+
+    result = _tolka(source.id, currency="EUR", expected_voucher_id=a118)
+
+    assert result["checks"]["currency"] == "not_sek"
+    assert result["match"] is None
+    assert result["candidates"] == []
+    assert result["expected"] is None
+    assert result["read"]["currency"] == "EUR"
+    saved = InterpretationRepository.latest_for_source(source.id)
+    assert saved is not None
+    assert (saved.currency, saved.match, saved.candidates) == ("EUR", None, [])
+    assert saved.expected_voucher_id == a118
+
+
+def _books_snapshot() -> dict:
+    """The full content of what `tolka_underlag` must not touch (§14):
+    every column of `vouchers`, `voucher_rows`, `voucher_intake_sources`
+    and `attachments`, and every source's status."""
+    queries = {
+        "vouchers": "SELECT * FROM vouchers ORDER BY id",
+        "voucher_rows": "SELECT * FROM voucher_rows ORDER BY id",
+        "voucher_intake_sources": "SELECT * FROM voucher_intake_sources "
+        "ORDER BY voucher_id, intake_source_id",
+        "attachments": "SELECT * FROM attachments ORDER BY id",
+        "intake_sources.status": "SELECT id, status FROM intake_sources ORDER BY id",
+    }
+    return {
+        name: [tuple(row) for row in db.execute(sql).fetchall()]
+        for name, sql in queries.items()
+    }
+
+
+def test_33_tolka_underlag_changes_nothing_in_the_books(
+    period_id, purchase_accounts, intake_dir
+):
+    """Testfall 33: before and after, the content -- not only the row
+    count -- of `vouchers`, `voucher_intake_sources`, `attachments` and
+    `intake_sources.status` is the same. The only new row is the
+    interpretation."""
+    a118 = _a118(period_id)
+    with_attachment = _purchase(period_id, total=460000, vat=92000, day=16)
+    _attach(with_attachment)
+    linked = _purchase(period_id, total=455000, vat=91000, day=14)
+    _link_intake_source(linked)
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+    before = _books_snapshot()
+    assert all(before[name] for name in before), "every table has content"
+
+    result = _tolka(source.id, expected_voucher_id=a118)
+
+    assert result["match"]["voucher_id"] == a118
+    assert _books_snapshot() == before
+    assert InterpretationRepository.count_for_source(source.id) == 1
+    source_after = IntakeRepository.get_source(source.id)
+    assert source_after is not None and source_after.status.value == "pending"
+
+
+def test_35_from_the_thread_turn_thread_id_and_agent_run_id_are_set(
+    period_id, purchase_accounts, intake_dir
+):
+    """Testfall 35: `tool_context` carries the thread (as the thread turn
+    puts it there) and the turn's `agent_run_id`; both land on the row."""
+    from repositories.agent_run_repo import AgentRunRepository
+    from repositories.thread_repo import ThreadRepository
+
+    fiscal_year_id = PeriodRepository.get_period(period_id).fiscal_year_id
+    thread = ThreadRepository.get_or_create(
+        view_key="bocker.verifikationer",
+        fiscal_year_id=fiscal_year_id,
+        model="opencode/claude-opus-5",
+    )
+    run = AgentRunRepository.create(
+        trigger="thread", model="opencode/claude-opus-5", protocol="messages"
+    )
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+
+    result = _tolka(source.id, tool_context={"thread": thread, "agent_run_id": run.id})
+
+    saved = InterpretationRepository.latest_for_source(source.id)
+    assert saved is not None and saved.id == result["interpretation_id"]
+    assert saved.thread_id == thread.id
+    assert saved.agent_run_id == run.id
+
+
+def test_35_without_tool_context_both_are_null(
+    period_id, purchase_accounts, intake_dir
+):
+    """The intake pass or a bare call (§6.6): the tool works without
+    either, and the row says so."""
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+
+    _tolka(source.id)
+    _tolka(source.id, tool_context={"proposals": object()})
+
+    saved = InterpretationRepository.latest_for_source(source.id)
+    assert saved is not None
+    assert (saved.thread_id, saved.agent_run_id) == (None, None)
+    assert InterpretationRepository.count_for_source(source.id) == 2
+
+
+def test_36_unknown_and_deleted_source(period_id, purchase_accounts, intake_dir):
+    """Testfall 36: `source_not_found` / `source_deleted`, and nothing
+    saved."""
+    from services.intake import IntakeError, IntakeService
+
+    with pytest.raises(IntakeError) as exc:
+        _tolka("no-such-source")
+    assert exc.value.code == "source_not_found"
+
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+    IntakeService().soft_delete(source.id, actor="api")
+    with pytest.raises(IntakeError) as exc:
+        _tolka(source.id)
+    assert exc.value.code == "source_deleted"
+
+    assert (
+        db.execute("SELECT COUNT(*) AS n FROM intake_interpretations").fetchone()["n"]
+        == 0
+    )
+
+
+def test_u6_service_has_no_sql_and_no_http():
+    """§4: the orchestration holds no SQL and no HTTP concepts either."""
+    source = (REPO_ROOT / "services" / "interpretation_service.py").read_text()
+    for forbidden in ("db.execute", "sqlite3", "SELECT ", "fastapi", "HTTPException"):
+        assert forbidden not in source
+
+
+def test_u6_voucher_candidate_row_is_one_posted_voucher_any_window(
+    period_id, purchase_accounts
+):
+    """`VoucherRepository.candidate_row`: the same fields as
+    `match_candidates`, for one posted voucher, whatever its date or
+    amount; `None` for a draft or an unknown id."""
+    from repositories.voucher_repo import VoucherRepository
+
+    a118 = _a118(period_id)
+    [in_window] = _candidates(U6_DAY, 448000)
+
+    assert VoucherRepository.candidate_row(a118) == in_window
+    draft = _purchase(period_id, total=1000, day=2, post=False)
+    assert VoucherRepository.candidate_row(draft) is None
+    assert VoucherRepository.candidate_row("no-such-voucher") is None

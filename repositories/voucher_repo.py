@@ -444,8 +444,31 @@ class VoucherRepository:
         else:
             window = 0
         params.extend([total_ore, window])
+        return VoucherRepository._candidate_rows(
+            where, params, having="ABS(SUM(vr.debit) - ?) <= ?"
+        )
 
-        # `vouchers` unaliased in `totals` for the shared predicate.
+    @staticmethod
+    def candidate_row(voucher_id: str) -> Optional[MatchCandidateRow]:
+        """One posted voucher as a `match_candidates` row -- the same
+        fields, joins and bank-transaction choice, in one query -- whatever
+        its date, amount or underlag. For `expected` (SPEC-underlagstolkning
+        §7.3), which is counted against the voucher the agent named even
+        outside the windows. `None` for a draft or an unknown id."""
+        rows = VoucherRepository._candidate_rows(
+            ["vouchers.status = 'posted'", "vouchers.id = ?"], [voucher_id]
+        )
+        return rows[0] if rows else None
+
+    @staticmethod
+    def _candidate_rows(
+        where: Sequence[str], params: Sequence, *, having: Optional[str] = None
+    ) -> List[MatchCandidateRow]:
+        """The candidate query behind `match_candidates` and
+        `candidate_row`: *where* filters `vouchers` (unaliased, for the
+        shared predicate), *having* optionally bounds the debit sum; the
+        `?`s of both are in *params*, in that order."""
+        having_sql = f"HAVING {having}" if having else ""
         sql = f"""
             WITH totals AS (
                 SELECT vouchers.id AS id,
@@ -461,7 +484,7 @@ class VoucherRepository:
                 LEFT JOIN accounts a ON a.code = vr.account_code
                 WHERE {" AND ".join(where)}
                 GROUP BY vouchers.id
-                HAVING ABS(SUM(vr.debit) - ?) <= ?
+                {having_sql}
             ),
             bank AS (
                 SELECT vbt.voucher_id AS voucher_id,

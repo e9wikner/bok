@@ -6,7 +6,9 @@ the ranking, `match`, `expected` and the hypothesis (§7.3-§7.5). The
 windows are part of what a match *is*, not something to deploy
 differently, so they live here and not in `config.py`;
 `VoucherRepository.match_candidates` takes them as arguments and has no
-defaults of its own. The orchestration (U6) comes later.
+defaults of its own. The orchestration -- fetching the source, reading
+its text layer, asking for candidates, saving -- is
+`services/interpretation_service.py`.
 
 Pure logic: no SQL, no HTTP, no file reading. The caller hands in the
 already extracted text layer and the candidate rows.

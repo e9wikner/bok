@@ -47,7 +47,7 @@ import uuid
 from datetime import date as DateType
 from typing import Any, Callable, Literal, Mapping, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic import ValidationError as PydanticValidationError
 
 from domain.models import (
@@ -374,6 +374,38 @@ class BeOmBeslutArgs(BaseModel):
     )
     kind: Literal["abstention", "approval"] = "abstention"
     footnote: Optional[str] = None
+
+
+class TolkaUnderlagLine(BaseModel):
+    """En rad på underlaget, inklusive moms; negativ för en rabatt."""
+
+    # The only tool models with `extra="forbid"` (SPEC-underlagstolkning
+    # §6.2, testfall 15): a `confidence` or `hypothesis` from the model is
+    # refused, not silently dropped. Not added to any other tool's model --
+    # it puts `additionalProperties: false` in the schema, and the schemas
+    # are the cached prefix (SPEC-agentruntime §6.6).
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(..., min_length=1, max_length=200)
+    amount_ore: int
+    vat_rate: Optional[Literal[25, 12, 6, 0]] = None
+
+
+class TolkaUnderlagArgs(BaseModel):
+    """Det modellen läste ur ett underlag, för kontroll och matchning
+    (SPEC-underlagstolkning.md §6.2). Belopp i öre. Det finns inget fält
+    för `confidence` eller `hypothesis`: dem räknar servern (§12.3)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_id: str
+    vendor: Optional[str] = Field(None, max_length=200)
+    document_date: Optional[DateType] = None
+    currency: str = Field("SEK", pattern="^[A-Z]{3}$")
+    total_ore: int = Field(..., ge=0)
+    vat_ore: Optional[int] = Field(None, ge=0)
+    lines: list[TolkaUnderlagLine] = Field(default_factory=list, max_length=100)
+    expected_voucher_id: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -893,6 +925,45 @@ def _run_foresla_verifikation(
     if proposals is not None:
         proposals.advance()
     return result
+
+
+def _run_tolka_underlag(
+    args: TolkaUnderlagArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """SPEC-underlagstolkning.md §6. Not terminal, and read-only against
+    the books: it saves one `intake_interpretations` row and answers with
+    the checks and the match (§6.5).
+
+    Opens ``tool_context`` only for traceability (§6.6): the ``thread``
+    gives ``thread_id``, and ``agent_run_id`` is read if the caller put one
+    there. Neither is required -- without them it is a call from the intake
+    pass or a test, and the row says so with ``NULL``.
+
+    Today no caller puts ``agent_run_id`` in the mapping. The thread turn's
+    run is created in ``services/thread_stream.py``
+    (``AgentRunRepository.create(trigger="thread", ...)``) before it calls
+    ``run_thread_session``, which builds ``tool_context`` without it; the
+    intake pass's run is created in ``services/agent_runtime.py`` and
+    ``run_session`` passes no ``tool_context`` at all. Carrying it is a
+    change to those callers, not to this handler.
+    """
+    context = tool_context or {}
+    thread = context.get("thread")
+
+    # Deferred import -- the same import-cycle rule as `_run_be_om_beslut`.
+    from services.interpretation_service import InterpretationService
+
+    return InterpretationService().interpret(
+        args,
+        actor=actor,
+        thread_id=thread.id if thread is not None else None,
+        agent_run_id=context.get("agent_run_id"),
+    )
 
 
 # ---------------------------------------------------------------------------

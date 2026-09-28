@@ -290,7 +290,8 @@ def receipt_traces(
                 "voucher_id": corrects.id,
             }
         )
-    # Derived, like SPEC-oversikt.md §3: no row in `attachments`.
+    # Derived, like SPEC-oversikt.md §3: `MISSING_ATTACHMENT_SQL` in
+    # repositories/voucher_repo.py (SPEC-underlagstolkning.md §2.1).
     if voucher.missing_attachment:
         traces.append({"tool": RECEIPT_FLAG_TOOL, "label": "kompletteringsflagga satt"})
     traces.append({"tool": RECEIPT_WAITING_TOOL, "label": f"{waiting} kvar"})

@@ -160,7 +160,37 @@ oräknade. Testfallsnumren syftar på tabellerna i §10. Backendens tester ligge
     vara svensk (mellanslag som tusentalsavgränsare, komma som decimaltecken) — återanvänd en
     befintlig formaterare om en finns i `services/`.
 
-- [ ] **U6 — `tolka_underlag`: argument, hanterare och orkestrering**
+- [x] **U6 — `tolka_underlag`: argument, hanterare och orkestrering**
+  - Gjort 2026-09-28: 17 tester (testfall 15, 16 hela vägen, 25 hela vägen, 33, 35 i två
+    delar, 36, plus `test_u6_*`) i `tests/test_underlagstolkning.py`, alla sedda röda först.
+    `TolkaUnderlagArgs`/`TolkaUnderlagLine` i `agent_tools.py` enligt §6.2 med
+    `extra="forbid"` på bara dessa två (testat: inget schema i `AGENT_TOOL_DEFINITIONS` har
+    `additionalProperties`). Testfall 15 går genom `execute_tool` med hanteraren inlagd i
+    `_TOOL_HANDLERS` via `monkeypatch` — listan är U7. `_run_tolka_underlag` läser `thread`
+    (→ `thread_id`) och `agent_run_id` ur `tool_context`; **`agent_run_id` finns inte där i
+    dag**: trådturens körning skapas i `services/thread_stream.py`
+    (`AgentRunRepository.create(trigger="thread", …)`) före `run_thread_session`, som bygger
+    `tool_context` utan den, och intagspassets i `services/agent_runtime.py`, där `run_session`
+    inte skickar något `tool_context`. Att föra fram den är en ändring hos anroparna, inte
+    gjord här (docstringen säger var). **Avvikelse från fillistan:**
+    `InterpretationService` ligger i nya `services/interpretation_service.py`, inte i
+    `services/interpretation.py`: U3:s test (`test_u3_service_has_no_sql_and_reads_no_file`)
+    förbjuder `extract_pdf_text(` där, och den rena logiken hålls ren. Servicen har ingen SQL
+    (testat). `VoucherRepository.candidate_row(voucher_id)` för `expected`: samma fält,
+    joins och bankhändelseval som `match_candidates` (frågan delad i `_candidate_rows`), en
+    postad verifikation oavsett fönster och underlag; utkast/okänt id → `None`, och servicen
+    avvisar då med `ValidationError("expected_voucher_not_found")` utan att spara
+    (kolumnen är en främmande nyckel). Felkoderna `source_not_found`/`source_deleted` följer
+    §6.3/testfall 36 — `las_underlag` ger i dag `intake_not_found` och avvisar inte en
+    raderad källa, så "samma fel som `las_underlag`" stämmer inte; `las_underlag` är
+    oförändrad. Annan valuta: `match = null`, `candidates = []`, ledgern tillfrågas inte,
+    och `expected = null` även med `expected_voucher_id` (§7.1), som ändå sparas. `read` är
+    §6.2:s sex läsfält i ordning, som JSON, utan `source_id`/`expected_voucher_id`.
+    `checks` bär även `currency` (§6.3), fast §6.5:s exempel utelämnar den. Svaret:
+    `interpretation_id`, `source_id`, `read`, `checks`, `confidence`, `match`,
+    `candidates`, `expected`. Bild → textlagret läses inte (`not_available`). Kommentaren
+    i `services/draft_service.py` vid kompletteringsflaggan hänvisar nu till
+    `MISSING_ATTACHMENT_SQL`/§2.1. Hela sviten 1271 gröna, mypy 61.
   - Acceptans: `TolkaUnderlagArgs`/`TolkaUnderlagLine` enligt §6.2 med `extra="forbid"`, så att
     `confidence` eller `hypothesis` i argumenten ger `invalid_tool_arguments`.
     `InterpretationService.interpret(args, *, actor, thread_id, agent_run_id)`: hämtar källan
