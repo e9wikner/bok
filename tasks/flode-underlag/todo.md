@@ -350,7 +350,11 @@ till dem.
     `queue_depth`. Det är avsett (tråden äger filen); säg det i commit-meddelandet och pröva
     `las_underlag` i ett test.
 
-- [ ] **FU12 — `missing_attachment` och `age_days` i `las_verifikationer` (§11.1)**
+- [x] **FU12 — `missing_attachment` och `age_days` i `las_verifikationer` (§11.1)**
+  - Gjort 2026-09-28: 2 tester i `tests/test_flode_underlag_verktyg.py` (testfall 37: svaret
+    har fälten med `Voucher`s värden, och sha256 av hela `las_verifikationer`-definitionen,
+    tagen på `a326fdf`, är oförändrad), svarstestet sett rött först; hashvakten var grön före
+    och efter. `_voucher_dict` fick de två fälten sist. Hela sviten 1433 gröna. mypy 61.
   - Beror på: FU5
   - Acceptans: `_voucher_dict` (`services/agent_tools.py:458`) får `missing_attachment` och
     `age_days` ur `Voucher`. Argumenten och beskrivningen av `las_verifikationer` orörda.

@@ -234,3 +234,46 @@ def test_fu5_the_pass_links_on_exact_match_only(period_id):
         tool_context={"agent_run_id": make_run("manual")},
     )
     assert result["basis"] == "exact_match"
+
+
+# ---------------------------------------------------------------------------
+# FU12 — `missing_attachment` and `age_days` in `las_verifikationer` (§11.1)
+# ---------------------------------------------------------------------------
+
+#: sha256 of `json.dumps(las_verifikationer's definition)`, taken on
+#: `a326fdf` (FU4), before FU5 and FU12: only the answer grows, the
+#: arguments and the description are the cached prefix.
+_LAS_VERIFIKATIONER_SHA256 = (
+    "4e2d241f8db4ab674b891cec41f3351eaa729fe9ff7f4e831b03cf948b4c5119"
+)
+
+
+def test_37_las_verifikationer_answers_missing_attachment_and_age_days(period_id):
+    """Testfall 37: the same derived values as `VoucherResponse`
+    (SPEC-oversikt.md §3), read from the voucher."""
+    from repositories.voucher_repo import VoucherRepository
+    from tests.test_flode_underlag import attach
+
+    missing = a118(period_id)
+    complete = fu.posted_purchase(period_id, day=16)
+    attach(complete)
+
+    result = _execute("las_verifikationer", {"period_id": period_id})
+
+    by_id = {v["id"]: v for v in result["items"]}
+    for voucher_id, flag in [(missing, True), (complete, False)]:
+        voucher = VoucherRepository.get(voucher_id)
+        assert voucher is not None
+        assert by_id[voucher_id]["missing_attachment"] is flag
+        assert by_id[voucher_id]["age_days"] == voucher.age_days
+        assert isinstance(by_id[voucher_id]["age_days"], int)
+
+
+def test_37_arguments_and_description_are_unchanged_byte_for_byte():
+    from services.agent_tools import AGENT_TOOL_DEFINITIONS
+
+    [tool] = [t for t in AGENT_TOOL_DEFINITIONS if t["name"] == "las_verifikationer"]
+
+    assert hashlib.sha256(json.dumps(tool).encode()).hexdigest() == (
+        _LAS_VERIFIKATIONER_SHA256
+    )

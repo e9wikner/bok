@@ -489,6 +489,12 @@ def _voucher_dict(voucher: Voucher) -> dict:
         "created_by": voucher.created_by,
         "created_at": voucher.created_at.isoformat(),
         "posted_at": voucher.posted_at.isoformat() if voucher.posted_at else None,
+        # SPEC-flode-underlag.md §11.1: the same derived values as
+        # `VoucherResponse` (SPEC-oversikt.md §3), so the agent can ask for
+        # the underlag a posted voucher lacks. Only the answer grows; the
+        # tool's arguments and description are the cached prefix.
+        "missing_attachment": voucher.missing_attachment,
+        "age_days": voucher.age_days,
     }
 
 
