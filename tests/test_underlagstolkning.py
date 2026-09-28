@@ -11,8 +11,10 @@ import json
 import re
 import sqlite3
 import uuid
+from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
+from typing import List, Literal, Optional, Sequence
 
 import pytest
 from fastapi.testclient import TestClient
@@ -767,3 +769,333 @@ def test_29_candidate_query_is_one_sql_call(monkeypatch, period_id, purchase_acc
 
     assert count(date(2026, 3, 15), 20000) == (4, 1)
     assert count(None, 20000) == (4, 1)
+
+
+# ---------------------------------------------------------------------------
+# U3: the checks and the confidence (§6.3-§6.4), pure logic, no database
+# ---------------------------------------------------------------------------
+
+U3_TODAY = date(2026, 6, 10)
+
+# Text layers in the shape `reconciliation_result` recognises: one labelled
+# amount per line (netto / moms / att betala), Swedish number format.
+TEXT_LAYER_4600 = (
+    "Elektronikhuset AB\n"
+    "Kvitto 2026-06-03\n"
+    "Netto 3 680,00 kr\n"
+    "Moms 920,00 kr\n"
+    "Att betala 4 600,00 kr\n"
+)
+TEXT_LAYER_4060 = (
+    "Elektronikhuset AB\n"
+    "Kvitto 2026-06-03\n"
+    "Netto 3 248,00 kr\n"
+    "Moms 812,00 kr\n"
+    "Att betala 4 060,00 kr\n"
+)
+
+
+@dataclass(frozen=True)
+class _Line:
+    text: str
+    amount_ore: int
+    vat_rate: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class _Read:
+    """What the model claims, in §6.2's shape (only the fields U3 reads)."""
+
+    total_ore: int
+    vat_ore: Optional[int] = None
+    lines: Sequence[_Line] = ()
+    document_date: Optional[date] = date(2026, 6, 3)
+    currency: str = "SEK"
+
+
+def _checks(read, text_layer_text=None):
+    from services.interpretation import run_checks
+
+    return run_checks(read, text_layer_text=text_layer_text, today=U3_TODAY)
+
+
+def _read_4600(**overrides) -> _Read:
+    """4 600 kr incl. 920 kr VAT at 25 %, no lines."""
+    values: dict = dict(total_ore=460000, vat_ore=92000)
+    values.update(overrides)
+    return _Read(**values)
+
+
+def test_06_lines_sum_to_the_total_is_ok():
+    read = _read_4600(
+        lines=[_Line("Docka", 400000, 25), _Line("Kabel", 60000, 25)],
+    )
+    assert _checks(read).lines_sum == "ok"
+
+
+def test_06_without_lines_lines_sum_is_not_applicable():
+    assert _checks(_read_4600()).lines_sum == "not_applicable"
+
+
+def test_07_two_ore_off_over_three_lines_is_ok():
+    read = _read_4600(
+        lines=[_Line("A", 100000), _Line("B", 200000), _Line("C", 160002)],
+    )
+    assert _checks(read).lines_sum == "ok"
+
+
+def test_07_four_ore_off_over_three_lines_is_a_mismatch():
+    read = _read_4600(
+        lines=[_Line("A", 100000), _Line("B", 200000), _Line("C", 160004)],
+    )
+    assert _checks(read).lines_sum == "mismatch"
+
+
+def test_08_hundred_ore_off_is_a_mismatch_and_low():
+    from services.interpretation import confidence
+
+    read = _read_4600(
+        lines=[_Line("A", 100000), _Line("B", 200000), _Line("C", 160100)],
+    )
+    checks = _checks(read)
+    assert checks.lines_sum == "mismatch"
+    assert confidence(checks) == "low"
+
+
+def test_09_a_25_percent_line_with_matching_vat_is_ok():
+    """Flöde 4's receipt: 4 480 kr at 25 % carries 896 kr VAT, the deposit
+    none."""
+    read = _Read(
+        total_ore=460000,
+        vat_ore=89600,
+        lines=[_Line("USB-C docka", 448000, 25), _Line("Pant", 12000, 0)],
+    )
+    checks = _checks(read)
+    assert checks.vat_rate == "ok"
+    assert checks.lines_sum == "ok"
+    assert checks.vat_share == "not_applicable"
+
+
+def test_09_vat_rate_tolerates_one_ore_per_line_and_no_more():
+    # 3 x 100,00 kr at 12 %: 10,714… kr each, 32,142… kr in all.
+    lines = [_Line("A", 10000, 12), _Line("B", 10000, 12), _Line("C", 10000, 12)]
+    assert _checks(_Read(30000, 3214 + 3, lines)).vat_rate == "ok"
+    assert _checks(_Read(30000, 3214 - 2, lines)).vat_rate == "ok"
+    assert _checks(_Read(30000, 3214 + 5, lines)).vat_rate == "mismatch"
+
+
+def test_09_vat_rate_mismatch_lowers_confidence():
+    from services.interpretation import confidence
+
+    read = _Read(total_ore=12500, vat_ore=1250, lines=[_Line("A", 12500, 25)])
+    checks = _checks(read)
+    assert checks.vat_rate == "mismatch"
+    assert confidence(checks) == "low"
+
+
+def test_09_vat_rate_not_applicable_without_rates_or_vat():
+    assert _checks(_read_4600()).vat_rate == "not_applicable"
+    assert _checks(_read_4600(lines=[_Line("A", 460000)])).vat_rate == "not_applicable"
+    assert (
+        _checks(_read_4600(vat_ore=None, lines=[_Line("A", 460000, 25)])).vat_rate
+        == "not_applicable"
+    )
+
+
+def test_10_without_lines_vat_twenty_percent_of_net_is_implausible_and_low():
+    from services.interpretation import confidence
+
+    checks = _checks(_Read(total_ore=12000, vat_ore=2000))
+    assert checks.vat_share == "implausible"
+    assert confidence(checks) == "low"
+
+
+@pytest.mark.parametrize(
+    "total, vat",
+    [
+        (12500, 2500),  # 25 %
+        (11200, 1200),  # 12 %
+        (10600, 600),  # 6 %
+        (10000, 0),  # no VAT
+        (12540, 2540),  # 25,4 % of net
+        (11150, 1150),  # 11,5 % of net: the edge
+    ],
+)
+def test_10_vat_share_near_a_swedish_rate_is_ok(total, vat):
+    assert _checks(_Read(total_ore=total, vat_ore=vat)).vat_share == "ok"
+
+
+@pytest.mark.parametrize(
+    "total, vat",
+    [
+        (12560, 2560),  # 25,6 % of net
+        (11140, 1140),  # 11,4 % of net
+        (100, 100),  # all VAT, no net
+    ],
+)
+def test_10_vat_share_outside_half_a_point_is_implausible(total, vat):
+    assert _checks(_Read(total_ore=total, vat_ore=vat)).vat_share == "implausible"
+
+
+def test_10_vat_share_not_applicable_with_lines_or_without_vat():
+    assert _checks(_read_4600(vat_ore=None)).vat_share == "not_applicable"
+    read = _read_4600(lines=[_Line("A", 460000, 25)])
+    assert _checks(read).vat_share == "not_applicable"
+
+
+def test_11_text_layer_with_same_total_and_vat_agrees_and_high():
+    from services.agent_documents import ReconciliationState, reconciliation_result
+    from services.interpretation import confidence
+
+    # The fixture is a text `reconciliation_result` recognises and reconciles.
+    assert reconciliation_result(TEXT_LAYER_4600).state is (
+        ReconciliationState.RECONCILES
+    )
+    checks = _checks(_read_4600(), TEXT_LAYER_4600)
+    assert checks.text_layer == "agrees"
+    assert confidence(checks) == "high"
+
+
+def test_12_model_read_4600_where_the_text_says_4060_disagrees_and_low():
+    from services.agent_documents import ReconciliationState, reconciliation_result
+    from services.interpretation import confidence
+
+    assert reconciliation_result(TEXT_LAYER_4060).state is (
+        ReconciliationState.RECONCILES
+    )
+    checks = _checks(_read_4600(), TEXT_LAYER_4060)
+    assert checks.text_layer == "disagrees"
+    assert confidence(checks) == "low"
+
+
+def test_12_text_layer_vat_the_model_did_not_read_disagrees():
+    """The text has a VAT amount; a read without `vat_ore` does not agree
+    with it (§6.3: both `total_ore` and `vat_ore` are compared)."""
+    checks = _checks(_read_4600(vat_ore=None), TEXT_LAYER_4600)
+    assert checks.text_layer == "disagrees"
+
+
+def test_13_image_has_no_text_layer_and_is_at_best_medium():
+    from services.interpretation import confidence
+
+    checks = _checks(_read_4600(), None)
+    assert checks.text_layer == "not_available"
+    assert confidence(checks) == "medium"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",  # scanned PDF: `extract_pdf_text` gives ""
+        "Elektronikhuset AB\nTack för ditt köp!\n",  # no triple
+        # A triple that does not add up: the text itself is scrambled and
+        # is no source to compare the model with.
+        "Netto 3 680,00 kr\nMoms 920,00 kr\nAtt betala 4 700,00 kr\n",
+    ],
+)
+def test_13_text_without_a_reconciling_triple_is_not_available(text):
+    from services.interpretation import confidence
+
+    checks = _checks(_read_4600(), text)
+    assert checks.text_layer == "not_available"
+    assert confidence(checks) == "medium"
+
+
+def test_14_date_tomorrow_is_future_and_low():
+    from services.interpretation import confidence
+
+    tomorrow = date(2026, 6, 11)
+    checks = _checks(_read_4600(document_date=tomorrow), TEXT_LAYER_4600)
+    assert checks.date == "future"
+    assert confidence(checks) == "low"
+
+
+def test_14_date_today_is_ok_and_missing_date_does_not_lower():
+    from services.interpretation import confidence
+
+    assert _checks(_read_4600(document_date=U3_TODAY)).date == "ok"
+    checks = _checks(_read_4600(document_date=None), TEXT_LAYER_4600)
+    assert checks.date == "missing"
+    assert confidence(checks) == "high"
+
+
+def test_u3_currency_not_sek_does_not_lower_confidence():
+    from services.interpretation import confidence
+
+    assert _checks(_read_4600()).currency == "sek"
+    checks = _checks(_read_4600(currency="EUR"), TEXT_LAYER_4600)
+    assert checks.currency == "not_sek"
+    assert confidence(checks) == "high"
+    checks = _checks(_read_4600(currency="EUR"))
+    assert confidence(checks) == "medium"
+
+
+def test_u3_checks_serialise_in_section_6_3_order():
+    checks = _checks(_read_4600(), TEXT_LAYER_4600)
+    assert checks.to_dict() == {
+        "lines_sum": "not_applicable",
+        "vat_rate": "not_applicable",
+        "vat_share": "ok",
+        "text_layer": "agrees",
+        "date": "ok",
+        "currency": "sek",
+    }
+    assert list(checks.to_dict()) == [
+        "lines_sum",
+        "vat_rate",
+        "vat_share",
+        "text_layer",
+        "date",
+        "currency",
+    ]
+
+
+def test_u3_run_checks_takes_the_section_6_2_pydantic_model_as_is():
+    """U6's `TolkaUnderlagArgs` goes into `run_checks` without conversion.
+    The models are §6.2's, copied here only as the contract."""
+    from pydantic import BaseModel, Field
+
+    class TolkaUnderlagLine(BaseModel):
+        text: str = Field(..., min_length=1, max_length=200)
+        amount_ore: int
+        vat_rate: Optional[Literal[25, 12, 6, 0]] = None
+
+    class TolkaUnderlagArgs(BaseModel):
+        source_id: str
+        vendor: Optional[str] = Field(None, max_length=200)
+        document_date: Optional[date] = None
+        currency: str = Field("SEK", pattern="^[A-Z]{3}$")
+        total_ore: int = Field(..., ge=0)
+        vat_ore: Optional[int] = Field(None, ge=0)
+        lines: List[TolkaUnderlagLine] = Field(default_factory=list, max_length=100)
+        expected_voucher_id: Optional[str] = None
+
+    args = TolkaUnderlagArgs(
+        source_id="s-1",
+        document_date=date(2026, 6, 3),
+        total_ore=460000,
+        vat_ore=89600,
+        lines=[
+            TolkaUnderlagLine(text="USB-C docka", amount_ore=448000, vat_rate=25),
+            TolkaUnderlagLine(text="Pant", amount_ore=12000, vat_rate=0),
+        ],
+    )
+    checks = _checks(args)
+    assert (checks.lines_sum, checks.vat_rate, checks.date) == ("ok", "ok", "ok")
+
+
+def test_u3_run_checks_arguments_are_keyword_only():
+    import inspect
+
+    from services.interpretation import run_checks
+
+    params = inspect.signature(run_checks).parameters
+    for name in ("text_layer_text", "today"):
+        assert params[name].kind is inspect.Parameter.KEYWORD_ONLY
+        assert params[name].default is inspect.Parameter.empty
+
+
+def test_u3_service_has_no_sql_and_reads_no_file():
+    source = (REPO_ROOT / "services" / "interpretation.py").read_text()
+    for forbidden in ("db.execute", "sqlite3", "SELECT ", "open(", "extract_pdf_text("):
+        assert forbidden not in source

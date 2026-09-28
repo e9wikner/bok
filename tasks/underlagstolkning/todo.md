@@ -67,7 +67,23 @@ oräknade. Testfallsnumren syftar på tabellerna i §10. Backendens tester ligge
   - Obs: `test_numrering.py` testfall 1 kontrollerar att en viss version är tillämpad, inte
     maxversionen (ändrat i F5) — kontrollera att den inte bryts.
 
-- [ ] **U3 — Kontrollerna och säkerheten (ren logik)**
+- [x] **U3 — Kontrollerna och säkerheten (ren logik)**
+  - Gjort 2026-09-28: 34 tester (testfall 6–14 med gränsfall, några parametriserade, plus sex
+    `test_u3_*`) i `tests/test_underlagstolkning.py`, utan databas, alla sedda röda först.
+    `run_checks(read: Read, *, text_layer_text: Optional[str], today: date) -> Checks` och
+    `confidence(checks) -> Confidence`. `Read`/`ReadLine` är `Protocol` med skrivskyddade
+    properties (bara fälten kontrollerna läser): de är kovarianta, så U6:s Pydantic-modell går
+    in rakt av (`list[TolkaUnderlagLine]` mot `Sequence[ReadLine]`, `Literal[25, 12, 6, 0]` mot
+    `int`) — prövat med mypy mot en kopia av §6.2 och i ett test. Moms per rad räknas exakt med
+    `Fraction` och jämförs med ±1 öre per rad med `vat_rate`; `vat_share` ±0,5 procentenheter
+    inklusive gränsen; netto ≤ 0 med moms är `implausible`. `text_layer`: bara ett trippel som
+    `reconciliation_result` säger `RECONCILES` räknas — ett som inte går ihop är omkastad text
+    och ger `not_available`, inte `disagrees`; totalt **och** moms ska vara lika, så en läsning
+    utan `vat_ore` mot en text med moms är `disagrees`. `date = missing` och `currency = not_sek`
+    sänker inte. **Utanför fillistan:** `Checks` (fryst dataklass med `to_dict()` i §6.3:s
+    ordning) och `Literal`-typerna per kontroll i `domain/interpretation.py`; U6 sparar
+    `checks.to_dict()` i `Interpretation.checks`, vars typ är oförändrad. Hela sviten 1213
+    gröna, mypy 61.
   - Acceptans: `services/interpretation.py` har `run_checks(read, *, text_layer_text, today) ->
     Checks` och `confidence(checks) -> Confidence` enligt spec §6.3–§6.4. `text_layer` tar den
     redan utlästa texten (eller `None`) och använder `reconciliation_result`; filen läses inte här.

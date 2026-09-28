@@ -6,8 +6,8 @@ the server computed from it at that moment (`checks`, `confidence`, `match`,
 `candidates`, facts). It is never rewritten; a new interpretation of the
 same source is a new row.
 
-No logic here beyond (de)serialising the `*_json` columns. The checks, the
-confidence, the ranking and the hypothesis live in
+No logic here beyond (de)serialising the `*_json` columns. Computing the
+checks, the confidence, the ranking and the hypothesis live in
 `services/interpretation.py`; the SQL in `repositories/interpretation_repo.py`.
 """
 
@@ -22,6 +22,33 @@ Confidence = Literal["high", "medium", "low"]
 
 # §7.4: `exact` when `diff_ore = 0` and `date_diff_days <= 3`.
 MatchKind = Literal["exact", "amount_diff"]
+
+# §6.3: the values each check can take.
+LinesSumCheck = Literal["ok", "mismatch", "not_applicable"]
+VatRateCheck = Literal["ok", "mismatch", "not_applicable"]
+VatShareCheck = Literal["ok", "implausible", "not_applicable"]
+TextLayerCheck = Literal["agrees", "disagrees", "not_available"]
+DateCheck = Literal["ok", "future", "missing"]
+CurrencyCheck = Literal["sek", "not_sek"]
+
+
+@dataclass(frozen=True)
+class Checks:
+    """The server's checks of what the model read (§6.3), stored as
+    `checks_json`. Computed by `services.interpretation.run_checks`; the
+    confidence is derived from them, never from the model (§6.4)."""
+
+    lines_sum: LinesSumCheck
+    vat_rate: VatRateCheck
+    vat_share: VatShareCheck
+    text_layer: TextLayerCheck
+    date: DateCheck
+    currency: CurrencyCheck
+
+    def to_dict(self) -> Dict[str, str]:
+        """As stored in `checks_json` and returned by the tool, in §6.3's
+        order."""
+        return asdict(self)
 
 
 @dataclass
