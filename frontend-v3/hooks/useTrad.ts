@@ -63,7 +63,7 @@ export interface UseTrad {
    * Vid `false` är det optimistiska inlägget borttaget och `fel` satt —
    * anroparen (C5:s `ChattFalt`) behåller då texten i fältet.
    */
-  skicka: (text: string) => Promise<boolean>;
+  skicka: (text: string, attachments?: readonly string[]) => Promise<boolean>;
   laddar: boolean;
   /** Senaste felet från GET eller POST; nollställs av nästa lyckade. */
   fel: unknown;
@@ -148,14 +148,23 @@ export function useTrad(viewKey: string): UseTrad {
   }, [viewKey, oppna]);
 
   const skicka = useCallback(
-    async (text: string): Promise<boolean> => {
+    async (text: string, attachments: readonly string[] = []): Promise<boolean> => {
       const vy = vyRef.current;
       if (!vy || vy.avbryt.signal.aborted) return false;
       const lokaltId = `${LOKALT_PREFIX}${++lopnummer}`;
-      dispatch({ typ: "optimistisk", id: lokaltId, text, skapad: new Date().toISOString() });
+      // Utan text finns inget att visa i förväg: servern skriver då bara
+      // `user_file`-inläggen (SPEC-flode-underlag.md D8), och klienten hittar
+      // inte på en text åt människan. Filkorten kommer med POST-svaret.
+      if (text !== "") {
+        dispatch({ typ: "optimistisk", id: lokaltId, text, skapad: new Date().toISOString() });
+      }
 
       try {
-        const svar = await skickaMeddelande(vy.viewKey, text);
+        // Utan bilagor: samma anrop som före `flode-underlag`.
+        const svar =
+          attachments.length > 0
+            ? await skickaMeddelande(vy.viewKey, text, attachments)
+            : await skickaMeddelande(vy.viewKey, text);
         // Svaret hör till vyn som var aktiv när människan tryckte. Har hon
         // bytt vy sedan dess är den nya vyns tråd en annan tråd.
         if (vy.avbryt.signal.aborted) return true;

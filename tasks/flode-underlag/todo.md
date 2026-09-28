@@ -323,7 +323,7 @@ till dem.
   - Obs: klienten läser inga filer och räknar inget (§10.3). Speglingen av typerna ska ha en
     kommentar som pekar på servern, som avgör ändå.
 
-- [ ] **FU20 — `ChattFalt`: `drop`-varianten (§10.1–§10.2)**
+- [x] **FU20 — `ChattFalt`: `drop`-varianten (§10.1–§10.2)**
   - Beror på: FU19, FU14
   - Acceptans: knapp i fältet som öppnar filväljaren (på mobil `accept="image/*"
     capture="environment"`), dra och släpp på hela tråden, `paste` med fil. Ett chip per fil;

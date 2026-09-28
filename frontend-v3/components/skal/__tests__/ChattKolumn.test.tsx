@@ -36,13 +36,16 @@ beforeEach(() => {
 });
 
 describe("ChattFalt är ren text — inga förslagschips (spec §2.1)", () => {
-  it("har ett textfält och ingen enda knapp under det", () => {
+  it("har ett textfält och ingen knapp utom filväljarens", () => {
     const { container } = render(<ChattKolumn vyTitel="Balansräkning" viewKey="bocker.balans" />);
     const form = container.querySelector("form")!;
     expect(within(form).getByRole("textbox")).toBeInTheDocument();
     // Ett chip är ett förvalt yttrande. Designens egen regel är att
-    // ingenting förväljs — lägg inte tillbaka dem.
-    expect(within(form).queryAllByRole("button")).toHaveLength(0);
+    // ingenting förväljs — lägg inte tillbaka dem. Den enda knappen är
+    // `drop`-variantens filväljare (SPEC-flode-underlag.md §10.1).
+    const knappar = within(form).queryAllByRole("button");
+    expect(knappar).toHaveLength(1);
+    expect(knappar[0]).toHaveAccessibleName("Bifoga underlag");
   });
 
   it("fältet har en etikett som namnger vyn", () => {

@@ -157,12 +157,15 @@ function KolumnLayout({
   // Förslagskortets `Ändra` ska till DEN HÄR kolumnens fält (chattyta C12).
   const falt = useRef<HTMLInputElement>(null);
   const fokuseraFalt = useCallback(() => falt.current?.focus(), []);
+  // Hela kolumnen tar emot en släppt fil, inte bara fältet
+  // (SPEC-flode-underlag.md §10.1).
+  const kolumn = useRef<HTMLDivElement>(null);
   return (
-    <div className="flex min-h-0 flex-col border-r border-bok-linje">
+    <div ref={kolumn} className="flex min-h-0 flex-col border-r border-bok-linje">
       <ChattFaltFokus.Provider value={fokuseraFalt}>
         <TradYta vyTitel={vyTitel} viewKey={viewKey} trad={trad} />
       </ChattFaltFokus.Provider>
-      <ChattFalt ref={falt} vyTitel={vyTitel} onSkicka={onSkicka} />
+      <ChattFalt ref={falt} vyTitel={vyTitel} onSkicka={onSkicka} slappYta={kolumn} />
     </div>
   );
 }

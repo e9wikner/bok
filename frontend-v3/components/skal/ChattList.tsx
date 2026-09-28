@@ -66,6 +66,8 @@ function ListLayout({
   // Förslagskortets `Ändra` ska till listens eget fält (chattyta C12).
   const falt = useRef<HTMLInputElement>(null);
   const fokuseraFalt = useCallback(() => falt.current?.focus(), []);
+  // Listen tar emot en släppt fil, inte bara fältet (SPEC-flode-underlag.md §10.1).
+  const list = useRef<HTMLDivElement>(null);
 
   const marke =
     vantandeBeslut > 0
@@ -73,7 +75,7 @@ function ListLayout({
       : { text: `${trad.inlagg.length} inlägg`, vantar: false };
 
   return (
-    <div className="flex shrink-0 flex-col border-t border-bok-linje bg-bok-yta shadow-bok-chattlist">
+    <div ref={list} className="flex shrink-0 flex-col border-t border-bok-linje bg-bok-yta shadow-bok-chattlist">
       <button
         type="button"
         aria-label="Visa eller minimera chatten"
@@ -114,7 +116,7 @@ function ListLayout({
           <ChattFaltFokus.Provider value={fokuseraFalt}>
             <TradYta vyTitel={vyTitel} viewKey={viewKey} trad={trad} variant="mobil" />
           </ChattFaltFokus.Provider>
-          <ChattFalt ref={falt} vyTitel={vyTitel} variant="mobil" onSkicka={onSkicka} />
+          <ChattFalt ref={falt} vyTitel={vyTitel} variant="mobil" onSkicka={onSkicka} slappYta={list} />
         </div>
       )}
     </div>

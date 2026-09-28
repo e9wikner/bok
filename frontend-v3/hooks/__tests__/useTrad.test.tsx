@@ -13,7 +13,7 @@ import {
 } from "@/lib/chattyta/api";
 import type { SseHandelse, StromAlternativ } from "@/lib/chattyta/strom";
 import type { RaInlagg } from "@/lib/chattyta/typer";
-import { FIXTUR_AGENT_TEXT, FIXTUR_USER_TEXT } from "@/lib/chattyta/__fixtures__/inlagg";
+import { FIXTUR_AGENT_TEXT, FIXTUR_USER_FILE, FIXTUR_USER_TEXT } from "@/lib/chattyta/__fixtures__/inlagg";
 
 // ─── Mockar ───────────────────────────────────────────────────────────────
 
@@ -330,6 +330,35 @@ describe("useTrad — skicka (§6.3, testfall 12)", () => {
     expect(result.current.fel).not.toBeNull();
     await act(() => result.current.skicka("igen"));
     expect(result.current.fel).toBeNull();
+  });
+
+  it("bilagor skickas som id:n; utan text visas inget optimistiskt inlägg (FU20, D8)", async () => {
+    hamtaTrad.mockResolvedValue(trad({ posts: [agent("p-1", 1, "skicka kvittot")], cursor: 1 }));
+    const { result } = montera();
+    await waitFor(() => expect(result.current.laddar).toBe(false));
+
+    const post = uppskjutet<unknown>();
+    skickaMeddelande.mockReturnValue(post.lofte);
+    let skickat!: Promise<boolean>;
+    act(() => {
+      skickat = result.current.skicka("", ["i-7"]);
+    });
+    expect(skickaMeddelande).toHaveBeenCalledWith("verifikationer", "", ["i-7"]);
+    // Ingen text hittas på åt människan medan POST är i flykt.
+    expect(idn(result)).toEqual(["p-1"]);
+
+    await act(async () => {
+      post.losa({
+        thread_id: "t-1",
+        view_key: "verifikationer",
+        fiscal_year_id: "fy-2026",
+        posts: [{ ...FIXTUR_USER_FILE, id: "p-2", seq: 2 }],
+        cursor: 2,
+      });
+      expect(await skickat).toBe(true);
+    });
+    expect(idn(result)).toEqual(["p-1", "p-2"]);
+    expect(result.current.inlagg[1].type).toBe("user_file");
   });
 });
 
