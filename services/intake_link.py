@@ -25,13 +25,14 @@ from typing import List, Optional, Sequence
 
 from db.database import db
 from domain.intake_link import IntakeLinkBasis, LinkBasis, LinkResult
-from domain.interpretation import Interpretation
-from domain.models import IntakeSource, Voucher
+from domain.interpretation import Candidate, Interpretation
+from domain.models import IntakeSource, ThreadPost, Voucher
 from domain.types import IntakeStatus, VoucherStatus
 from repositories.decision_repo import DecisionRepository
 from repositories.intake_link_repo import IntakeLinkRepository
 from repositories.intake_repo import IntakeRepository
 from repositories.interpretation_repo import InterpretationRepository
+from repositories.thread_repo import ThreadRepository
 from repositories.voucher_repo import VoucherRepository
 from services.intake import IntakeError, IntakeService
 
@@ -46,6 +47,17 @@ LINKABLE_STATUSES = (
     IntakeStatus.FAILED,
     IntakeStatus.NEEDS_ATTENTION,
 )
+
+
+#: The view whose rows the link moves (`Saknar underlag` -> `Postade`).
+VIEW_KEY = "bocker.verifikationer"
+
+#: The receipt's chips (§9.3). `kompletteringsflagga` is the posting
+#: receipt's own tool name (`services/draft_service.py`), so the chip that
+#: set the flag and the one that removes it are the same chip.
+RECEIPT_LINK_TOOL = "koppla_underlag"
+RECEIPT_FLAG_TOOL = "kompletteringsflagga"
+RECEIPT_MISSING_TOOL = "saknar_underlag"
 
 
 class IntakeLinkError(IntakeError):
@@ -129,7 +141,18 @@ class IntakeLinkService:
             linked = VoucherRepository.get(existing.voucher_id)
             if existing.voucher_id == voucher_id and basis is not None:
                 assert linked is not None  # a link points at a voucher
-                return self._result(basis, linked, replayed=True)
+                result = self._result(basis, linked, replayed=True)
+                if thread_id is not None:
+                    # §6.5, §9.3: the receipt again, only if it is missing.
+                    self._after_commit(
+                        basis,
+                        linked,
+                        InterpretationRepository.latest_for_source(source_id),
+                        was_missing=basis.basis == "exact_match",
+                        result=result,
+                        thread_id=thread_id,
+                    )
+                return result
             number = _number(linked) if linked is not None else None
             raise LinkConflictError(
                 "intake_already_linked",
@@ -174,7 +197,16 @@ class IntakeLinkService:
             )
             IntakeLinkRepository.insert(basis, _commit=False)
 
-        return self._result(basis, voucher, replayed=False)
+        result = self._result(basis, voucher, replayed=False)
+        self._after_commit(
+            basis,
+            voucher,
+            interpretation,
+            was_missing=bool(voucher.missing_attachment),
+            result=result,
+            thread_id=thread_id,
+        )
+        return result
 
     # -- the stop in the posting (§8, D5) ----------------------------------
 
@@ -343,6 +375,166 @@ class IntakeLinkService:
                     "The decision was answered with its way out",
                     f"decision_id={decision_id}, option={option.title}",
                 )
+
+    # -- after the commit: the receipt and view.changed (§9.3) --------------
+
+    def _after_commit(
+        self,
+        basis: IntakeLinkBasis,
+        voucher: Voucher,
+        interpretation: Optional[Interpretation],
+        *,
+        was_missing: bool,
+        result: LinkResult,
+        thread_id: Optional[str],
+    ) -> None:
+        """In a thread: the `receipt` post, unless the thread has one for
+        this source already, then `message.completed` and `view.changed`.
+        Without a thread: only `view.changed`, and only for a new link.
+
+        After the commit, and never fatal: the link is the books' and the
+        receipt the thread's, and an error in the thread layer must not
+        undo a link or change its answer (§9.3, testfall 30). A replay
+        finds a missing receipt and writes it."""
+        try:
+            post = None
+            if thread_id is not None:
+                if ThreadRepository.receipt_for_source(
+                    thread_id, basis.intake_source_id
+                ):
+                    return
+                post = ThreadRepository.add_post(
+                    thread_id=thread_id,
+                    post_type="receipt",
+                    actor=self._receipt_actor(basis),
+                    body=self._receipt_body(basis, voucher, interpretation),
+                    traces=self._receipt_traces(
+                        voucher, was_missing, result.missing_attachments
+                    ),
+                )
+            elif result.replayed:
+                return
+            self._publish(basis, voucher, post, thread_id)
+        except Exception:
+            logger.exception(
+                "Receipt for the link of source %s was not written",
+                basis.intake_source_id,
+            )
+
+    @staticmethod
+    def _receipt_actor(basis: IntakeLinkBasis) -> str:
+        """§9.3: whose choice linked it -- the agent on an exact match,
+        the human who answered the decision on a decision."""
+        if basis.basis == "decision" and basis.decision_id is not None:
+            decision = DecisionRepository.get(basis.decision_id)
+            if decision is not None and decision.answered_by:
+                return decision.answered_by
+        return "agent"
+
+    @staticmethod
+    def _receipt_body(
+        basis: IntakeLinkBasis,
+        voucher: Voucher,
+        interpretation: Optional[Interpretation],
+    ) -> dict:
+        """§9.3: the comparison's rows, out of the interpretation the link
+        was based on -- the part about this voucher: the match, the
+        expected, or the candidate. On a replay the latest interpretation
+        stands in, which is the same one unless the source was interpreted
+        again after the link."""
+        from services.interpretation import COMPARISON_DOCUMENT_LABEL, comparison_rows
+
+        number = _number(voucher) or voucher.id
+        rows: list = []
+        if interpretation is not None:
+            parts: List[Optional[Candidate]] = [
+                interpretation.match,
+                interpretation.expected,
+                *interpretation.candidates,
+            ]
+            part = next(
+                (p for p in parts if p is not None and p.voucher_id == voucher.id),
+                None,
+            )
+            if part is not None:
+                rows = comparison_rows(part)
+        return {
+            "title": f"Underlag kopplat till {number}",
+            "labels": [COMPARISON_DOCUMENT_LABEL, number],
+            "rows": rows,
+            "voucher_id": voucher.id,
+            "source_id": basis.intake_source_id,
+        }
+
+    @staticmethod
+    def _receipt_traces(voucher: Voucher, was_missing: bool, missing: int) -> list:
+        """§9.3's chips: the link, the flag when the voucher lacked
+        underlag before it, and the counter after the commit."""
+        number = _number(voucher)
+        traces: list = [
+            {
+                "tool": RECEIPT_LINK_TOOL,
+                "label": "underlag kopplat",
+                "detail": number,
+                "voucher_id": voucher.id,
+            }
+        ]
+        if was_missing:
+            traces.append(
+                {"tool": RECEIPT_FLAG_TOOL, "label": "kompletteringsflagga borttagen"}
+            )
+        traces.append(
+            {"tool": RECEIPT_MISSING_TOOL, "label": f"{missing} saknar underlag"}
+        )
+        return traces
+
+    @staticmethod
+    def _publish(
+        basis: IntakeLinkBasis,
+        voucher: Voucher,
+        post: Optional[ThreadPost],
+        thread_id: Optional[str],
+    ) -> None:
+        """`message.completed` for the receipt, and `view.changed` with
+        `kind: "source_linked"` -- the shape `voucher_posted` has -- on the
+        linking thread and on `bocker.verifikationer`'s thread for the
+        voucher's fiscal year, where the `saknar` row lives. The broker is
+        per thread (plan, avvikelse 5): no such thread, no open stream to
+        reach, and nothing is sent."""
+        from services.thread_stream import (
+            EVENT_MESSAGE_COMPLETED,
+            EVENT_VIEW_CHANGED,
+            get_broker,
+            post_event_payload,
+        )
+
+        broker = get_broker()
+        targets = []
+        if thread_id is not None:
+            thread = ThreadRepository.get(thread_id)
+            if thread is not None:
+                targets.append(thread)
+                if post is not None:
+                    broker.publish(
+                        thread.id, EVENT_MESSAGE_COMPLETED, post_event_payload(post)
+                    )
+        if voucher.fiscal_year_id and not any(t.view_key == VIEW_KEY for t in targets):
+            view_thread = ThreadRepository.find(VIEW_KEY, voucher.fiscal_year_id)
+            if view_thread is not None:
+                targets.append(view_thread)
+        for thread in targets:
+            broker.publish(
+                thread.id,
+                EVENT_VIEW_CHANGED,
+                {
+                    "view_key": thread.view_key,
+                    "changed": {
+                        "voucher_id": voucher.id,
+                        "source_id": basis.intake_source_id,
+                        "kind": "source_linked",
+                    },
+                },
+            )
 
     # -- helpers ------------------------------------------------------------
 

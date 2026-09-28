@@ -263,3 +263,228 @@ def test_fu8_comparison_body_is_pure():
         ],
         "voucher_id": "v",
     }
+
+
+# ---------------------------------------------------------------------------
+# FU9 — the receipt and `view.changed` after a link (§9.3)
+# ---------------------------------------------------------------------------
+
+
+def _link(source_id: str, voucher_id: str, **kwargs):
+    from services.intake_link import IntakeLinkService
+
+    kwargs.setdefault("actor", "agent")
+    return IntakeLinkService().link(source_id, voucher_id, **kwargs)
+
+
+def _source_linked(events, voucher_id: str, source_id: str) -> list:
+    """`(thread_id, view_key)` of each `view.changed` for this link."""
+    return [
+        (thread_id, data["view_key"])
+        for thread_id, event, data in events
+        if event == "view.changed"
+        and data["changed"]
+        == {"voucher_id": voucher_id, "source_id": source_id, "kind": "source_linked"}
+    ]
+
+
+def _exact_case(period_id: str):
+    from tests.test_flode_underlag import interpret
+
+    voucher_id = a118(period_id)
+    source_id = make_source()
+    interpret(source_id, "exact")
+    return voucher_id, source_id
+
+
+def test_29_link_in_a_thread_writes_the_receipt_and_view_changed(period_id, events):
+    """Testfall 29: a receipt with `source_id`, the rows of the same
+    interpretation and §9.3's traces; `message.completed` for it and
+    `view.changed` `source_linked` on the thread's view."""
+    voucher_id, source_id = _exact_case(period_id)
+    number = voucher_number(voucher_id)
+    thread = make_thread(period_id)
+
+    result = _link(source_id, voucher_id, thread_id=thread.id)
+
+    [post] = _receipts(thread)
+    assert post.body == {
+        "title": f"Underlag kopplat till {number}",
+        "labels": ["kvitto", number],
+        "rows": [
+            {
+                "key": "Belopp",
+                "text": "inklusive moms",
+                "left_ore": A118_TOTAL,
+                "right_ore": A118_TOTAL,
+            },
+            {
+                "key": "Moms",
+                "text": "ingående moms",
+                "left_ore": A118_VAT,
+                "right_ore": A118_VAT,
+            },
+        ],
+        "voucher_id": voucher_id,
+        "source_id": source_id,
+    }
+    assert post.traces == [
+        {
+            "tool": "koppla_underlag",
+            "label": "underlag kopplat",
+            "detail": number,
+            "voucher_id": voucher_id,
+        },
+        {"tool": "kompletteringsflagga", "label": "kompletteringsflagga borttagen"},
+        {
+            "tool": "saknar_underlag",
+            "label": f"{result.missing_attachments} saknar underlag",
+        },
+    ]
+    assert post.run_id is None
+    completed = [e for e in events if e[1] == "message.completed"]
+    assert [(e[0], e[2]["id"]) for e in completed] == [(thread.id, post.id)]
+    assert _source_linked(events, voucher_id, source_id) == [
+        (thread.id, "bocker.verifikationer")
+    ]
+
+
+def test_29_from_another_view_also_on_the_verifikationer_thread(period_id, events):
+    """A link from another view's thread: the receipt there, and the event
+    also on `bocker.verifikationer`'s thread, where the row lives
+    (avvikelse 5: the broker is per thread)."""
+    voucher_id, source_id = _exact_case(period_id)
+    verifikationer = make_thread(period_id)
+    other = make_thread(period_id, view_key="bocker.balans")
+
+    _link(source_id, voucher_id, thread_id=other.id)
+
+    assert len(_receipts(other)) == 1
+    assert _receipts(verifikationer) == []
+    assert _source_linked(events, voucher_id, source_id) == [
+        (other.id, "bocker.balans"),
+        (verifikationer.id, "bocker.verifikationer"),
+    ]
+
+
+def test_30_receipt_fails_after_commit_link_stands_and_replay_writes_it_once(
+    period_id, monkeypatch
+):
+    """Testfall 30: an error in the thread layer does not roll the link
+    back or change the answer; a replay writes the missing receipt, once."""
+    from repositories.intake_repo import IntakeRepository
+
+    voucher_id, source_id = _exact_case(period_id)
+    thread = make_thread(period_id)
+    original = ThreadRepository.add_post
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("thread layer down")
+
+    monkeypatch.setattr(ThreadRepository, "add_post", staticmethod(boom))
+    first = _link(source_id, voucher_id, thread_id=thread.id)
+    monkeypatch.setattr(ThreadRepository, "add_post", staticmethod(original))
+
+    assert first.replayed is False
+    assert IntakeRepository.get_link_by_source_id(source_id) is not None
+    assert _receipts(thread) == []
+
+    second = _link(source_id, voucher_id, thread_id=thread.id)
+    third = _link(source_id, voucher_id, thread_id=thread.id)
+
+    assert (second.replayed, third.replayed) == (True, True)
+    [post] = _receipts(thread)
+    assert post.body["source_id"] == source_id
+
+
+def test_31_link_in_the_pass_no_receipt_view_changed_on_verifikationer(
+    period_id, events
+):
+    """Testfall 31: no thread -> no receipt, but `view.changed` on
+    `bocker.verifikationer`'s thread for the voucher's fiscal year, so an
+    open view drops the row."""
+    voucher_id, source_id = _exact_case(period_id)
+    verifikationer = make_thread(period_id)
+    posts = table_rows("thread_posts")
+
+    _link(source_id, voucher_id)
+
+    assert table_rows("thread_posts") == posts
+    assert _source_linked(events, voucher_id, source_id) == [
+        (verifikationer.id, "bocker.verifikationer")
+    ]
+
+
+def test_31_without_a_verifikationer_thread_nothing_is_sent(period_id, events):
+    """No such thread, no open stream to reach: nothing is sent, and the
+    view reads right the next time it is fetched."""
+    voucher_id, source_id = _exact_case(period_id)
+
+    _link(source_id, voucher_id)
+
+    assert events == []
+
+
+def test_32_actor_is_the_agent_on_exact_match_and_the_human_on_a_decision(
+    period_id,
+):
+    """Testfall 32: whose choice linked it."""
+    from tests.test_flode_underlag import interpret, make_decision
+
+    thread = make_thread(period_id)
+    voucher_id, exact_source = _exact_case(period_id)
+    _link(exact_source, voucher_id, thread_id=thread.id)
+
+    other = posted_purchase(period_id, day=16)
+    diff_source = make_source()
+    interpret(diff_source, "amount_diff", expected_voucher_id=other)
+    decision = make_decision(thread, diff_source, answer=2, actor="stefan")
+    _link(diff_source, other, decision_id=decision.id, thread_id=thread.id)
+
+    by_source = {p.body.get("source_id"): p for p in _receipts(thread)}
+    assert by_source[exact_source].actor == "agent"
+    assert by_source[diff_source].actor == "stefan"
+
+
+def test_fu9_no_flag_trace_when_the_voucher_had_underlag(period_id):
+    """`kompletteringsflagga borttagen` only when the voucher lacked
+    underlag before the link."""
+    from tests.test_flode_underlag import attach, interpret, make_decision
+
+    thread = make_thread(period_id)
+    voucher_id = a118(period_id)
+    attach(voucher_id)
+    source_id = make_source()
+    interpret(source_id, "amount_diff", expected_voucher_id=voucher_id)
+    decision = make_decision(thread, source_id, answer=2)
+
+    _link(source_id, voucher_id, decision_id=decision.id, thread_id=thread.id)
+
+    [post] = _receipts(thread)
+    assert [t["tool"] for t in post.traces] == ["koppla_underlag", "saknar_underlag"]
+
+
+def test_fu9_receipt_for_source_is_one_query(period_id, monkeypatch):
+    """`ThreadRepository.receipt_for_source` finds the receipt by
+    `json_extract`, not by reading the thread."""
+    from db.database import db
+
+    voucher_id, source_id = _exact_case(period_id)
+    thread = make_thread(period_id)
+    _link(source_id, voucher_id, thread_id=thread.id)
+
+    calls = []
+    original = db.execute
+
+    def counting(sql, *args, **kwargs):
+        calls.append(sql)
+        return original(sql, *args, **kwargs)
+
+    monkeypatch.setattr(db, "execute", counting)
+    found = ThreadRepository.receipt_for_source(thread.id, source_id)
+
+    assert found is not None and found.body["source_id"] == source_id
+    assert len(calls) == 1
+    assert "json_extract" in calls[0]
+    monkeypatch.setattr(db, "execute", original)
+    assert ThreadRepository.receipt_for_source(thread.id, "nope") is None

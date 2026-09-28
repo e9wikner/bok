@@ -264,7 +264,27 @@ till dem.
     strömmen: läs hur `DraftService.propose`s `draft`-inlägg gör (grep `EVENT_MESSAGE_COMPLETED`)
     och gör likadant. Verktygets beskrivning ändras inte (§9.1).
 
-- [ ] **FU9 — Kvittot och `view.changed` efter kopplingen (§9.3)**
+- [x] **FU9 — Kvittot och `view.changed` efter kopplingen (§9.3)**
+  - Gjort 2026-09-28: 8 tester i `tests/test_flode_underlag_trad.py` (testfall 29 i två delar,
+    30, 31 i två delar, 32, flaggspåret bara när verifikationen saknade underlag,
+    `receipt_for_source` är en fråga med `json_extract`), 7 sedda röda först; 31:s "ingen
+    `bocker.verifikationer`-tråd, inget skickas" var grönt redan och står kvar som vakt.
+    Kvittot skrivs efter commit i `IntakeLinkService._after_commit`, som fångar och loggar
+    varje fel. `rows` ur FU8:s `comparison_rows` för den del av tolkningen som gäller
+    verifikationen (match, expected eller kandidat). Spåren: `{"tool": "koppla_underlag",
+    "label": "underlag kopplat", "detail": nummer, "voucher_id"}`, `{"tool":
+    "kompletteringsflagga", "label": "kompletteringsflagga borttagen"}` (samma verktygsnamn som
+    postningskvittots flagga) och `{"tool": "saknar_underlag", "label": "{n} saknar underlag"}`.
+    Inlägget har `run_id = null`. `view.changed` har `voucher_posted`s form: `{view_key,
+    changed: {voucher_id, source_id, kind: "source_linked"}}`. Avvikelse 5: publiceras på den
+    kopplande tråden och, när dess vy inte är `bocker.verifikationer`, på den vyns tråd för
+    **verifikationens** räkenskapsår om den finns; utan tråd bara där, och bara för en ny
+    koppling. En uppspelning i en tråd skriver kvittot om `receipt_for_source` inte hittar det,
+    och publicerar då; annars ingenting. **Avvikelser:** vid uppspelning läses raderna ur den
+    *senaste* tolkningen (repositoryt har ingen `get` per id, och U2:s test låser dess publika
+    metoder) — samma tolkning om inte källan tolkats om efter kopplingen; flaggspåret vid
+    uppspelning sätts när belägget är `exact_match` (som krävde att verifikationen saknade
+    underlag). Hela sviten 1422 gröna. mypy 61.
   - Beror på: FU7, FU8
   - Acceptans: efter kopplingens commit, i en trådtur: ett `receipt`-inlägg med FU8:s rader ur
     samma tolkning, `title` `Underlag kopplat till {nummer}`, `source_id`; `traces` enligt §9.3
