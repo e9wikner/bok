@@ -78,7 +78,24 @@ oräknade. Testfallsnumren syftar på tabellerna i §10. Backendens tester ligge
   - Obs: testfall 11–12 matar in text som `reconciliation_result` känner igen; läs dess
     mönster i `services/agent_documents.py` i stället för att gissa formatet.
 
-- [ ] **U4 — Kandidatfrågan**
+- [x] **U4 — Kandidatfrågan**
+  - Gjort 2026-09-28: 13 tester (testfall 5b, 20–24, 29 och fyra `test_u4_*` för fälten, flera
+    bankhändelser, utkast och fönstrens placering) i `tests/test_underlagstolkning.py`, alla sedda
+    röda först (metoden fanns inte). `match_candidates` är en CTE-fråga: `totals` grupperar
+    verifikationsraderna (debetsumma, `vat_in`-summa som `debit − credit`, `HAVING
+    ABS(SUM(debit) − total) <= fönster`), `bank` väljer med `ROW_NUMBER()` den tidigaste
+    bankhändelsen (`transaction_date`, sedan `id`) per verifikation. Returtyp: egen frusen
+    `MatchCandidateRow` (`voucher_id`, `voucher_number` som `"A-118"`, `voucher_date: date`,
+    `voucher_description`, `voucher_ore`, `vat_ore` — `None` utan `vat_in`-rad, inte 0 — och
+    `bank_transaction: CandidateBankTransaction | None` med `id`, `date`, `amount_ore`,
+    `counterpart_name`, `description`) i `voucher_repo.py`, inte domänens `Candidate`: raden är
+    råa fakta, `Candidate` bär jämförelsen (`diff_ore`, `date_diff_days`, `vat.equal`) som U5
+    räknar. `date_window` är `(före, efter)` i dagar, `amount_window_ore` ett färdigt öretal;
+    båda keyword-only utan förval (testat). **Utanför fillistan:** `services/interpretation.py`
+    skapad med bara konstanterna (`DATE_WINDOW_DAYS_BEFORE/AFTER = 3/7`,
+    `AMOUNT_WINDOW_MIN_ORE = 5000`, `AMOUNT_WINDOW_PERCENT = 10`) och en docstring; U3/U5/U6 bygger
+    vidare i den. `max(5 000, 10 %)` räknas av anroparen (U6), i testerna av en hjälpfunktion
+    på konstanterna. Hela sviten 1179 gröna, mypy 61.
   - Acceptans: `VoucherRepository.match_candidates(document_date, total_ore, *, date_window,
     amount_window_ore)` i **en** fråga: postade, lagat predikat (U1), inte serie `IB`, datum- och
     beloppsfönster enligt §7.2 (utan `document_date`: bara exakt belopp). Varje rad bär

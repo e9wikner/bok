@@ -461,3 +461,309 @@ def test_31_interpretation_round_trips_through_the_json_columns(test_db):
     ).fetchone()
     assert json.loads(row["match_json"])["diff_ore"] == 12000
     assert json.loads(row["candidates_json"])[0]["voucher_number"] == "A-118"
+
+
+# ---------------------------------------------------------------------------
+# U4 — the candidate query (§7.1-§7.2, §10.3 testfall 20-24, 29; 5b)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def purchase_accounts(test_db):
+    """A purchase's accounts: expense, input VAT (`vat_in`), bank."""
+    for code, name, acc_type in [
+        ("5410", "Förbrukningsinventarier", "expense"),
+        ("2640", "Ingående moms", "vat_in"),
+        ("1930", "Företagskonto", "asset"),
+    ]:
+        if not AccountRepository.exists(code):
+            AccountRepository.create(code, name, acc_type)
+
+
+def _purchase(
+    period_id: str,
+    *,
+    total: int,
+    vat: int = 0,
+    day: int = 15,
+    series: str = "A",
+    created_by: str = "agent",
+    post: bool = True,
+) -> str:
+    """A purchase paid from the bank: 5410 net + 2640 VAT on the debit
+    side, 1930 total on the credit side. Posted unless *post* is false."""
+    rows = [{"account": "5410", "debit": total - vat, "credit": 0}]
+    if vat:
+        rows.append({"account": "2640", "debit": vat, "credit": 0})
+    rows.append({"account": "1930", "debit": 0, "credit": total})
+    ledger = LedgerService()
+    draft = ledger.create_voucher(
+        series=series,
+        date=date(2026, 3, day),
+        period_id=period_id,
+        description=f"Inköp {uuid.uuid4().hex[:6]}",
+        rows_data=rows,
+        created_by=created_by,
+    )
+    if not post:
+        return draft.id
+    return ledger.post_voucher(draft.id, actor=created_by).id
+
+
+def _bank_transaction(
+    voucher_id: str,
+    *,
+    day: int,
+    amount: int,
+    counterpart: str = "ELEKTRONIKHUSET",
+    description: str = "Kortköp",
+) -> str:
+    """A bank transaction linked to *voucher_id* through
+    `voucher_bank_transactions`, as the agent's posting links it."""
+    from repositories.bank_input_repo import BankInputRepository
+
+    connection_id = str(uuid.uuid4())
+    db.execute(
+        "INSERT INTO bank_connections (id, provider, bank_name, status) "
+        "VALUES (?, 'manual', 'Testbanken', 'active')",
+        (connection_id,),
+    )
+    transaction_id = str(uuid.uuid4())
+    db.execute(
+        """
+        INSERT INTO bank_transactions
+            (id, bank_connection_id, external_id, transaction_date, amount,
+             description, counterpart_name)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            transaction_id,
+            connection_id,
+            uuid.uuid4().hex,
+            date(2026, 3, day).isoformat(),
+            amount,
+            description,
+            counterpart,
+        ),
+    )
+    db.commit()
+    BankInputRepository.create_voucher_bank_transaction_link(
+        voucher_id=voucher_id, bank_transaction_id=transaction_id, linked_by="agent"
+    )
+    return transaction_id
+
+
+def _amount_window(total_ore: int) -> int:
+    """§7.2's amount window, from the constants in services/interpretation."""
+    from services.interpretation import AMOUNT_WINDOW_MIN_ORE, AMOUNT_WINDOW_PERCENT
+
+    return max(AMOUNT_WINDOW_MIN_ORE, total_ore * AMOUNT_WINDOW_PERCENT // 100)
+
+
+def _candidates(document_date, total_ore: int):
+    """`match_candidates` with §7.2's windows, as the service will call it."""
+    from repositories.voucher_repo import VoucherRepository
+    from services.interpretation import (
+        DATE_WINDOW_DAYS_AFTER,
+        DATE_WINDOW_DAYS_BEFORE,
+    )
+
+    return VoucherRepository.match_candidates(
+        document_date,
+        total_ore,
+        date_window=(DATE_WINDOW_DAYS_BEFORE, DATE_WINDOW_DAYS_AFTER),
+        amount_window_ore=_amount_window(total_ore),
+    )
+
+
+def _ids(candidates) -> set:
+    return {c.voucher_id for c in candidates}
+
+
+def test_u4_windows_are_constants_in_the_service_not_defaults_in_the_repo():
+    """§7.2: the windows are defined in services/interpretation.py and passed
+    in; `match_candidates` has no defaults of its own for them."""
+    import inspect
+
+    from repositories.voucher_repo import VoucherRepository
+    from services import interpretation
+
+    assert interpretation.DATE_WINDOW_DAYS_BEFORE == 3
+    assert interpretation.DATE_WINDOW_DAYS_AFTER == 7
+    assert interpretation.AMOUNT_WINDOW_MIN_ORE == 5000
+    assert interpretation.AMOUNT_WINDOW_PERCENT == 10
+
+    params = inspect.signature(VoucherRepository.match_candidates).parameters
+    for name in ("date_window", "amount_window_ore"):
+        assert params[name].kind is inspect.Parameter.KEYWORD_ONLY
+        assert params[name].default is inspect.Parameter.empty
+
+
+def test_u4_candidate_carries_debit_sum_vat_in_and_bank_transaction(
+    period_id, purchase_accounts
+):
+    """§7.1: `voucher_ore` is the sum of the debit rows (gross), `vat_ore`
+    the rows on `vat_in` accounts, and the linked bank transaction rides
+    along. Flöde 4's A-118: 4 480 kr of which 896 kr VAT."""
+    voucher_id = _purchase(period_id, total=448000, vat=89600, day=3)
+    transaction_id = _bank_transaction(
+        voucher_id, day=3, amount=-448000, description="Kortköp 0603"
+    )
+
+    [candidate] = _candidates(date(2026, 3, 3), 460000)
+
+    assert candidate.voucher_id == voucher_id
+    assert candidate.voucher_number == "A-1"
+    assert candidate.voucher_date == date(2026, 3, 3)
+    assert candidate.voucher_description.startswith("Inköp ")
+    assert candidate.voucher_ore == 448000
+    assert candidate.vat_ore == 89600
+    bank = candidate.bank_transaction
+    assert bank is not None
+    assert bank.id == transaction_id
+    assert bank.date == date(2026, 3, 3)
+    assert bank.amount_ore == -448000
+    assert bank.counterpart_name == "ELEKTRONIKHUSET"
+    assert bank.description == "Kortköp 0603"
+
+
+def test_u4_candidate_without_vat_or_bank_transaction_has_none(
+    period_id, purchase_accounts
+):
+    """No `vat_in` row → `vat_ore = None` (not 0: §7.1 compares only when
+    both exist). No link in `voucher_bank_transactions` → `None`."""
+    _purchase(period_id, total=20000)
+
+    [candidate] = _candidates(date(2026, 3, 15), 20000)
+
+    assert candidate.voucher_ore == 20000
+    assert candidate.vat_ore is None
+    assert candidate.bank_transaction is None
+
+
+def test_u4_several_bank_transactions_give_one_row_the_earliest(
+    period_id, purchase_accounts
+):
+    """A voucher linked to two bank transactions is one candidate, not two;
+    the bank transaction shown is the earliest."""
+    voucher_id = _purchase(period_id, total=30000)
+    _bank_transaction(voucher_id, day=17, amount=-10000, counterpart="SENARE")
+    earliest = _bank_transaction(
+        voucher_id, day=16, amount=-20000, counterpart="TIDIGARE"
+    )
+
+    candidates = _candidates(date(2026, 3, 15), 30000)
+
+    assert len(candidates) == 1
+    assert candidates[0].voucher_id == voucher_id
+    assert candidates[0].voucher_ore == 30000
+    assert candidates[0].bank_transaction.id == earliest
+    assert candidates[0].bank_transaction.counterpart_name == "TIDIGARE"
+
+
+def test_20_voucher_with_underlag_is_no_candidate(period_id, purchase_accounts):
+    """Testfall 20: a voucher whose source is in `voucher_intake_sources`
+    has underlag and is no candidate; nor is one with an `attachments` row.
+    The one without either is."""
+    via_intake = _purchase(period_id, total=20000)
+    _link_intake_source(via_intake)
+    via_attachment = _purchase(period_id, total=20000)
+    _attach(via_attachment)
+    open_one = _purchase(period_id, total=20000)
+
+    assert _ids(_candidates(date(2026, 3, 15), 20000)) == {open_one}
+
+
+def test_05b_sie4_imported_voucher_is_no_candidate(period_id, purchase_accounts):
+    """Testfall 5b's exception holds for the candidates too (§7.1): an
+    SIE4-imported voucher never gets its underlag in Bok."""
+    _purchase(period_id, total=20000, created_by="sie4_import")
+    by_agent = _purchase(period_id, total=20000, created_by="agent")
+
+    assert _ids(_candidates(date(2026, 3, 15), 20000)) == {by_agent}
+
+
+def test_21_ib_series_is_no_candidate(period_id, purchase_accounts):
+    """Testfall 21: an opening balance voucher is never a candidate."""
+    _purchase(period_id, total=20000, series="IB")
+    a_series = _purchase(period_id, total=20000, series="A")
+
+    assert _ids(_candidates(date(2026, 3, 15), 20000)) == {a_series}
+
+
+def test_u4_draft_is_no_candidate(period_id, purchase_accounts):
+    """§7.1: only posted vouchers can get the underlag linked."""
+    _purchase(period_id, total=20000, post=False)
+
+    assert _candidates(date(2026, 3, 15), 20000) == []
+
+
+def test_22_outside_the_date_window_is_no_candidate(period_id, purchase_accounts):
+    """Testfall 22: the window is [document_date − 3, document_date + 7],
+    both ends included. Document dated 15 March: 12-22 March."""
+    by_day = {
+        day: _purchase(period_id, total=20000, day=day) for day in (11, 12, 22, 23)
+    }
+
+    assert _ids(_candidates(date(2026, 3, 15), 20000)) == {by_day[12], by_day[22]}
+
+
+def test_23_outside_the_amount_window_is_no_candidate(period_id, purchase_accounts):
+    """Testfall 23: on 20 000 öre the window is max(5 000, 2 000) = 5 000.
+    A diff of 6 000 is out, 5 000 (either side) is in."""
+    _purchase(period_id, total=26000)
+    _purchase(period_id, total=14000)
+    over = _purchase(period_id, total=25000)
+    under = _purchase(period_id, total=15000)
+
+    assert _ids(_candidates(date(2026, 3, 15), 20000)) == {over, under}
+
+
+def test_23_amount_window_is_ten_percent_on_a_large_total(period_id, purchase_accounts):
+    """On 460 000 öre the window is 10 % = 46 000: flöde 4's 12 000 is in,
+    46 001 is out."""
+    inside = _purchase(period_id, total=448000)
+    _purchase(period_id, total=460000 - 46001)
+
+    assert _ids(_candidates(date(2026, 3, 15), 460000)) == {inside}
+
+
+def test_24_without_document_date_only_the_exact_amount(period_id, purchase_accounts):
+    """Testfall 24: no `document_date` → no date window, and only the exact
+    amount matches (the amount window is not applied)."""
+    exact_early = _purchase(period_id, total=20000, day=1)
+    exact_late = _purchase(period_id, total=20000, day=31)
+    _purchase(period_id, total=20001, day=15)
+
+    assert _ids(_candidates(None, 20000)) == {exact_early, exact_late}
+
+
+def test_29_candidate_query_is_one_sql_call(monkeypatch, period_id, purchase_accounts):
+    """Testfall 29: one `db.execute` whatever the number of candidates --
+    the amounts, the VAT and the bank transaction are joined in."""
+    first = _purchase(period_id, total=20000, vat=4000)
+    _bank_transaction(first, day=15, amount=-20000)
+
+    def count(document_date, total):
+        calls = []
+        original = db.execute
+
+        def counting(sql, params=()):
+            calls.append(sql)
+            return original(sql, params)
+
+        monkeypatch.setattr(db, "execute", counting)
+        try:
+            found = _candidates(document_date, total)
+        finally:
+            monkeypatch.undo()
+        return len(found), len(calls)
+
+    assert count(date(2026, 3, 15), 20000) == (1, 1)
+
+    for _ in range(3):
+        voucher_id = _purchase(period_id, total=20000, vat=4000)
+        _bank_transaction(voucher_id, day=16, amount=-20000)
+
+    assert count(date(2026, 3, 15), 20000) == (4, 1)
+    assert count(None, 20000) == (4, 1)

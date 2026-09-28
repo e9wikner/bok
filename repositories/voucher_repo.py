@@ -1,7 +1,8 @@
 """Voucher repository - data access for vouchers."""
 
 import uuid
-from datetime import date, datetime
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from db.database import db
@@ -62,6 +63,39 @@ VOUCHER_SELECT_SQL = f"""
 
 
 _IN_CHUNK = 500
+
+
+@dataclass(frozen=True)
+class CandidateBankTransaction:
+    """The bank transaction linked to a candidate voucher through
+    `voucher_bank_transactions` (SPEC-underlagstolkning.md §7.1). Amount in
+    öre, negative for money out."""
+
+    id: str
+    date: date
+    amount_ore: int
+    counterpart_name: Optional[str]
+    description: Optional[str]
+
+
+@dataclass(frozen=True)
+class MatchCandidateRow:
+    """One row of `match_candidates`: the facts of a posted voucher without
+    underlag, as stored -- not compared with anything yet. The comparison
+    with the document (`diff_ore`, `date_diff_days`, `vat.equal`) is the
+    service's (`domain.interpretation.Candidate`, §7.4).
+
+    `voucher_ore` is the sum of the debit rows (gross, §7.1); `vat_ore` the
+    net debit on `vat_in` accounts, `None` when the voucher has no such row.
+    """
+
+    voucher_id: str
+    voucher_number: str
+    voucher_date: date
+    voucher_description: str
+    voucher_ore: int
+    vat_ore: Optional[int]
+    bank_transaction: Optional[CandidateBankTransaction]
 
 
 def _ref(row, prefix: str) -> Optional[VoucherRef]:
@@ -363,6 +397,121 @@ class VoucherRepository:
             """
             params = (min_row_ore, min_row_ore)
         return db.execute(sql, params).fetchone()["cnt"]
+
+    @staticmethod
+    def match_candidates(
+        document_date: Optional[date],
+        total_ore: int,
+        *,
+        date_window: Tuple[int, int],
+        amount_window_ore: int,
+    ) -> List[MatchCandidateRow]:
+        """Posted vouchers an underlag could belong to
+        (SPEC-underlagstolkning.md §7.1-§7.2), in one query.
+
+        Candidates are posted, lack underlag by the shared predicate (so no
+        SIE4 import, §12.5), and are not in series `IB`. *date_window* is
+        `(days_before, days_after)` around *document_date*, both ends
+        included; *amount_window_ore* bounds `|total_ore − voucher_ore|`.
+        Both come from the caller (`services/interpretation.py`); there are
+        no defaults here. Without *document_date* neither window applies:
+        no date filter, and only `voucher_ore == total_ore` matches.
+
+        The debit sum, the `vat_in` sum and the bank transaction are joined
+        in, so the query count does not grow with the candidates. A voucher
+        linked to several bank transactions is still one row: it carries
+        the **earliest** (`transaction_date`, then `id` for a tie).
+
+        Unranked; ordered by date, series and number so the result is
+        stable. The ranking is the service's (§7.3).
+        """
+        where = [
+            "vouchers.status = 'posted'",
+            "vouchers.series != 'IB'",
+            MISSING_ATTACHMENT_SQL,
+        ]
+        params: list = []
+        if document_date is not None:
+            before, after = date_window
+            where.append("vouchers.date BETWEEN ? AND ?")
+            params.extend(
+                [
+                    (document_date - timedelta(days=before)).isoformat(),
+                    (document_date + timedelta(days=after)).isoformat(),
+                ]
+            )
+            window = amount_window_ore
+        else:
+            window = 0
+        params.extend([total_ore, window])
+
+        # `vouchers` unaliased in `totals` for the shared predicate.
+        sql = f"""
+            WITH totals AS (
+                SELECT vouchers.id AS id,
+                       vouchers.series AS series,
+                       vouchers.number AS number,
+                       vouchers.date AS date,
+                       vouchers.description AS description,
+                       SUM(vr.debit) AS voucher_ore,
+                       SUM(CASE WHEN a.account_type = 'vat_in'
+                                THEN vr.debit - vr.credit END) AS vat_ore
+                FROM vouchers
+                JOIN voucher_rows vr ON vr.voucher_id = vouchers.id
+                LEFT JOIN accounts a ON a.code = vr.account_code
+                WHERE {" AND ".join(where)}
+                GROUP BY vouchers.id
+                HAVING ABS(SUM(vr.debit) - ?) <= ?
+            ),
+            bank AS (
+                SELECT vbt.voucher_id AS voucher_id,
+                       bt.id AS id,
+                       bt.transaction_date AS date,
+                       bt.amount AS amount_ore,
+                       bt.counterpart_name AS counterpart_name,
+                       bt.description AS description,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY vbt.voucher_id
+                           ORDER BY bt.transaction_date, bt.id
+                       ) AS rank_in_voucher
+                FROM voucher_bank_transactions vbt
+                JOIN bank_transactions bt ON bt.id = vbt.bank_transaction_id
+                WHERE vbt.voucher_id IN (SELECT id FROM totals)
+            )
+            SELECT totals.*,
+                   bank.id AS bank_id,
+                   bank.date AS bank_date,
+                   bank.amount_ore AS bank_amount_ore,
+                   bank.counterpart_name AS bank_counterpart_name,
+                   bank.description AS bank_description
+            FROM totals
+            LEFT JOIN bank
+                ON bank.voucher_id = totals.id AND bank.rank_in_voucher = 1
+            ORDER BY totals.date, totals.series, totals.number
+        """
+        rows = db.execute(sql, tuple(params)).fetchall()
+        return [
+            MatchCandidateRow(
+                voucher_id=row["id"],
+                voucher_number=f"{row['series']}-{row['number']}",
+                voucher_date=date.fromisoformat(str(row["date"])[:10]),
+                voucher_description=row["description"],
+                voucher_ore=row["voucher_ore"],
+                vat_ore=row["vat_ore"],
+                bank_transaction=(
+                    CandidateBankTransaction(
+                        id=row["bank_id"],
+                        date=date.fromisoformat(str(row["bank_date"])[:10]),
+                        amount_ore=row["bank_amount_ore"],
+                        counterpart_name=row["bank_counterpart_name"],
+                        description=row["bank_description"],
+                    )
+                    if row["bank_id"] is not None
+                    else None
+                ),
+            )
+            for row in rows
+        ]
 
     @staticmethod
     def numbers_for(voucher_ids: Sequence[str]) -> Dict[str, Tuple[str, int]]:
