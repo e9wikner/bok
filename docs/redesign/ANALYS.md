@@ -161,6 +161,8 @@ idempotens, oversikt
 
 **Klar 2026-09-24.** Alla åtta moduler i första leveransen är byggda och testade (`tasks/README.md`). Kvar före driftsättning: visuell kontroll i `/v4` med riktig LLM, och efter den tom databas och omimport av SIE4-filerna (`SPEC-flode-verifikationer.md` §4.4).
 
+**`underlagstolkning` klar 2026-09-28** (U1–U10, `tasks/underlagstolkning/todo.md`). Avvikelse från tabellen ovan: ingen `POST /intake/{id}/interpret` — tolkningen är agentverktyget `tolka_underlag` och läsvägen `GET /intake/{id}/interpretation` (`SPEC-underlagstolkning.md` §12.1). Kvar för beställaren: kriterium 6 med riktig LLM och modulens öppna frågor. Nästa: `flode-underlag`.
+
 ### Konsekvens av att flöde 2 och 3 utgår
 
 Vyerna **Fakturering** och **Löner** finns kvar i informationsarkitekturen — v10 ritar dem som vyer, och de ska byggas som **läsvyer med tråd men utan skrivflöde**. Agenten kan svara på frågor om dem; den kan inte godkänna en lönekörning eller skicka en faktura. Skrivning sker tills vidare via befintliga endpoints, utanför redesignen.

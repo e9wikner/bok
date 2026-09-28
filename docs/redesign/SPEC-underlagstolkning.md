@@ -3,7 +3,7 @@
 Modul-id `underlagstolkning` i kapabilitetskartan (`ANALYS.md` §8). Beror på `agentruntime`, som är
 klar (A1–A14). `flode-underlag` beror på den här.
 
-Status: **Fas 1 — skriven 2026-09-24, godkänd 2026-09-28.** Fem beslut tagna av beställaren
+Status: **Klar 2026-09-28 (U1–U10).** Skriven 2026-09-24, godkänd 2026-09-28. Fem beslut tagna av beställaren
 (§12.1–§12.5): tolkningen är ett verktyg och en läsväg, inte en endpoint med eget LLM-anrop;
 predikatet för "saknar underlag" lagas först, i den här modulen, och undantar
 `created_by = 'sie4_import'`; `hypothesis` sätts bara när en rad på underlaget bär den; ett hårt

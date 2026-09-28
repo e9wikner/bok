@@ -279,7 +279,22 @@ oräknade. Testfallsnumren syftar på tabellerna i §10. Backendens tester ligge
   - Obs: körtidsinnehåll (`AGENTS.md`). Om `02_bokforingsprocess.md` beskriver postningens steg
     och motsäger det nya, rätta den i samma commit och nämn det.
 
-- [ ] **U10 — Skriptat pass, regression och modulen stängd**
+- [x] **U10 — Skriptat pass, regression och modulen stängd**
+  - Gjort 2026-09-28: testfall 39 som ett test i `tests/test_underlagstolkning.py`, grönt direkt
+    (det prövar U1–U9, inget nytt beteende). Ett helt intagspass, `AgentWorker.run_pass_once`,
+    med `agentruntime`s skriptade klient (`FakeLLMClient`, importerad ur
+    `tests/test_agent_runtime.py`): ett PDF-kvitto på 4 480 kr/moms 896 kr mot en postad
+    A-verifikation på samma belopp, moms och dag, med bankhändelse. Tre turer:
+    `hamta_underlagsfil` → `tolka_underlag` → `registrera_avstaende` med verifikationsnumret och
+    differensen i motiveringen. Testet läser vad modellen fick tillbaka (textlagret; `match.kind =
+    exact`, samma `voucher_number`, `diff_ore = 0`, `hypothesis = null`, `confidence = high`,
+    `text_layer = agrees`), att tolkningen sparades (utan `thread_id` — passet har ingen tråd),
+    att källan är `failed` med motiveringen i `intake_processing_attempts`, och att `vouchers`,
+    `voucher_rows`, `attachments` och `voucher_intake_sources` är oförändrade (den sista tom).
+    Passet skickar `AGENT_TOOL_DEFINITIONS` hela, så `tolka_underlag` finns där; inget behövde
+    kringgås. Den skriptade klienten sparar loopens meddelandelista som referens, så svaren
+    hittas på `tool_use_id`, inte per anrop. Hela sviten 1286 gröna; black, isort, flake8 rena;
+    mypy 61.
   - Acceptans: testfall 39 med `agentruntime`s skriptade klient: ett intagspass med ett kvitto
     som matchar en postad A-verifikation exakt → `hamta_underlagsfil` → `tolka_underlag` →
     `registrera_avstaende` med verifikationsnumret i motiveringen; ingen ny verifikation, inget i
@@ -294,7 +309,57 @@ oräknade. Testfallsnumren syftar på tabellerna i §10. Backendens tester ligge
 
 ---
 
+## Modulen är klar
+
+U1–U10 avbockade 2026-09-28. De åtta framgångskriterierna i spec §11, ett och ett:
+
+1. Predikatet räknar `voucher_intake_sources` och används på alla fyra ställen — ✅ (testfall
+   1–5, 5b; U1 `d22560c`). `GET /vouchers?missing_attachment=…`, `GET /overview` och
+   compliance ger samma tal (4); compliance har ingen egen SQL (5); kandidatfrågan använder
+   samma predikat (20, 5b i U4 `9f4ac05`).
+2. `tolka_underlag` finns sist i listan, sparar en tolkning och ändrar ingenting i böckerna — ✅
+   (33: innehållet i fyra tabeller före och efter, U6 `9523c81`; 34: sha256 av de elva första,
+   U7 `8f3de92`; 39 sparar och ändrar inget i ett helt pass).
+3. Flöde 4:s exempel ger designens siffror — ✅ (16 hela vägen mot databasen: 4 600 mot 4 480,
+   `diff_ore = 12000`, `vat.equal`, hypotes på pantraden; logikdelen i U5 `e6f7b06`, databasen
+   i U6).
+4. Servern väljer aldrig mellan lika kandidater och byter aldrig i tysthet bort den förväntade —
+   ✅ (18, 19, `test_u6_ambiguous_candidates_give_no_match`; 26 i fyra tester och
+   `test_u6_expected_is_computed_against_that_voucher_even_outside_the_windows`).
+5. `confidence` och `hypothesis` kan inte sättas av modellen — ✅ (15: `extra="forbid"` ger
+   `invalid_tool_arguments`, även på en rad; 28: tvetydig hypotes blir `null`; säkerheten
+   räknas av `confidence(checks)`, U3 `4b0f706`).
+6. Skriptat pass avstår i stället för att dubbelposta — ✅ skriptat (39, U10). **Med riktig
+   LLM: inte gjort** — se nedan.
+7. `intake_interpretations` är append-only i tre lager — ✅ triggrarna (30,
+   `test_30_update_and_delete_are_aborted_by_the_triggers`, U2 `180e287`), repositoryt utan
+   `update`/`delete` (`test_30_repository_has_no_update_or_delete`), ingen skrivande endpoint
+   (`test_u8_requires_bearer_and_has_no_writing_method`: `405` på POST/PUT/PATCH/DELETE, U8
+   `b38e559`).
+8. `pytest tests/ -v` 1286 passed; `black --check .`, `isort --check .`, `flake8` rena; `mypy .`
+   61 fel, lika med baslinjen — ✅ (U10).
+
+Instruktionen (§9, testfall 38) ligger i U9 `6d046f4`.
+
 ## Kvar för beställaren
 
-- Kriterium 6 med riktig LLM: ett kvitto för en bankbokförd verifikation ger ett avstående, inte
-  en ny verifikation.
+- **Kriterium 6 med riktig LLM:** ett kvitto för en bankbokförd verifikation ger ett avstående,
+  inte en ny verifikation. Kontrolleras tillsammans med `flode-verifikationer`s visuella kontroll.
+- **(a) `agent_run_id` i drift (U6):** varken trådturen (`services/thread_stream.py`) eller
+  intagspasset (`run_session` har inget `tool_context`) för fram den, så kolumnen blir NULL.
+- **(b) Specen, §6.3 (U6):** "samma fel som `las_underlag`" stämmer inte — `las_underlag` ger
+  `intake_not_found` och avvisar inte en raderad källa. Specen bör säga `source_not_found`/
+  `source_deleted` för sig.
+- **(c) "huvudboken" (U7):** §6.2:s ordagranna beskrivning nämner den, så `agentruntime` 17,
+  `beslut` 26 och `tradar` 14 har ett undantag för `tolka_underlag` så länge den säger "ändrar
+  ingenting i bokföringen". Godta undantaget eller skriv om beskrivningen.
+- **(d) Utan `document_date` (U5):** exakt belopp blir `amount_diff` med `diff_ore = 0` och ingen
+  hypotes, så instruktionens punkt 2 säger inte att agenten ska avstå. Ska den?
+- **(e) Läsvägens `expected` (U8):** `expected: null` plus `expected_voucher_id`, eftersom §5
+  inte sparar jämförelsen. `flode-underlag` får räkna om den öppet eller specen spara den.
+- **(f) Ingen HTTP-väg för `tolka_underlag` (U9):** bara runtime-verktyg, så en extern session
+  (`bok-curl`) kan inte följa instruktionens punkt 1.
+- **(g) `text_layer` (U3):** ett trippel som inte går ihop ger `not_available`, inte
+  `disagrees`; en läsning utan moms mot en text med moms ger `disagrees`. Bekräfta valen.
+- **(h) Mjukraderad källa (U8):** tolkningen läses ändå genom `GET` (§8 nämner bara två
+  404:or). Beslut utan stöd i specen.

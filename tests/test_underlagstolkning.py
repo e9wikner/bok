@@ -2448,3 +2448,137 @@ def test_u8_deleted_source_keeps_its_interpretation_readable(
 
     assert response.status_code == 200
     assert response.json()["interpretation_id"] == result["interpretation_id"]
+
+
+# ---------------------------------------------------------------------------
+# U10 — the scripted intake pass (§10.5 testfall 39)
+# ---------------------------------------------------------------------------
+
+#: A receipt for exactly A-118's 4 480 kr, VAT 896 kr, the same day.
+U10_TEXT_LINES = [
+    "Elektronikhuset AB",
+    "Kvitto 2026-03-15",
+    "USB-C docka 4 480,00 kr",
+    "Netto 3 584,00 kr",
+    "Moms 896,00 kr",
+    "Att betala 4 480,00 kr",
+]
+
+
+def test_39_scripted_pass_abstains_instead_of_double_posting(
+    period_id, purchase_accounts, intake_dir
+):
+    """Testfall 39: an intake pass (`AgentWorker.run_pass_once`) with
+    `agentruntime`'s scripted client, over a receipt that matches a posted
+    A-voucher exactly. The model does what §9 says: `hamta_underlagsfil`
+    -> `tolka_underlag` -> `registrera_avstaende` with the voucher number
+    in the motivation. No new voucher, nothing in `voucher_intake_sources`.
+
+    Scripted: it proves the path works when the model follows the
+    instruction, not that a real model does (§11 kriterium 6)."""
+    from services.agent_runtime import AgentWorker
+    from services.llm import LLMTurn, ToolCall, Usage
+    from tests.test_agent_runtime import FakeLLMClient
+
+    voucher_id = _a118(period_id)
+    number = _voucher_number(voucher_id)
+    assert number.startswith("A-")
+    source = _upload(_text_pdf(U10_TEXT_LINES))
+    before = _books_snapshot()
+
+    def _turn(call_id: str, name: str, arguments: dict) -> LLMTurn:
+        return LLMTurn(
+            text="",
+            tool_calls=[ToolCall(id=call_id, name=name, arguments=arguments)],
+            stop="tool_calls",
+            usage=Usage(10, 10, 0),
+        )
+
+    motivation = (
+        f"Underlaget hör till redan postade {number}: 4 480,00 kr på båda, "
+        "differens 0 kr. Kopplas i flode-underlag."
+    )
+    client = FakeLLMClient(
+        [
+            _turn("call-1", "hamta_underlagsfil", {"source_id": source.id}),
+            _turn(
+                "call-2",
+                "tolka_underlag",
+                {
+                    "source_id": source.id,
+                    "vendor": "Elektronikhuset",
+                    "document_date": "2026-03-15",
+                    "currency": "SEK",
+                    "total_ore": 448000,
+                    "vat_ore": 89600,
+                    "lines": [
+                        {"text": "USB-C docka", "amount_ore": 448000, "vat_rate": 25}
+                    ],
+                },
+            ),
+            _turn(
+                "call-3",
+                "registrera_avstaende",
+                {
+                    "source_id": source.id,
+                    "summary": f"Underlaget matchar {number} exakt",
+                    "error_detail": motivation,
+                },
+            ),
+        ],
+        _u6_capabilities(),
+    )
+
+    run = AgentWorker().run_pass_once(client_factory=lambda model: client)
+
+    # The pass ran the three calls, in order, and abstained.
+    assert run is not None and run.status == "completed"
+    assert run.items_posted == 0
+    assert len(client.calls) == 3
+    assert "tolka_underlag" in [t["name"] for t in client.calls[0]["tools"]]
+
+    # What the model saw before it abstained: the file's text, then an
+    # exact match on the voucher it names. (The fake keeps the loop's one
+    # message list by reference, so results are found by their call id.)
+    results = {
+        block["tool_use_id"]: block
+        for message in client.calls[-1]["messages"]
+        if message["role"] == "user" and isinstance(message["content"], list)
+        for block in message["content"]
+        if block.get("type") == "tool_result"
+    }
+    assert list(results) == ["call-1", "call-2"]
+    assert not any(block.get("is_error") for block in results.values())
+    file_text = json.dumps(results["call-1"]["content"], ensure_ascii=False)
+    assert "Att betala 4 480,00 kr" in file_text
+    tolka_block = results["call-2"]
+    tolka = json.loads(tolka_block["content"][0]["text"])
+    assert tolka["confidence"] == "high"
+    assert tolka["checks"]["text_layer"] == "agrees"
+    assert tolka["match"]["kind"] == "exact"
+    assert tolka["match"]["voucher_id"] == voucher_id
+    assert tolka["match"]["voucher_number"] == number
+    assert tolka["match"]["diff_ore"] == 0
+    assert tolka["match"]["hypothesis"] is None
+
+    # The interpretation is saved; the intake pass carries no thread.
+    saved = InterpretationRepository.latest_for_source(source.id)
+    assert saved is not None and saved.id == tolka["interpretation_id"]
+    assert saved.match is not None and saved.match.kind == "exact"
+    assert saved.thread_id is None
+
+    # The abstention names the voucher; the source is failed, not linked.
+    refreshed = IntakeRepository.get_source(source.id)
+    assert refreshed is not None and refreshed.status.value == "failed"
+    after = _books_snapshot()
+    assert after["vouchers"] == before["vouchers"]
+    assert after["voucher_rows"] == before["voucher_rows"]
+    assert after["attachments"] == before["attachments"]
+    assert after["voucher_intake_sources"] == before["voucher_intake_sources"] == []
+    attempt = db.execute(
+        "SELECT error_detail FROM intake_processing_attempts "
+        "WHERE intake_source_id = ? AND error_detail IS NOT NULL",
+        (source.id,),
+    ).fetchall()
+    assert [row["error_detail"] for row in attempt] == [motivation]
+    assert number in motivation
