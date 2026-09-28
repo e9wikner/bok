@@ -406,7 +406,25 @@ i specens text; resten byggs i U11–U15 nedan.
   - Filer: `domain/interpretation.py`, `services/interpretation.py`, spec §7.4,
     `docs/to_agent/03_bokforingsinstruktion.md`, tester.
 
-- [ ] **U14 — `expected_json` och `source_status` i läsvägen (§12.6 e, h)**
+- [x] **U14 — `expected_json` och `source_status` i läsvägen (§12.6 e, h)**
+  - Gjort 2026-09-28: sju `test_u14_*`, sedda röda först. Migration 031 är `ALTER TABLE … ADD
+    COLUMN expected_json TEXT` plus `schema_version (31)`; SQLite tar ADD COLUMN med 030:s
+    triggrar kvar, och de stoppar `UPDATE … SET expected_json` (testat, även till `NULL`).
+    `Interpretation.expected: Optional[Expected]` (de)serialiseras i
+    `json_columns`/`from_json_columns` (`expected_json` valfri där, `NULL` → `None`);
+    `tolka_underlag` sparar samma `Expected` som den svarar med. Läsvägen visar det sparade
+    `expected` — oförändrat efter att källan kopplats till verifikationen och efter att den
+    förväntade verifikationen fått en bankhändelse — och `expected_voucher_id` står kvar.
+    **Beslut:** `expected` får ingen `still_open`; §8 lägger den bara på `match`, och
+    `expected` är ögonblicksbilden som den sparades. `source_status` (källans status nu) sist
+    i svaret; en raderad källa ger 200 med `deleted`. **Ändrade befintliga tester:**
+    `test_u8_expected_is_not_recomputed_and_names_its_voucher` påstod `expected: null`, påstår
+    nu det sparade (och lägger till en bankhändelse efteråt som en omräkning skulle se);
+    `test_31_get_…` nyckellistan får `source_status`; testfall 32 (`test_32_…`) undantar
+    `source_status`, som går `pending` → `processed` vid kopplingen, från likheten och påstår
+    övergången. Spec §4, §5 (031 i ett eget stycke efter 030:s block, som testfall 30 klipper ut
+    orört) och §8 uppdaterade. `test_numrering.py` kontrollerar version 27, inte max — orörd.
+    Hela sviten 1298 gröna, mypy 61.
   - Acceptans: `db/migrations/031_add_interpretation_expected.sql` lägger till `expected_json`
     (ADD COLUMN; triggrarna från 030 gäller oförändrat). `tolka_underlag` sparar `expected`;
     `GET /intake/{id}/interpretation` visar det sparade `expected` och `source_status`. Spec §5,

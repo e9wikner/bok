@@ -1,9 +1,9 @@
 """Domain types for `underlagstolkning` (SPEC-underlagstolkning.md §5-§7).
 
-An `Interpretation` is one row of `intake_interpretations` (migration 030):
-what the model read from an underlag (`vendor` … `lines`, claims) and what
-the server computed from it at that moment (`checks`, `confidence`, `match`,
-`candidates`, facts). It is never rewritten; a new interpretation of the
+An `Interpretation` is one row of `intake_interpretations` (migrations 030,
+031): what the model read from an underlag (`vendor` … `lines`, claims) and
+what the server computed from it at that moment (`checks`, `confidence`,
+`match`, `candidates`, `expected`, facts). It is never rewritten; a new interpretation of the
 same source is a new row.
 
 No logic here beyond (de)serialising the `*_json` columns. Computing the
@@ -105,8 +105,8 @@ class Match(Candidate):
 class Expected(Match):
     """The comparison with the voucher the agent named in
     `expected_voucher_id` (§7.3): the full `Match` form, computed even
-    outside the windows, plus whether it is the unambiguous `match`. Not
-    stored (only `expected_voucher_id` is); returned by the tool."""
+    outside the windows, plus whether it is the unambiguous `match`.
+    Returned by the tool and stored as `expected_json` (migration 031)."""
 
     is_best_match: bool = False
 
@@ -132,6 +132,7 @@ class Interpretation:
     match: Optional[Match] = None
     candidates: List[Candidate] = field(default_factory=list)
     expected_voucher_id: Optional[str] = None
+    expected: Optional[Expected] = None
     agent_run_id: Optional[str] = None
     thread_id: Optional[str] = None
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
@@ -140,14 +141,18 @@ class Interpretation:
     # -- (de)serialisation of the *_json columns ---------------------------
 
     def json_columns(self) -> Dict[str, Optional[str]]:
-        """`lines_json`, `checks_json`, `match_json` and `candidates_json`
-        as stored. `match_json` is `NULL` when there is no unambiguous
-        match."""
+        """`lines_json`, `checks_json`, `match_json`, `candidates_json` and
+        `expected_json` as stored. `match_json` is `NULL` when there is no
+        unambiguous match, `expected_json` when nothing was compared with
+        an expected voucher."""
         return {
             "lines_json": _dumps(self.lines),
             "checks_json": _dumps(self.checks),
             "match_json": _dumps(self.match.to_dict()) if self.match else None,
             "candidates_json": _dumps([c.to_dict() for c in self.candidates]),
+            "expected_json": (
+                _dumps(self.expected.to_dict()) if self.expected else None
+            ),
         }
 
     @staticmethod
@@ -157,10 +162,12 @@ class Interpretation:
         checks_json: str,
         match_json: Optional[str],
         candidates_json: Optional[str],
+        expected_json: Optional[str] = None,
     ) -> Dict[str, Any]:
         """The inverse of `json_columns`, as keyword arguments for
         `Interpretation(...)`."""
         match = json.loads(match_json) if match_json else None
+        compared = json.loads(expected_json) if expected_json else None
         return {
             "lines": json.loads(lines_json or "[]"),
             "checks": json.loads(checks_json),
@@ -168,6 +175,9 @@ class Interpretation:
             "candidates": [
                 Candidate.from_dict(c) for c in json.loads(candidates_json or "[]")
             ],
+            "expected": (
+                Expected.from_dict(compared) if compared is not None else None
+            ),
         }
 
 

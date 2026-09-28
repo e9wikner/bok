@@ -120,6 +120,7 @@ class InterpretationService:
                 match=matching.match,
                 candidates=matching.candidates,
                 expected_voucher_id=args.expected_voucher_id,
+                expected=compared,
                 actor=actor,
                 agent_run_id=agent_run_id,
                 thread_id=thread_id,
@@ -138,20 +139,23 @@ class InterpretationService:
 
     def latest(self, source_id: str) -> Dict[str, Any]:
         """§8: the latest interpretation of *source_id*, in §6.5's form plus
-        `created_at`, `actor`, `thread_id`, `superseded_count` and
-        `match.still_open`. Reads only -- `still_open` is derived here, now,
-        and the stored snapshot is returned as stored.
+        `created_at`, `actor`, `thread_id`, `superseded_count`,
+        `source_status` and `match.still_open`. Reads only -- `still_open` is
+        derived here, now, and the stored snapshot is returned as stored.
 
-        `expected` is `None` and `expected_voucher_id` names the voucher the
-        agent expected: the row keeps the id but not the computed comparison
-        (§5), and recomputing it against today's ledger would look like the
-        snapshot while being something else.
+        `expected` is the comparison stored with the row (`expected_json`,
+        migration 031), never recomputed against today's ledger, and
+        `expected_voucher_id` names the voucher the agent expected. `None`
+        for rows from before 031. It carries no `still_open`: §8 adds that
+        to `match` only.
 
-        A soft-deleted source is still read: §8 has no `source_deleted`, and
-        the interpretation is append-only. Raises
+        A soft-deleted source is still read, with `source_status =
+        "deleted"` (§12.6 h): the interpretation is part of the trail and is
+        append-only. Raises
         `InterpretationNotFoundError` `source_not_found` /
         `interpretation_not_found`."""
-        if IntakeRepository.get_source(source_id) is None:
+        source = IntakeRepository.get_source(source_id)
+        if source is None:
             raise InterpretationNotFoundError(
                 "source_not_found", "Intake source not found", f"source_id={source_id}"
             )
@@ -189,13 +193,16 @@ class InterpretationService:
             "confidence": interpretation.confidence,
             "match": match,
             "candidates": [c.to_dict() for c in interpretation.candidates],
-            "expected": None,
+            "expected": (
+                interpretation.expected.to_dict() if interpretation.expected else None
+            ),
             "expected_voucher_id": interpretation.expected_voucher_id,
             "created_at": interpretation.created_at.isoformat(),
             "actor": interpretation.actor,
             "thread_id": interpretation.thread_id,
             "superseded_count": InterpretationRepository.count_for_source(source_id)
             - 1,
+            "source_status": source.status.value,
         }
 
     # -- helpers ----------------------------------------------------------

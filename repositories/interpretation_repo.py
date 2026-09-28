@@ -1,4 +1,4 @@
-"""Repository for `intake_interpretations` (migration 030,
+"""Repository for `intake_interpretations` (migrations 030 and 031,
 SPEC-underlagstolkning.md §5).
 
 All SQL for `intake_interpretations` lives here — see AGENTS.md's layering
@@ -33,9 +33,9 @@ class InterpretationRepository:
             INSERT INTO intake_interpretations
             (id, intake_source_id, vendor, document_date, currency, total_ore,
              vat_ore, lines_json, checks_json, confidence, match_json,
-             candidates_json, expected_voucher_id, actor, agent_run_id,
-             thread_id, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             candidates_json, expected_voucher_id, expected_json, actor,
+             agent_run_id, thread_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 interpretation.id,
@@ -55,6 +55,7 @@ class InterpretationRepository:
                 columns["match_json"],
                 columns["candidates_json"],
                 interpretation.expected_voucher_id,
+                columns["expected_json"],
                 interpretation.actor,
                 interpretation.agent_run_id,
                 interpretation.thread_id,
@@ -109,6 +110,7 @@ class InterpretationRepository:
                 checks_json=row["checks_json"],
                 match_json=row["match_json"],
                 candidates_json=row["candidates_json"],
+                expected_json=row["expected_json"],
             ),
         )
 

@@ -22,7 +22,7 @@ from fastapi.testclient import TestClient
 
 from config import settings
 from db.database import db
-from domain.interpretation import Candidate, Interpretation, Match
+from domain.interpretation import Candidate, Expected, Interpretation, Match
 from repositories.account_repo import AccountRepository
 from repositories.intake_repo import IntakeRepository
 from repositories.interpretation_repo import InterpretationRepository
@@ -2315,6 +2315,7 @@ def test_31_get_gives_the_later_with_superseded_count_one(
         "actor",
         "thread_id",
         "superseded_count",
+        "source_status",
     ]
     assert body["interpretation_id"] == later["interpretation_id"]
     assert body["superseded_count"] == 1
@@ -2358,7 +2359,17 @@ def test_32_linking_the_source_leaves_the_snapshot_and_closes_the_match(
     after = _get_interpretation(client, auth_headers, source.id).json()
 
     assert after["match"]["still_open"] is False
-    assert {**after, "match": None} == {**before, "match": None}
+    # The link marks the source processed (U14's `source_status`); the
+    # snapshot itself is the same.
+    assert (before["source_status"], after["source_status"]) == (
+        "pending",
+        "processed",
+    )
+    assert {**after, "match": None, "source_status": None} == {
+        **before,
+        "match": None,
+        "source_status": None,
+    }
     assert {**after["match"], "still_open": True} == before["match"]
     assert [
         tuple(r)
@@ -2410,19 +2421,21 @@ def test_u8_still_open_needs_both_the_predicate_and_an_unlinked_source(
 def test_u8_expected_is_not_recomputed_and_names_its_voucher(
     client, auth_headers, period_id, purchase_accounts, intake_dir
 ):
-    """The row keeps `expected_voucher_id` but not the computed `expected`
-    (§5). The GET does not recompute it against today's ledger, which would
-    look like a stored snapshot: `expected = null`, and
-    `expected_voucher_id` says which voucher the agent named."""
+    """The GET does not recompute `expected` against today's ledger: it
+    gives the comparison stored with the row (migration 031, U14) -- even
+    after the expected voucher got a bank transaction a recomputation would
+    show -- and `expected_voucher_id` says which voucher the agent named."""
     a118 = _a118(period_id)
     far = _purchase(period_id, total=99900, day=1)
     source = _upload(_text_pdf(U6_TEXT_LINES))
     answered = _tolka(source.id, expected_voucher_id=far)
     assert answered["expected"] is not None
+    assert answered["expected"]["bank_transaction"] is None
+    _bank_transaction(far, day=1, amount=-99900)
 
     body = _get_interpretation(client, auth_headers, source.id).json()
 
-    assert body["expected"] is None
+    assert body["expected"] == answered["expected"]
     assert body["expected_voucher_id"] == far
     assert body["match"]["voucher_id"] == a118
     plain = _upload(_text_pdf([*U6_TEXT_LINES, "Kopia"]))
@@ -2508,6 +2521,177 @@ def test_u8_deleted_source_keeps_its_interpretation_readable(
     response = _get_interpretation(client, auth_headers, source.id)
 
     assert response.status_code == 200
+    assert response.json()["interpretation_id"] == result["interpretation_id"]
+
+
+# ---------------------------------------------------------------------------
+# U14 — `expected_json` and `source_status` (§12.6 e, h)
+# ---------------------------------------------------------------------------
+
+MIGRATION_031 = REPO_ROOT / "db" / "migrations" / "031_add_interpretation_expected.sql"
+
+
+def _expected_a118(**overrides) -> Expected:
+    values = dict(
+        kind="amount_diff",
+        voucher_id="v-118",
+        voucher_number="A-118",
+        voucher_date="2026-06-03",
+        voucher_description="Förbrukningsinventarier",
+        amounts={"document_ore": 460000, "voucher_ore": 448000},
+        diff_ore=12000,
+        date_diff_days=0,
+        vat={"document_ore": 89600, "voucher_ore": 89600, "equal": True},
+        bank_transaction=None,
+        hypothesis={
+            "text": "Skillnaden på 120,00 kr motsvarar raden ”Pant” på underlaget.",
+            "basis": "line_items",
+            "lines": [1],
+        },
+        is_best_match=True,
+    )
+    values.update(overrides)
+    return Expected(**values)  # type: ignore[arg-type]
+
+
+def test_u14_migration_031_adds_a_nullable_expected_json(test_db):
+    conn = test_db.connect()
+    assert (
+        conn.execute("SELECT 1 FROM schema_version WHERE version = 31").fetchone()
+        is not None
+    )
+    columns = {
+        r["name"]: r for r in conn.execute("PRAGMA table_info(intake_interpretations)")
+    }
+    assert "expected_json" in columns
+    assert columns["expected_json"]["type"] == "TEXT"
+    assert columns["expected_json"]["notnull"] == 0
+    assert "ADD COLUMN expected_json TEXT" in MIGRATION_031.read_text(encoding="utf-8")
+
+
+def test_u14_triggers_abort_an_update_of_expected_json(test_db):
+    """030's triggers cover the added column unchanged: `expected_json`
+    cannot be rewritten or cleared after the fact."""
+    source_id = _intake_source()
+    saved = InterpretationRepository.insert(
+        _interpretation(source_id, expected=_expected_a118())
+    )
+
+    for value in ("{}", None):
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            db.execute(
+                "UPDATE intake_interpretations SET expected_json = ? WHERE id = ?",
+                (value, saved.id),
+            )
+        db.rollback()
+
+    latest = InterpretationRepository.latest_for_source(source_id)
+    assert latest is not None and latest.expected == _expected_a118()
+
+
+def test_u14_expected_round_trips_through_expected_json(test_db):
+    source_id = _intake_source()
+    written = _interpretation(source_id, expected=_expected_a118())
+    InterpretationRepository.insert(written)
+
+    read = InterpretationRepository.latest_for_source(source_id)
+    assert read is not None
+    assert read.expected == written.expected
+    row = db.execute(
+        "SELECT expected_json FROM intake_interpretations WHERE id = ?",
+        (written.id,),
+    ).fetchone()
+    stored = json.loads(row["expected_json"])
+    assert stored["kind"] == "amount_diff"
+    assert stored["is_best_match"] is True
+
+    plain = _interpretation(_intake_source())
+    InterpretationRepository.insert(plain)
+    assert plain.json_columns()["expected_json"] is None
+    read_plain = InterpretationRepository.latest_for_source(plain.intake_source_id)
+    assert read_plain is not None and read_plain.expected is None
+
+
+def test_u14_tool_saves_the_expected_it_answered(
+    period_id, purchase_accounts, intake_dir
+):
+    a118 = _a118(period_id)
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+
+    answered = _tolka(source.id, expected_voucher_id=a118)
+
+    saved = InterpretationRepository.latest_for_source(source.id)
+    assert saved is not None and saved.expected is not None
+    assert saved.expected.to_dict() == answered["expected"]
+    assert answered["expected"]["is_best_match"] is True
+
+
+def test_u14_get_shows_the_stored_expected_even_after_the_voucher_got_underlag(
+    client, auth_headers, period_id, purchase_accounts, intake_dir
+):
+    """§12.6 (e): the read path gives the `expected` the tool answered, as
+    stored -- also after the source is linked to that voucher, when a
+    recomputation would find nothing. `expected` carries no `still_open`
+    (§8 adds it to `match` only)."""
+    from services.intake import IntakeService
+
+    a118 = _a118(period_id)
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+    answered = _tolka(source.id, expected_voucher_id=a118)
+    before = _get_interpretation(client, auth_headers, source.id).json()
+    assert before["expected"] == answered["expected"]
+    assert before["expected_voucher_id"] == a118
+
+    IntakeService().link_existing_voucher(
+        source_id=source.id,
+        voucher_id=a118,
+        actor="api",
+        summary="Kvittot hör till A-118",
+    )
+    after = _get_interpretation(client, auth_headers, source.id).json()
+
+    assert after["expected"] == answered["expected"]
+    assert "still_open" not in after["expected"]
+    assert after["match"]["still_open"] is False
+    assert after["expected_voucher_id"] == a118
+
+
+def test_u14_without_expected_voucher_id_expected_is_null(
+    client, auth_headers, period_id, purchase_accounts, intake_dir
+):
+    _a118(period_id)
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+    _tolka(source.id)
+
+    body = _get_interpretation(client, auth_headers, source.id).json()
+
+    assert (body["expected"], body["expected_voucher_id"]) == (None, None)
+    row = db.execute(
+        "SELECT expected_json FROM intake_interpretations WHERE intake_source_id = ?",
+        (source.id,),
+    ).fetchone()
+    assert row["expected_json"] is None
+
+
+def test_u14_source_status_and_a_deleted_source_is_still_200(
+    client, auth_headers, period_id, purchase_accounts, intake_dir
+):
+    """§12.6 (h): the answer carries the source's status, so a client sees
+    that the source is deleted; the interpretation is part of the trail and
+    is still read."""
+    from services.intake import IntakeService
+
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+    result = _tolka(source.id)
+    body = _get_interpretation(client, auth_headers, source.id).json()
+    assert body["source_status"] == IntakeRepository.get_source(source.id).status.value
+    assert body["source_status"] != "deleted"
+
+    IntakeService().soft_delete(source.id, actor="api")
+    response = _get_interpretation(client, auth_headers, source.id)
+
+    assert response.status_code == 200
+    assert response.json()["source_status"] == "deleted"
     assert response.json()["interpretation_id"] == result["interpretation_id"]
 
 

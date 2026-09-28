@@ -199,6 +199,7 @@ python main.py --init-db             # tillämpar migration 030
 
 ```
 db/migrations/030_add_intake_interpretations.sql   # tabellen + triggrar (§5)
+db/migrations/031_add_interpretation_expected.sql  # expected_json (§5, §12.6 e)
 domain/interpretation.py                           # Interpretation, Match, Candidate, Confidence
 repositories/interpretation_repo.py                # insert, latest_for_source; ingen update/delete
 repositories/voucher_repo.py                       # MISSING_ATTACHMENT_SQL (§2.1), match_candidates (§7.2)
@@ -270,6 +271,17 @@ huvudboken ändras: när kvittot kopplats saknar A-118 inte längre underlag och
 ur en omräknad matchning. Det agenten jämförde med ska gå att läsa i efterhand, så det sparas. Att
 matchningen inte längre är aktuell räknas ut vid läsning (§8, `still_open`), aldrig genom att
 raden ändras.
+
+**Migration 031: `expected` sparas (§12.6 e).** Blocket ovan är migration 030 och står kvar som
+den tillämpades. 031 lägger till en kolumn för jämförelsen med den förväntade verifikationen, i
+verktygets `expected`-form (§6.5, §7.4 plus `is_best_match`):
+
+    ALTER TABLE intake_interpretations ADD COLUMN expected_json TEXT;
+
+`NULL` för rader från före 031, för tolkningar utan `expected_voucher_id` och i annan valuta
+(§7.1). 030:s triggrar gäller kolumnen oförändrat — de slår på varje `UPDATE`/`DELETE` av
+tabellen. Samma skäl som för matchningen: det agenten jämförde med ska gå att läsa i efterhand,
+inte räknas om mot dagens huvudbok.
 
 ---
 
@@ -508,8 +520,14 @@ tråden. Serverns hypotes är beläggningen för den.
 Bearer-autentiserad som resten av `/intake`. Returnerar den **senaste** tolkningen av källan, i
 samma form som verktygets svar (§6.5), plus:
 
+- `expected_voucher_id`, direkt efter `expected`: vilken verifikation agenten angav.
+  `expected` är den sparade jämförelsen (`expected_json`, migration 031), aldrig omräknad mot
+  dagens huvudbok; `null` utan `expected_voucher_id` och för rader från före 031. `expected` får
+  ingen `still_open` — den gäller `match`.
 - `created_at`, `actor`, `thread_id`, och `superseded_count` (hur många äldre tolkningar som
   finns). Historiken listas inte här, eftersom ingen vy behöver den ännu.
+- `source_status`: källans `intake_sources.status` nu, t.ex. `deleted`. En mjukraderad källa ger
+  fortfarande `200`; tolkningen är en del av spåret (§12.6 h).
 - `match.still_open: bool`, härlett vid läsning: verifikationen saknar fortfarande underlag
   **och** källan är inte kopplad. Ögonblicksbilden ändras aldrig.
 
