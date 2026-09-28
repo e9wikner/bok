@@ -375,7 +375,12 @@ i specens text; resten byggs i U11–U15 nedan.
   - Filer: `services/thread_stream.py`, `services/agent_runtime.py`, `services/agent_tools.py`
     (docstringen), tester.
 
-- [ ] **U12 — Verktygsbeskrivningen utan "huvudboken" (§12.6 c)**
+- [x] **U12 — Verktygsbeskrivningen utan "huvudboken" (§12.6 c)**
+  - Gjort 2026-09-28: undantagen i `agentruntime` 17, `beslut` 26 och `tradar` 14 borttagna
+    först (tre röda på den gamla beskrivningen). §6.2:s citat och `_TOOL_SPECS` säger nu
+    "matchning mot postade verifikationer"; resten av texten oförändrad. Modulens docstring
+    säger "a match against posted vouchers". §6.1 lämnad (prosa, motsäger inget). Testfall 34
+    grönt, de elva första orörda. Hela sviten 1288 gröna, mypy 61.
   - Acceptans: §6.2:s citat och `_TOOL_SPECS` säger t.ex. "matchning mot postade verifikationer"
     och nämner inte "huvudboken". Undantagen för `tolka_underlag` i `agentruntime` 17, `beslut`
     26 och `tradar` 14 tas bort. De elva första verktygen orörda (testfall 34:s hash).

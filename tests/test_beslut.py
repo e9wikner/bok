@@ -1762,13 +1762,8 @@ class TestCaseTwentySixAppendOnlyToolSurfaceExtended:
     def test_case_26_only_posta_verifikation_touches_the_ledger_in_its_description(
         self,
     ):
-        # `tolka_underlag` names the ledger as what it matches against
-        # (SPEC-underlagstolkning.md §6.2, verbatim) and says it changes
-        # nothing in the books -- the one exception.
         for tool in AGENT_TOOL_DEFINITIONS:
-            if tool["name"] == "tolka_underlag":
-                assert "ändrar ingenting i bokföringen" in tool["description"]
-            elif tool["name"] != "posta_verifikation":
+            if tool["name"] != "posta_verifikation":
                 assert "huvudboken" not in tool["description"].lower()
 
     def test_case_26_be_om_beslut_never_touches_vouchers_or_voucher_rows(self):

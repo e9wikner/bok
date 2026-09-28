@@ -1205,10 +1205,6 @@ class TestAppendOnlyToolSurface:
                 ), f"read tool {tool['name']!r} should say it is read-only"
 
     def test_posta_verifikation_is_the_only_tool_that_touches_the_ledger(self):
-        """`tolka_underlag`'s description names the ledger as what it
-        matches against -- SPEC-underlagstolkning.md §6.2, verbatim -- so it
-        is the one exception, and only while it also says it changes
-        nothing in the books."""
         description = next(
             t["description"]
             for t in AGENT_TOOL_DEFINITIONS
@@ -1216,9 +1212,7 @@ class TestAppendOnlyToolSurface:
         )
         assert "huvudboken" in description.lower()
         for tool in AGENT_TOOL_DEFINITIONS:
-            if tool["name"] == "tolka_underlag":
-                assert "ändrar ingenting i bokföringen" in tool["description"]
-            elif tool["name"] != "posta_verifikation":
+            if tool["name"] != "posta_verifikation":
                 assert "huvudboken" not in tool["description"].lower()
 
 

@@ -314,8 +314,8 @@ class TolkaUnderlagArgs(BaseModel):
 Beskrivning i verktygslistan:
 
 > Lämna det du läst ur ett underlag (leverantör, datum, belopp, moms, rader) för kontroll och
-> matchning mot huvudboken. Servern stämmer av momsen och textlagret, letar efter en postad
-> verifikation som saknar underlag och räknar differensen. Sparar tolkningen men kopplar
+> matchning mot postade verifikationer. Servern stämmer av momsen och textlagret, letar efter
+> en postad verifikation som saknar underlag och räknar differensen. Sparar tolkningen men kopplar
 > ingenting och ändrar ingenting i bokföringen. Anropa efter hamta_underlagsfil och före
 > posta_verifikation eller foresla_verifikation för samma underlag.
 

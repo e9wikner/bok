@@ -1176,13 +1176,8 @@ class TestThreadToolSurface:
 
         _run_thread(client, thread, posts[0])
 
-        # `tolka_underlag` names the ledger as what it matches against
-        # (SPEC-underlagstolkning.md §6.2, verbatim) and says it changes
-        # nothing in the books -- the one exception.
         for tool in client.calls[0]["tools"]:
-            if tool["name"] == "tolka_underlag":
-                assert "ändrar ingenting i bokföringen" in tool["description"]
-            elif tool["name"] != "posta_verifikation":
+            if tool["name"] != "posta_verifikation":
                 assert "huvudboken" not in tool["description"].lower()
 
     def test_the_tool_order_is_not_reordered_for_the_threads_sake(self):

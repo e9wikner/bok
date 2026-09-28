@@ -30,9 +30,9 @@ A twelfth, ``tolka_underlag``, was added by ``underlagstolkning``
 (``docs/redesign/SPEC-underlagstolkning.md`` §6) and appended after
 ``foresla_verifikation`` for the same reason (§6.6, testfall 34): the eleven
 before it are unchanged byte for byte. It hands the server what the model
-read from an underlag for checks and a match against the ledger, and writes
-one ``intake_interpretations`` row -- it links nothing and changes nothing
-in the books. It is not terminal.
+read from an underlag for checks and a match against posted vouchers, and
+writes one ``intake_interpretations`` row -- it links nothing and changes
+nothing in the books. It is not terminal.
 
 ``posta_verifikation`` is the only tool that posts to the general ledger,
 and it goes through the exact same code as ``POST /api/v1/agent/vouchers``
@@ -1081,12 +1081,12 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
     (
         "tolka_underlag",
         "Lämna det du läst ur ett underlag (leverantör, datum, belopp, moms, "
-        "rader) för kontroll och matchning mot huvudboken. Servern stämmer av "
-        "momsen och textlagret, letar efter en postad verifikation som saknar "
-        "underlag och räknar differensen. Sparar tolkningen men kopplar "
-        "ingenting och ändrar ingenting i bokföringen. Anropa efter "
-        "hamta_underlagsfil och före posta_verifikation eller "
-        "foresla_verifikation för samma underlag.",
+        "rader) för kontroll och matchning mot postade verifikationer. "
+        "Servern stämmer av momsen och textlagret, letar efter en postad "
+        "verifikation som saknar underlag och räknar differensen. Sparar "
+        "tolkningen men kopplar ingenting och ändrar ingenting i "
+        "bokföringen. Anropa efter hamta_underlagsfil och före "
+        "posta_verifikation eller foresla_verifikation för samma underlag.",
         TolkaUnderlagArgs,
         _run_tolka_underlag,
     ),
