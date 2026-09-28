@@ -34,6 +34,14 @@ read from an underlag for checks and a match against posted vouchers, and
 writes one ``intake_interpretations`` row -- it links nothing and changes
 nothing in the books. It is not terminal.
 
+A thirteenth, ``koppla_underlag``, was added by ``flode-underlag``
+(``docs/redesign/SPEC-flode-underlag.md`` §6) and appended after
+``tolka_underlag`` for the same reason (§6.7, testfall 36): the twelve
+before it are unchanged byte for byte. It links an underlag in the intake
+queue to an already posted voucher, with a basis the server checks (an
+exact match, or an answered decision about the underlag) -- it creates no
+voucher and changes none. It is not terminal.
+
 ``posta_verifikation`` is the only tool that posts to the general ledger,
 and it goes through the exact same code as ``POST /api/v1/agent/vouchers``
 (``services/voucher_posting.post_agent_voucher``, A1) -- same
@@ -414,6 +422,17 @@ class TolkaUnderlagArgs(BaseModel):
     vat_ore: Optional[int] = Field(None, ge=0)
     lines: list[TolkaUnderlagLine] = Field(default_factory=list, max_length=100)
     expected_voucher_id: Optional[str] = None
+
+
+class KopplaUnderlagArgs(BaseModel):
+    """Koppla ett underlag till en redan postad verifikation
+    (SPEC-flode-underlag.md §6.2). Inget fält för belopp, differens eller
+    motivering: differensen finns i tolkningen, och motiveringen är beslutet
+    eller den exakta matchningen."""
+
+    source_id: str
+    voucher_id: str
+    decision_id: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -972,6 +991,45 @@ def _run_tolka_underlag(
     )
 
 
+def _run_koppla_underlag(
+    args: KopplaUnderlagArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """SPEC-flode-underlag.md §6. Not terminal: the turn goes on after the
+    answer (§6.6).
+
+    Opens ``tool_context`` for the ``thread`` (-> ``thread_id``: a decision
+    must be in the same thread) and the turn's ``agent_run_id``. Without a
+    thread it is a call from the intake pass (§6.7): a decision belongs to
+    a thread and the pass has none, so only ``exact_match`` applies there.
+    No idempotency key: the link is idempotent through the schema,
+    ``UNIQUE(intake_source_id)`` (§6.5).
+    """
+    context = tool_context or {}
+    thread = context.get("thread")
+
+    # Deferred import -- the same import-cycle rule as `_run_be_om_beslut`.
+    from services.intake_link import IntakeLinkService
+
+    return (
+        IntakeLinkService()
+        .link(
+            args.source_id,
+            args.voucher_id,
+            decision_id=args.decision_id,
+            actor=actor,
+            thread_id=thread.id if thread is not None else None,
+            agent_run_id=context.get("agent_run_id"),
+            decisions_allowed=thread is not None,
+        )
+        .to_dict()
+    )
+
+
 # ---------------------------------------------------------------------------
 # Tool definitions and dispatcher (SPEC §6.4, §6.6)
 # ---------------------------------------------------------------------------
@@ -1090,6 +1148,17 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
         TolkaUnderlagArgs,
         _run_tolka_underlag,
     ),
+    (
+        "koppla_underlag",
+        "Koppla ett underlag till en redan postad verifikation som det hör "
+        "till. Kräver en tolkning av underlaget (tolka_underlag). Utan "
+        "beslut: bara när tolkningens match är exakt och verifikationen "
+        "fortfarande saknar underlag. Annars: ange decision_id för ett "
+        "besvarat beslut om just det underlaget. Skapar ingen verifikation "
+        "och ändrar ingen.",
+        KopplaUnderlagArgs,
+        _run_koppla_underlag,
+    ),
 )
 
 #: Anthropic tool-definition shape: {"name", "description", "input_schema"}.
@@ -1118,8 +1187,8 @@ def execute_tool(
     idempotency_key: Optional[str] = None,
     tool_context: Optional[Mapping[str, Any]] = None,
 ) -> Any:
-    """Validate and run one model-requested tool call -- one of the twelve
-    tools in ``_TOOL_SPECS``, the last of them ``tolka_underlag``.
+    """Validate and run one model-requested tool call -- one of the thirteen
+    tools in ``_TOOL_SPECS``, the last of them ``koppla_underlag``.
 
     ``idempotency_key`` is the caller's own key for a posting made during
     this session, and only ``posta_verifikation`` reads it -- the thread
@@ -1138,7 +1207,9 @@ def execute_tool(
     the turn's ``proposals`` sequence from it, which the thread path always
     sets. ``tolka_underlag`` opens it too, but only for traceability
     (``thread`` and ``agent_run_id``, SPEC-underlagstolkning.md §6.6) and
-    works without it. It is handed to every handler rather than branched on here, for
+    works without it. ``koppla_underlag`` opens the same two: the thread
+    binds a decision to it, and without one only an exact match links
+    (SPEC-flode-underlag.md §6.7). It is handed to every handler rather than branched on here, for
     the same reason ``idempotency_key`` is: the dispatcher stays a table
     lookup with no special case in it.
 

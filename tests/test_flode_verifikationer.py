@@ -856,11 +856,16 @@ def test_case_22_foresla_verifikation_is_last_and_the_first_ten_are_unchanged():
     description or a schema that leaves the names where they were.
 
     `underlagstolkning` has since appended `tolka_underlag` after it
-    (SPEC-underlagstolkning.md §6.6), so it is eleventh rather than last;
-    what comes after it is that module's testfall 34."""
+    (SPEC-underlagstolkning.md §6.6), and `flode-underlag` `koppla_underlag`
+    after that (SPEC-flode-underlag.md §6.7), so it is eleventh rather than
+    last; what comes after it is those modules' testfall 34 and 36."""
     names = [tool["name"] for tool in AGENT_TOOL_DEFINITIONS]
 
-    assert names == _FIRST_TEN + ["foresla_verifikation", "tolka_underlag"]
+    assert names == _FIRST_TEN + [
+        "foresla_verifikation",
+        "tolka_underlag",
+        "koppla_underlag",
+    ]
     first_ten = json.dumps(AGENT_TOOL_DEFINITIONS[:10], ensure_ascii=False)
     assert hashlib.sha256(first_ten.encode("utf-8")).hexdigest() == _FIRST_TEN_SHA256
     assert AGENT_TOOL_DEFINITIONS[10]["input_schema"] == (

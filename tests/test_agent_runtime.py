@@ -1082,6 +1082,9 @@ _EXPECTED_TOOL_NAMES = [
     # The twelfth, appended the same way (SPEC-underlagstolkning.md §6.6,
     # task U7): the eleven above keep their positions.
     "tolka_underlag",
+    # The thirteenth, appended the same way (SPEC-flode-underlag.md §6.7,
+    # task FU5): the twelve above keep their positions.
+    "koppla_underlag",
 ]
 
 
@@ -1117,7 +1120,7 @@ class TestAppendOnlyToolSurface:
     """
 
     def test_tool_names_are_exactly_the_allowed_tools(self):
-        """Twelve since `underlagstolkning` (SPEC §6.6). The count is asserted
+        """Thirteen since `flode-underlag` (SPEC §6.6). The count is asserted
         against the expected list rather than a literal, so adding a tool
         without adding it there still fails -- which is the point: this is
         the append-only rule's only automatic check through the agent's
@@ -1189,6 +1192,12 @@ class TestAppendOnlyToolSurface:
         (SPEC-underlagstolkning.md §6.1): read-only against the books, but
         it writes an `intake_interpretations` row, so it does not say
         "Skrivskyddat" either.
+
+        `koppla_underlag` joined them with `flode-underlag`
+        (SPEC-flode-underlag.md §6.1): it creates and changes no voucher,
+        but it writes the link, an attempt, the source's status and an
+        `intake_link_basis` row -- not read-only, and it does not name the
+        general ledger (§6.2).
         """
         write_tool_names = {
             "posta_verifikation",
@@ -1196,6 +1205,7 @@ class TestAppendOnlyToolSurface:
             "be_om_beslut",
             "foresla_verifikation",
             "tolka_underlag",
+            "koppla_underlag",
         }
         read_tool_names = set(_EXPECTED_TOOL_NAMES) - write_tool_names
         for tool in AGENT_TOOL_DEFINITIONS:

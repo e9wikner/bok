@@ -2214,7 +2214,10 @@ def test_u6_voucher_candidate_row_is_one_posted_voucher_any_window(
 
 
 # ---------------------------------------------------------------------------
-# U7 — the tool list: `tolka_underlag` last (§6.2, §6.6; testfall 34)
+# U7 — the tool list: `tolka_underlag` twelfth (§6.2, §6.6; testfall 34).
+# It was last until `flode-underlag` appended `koppla_underlag` after it
+# (SPEC-flode-underlag.md §6.7); what comes after it is that module's
+# testfall 36.
 # ---------------------------------------------------------------------------
 
 # sha256 of `json.dumps(AGENT_TOOL_DEFINITIONS[:11])`, taken on `9523c81`,
@@ -2240,19 +2243,20 @@ def _spec_6_2_description() -> str:
     return " ".join(quoted)
 
 
-def test_34_tolka_underlag_is_last_and_the_first_eleven_are_unchanged():
-    """Testfall 34: appended last, the twelfth tool; the names catch a
-    reorder, the hash an edit to a description or schema before it."""
+def test_34_tolka_underlag_is_twelfth_and_the_first_eleven_are_unchanged():
+    """Testfall 34: appended after the eleven, the twelfth tool; the names
+    catch a reorder, the hash an edit to a description or schema before
+    it."""
     from services.agent_tools import AGENT_TOOL_DEFINITIONS, TolkaUnderlagArgs
 
-    assert len(AGENT_TOOL_DEFINITIONS) == 12
-    assert [t["name"] for t in AGENT_TOOL_DEFINITIONS][-2:] == [
+    assert len(AGENT_TOOL_DEFINITIONS) == 13
+    assert [t["name"] for t in AGENT_TOOL_DEFINITIONS][10:12] == [
         "foresla_verifikation",
         "tolka_underlag",
     ]
     first_eleven = json.dumps(AGENT_TOOL_DEFINITIONS[:11])
     assert hashlib.sha256(first_eleven.encode()).hexdigest() == _FIRST_ELEVEN_SHA256
-    assert AGENT_TOOL_DEFINITIONS[-1]["input_schema"] == (
+    assert AGENT_TOOL_DEFINITIONS[11]["input_schema"] == (
         TolkaUnderlagArgs.model_json_schema()
     )
 
@@ -2263,7 +2267,7 @@ def test_34_the_description_is_section_6_2_verbatim():
     expected = _spec_6_2_description()
     assert expected.startswith("Lämna det du läst ur ett underlag")
     assert expected.endswith("för samma underlag.")
-    assert AGENT_TOOL_DEFINITIONS[-1]["description"] == expected
+    assert AGENT_TOOL_DEFINITIONS[11]["description"] == expected
 
 
 def test_u7_the_docstrings_say_twelve_tools():
@@ -2271,7 +2275,8 @@ def test_u7_the_docstrings_say_twelve_tools():
 
     assert "twelfth" in (agent_tools.__doc__ or "")
     assert "tolka_underlag" in (agent_tools.__doc__ or "")
-    assert "twelve" in (agent_tools.execute_tool.__doc__ or "")
+    # Thirteen since `flode-underlag` (SPEC-flode-underlag.md §6.7).
+    assert "thirteen" in (agent_tools.execute_tool.__doc__ or "")
 
 
 # ---------------------------------------------------------------------------
@@ -3055,7 +3060,7 @@ def test_u15_request_body_reuses_the_tool_fields_and_leaves_its_schema(client):
     `input_schema` is byte for byte what it was before the route."""
     from services.agent_tools import AGENT_TOOL_DEFINITIONS
 
-    tool = AGENT_TOOL_DEFINITIONS[-1]
+    tool = AGENT_TOOL_DEFINITIONS[11]
     assert tool["name"] == "tolka_underlag"
     schema = json.dumps(tool["input_schema"])
     assert hashlib.sha256(schema.encode()).hexdigest() == _TOLKA_UNDERLAG_SCHEMA_SHA256

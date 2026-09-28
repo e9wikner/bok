@@ -146,7 +146,20 @@ till dem.
     SQL behövs. Testfall 10 tolkar om med `expected_voucher_id` mot en SIE4-importerad
     verifikation, som aldrig är kandidat (`SPEC-underlagstolkning.md` §12.5).
 
-- [ ] **FU5 — `koppla_underlag` sist i verktygslistan**
+- [x] **FU5 — `koppla_underlag` sist i verktygslistan**
+  - Gjort 2026-09-28: 8 tester i `tests/test_flode_underlag_verktyg.py` (testfall 36 i två delar:
+    sha256 av de tolv tagen på `a326fdf` och beskrivningen läst ur §6.2; argumenten; docstrings;
+    testfall 1 och 4 genom `execute_tool` med en riktig tråd; beslut ur en annan tråd; passet),
+    alla sedda röda först. `KopplaUnderlagArgs` utan `extra="forbid"`, så
+    `test_u6_only_tolka_underlag_forbids_extra_fields` står orörd. Handläggaren skickar
+    `decisions_allowed = thread is not None` (§6.7). Uppdaterade: `agentruntime` 17
+    (`_EXPECTED_TOOL_NAMES`, och `koppla_underlag` bland de skrivande verktygen i
+    `test_only_the_writing_tools_are_undocumented_as_read_only`), `beslut` 25 (13 namn),
+    `underlagstolkning` 34 (`[-1]` → `[11]`, "last" → "twelfth", U7:s docstringtest kräver
+    "thirteen" i `execute_tool`), U15:s schemahash (`[-1]` → `[11]`) och `flode-verifikationer`
+    22. Hela sviten 1369 gröna. mypy 61. **Öppen punkt till FU18:** verktyget är inte terminalt,
+    så i passet blir en koppling följd av ett bart `end` utfallet `abstained: agent_no_outcome`
+    (räknas i `items_abstained`); källan är `processed` och får inget avstående.
   - Beror på: FU4
   - Acceptans: `KopplaUnderlagArgs` enligt §6.2 och `_run_koppla_underlag`, som läser `thread`
     (→ `thread_id`), `agent_run_id` och aktören ur `tool_context` och anropar
