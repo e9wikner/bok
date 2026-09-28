@@ -180,7 +180,15 @@ till dem.
     får `extra="forbid"` bara om testet för det i `underlagstolkning`
     (`test_u6_only_tolka_underlag_forbids_extra_fields`) uppdateras i samma commit.
 
-- [ ] **FU6 — `POST /api/v1/intake/{id}/link`**
+- [x] **FU6 — `POST /api/v1/intake/{id}/link`**
+  - Gjort 2026-09-28: 27 tester i `tests/test_flode_underlag_http.py` (testfall 1, 4, 13 över
+    HTTP; tre riktiga avvisningar, en per statusgrupp; §7:s femton koder parametriserade genom
+    en monkeypatchad service, så att routen visas mappa på typ; tjänstens egen typ för ett urval
+    av koderna; `405` för PUT/PATCH/DELETE; `401`; `422` för okänt fält, `source_id` i kroppen
+    och tom kropp), alla sedda röda först utom ett (typurvalet mot servicen). `LinkRequest` med
+    `extra="forbid"`. `_http_error` fick kopplingens tre typer först; mappningen för befintliga
+    fel är orörd. `201` vid koppling, `200` med `replayed: true` vid uppspelning (satt på
+    `Response`). Routen ligger före `GET /{source_id}`. Hela sviten 1396 gröna. mypy 61.
   - Beror på: FU4
   - Acceptans: bearer-autentiserad route i `api/routes/intake.py`, före `GET /{source_id}`.
     Kroppen `{voucher_id, decision_id?}` med `extra="forbid"`. Anropar `IntakeLinkService.link`

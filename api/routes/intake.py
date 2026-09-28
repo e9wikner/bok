@@ -2,7 +2,16 @@
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+)
 from fastapi import status as http_status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, create_model
@@ -29,6 +38,12 @@ from services.intake import (
     IntakeService,
     IntakeValidationError,
 )
+from services.intake_link import (
+    IntakeLinkService,
+    LinkConflictError,
+    LinkNotFoundError,
+    LinkRejectedError,
+)
 from services.interpretation_service import (
     InterpretationNotFoundError,
     InterpretationService,
@@ -43,6 +58,17 @@ class UpdateAgentGuidanceRequest(BaseModel):
     """Request to update agent guidance for an intake source."""
 
     agent_guidance: str | None = None
+
+
+class LinkRequest(BaseModel):
+    """`koppla_underlag`'s arguments without `source_id`, which the path
+    carries (SPEC-flode-underlag.md §7). Nothing else: the basis is the
+    interpretation or the decision, never something the caller states."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    voucher_id: str
+    decision_id: str | None = None
 
 
 # `tolka_underlag`'s arguments without `source_id`, which the path carries
@@ -264,6 +290,41 @@ async def create_intake_interpretation(
         ) from exc
 
 
+@router.post(
+    "/{source_id}/link",
+    response_model=dict,
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def link_intake_source(
+    source_id: str,
+    request: LinkRequest,
+    response: Response,
+    actor: str = Depends(get_current_actor),
+):
+    """Link a source to an already posted voucher, as `koppla_underlag`
+    does, for a session without the tool (SPEC-flode-underlag.md §7).
+
+    The same service and the same rules: an exact, still open match, or an
+    answered decision about the source from a thread. `201` when linked,
+    `200` with `replayed: true` when the source already is. No `PUT`,
+    `PATCH` or `DELETE`: a link is not changed or removed.
+    """
+    try:
+        result = IntakeLinkService().link(
+            source_id,
+            request.voucher_id,
+            decision_id=request.decision_id,
+            actor=actor,
+            thread_id=None,
+            agent_run_id=None,
+        )
+    except IntakeError as exc:
+        raise _http_error(exc) from exc
+    if result.replayed:
+        response.status_code = http_status.HTTP_200_OK
+    return result.to_dict()
+
+
 @router.get("/{source_id}", response_model=dict)
 async def get_intake_source(
     source_id: str,
@@ -479,7 +540,14 @@ def _bank_input_link_to_dict(link) -> dict:
 
 def _http_error(exc: IntakeError) -> HTTPException:
     status_code = http_status.HTTP_400_BAD_REQUEST
-    if isinstance(exc, DuplicateIntakeSourceError):
+    # The link's three groups (SPEC-flode-underlag.md §7), on type.
+    if isinstance(exc, LinkNotFoundError):
+        status_code = http_status.HTTP_404_NOT_FOUND
+    elif isinstance(exc, LinkConflictError):
+        status_code = http_status.HTTP_409_CONFLICT
+    elif isinstance(exc, LinkRejectedError):
+        status_code = http_status.HTTP_400_BAD_REQUEST
+    elif isinstance(exc, DuplicateIntakeSourceError):
         status_code = http_status.HTTP_409_CONFLICT
     elif isinstance(exc, (IntakeNotFoundError, InterpretationNotFoundError)):
         status_code = http_status.HTTP_404_NOT_FOUND
