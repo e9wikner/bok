@@ -52,6 +52,14 @@ dubbelpost. Därför:
    sannolikt till A-118, differens 120,00 kr". I en tråd: säg vad du hittat, med
    båda beloppen, underlagets och verifikationens. Koppla inte underlaget själv;
    kopplingen görs av en människa.
+
+   **`match.kind = "exact_no_date"`:** beloppet är exakt detsamma som på en
+   postad verifikation, men underlaget saknar datum. Ett belopp som återkommer,
+   till exempel hyra eller ett abonnemang, går då inte att skilja från samma
+   köp. Posta inte. I ett underlagspass: avstå med `registrera_avstaende` och
+   skriv verifikationsnumret och att underlaget saknar datum i motiveringen, till
+   exempel "Samma belopp som A-118, underlaget saknar datum". I en tråd: fråga om
+   det är samma köp, och nämn verifikationsnumret och beloppet.
 3. **`match = null` men `candidates` inte tom:** fråga vilken verifikation
    underlaget gäller. Välj inte själv bland kandidaterna. I ett underlagspass,
    där du inte kan fråga, avstå med `registrera_avstaende` och räkna upp

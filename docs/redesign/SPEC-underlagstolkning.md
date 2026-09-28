@@ -376,7 +376,7 @@ ur. `low` betyder att underlaget ska läsas om eller att människan ska tillfrå
 ```
 
 `read` är det modellen skickade, oförändrat, så att det som sparades och det som visas är samma
-sak. `expected` fylls när `expected_voucher_id` gavs (§7.3).
+sak. `match.kind` är `exact`, `exact_no_date` eller `amount_diff` (§7.4). `expected` fylls när `expected_voucher_id` gavs (§7.3).
 
 ### 6.6 Placering i verktygslistan
 
@@ -465,8 +465,16 @@ ser ut att höra till A-109"*, och servern har inte i tysthet bytt verifikation.
 }
 ```
 
-`kind` är `exact` när `diff_ore = 0` och `date_diff_days ≤ 3`, annars `amount_diff`. Designens
-*"Exakt match ska hoppa över det här steget"* läser `kind`. Klienten räknar aldrig själv på
+`kind` har tre värden:
+
+- `exact` när `diff_ore = 0` och `|date_diff_days| ≤ 3`;
+- `exact_no_date` när `diff_ore = 0` och `document_date` saknas (`date_diff_days = null`). Utan
+  datum skiljer ingenting ett återkommande belopp (hyra, abonnemang) från samma köp, så det är
+  aldrig `exact` (§12.6 d);
+- `amount_diff` annars, också när beloppet är exakt men datumet ligger mer än tre dagar ifrån.
+
+Samma regel gäller `expected` (§7.3). Designens *"Exakt match ska hoppa över det här steget"*
+läser `kind` och slår bara på `exact`. Klienten räknar aldrig själv på
 `diff_ore`.
 
 `diff_ore` är `document − voucher`. Positivt betyder att underlaget är större än det som
@@ -528,6 +536,10 @@ Tillägget, i sak:
    en redan postad verifikation. I passet: **posta inte**. Avstå med `registrera_avstaende`, och
    skriv verifikationsnumret och differensen i motiveringen. I tråden: säg vad du hittat, med
    båda beloppen. Kopplingen görs i `flode-underlag`.
+   **`match.kind = "exact_no_date"`:** samma belopp, men underlaget saknar datum, och ett
+   återkommande belopp går då inte att skilja från samma köp. **Posta inte.** I passet: avstå med
+   `registrera_avstaende`, med verifikationsnumret och att underlaget saknar datum i
+   motiveringen. I tråden: fråga om det är samma köp, med verifikationsnumret och beloppet.
 3. **`match = null` med kandidater:** fråga vilken verifikation det gäller. Välj inte själv.
 4. **`confidence = "low"`:** gissa inte fram ett belopp. Be om ett nytt underlag eller säg vad som
    inte stämmer.
@@ -586,7 +598,7 @@ Fall 5b är lettrat för att inte rubba numreringen på 6–40, som andra avsnit
 | 21 | Kandidat i serie `IB` | Ingen kandidat |
 | 22 | Utanför datumfönstret | Ingen kandidat |
 | 23 | Diff 6 000 öre på 20 000 | Utanför beloppsfönstret, ingen kandidat |
-| 24 | `document_date` saknas | Bara exakt belopp matchar |
+| 24 | `document_date` saknas | Bara exakt belopp matchar, `kind = exact_no_date` |
 | 25 | `currency = EUR` | `match = null`, `candidates = []`, `checks.currency = not_sek` |
 | 26 | `expected_voucher_id` = en sämre kandidat | `expected` räknat mot den, `is_best_match = false`, `match` oförändrad |
 | 27 | Differens förklaras av två rader tillsammans | Hypotes med båda raderna |
@@ -670,6 +682,8 @@ Svar på §13.1. Ett stopp i `posta_verifikation`/`foresla_verifikation`
 avstående utan utväg. Instruktionen i §9 är spärren för fas 1, och skriptat testfall 39 visar att
 den håller när modellen följer den. En riktig spärr väntar till `flode-underlag`, som ger en väg
 att koppla underlaget — då kan felet hänvisa dit. Ingen kodändring i den här modulen av detta.
+Spärren slår bara på `match.kind = exact`; `exact_no_date` och `amount_diff` stoppas av
+instruktionen och en fråga, inte av ett fel (§7.4, §12.6 d).
 
 ### 12.5 `created_by = 'sie4_import'` undantas i predikatet — **BESLUTAT 2026-09-28**
 

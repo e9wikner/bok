@@ -1360,7 +1360,68 @@ def test_u5_without_document_date_date_diff_is_none_and_not_exact():
 
     assert match is not None
     assert match.date_diff_days is None
-    assert match.kind == "amount_diff"
+    # U13 (§12.6 d): an exact amount without a date is its own kind.
+    assert match.kind == "exact_no_date"
+
+
+def test_u13_exact_amount_without_date_is_exact_no_date_in_match_and_expected():
+    """§7.4: `diff_ore = 0` without `document_date` is `exact_no_date`, in
+    `match` as in `expected`, and serialised with `kind` first."""
+    from services.interpretation import expected
+
+    read = _read_flode4(document_date=None)
+    row = _row(ore=460000)
+    result = _match(read, [row])
+
+    assert result.match is not None
+    assert result.match.kind == "exact_no_date"
+    assert result.match.diff_ore == 0
+    assert result.match.hypothesis is None
+    assert list(result.match.to_dict())[0] == "kind"
+    assert result.match.to_dict()["kind"] == "exact_no_date"
+
+    exp = expected(read, row, result)
+    assert exp is not None
+    assert exp.kind == "exact_no_date"
+    assert exp.is_best_match is True
+
+
+def test_u13_amount_diff_without_date_stays_amount_diff():
+    """Only `diff_ore = 0` gets the new kind: a difference without a date is
+    still `amount_diff`, and a date keeps `exact`/`amount_diff` as before."""
+    from services.interpretation import expected
+
+    read = _read_flode4(document_date=None)
+    row = _row()  # 4 480 kr against 4 600 kr
+    exp = expected(read, row, _match(read, [row]))
+
+    assert exp is not None
+    assert exp.diff_ore == 12000
+    assert exp.kind == "amount_diff"
+
+    dated = _match(_read_flode4(), [_row(ore=460000)]).match
+    assert dated is not None
+    assert dated.kind == "exact"
+
+
+def test_u13_tool_without_date_answers_and_saves_exact_no_date(
+    period_id, purchase_accounts, intake_dir
+):
+    """Testfall 24 the whole way: no `document_date`, a posted voucher on the
+    exact amount -> `match.kind = "exact_no_date"`, answered and saved."""
+    voucher_id = _purchase(period_id, total=460000, vat=89600, day=15)
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+
+    result = _tolka(source.id, document_date=None)
+
+    match = result["match"]
+    assert match["kind"] == "exact_no_date"
+    assert match["voucher_id"] == voucher_id
+    assert match["diff_ore"] == 0
+    assert match["date_diff_days"] is None
+    saved = InterpretationRepository.latest_for_source(source.id)
+    assert saved is not None
+    assert saved.match is not None and saved.match.to_dict() == match
 
 
 def test_25_currency_not_sek_gives_no_match_and_no_candidates():

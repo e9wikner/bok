@@ -490,6 +490,20 @@ def _assert_interpretation_rules(text: str) -> None:
     )
     assert "med båda beloppen" in text
 
+    # 2, U13 (§12.6 d): an exact amount without a date is not told apart
+    # from a recurring amount -- do not post, abstain in the pass with the
+    # number and the missing date, ask in a thread.
+    assert '`match.kind = "exact_no_date"`' in text
+    assert "underlaget saknar datum" in text
+    assert (
+        "avstå med `registrera_avstaende` och skriv verifikationsnumret och att "
+        "underlaget saknar datum i motiveringen" in text
+    )
+    assert "fråga om det är samma köp" in text
+    assert "nämn verifikationsnumret och beloppet" in text
+    no_date = text.index('`match.kind = "exact_no_date"`')
+    assert text.index("Posta inte.", no_date) < text.index("`match = null`")
+
     # 3. No match but candidates: ask, do not choose.
     assert "`match = null`" in text
     assert "Välj inte själv bland kandidaterna" in text

@@ -387,7 +387,18 @@ i specens text; resten byggs i U11–U15 nedan.
   - Filer: spec §6.2, `services/agent_tools.py`, `tests/test_agent_runtime.py`,
     `tests/test_beslut.py`, `tests/test_tradar.py`.
 
-- [ ] **U13 — `kind = "exact_no_date"` (§12.6 d)**
+- [x] **U13 — `kind = "exact_no_date"` (§12.6 d)**
+  - Gjort 2026-09-28: `MatchKind` har tre värden; `_kind` i `services/interpretation.py` (som
+    både `build_match` och `expected` använder) ger `exact_no_date` när `diff_ore = 0` och
+    `date_diff_days` är `None`. Sedda röda först: `test_u13_exact_amount_without_date_is_*`
+    (match och expected), `test_u13_tool_without_date_answers_and_saves_exact_no_date` (testfall
+    24 hela vägen genom verktyget), plus `test_u13_amount_diff_without_date_stays_amount_diff`.
+    **Ändrat befintligt test:** `test_u5_without_document_date_date_diff_is_none_and_not_exact`
+    påstod `amount_diff`, påstår nu `exact_no_date`; testfall 24 (`test_24_…`, kandidatfrågan)
+    påstod ingen `kind` och är orört. Instruktionens punkt 2 har ett stycke för `exact_no_date`
+    (avstå i passet med numret och att datum saknas, fråga i tråden); testfall 38 utökat. Spec
+    §6.5, §7.4 (tre sorter, gäller även `expected`), §9 punkt 2, §10.3 rad 24 och §12.4 (spärren
+    slår bara på `exact`) uppdaterade. Hela sviten 1291 gröna, mypy 61.
   - Acceptans: exakt belopp (`diff_ore = 0`) utan `document_date` ger `exact_no_date`, inte
     `amount_diff`. `MatchKind`, `build_match` och spec §7.4 uppdaterade. Instruktionens punkt 2
     (`03_…`): `exact_no_date` → avstå i passet med verifikationsnumret, fråga i tråden.

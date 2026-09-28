@@ -20,8 +20,10 @@ from typing import Any, Dict, List, Literal, Mapping, Optional
 # §6.4: three levels, not a number.
 Confidence = Literal["high", "medium", "low"]
 
-# §7.4: `exact` when `diff_ore = 0` and `date_diff_days <= 3`.
-MatchKind = Literal["exact", "amount_diff"]
+# §7.4: `exact` when `diff_ore = 0` and `|date_diff_days| <= 3`;
+# `exact_no_date` when `diff_ore = 0` and there is no `document_date`;
+# otherwise `amount_diff`.
+MatchKind = Literal["exact", "exact_no_date", "amount_diff"]
 
 # §6.3: the values each check can take.
 LinesSumCheck = Literal["ok", "mismatch", "not_applicable"]

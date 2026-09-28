@@ -231,7 +231,8 @@ class MatchRead(Read, Protocol):
 # §7.3: `candidates` carries at most five.
 MAX_CANDIDATES = 5
 
-# §7.4: `exact` when `diff_ore = 0` and `|date_diff_days| <= 3`.
+# §7.4: `exact` when `diff_ore = 0` and `|date_diff_days| <= 3`;
+# `exact_no_date` when `diff_ore = 0` and there is no `document_date`.
 EXACT_MAX_DATE_DIFF_DAYS = 3
 
 # §7.5: at most three lines, each within ±1 öre.
@@ -408,12 +409,16 @@ def _vendor_hit(vendor: Optional[str], row: MatchCandidateRow) -> bool:
 
 
 def _kind(candidate: Candidate) -> MatchKind:
-    exact = (
-        candidate.diff_ore == 0
-        and candidate.date_diff_days is not None
-        and abs(candidate.date_diff_days) <= EXACT_MAX_DATE_DIFF_DAYS
-    )
-    return "exact" if exact else "amount_diff"
+    """§7.4. Without a date nothing tells a recurring amount (rent, a
+    subscription) from the same purchase, so an exact amount without one
+    is its own kind, never `exact` (§12.6 d)."""
+    if candidate.diff_ore != 0:
+        return "amount_diff"
+    if candidate.date_diff_days is None:
+        return "exact_no_date"
+    if abs(candidate.date_diff_days) <= EXACT_MAX_DATE_DIFF_DAYS:
+        return "exact"
+    return "amount_diff"
 
 
 def _hypothesis_text(diff_ore: int, texts: Sequence[str]) -> str:
