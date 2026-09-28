@@ -600,3 +600,416 @@ def test_fu1_helpers_give_each_kind(period_id):
     free = make_decision(thread, source_id, answer="Ja, samma köp")
     assert free.answer_text == "Ja, samma köp"
     assert free.source_kind == "intake_source" and free.source_id == source_id
+
+
+# ---------------------------------------------------------------------------
+# FU3 — `IntakeLinkService`: checks 1-8, `exact_match`, the transaction and
+# the replay (§6.1-§6.6; testfall 1-3, 8, 9, 12-16, 18, 19)
+# ---------------------------------------------------------------------------
+
+#: The tables a link writes in (§6.1), and the book it never touches.
+LINK_TABLES = (
+    "voucher_intake_sources",
+    "intake_processing_attempts",
+    "intake_link_basis",
+)
+
+
+def link(source_id: str, voucher_id: str, **kwargs):
+    from services.intake_link import IntakeLinkService
+
+    kwargs.setdefault("actor", "agent")
+    return IntakeLinkService().link(source_id, voucher_id, **kwargs)
+
+
+def link_error(source_id: str, voucher_id: str, **kwargs):
+    """The `IntakeLinkError` a link raises; asserts it raised one."""
+    from services.intake_link import IntakeLinkError
+
+    with pytest.raises(IntakeLinkError) as exc:
+        link(source_id, voucher_id, **kwargs)
+    return exc.value
+
+
+def link_state() -> dict:
+    """What a link writes, and the source statuses -- to assert that a
+    refused link wrote nothing."""
+    state = {table: table_rows(table) for table in LINK_TABLES}
+    state["statuses"] = table_rows("intake_sources")
+    return state
+
+
+def books() -> tuple:
+    """`vouchers` and `voucher_rows`, row by row (testfall 18)."""
+    return table_rows("vouchers"), table_rows("voucher_rows")
+
+
+def attach(voucher_id: str) -> None:
+    """An `attachments` row, as `POST /vouchers/{id}/attachments` writes it."""
+    from datetime import datetime
+
+    db.execute(
+        """
+        INSERT INTO attachments
+            (id, voucher_id, filename, sha256, mime_type, stored_path,
+             size_bytes, uploaded_at)
+        VALUES (?, ?, 'kvitto.pdf', ?, 'application/pdf', '/tmp/kvitto.pdf',
+                1024, ?)
+        """,
+        (str(uuid.uuid4()), voucher_id, uuid.uuid4().hex, datetime.now()),
+    )
+    db.commit()
+
+
+def source_status(source_id: str) -> str:
+    source = IntakeRepository.get_source(source_id)
+    assert source is not None
+    return source.status.value
+
+
+def test_01_exact_match_links_without_a_decision(period_id):
+    """Testfall 1: exact, still open, no decision -> linked with
+    `basis = exact_match`; the source is `processed` and the voucher no
+    longer lacks underlag."""
+    from repositories.intake_link_repo import IntakeLinkRepository
+    from repositories.voucher_repo import VoucherRepository
+
+    voucher_id = a118(period_id)
+    source_id = make_source()
+    interpretation = interpret(source_id, "exact")
+    before = VoucherRepository.count_missing_attachments()
+
+    result = link(source_id, voucher_id)
+
+    assert result.to_dict() == {
+        "source_id": source_id,
+        "voucher_id": voucher_id,
+        "voucher_number": voucher_number(voucher_id),
+        "basis": "exact_match",
+        "interpretation_id": interpretation["interpretation_id"],
+        "decision_id": None,
+        "replayed": False,
+        "missing_attachments": before - 1,
+    }
+    assert source_status(source_id) == "processed"
+    voucher = VoucherRepository.get(voucher_id)
+    assert voucher is not None and voucher.missing_attachment is False
+    basis = IntakeLinkRepository.get_for_source(source_id)
+    assert basis is not None
+    assert (basis.basis, basis.voucher_id, basis.decision_id) == (
+        "exact_match",
+        voucher_id,
+        None,
+    )
+    assert basis.interpretation_id == interpretation["interpretation_id"]
+    assert (basis.thread_id, basis.agent_run_id, basis.actor) == (None, None, "agent")
+    vis = IntakeRepository.get_link_by_source_id(source_id)
+    assert vis is not None and vis.voucher_id == voucher_id
+    assert vis.link_reason == (
+        f"exact_match interpretation={interpretation['interpretation_id']}"
+    )
+    [attempt] = IntakeRepository.list_attempts_for_source(source_id)
+    assert attempt.status.value == "processed"
+    assert attempt.voucher_id == voucher_id
+
+
+def test_01_thread_and_run_land_on_the_basis(period_id):
+    from repositories.intake_link_repo import IntakeLinkRepository
+
+    voucher_id = a118(period_id)
+    source_id = make_source()
+    interpret(source_id, "exact")
+    thread = make_thread(period_id)
+    run_id = make_run()
+
+    link(source_id, voucher_id, thread_id=thread.id, agent_run_id=run_id)
+
+    basis = IntakeLinkRepository.get_for_source(source_id)
+    assert basis is not None
+    assert (basis.thread_id, basis.agent_run_id) == (thread.id, run_id)
+
+
+@pytest.mark.parametrize("kind", ["amount_diff", "exact_no_date"])
+def test_02_03_without_exact_match_a_decision_is_required(period_id, kind):
+    """Testfall 2 and 3: `link_requires_decision` with the match kind in
+    `details`, and nothing written."""
+    from services.intake_link import LinkRejectedError
+
+    voucher_id = a118(period_id)
+    source_id = make_source()
+    interpret(source_id, kind)
+    before = link_state()
+
+    error = link_error(source_id, voucher_id)
+
+    assert isinstance(error, LinkRejectedError)
+    assert error.code == "link_requires_decision"
+    assert f"match_kind={kind}" in (error.details or "")
+    assert link_state() == before
+
+
+def test_08_without_an_interpretation(period_id):
+    """Testfall 8: `interpretation_required`, telling the agent what to do."""
+    from services.intake_link import LinkRejectedError
+
+    voucher_id = a118(period_id)
+    source_id = make_source()
+
+    error = link_error(source_id, voucher_id)
+
+    assert isinstance(error, LinkRejectedError)
+    assert error.code == "interpretation_required"
+    assert "tolka_underlag" in error.message
+
+
+def test_09_voucher_not_in_the_interpretation(period_id):
+    """Testfall 9: a posted voucher that was never set against the receipt
+    -> `voucher_not_in_interpretation`, naming the interpretation's
+    vouchers."""
+    from services.intake_link import LinkRejectedError
+
+    voucher_id = a118(period_id)
+    stranger = posted_purchase(period_id, total=999900, vat=0, day=2)
+    source_id = make_source()
+    interpret(source_id, "amount_diff")
+    before = link_state()
+
+    error = link_error(source_id, stranger)
+
+    assert isinstance(error, LinkRejectedError)
+    assert error.code == "voucher_not_in_interpretation"
+    assert voucher_number(voucher_id) in (error.details or "")
+    assert link_state() == before
+
+
+def test_fu3_candidate_that_is_not_the_match_passes_check_8(period_id):
+    """Check 8 accepts `candidates` too: a second candidate is in the
+    interpretation, so the refusal is the basis (check 9), not check 8."""
+    first = a118(period_id)
+    second = posted_purchase(period_id, day=16)
+    source_id = make_source()
+    result = interpret(source_id, "amount_diff")
+    ids = {c["voucher_id"] for c in result["candidates"]}
+    assert {first, second} <= ids
+    other = next(i for i in ids if i != (result["match"] or {}).get("voucher_id"))
+
+    error = link_error(source_id, other)
+
+    assert error.code == "link_requires_decision"
+
+
+def test_12_deleted_source(period_id):
+    """Testfall 12."""
+    from services.intake_link import LinkConflictError
+
+    voucher_id = a118(period_id)
+    source_id = make_source()
+    interpret(source_id, "exact")
+    IntakeRepository.update_status(source_id, "deleted", actor="stefan")
+
+    error = link_error(source_id, voucher_id)
+
+    assert isinstance(error, LinkConflictError)
+    assert error.code == "source_deleted"
+
+
+def test_fu3_unknown_source_and_voucher(period_id):
+    from services.intake_link import LinkNotFoundError
+
+    voucher_id = a118(period_id)
+    source_id = make_source()
+    interpret(source_id, "exact")
+
+    unknown_source = link_error("nope", voucher_id)
+    unknown_voucher = link_error(source_id, "nope")
+
+    assert isinstance(unknown_source, LinkNotFoundError)
+    assert unknown_source.code == "source_not_found"
+    assert isinstance(unknown_voucher, LinkNotFoundError)
+    assert unknown_voucher.code == "voucher_not_found"
+
+
+def test_13_same_source_same_voucher_twice_is_a_replay(period_id):
+    """Testfall 13: one link, one basis, one attempt; the second answer is
+    the first with `replayed: true`."""
+    voucher_id = a118(period_id)
+    source_id = make_source()
+    interpret(source_id, "exact")
+
+    first = link(source_id, voucher_id)
+    state = link_state()
+    second = link(source_id, voucher_id)
+
+    assert second.replayed is True
+    assert {**second.to_dict(), "replayed": False} == first.to_dict()
+    assert link_state() == state
+    assert len(state["intake_link_basis"]) == 1
+    assert len(state["voucher_intake_sources"]) == 1
+
+
+def test_14_same_source_another_voucher(period_id):
+    """Testfall 14: `intake_already_linked` with the linked voucher's
+    number."""
+    from services.intake_link import LinkConflictError
+
+    voucher_id = a118(period_id)
+    other = posted_purchase(period_id, day=16)
+    source_id = make_source()
+    interpret(source_id, "exact")
+    link(source_id, voucher_id)
+
+    error = link_error(source_id, other)
+
+    assert isinstance(error, LinkConflictError)
+    assert error.code == "intake_already_linked"
+    assert voucher_number(voucher_id) in (error.details or "")
+
+
+def test_fu3_source_linked_by_a_posting_is_already_linked(period_id):
+    """A link made by a posting has no basis (§5), so there is nothing to
+    replay: linking the same source to the same voucher again is
+    `intake_already_linked`, with that voucher's number."""
+    voucher_id = a118(period_id)
+    source_id = make_source()
+    interpret(source_id, "exact")
+    IntakeRepository.create_voucher_link(
+        intake_source_id=source_id, voucher_id=voucher_id, linked_by="agent"
+    )
+
+    error = link_error(source_id, voucher_id)
+
+    assert error.code == "intake_already_linked"
+    assert voucher_number(voucher_id) in (error.details or "")
+
+
+def test_15_opening_balance_and_draft(period_id):
+    """Testfall 15: a voucher in `IB` / a draft."""
+    from services.intake_link import LinkConflictError, LinkRejectedError
+
+    source_id = make_source()
+    interpret(source_id, "exact")
+    opening = posted_purchase(period_id, series="IB", created_by="system")
+    draft = posted_purchase(period_id, post=False)
+
+    ib_error = link_error(source_id, opening)
+    draft_error = link_error(source_id, draft)
+
+    assert isinstance(ib_error, LinkRejectedError)
+    assert ib_error.code == "voucher_is_opening_balance"
+    assert isinstance(draft_error, LinkConflictError)
+    assert draft_error.code == "voucher_not_posted"
+
+
+@pytest.mark.parametrize(
+    "status", ["pending", "processing", "failed", "needs_attention"]
+)
+def test_fu3_linkable_statuses(period_id, status):
+    """Check 5 (D9): `failed` and `needs_attention` link too."""
+    voucher_id = a118(period_id)
+    source_id = make_source(status)
+    interpret(source_id, "exact")
+
+    result = link(source_id, voucher_id)
+
+    assert result.basis == "exact_match"
+    assert source_status(source_id) == "processed"
+
+
+@pytest.mark.parametrize("status", ["processed", "skipped"])
+def test_fu3_unlinkable_statuses(period_id, status):
+    """Check 5: `processed` without a link, and `skipped`, do not link
+    (§15: "Fråga först")."""
+    from services.intake_link import LinkConflictError
+
+    voucher_id = a118(period_id)
+    source_id = make_source()
+    interpret(source_id, "exact")
+    IntakeRepository.update_status(source_id, status, actor="stefan")
+
+    error = link_error(source_id, voucher_id)
+
+    assert isinstance(error, LinkConflictError)
+    assert error.code == "intake_not_linkable"
+    assert f"status={status}" in (error.details or "")
+
+
+def test_16_failure_half_way_leaves_nothing(period_id, monkeypatch):
+    """Testfall 16: the basis insert fails -> no link, no attempt, no
+    status change, no basis."""
+    from repositories.intake_link_repo import IntakeLinkRepository
+
+    voucher_id = a118(period_id)
+    source_id = make_source()
+    interpret(source_id, "exact")
+    before = link_state()
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("basis insert failed")
+
+    monkeypatch.setattr(IntakeLinkRepository, "insert", staticmethod(boom))
+    with pytest.raises(RuntimeError, match="basis insert failed"):
+        link(source_id, voucher_id)
+
+    assert link_state() == before
+    assert source_status(source_id) == "pending"
+
+
+def test_18_a_link_never_touches_the_books(period_id):
+    """Testfall 18: `vouchers` and `voucher_rows` are the same, row by row,
+    before and after a link."""
+    voucher_id = a118(period_id)
+    source_id = make_source()
+    interpret(source_id, "exact")
+    before = books()
+
+    link(source_id, voucher_id)
+
+    assert books() == before
+
+
+def test_19_exact_but_the_voucher_got_underlag_in_between(period_id):
+    """Testfall 19: `still_open` is counted now; a voucher that got an
+    attachment since the interpretation needs a decision."""
+    voucher_id = a118(period_id)
+    source_id = make_source()
+    interpret(source_id, "exact")
+    attach(voucher_id)
+
+    error = link_error(source_id, voucher_id)
+
+    assert error.code == "link_requires_decision"
+    assert "match_kind=exact" in (error.details or "")
+
+
+def test_fu3_posting_still_refuses_a_failed_source(period_id):
+    """§3.3: the posting's own check is untouched -- `posta_verifikation`
+    still refuses a `failed` source with `intake_not_processable`."""
+    from services.idempotency import IdempotencyService
+    from services.intake import IntakeError
+    from services.voucher_posting import VoucherPostingRequest, post_agent_voucher
+
+    source_id = make_source("failed")
+    request = VoucherPostingRequest(
+        date=date(2026, 3, 15),
+        period_id=period_id,
+        description="Kortköp",
+        rows=[
+            {"account": "5410", "debit": 358400, "credit": 0},
+            {"account": "2640", "debit": 89600, "credit": 0},
+            {"account": "1930", "debit": 0, "credit": 448000},
+        ],
+        intake_source_ids=[source_id],
+    )
+
+    with pytest.raises(IntakeError) as exc:
+        post_agent_voucher(request, "agent", IdempotencyService(), None, "test")
+
+    assert exc.value.code == "intake_not_processable"
+
+
+def test_fu3_service_has_no_sql():
+    import re
+
+    source = (REPO_ROOT / "services" / "intake_link.py").read_text(encoding="utf-8")
+    assert "db.execute" not in source
+    assert not re.search(r"\b(SELECT|INSERT|UPDATE|DELETE)\b", source)

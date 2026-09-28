@@ -80,7 +80,21 @@ till dem.
     satt` (`services/draft_service.py:296`); grep `kompletteringsflagga` i `tests/` och nämn i
     commiten varje test som förutsatte det gamla.
 
-- [ ] **FU3 — `IntakeLinkService`: kontroll 1–8, `exact_match`, transaktionen, uppspelningen**
+- [x] **FU3 — `IntakeLinkService`: kontroll 1–8, `exact_match`, transaktionen, uppspelningen**
+  - Gjort 2026-09-28: 24 tester i `tests/test_flode_underlag.py` (testfall 1, 2, 3, 8, 9, 12–16,
+    18, 19, plus okänd källa/verifikation, kandidat som inte är match, statusarna i kontroll 5
+    parametriserade, en källa kopplad av en postning, grep-vakt mot SQL), alla sedda röda först
+    utom vakten att `posta_verifikation` fortfarande vägrar en `failed` källa med
+    `intake_not_processable` (grön före och efter). Felen är tre underklasser av
+    `IntakeLinkError(IntakeError)` efter §7:s statusgrupper: `LinkNotFoundError` (404),
+    `LinkConflictError` (409), `LinkRejectedError` (400). Avvikelse 1: skrivningarna i
+    `link_existing_voucher` bröts ut till `IntakeService.persist_voucher_link` (inga kontroller,
+    `_commit=False`), som `link_existing_voucher` anropar efter sin oförändrade
+    `_ensure_can_record_outcome`; postningens två anrop är orörda. **Avvikelse:** en källa som
+    kopplats av en *postning* till samma verifikation har inget belägg (§5) och blir
+    `intake_already_linked`, inte en uppspelning — det finns inget belägg att spela upp.
+    `link_requires_decision` har `match_kind=…` i `details` (`none` utan match). Försökets
+    `summary` är `Underlag kopplat till {nummer} ({basis})`. Hela sviten 1350 gröna. mypy 61.
   - Beror på: FU1
   - Acceptans: `services/intake_link.py` med `IntakeLinkService.link(source_id, voucher_id, *,
     decision_id, actor, thread_id, agent_run_id) -> LinkResult`. Kontrollerna i §6.3:s ordning,

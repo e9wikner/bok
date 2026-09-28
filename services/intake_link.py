@@ -1,0 +1,275 @@
+"""Link an underlag to an already posted voucher (SPEC-flode-underlag.md §6).
+
+`IntakeLinkService.link` is behind both `koppla_underlag` (the agent's
+thirteenth tool) and `POST /api/v1/intake/{id}/link`: the same checks, in
+§6.3's order, and the same basis (§6.4) whoever calls. Nothing is written
+when a check fails. When they all pass, one transaction writes the link,
+the attempt, the source's status and the row in `intake_link_basis`.
+
+A link never creates, changes or removes a voucher (§15 "Aldrig"), and it
+cannot be undone: `intake_link_basis` is append-only in three layers and
+`voucher_intake_sources` has `UNIQUE(intake_source_id)`. That is why it
+needs a basis, as a posting does -- the latest interpretation's exact match
+(`exact_match`, D1) or an answered decision about the source (`decision`).
+
+No SQL here (AGENTS.md's layering rule): it lives in
+`repositories/intake_repo.py`, `repositories/intake_link_repo.py`,
+`repositories/interpretation_repo.py`, `repositories/voucher_repo.py` and
+`repositories/decision_repo.py`. Errors are `IntakeError` subclasses whose
+type is the HTTP status group of §7's table, so the route maps on type,
+never on the code string.
+"""
+
+import logging
+from typing import List, Optional
+
+from db.database import db
+from domain.intake_link import IntakeLinkBasis, LinkBasis, LinkResult
+from domain.interpretation import Interpretation
+from domain.models import IntakeSource, Voucher
+from domain.types import IntakeStatus, VoucherStatus
+from repositories.intake_link_repo import IntakeLinkRepository
+from repositories.intake_repo import IntakeRepository
+from repositories.interpretation_repo import InterpretationRepository
+from repositories.voucher_repo import VoucherRepository
+from services.intake import IntakeError, IntakeService
+
+logger = logging.getLogger(__name__)
+
+#: Check 5 (D9): the posting lets only `pending`/`processing` through
+#: (`IntakeService._ensure_can_record_outcome`, untouched); a link after the
+#: fact also takes the source the intake pass abstained from.
+LINKABLE_STATUSES = (
+    IntakeStatus.PENDING,
+    IntakeStatus.PROCESSING,
+    IntakeStatus.FAILED,
+    IntakeStatus.NEEDS_ATTENTION,
+)
+
+
+class IntakeLinkError(IntakeError):
+    """A link that was refused. The subclass is §7's status group."""
+
+
+class LinkNotFoundError(IntakeLinkError):
+    """`source_not_found`, `voucher_not_found`, `decision_not_found` (404)."""
+
+
+class LinkConflictError(IntakeLinkError):
+    """The state does not allow the link (409): `source_deleted`,
+    `intake_already_linked`, `intake_not_linkable`, `voucher_not_posted`,
+    `decision_still_open`, `decision_superseded`, `decision_declined`."""
+
+
+class LinkRejectedError(IntakeLinkError):
+    """The request lacks what a link needs (400): `interpretation_required`,
+    `voucher_not_in_interpretation`, `voucher_is_opening_balance`,
+    `link_requires_decision`, `decision_not_for_source`,
+    `decision_not_in_thread`."""
+
+
+def _number(voucher: Voucher) -> Optional[str]:
+    if voucher.number is None:
+        return None
+    return f"{voucher.series.value}-{voucher.number}"
+
+
+def _interpretation_voucher_ids(interpretation: Interpretation) -> List[str]:
+    """Check 8: the vouchers the server set against the underlag -- the
+    match, the expected voucher and the candidates -- each once, in that
+    order."""
+    ids: List[str] = []
+    if interpretation.match is not None:
+        ids.append(interpretation.match.voucher_id)
+    if interpretation.expected_voucher_id is not None:
+        ids.append(interpretation.expected_voucher_id)
+    ids.extend(c.voucher_id for c in interpretation.candidates)
+    return list(dict.fromkeys(ids))
+
+
+class IntakeLinkService:
+    """§6: the checks, the basis, the link."""
+
+    def link(
+        self,
+        source_id: str,
+        voucher_id: str,
+        *,
+        decision_id: Optional[str] = None,
+        actor: str,
+        thread_id: Optional[str] = None,
+        agent_run_id: Optional[str] = None,
+    ) -> LinkResult:
+        """Link *source_id* to the posted *voucher_id*, or raise an
+        `IntakeLinkError` without writing anything.
+
+        A second call for a source already linked to the same voucher after
+        the fact is a replay (§6.5): the same answer with `replayed: true`,
+        nothing written, whatever *decision_id* says."""
+        source = self._source(source_id)
+
+        # Checks 3 and 4: an existing link is a replay or a conflict.
+        existing = IntakeRepository.get_link_by_source_id(source_id)
+        if existing is not None:
+            basis = IntakeLinkRepository.get_for_source(source_id)
+            linked = VoucherRepository.get(existing.voucher_id)
+            if existing.voucher_id == voucher_id and basis is not None:
+                assert linked is not None  # a link points at a voucher
+                return self._result(basis, linked, replayed=True)
+            number = _number(linked) if linked is not None else None
+            raise LinkConflictError(
+                "intake_already_linked",
+                "Intake source is already linked to a voucher",
+                f"source_id={source_id}, voucher={number or existing.voucher_id}",
+            )
+
+        # Check 5.
+        if source.status not in LINKABLE_STATUSES:
+            raise LinkConflictError(
+                "intake_not_linkable",
+                "Intake source cannot be linked in its current status",
+                f"source_id={source_id}, status={source.status.value}",
+            )
+
+        voucher = self._voucher(voucher_id)
+        interpretation = self._interpretation(source_id, voucher)
+        basis_kind = self._basis(source_id, voucher, interpretation, decision_id)
+
+        number = _number(voucher)
+        basis = IntakeLinkBasis(
+            intake_source_id=source_id,
+            voucher_id=voucher_id,
+            basis=basis_kind,
+            interpretation_id=interpretation.id,
+            decision_id=decision_id if basis_kind == "decision" else None,
+            actor=actor,
+            agent_run_id=agent_run_id,
+            thread_id=thread_id,
+        )
+        with db.transaction():
+            IntakeService().persist_voucher_link(
+                source_id,
+                voucher_id,
+                actor=actor,
+                summary=f"Underlag kopplat till {number} ({basis_kind})",
+                link_reason=self._link_reason(basis),
+            )
+            IntakeLinkRepository.insert(basis, _commit=False)
+
+        return self._result(basis, voucher, replayed=False)
+
+    # -- the checks, in §6.3's order ---------------------------------------
+
+    @staticmethod
+    def _source(source_id: str) -> IntakeSource:
+        """Checks 1 and 2."""
+        source = IntakeRepository.get_source(source_id)
+        if source is None:
+            raise LinkNotFoundError(
+                "source_not_found", "Intake source not found", f"source_id={source_id}"
+            )
+        if source.status == IntakeStatus.DELETED:
+            raise LinkConflictError(
+                "source_deleted", "Intake source is deleted", f"source_id={source_id}"
+            )
+        return source
+
+    @staticmethod
+    def _voucher(voucher_id: str) -> Voucher:
+        """Check 6."""
+        voucher = VoucherRepository.get(voucher_id)
+        if voucher is None:
+            raise LinkNotFoundError(
+                "voucher_not_found", "Voucher not found", f"voucher_id={voucher_id}"
+            )
+        if voucher.status != VoucherStatus.POSTED:
+            raise LinkConflictError(
+                "voucher_not_posted",
+                "Only posted vouchers can be linked to intake sources",
+                f"voucher_id={voucher_id}, status={voucher.status.value}",
+            )
+        if voucher.series.value == "IB":
+            raise LinkRejectedError(
+                "voucher_is_opening_balance",
+                "An opening balance voucher has no underlag to link",
+                f"voucher_id={voucher_id}",
+            )
+        return voucher
+
+    @staticmethod
+    def _interpretation(source_id: str, voucher: Voucher) -> Interpretation:
+        """Checks 7 and 8: the latest interpretation, and the voucher in it."""
+        interpretation = InterpretationRepository.latest_for_source(source_id)
+        if interpretation is None:
+            raise LinkRejectedError(
+                "interpretation_required",
+                "tolka underlaget med tolka_underlag först",
+                f"source_id={source_id}",
+            )
+        ids = _interpretation_voucher_ids(interpretation)
+        if voucher.id not in ids:
+            numbers = VoucherRepository.numbers_for(ids)
+            named = ", ".join(
+                f"{numbers[i][0]}-{numbers[i][1]}" for i in ids if i in numbers
+            )
+            raise LinkRejectedError(
+                "voucher_not_in_interpretation",
+                "The voucher was not set against the underlag in its "
+                "latest interpretation",
+                f"voucher={_number(voucher)}, interpretation={interpretation.id}, "
+                f"vouchers=[{named}]",
+            )
+        return interpretation
+
+    def _basis(
+        self,
+        source_id: str,
+        voucher: Voucher,
+        interpretation: Interpretation,
+        decision_id: Optional[str],
+    ) -> LinkBasis:
+        """Check 9 (§6.4): `exact_match` or `link_requires_decision`."""
+        match = interpretation.match
+        if (
+            match is not None
+            and match.kind == "exact"
+            and match.voucher_id == voucher.id
+            and VoucherRepository.match_still_open(voucher.id, source_id)
+        ):
+            return "exact_match"
+        raise LinkRejectedError(
+            "link_requires_decision",
+            "Only an exact, still open match links without a decision; "
+            "lay out a decision about the underlag",
+            f"source_id={source_id}, voucher={_number(voucher)}, "
+            f"match_kind={match.kind if match is not None else 'none'}",
+        )
+
+    # -- helpers ------------------------------------------------------------
+
+    @staticmethod
+    def _link_reason(basis: IntakeLinkBasis) -> str:
+        """§5: `link_reason` for whoever reads `voucher_intake_sources`
+        directly; the basis itself is the row in `intake_link_basis`."""
+        if basis.basis == "decision":
+            return (
+                f"decision={basis.decision_id} "
+                f"interpretation={basis.interpretation_id}"
+            )
+        return f"exact_match interpretation={basis.interpretation_id}"
+
+    @staticmethod
+    def _result(
+        basis: IntakeLinkBasis, voucher: Voucher, *, replayed: bool
+    ) -> LinkResult:
+        """§6.6, with the counter read after the commit."""
+        return LinkResult(
+            source_id=basis.intake_source_id,
+            voucher_id=basis.voucher_id,
+            voucher_number=_number(voucher),
+            basis=basis.basis,
+            interpretation_id=basis.interpretation_id,
+            decision_id=basis.decision_id,
+            replayed=replayed,
+            missing_attachments=VoucherRepository.count_missing_attachments(),
+        )
