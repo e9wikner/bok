@@ -411,7 +411,14 @@ till dem.
     inlägget turen hänger på; kontrollera att `run_thread_session` klarar ett `user_file` som
     trigger.
 
-- [ ] **FU15 — `existing_id` i `409 duplicate_intake_source` (§7)**
+- [x] **FU15 — `existing_id` i `409 duplicate_intake_source` (§7)**
+  - Gjort 2026-09-28: 2 tester i `tests/test_flode_underlag_http.py` (testfall 35: två
+    uppladdningar av samma bytes, `detail.existing_id` är den förstas id, `details` oförändrad,
+    nycklarna exakt `error`/`code`/`details`/`existing_id`; ett annat fel har inget
+    `existing_id`), det första sett rött först. `_http_error` lägger `existing_id` i `detail`
+    för `DuplicateIntakeSourceError`; servicen är orörd. Kontraktet är det frontendagenten
+    byggde mot (`detail.existing_id`). `tests/test_intake_api.py` grön. Hela sviten 1443 gröna.
+    mypy 61.
   - Beror på: FU6
   - Acceptans: `POST /intake` svarar vid dubblett med `existing_id` i felkroppen (`detail`),
     bredvid `error`, `code`, `details`. `details`-strängen oförändrad.

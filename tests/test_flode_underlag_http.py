@@ -232,3 +232,39 @@ def test_fu6_body_is_voucher_and_decision_only(client, auth_headers, body):
     resp = _post(client, auth_headers, "s-1", body)
 
     assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# FU15 — `existing_id` in `409 duplicate_intake_source` (§7, §10.2)
+# ---------------------------------------------------------------------------
+
+intake_dir = fu.intake_dir
+
+
+def test_35_duplicate_upload_answers_the_existing_id(client, auth_headers, intake_dir):
+    """Testfall 35: the client needs the id to drop the same receipt again
+    (§10.2); it is a field of its own in `detail`, and `details` is the
+    string it was."""
+    files = {"file": ("kvitto.png", b"\x89PNG\r\n\x1a\n kvitto", "image/png")}
+
+    first = client.post("/api/v1/intake", headers=auth_headers, files=files)
+    again = client.post("/api/v1/intake", headers=auth_headers, files=files)
+
+    assert first.status_code == 201, first.text
+    assert again.status_code == 409, again.text
+    detail = again.json()["detail"]
+    existing = first.json()["id"]
+    assert detail["code"] == "duplicate_intake_source"
+    assert detail["existing_id"] == existing
+    assert detail["details"].endswith(f", existing_id={existing}")
+    assert detail["details"].startswith("sha256=")
+    assert set(detail) == {"error", "code", "details", "existing_id"}
+
+
+def test_fu15_other_errors_have_no_existing_id(client, auth_headers, intake_dir):
+    files = {"file": ("kvitto.txt", b"text", "text/plain")}
+
+    resp = client.post("/api/v1/intake", headers=auth_headers, files=files)
+
+    assert resp.status_code == 400
+    assert "existing_id" not in resp.json()["detail"]

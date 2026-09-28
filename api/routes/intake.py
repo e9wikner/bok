@@ -562,7 +562,10 @@ def _http_error(exc: IntakeError) -> HTTPException:
     elif isinstance(exc, IntakeValidationError):
         status_code = http_status.HTTP_400_BAD_REQUEST
 
-    return HTTPException(
-        status_code=status_code,
-        detail={"error": exc.message, "code": exc.code, "details": exc.details},
-    )
+    detail = {"error": exc.message, "code": exc.code, "details": exc.details}
+    if isinstance(exc, DuplicateIntakeSourceError) and exc.existing_id:
+        # SPEC-flode-underlag.md §7, §10.2: the client drops the same
+        # receipt again by using the existing source -- as a field, not
+        # parsed out of `details`.
+        detail["existing_id"] = exc.existing_id
+    return HTTPException(status_code=status_code, detail=detail)
