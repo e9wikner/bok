@@ -5,7 +5,7 @@ Modul-id `flode-underlag` i kapabilitetskartan (`ANALYS.md` §8). Beror på `flo
 leveransen. Det är den sista modulen i kartan: när den är klar fungerar flöde 4 agent-first hela
 vägen, från att en verifikation saknar underlag till att underlaget är kopplat.
 
-Status: **Fas 1 — skriven och godkänd 2026-09-28.** Tio beslut tagna av beställaren (§12,
+Status: **Klar 2026-09-28 (FU1–FU24).** Skriven och godkänd 2026-09-28. Tio beslut tagna av beställaren (§12,
 D1–D10), alla enligt förslaget: agenten kopplar själv bara vid exakt match; differensen bokförs som
 en egen verifikation med hänvisning till kvittot; rättelser räknas inte som "saknar underlag";
 ersättning av ett felkopplat underlag blir en egen modul direkt efter den här. Uppgifterna skrivs

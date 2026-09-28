@@ -17,7 +17,7 @@ En katalog per modul i kapabilitetskartan (`docs/redesign/ANALYS.md` §8), med s
 | `chattyta` | `docs/redesign/SPEC-chattyta.md` | **Klar** 2026-09-23 (C1–C14) |
 | `flode-verifikationer` | `docs/redesign/SPEC-flode-verifikationer.md` | **Klar** 2026-09-24 (F1–F15) |
 | `underlagstolkning` | `docs/redesign/SPEC-underlagstolkning.md` | **Klar** 2026-09-28 (U1–U15) |
-| `flode-underlag` | `docs/redesign/SPEC-flode-underlag.md` | Spec godkänd 2026-09-28, plan och uppgifter skrivna (FU1–FU24) |
+| `flode-underlag` | `docs/redesign/SPEC-flode-underlag.md` | **Klar** 2026-09-28 (FU1–FU24) |
 
 Listorna sparas när en modul är klar. De bär besluten och avvikelserna — varför en uppgift rörde
 en fil till än den skulle, vad som lämnades kvar — och det är det enda stället den historiken

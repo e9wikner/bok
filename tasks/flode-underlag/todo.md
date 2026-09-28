@@ -609,7 +609,23 @@ till dem.
 
 ## Stängning
 
-- [ ] **FU24 — Regression och modulen stängd**
+- [x] **FU24 — Regression och modulen stängd**
+  - Gjort 2026-09-28: regressionen från ett rent läge (`git status` tomt före, inga ocommittade
+    ändringar kvar från agenterna): `pytest tests/` 1459 passed; `black --check .`, `isort
+    --check .`, `flake8` rena; `mypy .` 60 fel (baslinjen 61); `npm test` 572 passed i 41 filer,
+    `npm run lint` rent, `npx tsc --noEmit` rent, `NEXT_PUBLIC_SKAL=1 npm run build` grönt.
+    Testfall 52: `chattyta`s, `skal`s och `flode-verifikationer`s tester ingår i båda sviterna
+    och är gröna. **Klient mot backend**, nu när båda landat (klienten byggdes mot fixturer):
+    `detail.existing_id` i `409 duplicate_intake_source` (FU15 ↔ FU19 `laddaUppChip`); `text: ""`
+    med bilagor tas emot (FU14 ↔ FU20 `skickaMeddelande`); `receipt.note` utelämnas utan hypotes
+    och är annars en sträng, `voucher_id` finns alltid, `source_id` släpps igenom (FU8/FU9 ↔ FU22
+    `parse.ts`); `view.changed` är `{view_key, changed: {voucher_id, source_id, kind:
+    "source_linked"}}` (FU9 ↔ FU21 `lasKoppling`); `referenced_by` är `{id, series, number} |
+    null` (FU16 ↔ `VerifikationRef`); `source-context`s hänvisningspost är `kind:
+    "voucher_source"` med källans `id` och `via_voucher_id`, en direkt kopplad saknar `via_`-fält
+    (FU16 ↔ FU23 `kvittoKalla`); `pages` i `user_file` är heltal eller `null` (FU17 ↔
+    `parse.ts`); `sort_by=age` är stigande som standard (↔ `getSaknarUnderlag`). Inga glapp; ingen
+    kod ändrad.
   - Beror på: alla
   - Acceptans: testfall 52. Specens status, `tasks/README.md` och `ANALYS.md` §8 markerar modulen
     klar. Framgångskriterierna i §16 gås igenom ett och ett under "Modulen är klar" nedan, med
@@ -623,9 +639,79 @@ till dem.
 
 ---
 
+## Modulen är klar
+
+FU1–FU24 avbockade 2026-09-28. De nio framgångskriterierna i spec §16, ett och ett:
+
+1. Ett underlag kopplas i efterhand, över verktyget och över HTTP, med belägg i
+   `intake_link_basis` — ✅ (1: `test_01_exact_match_links_without_a_decision`, FU3 `610b0c8`;
+   genom verktyget `test_01_exact_match_through_the_tool_in_a_thread`, FU5 `052a52b`; över HTTP
+   `test_01_exact_match_over_http`, FU6 `dad1c1b`; 4: `test_04_amount_diff_with_option_1_…`,
+   FU4 `a326fdf`, och över HTTP/verktyget; 13: uppspelning, `test_13_…` i FU3 och
+   `test_13_replay_over_http_is_200`).
+2. Exakt match kopplas utan människa; allt annat kräver ett besvarat beslut som inte är ett nej —
+   ✅ (1–3: `test_02_03_without_exact_match_a_decision_is_required`, FU3; 4–7 med alla fyra
+   beslutsfel och fritext, FU4 `a326fdf`; passet kopplar bara vid exakt match,
+   `test_fu4_the_pass_links_on_exact_match_only`, `test_fu5_the_pass_links_on_exact_match_only`).
+3. Kopplingen skriver aldrig i `vouchers` och är append-only i tre lager — ✅ (17 och 42c:
+   triggrarna, `test_fu1_repositories_have_no_update_or_delete`, FU1 `d525ce7`; 18:
+   `test_18_a_link_never_touches_the_books` jämför innehållet i `vouchers`/`voucher_rows`, FU3;
+   routen: `test_fu6_a_link_is_not_changed_or_removed` ger `405` på PUT/PATCH/DELETE, FU6).
+4. Postningen vägrar ett underlag som matchar en postad verifikation exakt — ✅ (20–24,
+   `tests/test_flode_underlag_stopp.py`, FU7 `bf85e14`; idempotensnyckeln släpps; en skriptad
+   modell som postar ändå stoppas, `test_fu18_scripted_thread_posting_an_exact_match_is_stopped`,
+   FU18 `7513312`).
+5. Tråden visar kvittot mot verifikationen med båda talen och kvitterar kopplingen; raden flyttar
+   från `Saknar underlag` till `Postade` och räknaren följer med utan omladdning — ✅ (25–28:
+   jämförelseinlägget, FU8 `61915bc`; 29–32: kvittot, spåren och `view.changed`, FU9 `bd8e2bf`;
+   49b, 49c: `lib/skal/__tests__/underlag.test.ts`, `components/skal/__tests__/saknar.test.tsx`,
+   FU21 `d40f9e6`; 51: `useTrad.test.tsx` "testfall 51 (flode-underlag)", FU21; noten i
+   `JamforelseRader`, 50, FU22 `83b8c07`).
+5b. En differens bokförd enligt alternativ 1 har underlag genom hänvisningen och står inte i
+   `Saknar underlag` — ✅ (42: `test_42_posting_the_difference_writes_the_reference`, FU10
+   `04a6149`, predikatdelen `test_42_voucher_with_a_reference_does_not_lack_underlag`, FU2
+   `34afb9e`, hela vägen skriptad `test_42_scripted_thread_option_1_links_proposes_and_posts_a121`,
+   FU18; 42c: FU1; `referenced_by` och kvittot via A-118, 49d/49e, FU16 `68b8df2` och FU23
+   `3913e6a`).
+6. En fil går att släppa, fota och klistra in i `ChattFalt`, med och utan text — ✅ (33, 34:
+   `tests/test_flode_underlag_meddelande.py`, FU14 `21f4998`; 45, 48, 49 och D8:
+   `components/skal/__tests__/drop.test.tsx`, FU20 `6c58d59`; 46, 47:
+   `lib/chattyta/__tests__/uppladdning.test.ts`, FU19 `61b3e4e`; 35: `existing_id`, FU15
+   `07e4bb5`; sidantalet, FU17 `4840796`).
+7. Flöde 4 mot riktig backend i `/v4` med en riktig LLM — ✅ skriptat (41:
+   `test_41_scripted_thread_option_2_links_on_the_decision`, 39, 40, FU18 `7513312`).
+   **Med riktig LLM: inte gjort** — se nedan.
+8. `pytest tests/ -v` 1459 passed; `black --check .`, `isort --check .`, `flake8` rena; `mypy .`
+   60 fel, under baslinjen 61; `npm test` 572 passed (41 filer), `npm run lint` och `npx tsc
+   --noEmit` rena, `NEXT_PUBLIC_SKAL=1 npm run build` grönt — ✅ (FU24).
+
+Övrigt i modulen: passet hoppar över trådens filer (38, FU11 `4bd2bb3`); `missing_attachment` och
+`age_days` i `las_verifikationer` (37, FU12 `fef32d8`); agentinstruktionen (43, FU13 `a27f45d`);
+predikatet undantar rättelser (44, FU2 `34afb9e`).
+
 ## Kvar för beställaren
 
-- Kriterium 7 med riktig LLM: ett kvitto för en bankbokförd verifikation ger en koppling, inte en
-  ny verifikation, i `/v4`. Kontrolleras tillsammans med `underlagstolkning`s kriterium 6.
-- Modulen `underlag-ersatt` (D10). Till dess avviker `/v4` från panelens *"vägen tillbaka måste
-  vara lika lätt som vägen fram"*.
+- **Kriterium 7 med riktig LLM:** ett kvitto för en bankbokförd verifikation ger en koppling,
+  inte en ny verifikation, i `/v4`. Kontrolleras tillsammans med `underlagstolkning`s kriterium 6.
+- **Nästa modul: `underlag-ersatt` (D10).** Till dess avviker `/v4` från panelens *"vägen tillbaka
+  måste vara lika lätt som vägen fram"*: en felkopplad källa kan inte bytas.
+
+Observationer och beslut att ta ställning till (beteendet är inte ändrat):
+
+- **Passet räknar en koppling som avstående.** `koppla_underlag` är inte terminalt (§6.1), så ett
+  pass som kopplar och sedan slutar med ett bart `end` får utfallet `abstained: agent_no_outcome`
+  och räknas i `items_abstained`. Källan blir ändå `processed`, utan `failed`-rad och utan
+  registrerat avstående (FU5, FU18 testfall 39). Att göra verktyget terminalt i dokumentpolicyn
+  är en ändring i `agent_session` och i §6.1.
+- **`POST /vouchers/{id}/post` svarar `missing_attachment: true` för A-121.** Svaret byggs av
+  verifikationen före efterarbetet (`on_posting`), så hänvisningen — och likaså kopplingen för ett
+  förslag med `intake_source_ids` — syns inte i det svaret. En ny läsning ger `false` (FU10).
+- **Text med bara blanktecken utan bilagor ger nu `422`** (förut `201`), enligt §14:s "text med
+  bara blanktecken är tom" (FU14).
+- **D3: `missing_attachments` sjunker vid driftsättning** med antalet postade rättelser, som inte
+  längre räknas som att de saknar underlag. Det är rätt siffra (§12 D3, FU2).
+- **Klienten: "kvitto kopplat" syns bara för kopplingar gjorda medan sidan är öppen.**
+  `VoucherResponse` säger inte att en verifikation har ett kopplat kvitto, så `Kopplad`-raden
+  byggs ur `view.changed` i sessionen; efter omladdning står raden bland `Postade` utan den
+  metan. Kvittolänken står därför på varje postad rad som inte saknar underlag och inte är en
+  rättelse, och säger `inget kvitto` när `source-context` inte har något (FU21, FU23).

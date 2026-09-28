@@ -165,6 +165,8 @@ idempotens, oversikt
 
 **`flode-underlag` specad och godkänd 2026-09-28** (`SPEC-flode-underlag.md`, beslut D1–D10). Tillägg till kartan: `underlag-ersatt` — att ersätta ett felkopplat underlag med spår, vilket panelen kräver men som kräver en ombyggnad av `voucher_intake_sources` (D10). Beror på `flode-underlag` och byggs direkt efter den.
 
+**`flode-underlag` klar 2026-09-28** (FU1–FU24, `tasks/flode-underlag/todo.md`). Flöde 4 fungerar agent-first hela vägen: `koppla_underlag` och `POST /intake/{id}/link` kopplar i efterhand med belägg i `intake_link_basis`, postningen vägrar ett underlag som matchar exakt, en differens bokförs med hänvisning till kvittot (`voucher_source_references`), rättelser räknas inte som "saknar underlag", och `/v4` tar emot filer i `ChattFalt` och visar `Saknar underlag`. Kvar för beställaren: kriterium 7 med riktig LLM, och de observationer som står i todo-listan. Nästa: `underlag-ersatt` (D10).
+
 ### Konsekvens av att flöde 2 och 3 utgår
 
 Vyerna **Fakturering** och **Löner** finns kvar i informationsarkitekturen — v10 ritar dem som vyer, och de ska byggas som **läsvyer med tråd men utan skrivflöde**. Agenten kan svara på frågor om dem; den kan inte godkänna en lönekörning eller skicka en faktura. Skrivning sker tills vidare via befintliga endpoints, utanför redesignen.
