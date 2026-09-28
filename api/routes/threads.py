@@ -194,8 +194,16 @@ async def post_message(
         model=settings.llm_default_model,
     )
 
-    posts = [ThreadService.record_user_message(thread, request.text, actor=actor)]
+    # D8 (SPEC-flode-underlag.md): without text, no `user_text` post -- only
+    # the files, and the turn hangs on the first of them. The model is told
+    # what happened; the thread shows no text the human did not write.
+    posts: list[ThreadPost] = []
+    if request.has_text:
+        posts.append(
+            ThreadService.record_user_message(thread, request.text, actor=actor)
+        )
     posts.extend(_attachment_posts(thread, request.attachments, actor))
+    message = request.text if request.has_text else f"(bifogade {len(posts)} filer)"
 
     # Started here, answered over the stream. The worker gets its own
     # thread (and so its own SQLite connection, per `db/database.py`'s
@@ -210,7 +218,7 @@ async def post_message(
     # en tur i tysthet" is about -- no turn was attempted. The human's own
     # message is still written and still stands in the thread.
     if settings.agent_runtime_enabled:
-        ThreadTurnRunner().start(thread, posts[0], request.text)
+        ThreadTurnRunner().start(thread, posts[0], message)
     else:
         logger.info(
             "Agent runtime disabled -- message stored in thread %s, no turn "

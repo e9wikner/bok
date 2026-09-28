@@ -388,7 +388,18 @@ till dem.
   - Obs: körtidsinnehåll (`AGENTS.md`). Befintliga påståenden i testfall 38 (U9, U13, U15) om
     avstående vid `exact` skrivs om, inte tas bort; nämn dem i commiten.
 
-- [ ] **FU14 — Meddelande utan text med bilagor (D8)**
+- [x] **FU14 — Meddelande utan text med bilagor (D8)**
+  - Gjort 2026-09-28: 8 tester i `tests/test_flode_underlag_meddelande.py` (testfall 33 med tom
+    text och med bara blanktecken, två bilagor, text och bilaga som förut, testfall 34 i fyra
+    varianter), 4 sedda röda först; resten var gröna redan och står kvar som vakter.
+    `ThreadMessageRequest.text` har standardvärdet `""` och en `model_validator` som ger `422`
+    när text (efter `strip`) och `attachments` båda saknas; egenskapen `has_text`. `post_message`
+    skriver `user_text` bara med text och startar annars turen på det första `user_file` med
+    `(bifogade {n} filer)` (ordagrant, även för n = 1). Klientens `text: ""` med bilagor tas
+    emot. **Beteendeändring:** text med bara blanktecken utan bilagor gav `201` förut och ger nu
+    `422` (§14:s "text med bara blanktecken är tom"). `run_thread_session` klarar ett
+    `user_file` som trigger: det används bara för idempotens- och förslagsnyckeln. `tradar`s
+    tester gröna. Hela sviten 1441 gröna. mypy 61.
   - Beror på: FU1 (hjälparna)
   - Acceptans: `ThreadMessageRequest.text` (`api/schemas.py:531`) får vara tom när `attachments`
     inte är tom, annars `422` som i dag (en modellvalidator). `post_message`

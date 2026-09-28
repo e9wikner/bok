@@ -4,7 +4,7 @@ from datetime import date as DateType
 from datetime import datetime as DateTimeType
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # Voucher Schemas
 
@@ -526,10 +526,26 @@ class ThreadMessageRequest(BaseModel):
     This is also the **decision channel**. `README.md`: "Beslutskortets
     primärknapp är aldrig den enda vägen: samma beslut ska gå att uttrycka i
     text i chattfältet."
+
+    `text` may be empty -- or only whitespace, which is the same -- when
+    `attachments` is not (SPEC-flode-underlag.md D8): dropping a receipt
+    without writing anything is the common case on a phone, and the client
+    must not put words in the human's mouth. Without either it is a `422`,
+    as before.
     """
 
-    text: str = Field(..., min_length=1)
+    text: str = ""
     attachments: List[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _text_or_attachments(self) -> "ThreadMessageRequest":
+        if not self.text.strip() and not self.attachments:
+            raise ValueError("A message needs text or at least one attachment")
+        return self
+
+    @property
+    def has_text(self) -> bool:
+        return bool(self.text.strip())
 
 
 class ThreadMessageResponse(BaseModel):
