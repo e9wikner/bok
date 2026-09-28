@@ -23,6 +23,7 @@ from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
 
 from db.database import db
+from repositories.voucher_repo import VoucherRepository
 
 
 @dataclass
@@ -410,34 +411,23 @@ class ComplianceService:
         """
         issues = []
 
-        # Count vouchers over a certain amount without attachments.
-        # The table is `attachments` (001_initial_schema.sql); the threshold is
-        # in öre, so > 50000 is > 500 SEK. A broken schema must surface, not
-        # be swallowed — this check was silent for its entire life.
-        row = db.execute("""
-            SELECT COUNT(*) as cnt
-            FROM vouchers v
-            WHERE v.status = 'posted'
-            AND NOT EXISTS (
-                SELECT 1 FROM attachments a WHERE a.voucher_id = v.id
-            )
-            AND EXISTS (
-                SELECT 1 FROM voucher_rows vr
-                WHERE vr.voucher_id = v.id
-                AND (vr.debit > 50000 OR vr.credit > 50000)
-            )
-        """).fetchone()
+        # Posted vouchers over 500 SEK (a row over 50000 öre) that lack a
+        # document, by the shared predicate (SPEC-underlagstolkning.md §2.1),
+        # the one GET /overview and GET /vouchers?missing_attachment use too.
+        # A broken schema must surface, not be swallowed — this check was
+        # silent for its entire life.
+        count = VoucherRepository.count_missing_attachments(min_row_ore=50000)
 
-        if row and row["cnt"] > 0:
+        if count > 0:
             issues.append(
                 ComplianceIssue(
                     id=str(uuid.uuid4()),
                     check_type="missing_attachments",
                     severity="info",
                     status="open",
-                    title=f"📎 {row['cnt']} verifikationer >500 SEK saknar underlag",
+                    title=f"📎 {count} verifikationer >500 SEK saknar underlag",
                     description=(
-                        f"Det finns {row['cnt']} bokförda verifikationer med belopp över 500 SEK "
+                        f"Det finns {count} bokförda verifikationer med belopp över 500 SEK "
                         f"som saknar bifogat underlag (kvitto/faktura). "
                         f"Enligt BFL bör verifikationer styrkas med underlag."
                     ),

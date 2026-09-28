@@ -7,7 +7,20 @@ oräknade. Testfallsnumren syftar på tabellerna i §10. Backendens tester ligge
 
 ---
 
-- [ ] **U1 — Predikatet "saknar underlag" (gate)**
+- [x] **U1 — Predikatet "saknar underlag" (gate)**
+  - Gjort 2026-09-28: 6 tester (testfall 1–5, 5b) i `tests/test_underlagstolkning.py`; 2, 4, 5
+    och 5b sedda röda först, 1 och 3 var gröna redan och står kvar som vakt (3 prövar att
+    SIE4-undantaget inte fångar agentens eller handens verifikationer). `MISSING_ATTACHMENT_SQL`
+    enligt §2.1, **inom parentes som helhet**: testfall 2:s andra halva
+    (`?missing_attachment=false`) visade att `list_all` negerar predikatet med `NOT {…}`, och
+    utan parentesen band `NOT` bara första ledet. `count_missing_attachments(min_row_ore=None)`
+    fick tröskeln som parameter; `_check_missing_attachments` anropar den med `50000` och har
+    ingen SQL kvar (frågan var den enda i compliance som nämnde `attachments`; aliaset `v`
+    försvann med den). Inga befintliga tester förutsatte det gamla felet — hela sviten 1157
+    gröna utan ändringar. mypy 61. Utanför fillistan, inte ändrad: kommentaren i
+    `services/draft_service.py` vid kvittots "kompletteringsflagga satt" säger fortfarande "no
+    row in `attachments`"; beteendet följer det lagade predikatet genom
+    `voucher.missing_attachment`.
   - Acceptans: `MISSING_ATTACHMENT_SQL` i `repositories/voucher_repo.py` enligt spec §2.1: ingen
     rad i `attachments`, ingen i `voucher_intake_sources`, och `created_by != 'sie4_import'`.
     `services/compliance.py` har ingen egen SQL för predikatet: frågan med 500 kr-tröskeln flyttas

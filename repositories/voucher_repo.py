@@ -12,8 +12,18 @@ from domain.types import VoucherSeries, VoucherStatus
 # aborts every UPDATE on a posted voucher, so a flag column could not be kept
 # in sync without softening the trigger. Both fragments reference the table by
 # name, so they only work in queries where `vouchers` is unaliased.
+#
+# "Saknar underlag" (SPEC-underlagstolkning.md §2.1): no row in `attachments`
+# (manual upload), no row in `voucher_intake_sources` (the agent's posting and
+# a posted thread draft link their source there), and not imported from SIE4
+# -- those vouchers' documents live in the old system and can never be linked
+# here (§12.5). `created_by` is NOT NULL (027), so `!=` never yields NULL.
+# Parenthesised as a whole: callers negate it (`NOT {MISSING_ATTACHMENT_SQL}`).
 MISSING_ATTACHMENT_SQL = (
-    "NOT EXISTS (SELECT 1 FROM attachments a WHERE a.voucher_id = vouchers.id)"
+    "(NOT EXISTS (SELECT 1 FROM attachments a WHERE a.voucher_id = vouchers.id)"
+    " AND NOT EXISTS (SELECT 1 FROM voucher_intake_sources vis"
+    " WHERE vis.voucher_id = vouchers.id)"
+    " AND vouchers.created_by != 'sie4_import')"
 )
 # Age of the business event, not of the posting: counted from vouchers.date,
 # in whole days, local time.
@@ -330,13 +340,29 @@ class VoucherRepository:
         return vouchers, total
 
     @staticmethod
-    def count_missing_attachments() -> int:
-        """Posted vouchers with no attachment linked (SPEC-oversikt.md §3)."""
+    def count_missing_attachments(min_row_ore: Optional[int] = None) -> int:
+        """Posted vouchers that lack a document (SPEC-oversikt.md §3, the
+        predicate per SPEC-underlagstolkning.md §2.1).
+
+        With *min_row_ore*, only vouchers with a row whose debit or credit
+        exceeds it: the compliance check's 500 kr threshold is
+        ``min_row_ore=50000``. `vouchers` stays unaliased for the predicate.
+        """
         sql = f"""
             SELECT COUNT(*) AS cnt FROM vouchers
-            WHERE status = 'posted' AND {MISSING_ATTACHMENT_SQL}
+            WHERE vouchers.status = 'posted' AND {MISSING_ATTACHMENT_SQL}
         """
-        return db.execute(sql).fetchone()["cnt"]
+        params: Tuple[int, ...] = ()
+        if min_row_ore is not None:
+            sql += """
+            AND EXISTS (
+                SELECT 1 FROM voucher_rows vr
+                WHERE vr.voucher_id = vouchers.id
+                AND (vr.debit > ? OR vr.credit > ?)
+            )
+            """
+            params = (min_row_ore, min_row_ore)
+        return db.execute(sql, params).fetchone()["cnt"]
 
     @staticmethod
     def numbers_for(voucher_ids: Sequence[str]) -> Dict[str, Tuple[str, int]]:
