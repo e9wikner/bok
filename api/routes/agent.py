@@ -297,6 +297,8 @@ def _intake_http_error(exc: IntakeError) -> HTTPException:
         "intake_not_processable",
         "intake_already_linked",
         "voucher_not_posted",
+        # SPEC-flode-underlag.md §8: link it instead of posting it.
+        "source_matches_posted_voucher",
     }:
         status_code = status.HTTP_409_CONFLICT
     else:

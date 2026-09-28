@@ -201,7 +201,20 @@ till dem.
   - Obs: `_http_error` (`api/routes/intake.py:480`) mappar på undantagstyp. Mappa kopplingens
     fel på typ, inte på kodsträngar, och ändra inte mappningen för befintliga fel.
 
-- [ ] **FU7 — Stoppet i postningen (§8, D5)**
+- [x] **FU7 — Stoppet i postningen (§8, D5)**
+  - Gjort 2026-09-28: 10 tester i `tests/test_flode_underlag_stopp.py` (testfall 20–24, 23
+    parametriserat över `amount_diff`/`exact_no_date`/ingen tolkning, trådförslagets postning
+    kör inte stoppet, grep-vakt för var funktionen anropas, flera källor), 5 sedda röda först;
+    testfall 23, 24 och trådförslagets postning var gröna redan och står kvar som vakter.
+    `IntakeLinkService.ensure_not_matching_posted(source_ids)` (statisk) höjer
+    `SourceMatchesPostedVoucherError(LinkConflictError)` med `details` enligt §8 ordagrant
+    (`voucher=` är tolkningens `match.voucher_number`, `diff_ore=` dess `diff_ore`). Avvikelse 2:
+    anropet ligger i `post_agent_voucher` direkt efter `ensure_source_ready_for_voucher_link`,
+    och reservationen i anroparna släpps av deras `release`; testfall 20 och 21 visar att
+    nyckeln (den härledda i verktyget, `Idempotency-Key` över HTTP) inte finns i
+    `idempotency_keys` efteråt. I `DraftService._check_traceability` efter källkontrollen; inget
+    utkast, inget inlägg. `_intake_http_error` fick koden i 409-mängden (den mappar på kod, som
+    tidigare). `services/agent_tools.py` är orörd. Hela sviten 1406 gröna. mypy 61.
   - Beror på: FU4
   - Acceptans: `IntakeLinkService.ensure_not_matching_posted(source_ids)` (namnet valfritt): för
     varje källa, den senaste tolkningen; `match.kind = "exact"` och `match_still_open` nu ger

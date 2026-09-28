@@ -21,7 +21,7 @@ never on the code string.
 """
 
 import logging
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 from db.database import db
 from domain.intake_link import IntakeLinkBasis, LinkBasis, LinkResult
@@ -67,6 +67,11 @@ class LinkRejectedError(IntakeLinkError):
     `voucher_not_in_interpretation`, `voucher_is_opening_balance`,
     `link_requires_decision`, `decision_not_for_source`,
     `decision_not_in_thread`."""
+
+
+class SourceMatchesPostedVoucherError(LinkConflictError):
+    """§8: the underlag belongs to an already posted voucher -- link it
+    instead of posting it. `409` over `POST /agent/vouchers`."""
 
 
 def _number(voucher: Voucher) -> Optional[str]:
@@ -170,6 +175,39 @@ class IntakeLinkService:
             IntakeLinkRepository.insert(basis, _commit=False)
 
         return self._result(basis, voucher, replayed=False)
+
+    # -- the stop in the posting (§8, D5) ----------------------------------
+
+    @staticmethod
+    def ensure_not_matching_posted(source_ids: Sequence[str]) -> None:
+        """Refuse to post (or propose) a new voucher for an underlag whose
+        latest interpretation is an exact match that is still open now.
+
+        Called by `post_agent_voucher` (`posta_verifikation`,
+        `POST /agent/vouchers`) and `DraftService._check_traceability`
+        (`foresla_verifikation`), before anything is written; both callers
+        release an idempotency key when the call raises. Not by the posting
+        of a thread proposal, whose linking refuses a source that has been
+        linked meanwhile (§8).
+
+        `exact_no_date` and `amount_diff` are not stopped here -- the
+        instruction and a decision stop them. Without an interpretation, or
+        with a match that is no longer open, nothing is stopped: the stop
+        is what the server knows, not what the agent should have done."""
+        for source_id in dict.fromkeys(source_ids):
+            interpretation = InterpretationRepository.latest_for_source(source_id)
+            match = interpretation.match if interpretation is not None else None
+            if match is None or match.kind != "exact":
+                continue
+            if not VoucherRepository.match_still_open(match.voucher_id, source_id):
+                continue
+            raise SourceMatchesPostedVoucherError(
+                "source_matches_posted_voucher",
+                "The underlag belongs to an already posted voucher",
+                f"source_id={source_id}, voucher={match.voucher_number}, "
+                f"diff_ore={match.diff_ore} -- underlaget hör till en redan "
+                "postad verifikation. Koppla det med koppla_underlag i stället.",
+            )
 
     # -- the checks, in §6.3's order ---------------------------------------
 

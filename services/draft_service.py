@@ -1192,10 +1192,16 @@ class DraftService:
         time: a source can be taken in between."""
         from services.bank_inputs import BankInputService
         from services.intake import IntakeService
+        from services.intake_link import IntakeLinkService
 
         intake = IntakeService()
         for source_id in _unique(request["intake_source_ids"]):
             intake.ensure_source_ready_for_voucher_link(source_id)
+        # SPEC-flode-underlag.md §8: the posting's stop, for the proposal
+        # too. Not run again when the proposal is posted.
+        IntakeLinkService.ensure_not_matching_posted(
+            _unique(request["intake_source_ids"])
+        )
         BankInputService().ensure_transactions_available(
             _unique(request["bank_input_ids"]),
             _unique(request["bank_transaction_ids"]),

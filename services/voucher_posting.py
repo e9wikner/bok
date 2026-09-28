@@ -72,6 +72,12 @@ def post_agent_voucher(
 
     for source_id in intake_source_ids:
         intake.ensure_source_ready_for_voucher_link(source_id)
+    # SPEC-flode-underlag.md §8: an underlag that matches a posted voucher
+    # exactly is linked, not posted again. Before anything is written; the
+    # caller releases its idempotency key when this raises.
+    from services.intake_link import IntakeLinkService
+
+    IntakeLinkService.ensure_not_matching_posted(intake_source_ids)
     _ensure_agent_voucher_has_traceability(intake_source_ids, bank_input_ids)
     bank_inputs.ensure_transactions_available(
         bank_input_ids,
