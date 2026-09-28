@@ -361,7 +361,20 @@ till dem.
   - Verifiera: testfall 37 (schemat och beskrivningen byte för byte som på commiten före).
   - Filer: `services/agent_tools.py`, `tests/test_flode_underlag_verktyg.py`
 
-- [ ] **FU13 — Agentinstruktionen (§11.2)**
+- [x] **FU13 — Agentinstruktionen (§11.2)**
+  - Gjort 2026-09-28: `tests/test_agent_entrypoint.py` fick `_assert_linking_rules` (testfall
+    43: §11.2:s nio punkter och stopplistans rad), körd både mot `GET
+    /agent-instructions/accounting` och mot `build_system_prompt()`; den är röd mot
+    instruktionen på `fef32d8` (kontrollerat med HEAD-versionen av filen, eftersom texten
+    skrevs före testet). "Tolka underlaget innan du bokför" är omskrivet i nio punkter, med
+    hypotesregeln som ett stycke efter listan. **Omskrivna påståenden** i
+    `_assert_interpretation_rules` (testfall 38, U9/U13/U15): avståendet vid `exact` är borta
+    och ersatt av kopplingen; `amount_diff` kräver inte längre "med en `hypothesis`" (punkt 4
+    gäller varje differens); "med båda beloppen" → "båda beloppen"; "Posta inte." → "Posta
+    inte"; ordningsvakten mäter mot `**`match.kind = "exact"`` i stället för "2. **`match.kind".
+    Avståendet i passet vid `amount_diff`, `exact_no_date` och `match = null` står kvar, med
+    samma motiveringskrav. `02_bokforingsprocess.md`: en rad i "När agenten ska avstå" säger att
+    ett sådant underlag kopplas i stället för att postas. Hela sviten 1433 gröna. mypy 61.
   - Beror på: FU5, FU7
   - Acceptans: `docs/to_agent/03_bokforingsinstruktion.md`: avsnittet "Tolka underlaget innan du
     bokför" skrivs om enligt §11.2 punkt 1–9; `SPEC-underlagstolkning.md` §9 punkt 2:s

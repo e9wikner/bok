@@ -467,13 +467,14 @@ def _flat(text: str) -> str:
 
 
 def _assert_interpretation_rules(text: str) -> None:
-    """The five rules of SPEC-underlagstolkning.md §9, as the agent reads
-    them. Tool names are the ones in ``services.agent_tools._TOOL_SPECS``."""
+    """The rules of SPEC-underlagstolkning.md §9, as SPEC-flode-underlag.md
+    §11.2 rewrote them, as the agent reads them. Tool names are the ones in
+    ``services.agent_tools._TOOL_SPECS``."""
     # The rules sit in the accounting instruction, not somewhere else.
     instruction = text[text.index("# Bokföringsinstruktion för svensk redovisning") :]
     assert "## Tolka underlaget innan du bokför" in instruction
 
-    # 1. Interpret before posting or proposing.
+    # Interpret before posting or proposing.
     assert "Innan du postar eller föreslår en verifikation för ett underlag:" in text
     assert "läs filen med `hamta_underlagsfil` och anropa `tolka_underlag`" in text
     first_rule = instruction.index("anropa `tolka_underlag`")
@@ -484,22 +485,25 @@ def _assert_interpretation_rules(text: str) -> None:
         "`POST /api/v1/intake/{id}/interpretation`, med samma fält" in text
     )
     assert instruction.index("POST /api/v1/intake/{id}/interpretation") < (
-        instruction.index("2. **`match.kind")
+        instruction.index('**`match.kind = "exact"`')
     )
 
-    # 2. A match on an already posted voucher: do not post, abstain in the
-    # pass with number and difference, say it in a thread with both amounts.
+    # A match on an already posted voucher: do not post. Rewritten by
+    # flode-underlag (§11.2 punkt 3-4): an exact match is linked, no
+    # longer abstained from; a difference is still abstained from in the
+    # pass, with the number and the difference, and laid out as a decision
+    # with both amounts in a thread.
     assert '`match.kind = "exact"`' in text
-    assert '`match.kind = "amount_diff"` med en `hypothesis`' in text
-    assert "Posta inte." in text
+    assert '`match.kind = "amount_diff"`' in text
+    assert "Posta inte" in text
     assert (
         "avstå med `registrera_avstaende` och skriv verifikationsnumret och "
         "differensen i motiveringen" in text
     )
-    assert "med båda beloppen" in text
+    assert "båda beloppen" in text
 
-    # 2, U13 (§12.6 d): an exact amount without a date is not told apart
-    # from a recurring amount -- do not post, abstain in the pass with the
+    # U13 (§12.6 d): an exact amount without a date is not told apart from
+    # a recurring amount -- do not post, abstain in the pass with the
     # number and the missing date, ask in a thread.
     assert '`match.kind = "exact_no_date"`' in text
     assert "underlaget saknar datum" in text
@@ -510,19 +514,89 @@ def _assert_interpretation_rules(text: str) -> None:
     assert "fråga om det är samma köp" in text
     assert "nämn verifikationsnumret och beloppet" in text
     no_date = text.index('`match.kind = "exact_no_date"`')
-    assert text.index("Posta inte.", no_date) < text.index("`match = null`")
+    assert text.index("Posta inte", no_date) < text.index("`match = null`")
 
-    # 3. No match but candidates: ask, do not choose.
+    # No match but candidates: ask, do not choose.
     assert "`match = null`" in text
     assert "Välj inte själv bland kandidaterna" in text
 
-    # 4. Low confidence: no guessed amounts.
+    # Low confidence: no guessed amounts.
     assert '`confidence = "low"`' in text
     assert "gissa inte fram ett belopp" in text
 
-    # 5. The hypothesis is rendered as a hypothesis.
+    # The hypothesis is rendered as a hypothesis.
     assert "återge den som en hypotes, inte som ett faktum" in text
     assert "uttryckligen säger att det är en gissning" in text
+
+
+def _assert_linking_rules(text: str) -> None:
+    """SPEC-flode-underlag.md §11.2's nine points (test case 43)."""
+    instruction = text[text.index("# Bokföringsinstruktion för svensk redovisning") :]
+    section = instruction[
+        instruction.index("## Tolka underlaget innan du bokför") : instruction.index(
+            "## Periodisering och datum"
+        )
+    ]
+
+    # 1. Ask for the underlag, oldest first, with the reason for this voucher.
+    assert "**Be om underlag**" in section
+    assert "`missing_attachment`" in section
+    assert "äldst först" in section
+    assert "Be om ett i taget" in section
+    assert "verifikationsnumret, beloppet och datumet" in section
+    assert "säg varför underlaget behövs för just den verifikationen" in section
+
+    # 2. Say you read the file; nothing linked without a yes but the exact.
+    assert "säg att du läser den innan du anropar verktygen" in section
+    assert (
+        "Ingenting kopplas förrän människan har sagt ja, utom vid exakt match"
+        in section
+    )
+
+    # 3. Exact: link with koppla_underlag, in a thread and in the pass.
+    exact = section.index('**`match.kind = "exact"`:**')
+    assert section.index("`koppla_underlag`", exact) < section.index(
+        '`match.kind = "amount_diff"`'
+    )
+    assert "i en tråd och i ett underlagspass" in section
+    assert "`source_matches_posted_voucher`" in section
+    assert "`POST /api/v1/intake/{id}/link`" in section
+
+    # 4. Difference in a thread: be_om_beslut with the three options, in the
+    # panel's order; the pass abstains as before.
+    assert '`source: {"kind": "intake_source", "id": …}`' in section
+    assert "båda beloppen, underlagets och verifikationens, i `reason`" in section
+    first = section.index("*Koppla och bokför skillnaden*")
+    second = section.index("*Koppla utan att ändra*")
+    third = section.index("*Det är ett annat köp*")
+    assert first < second < third
+    assert "`is_exit`" in section[third:]
+    assert "Rekommendera alternativ 1 när `hypothesis` pekar på en rad" in section
+    assert "koppla med `koppla_underlag` och beslutets `decision_id`" in section
+
+    # 5. The difference is proposed after the link, never posted directly.
+    assert (
+        "**Bokför skillnaden** (alternativ 1) med `foresla_verifikation` och "
+        "beslutets `decision_id`, efter kopplingen" in section
+    )
+    assert "Aldrig med `posta_verifikation`, och aldrig före kopplingen" in section
+
+    # 6. Exact without date: a yes is a decision, not a link on free text.
+    assert "inte en koppling på ett fritextsvar" in section
+
+    # 7. No match: ask which voucher; the answer is a decision.
+    assert "Svaret blir ett beslut om den verifikationen" in section
+    assert "tolka om med `expected_voucher_id` först" in section
+
+    # 8. Low confidence: ask for a new underlag, do not link.
+    assert "gissa inte fram ett belopp och koppla inte" in section
+
+    # 9. After a link: name the next one missing, with its age.
+    assert "nämn nästa verifikation som saknar underlag, med dess ålder" in section
+
+    # The stop list names the link.
+    stop = instruction[instruction.index("## Stopplista") :]
+    assert "kopplas med `koppla_underlag` i stället" in stop
 
 
 @pytest.mark.asyncio
@@ -538,6 +612,7 @@ async def test_accounting_instruction_as_served_requires_tolka_underlag(
     assert response.status_code == 200
 
     _assert_interpretation_rules(_flat(response.json()["system"]["content_markdown"]))
+    _assert_linking_rules(_flat(response.json()["system"]["content_markdown"]))
 
 
 def test_runtime_system_prompt_requires_tolka_underlag(test_db):
@@ -546,6 +621,7 @@ def test_runtime_system_prompt_requires_tolka_underlag(test_db):
     from services.agent_session import build_system_prompt
 
     _assert_interpretation_rules(_flat(build_system_prompt()))
+    _assert_linking_rules(_flat(build_system_prompt()))
 
 
 def test_agent_system_access_doc_does_not_advertise_removed_schema_routes():

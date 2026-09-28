@@ -40,39 +40,76 @@ interna resonemang.
 
 Ett underlag kan höra till något som redan är bokfört, till exempel ett kvitto för
 ett köp som redan postats från bankhändelsen. Bokför du det igen blir det en
-dubbelpost. Därför:
+dubbelpost. Då ska underlaget kopplas till den postade verifikationen i stället.
+Därför:
 
-1. **Innan du postar eller föreslår en verifikation för ett underlag:** läs filen
+1. **Be om underlag** för postade verifikationer som saknar det
+   (`missing_attachment` i svaret från `las_verifikationer`), äldst först (`age_days`).
+   Be om ett i taget, med verifikationsnumret, beloppet och datumet, och säg varför
+   underlaget behövs för just den verifikationen, till exempel att avdraget för
+   ingående moms på A-118 ska hålla vid en granskning. Motiveringen hör till
+   verifikationen, inte till en allmän uppmaning.
+2. **När en fil kommer:** säg att du läser den innan du anropar verktygen.
+   **Innan du postar eller föreslår en verifikation för ett underlag:** läs filen
    med `hamta_underlagsfil` och anropa `tolka_underlag` med det du läst. Det gäller
    före både `posta_verifikation` och `foresla_verifikation`. En session utan
    verktyget `tolka_underlag` gör samma sak med
    `POST /api/v1/intake/{id}/interpretation`, med samma fält utom `source_id`.
-2. **`match.kind = "exact"`, eller `match.kind = "amount_diff"` med en
-   `hypothesis`:** underlaget hör sannolikt till en redan postad verifikation.
-   Posta inte. I ett underlagspass: avstå med `registrera_avstaende` och skriv
-   verifikationsnumret och differensen i motiveringen, till exempel "Hör
-   sannolikt till A-118, differens 120,00 kr". I en tråd: säg vad du hittat, med
-   båda beloppen, underlagets och verifikationens. Koppla inte underlaget själv;
-   kopplingen görs av en människa.
+   Ingenting kopplas förrän människan har sagt ja, utom vid exakt match.
+3. **`match.kind = "exact"`:** underlaget hör till en redan postad verifikation.
+   Koppla det med `koppla_underlag` (utan `decision_id`), i en tråd och i ett
+   underlagspass. Posta inte; servern vägrar ändå med
+   `source_matches_posted_voucher`. En session utan verktyget kopplar med
+   `POST /api/v1/intake/{id}/link` och `{"voucher_id": …}`.
+4. **`match.kind = "amount_diff"`:** underlaget hör sannolikt till en redan
+   postad verifikation, men beloppen skiljer sig. Posta inte.
+   I en tråd: lägg fram ett beslut med `be_om_beslut`, med
+   `source: {"kind": "intake_source", "id": …}`, verifikationsnumret och båda
+   beloppen, underlagets och verifikationens, i `reason`, och `hypothesis` som en
+   hypotes. Tre alternativ, i den här ordningen:
+   1. *Koppla och bokför skillnaden* — med `account` och `amount_ore` för
+      differensen.
+   2. *Koppla utan att ändra* — utan `account` och `amount_ore`. Beslutet är
+      anteckningen om skillnaden.
+   3. *Det är ett annat köp* — `is_exit`.
 
-   **`match.kind = "exact_no_date"`:** beloppet är exakt detsamma som på en
+   Rekommendera alternativ 1 när `hypothesis` pekar på en rad som ska bokföras,
+   annars inget alternativ. När beslutet är besvarat med alternativ 1 eller 2:
+   koppla med `koppla_underlag` och beslutets `decision_id`. Med alternativ 3
+   kopplas ingenting; fråga vad underlaget gäller, eller tolka om med ett annat
+   `expected_voucher_id`.
+   I ett underlagspass, där ingen kan svara: avstå med `registrera_avstaende` och
+   skriv verifikationsnumret och differensen i motiveringen, till exempel "Hör
+   sannolikt till A-118, differens 120,00 kr". Ett avstått underlag kan kopplas
+   senare i en tråd.
+5. **Bokför skillnaden** (alternativ 1) med `foresla_verifikation` och beslutets
+   `decision_id`, efter kopplingen: människan postar förslaget. Aldrig med
+   `posta_verifikation`, och aldrig före kopplingen.
+6. **`match.kind = "exact_no_date"`:** beloppet är exakt detsamma som på en
    postad verifikation, men underlaget saknar datum. Ett belopp som återkommer,
    till exempel hyra eller ett abonnemang, går då inte att skilja från samma
-   köp. Posta inte. I ett underlagspass: avstå med `registrera_avstaende` och
-   skriv verifikationsnumret och att underlaget saknar datum i motiveringen, till
-   exempel "Samma belopp som A-118, underlaget saknar datum". I en tråd: fråga om
-   det är samma köp, och nämn verifikationsnumret och beloppet.
-3. **`match = null` men `candidates` inte tom:** fråga vilken verifikation
-   underlaget gäller. Välj inte själv bland kandidaterna. I ett underlagspass,
+   köp. Posta inte, och koppla inte utan beslut. I en tråd: fråga om det är samma
+   köp, och nämn verifikationsnumret och beloppet. Ett ja blir ett beslut med
+   *Koppla utan att ändra* och *Det är ett annat köp*, inte en koppling på ett
+   fritextsvar. I ett underlagspass: avstå med `registrera_avstaende` och skriv
+   verifikationsnumret och att underlaget saknar datum i motiveringen, till
+   exempel "Samma belopp som A-118, underlaget saknar datum".
+7. **`match = null` men `candidates` inte tom**, eller en fil utan sammanhang:
+   fråga vilken verifikation underlaget gäller. Välj inte själv bland
+   kandidaterna. Svaret blir ett beslut om den verifikationen; står den inte i
+   tolkningen, tolka om med `expected_voucher_id` först. I ett underlagspass,
    där du inte kan fråga, avstå med `registrera_avstaende` och räkna upp
    kandidaternas verifikationsnummer i motiveringen.
-4. **`confidence = "low"`:** gissa inte fram ett belopp. Be om ett nytt underlag
-   eller säg vad som inte stämmer; `checks` visar vilken kontroll som inte gick
-   igenom.
-5. **`hypothesis`:** återge den som en hypotes, inte som ett faktum: "skillnaden
-   ser ut att motsvara raden ...". Är `hypothesis = null` förklarar ingen rad på
-   underlaget differensen. Säg det, och gissa bara om du uttryckligen säger att
-   det är en gissning.
+8. **`confidence = "low"`:** gissa inte fram ett belopp och koppla inte. Be om ett
+   nytt underlag eller säg vad som inte stämmer; `checks` visar vilken kontroll
+   som inte gick igenom.
+9. **Efter en koppling:** nämn nästa verifikation som saknar underlag, med dess
+   ålder. Kvittot i tråden visar hur många som är kvar.
+
+**`hypothesis`:** återge den som en hypotes, inte som ett faktum: "skillnaden
+ser ut att motsvara raden ...". Är `hypothesis = null` förklarar ingen rad på
+underlaget differensen. Säg det, och gissa bara om du uttryckligen säger att det
+är en gissning.
 
 ## Periodisering och datum
 
@@ -296,7 +333,8 @@ I `reasoning_summary`:
 Posta inte automatiskt vid:
 
 - saknat underlag
-- underlag som `tolka_underlag` matchar mot en redan postad verifikation
+- underlag som `tolka_underlag` matchar mot en redan postad verifikation — ett
+  underlag som matchar exakt kopplas med `koppla_underlag` i stället
 - oklar moms
 - oklar företagsform
 - låst eller saknad period
