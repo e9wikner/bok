@@ -2211,3 +2211,240 @@ def test_u7_the_docstrings_say_twelve_tools():
     assert "twelfth" in (agent_tools.__doc__ or "")
     assert "tolka_underlag" in (agent_tools.__doc__ or "")
     assert "twelve" in (agent_tools.execute_tool.__doc__ or "")
+
+
+# ---------------------------------------------------------------------------
+# U8 — `GET /api/v1/intake/{id}/interpretation` (§8; testfall 31, 32, 37)
+# ---------------------------------------------------------------------------
+
+
+def _interpretation_url(source_id: str) -> str:
+    return f"/api/v1/intake/{source_id}/interpretation"
+
+
+def _get_interpretation(client, auth_headers, source_id: str):
+    return client.get(_interpretation_url(source_id), headers=auth_headers)
+
+
+def test_31_get_gives_the_later_with_superseded_count_one(
+    client, auth_headers, period_id, purchase_accounts, intake_dir
+):
+    """Testfall 31 over HTTP: two interpretations, the GET gives the later
+    one, in §6.5's form plus §8's fields, with `superseded_count = 1`."""
+    a118 = _a118(period_id)
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+    _tolka(source.id, vendor="Elektronikhuset AB")
+    later = _tolka(source.id)
+
+    response = _get_interpretation(client, auth_headers, source.id)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert list(body) == [
+        "interpretation_id",
+        "source_id",
+        "read",
+        "checks",
+        "confidence",
+        "match",
+        "candidates",
+        "expected",
+        "expected_voucher_id",
+        "created_at",
+        "actor",
+        "thread_id",
+        "superseded_count",
+    ]
+    assert body["interpretation_id"] == later["interpretation_id"]
+    assert body["superseded_count"] == 1
+    assert body["read"] == later["read"]
+    assert body["read"]["vendor"] == "Elektronikhuset"
+    assert body["checks"] == later["checks"]
+    assert body["confidence"] == later["confidence"]
+    assert body["candidates"] == later["candidates"]
+    assert body["match"] == {**later["match"], "still_open": True}
+    assert body["match"]["voucher_id"] == a118
+    assert (body["actor"], body["thread_id"]) == ("agent", None)
+    saved = InterpretationRepository.latest_for_source(source.id)
+    assert saved is not None
+    assert body["created_at"] == saved.created_at.isoformat()
+
+
+def test_32_linking_the_source_leaves_the_snapshot_and_closes_the_match(
+    client, auth_headers, period_id, purchase_accounts, intake_dir
+):
+    """Testfall 32: interpretation, then the source is linked through the
+    existing path. The GET gives the same snapshot; only `still_open`
+    turns false. Nothing about the row changed."""
+    from services.intake import IntakeService
+
+    a118 = _a118(period_id)
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+    _tolka(source.id)
+    before = _get_interpretation(client, auth_headers, source.id).json()
+    row_before = db.execute(
+        "SELECT * FROM intake_interpretations WHERE intake_source_id = ?",
+        (source.id,),
+    ).fetchall()
+    assert before["match"]["still_open"] is True
+
+    IntakeService().link_existing_voucher(
+        source_id=source.id,
+        voucher_id=a118,
+        actor="api",
+        summary="Kvittot hör till A-118",
+    )
+    after = _get_interpretation(client, auth_headers, source.id).json()
+
+    assert after["match"]["still_open"] is False
+    assert {**after, "match": None} == {**before, "match": None}
+    assert {**after["match"], "still_open": True} == before["match"]
+    assert [
+        tuple(r)
+        for r in db.execute(
+            "SELECT * FROM intake_interpretations WHERE intake_source_id = ?",
+            (source.id,),
+        ).fetchall()
+    ] == [tuple(r) for r in row_before]
+
+
+def test_u8_still_open_needs_both_the_predicate_and_an_unlinked_source(
+    client, auth_headers, period_id, purchase_accounts, intake_dir
+):
+    """§8: `still_open` is false as soon as either side is closed -- the
+    voucher got underlag some other way (an attachment), or the source was
+    linked to some other voucher."""
+    from services.intake import IntakeService
+
+    a118 = _a118(period_id)
+    other = _purchase(period_id, total=10000, vat=2000, day=2)
+
+    attached = _upload(_text_pdf(U6_TEXT_LINES))
+    _tolka(attached.id)
+    _attach(a118)
+    body = _get_interpretation(client, auth_headers, attached.id).json()
+    assert body["match"]["voucher_id"] == a118
+    assert body["match"]["still_open"] is False
+
+    linked_elsewhere = _upload(_text_pdf([*U6_TEXT_LINES, "Kopia"]))
+    a119 = _a118(period_id)
+    _tolka(linked_elsewhere.id)
+    assert (
+        _get_interpretation(client, auth_headers, linked_elsewhere.id).json()["match"][
+            "still_open"
+        ]
+        is True
+    )
+    IntakeService().link_existing_voucher(
+        source_id=linked_elsewhere.id,
+        voucher_id=other,
+        actor="api",
+        summary="Hör till en annan verifikation",
+    )
+    body = _get_interpretation(client, auth_headers, linked_elsewhere.id).json()
+    assert body["match"]["voucher_id"] == a119
+    assert body["match"]["still_open"] is False
+
+
+def test_u8_expected_is_not_recomputed_and_names_its_voucher(
+    client, auth_headers, period_id, purchase_accounts, intake_dir
+):
+    """The row keeps `expected_voucher_id` but not the computed `expected`
+    (§5). The GET does not recompute it against today's ledger, which would
+    look like a stored snapshot: `expected = null`, and
+    `expected_voucher_id` says which voucher the agent named."""
+    a118 = _a118(period_id)
+    far = _purchase(period_id, total=99900, day=1)
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+    answered = _tolka(source.id, expected_voucher_id=far)
+    assert answered["expected"] is not None
+
+    body = _get_interpretation(client, auth_headers, source.id).json()
+
+    assert body["expected"] is None
+    assert body["expected_voucher_id"] == far
+    assert body["match"]["voucher_id"] == a118
+    plain = _upload(_text_pdf([*U6_TEXT_LINES, "Kopia"]))
+    _tolka(plain.id)
+    body = _get_interpretation(client, auth_headers, plain.id).json()
+    assert (body["expected"], body["expected_voucher_id"]) == (None, None)
+
+
+def test_u8_no_match_is_null_and_carries_no_still_open(
+    client, auth_headers, period_id, purchase_accounts, intake_dir
+):
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+    _tolka(source.id)
+
+    body = _get_interpretation(client, auth_headers, source.id).json()
+
+    assert body["match"] is None
+    assert body["candidates"] == []
+    assert body["superseded_count"] == 0
+
+
+def test_37_get_without_interpretation_is_404(
+    client, auth_headers, period_id, purchase_accounts, intake_dir
+):
+    """Testfall 37, and §8's other 404: an unknown source."""
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+
+    response = _get_interpretation(client, auth_headers, source.id)
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "interpretation_not_found"
+
+    response = _get_interpretation(client, auth_headers, "no-such-source")
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "source_not_found"
+
+
+def test_u8_requires_bearer_and_has_no_writing_method(
+    client, auth_headers, period_id, purchase_accounts, intake_dir
+):
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+    _tolka(source.id)
+    url = _interpretation_url(source.id)
+
+    assert client.get(url).status_code == 401
+    for method in ("post", "put", "patch", "delete"):
+        response = getattr(client, method)(url, headers=auth_headers)
+        assert response.status_code == 405, method
+
+
+def test_u8_get_writes_nothing(
+    client, auth_headers, period_id, purchase_accounts, intake_dir
+):
+    """`still_open` is derived at read time: the GET changes neither the
+    books nor the interpretations."""
+    _a118(period_id)
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+    _tolka(source.id)
+    before = (
+        _books_snapshot(),
+        [tuple(r) for r in db.execute("SELECT * FROM intake_interpretations")],
+    )
+
+    assert _get_interpretation(client, auth_headers, source.id).status_code == 200
+
+    after = (
+        _books_snapshot(),
+        [tuple(r) for r in db.execute("SELECT * FROM intake_interpretations")],
+    )
+    assert after == before
+
+
+def test_u8_deleted_source_keeps_its_interpretation_readable(
+    client, auth_headers, period_id, purchase_accounts, intake_dir
+):
+    """§8 names two 404s and no `source_deleted`: a source soft-deleted
+    after it was interpreted still has its (append-only) interpretation."""
+    from services.intake import IntakeService
+
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+    result = _tolka(source.id)
+    IntakeService().soft_delete(source.id, actor="api")
+
+    response = _get_interpretation(client, auth_headers, source.id)
+
+    assert response.status_code == 200
+    assert response.json()["interpretation_id"] == result["interpretation_id"]

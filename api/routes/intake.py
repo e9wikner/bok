@@ -27,6 +27,10 @@ from services.intake import (
     IntakeService,
     IntakeValidationError,
 )
+from services.interpretation_service import (
+    InterpretationNotFoundError,
+    InterpretationService,
+)
 
 router = APIRouter(prefix="/api/v1/intake", tags=["intake"])
 VALID_WORKSPACE_KINDS = {"voucher_source", "bank_input"}
@@ -188,6 +192,22 @@ async def get_intake_workspace_detail(
         ],
         "transactions": bank_repo.list_transaction_signals_for_input(bank_input.id),
     }
+
+
+@router.get("/{source_id}/interpretation", response_model=dict)
+async def get_intake_interpretation(
+    source_id: str,
+    actor: str = Depends(get_current_actor),
+):
+    """The latest interpretation of a source (SPEC-underlagstolkning.md §8).
+
+    Read-only: the interpretation is made by the agent's `tolka_underlag`,
+    never here, and `match.still_open` is derived at read time.
+    """
+    try:
+        return InterpretationService().latest(source_id)
+    except IntakeError as exc:
+        raise _http_error(exc) from exc
 
 
 @router.get("/{source_id}", response_model=dict)
@@ -407,7 +427,7 @@ def _http_error(exc: IntakeError) -> HTTPException:
     status_code = http_status.HTTP_400_BAD_REQUEST
     if isinstance(exc, DuplicateIntakeSourceError):
         status_code = http_status.HTTP_409_CONFLICT
-    elif isinstance(exc, IntakeNotFoundError):
+    elif isinstance(exc, (IntakeNotFoundError, InterpretationNotFoundError)):
         status_code = http_status.HTTP_404_NOT_FOUND
     elif isinstance(exc, IntakeConflictError):
         status_code = http_status.HTTP_409_CONFLICT

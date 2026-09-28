@@ -230,7 +230,25 @@ oräknade. Testfallsnumren syftar på tabellerna i §10. Backendens tester ligge
   - Filer: `services/agent_tools.py`, `tests/test_underlagstolkning.py`,
     `tests/test_agent_runtime.py`, `tests/test_flode_verifikationer.py`
 
-- [ ] **U8 — `GET /api/v1/intake/{id}/interpretation`**
+- [x] **U8 — `GET /api/v1/intake/{id}/interpretation`**
+  - Gjort 2026-09-28: nio tester (testfall 31, 32, 37 över HTTP plus sex `test_u8_*`), sedda
+    röda först. Routen ligger före `GET /{source_id}` och mappar `IntakeError` genom
+    `_http_error`; ny `InterpretationNotFoundError(IntakeError)` ger 404 för både
+    `source_not_found` och `interpretation_not_found`. Andra metoder på sökvägen ger 405.
+    **Avvikelse från fillistan:** läsvägen är `InterpretationService.latest` i
+    `services/interpretation_service.py` (där U6 lade servicen), inte `services/interpretation.py`.
+    `still_open` är `VoucherRepository.match_still_open(voucher_id, intake_source_id)`: en fråga,
+    `MISSING_ATTACHMENT_SQL` på verifikationen **och** ingen rad för källan i
+    `voucher_intake_sources` (oavsett verifikation — kopplad till en annan är också stängd).
+    Ingenting skrivs (testat mot `_books_snapshot` och tolkningsraderna). **`expected`:** §5
+    sparar bara `expected_voucher_id`, och §5/§8 säger att det agenten jämförde med ska kunna
+    läsas som ögonblicksbild. En omräkning mot dagens huvudbok skulle se sparad ut men vara
+    något annat, så läsvägen ger `expected: null` plus `expected_voucher_id` (efter `expected`
+    i svaret); migration 030 är orörd. Vill `flode-underlag` visa jämförelsen får den räkna
+    den öppet, som en ny tolkning eller ett uttryckligt märkt fält. **Beslut utan stöd i
+    specen:** en mjukraderad källa läses ändå (§8 nämner bara två 404:or och raden är
+    append-only); testat. `agent_run_id` finns inte i svaret (§8 räknar inte upp det).
+    Hela sviten 1283 gröna, mypy 61.
   - Acceptans: bearer-autentiserad route i `api/routes/intake.py`, före eventuella fångande
     routes. Svaret har §6.5:s form plus `created_at`, `actor`, `thread_id`, `superseded_count`
     och `match.still_open` (verifikationen saknar fortfarande underlag enligt predikatet **och**

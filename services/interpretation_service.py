@@ -3,6 +3,8 @@
 `InterpretationService.interpret` takes what the model read from an
 underlag, runs the checks (§6.3-§6.4), matches it against the ledger
 (§7), saves one `intake_interpretations` row and answers in §6.5's form.
+`InterpretationService.latest` is the read path behind
+`GET /api/v1/intake/{id}/interpretation` (§8).
 Read-only against the books: nothing here writes to `vouchers`,
 `voucher_intake_sources`, `attachments` or `intake_sources` (testfall 33).
 
@@ -51,8 +53,13 @@ class InterpretArgs(MatchRead, Protocol):
     def expected_voucher_id(self) -> Optional[str]: ...
 
 
+class InterpretationNotFoundError(IntakeError):
+    """§8's two 404s: `source_not_found` and `interpretation_not_found`."""
+
+
 class InterpretationService:
-    """Interpret one underlag: check, match, save, answer."""
+    """Interpret one underlag: check, match, save, answer -- and read back
+    the latest interpretation (§8)."""
 
     def interpret(
         self,
@@ -127,6 +134,68 @@ class InterpretationService:
             "match": matching.match.to_dict() if matching.match else None,
             "candidates": [c.to_dict() for c in matching.candidates],
             "expected": compared.to_dict() if compared else None,
+        }
+
+    def latest(self, source_id: str) -> Dict[str, Any]:
+        """§8: the latest interpretation of *source_id*, in §6.5's form plus
+        `created_at`, `actor`, `thread_id`, `superseded_count` and
+        `match.still_open`. Reads only -- `still_open` is derived here, now,
+        and the stored snapshot is returned as stored.
+
+        `expected` is `None` and `expected_voucher_id` names the voucher the
+        agent expected: the row keeps the id but not the computed comparison
+        (§5), and recomputing it against today's ledger would look like the
+        snapshot while being something else.
+
+        A soft-deleted source is still read: §8 has no `source_deleted`, and
+        the interpretation is append-only. Raises
+        `InterpretationNotFoundError` `source_not_found` /
+        `interpretation_not_found`."""
+        if IntakeRepository.get_source(source_id) is None:
+            raise InterpretationNotFoundError(
+                "source_not_found", "Intake source not found", f"source_id={source_id}"
+            )
+        interpretation = InterpretationRepository.latest_for_source(source_id)
+        if interpretation is None:
+            raise InterpretationNotFoundError(
+                "interpretation_not_found",
+                "Intake source has not been interpreted",
+                f"source_id={source_id}",
+            )
+        match = None
+        if interpretation.match is not None:
+            match = {
+                **interpretation.match.to_dict(),
+                "still_open": VoucherRepository.match_still_open(
+                    interpretation.match.voucher_id, source_id
+                ),
+            }
+        return {
+            "interpretation_id": interpretation.id,
+            "source_id": interpretation.intake_source_id,
+            "read": {
+                "vendor": interpretation.vendor,
+                "document_date": (
+                    interpretation.document_date.isoformat()
+                    if interpretation.document_date
+                    else None
+                ),
+                "currency": interpretation.currency,
+                "total_ore": interpretation.total_ore,
+                "vat_ore": interpretation.vat_ore,
+                "lines": interpretation.lines,
+            },
+            "checks": interpretation.checks,
+            "confidence": interpretation.confidence,
+            "match": match,
+            "candidates": [c.to_dict() for c in interpretation.candidates],
+            "expected": None,
+            "expected_voucher_id": interpretation.expected_voucher_id,
+            "created_at": interpretation.created_at.isoformat(),
+            "actor": interpretation.actor,
+            "thread_id": interpretation.thread_id,
+            "superseded_count": InterpretationRepository.count_for_source(source_id)
+            - 1,
         }
 
     # -- helpers ----------------------------------------------------------

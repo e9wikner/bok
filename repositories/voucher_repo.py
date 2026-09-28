@@ -461,6 +461,27 @@ class VoucherRepository:
         return rows[0] if rows else None
 
     @staticmethod
+    def match_still_open(voucher_id: str, intake_source_id: str) -> bool:
+        """`match.still_open` (SPEC-underlagstolkning.md §8), at read time:
+        the voucher still lacks underlag by the shared predicate **and** the
+        source has no row in `voucher_intake_sources` (linked to neither
+        this voucher nor another). Reads only."""
+        row = db.execute(
+            f"""
+            SELECT EXISTS (
+                       SELECT 1 FROM vouchers
+                       WHERE vouchers.id = ? AND {MISSING_ATTACHMENT_SQL}
+                   )
+               AND NOT EXISTS (
+                       SELECT 1 FROM voucher_intake_sources
+                       WHERE intake_source_id = ?
+                   ) AS still_open
+            """,
+            (voucher_id, intake_source_id),
+        ).fetchone()
+        return bool(row["still_open"])
+
+    @staticmethod
     def _candidate_rows(
         where: Sequence[str], params: Sequence, *, having: Optional[str] = None
     ) -> List[MatchCandidateRow]:
