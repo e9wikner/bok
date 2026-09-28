@@ -427,7 +427,20 @@ till dem.
   - Obs: `DuplicateIntakeSourceError` har redan attributet `existing_id`
     (`services/intake.py:29`); ingen ändring i servicen.
 
-- [ ] **FU16 — `referenced_by` i `VoucherResponse`, och hänvisningen i `source-context`**
+- [x] **FU16 — `referenced_by` i `VoucherResponse`, och hänvisningen i `source-context`**
+  - Gjort 2026-09-28: 4 tester i `tests/test_flode_underlag_predikat.py` (testfall 49e i tre
+    delar: ifyllt för A-118 i listan och i `GET /vouchers/{id}`, senast postade av flera, samma
+    antal SQL-anrop för en sida om 1 och 5; backenddelen av 49d), 3 sedda röda först;
+    SQL-räkningen var grön före och står kvar som vakt för joinen. `VOUCHER_SELECT_SQL` joinar
+    `voucher_source_references` → postade `vouchers` med `ROW_NUMBER() OVER (PARTITION BY
+    via_voucher_id ORDER BY posted_at DESC, number DESC)`, som `corrected_by`.
+    `Voucher.referenced_by`, `VoucherResponse.referenced_by: {id, series, number} | null`,
+    `_voucher_to_response`. `source-context` för en verifikation med hänvisning listar kvittot
+    som en post i `source_material` med `kind: "voucher_source"`, samma fält som en direkt
+    kopplad källa (länkfälten ur kopplingen till A-118) plus `via_voucher_id` och
+    `via_voucher_number`; en direkt kopplad källa har inga `via_`-fält. Posten byggs av en
+    utbruten `_voucher_source_material`, som också tog bort ett mypy-fel. Kontraktet är det
+    frontendagenten byggde mot. Hela sviten 1447 gröna. mypy 60.
   - Beror på: FU2, FU14
   - Acceptans: `VOUCHER_SELECT_SQL` joinar `voucher_source_references` på `via_voucher_id =
     vouchers.id` och ger `referenced_by: {id, series, number} | null` (senast postade om flera),

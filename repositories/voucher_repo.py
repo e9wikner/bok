@@ -46,8 +46,11 @@ AGE_DAYS_SQL = (
 # derived fields above, and the two correction references (SPEC-flode-
 # verifikationer §7.5) joined in -- `corrected_by` is the latest *posted*
 # voucher whose correction_of points here; `corrects` is the voucher this one
-# points at. `vouchers` stays unaliased for the fragments above; a caller's
-# WHERE must qualify its columns with `vouchers.`.
+# points at. `referenced_by` (SPEC-flode-underlag.md §10.4, D2) is joined the
+# same way: the latest *posted* voucher whose `voucher_source_references` row
+# refers to its underlag through this one -- A-121 on A-118. `vouchers` stays
+# unaliased for the fragments above; a caller's WHERE must qualify its
+# columns with `vouchers.`.
 VOUCHER_SELECT_SQL = f"""
     SELECT vouchers.*,
            {MISSING_ATTACHMENT_SQL} AS missing_attachment,
@@ -57,7 +60,10 @@ VOUCHER_SELECT_SQL = f"""
            cb.number AS corrected_by_number,
            co.id AS corrects_id,
            co.series AS corrects_series,
-           co.number AS corrects_number
+           co.number AS corrects_number,
+           rb.id AS referenced_by_id,
+           rb.series AS referenced_by_series,
+           rb.number AS referenced_by_number
     FROM vouchers
     LEFT JOIN (
         SELECT id, series, number, correction_of,
@@ -68,6 +74,16 @@ VOUCHER_SELECT_SQL = f"""
         WHERE status = 'posted' AND correction_of IS NOT NULL
     ) cb ON cb.correction_of = vouchers.id AND cb.rank_in_original = 1
     LEFT JOIN vouchers co ON co.id = vouchers.correction_of
+    LEFT JOIN (
+        SELECT rv.id, rv.series, rv.number, vsr.via_voucher_id,
+               ROW_NUMBER() OVER (
+                   PARTITION BY vsr.via_voucher_id
+                   ORDER BY rv.posted_at DESC, rv.number DESC
+               ) AS rank_in_via
+        FROM voucher_source_references vsr
+        JOIN vouchers rv ON rv.id = vsr.voucher_id
+        WHERE rv.status = 'posted'
+    ) rb ON rb.via_voucher_id = vouchers.id AND rb.rank_in_via = 1
 """
 
 
@@ -138,6 +154,7 @@ def _voucher_from_row(row, rows: List[VoucherRow]) -> Voucher:
         age_days=row["age_days"],
         corrected_by=_ref(row, "corrected_by"),
         corrects=_ref(row, "corrects"),
+        referenced_by=_ref(row, "referenced_by"),
     )
 
 

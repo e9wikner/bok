@@ -164,6 +164,13 @@ class VoucherResponse(BaseModel):
     corrects: Optional[VoucherRefResponse] = Field(
         None, description="The voucher this one corrects (correction_of)"
     )
+    referenced_by: Optional[VoucherRefResponse] = Field(
+        None,
+        description=(
+            "The posted voucher whose underlag is this one's linked receipt "
+            "(voucher_source_references), e.g. a difference booked on its own"
+        ),
+    )
 
 
 # Overview Schemas

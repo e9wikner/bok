@@ -31,6 +31,7 @@ from repositories.account_repo import AccountRepository
 from repositories.accounting_correction_repo import AccountingCorrectionRepository
 from repositories.audit_repo import AuditRepository
 from repositories.bank_input_repo import BankInputRepository
+from repositories.intake_link_repo import VoucherSourceReferenceRepository
 from repositories.intake_repo import IntakeRepository
 from services.correction_notes import CorrectionNoteError, CorrectionNoteService
 from services.draft_service import DraftService, SourceAlreadyBookedError
@@ -336,30 +337,34 @@ async def get_voucher_source_context(
         source = intake_repo.get_source(link.intake_source_id)
         if not source:
             continue
-        source_material.append(
-            {
-                "kind": "voucher_source",
-                "id": source.id,
-                "source_type": source.source_type.value if source.source_type else None,
-                "status": source.status.value,
-                "original_filename": source.original_filename,
-                "mime_type": source.mime_type,
-                "size_bytes": source.size_bytes,
-                "sha256": source.sha256,
-                "explanation": source.explanation,
-                "uploaded_by": source.uploaded_by,
-                "uploaded_at": source.uploaded_at.isoformat(),
-                "download_url": f"/api/v1/intake/{source.id}/file",
-                "linked_at": link.linked_at.isoformat(),
-                "linked_by": link.linked_by,
-                "link_reason": link.link_reason,
-            }
-        )
+        source_material.append(_voucher_source_material(source, link))
         processing_notes.extend(
             _source_processing_note(attempt)
             for attempt in intake_repo.list_attempts_for_source(source.id)
             if attempt.voucher_id == voucher_id
         )
+
+    # SPEC-flode-underlag.md §10.4 (D2): a voucher that refers to a receipt
+    # through another voucher's link (A-121 via A-118) lists that receipt,
+    # named with the voucher it is linked to, so the receipt can be opened
+    # from it too.
+    reference = VoucherSourceReferenceRepository.get_for_voucher(voucher_id)
+    if reference is not None:
+        via_link = intake_repo.get_link_by_source_id(reference.intake_source_id)
+        source = intake_repo.get_source(reference.intake_source_id)
+        via = ledger.vouchers.get(reference.via_voucher_id)
+        if source is not None and via_link is not None:
+            source_material.append(
+                {
+                    **_voucher_source_material(source, via_link),
+                    "via_voucher_id": reference.via_voucher_id,
+                    "via_voucher_number": (
+                        f"{via.series.value}-{via.number}"
+                        if via is not None and via.number is not None
+                        else None
+                    ),
+                }
+            )
 
     voucher_transaction_links = bank_repo.list_transactions_for_voucher(voucher_id)
     for link in bank_repo.list_inputs_for_voucher(voucher_id):
@@ -1125,7 +1130,30 @@ def _voucher_to_response(voucher, account_names=None) -> VoucherResponse:
         age_days=age_days,
         corrected_by=_ref_response(voucher.corrected_by),
         corrects=_ref_response(voucher.corrects),
+        referenced_by=_ref_response(voucher.referenced_by),
     )
+
+
+def _voucher_source_material(source, link) -> dict:
+    """One `voucher_source` entry of `source-context`: the intake source and
+    the `voucher_intake_sources` row that links it."""
+    return {
+        "kind": "voucher_source",
+        "id": source.id,
+        "source_type": source.source_type.value if source.source_type else None,
+        "status": source.status.value,
+        "original_filename": source.original_filename,
+        "mime_type": source.mime_type,
+        "size_bytes": source.size_bytes,
+        "sha256": source.sha256,
+        "explanation": source.explanation,
+        "uploaded_by": source.uploaded_by,
+        "uploaded_at": source.uploaded_at.isoformat(),
+        "download_url": f"/api/v1/intake/{source.id}/file",
+        "linked_at": link.linked_at.isoformat(),
+        "linked_by": link.linked_by,
+        "link_reason": link.link_reason,
+    }
 
 
 def _ref_response(ref) -> Optional[VoucherRefResponse]:

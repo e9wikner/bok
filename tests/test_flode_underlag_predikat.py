@@ -185,3 +185,127 @@ def test_fu2_the_predicate_names_both_new_conditions_once():
     with open(source, encoding="utf-8") as fh:
         text = fh.read()
     assert text.count("correction_of IS NULL") == 1
+
+
+# ---------------------------------------------------------------------------
+# FU16 — `referenced_by` on `VoucherResponse`, and the reference in
+# `source-context` (§10.4; testfall 49d, 49e)
+# ---------------------------------------------------------------------------
+
+
+def _ref(voucher_id: str) -> dict:
+    from repositories.voucher_repo import VoucherRepository
+
+    voucher = VoucherRepository.get(voucher_id)
+    assert voucher is not None
+    return {"id": voucher.id, "series": voucher.series.value, "number": voucher.number}
+
+
+def _listed_by_id(client, auth_headers, **params) -> dict:
+    resp = client.get("/api/v1/vouchers", headers=auth_headers, params=params)
+    assert resp.status_code == 200, resp.text
+    return {v["id"]: v for v in resp.json()["vouchers"]}
+
+
+def test_49e_referenced_by_names_the_difference_voucher(
+    client, auth_headers, period_id
+):
+    """Testfall 49e: A-118 carries `referenced_by` = A-121 once A-121 refers
+    to its receipt; every other voucher has `null`."""
+    via = a118(period_id)
+    difference = posted_purchase(period_id, total=12000, vat=0, day=16)
+    other = posted_purchase(period_id, day=17)
+    reference(difference, via, period_id)
+
+    listed = _listed_by_id(client, auth_headers)
+    single = client.get(f"/api/v1/vouchers/{via}", headers=auth_headers).json()
+
+    assert listed[via]["referenced_by"] == _ref(difference)
+    assert listed[difference]["referenced_by"] is None
+    assert listed[other]["referenced_by"] is None
+    assert single["referenced_by"] == _ref(difference)
+
+
+def test_49e_the_latest_posted_of_several(client, auth_headers, period_id):
+    via = a118(period_id)
+    first = posted_purchase(period_id, total=12000, vat=0, day=16)
+    second = posted_purchase(period_id, total=5000, vat=0, day=17)
+    reference(first, via, period_id)
+    reference(second, via, period_id)
+
+    assert _listed_by_id(client, auth_headers)[via]["referenced_by"] == _ref(second)
+
+
+def test_49e_no_query_per_row(client, auth_headers, period_id, monkeypatch):
+    """Joined into the page's query like `corrected_by`: a page of five
+    vouchers with references costs the same number of statements as a page
+    of one."""
+    from db.database import db
+
+    def statements(n: int) -> int:
+        calls: list = []
+        original = db.execute
+
+        def counting(sql, *args, **kwargs):
+            calls.append(sql)
+            return original(sql, *args, **kwargs)
+
+        monkeypatch.setattr(db, "execute", counting)
+        resp = client.get("/api/v1/vouchers", headers=auth_headers, params={"limit": n})
+        monkeypatch.setattr(db, "execute", original)
+        assert resp.status_code == 200
+        assert len(resp.json()["vouchers"]) == n
+        return len(calls)
+
+    for day in range(10, 15):
+        via = posted_purchase(period_id, day=day)
+        reference(
+            posted_purchase(period_id, total=1000, vat=0, day=day), via, period_id
+        )
+
+    assert statements(1) == statements(5)
+
+
+def test_49d_source_context_of_the_difference_names_the_receipt_via_a118(
+    client, auth_headers, period_id
+):
+    """The backend part of testfall 49d: A-121 has no link of its own; its
+    `source-context` lists the receipt linked to A-118, as a
+    `voucher_source` with `via_voucher_id` and that number, so the client
+    can open it. A-118's own entry is unchanged and has no `via_`."""
+    from repositories.intake_repo import IntakeRepository
+
+    via = a118(period_id)
+    difference = posted_purchase(period_id, total=12000, vat=0, day=16)
+    source_id = make_source()
+    IntakeRepository.create_voucher_link(
+        intake_source_id=source_id, voucher_id=via, linked_by="agent"
+    )
+    from domain.intake_link import VoucherSourceReference
+    from repositories.intake_link_repo import VoucherSourceReferenceRepository
+
+    decision = make_decision(make_thread(period_id), source_id)
+    VoucherSourceReferenceRepository.insert(
+        VoucherSourceReference(
+            voucher_id=difference,
+            intake_source_id=source_id,
+            via_voucher_id=via,
+            decision_id=decision.id,
+        )
+    )
+
+    own = client.get(f"/api/v1/vouchers/{via}/source-context", headers=auth_headers)
+    referring = client.get(
+        f"/api/v1/vouchers/{difference}/source-context", headers=auth_headers
+    )
+
+    assert own.status_code == referring.status_code == 200
+    [direct] = own.json()["source_material"]
+    assert direct["id"] == source_id
+    assert "via_voucher_id" not in direct
+    [through] = referring.json()["source_material"]
+    assert through["kind"] == "voucher_source"
+    assert through["id"] == source_id
+    assert through["download_url"] == f"/api/v1/intake/{source_id}/file"
+    assert through["via_voucher_id"] == via
+    assert through["via_voucher_number"] == f"A-{_ref(via)['number']}"

@@ -143,6 +143,10 @@ class Voucher:
     # the posted correction of this voucher, and the voucher this one corrects.
     corrected_by: Optional[VoucherRef] = None
     corrects: Optional[VoucherRef] = None
+    # Derived from voucher_source_references (SPEC-flode-underlag.md §10.4):
+    # the posted voucher that has its underlag through this one's link --
+    # A-121 on A-118.
+    referenced_by: Optional[VoucherRef] = None
 
     def is_posted(self) -> bool:
         """Check if voucher is posted (varaktighet - immutable)."""
