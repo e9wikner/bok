@@ -434,7 +434,26 @@ i specens text; resten byggs i U11–U15 nedan.
   - Filer: migrationen, `domain/interpretation.py`, `repositories/interpretation_repo.py`,
     `services/interpretation_service.py`, tester.
 
-- [ ] **U15 — `POST /api/v1/intake/{id}/interpretation` (§12.6 f)**
+- [x] **U15 — `POST /api/v1/intake/{id}/interpretation` (§12.6 f)**
+  - Gjort 2026-09-28: nio `test_u15_*`, sedda röda först (testfall 16 över HTTP, bearer,
+    `confidence`/`hypothesis` och `source_id` i kroppen → 422, okänd/raderad källa,
+    `expected_voucher_not_found`, testfall 33:s ögonblicksbild före och efter två POST, GET efter
+    POST, och kroppens schema mot verktygets). Routen ligger före `GET /{source_id}`. Kroppen är
+    `InterpretationRequest`, byggd med `create_model` ur `TolkaUnderlagArgs.model_fields` utan
+    `source_id`, `extra="forbid"`; verktygets `input_schema` är orört (sha256 tagen på `e2ad486`
+    och hårdkodad). Två `type: ignore` i routen (en runtime-modell är ingen typ för mypy).
+    `actor` från `get_current_actor` (`"api"`), `thread_id`/`agent_run_id` `None`. **Val:**
+    `201` som `POST /intake`; `404 source_not_found`; `409 source_deleted` (tillståndsfel, som
+    `IntakeConflictError` i `/intake`); `400 expected_voucher_not_found` (domänens
+    `ValidationError` ger 400 i `drafts`, `decisions`, `agent` — inte 422, som bara används för
+    schemafel och idempotensnyckel); schemafel 422 (FastAPI). För det ändrade
+    `InterpretationService._source` sina fel till `InterpretationNotFoundError` respektive
+    `IntakeConflictError` — båda `IntakeError` med samma kod, så verktyget och testfall 36 är
+    oförändrade. **Ändrat befintligt test:** `test_u8_requires_bearer_and_has_no_writing_method`
+    heter nu `test_u8_requires_bearer_and_no_method_changes_an_interpretation`: POST utan bearer
+    ger 401, PUT/PATCH/DELETE 405. Instruktionens punkt 1 har en mening om vägen; testfall 38
+    utökat. Spec §8 (ny underrubrik `POST`), §9 punkt 1 och §11 kriterium 7 uppdaterade. Hela
+    sviten 1307 gröna, mypy 61.
   - Acceptans: bearer-autentiserad; body = `TolkaUnderlagArgs` utan `source_id` (id:t ur
     sökvägen), `extra="forbid"`; anropar `InterpretationService.interpret` med `thread_id =
     None`; svarar som verktyget. PUT/PATCH/DELETE ger fortfarande 405. Instruktionens punkt 1

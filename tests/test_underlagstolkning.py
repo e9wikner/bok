@@ -2472,15 +2472,18 @@ def test_37_get_without_interpretation_is_404(
     assert response.json()["detail"]["code"] == "source_not_found"
 
 
-def test_u8_requires_bearer_and_has_no_writing_method(
+def test_u8_requires_bearer_and_no_method_changes_an_interpretation(
     client, auth_headers, period_id, purchase_accounts, intake_dir
 ):
+    """GET and POST (U15, which only adds a row) need the bearer; no method
+    changes or removes an interpretation -- PUT, PATCH and DELETE are 405."""
     source = _upload(_text_pdf(U6_TEXT_LINES))
     _tolka(source.id)
     url = _interpretation_url(source.id)
 
     assert client.get(url).status_code == 401
-    for method in ("post", "put", "patch", "delete"):
+    assert client.post(url, json=U6_ARGS).status_code == 401
+    for method in ("put", "patch", "delete"):
         response = getattr(client, method)(url, headers=auth_headers)
         assert response.status_code == 405, method
 
@@ -2930,3 +2933,229 @@ def test_u11_intake_pass_saves_its_run_id(period_id, purchase_accounts, intake_d
     assert saved is not None
     assert saved.thread_id is None
     assert saved.agent_run_id == run.id
+
+
+# ---------------------------------------------------------------------------
+# U15 — `POST /api/v1/intake/{id}/interpretation` (§8, §12.6 f)
+# ---------------------------------------------------------------------------
+
+#: sha256 of `tolka_underlag`'s `input_schema`, taken on `e2ad486` (U14),
+#: before the route: the request body reuses the tool's fields without
+#: changing the tool's schema -- the schemas are the cached prefix.
+_TOLKA_UNDERLAG_SCHEMA_SHA256 = (
+    "66d6422366b21fcd9024306cf9b0b8b2e3a4efad0d6ba06d965ab9759492ccfd"
+)
+
+
+def _post_interpretation(client, headers, source_id: str, body: dict):
+    return client.post(_interpretation_url(source_id), headers=headers, json=body)
+
+
+def _interpretation_rows() -> list:
+    return [tuple(r) for r in db.execute("SELECT * FROM intake_interpretations")]
+
+
+def test_u15_post_is_testfall_16_over_http(
+    client, auth_headers, period_id, purchase_accounts, intake_dir
+):
+    """Testfall 16 through the POST: 4 600 kr against A-118's 4 480 kr ->
+    `amount_diff`, `diff_ore = 12000`, the hypothesis on the pant line. The
+    answer is the tool's (§6.5); the row has the route's actor and neither
+    a thread nor a run."""
+    voucher_id = _a118(period_id)
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+
+    response = _post_interpretation(client, auth_headers, source.id, U6_ARGS)
+
+    assert response.status_code == 201
+    result = response.json()
+    assert list(result) == [
+        "interpretation_id",
+        "source_id",
+        "read",
+        "checks",
+        "confidence",
+        "match",
+        "candidates",
+        "expected",
+    ]
+    assert result["source_id"] == source.id
+    assert result["read"] == U6_ARGS
+    assert result["confidence"] == "high"
+    assert result["checks"]["text_layer"] == "agrees"
+    match = result["match"]
+    assert match["kind"] == "amount_diff"
+    assert match["voucher_id"] == voucher_id
+    assert match["voucher_number"] == _voucher_number(voucher_id)
+    assert match["amounts"] == {"document_ore": 460000, "voucher_ore": 448000}
+    assert match["diff_ore"] == 12000
+    assert match["vat"] == {"document_ore": 89600, "voucher_ore": 89600, "equal": True}
+    assert match["hypothesis"] == {
+        "text": "Skillnaden på 120,00 kr motsvarar raden ”Pant” på underlaget.",
+        "basis": "line_items",
+        "lines": [1],
+    }
+    assert result["expected"] is None
+
+    saved = InterpretationRepository.latest_for_source(source.id)
+    assert saved is not None and saved.id == result["interpretation_id"]
+    assert (saved.actor, saved.thread_id, saved.agent_run_id) == ("api", None, None)
+
+
+def test_u15_post_requires_bearer(
+    client, auth_headers, period_id, purchase_accounts, intake_dir
+):
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+    url = _interpretation_url(source.id)
+
+    assert client.post(url, json=U6_ARGS).status_code == 401
+    wrong = {"Authorization": "Bearer not-the-key"}
+    assert client.post(url, headers=wrong, json=U6_ARGS).status_code == 401
+    assert _interpretation_rows() == []
+
+
+def test_u15_confidence_or_hypothesis_in_the_body_is_refused(
+    client, auth_headers, period_id, purchase_accounts, intake_dir
+):
+    """Criterion 5 over HTTP: the body is the tool's model, `extra="forbid"`
+    -- a `confidence` or `hypothesis` is refused, not dropped, also on a
+    line. Nothing is saved."""
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+    line = {"text": "Pant", "amount_ore": 12000, "confidence": "high"}
+
+    for body in (
+        {**U6_ARGS, "confidence": "high"},
+        {**U6_ARGS, "hypothesis": {"text": "Pant"}},
+        {**U6_ARGS, "lines": [line]},
+    ):
+        response = _post_interpretation(client, auth_headers, source.id, body)
+        assert response.status_code == 422, body
+    assert _interpretation_rows() == []
+
+
+def test_u15_source_id_in_the_body_is_refused(
+    client, auth_headers, period_id, purchase_accounts, intake_dir
+):
+    """The id is the path's; a `source_id` in the body -- the same or
+    another -- is an unknown field."""
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+    other = _upload(_text_pdf([*U6_TEXT_LINES, "Kopia"]))
+
+    for source_id in (source.id, other.id):
+        response = _post_interpretation(
+            client, auth_headers, source.id, {**U6_ARGS, "source_id": source_id}
+        )
+        assert response.status_code == 422
+        assert "source_id" in json.dumps(response.json()["detail"])
+    assert _interpretation_rows() == []
+
+
+def test_u15_request_body_reuses_the_tool_fields_and_leaves_its_schema(client):
+    """The body is `TolkaUnderlagArgs` without `source_id`, and the tool's
+    `input_schema` is byte for byte what it was before the route."""
+    from services.agent_tools import AGENT_TOOL_DEFINITIONS
+
+    tool = AGENT_TOOL_DEFINITIONS[-1]
+    assert tool["name"] == "tolka_underlag"
+    schema = json.dumps(tool["input_schema"])
+    assert hashlib.sha256(schema.encode()).hexdigest() == _TOLKA_UNDERLAG_SCHEMA_SHA256
+
+    openapi = client.get("/openapi.json").json()
+    operation = openapi["paths"]["/api/v1/intake/{source_id}/interpretation"]["post"]
+    ref = operation["requestBody"]["content"]["application/json"]["schema"]["$ref"]
+    body = openapi["components"]["schemas"][ref.rsplit("/", 1)[-1]]
+    assert list(body["properties"]) == [
+        name for name in tool["input_schema"]["properties"] if name != "source_id"
+    ]
+    assert body["additionalProperties"] is False
+    assert body["required"] == ["total_ore"]
+
+
+def test_u15_unknown_and_deleted_source(
+    client, auth_headers, period_id, purchase_accounts, intake_dir
+):
+    """Testfall 36 over HTTP: an unknown source is 404 `source_not_found`
+    (as the GET's), a soft-deleted one 409 `source_deleted` (the intake
+    routes' state conflict). Nothing is saved."""
+    from services.intake import IntakeService
+
+    response = _post_interpretation(client, auth_headers, "no-such-source", U6_ARGS)
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "source_not_found"
+
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+    IntakeService().soft_delete(source.id, actor="api")
+    response = _post_interpretation(client, auth_headers, source.id, U6_ARGS)
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "source_deleted"
+    assert _interpretation_rows() == []
+
+
+def test_u15_expected_voucher_not_found(
+    client, auth_headers, period_id, purchase_accounts, intake_dir
+):
+    """A domain `ValidationError` is 400 with its code, as in the other
+    routes (`drafts`, `decisions`, `agent`); nothing is saved."""
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+
+    response = _post_interpretation(
+        client,
+        auth_headers,
+        source.id,
+        {**U6_ARGS, "expected_voucher_id": "no-such-voucher"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "expected_voucher_not_found"
+    assert _interpretation_rows() == []
+
+
+def test_u15_post_changes_nothing_in_the_books(
+    client, auth_headers, period_id, purchase_accounts, intake_dir
+):
+    """Testfall 33 over HTTP: the same snapshot before and after; the only
+    new row is the interpretation, and a second POST adds a second one."""
+    a118 = _a118(period_id)
+    with_attachment = _purchase(period_id, total=460000, vat=92000, day=16)
+    _attach(with_attachment)
+    linked = _purchase(period_id, total=455000, vat=91000, day=14)
+    _link_intake_source(linked)
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+    before = _books_snapshot()
+    assert all(before[name] for name in before), "every table has content"
+
+    body = {**U6_ARGS, "expected_voucher_id": a118}
+    response = _post_interpretation(client, auth_headers, source.id, body)
+    assert response.status_code == 201
+    assert response.json()["match"]["voucher_id"] == a118
+    assert _books_snapshot() == before
+    assert InterpretationRepository.count_for_source(source.id) == 1
+    first = _interpretation_rows()
+
+    assert (
+        _post_interpretation(client, auth_headers, source.id, body).status_code == 201
+    )
+    assert _books_snapshot() == before
+    assert InterpretationRepository.count_for_source(source.id) == 2
+    assert set(first) < set(_interpretation_rows())
+
+
+def test_u15_get_after_post_gives_the_same_interpretation(
+    client, auth_headers, period_id, purchase_accounts, intake_dir
+):
+    a118 = _a118(period_id)
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+    posted = _post_interpretation(
+        client, auth_headers, source.id, {**U6_ARGS, "expected_voucher_id": a118}
+    ).json()
+
+    body = _get_interpretation(client, auth_headers, source.id).json()
+
+    for key in posted:
+        if key == "match":
+            continue
+        assert body[key] == posted[key], key
+    assert body["match"] == {**posted["match"], "still_open": True}
+    assert body["expected_voucher_id"] == a118
+    assert (body["actor"], body["thread_id"]) == ("api", None)
+    assert body["superseded_count"] == 0

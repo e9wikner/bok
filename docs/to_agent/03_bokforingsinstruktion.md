@@ -44,7 +44,9 @@ dubbelpost. Därför:
 
 1. **Innan du postar eller föreslår en verifikation för ett underlag:** läs filen
    med `hamta_underlagsfil` och anropa `tolka_underlag` med det du läst. Det gäller
-   före både `posta_verifikation` och `foresla_verifikation`.
+   före både `posta_verifikation` och `foresla_verifikation`. En session utan
+   verktyget `tolka_underlag` gör samma sak med
+   `POST /api/v1/intake/{id}/interpretation`, med samma fält utom `source_id`.
 2. **`match.kind = "exact"`, eller `match.kind = "amount_diff"` med en
    `hypothesis`:** underlaget hör sannolikt till en redan postad verifikation.
    Posta inte. I ett underlagspass: avstå med `registrera_avstaende` och skriv

@@ -1,11 +1,11 @@
 """API routes for voucher source intake."""
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi import status as http_status
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, create_model
 
 from api.deps import get_current_actor
 from domain.models import (
@@ -15,8 +15,10 @@ from domain.models import (
     VoucherIntakeSource,
 )
 from domain.types import BankInputStatus, IntakeStatus
+from domain.validation import ValidationError
 from repositories.bank_input_repo import BankInputRepository
 from repositories.intake_repo import IntakeRepository
+from services.agent_tools import TolkaUnderlagArgs
 from services.dropzone import dropzone_status
 from services.intake import (
     DuplicateIntakeSourceError,
@@ -41,6 +43,25 @@ class UpdateAgentGuidanceRequest(BaseModel):
     """Request to update agent guidance for an intake source."""
 
     agent_guidance: str | None = None
+
+
+# `tolka_underlag`'s arguments without `source_id`, which the path carries
+# (SPEC-underlagstolkning.md §8, §12.6 f). Built from the tool's own fields
+# so the two cannot drift, and without touching the tool's model: its
+# schema is the cached prefix. `extra="forbid"` as the tool's, so a
+# `confidence`, `hypothesis` or `source_id` in the body is a 422. A model
+# made at runtime is no type to mypy, hence the two ignores in the route.
+_INTERPRETATION_FIELDS: dict[str, Any] = {
+    name: (field.annotation, field)
+    for name, field in TolkaUnderlagArgs.model_fields.items()
+    if name != "source_id"
+}
+InterpretationRequest = create_model(
+    "InterpretationRequest",
+    __config__=ConfigDict(extra="forbid"),
+    __doc__=TolkaUnderlagArgs.__doc__,
+    **_INTERPRETATION_FIELDS,
+)
 
 
 @router.post("", response_model=dict, status_code=http_status.HTTP_201_CREATED)
@@ -201,13 +222,46 @@ async def get_intake_interpretation(
 ):
     """The latest interpretation of a source (SPEC-underlagstolkning.md §8).
 
-    Read-only: the interpretation is made by the agent's `tolka_underlag`,
-    never here, and `match.still_open` is derived at read time.
+    Read-only: the interpretation is made by the agent's `tolka_underlag`
+    or the `POST` below, and `match.still_open` is derived at read time.
     """
     try:
         return InterpretationService().latest(source_id)
     except IntakeError as exc:
         raise _http_error(exc) from exc
+
+
+@router.post(
+    "/{source_id}/interpretation",
+    response_model=dict,
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def create_intake_interpretation(
+    source_id: str,
+    request: InterpretationRequest,  # type: ignore[valid-type]
+    actor: str = Depends(get_current_actor),
+):
+    """Interpret a source as `tolka_underlag` does, for a session without
+    the tool (SPEC-underlagstolkning.md §8, §12.6 f).
+
+    Adds one interpretation row and answers in §6.5's form; nothing in the
+    books changes and no model is called -- the read is the caller's. No
+    thread and no agent run: both are `NULL` on the row.
+    """
+    args = TolkaUnderlagArgs.model_validate(
+        {**request.model_dump(), "source_id": source_id}  # type: ignore[attr-defined]
+    )
+    try:
+        return InterpretationService().interpret(
+            args, actor=actor, thread_id=None, agent_run_id=None
+        )
+    except IntakeError as exc:
+        raise _http_error(exc) from exc
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail={"error": exc.message, "code": exc.code, "details": exc.details},
+        ) from exc
 
 
 @router.get("/{source_id}", response_model=dict)

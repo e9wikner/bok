@@ -3,12 +3,13 @@
 Modul-id `underlagstolkning` i kapabilitetskartan (`ANALYS.md` §8). Beror på `agentruntime`, som är
 klar (A1–A14). `flode-underlag` beror på den här.
 
-Status: **Klar 2026-09-28 (U1–U10).** Skriven 2026-09-24, godkänd 2026-09-28. Fem beslut tagna av beställaren
+Status: **Klar 2026-09-28 (U1–U10, uppföljningen U11–U15).** Skriven 2026-09-24, godkänd 2026-09-28. Fem beslut tagna av beställaren
 (§12.1–§12.5): tolkningen är ett verktyg och en läsväg, inte en endpoint med eget LLM-anrop;
 predikatet för "saknar underlag" lagas först, i den här modulen, och undantar
 `created_by = 'sie4_import'`; `hypothesis` sätts bara när en rad på underlaget bär den; ett hårt
 stopp i postningen skjuts till `flode-underlag`. §13:s två frågor är besvarade, se §12.4–§12.5.
-Efter U1–U10 besvarades modulens öppna frågor (§12.6); U11–U15 bygger det som kräver kod.
+Efter U1–U10 besvarades modulens öppna frågor (§12.6); U11–U15 byggde det som krävde kod, klart
+2026-09-28.
 
 ---
 
@@ -515,7 +516,9 @@ tråden. Serverns hypotes är beläggningen för den.
 
 ---
 
-## 8. `GET /api/v1/intake/{id}/interpretation`
+## 8. `GET` och `POST /api/v1/intake/{id}/interpretation`
+
+### `GET`
 
 Bearer-autentiserad som resten av `/intake`. Returnerar den **senaste** tolkningen av källan, i
 samma form som verktygets svar (§6.5), plus:
@@ -539,6 +542,24 @@ en tur, med turens modell och budget (§12.1). En `POST` som människan kunde an
 ett eget LLM-anrop för att göra något. `flode-underlag` läser resultatet, den startar det inte.
 Avvikelsen från datakontraktet står i §12.1.
 
+### `POST` (§12.6 f)
+
+För en session utan verktyget, t.ex. en extern agent som följer instruktionens punkt 1 (§9).
+Bearer-autentiserad. Kroppen är §6.2:s argument utom `source_id`, som tas ur sökvägen, med
+`extra="forbid"`: `confidence`, `hypothesis` eller `source_id` i kroppen ger `422`, liksom andra
+schemafel. Modellen byggs ur `TolkaUnderlagArgs`s fält; verktygets schema är orört. Routen
+anropar `InterpretationService.interpret` som verktyget, med `thread_id` och `agent_run_id`
+`null` och `actor` från autentiseringen (`api`, som resten av `/intake`).
+
+Svaret är verktygets (§6.5), med `201`: en ny tolkningsrad, som `POST /intake`. Den läggs bara
+till — ingen metod på sökvägen ändrar eller tar bort en tolkning (`PUT`/`PATCH`/`DELETE` ger
+`405`), och ingenting i böckerna ändras (testfall 33). Inget LLM-anrop: läsningen är den
+anropandes, så §12.1 står.
+
+Fel: `404 source_not_found` (som `GET`), `409 source_deleted` (ett tillståndsfel, som
+`/intake`-routernas `IntakeConflictError`), `400 expected_voucher_not_found` (domänens
+`ValidationError`, som i övriga routes). Ingen rad sparas vid fel.
+
 ---
 
 ## 9. Agentinstruktionen
@@ -549,7 +570,8 @@ beteendeändring och testas som en: `tests/test_agent_entrypoint.py` får nya p�
 Tillägget, i sak:
 
 1. **Innan du postar eller föreslår en verifikation för ett underlag:** läs filen och anropa
-   `tolka_underlag`.
+   `tolka_underlag`. En session utan verktyget använder `POST /api/v1/intake/{id}/interpretation`
+   (§8) med samma fält.
 2. **`match.kind = "exact"`** eller **`amount_diff` med hypotes:** underlaget hör sannolikt till
    en redan postad verifikation. I passet: **posta inte**. Avstå med `registrera_avstaende`, och
    skriv verifikationsnumret och differensen i motiveringen. I tråden: säg vad du hittat, med
@@ -665,7 +687,7 @@ Modulen är klar när:
    bankbokförd verifikation ger ett avstående, inte en ny verifikation. Det kontrolleras av
    beställaren tillsammans med `flode-verifikationer`s visuella kontroll.
 7. `intake_interpretations` är append-only i tre lager (30, repository utan `update`/`delete`,
-   ingen skrivande endpoint).
+   ingen endpoint ändrar eller tar bort en tolkning — `POST` lägger bara till).
 8. `pytest tests/ -v`, `black`, `isort`, `flake8` rena; `mypy .` inte över baslinjen 61.
 
 ---

@@ -4,7 +4,8 @@
 underlag, runs the checks (§6.3-§6.4), matches it against the ledger
 (§7), saves one `intake_interpretations` row and answers in §6.5's form.
 `InterpretationService.latest` is the read path behind
-`GET /api/v1/intake/{id}/interpretation` (§8).
+`GET /api/v1/intake/{id}/interpretation` (§8); `interpret` is also behind
+its `POST`, for a session without the tool (§12.6 f).
 Read-only against the books: nothing here writes to `vouchers`,
 `voucher_intake_sources`, `attachments` or `intake_sources` (testfall 33).
 
@@ -25,7 +26,7 @@ from repositories.intake_repo import IntakeRepository
 from repositories.interpretation_repo import InterpretationRepository
 from repositories.voucher_repo import VoucherRepository
 from services.agent_documents import extract_pdf_text
-from services.intake import IntakeError, IntakeService
+from services.intake import IntakeConflictError, IntakeError, IntakeService
 from services.interpretation import (
     DATE_WINDOW_DAYS_AFTER,
     DATE_WINDOW_DAYS_BEFORE,
@@ -209,13 +210,17 @@ class InterpretationService:
 
     @staticmethod
     def _source(source_id: str):
+        """§6.3's hard errors, as `IntakeError` subclasses so the POST route
+        (§8, U15) maps them like the GET: `source_not_found` is the GET's
+        404, `source_deleted` a state conflict (409), as the intake routes
+        treat a processed source. The tool sees only the code."""
         source = IntakeRepository.get_source(source_id)
         if source is None:
-            raise IntakeError(
+            raise InterpretationNotFoundError(
                 "source_not_found", "Intake source not found", f"source_id={source_id}"
             )
         if source.status == IntakeStatus.DELETED:
-            raise IntakeError(
+            raise IntakeConflictError(
                 "source_deleted", "Intake source is deleted", f"source_id={source_id}"
             )
         return source

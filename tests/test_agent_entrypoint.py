@@ -478,6 +478,14 @@ def _assert_interpretation_rules(text: str) -> None:
     assert "läs filen med `hamta_underlagsfil` och anropa `tolka_underlag`" in text
     first_rule = instruction.index("anropa `tolka_underlag`")
     assert first_rule < instruction.index("`posta_verifikation`")
+    # U15 (§12.6 f): a session without the tool does the same over HTTP.
+    assert (
+        "En session utan verktyget `tolka_underlag` gör samma sak med "
+        "`POST /api/v1/intake/{id}/interpretation`, med samma fält" in text
+    )
+    assert instruction.index("POST /api/v1/intake/{id}/interpretation") < (
+        instruction.index("2. **`match.kind")
+    )
 
     # 2. A match on an already posted voucher: do not post, abstain in the
     # pass with number and difference, say it in a thread with both amounts.
