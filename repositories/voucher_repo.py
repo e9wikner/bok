@@ -19,12 +19,21 @@ from domain.types import VoucherSeries, VoucherStatus
 # a posted thread draft link their source there), and not imported from SIE4
 # -- those vouchers' documents live in the old system and can never be linked
 # here (§12.5). `created_by` is NOT NULL (027), so `!=` never yields NULL.
+#
+# Two more (SPEC-flode-underlag.md §3.1, §5): not a correction -- a B-series
+# correction's underlag is the original and `accounting_corrections`, and
+# there is no receipt to ask for (D3) -- and no row in
+# `voucher_source_references` -- a difference booked as its own voucher has
+# its underlag through the voucher carrying the receipt's link (D2).
 # Parenthesised as a whole: callers negate it (`NOT {MISSING_ATTACHMENT_SQL}`).
 MISSING_ATTACHMENT_SQL = (
     "(NOT EXISTS (SELECT 1 FROM attachments a WHERE a.voucher_id = vouchers.id)"
     " AND NOT EXISTS (SELECT 1 FROM voucher_intake_sources vis"
     " WHERE vis.voucher_id = vouchers.id)"
-    " AND vouchers.created_by != 'sie4_import')"
+    " AND vouchers.created_by != 'sie4_import'"
+    " AND vouchers.correction_of IS NULL"
+    " AND NOT EXISTS (SELECT 1 FROM voucher_source_references vsr"
+    " WHERE vsr.voucher_id = vouchers.id))"
 )
 # Age of the business event, not of the posting: counted from vouchers.date,
 # in whole days, local time.

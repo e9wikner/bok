@@ -51,7 +51,17 @@ till dem.
     (026), `agent_runs` (024) och `threads` (025); hjälparna ska skapa riktiga rader, inte slå av
     `foreign_keys`.
 
-- [ ] **FU2 — Predikatet: rättelser (D3) och hänvisningen (gate 2)**
+- [x] **FU2 — Predikatet: rättelser (D3) och hänvisningen (gate 2)**
+  - Gjort 2026-09-28: 6 tester i `tests/test_flode_underlag_predikat.py` (testfall 44 i två
+    delar, predikatdelen av 42, rättelsen ingen kandidat, `match_still_open` följer med, en
+    grep-vakt), alla sedda röda först. `MISSING_ATTACHMENT_SQL` fick `vouchers.correction_of IS
+    NULL` och `NOT EXISTS (… voucher_source_references …)` inom den yttre parentesen; ingen
+    annan variant. Testhjälpens rättelse är en omföring med A-118:s belopp och datum, så att den
+    hade varit kandidat utan D3 (första versionen var grön av fel skäl: debetsumman låg utanför
+    beloppsfönstret). Inga befintliga tester förutsatte det gamla: `kompletteringsflagga` i
+    `tests/` förekommer bara i `test_flode_verifikationer.py` (A-serien, orörd). Hela sviten
+    1326 gröna. mypy 61. Spårfilerna binder modulens fixturer med `period_id = fu.period_id`
+    i stället för att importera dem, eftersom importen ger F811 i flake8.
   - Beror på: FU1
   - Acceptans: `MISSING_ATTACHMENT_SQL` (`repositories/voucher_repo.py:23`) får två villkor till,
     inom samma yttre parentes: `vouchers.correction_of IS NULL` och `NOT EXISTS (SELECT 1 FROM
