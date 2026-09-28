@@ -952,13 +952,11 @@ def _run_tolka_underlag(
     there. Neither is required -- without them it is a call from the intake
     pass or a test, and the row says so with ``NULL``.
 
-    Today no caller puts ``agent_run_id`` in the mapping. The thread turn's
-    run is created in ``services/thread_stream.py``
-    (``AgentRunRepository.create(trigger="thread", ...)``) before it calls
-    ``run_thread_session``, which builds ``tool_context`` without it; the
-    intake pass's run is created in ``services/agent_runtime.py`` and
-    ``run_session`` passes no ``tool_context`` at all. Carrying it is a
-    change to those callers, not to this handler.
+    Both callers put ``agent_run_id`` in the mapping (§12.6 a): the thread
+    turn's run, created in ``services/thread_stream.py`` before
+    ``run_thread_session``, and the intake pass's, created in
+    ``services/agent_runtime.py`` before each ``run_session``. Both hand
+    their ``run.id`` down; this handler is the only tool that reads it.
     """
     context = tool_context or {}
     thread = context.get("thread")
@@ -1132,7 +1130,8 @@ def execute_tool(
 
     ``tool_context`` is the same idea for everything a tool may need that
     only its caller can know. The thread path puts its ``Thread`` in it;
-    the document path (``run_session``) passes nothing. Only
+    the document path (``run_session``) passes only its ``agent_run_id``,
+    which both paths set. Only
     ``be_om_beslut`` and ``foresla_verifikation`` open it -- a decision
     cannot exist without the thread it was raised in, nor a proposal
     without the thread it is a card in; ``foresla_verifikation`` also reads

@@ -412,6 +412,7 @@ class ThreadTurnRunner:
                     on_text=_on_text,
                     on_tool_call=_on_tool_call,
                     check_between_turns=_check_between_turns,
+                    agent_run_id=run.id,
                 )
             except (LLMConnectionError, LLMRateLimitError) as exc:
                 reason = f"{_error_code(exc)}: {exc}"

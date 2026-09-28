@@ -706,6 +706,7 @@ def run_session(
     max_output_tokens: Optional[int] = None,
     on_text: Optional[StreamTextHook] = None,
     on_tool_call: Optional[StreamToolCallHook] = None,
+    agent_run_id: Optional[str] = None,
 ) -> SessionOutcome:
     """Run one LLM session for one intake source (SPEC §6.3, §6.7).
 
@@ -720,6 +721,10 @@ def run_session(
     (SPEC §6.5's "verktygsvarv per underlag" cap), `max_output_tokens` to
     `config.settings.agent_max_output_tokens_per_item` ("ut-token per
     underlag", checked between turns by the loop).
+
+    `agent_run_id` is the pass's `agent_runs` row. It is the only thing the
+    document path puts in `tool_context` -- there is no thread here -- and
+    only `tolka_underlag` reads it (SPEC-underlagstolkning.md §6.6, §12.6 a).
     """
     turn_limit = (
         max_tool_turns
@@ -749,4 +754,5 @@ def run_session(
         max_output_tokens=max_output_tokens,
         on_text=on_text,
         on_tool_call=on_tool_call,
+        tool_context={"agent_run_id": agent_run_id},
     )

@@ -486,6 +486,7 @@ class AgentWorker:
                         model=resolved_model,
                         actor="agent",
                         on_tool_call=self._note_tool_call,
+                        agent_run_id=run.id,
                     )
                 except LLMConnectionError as exc:
                     logger.error(

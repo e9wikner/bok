@@ -210,6 +210,7 @@ def run_thread_session(
     on_text: Optional[StreamTextHook] = None,
     on_tool_call: Optional[StreamToolCallHook] = None,
     check_between_turns: Optional[Any] = None,
+    agent_run_id: Optional[str] = None,
 ) -> SessionOutcome:
     """Run one LLM session for one message in one thread (SPEC §6.1).
 
@@ -221,7 +222,9 @@ def run_thread_session(
     The caps: `max_tool_turns` and `max_output_tokens` are the same two the
     loop always enforced, per session. `check_between_turns` is where the
     caller puts the daily budget -- checked between tool turns, never inside
-    a transaction (§6.1, test case 30).
+    a transaction (§6.1, test case 30). `agent_run_id` is the caller's
+    `agent_runs` row, carried in `tool_context` for `tolka_underlag`'s
+    traceability (SPEC-underlagstolkning.md §6.6, §12.6 a).
 
     Returns a `SessionOutcome`, which for this path may also be `"answered"`
     (§11). Writing any of it to the thread is the caller's job.
@@ -276,8 +279,12 @@ def run_thread_session(
         # the same trigger post as the posting key. It rides in the same
         # unread mapping for the same reason, and only
         # `_run_foresla_verifikation` opens it.
+        #
+        # `agent_run_id` is `tolka_underlag`'s (SPEC-underlagstolkning.md
+        # §6.6): only `_run_tolka_underlag` opens it.
         tool_context={
             "thread": thread,
             "proposals": ProposalSequence(thread.id, trigger_post.id),
+            "agent_run_id": agent_run_id,
         },
     )

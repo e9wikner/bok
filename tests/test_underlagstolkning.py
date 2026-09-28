@@ -2566,6 +2566,8 @@ def test_39_scripted_pass_abstains_instead_of_double_posting(
     assert saved is not None and saved.id == tolka["interpretation_id"]
     assert saved.match is not None and saved.match.kind == "exact"
     assert saved.thread_id is None
+    # ... but it does carry the pass's own run (§12.6 a, U11).
+    assert saved.agent_run_id == run.id
 
     # The abstention names the voucher; the source is failed, not linked.
     refreshed = IntakeRepository.get_source(source.id)
@@ -2582,3 +2584,104 @@ def test_39_scripted_pass_abstains_instead_of_double_posting(
     ).fetchall()
     assert [row["error_detail"] for row in attempt] == [motivation]
     assert number in motivation
+
+
+# ---------------------------------------------------------------------------
+# U11 — `agent_run_id` in `tool_context` (§12.6 a)
+# ---------------------------------------------------------------------------
+
+
+def _u11_turn(call_id: str, name: str, arguments: dict):
+    from services.llm import LLMTurn, ToolCall, Usage
+
+    return LLMTurn(
+        text="",
+        tool_calls=[ToolCall(id=call_id, name=name, arguments=arguments)],
+        stop="tool_calls",
+        usage=Usage(10, 10, 0),
+    )
+
+
+def _u11_tolka_arguments(source_id: str) -> dict:
+    return {**U6_ARGS, "source_id": source_id}
+
+
+def test_u11_thread_turn_saves_its_run_id(period_id, purchase_accounts, intake_dir):
+    """A `tolka_underlag` call in a real thread turn (`ThreadTurnRunner.run`
+    -> `run_thread_session` -> `run_tool_loop` -> `execute_tool`) saves the
+    turn's own `agent_runs` row as `agent_run_id`, next to the thread."""
+    from repositories.agent_run_repo import AgentRunRepository
+    from repositories.thread_repo import ThreadRepository
+    from services.llm import LLMTurn, Usage
+    from services.thread_stream import ThreadTurnRunner
+    from tests.test_agent_runtime import FakeLLMClient
+
+    fiscal_year_id = PeriodRepository.get_period(period_id).fiscal_year_id
+    thread = ThreadRepository.get_or_create(
+        view_key="bocker.verifikationer",
+        fiscal_year_id=fiscal_year_id,
+        model="opencode/claude-opus-5",
+    )
+    trigger = ThreadRepository.add_post(
+        thread_id=thread.id,
+        post_type="user_text",
+        actor="stefan",
+        body={"text": "Vad står det på kvittot?"},
+    )
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+    client = FakeLLMClient(
+        [
+            _u11_turn("call-1", "tolka_underlag", _u11_tolka_arguments(source.id)),
+            LLMTurn(
+                text="Kvittot är tolkat.",
+                tool_calls=[],
+                stop="end",
+                usage=Usage(10, 10, 0),
+            ),
+        ],
+        _u6_capabilities(),
+    )
+
+    outcome = ThreadTurnRunner().run(
+        thread, trigger, "Vad står det på kvittot?", client_factory=lambda m: client
+    )
+
+    assert outcome is not None and outcome.kind == "answered"
+    saved = InterpretationRepository.latest_for_source(source.id)
+    assert saved is not None
+    assert saved.thread_id == thread.id
+    assert saved.agent_run_id is not None
+    run = AgentRunRepository.get(saved.agent_run_id)
+    assert run is not None and run.trigger == "thread"
+
+
+def test_u11_intake_pass_saves_its_run_id(period_id, purchase_accounts, intake_dir):
+    """A `tolka_underlag` call in an intake pass (`AgentWorker.run_pass_once`
+    -> `run_session`) saves the pass's `agent_runs` row, without a thread."""
+    from services.agent_runtime import AgentWorker
+    from tests.test_agent_runtime import FakeLLMClient
+
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+    client = FakeLLMClient(
+        [
+            _u11_turn("call-1", "tolka_underlag", _u11_tolka_arguments(source.id)),
+            _u11_turn(
+                "call-2",
+                "registrera_avstaende",
+                {
+                    "source_id": source.id,
+                    "summary": "Tolkat, inte bokfört",
+                    "error_detail": "U11-test",
+                },
+            ),
+        ],
+        _u6_capabilities(),
+    )
+
+    run = AgentWorker().run_pass_once(client_factory=lambda model: client)
+
+    assert run is not None
+    saved = InterpretationRepository.latest_for_source(source.id)
+    assert saved is not None
+    assert saved.thread_id is None
+    assert saved.agent_run_id == run.id

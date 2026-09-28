@@ -353,7 +353,20 @@ i specens text; resten byggs i U11–U15 nedan.
 
 ## Uppföljning: U11–U15 (spec §12.6)
 
-- [ ] **U11 — `agent_run_id` i `tool_context` (§12.6 a)**
+- [x] **U11 — `agent_run_id` i `tool_context` (§12.6 a)**
+  - Gjort 2026-09-28: båda körningarna skapas redan före sessionen, så id:t fanns — det
+    behövde bara föras ned. `run_thread_session` (`services/thread_session.py`) och
+    `run_session` (`services/agent_session.py`) tar `agent_run_id: Optional[str] = None`;
+    `thread_stream.py` och `agent_runtime.py` skickar `run.id`. Trådturen lägger den bredvid
+    `thread`/`proposals`; dokumentvägen skickar nu `{"agent_run_id": …}` i stället för inget
+    `tool_context` — alla hanterare läser med `.get`, så inget annat verktyg ändrar beteende.
+    Tre tester sedda röda först: `test_u11_thread_turn_saves_its_run_id` (hela vägen genom
+    `ThreadTurnRunner.run`, körningen har `trigger = "thread"`),
+    `test_u11_intake_pass_saves_its_run_id` (`AgentWorker.run_pass_once`) och testfall 39
+    (`agent_run_id == run.id`). Docstringarna i `agent_tools.py` (`_run_tolka_underlag`,
+    `execute_tool`) uppdaterade. **Avvikelse från fillistan:** sessionsfunktionerna ligger i
+    `thread_session.py`/`agent_session.py`, så de ändrades också. Hela sviten 1288 gröna,
+    mypy 61.
   - Acceptans: trådturen (`services/thread_stream.py`, `run_thread_session`) och intagspasset
     (`services/agent_runtime.py`, `run_session`) lägger körningens id i `tool_context` som
     `agent_run_id`. En tolkning från vardera vägen sparar id:t. Inga andra verktyg ändrar
