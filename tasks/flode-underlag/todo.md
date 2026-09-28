@@ -15,7 +15,18 @@ till dem.
 
 ## Backend
 
-- [ ] **FU1 — Migration 032: `intake_link_basis` och `voucher_source_references` (gate 1)**
+- [x] **FU1 — Migration 032: `intake_link_basis` och `voucher_source_references` (gate 1)**
+  - Gjort 2026-09-28: 13 tester i `tests/test_flode_underlag.py` (testfall 17, 42c, CHECK-villkoren
+    parametriserade, round trip, repositoryna utan update/delete, domänen fryst, hjälparna);
+    domän- och repositorytesterna sedda röda först (modulerna fanns inte). Migrationen skrevs före
+    testet som klipper ut §5:s två `sql`-block, så det testet och hjälpartestet var gröna direkt.
+    Migrationen är §5 ordagrant plus de två triggrar som blockets kommentar beskriver, och två
+    index (`intake_link_basis(decision_id)` för `get_by_decision`, `voucher_source_references
+    (via_voucher_id)` för FU16:s join). Hjälparna: `posted_purchase`/`a118`, `make_source(status)`
+    (en bild, så tolkningen läser inget textlager), `interpret(source, kind)` genom
+    `InterpretationService.interpret`, `make_thread`, `make_run`, `make_decision(thread, source,
+    answer=1|2|3|"fritext"|None)` med §9.2:s tre alternativ genom `DecisionService`.
+    `test_numrering.py` grön. mypy 61.
   - Beror på: —
   - Acceptans: `db/migrations/032_add_intake_link_basis.sql` med båda tabellerna ordagrant enligt
     §5, fyra triggrar (ingen `UPDATE`, ingen `DELETE` på någondera), huvudkommentar och `INSERT
