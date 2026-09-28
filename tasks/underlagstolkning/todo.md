@@ -333,21 +333,35 @@ U1–U10 avbockade 2026-09-28. De åtta framgångskriterierna i spec §11, ett o
    LLM: inte gjort** — se nedan.
 7. `intake_interpretations` är append-only i tre lager — ✅ triggrarna (30,
    `test_30_update_and_delete_are_aborted_by_the_triggers`, U2 `180e287`), repositoryt utan
-   `update`/`delete` (`test_30_repository_has_no_update_or_delete`), ingen skrivande endpoint
-   (`test_u8_requires_bearer_and_has_no_writing_method`: `405` på POST/PUT/PATCH/DELETE, U8
-   `b38e559`).
+   `update`/`delete` (`test_30_repository_has_no_update_or_delete`), ingen endpoint ändrar
+   eller tar bort en tolkning (`test_u8_requires_bearer_and_no_method_changes_an_interpretation`:
+   `405` på PUT/PATCH/DELETE, U8 `b38e559`; `POST` lägger bara till, U15 `a904e88`).
 8. `pytest tests/ -v` 1286 passed; `black --check .`, `isort --check .`, `flake8` rena; `mypy .`
    61 fel, lika med baslinjen — ✅ (U10).
 
 Instruktionen (§9, testfall 38) ligger i U9 `6d046f4`.
 
+### Uppföljningen U11–U15 är klar
+
+Avbockade 2026-09-28; frågorna (a)–(h) i spec §12.6 är därmed alla genomförda ((b) och (g) i
+specens text, resten i kod):
+
+- U11 `5d51e12` — `agent_run_id` i `tool_context` (a)
+- U12 `b82ab4e` — verktygsbeskrivningen utan "huvudboken" (c)
+- U13 `1d00e1b` — `kind = "exact_no_date"` (d)
+- U14 `e2ad486` — `expected_json` och `source_status` i läsvägen (e, h)
+- U15 `a904e88` — `POST /api/v1/intake/{id}/interpretation` (f)
+
+Slutsiffror: `pytest tests/` 1307 passed; `black --check .`, `isort --check .`, `flake8` rena;
+`mypy .` 61 fel, lika med baslinjen.
+
 ## Kvar för beställaren
 
 - **Kriterium 6 med riktig LLM:** ett kvitto för en bankbokförd verifikation ger ett avstående,
   inte en ny verifikation. Kontrolleras tillsammans med `flode-verifikationer`s visuella kontroll.
-
-Frågorna (a)–(h) som U1–U10 lämnade är besvarade 2026-09-28, spec §12.6. (b) och (g) är införda
-i specens text; resten byggs i U11–U15 nedan.
+- **Projektets `venv/` behöver återskapas lokalt** (`python3 -m venv venv && pip install -r
+  requirements.txt`): Homebrew-pythonen den pekade på försvann. U11–U15 verifierades med en
+  separat venv.
 
 ---
 
