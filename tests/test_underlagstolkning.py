@@ -7,7 +7,9 @@ gets its own section. Test case numbers refer to the tables in spec §10.
 Per the spec no LLM is ever called from a test.
 """
 
+import json
 import re
+import sqlite3
 import uuid
 from datetime import date, datetime
 from pathlib import Path
@@ -17,8 +19,10 @@ from fastapi.testclient import TestClient
 
 from config import settings
 from db.database import db
+from domain.interpretation import Candidate, Interpretation, Match
 from repositories.account_repo import AccountRepository
 from repositories.intake_repo import IntakeRepository
+from repositories.interpretation_repo import InterpretationRepository
 from repositories.period_repo import PeriodRepository
 from services.compliance import ComplianceService
 from services.ledger import LedgerService
@@ -223,3 +227,237 @@ def test_05b_sie4_imported_voucher_is_not_missing(client, auth_headers, period_i
         params={"missing_attachment": "true"},
     ).json()
     assert missing["total"] == 0
+
+
+# ---------------------------------------------------------------------------
+# U2 — migration 030, domain and repository (§5, §10.4)
+# ---------------------------------------------------------------------------
+
+
+MIGRATION_030 = REPO_ROOT / "db" / "migrations" / "030_add_intake_interpretations.sql"
+SPEC = REPO_ROOT / "docs" / "redesign" / "SPEC-underlagstolkning.md"
+
+
+def _intake_source() -> str:
+    """An `intake_sources` row for an interpretation to point at."""
+    source_id = str(uuid.uuid4())
+    IntakeRepository.create_source(
+        source_id=source_id,
+        original_filename="kvitto.pdf",
+        mime_type="application/pdf",
+        size_bytes=1024,
+        sha256=uuid.uuid4().hex,
+        stored_path="/tmp/kvitto.pdf",
+        uploaded_by="test",
+    )
+    return source_id
+
+
+def _interpretation(source_id: str, **overrides) -> Interpretation:
+    """Flöde 4's receipt (§6.5, §7.4): 4 600 kr against A-118's 4 480."""
+    values = dict(
+        intake_source_id=source_id,
+        vendor="Elektronikhuset",
+        document_date=date(2026, 6, 3),
+        currency="SEK",
+        total_ore=460000,
+        vat_ore=89600,
+        lines=[
+            {"text": "USB-C docka", "amount_ore": 448000, "vat_rate": 25},
+            {"text": "Pant", "amount_ore": 12000, "vat_rate": 0},
+        ],
+        checks={
+            "lines_sum": "ok",
+            "vat_rate": "ok",
+            "vat_share": "not_applicable",
+            "text_layer": "agrees",
+            "date": "ok",
+            "currency": "sek",
+        },
+        confidence="high",
+        match=Match(
+            kind="amount_diff",
+            voucher_id="v-118",
+            voucher_number="A-118",
+            voucher_date="2026-06-03",
+            voucher_description="Förbrukningsinventarier",
+            amounts={"document_ore": 460000, "voucher_ore": 448000},
+            diff_ore=12000,
+            date_diff_days=0,
+            vat={"document_ore": 89600, "voucher_ore": 89600, "equal": True},
+            bank_transaction={
+                "id": "bt-1",
+                "date": "2026-06-03",
+                "amount_ore": -448000,
+                "counterpart_name": "ELEKTRONIKHUSET",
+            },
+            hypothesis={
+                "text": "Skillnaden på 120,00 kr motsvarar raden ”Pant” på underlaget.",
+                "basis": "line_items",
+                "lines": [1],
+            },
+        ),
+        candidates=[
+            Candidate(
+                voucher_id="v-118",
+                voucher_number="A-118",
+                voucher_date="2026-06-03",
+                voucher_description="Förbrukningsinventarier",
+                amounts={"document_ore": 460000, "voucher_ore": 448000},
+                diff_ore=12000,
+                date_diff_days=0,
+                vat={"document_ore": 89600, "voucher_ore": 89600, "equal": True},
+                bank_transaction=None,
+            )
+        ],
+        actor="agent",
+    )
+    values.update(overrides)
+    return Interpretation(**values)  # type: ignore[arg-type]
+
+
+def test_30_migration_is_spec_section_5_verbatim():
+    """Migration 030 carries §5's SQL block verbatim: table, index and the
+    two triggers."""
+    spec = SPEC.read_text(encoding="utf-8")
+    section = spec.split("## 5. Datamodell — migration 030", 1)[1]
+    block = section.split("```sql\n", 1)[1].split("```", 1)[0]
+
+    assert block.strip() in MIGRATION_030.read_text(encoding="utf-8")
+
+
+def test_30_migration_is_applied(test_db):
+    conn = test_db.connect()
+    assert (
+        conn.execute("SELECT 1 FROM schema_version WHERE version = 30").fetchone()
+        is not None
+    )
+    triggers = {
+        r["name"]
+        for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger' "
+            "AND tbl_name = 'intake_interpretations'"
+        )
+    }
+    assert triggers == {
+        "prevent_update_intake_interpretations",
+        "prevent_delete_intake_interpretations",
+    }
+
+
+def test_30_update_and_delete_are_aborted_by_the_triggers(test_db):
+    """Testfall 30: `UPDATE`/`DELETE` on `intake_interpretations` -> the
+    trigger aborts, and the row is unchanged."""
+    source_id = _intake_source()
+    saved = InterpretationRepository.insert(_interpretation(source_id))
+
+    with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+        db.execute(
+            "UPDATE intake_interpretations SET confidence = 'low' WHERE id = ?",
+            (saved.id,),
+        )
+    db.rollback()
+    with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+        db.execute("DELETE FROM intake_interpretations WHERE id = ?", (saved.id,))
+    db.rollback()
+
+    latest = InterpretationRepository.latest_for_source(source_id)
+    assert latest is not None
+    assert latest.confidence == "high"
+    assert InterpretationRepository.count_for_source(source_id) == 1
+
+
+def test_30_repository_has_no_update_or_delete():
+    """The second of §5's three layers: nothing in the repository rewrites
+    or removes a row."""
+    public = {n for n in vars(InterpretationRepository) if not n.startswith("_")}
+    assert public == {"insert", "latest_for_source", "count_for_source"}
+    source = (REPO_ROOT / "repositories" / "interpretation_repo.py").read_text(
+        encoding="utf-8"
+    )
+    assert "UPDATE" not in source
+    assert "DELETE" not in source
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"confidence": "certain"},
+        {"total_ore": -1},
+        {"vat_ore": -1},
+    ],
+    ids=["confidence", "total_ore", "vat_ore"],
+)
+def test_30_check_constraints_reject(test_db, overrides):
+    """§5's CHECKs: `confidence` outside high/medium/low and negative
+    amounts are refused by the schema itself."""
+    source_id = _intake_source()
+
+    with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+        InterpretationRepository.insert(_interpretation(source_id, **overrides))
+    db.rollback()
+
+    assert InterpretationRepository.count_for_source(source_id) == 0
+
+
+def test_31_two_interpretations_latest_is_the_later(test_db):
+    """Testfall 31, repository part: two interpretations of the same
+    source are two rows, and `latest_for_source` is the later one -- also
+    when both carry the same `created_at` (`ORDER BY created_at, rowid`)."""
+    source_id = _intake_source()
+    same_second = datetime(2026, 6, 3, 12, 0, 0)
+    first = InterpretationRepository.insert(
+        _interpretation(source_id, created_at=same_second)
+    )
+    second = InterpretationRepository.insert(
+        _interpretation(
+            source_id,
+            created_at=same_second,
+            total_ore=448000,
+            confidence="medium",
+            match=None,
+            candidates=[],
+        )
+    )
+
+    assert first.id != second.id
+    assert InterpretationRepository.count_for_source(source_id) == 2
+    latest = InterpretationRepository.latest_for_source(source_id)
+    assert latest is not None
+    assert latest.id == second.id
+    assert latest.total_ore == 448000
+    assert latest.match is None
+    assert latest.candidates == []
+
+    assert InterpretationRepository.count_for_source(_intake_source()) == 0
+    assert InterpretationRepository.latest_for_source("no-such-source") is None
+
+
+def test_31_interpretation_round_trips_through_the_json_columns(test_db):
+    """What was inserted is what comes back: `lines`, `checks`, `match`
+    and `candidates` survive their `*_json` columns unchanged."""
+    source_id = _intake_source()
+    written = _interpretation(source_id)
+    InterpretationRepository.insert(written)
+
+    read = InterpretationRepository.latest_for_source(source_id)
+    assert read is not None
+    assert read.id == written.id
+    assert read.vendor == "Elektronikhuset"
+    assert read.document_date == date(2026, 6, 3)
+    assert read.vat_ore == 89600
+    assert read.lines == written.lines
+    assert read.checks == written.checks
+    assert read.match == written.match
+    assert read.candidates == written.candidates
+    assert read.actor == "agent"
+    assert read.agent_run_id is None and read.thread_id is None
+    assert read.expected_voucher_id is None
+    assert isinstance(read.created_at, datetime)
+
+    row = db.execute(
+        "SELECT match_json, candidates_json FROM intake_interpretations WHERE id = ?",
+        (written.id,),
+    ).fetchone()
+    assert json.loads(row["match_json"])["diff_ore"] == 12000
+    assert json.loads(row["candidates_json"])[0]["voucher_number"] == "A-118"

@@ -37,7 +37,22 @@ oräknade. Testfallsnumren syftar på tabellerna i §10. Backendens tester ligge
     Befintliga tester som förutsätter att en agentpostad eller SIE4-importerad verifikation
     "saknar underlag" testar det gamla felet; nämn dem i commiten.
 
-- [ ] **U2 — Migration 030: `intake_interpretations`, domän och repository**
+- [x] **U2 — Migration 030: `intake_interpretations`, domän och repository**
+  - Gjort 2026-09-28: 9 tester (testfall 30 i fyra delar, CHECK-villkoren parametriserade i tre,
+    31:s repositorydel i två) i `tests/test_underlagstolkning.py`, alla sedda röda först
+    (modulerna fanns inte). Migrationens DDL är §5 ordagrant — ett test klipper ut §5:s
+    `sql`-block ur specen och kräver att det står i filen — plus huvudkommentar och
+    `INSERT OR IGNORE INTO schema_version (30)` som 028/029. `domain/interpretation.py`:
+    `Confidence` och `MatchKind` som `Literal`, `Candidate` med §7.4:s jämförelsefält, `Match`
+    som `Candidate` plus `kind` och `hypothesis`, `Interpretation` med
+    `json_columns()`/`from_json_columns()`. `InterpretationRepository`: `insert`,
+    `latest_for_source`, `count_for_source`, inget annat (testat); senaste är
+    `ORDER BY created_at DESC, rowid DESC` — testfall 31 sätter samma `created_at` på båda, och
+    blir rött med `rowid ASC`. `insert` skriver `id` och `created_at` från domänobjektet (som
+    `thread_draft_repo`), inte kolumnens förval. `test_numrering.py` grön (19). Hela sviten
+    1166 gröna, mypy 61. Öppet till U6/U8: tabellen har `expected_voucher_id` men ingen kolumn
+    för det uträknade `expected`; läsvägen (§8, "samma form som §6.5") får räkna om det eller
+    lämna det — inget här förutsätter endera.
   - Acceptans: `db/migrations/030_add_intake_interpretations.sql` ordagrant enligt spec §5, med
     index och de två triggrarna. `domain/interpretation.py` har `Interpretation`, `Match`,
     `Candidate` och `Confidence` (dataklasser/Literal, ingen logik utöver (de)serialisering av
