@@ -498,6 +498,10 @@ class DraftService:
             self._record_correction(draft, voucher, actor)
         # 3. Traceability, as a direct posting links it.
         self._link_traceability(draft, voucher, actor)
+        # 3b. SPEC-flode-underlag.md §5 (D2): a difference proposed on a
+        #     decision that based a link refers to the receipt through the
+        #     linked voucher -- the server's lookup, never the agent's claim.
+        self._record_source_reference(draft, voucher)
 
         if _commit:
             db.commit()
@@ -772,6 +776,34 @@ class DraftService:
                     f"status={note.status if note else 'missing'}"
                 ),
             )
+
+    @staticmethod
+    def _record_source_reference(draft: ThreadDraft, voucher: Voucher) -> None:
+        """A row in `voucher_source_references` when the draft's
+        `decision_id` is an `intake_link_basis.decision_id`
+        (SPEC-flode-underlag.md §5, §9.2): *voucher* has its underlag through
+        the voucher that carries the link. Uncommitted, in the posting's
+        transaction -- a failure rolls the posting back with it."""
+        if draft.decision_id is None:
+            return
+        from domain.intake_link import VoucherSourceReference
+        from repositories.intake_link_repo import (
+            IntakeLinkRepository,
+            VoucherSourceReferenceRepository,
+        )
+
+        basis = IntakeLinkRepository.get_by_decision(draft.decision_id)
+        if basis is None:
+            return
+        VoucherSourceReferenceRepository.insert(
+            VoucherSourceReference(
+                voucher_id=voucher.id,
+                intake_source_id=basis.intake_source_id,
+                via_voucher_id=basis.voucher_id,
+                decision_id=draft.decision_id,
+            ),
+            _commit=False,
+        )
 
     @staticmethod
     def _link_traceability(draft: ThreadDraft, voucher: Voucher, actor: str) -> None:

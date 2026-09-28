@@ -301,7 +301,20 @@ till dem.
     vy inte är `bocker.verifikationer`, på den vyns tråd för det aktuella räkenskapsåret om den
     finns (`ThreadRepository.find`). Testfall 31 kräver händelsen bara när en sådan tråd finns.
 
-- [ ] **FU10 — Hänvisningen i postningens transaktion (§5, D2, §9.2)**
+- [x] **FU10 — Hänvisningen i postningens transaktion (§5, D2, §9.2)**
+  - Gjort 2026-09-28: 5 tester i `tests/test_flode_underlag_hanvisning.py` (backenddelen av 42,
+    42b, förslag utan beslut, insättningen fallerar och postningen rullas tillbaka, vakt att
+    `foresla_verifikation`s argument inte fått något fält), 2 sedda röda först; 42b och
+    vakterna var gröna redan. `DraftService._record_source_reference` anropas i `on_posting`
+    direkt efter `_link_traceability`, med `_commit=False`, och slår upp belägget med
+    `IntakeLinkRepository.get_by_decision`. Vid fel svarar routen `500` (`_post_and_record`
+    gör oväntade fel till 500) och ingenting står kvar: inget nummer, utkastet kvar, raden
+    `pending`. `CHECK (voucher_id != via_voucher_id)` prövas i FU1. **Fynd, inte ändrat:**
+    `POST /vouchers/{id}/post` bygger svaret av verifikationen som `post_voucher` returnerade,
+    före `on_posting`, så `missing_attachment` i svaret är `true` fast A-121 har underlag
+    genom hänvisningen (samma sak gäller redan ett förslag med `intake_source_ids`); en ny
+    läsning ger `false`. `repositories/intake_link_repo.py` behövde ingen ändring. Hela sviten
+    1427 gröna. mypy 61.
   - Beror på: FU2, FU7
   - Acceptans: `DraftService.on_posting` skriver, när det postade trådförslagets `decision_id` är
     ett `intake_link_basis.decision_id`, en rad i `voucher_source_references` (`voucher_id` =
