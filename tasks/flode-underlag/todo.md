@@ -297,7 +297,7 @@ till dem.
 
 ## Klienten
 
-- [ ] **FU19 — Uppladdningen: `lib/chattyta/uppladdning.ts`**
+- [x] **FU19 — Uppladdningen: `lib/chattyta/uppladdning.ts`**
   - Beror på: kontraktet i FU15 (`existing_id`). Kan byggas mot specens form efter FU1;
     verifieras mot backend när FU15 landat.
   - Acceptans: ren logik för ett filchip: `klar`/`laddar upp…`/`fel` och orsak; kontroll av typ

@@ -52,11 +52,46 @@ export async function hamtaTrad(viewKey: string): Promise<TradSvar> {
 /**
  * Fritextvägen, och samtidigt beslutskanalen (§7): klienten gissar inte om
  * texten är ett svar på ett beslut — agenten tolkar den.
+ *
+ * `attachments` är id:n för källor som redan laddats upp med
+ * `laddaUppUnderlag`, aldrig filinnehåll (SPEC-tradar.md §6.2). Med bilagor
+ * får `text` vara tom (SPEC-flode-underlag.md D8); servern skriver då inget
+ * `user_text`, bara `user_file`-inläggen.
  */
-export async function skickaMeddelande(viewKey: string, text: string): Promise<MeddelandeSvar> {
+export async function skickaMeddelande(
+  viewKey: string,
+  text: string,
+  attachments: readonly string[] = []
+): Promise<MeddelandeSvar> {
   const { data } = await apiClient.post<MeddelandeSvar>(`${tradUrl(viewKey)}/messages`, {
     text,
-    attachments: [],
+    attachments: [...attachments],
+  });
+  return data;
+}
+
+// ─── Underlag (SPEC-flode-underlag.md §10.2) ─────────────────────────────
+
+/** `api/routes/intake.py::_source_to_dict`, de fält klienten läser. */
+export interface UnderlagSvar {
+  id: string;
+  status: string;
+  original_filename: string;
+  mime_type: string;
+  size_bytes: number;
+}
+
+/**
+ * `POST /api/v1/intake`, multipart med bara `file`. Klienten säger ingenting
+ * om filen (ingen förklaring, ingen typ): agenten läser den i tråden, och
+ * ingenting kopplas som en bieffekt av uppladdningen (§10.3). Felen tolkas
+ * av `laddaUppChip` (`lib/chattyta/uppladdning.ts`), inte här.
+ */
+export async function laddaUppUnderlag(fil: File): Promise<UnderlagSvar> {
+  const form = new FormData();
+  form.append("file", fil);
+  const { data } = await apiClient.post<UnderlagSvar>("/api/v1/intake", form, {
+    headers: { "Content-Type": "multipart/form-data" },
   });
   return data;
 }
