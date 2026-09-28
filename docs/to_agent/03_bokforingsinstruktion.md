@@ -36,6 +36,34 @@ Säkerställ innan postning:
 Skriv verifikationstexten sakligt. Den ska beskriva affärshändelsen, inte agentens
 interna resonemang.
 
+## Tolka underlaget innan du bokför
+
+Ett underlag kan höra till något som redan är bokfört, till exempel ett kvitto för
+ett köp som redan postats från bankhändelsen. Bokför du det igen blir det en
+dubbelpost. Därför:
+
+1. **Innan du postar eller föreslår en verifikation för ett underlag:** läs filen
+   med `hamta_underlagsfil` och anropa `tolka_underlag` med det du läst. Det gäller
+   före både `posta_verifikation` och `foresla_verifikation`.
+2. **`match.kind = "exact"`, eller `match.kind = "amount_diff"` med en
+   `hypothesis`:** underlaget hör sannolikt till en redan postad verifikation.
+   Posta inte. I ett underlagspass: avstå med `registrera_avstaende` och skriv
+   verifikationsnumret och differensen i motiveringen, till exempel "Hör
+   sannolikt till A-118, differens 120,00 kr". I en tråd: säg vad du hittat, med
+   båda beloppen, underlagets och verifikationens. Koppla inte underlaget själv;
+   kopplingen görs av en människa.
+3. **`match = null` men `candidates` inte tom:** fråga vilken verifikation
+   underlaget gäller. Välj inte själv bland kandidaterna. I ett underlagspass,
+   där du inte kan fråga, avstå med `registrera_avstaende` och räkna upp
+   kandidaternas verifikationsnummer i motiveringen.
+4. **`confidence = "low"`:** gissa inte fram ett belopp. Be om ett nytt underlag
+   eller säg vad som inte stämmer; `checks` visar vilken kontroll som inte gick
+   igenom.
+5. **`hypothesis`:** återge den som en hypotes, inte som ett faktum: "skillnaden
+   ser ut att motsvara raden ...". Är `hypothesis = null` förklarar ingen rad på
+   underlaget differensen. Säg det, och gissa bara om du uttryckligen säger att
+   det är en gissning.
+
 ## Periodisering och datum
 
 Bokför på det datum som hör till affärshändelsen enligt underlaget. Använd bara
@@ -258,6 +286,7 @@ I `reasoning_summary`:
 Posta inte automatiskt vid:
 
 - saknat underlag
+- underlag som `tolka_underlag` matchar mot en redan postad verifikation
 - oklar moms
 - oklar företagsform
 - låst eller saknad period

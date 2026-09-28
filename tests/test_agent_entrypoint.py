@@ -462,6 +462,70 @@ def test_agent_process_doc_says_a_correction_is_always_a_proposal():
     assert "posta aldrig en rättelse själv" in text
 
 
+def _flat(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _assert_interpretation_rules(text: str) -> None:
+    """The five rules of SPEC-underlagstolkning.md §9, as the agent reads
+    them. Tool names are the ones in ``services.agent_tools._TOOL_SPECS``."""
+    # The rules sit in the accounting instruction, not somewhere else.
+    instruction = text[text.index("# Bokföringsinstruktion för svensk redovisning") :]
+    assert "## Tolka underlaget innan du bokför" in instruction
+
+    # 1. Interpret before posting or proposing.
+    assert "Innan du postar eller föreslår en verifikation för ett underlag:" in text
+    assert "läs filen med `hamta_underlagsfil` och anropa `tolka_underlag`" in text
+    first_rule = instruction.index("anropa `tolka_underlag`")
+    assert first_rule < instruction.index("`posta_verifikation`")
+
+    # 2. A match on an already posted voucher: do not post, abstain in the
+    # pass with number and difference, say it in a thread with both amounts.
+    assert '`match.kind = "exact"`' in text
+    assert '`match.kind = "amount_diff"` med en `hypothesis`' in text
+    assert "Posta inte." in text
+    assert (
+        "avstå med `registrera_avstaende` och skriv verifikationsnumret och "
+        "differensen i motiveringen" in text
+    )
+    assert "med båda beloppen" in text
+
+    # 3. No match but candidates: ask, do not choose.
+    assert "`match = null`" in text
+    assert "Välj inte själv bland kandidaterna" in text
+
+    # 4. Low confidence: no guessed amounts.
+    assert '`confidence = "low"`' in text
+    assert "gissa inte fram ett belopp" in text
+
+    # 5. The hypothesis is rendered as a hypothesis.
+    assert "återge den som en hypotes, inte som ett faktum" in text
+    assert "uttryckligen säger att det är en gissning" in text
+
+
+@pytest.mark.asyncio
+async def test_accounting_instruction_as_served_requires_tolka_underlag(
+    test_db, async_client
+):
+    """SPEC-underlagstolkning.md §9/§10 test case 38: the instruction as the
+    accounting endpoint serves it -- the one an external agent reads at step
+    three of its startup sequence -- carries the new rules."""
+    response = await async_client.get(
+        "/api/v1/agent-instructions/accounting", headers=_auth_headers()
+    )
+    assert response.status_code == 200
+
+    _assert_interpretation_rules(_flat(response.json()["system"]["content_markdown"]))
+
+
+def test_runtime_system_prompt_requires_tolka_underlag(test_db):
+    """Test case 38, the internal runtime's side: the same rules reach the
+    system prompt the runtime sends to the model."""
+    from services.agent_session import build_system_prompt
+
+    _assert_interpretation_rules(_flat(build_system_prompt()))
+
+
 def test_agent_system_access_doc_does_not_advertise_removed_schema_routes():
     text = DRIFT_DOC_PATH.read_text(encoding="utf-8")
 

@@ -233,6 +233,9 @@ avstående och ska inte registreras som ett — se Grundprincip.
 Avstå från att posta och be om mänsklig komplettering när:
 
 - underlag saknas eller är motsägelsefullt
+- underlaget hör sannolikt till en redan postad verifikation enligt
+  `tolka_underlag` — se "Tolka underlaget innan du bokför" i
+  `03_bokforingsinstruktion.md`
 - rätt konto, momssats eller period inte kan avgöras
 - transaktionen rör lön, skatt, anläggningstillgång, utdelning, lån till närstående,
   representation, bilförmån eller annat område med särskilda regler och underlaget

@@ -262,7 +262,14 @@ oräknade. Testfallsnumren syftar på tabellerna i §10. Backendens tester ligge
   - Obs: testfall 32 kopplar källan genom en befintlig väg (`IntakeService.link_existing_voucher`
     i testet), inte genom ny kod — kopplingen hör till `flode-underlag`.
 
-- [ ] **U9 — Agentinstruktionen**
+- [x] **U9 — Agentinstruktionen**
+  - Gjort 2026-09-28: nytt avsnitt "Tolka underlaget innan du bokför" i `03_…` (efter
+    "Grundkrav för varje verifikation"), punkt 1–5 med verktygsnamnen ur `_TOOL_SPECS`, plus en
+    rad i stopplistan. Testfall 38 är två tester, sedda röda först: instruktionen som
+    `GET /agent-instructions/accounting` serverar den och som `build_system_prompt()` skickar
+    den till modellen. **Tillägg utöver §9:** punkt 3 säger vad passet gör när det inte kan
+    fråga (avstå med kandidaternas nummer i motiveringen). `02_…` motsade inte, men dess
+    avstå-lista fick en rad som pekar på `03_…`.
   - Acceptans: `docs/to_agent/03_bokforingsinstruktion.md` får tillägget i §9, punkt 1–5: tolka
     före postning eller förslag; `exact` eller `amount_diff` med hypotes → avstå i passet med
     verifikationsnummer och differens i motiveringen, säg det i tråden; `match = null` med
