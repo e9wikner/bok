@@ -556,10 +556,10 @@ def _bank_transaction(
 
 
 def _amount_window(total_ore: int) -> int:
-    """§7.2's amount window, from the constants in services/interpretation."""
-    from services.interpretation import AMOUNT_WINDOW_MIN_ORE, AMOUNT_WINDOW_PERCENT
+    """§7.2's amount window, as the service computes it (U5)."""
+    from services.interpretation import amount_window_ore
 
-    return max(AMOUNT_WINDOW_MIN_ORE, total_ore * AMOUNT_WINDOW_PERCENT // 100)
+    return amount_window_ore(total_ore)
 
 
 def _candidates(document_date, total_ore: int):
@@ -1099,3 +1099,509 @@ def test_u3_service_has_no_sql_and_reads_no_file():
     source = (REPO_ROOT / "services" / "interpretation.py").read_text()
     for forbidden in ("db.execute", "sqlite3", "SELECT ", "open(", "extract_pdf_text("):
         assert forbidden not in source
+
+
+# ---------------------------------------------------------------------------
+# U5: ranking, unambiguity, `match`, `expected` and the hypothesis (§7.3-§7.5),
+# pure logic, no database
+# ---------------------------------------------------------------------------
+
+U5_DAY = date(2026, 6, 3)
+
+
+@dataclass(frozen=True)
+class _MatchRead:
+    """What the model claims, in §6.2's shape (the fields U5 reads)."""
+
+    total_ore: int
+    vat_ore: Optional[int] = None
+    lines: Sequence[_Line] = ()
+    document_date: Optional[date] = U5_DAY
+    currency: str = "SEK"
+    vendor: Optional[str] = None
+
+
+def _read_flode4(**overrides) -> _MatchRead:
+    """Flöde 4's receipt: 4 600 kr, 896 kr VAT, a 4 480 kr docka and 120 kr
+    pant."""
+    values: dict = dict(
+        total_ore=460000,
+        vat_ore=89600,
+        lines=(_Line("USB-C docka", 448000, 25), _Line("Pant", 12000, 0)),
+        vendor="Elektronikhuset",
+    )
+    values.update(overrides)
+    return _MatchRead(**values)
+
+
+def _row(
+    number: str = "A-118",
+    *,
+    ore: int = 448000,
+    vat: Optional[int] = 89600,
+    day: date = U5_DAY,
+    description: str = "Förbrukningsinventarier",
+    bank_counterpart: Optional[str] = None,
+    bank_description: Optional[str] = None,
+    bank: bool = False,
+):
+    from repositories.voucher_repo import CandidateBankTransaction, MatchCandidateRow
+
+    transaction = None
+    if bank or bank_counterpart is not None or bank_description is not None:
+        transaction = CandidateBankTransaction(
+            id=f"bt-{number}",
+            date=day,
+            amount_ore=-ore,
+            counterpart_name=bank_counterpart,
+            description=bank_description,
+        )
+    return MatchCandidateRow(
+        voucher_id=f"id-{number}",
+        voucher_number=number,
+        voucher_date=day,
+        voucher_description=description,
+        voucher_ore=ore,
+        vat_ore=vat,
+        bank_transaction=transaction,
+    )
+
+
+def _match(read, rows):
+    from services.interpretation import match_document
+
+    return match_document(read, rows)
+
+
+def test_u5_amount_window_is_max_of_minimum_and_ten_percent():
+    from services.interpretation import amount_window_ore
+
+    assert amount_window_ore(20000) == 5000
+    assert amount_window_ore(50000) == 5000
+    assert amount_window_ore(60000) == 6000
+    assert amount_window_ore(1_000_000) == 100000
+    assert amount_window_ore(0) == 5000
+
+
+def test_16_flode4_logic_amount_diff_hypothesis_on_pant_and_equal_vat():
+    """Flöde 4 (logic only; the whole way is U6): 4 600 against A-118's
+    4 480, same day, a 120 kr pant line."""
+    row = _row(bank_counterpart="ELEKTRONIKHUSET")
+
+    result = _match(_read_flode4(), [row])
+
+    match = result.match
+    assert match is not None
+    assert match.kind == "amount_diff"
+    assert match.voucher_id == "id-A-118"
+    assert match.voucher_number == "A-118"
+    assert match.voucher_date == "2026-06-03"
+    assert match.voucher_description == "Förbrukningsinventarier"
+    assert match.amounts == {"document_ore": 460000, "voucher_ore": 448000}
+    assert match.diff_ore == 12000
+    assert match.date_diff_days == 0
+    assert match.vat == {"document_ore": 89600, "voucher_ore": 89600, "equal": True}
+    assert match.bank_transaction == {
+        "id": "bt-A-118",
+        "date": "2026-06-03",
+        "amount_ore": -448000,
+        "counterpart_name": "ELEKTRONIKHUSET",
+        "description": None,
+    }
+    assert match.hypothesis == {
+        "text": "Skillnaden på 120,00 kr motsvarar raden ”Pant” på underlaget.",
+        "basis": "line_items",
+        "lines": [1],
+    }
+    assert list(match.to_dict())[0] == "kind"
+    assert [c.voucher_id for c in result.candidates] == ["id-A-118"]
+
+
+def test_17_exact_amount_bank_date_two_days_later_is_exact_without_hypothesis():
+    row = _row(ore=460000, day=date(2026, 6, 5), bank=True)
+
+    match = _match(_read_flode4(), [row]).match
+
+    assert match is not None
+    assert match.kind == "exact"
+    assert match.diff_ore == 0
+    assert match.date_diff_days == 2
+    assert match.hypothesis is None
+
+
+@pytest.mark.parametrize(
+    "day, kind",
+    [
+        (date(2026, 5, 31), "exact"),  # −3: the absolute value counts
+        (date(2026, 6, 6), "exact"),  # +3
+        (date(2026, 6, 7), "amount_diff"),  # +4
+    ],
+)
+def test_17_exact_needs_date_diff_at_most_three_days(day, kind):
+    match = _match(_read_flode4(), [_row(ore=460000, day=day)]).match
+
+    assert match is not None
+    assert match.kind == kind
+
+
+def test_18_two_equal_candidates_without_vendor_hit_give_no_match():
+    rows = [_row("A-1", ore=460000), _row("A-2", ore=460000)]
+
+    result = _match(_read_flode4(), rows)
+
+    assert result.match is None
+    assert {c.voucher_id for c in result.candidates} == {"id-A-1", "id-A-2"}
+
+
+def test_18_without_vendor_there_is_no_vendor_hit():
+    rows = [
+        _row("A-1", ore=460000, bank_counterpart="ELEKTRONIKHUSET"),
+        _row("A-2", ore=460000),
+    ]
+
+    assert _match(_read_flode4(vendor=None), rows).match is None
+
+
+@pytest.mark.parametrize(
+    "hit",
+    [
+        dict(bank_counterpart="ELEKTRONIKHUSET STOCKHOLM"),
+        dict(bank_description="Kortköp elektronikhuset 0603"),
+        dict(description="Docka, Elektronikhuset"),
+    ],
+)
+def test_19_vendor_in_one_candidate_makes_it_the_match(hit):
+    rows = [
+        _row("A-1", ore=460000, bank_counterpart="CLAS OHLSON"),
+        _row("A-2", ore=460000, **hit),
+    ]
+
+    result = _match(_read_flode4(), rows)
+
+    assert result.match is not None
+    assert result.match.voucher_id == "id-A-2"
+    assert [c.voucher_id for c in result.candidates] == ["id-A-2", "id-A-1"]
+
+
+def test_u5_rank_sorts_on_diff_then_date_then_vendor():
+    from services.interpretation import rank
+
+    rows = [
+        _row("A-1", ore=459000, day=U5_DAY),  # diff 1 000
+        _row("A-2", ore=460000, day=date(2026, 6, 8)),  # diff 0, 5 days
+        _row("A-3", ore=460000, day=date(2026, 6, 1)),  # diff 0, −2 days
+        _row("A-4", ore=461000, day=U5_DAY, bank_counterpart="Elektronikhuset"),
+        _row("A-5", ore=460000, day=date(2026, 6, 5), bank_counterpart="x"),
+        _row("A-6", ore=460000, day=date(2026, 6, 5), description="ELEKTRONIKHUSET"),
+    ]
+
+    ranked = rank(_read_flode4(), rows)
+
+    assert [c.voucher_number for c in ranked] == [
+        "A-6",  # diff 0, 2 days, vendor
+        "A-3",  # diff 0, 2 days (before), no vendor: equal to A-5, input order
+        "A-5",  # diff 0, 2 days
+        "A-2",  # diff 0, 5 days
+        "A-4",  # |diff| 1 000, vendor
+        "A-1",  # |diff| 1 000
+    ]
+    assert ranked[4].diff_ore == -1000
+    assert ranked[3].date_diff_days == 5
+    assert ranked[1].date_diff_days == -2
+
+
+def test_u5_first_is_the_match_when_it_differs_on_any_key():
+    rows = [_row("A-1", ore=460000, day=date(2026, 6, 4)), _row("A-2", ore=460000)]
+
+    match = _match(_read_flode4(), rows).match
+
+    assert match is not None
+    assert match.voucher_number == "A-2"
+
+
+def test_u5_candidates_are_at_most_five_best_first():
+    rows = [_row(f"A-{n}", ore=460000 - n * 100) for n in range(1, 9)]
+
+    result = _match(_read_flode4(), rows)
+
+    assert [c.voucher_number for c in result.candidates] == [
+        "A-1",
+        "A-2",
+        "A-3",
+        "A-4",
+        "A-5",
+    ]
+    assert result.match is not None
+    assert result.match.voucher_number == "A-1"
+
+
+def test_u5_no_candidates_no_match():
+    result = _match(_read_flode4(), [])
+
+    assert result.match is None
+    assert result.candidates == []
+
+
+def test_u5_vat_equal_only_when_both_exist():
+    from services.interpretation import rank
+
+    [missing] = rank(_read_flode4(), [_row(vat=None)])
+    [differs] = rank(_read_flode4(), [_row(vat=92000)])
+    [unread] = rank(_read_flode4(vat_ore=None), [_row()])
+
+    assert missing.vat == {"document_ore": 89600, "voucher_ore": None, "equal": None}
+    assert differs.vat["equal"] is False
+    assert unread.vat == {"document_ore": None, "voucher_ore": 89600, "equal": None}
+
+
+def test_u5_without_document_date_date_diff_is_none_and_not_exact():
+    match = _match(_read_flode4(document_date=None), [_row(ore=460000)]).match
+
+    assert match is not None
+    assert match.date_diff_days is None
+    assert match.kind == "amount_diff"
+
+
+def test_25_currency_not_sek_gives_no_match_and_no_candidates():
+    result = _match(_read_flode4(currency="EUR"), [_row(ore=460000)])
+
+    assert result.match is None
+    assert result.candidates == []
+
+
+def test_26_expected_a_worse_candidate_is_not_the_best_match():
+    from services.interpretation import expected
+
+    best = _row("A-109", ore=460000)
+    worse = _row("A-118")
+    read = _read_flode4()
+    result = _match(read, [worse, best])
+
+    exp = expected(read, worse, result)
+
+    assert result.match is not None
+    assert result.match.voucher_number == "A-109"
+    assert exp is not None
+    assert exp.voucher_number == "A-118"
+    assert exp.is_best_match is False
+    assert exp.kind == "amount_diff"
+    assert exp.diff_ore == 12000
+    assert exp.vat["equal"] is True
+    assert exp.hypothesis is not None
+    assert exp.hypothesis["lines"] == [1]
+    assert exp.to_dict()["is_best_match"] is False
+
+
+def test_26_expected_the_match_is_the_best_match():
+    from services.interpretation import expected
+
+    row = _row(ore=460000)
+    read = _read_flode4()
+
+    exp = expected(read, row, _match(read, [row]))
+
+    assert exp is not None
+    assert exp.is_best_match is True
+    assert exp.kind == "exact"
+
+
+def test_26_expected_outside_the_windows_is_computed_in_full():
+    """§7.3: even outside the windows, `expected` has diff, VAT, hypothesis."""
+    from services.interpretation import expected
+
+    far = _row("A-7", ore=300000, vat=None, day=date(2026, 5, 1))
+    read = _read_flode4()
+
+    exp = expected(read, far, _match(read, []))
+
+    assert exp is not None
+    assert exp.is_best_match is False
+    assert exp.diff_ore == 160000
+    assert exp.date_diff_days == -33
+    assert exp.vat["equal"] is None
+    assert exp.hypothesis is None
+
+
+def test_26_expected_with_ambiguous_ranking_is_not_the_best_match():
+    from services.interpretation import expected
+
+    rows = [_row("A-1", ore=460000), _row("A-2", ore=460000)]
+    read = _read_flode4()
+
+    exp = expected(read, rows[0], _match(read, rows))
+
+    assert exp is not None
+    assert exp.is_best_match is False
+
+
+def test_25_expected_in_another_currency_is_none():
+    from services.interpretation import expected
+
+    read = _read_flode4(currency="EUR")
+    row = _row(ore=460000)
+
+    assert expected(read, row, _match(read, [row])) is None
+
+
+def _hypothesis(lines, diff_ore):
+    from services.interpretation import hypothesis
+
+    return hypothesis(lines, diff_ore)
+
+
+def test_27_difference_explained_by_two_lines_together():
+    lines = [
+        _Line("Docka", 448000, 25),
+        _Line("Pant", 8000, 0),
+        _Line("Frakt", 4000, 25),
+    ]
+
+    hyp = _hypothesis(lines, 12000)
+
+    assert hyp == {
+        "text": (
+            "Skillnaden på 120,00 kr motsvarar raderna ”Pant” och ”Frakt” "
+            "på underlaget."
+        ),
+        "basis": "line_items",
+        "lines": [1, 2],
+    }
+
+
+def test_27_three_lines_when_no_smaller_set_explains_it():
+    lines = [
+        _Line("A", 100000),
+        _Line("B", 2000),
+        _Line("C", 3000),
+        _Line("D", 7000),
+    ]
+
+    hyp = _hypothesis(lines, 12000)
+
+    assert hyp is not None
+    assert hyp["lines"] == [1, 2, 3]
+    assert hyp["text"] == (
+        "Skillnaden på 120,00 kr motsvarar raderna ”B”, ”C” och ”D” på underlaget."
+    )
+
+
+def test_27_smallest_set_wins_over_a_larger_one():
+    """A single line explains it: the pair that also does is not asked."""
+    lines = [_Line("Pant", 12000), _Line("X", 5000), _Line("Y", 7000)]
+
+    hyp = _hypothesis(lines, 12000)
+
+    assert hyp is not None
+    assert hyp["lines"] == [0]
+
+
+def test_28_two_different_single_lines_give_no_hypothesis():
+    lines = [_Line("Docka", 448000), _Line("Pant", 12000), _Line("Frakt", 12000)]
+
+    assert _hypothesis(lines, 12000) is None
+
+
+def test_28_two_different_pairs_give_no_hypothesis():
+    lines = [
+        _Line("A", 5000),
+        _Line("B", 7000),
+        _Line("C", 4000),
+        _Line("D", 8000),
+    ]
+
+    assert _hypothesis(lines, 12000) is None
+
+
+def test_u5_hypothesis_tolerance_is_one_ore_per_line():
+    assert _hypothesis([_Line("Pant", 12001)], 12000) is not None
+    assert _hypothesis([_Line("Pant", 12002)], 12000) is None
+    pair = [_Line("A", 5001), _Line("B", 7001)]
+    assert _hypothesis(pair, 12000) is not None
+    assert _hypothesis([_Line("A", 5002), _Line("B", 7001)], 12000) is None
+
+
+def test_u5_no_hypothesis_without_difference_lines_or_explaining_line():
+    assert _hypothesis([_Line("Pant", 12000)], 0) is None
+    assert _hypothesis([], 12000) is None
+    assert _hypothesis([_Line("Docka", 448000)], 12000) is None
+    assert _hypothesis([_Line("A", 1), _Line("B", 2), _Line("C", 3)], 20) is None
+
+
+def test_u5_negative_difference_is_explained_by_a_discount_line():
+    hyp = _hypothesis([_Line("Docka", 460000), _Line("Rabatt", -12000)], -12000)
+
+    assert hyp is not None
+    assert hyp["lines"] == [1]
+    assert hyp["text"] == (
+        "Skillnaden på -120,00 kr motsvarar raden ”Rabatt” på underlaget."
+    )
+
+
+def test_u5_hypothesis_amount_is_swedish_formatted():
+    hyp = _hypothesis([_Line("Stor rad", 123456789)], 123456789)
+
+    assert hyp is not None
+    assert hyp["text"].startswith("Skillnaden på 1 234 567,89 kr ")
+
+
+def test_u5_hypothesis_over_a_hundred_lines_is_fast():
+    """§7.5: at most three of at most a hundred lines. The worst case is no
+    hit at all: every size is searched to the end."""
+    import time
+
+    lines = [_Line(f"Rad {n}", 1000 * (n + 1)) for n in range(100)]
+
+    started = time.perf_counter()
+    hyp = _hypothesis(lines, 5)
+    elapsed = time.perf_counter() - started
+
+    assert hyp is None
+    assert elapsed < 2.0
+
+
+def test_u5_match_document_takes_the_section_6_2_pydantic_model_as_is():
+    """The same covariance as U3: U6's Pydantic args go in without copying."""
+    from typing import Literal as L
+
+    from pydantic import BaseModel, Field
+
+    class Line(BaseModel):
+        text: str = Field(..., min_length=1, max_length=200)
+        amount_ore: int
+        vat_rate: Optional[L[25, 12, 6, 0]] = None
+
+    class Args(BaseModel):
+        source_id: str
+        vendor: Optional[str] = None
+        document_date: Optional[date] = None
+        currency: str = "SEK"
+        total_ore: int
+        vat_ore: Optional[int] = None
+        lines: List[Line] = Field(default_factory=list)
+        expected_voucher_id: Optional[str] = None
+
+    args = Args(
+        source_id="s",
+        vendor="Elektronikhuset",
+        document_date=U5_DAY,
+        total_ore=460000,
+        vat_ore=89600,
+        lines=[
+            Line(text="Docka", amount_ore=448000),
+            Line(text="Pant", amount_ore=12000),
+        ],
+    )
+
+    match = _match(args, [_row()]).match
+
+    assert match is not None
+    assert match.hypothesis is not None
+    assert match.hypothesis["lines"] == [1]
+
+
+@pytest.mark.parametrize("ore", [0, 5, 12000, -12000, 100000, 123456789, -1234567])
+def test_u5_amount_format_is_the_same_as_pdf_exports(ore):
+    from services.interpretation import _format_kr
+    from services.pdf_export import format_sek
+
+    assert _format_kr(ore) == format_sek(ore)

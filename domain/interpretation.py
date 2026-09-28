@@ -100,6 +100,20 @@ class Match(Candidate):
 
 
 @dataclass
+class Expected(Match):
+    """The comparison with the voucher the agent named in
+    `expected_voucher_id` (§7.3): the full `Match` form, computed even
+    outside the windows, plus whether it is the unambiguous `match`. Not
+    stored (only `expected_voucher_id` is); returned by the tool."""
+
+    is_best_match: bool = False
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "Expected":
+        return cls(**dict(data))
+
+
+@dataclass
 class Interpretation:
     """One `intake_interpretations` row (§5)."""
 

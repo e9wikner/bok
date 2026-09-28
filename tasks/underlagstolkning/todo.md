@@ -124,7 +124,26 @@ oräknade. Testfallsnumren syftar på tabellerna i §10. Backendens tester ligge
   - Obs: en verifikation med flera bankhändelser ska inte ge flera kandidatrader. Välj en
     (tidigaste) i frågan och skriv valet i docstringen.
 
-- [ ] **U5 — Rankning, entydighet, `match`, `expected` och hypotesen (ren logik)**
+- [x] **U5 — Rankning, entydighet, `match`, `expected` och hypotesen (ren logik)**
+  - Gjort 2026-09-28: 41 tester (testfall 16:s logikdel, 17–19, 25–28 med gränsfall, några
+    parametriserade, plus `test_u5_*`) i `tests/test_underlagstolkning.py`, utan databas, alla
+    sedda röda först. Publikt i `services/interpretation.py`: `amount_window_ore(total_ore)`
+    (U4:s testhjälp använder den nu), `match_document(read, rows) -> Matching` (`match` +
+    högst fem `candidates` i rankordning, matchen först; `currency != SEK` ger `None`/`[]`),
+    `rank(read, rows) -> list[Candidate]` (stabil sortering, ingen trunkering),
+    `build_match(read, candidate) -> Match`, `expected(read, row, matching) -> Expected | None`
+    och `hypothesis(lines, diff_ore)`. `rows` är U4:s `MatchCandidateRow`. `MatchRead`/
+    `MatchReadLine` utökar U3:s protokoll med `vendor` och `text`; §6.2:s Pydantic-modell går in
+    rakt av (testat). Val: `date_diff_days` = verifikation − underlag (positivt = bokfört efter,
+    som fönstret [−3, +7]), `None` utan `document_date`, och då är `kind` aldrig `exact`;
+    `vat.equal` är `None` om någon sida saknar moms; `bank_transaction` bär även
+    `description`; `is_best_match` bara när verifikationen är den entydiga `match`; `expected`
+    är `None` i annan valuta. Hypotesen: rader på 0 öre räknas inte, sökningen per storlek
+    avbryts vid andra träffen (tvetydigt), 100 rader utan träff < 2 s (ca 0,1 s). Beloppet i
+    texten har tecken (`-120,00` för en rabatt). **Utanför fillistan:** `Expected(Match)` med
+    `is_best_match` i `domain/interpretation.py`. `services.pdf_export.format_sek` återanvänds
+    inte (modulen drar in weasyprint, ca 1 s kallt); en egen `_format_kr` hålls lika med den av
+    ett test. Hela sviten 1254 gröna, mypy 61.
   - Acceptans: i `services/interpretation.py`: `rank(read, candidates)` sorterar på `|diff_ore|`,
     `|date_diff_days|`, leverantörsträff (skiftlägesokänslig, i `description` eller bankhändelsens
     `counterpart_name`/`description`); `match` sätts bara om första kandidaten är entydig på alla
