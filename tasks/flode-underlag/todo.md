@@ -358,6 +358,9 @@ till dem.
     `frontend-v3/lib/chattyta/__tests__/uppladdning.test.ts`
   - Obs: klienten läser inga filer och räknar inget (§10.3). Speglingen av typerna ska ha en
     kommentar som pekar på servern, som avgör ändå.
+  - Gjort 2026-09-28: `uppladdning.test.ts` (46, 47, speglingen, `skickaMeddelande` med och utan
+    bilagor). `409 duplicate_intake_source` utan `existing_id` blir ett felchip — id:t läses inte ur
+    `details`. Inte verifierat mot backend: FU15 hade inte landat.
 
 - [x] **FU20 — `ChattFalt`: `drop`-varianten (§10.1–§10.2)**
   - Beror på: FU19, FU14
@@ -374,6 +377,11 @@ till dem.
     `frontend-v3/hooks/useTrad.ts`
   - Obs: avvikelse 8 — `komponenter.md`s mått och copy för `drop` ligger i designpaketet, inte i
     repot. Finns det inte till hands: stanna och fråga. Inga förslagschips (`SPEC-skal.md` §2.1).
+  - Gjort 2026-09-28: `components/skal/__tests__/drop.test.tsx` (45, 46, 48, 49, D8) och ett test
+    i `useTrad.test.tsx`. Släppytan är kolumnen/chattlisten (`slappYta`); en inaktiv vy tar inte emot
+    filer. Filväljarens `input` ligger utanför formuläret så att Enter sänder implicit. Chipens mått
+    är `SparChip`s (komponenter.md ger inga för `drop` utöver fältet). `ChattKolumn.test.tsx`s "ingen
+    knapp" blir "ingen knapp utom filväljarens". Inte verifierat mot backend: FU14 hade inte landat.
 
 - [x] **FU21 — Sektionen `Saknar underlag`, `Nyss kopplad` och foten (§10.4)**
   - Beror på: FU20, FU9 (`source_linked`), FU16 (`referenced_by`)
