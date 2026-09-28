@@ -1,3 +1,7 @@
+"use client";
+
+import { useState } from "react";
+import apiClient from "@/lib/api";
 import type { UserFileInlagg } from "@/lib/chattyta/typer";
 
 /**
@@ -13,7 +17,36 @@ import type { UserFileInlagg } from "@/lib/chattyta/typer";
  * `user_file` har ingen text i kroppen (`typer.ts::UserFileKropp`), så
  * designens "valfria textbubbla under" ritas inte — en fil med en fråga
  * skickas som två inlägg och blir två inlägg.
+ *
+ * Kortet har en länk som öppnar filen (SPEC-flode-underlag.md §10.4). Inte
+ * en vanlig `href`: `GET /intake/{id}/file` kräver bearer, så filen hämtas
+ * som blob genom `apiClient` (`oppnaUnderlag`).
  */
+
+/** Hur länge blob-adressen lever efter att fönstret fått den. */
+const BLOB_LIVSTID_MS = 60_000;
+
+/**
+ * Öppna en källa i intagskön i ett nytt fönster. Fönstret öppnas i trycket,
+ * INNAN hämtningen — ett `window.open` efter en `await` blockeras som
+ * popup. Går hämtningen fel stängs fönstret och felet kastas vidare.
+ * Används också av vyns kvittolänk (FU23).
+ */
+export async function oppnaUnderlag(sourceId: string): Promise<void> {
+  const fonster = window.open("", "_blank");
+  try {
+    const { data } = await apiClient.get<Blob>(`/api/v1/intake/${encodeURIComponent(sourceId)}/file`, {
+      responseType: "blob",
+    });
+    const url = URL.createObjectURL(data);
+    if (fonster) fonster.location.href = url;
+    else window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), BLOB_LIVSTID_MS);
+  } catch (fel) {
+    fonster?.close();
+    throw fel;
+  }
+}
 
 const siffror = (n: number, decimaler: number) =>
   new Intl.NumberFormat("sv-SE", { maximumFractionDigits: decimaler }).format(n);
@@ -38,7 +71,8 @@ export function filMeta(sizeBytes: number, pages: number | null): string {
 }
 
 export function FilInlagg({ inlagg }: { inlagg: UserFileInlagg }) {
-  const { filename, size_bytes, pages } = inlagg.body;
+  const { filename, size_bytes, pages, intake_source_id } = inlagg.body;
+  const [fel, setFel] = useState(false);
   return (
     <div className="flex flex-col items-end gap-2">
       <div data-testid="filkort" className="flex items-center gap-3 rounded-[14px] bg-bok-bubbla px-4 py-3">
@@ -51,6 +85,17 @@ export function FilInlagg({ inlagg }: { inlagg: UserFileInlagg }) {
           {/* Långa filnamn bryts i stället för att spräcka bubblan. */}
           <span className="break-all text-[14px]">{filename}</span>
           <span className="bok-mono text-[11px] text-bok-text-svag">{filMeta(size_bytes, pages)}</span>
+          <button
+            type="button"
+            aria-label={`Öppna ${filename}`}
+            onClick={() => {
+              setFel(false);
+              oppnaUnderlag(intake_source_id).catch(() => setFel(true));
+            }}
+            className="bok-mono self-start text-[11px] text-bok-lank underline-offset-2 hover:text-bok-lank-hover hover:underline"
+          >
+            {fel ? "filen kunde inte öppnas" : "öppna"}
+          </button>
         </span>
       </div>
     </div>

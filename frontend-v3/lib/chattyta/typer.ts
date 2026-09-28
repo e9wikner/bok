@@ -147,6 +147,12 @@ export interface ReceiptKropp {
   labels: [string, string];
   rows: JamforelseRad[];
   voucher_id: string | null;
+  /**
+   * Serverns hypotes om skillnaden, ordagrant (SPEC-flode-underlag.md §9.1,
+   * D7). Bara serverns: agentens förklaring står i agentens text. Valfri —
+   * utan hypotes finns inget fält.
+   */
+  note?: string;
 }
 
 // ─── Unionen ──────────────────────────────────────────────────────────────

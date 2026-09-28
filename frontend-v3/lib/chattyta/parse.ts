@@ -144,7 +144,8 @@ const KONTROLLER: Record<InlaggsTyp, Kontroll> = {
     saknar(b, { cause: arStrang, consequence: arStrang, retry_draft_id: strangEllerNull }),
 
   receipt: (b) => {
-    const fel = saknar(b, { title: arStrang, voucher_id: strangEllerNull });
+    // `note` (flode-underlag D7) är valfri; finns den ska den vara en sträng.
+    const fel = saknar(b, { title: arStrang, voucher_id: strangEllerNull, note: valfriStrang });
     if (fel) return fel;
     if (!Array.isArray(b.labels) || b.labels.length !== 2 || !b.labels.every(arStrang)) {
       return "labels är inte två strängar";

@@ -91,6 +91,13 @@ export function JamforelseRader({ kropp }: { kropp: ReceiptKropp }) {
           <Rad key={`${r.key}-${i}`} nyckel={r.key} text={r.text} tal={[r.left_ore, r.right_ore]} />
         ))}
       </Ram>
+      {kropp.note !== undefined && (
+        // Serverns hypotes (SPEC-flode-underlag.md D7): mono 12 #52525b, som
+        // förslagskortets konsekvensnotis — läsbar, inte metatext.
+        <p data-testid="jamforelse-not" className="bok-mono m-0 text-[12px] text-bok-text-dampad">
+          {kropp.note}
+        </p>
+      )}
     </div>
   );
 }

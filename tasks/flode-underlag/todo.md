@@ -403,7 +403,7 @@ till dem.
     `kompletteringar först · postade nedan` när sektionen finns. Foten byts helt; `bocker.test.ts`s
     fottest och `optimistisk.test.tsx`s mock (svarar tomt på `missing_attachment=true`) uppdaterade.
 
-- [ ] **FU22 — `note` i `receipt` (D7) och `FilInlagg`s länk**
+- [x] **FU22 — `note` i `receipt` (D7) och `FilInlagg`s länk**
   - Beror på: kontraktet i FU8. Kan byggas efter FU1; verifieras mot backend när FU8 landat.
   - Acceptans: `receipt` får valfritt `note: string` i `typer.ts` och `parse.ts` (fel typ ger
     samma fallback som andra fel); `JamforelseRader` ritar den i mono 12 `#52525b` som
@@ -416,6 +416,11 @@ till dem.
   - Obs: `GET /intake/{id}/file` kräver bearer; hämta som blob genom `apiClient` (som
     `api.getIntakeFile`, `frontend-v3/lib/api.ts:1016`), inte med en vanlig `href`. `note` är den
     enda ändringen i `chattyta`s kontrakt (§15).
+  - Gjort 2026-09-28: `components/chattyta/__tests__/underlag.test.tsx` (testfall 50, parse av
+    `note` inklusive fel typ och `null` → `okant_kontrakt`, länken). `oppnaUnderlag(sourceId)` bor i
+    `FilInlagg.tsx` och återanvänds av FU23: fönstret öppnas i trycket, filen hämtas som blob genom
+    `apiClient` och fönstret får blob-adressen; ett fel stänger fönstret och kortet säger
+    `filen kunde inte öppnas`. `receipt.source_id` (§9.3) tas inte in i typen — kroppen släpps igenom.
 
 - [ ] **FU23 — Kvittot från verifikationen (§10.4, 49d)**
   - Beror på: FU21, FU16
