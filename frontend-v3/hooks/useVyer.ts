@@ -5,6 +5,7 @@ import { BESLUT_GRANS, beslutStatusNyckel } from "@/hooks/useBeslut";
 import { FORSLAG_GRANS, forslagNyckel } from "@/hooks/useForslag";
 import { usePostningar } from "@/hooks/usePostningar";
 import { VOUCHERS_NYCKEL, hamtaBeslut, hamtaForslag } from "@/lib/chattyta/api";
+import { KOPPLINGAR_NYCKEL, type Koppling } from "@/lib/chattyta/kopplingar";
 import type { OverviewFiscalYear } from "@/lib/skal/api";
 import { betalaApi, faktureringVy, lonerVy } from "@/lib/skal/betala";
 import { VERIFIKATIONER_ANTAL, balansVy, bockerApi, resultatVy, verifikationerVy } from "@/lib/skal/bocker";
@@ -62,9 +63,17 @@ export function useVyer(
   });
   // Under `VOUCHERS_NYCKEL`, så att `view.changed` (`useTrad`) och en
   // postning (`usePostaUtkast`) når listorna utan att känna till vyn.
+  // Postade utan dem som saknar underlag: de står i sin egen sektion, och
+  // en verifikation visas på ett ställe (SPEC-flode-underlag.md §10.4).
   const postade = useQuery({
     queryKey: [...VOUCHERS_NYCKEL, "skal", id, "posted"],
-    queryFn: () => bockerApi.getVerifikationer(id, "posted", VERIFIKATIONER_ANTAL),
+    queryFn: () => bockerApi.getVerifikationer(id, "posted", VERIFIKATIONER_ANTAL, false),
+    enabled: bocker,
+    staleTime,
+  });
+  const saknar = useQuery({
+    queryKey: [...VOUCHERS_NYCKEL, "skal", id, "saknar"],
+    queryFn: () => bockerApi.getSaknarUnderlag(id),
     enabled: bocker,
     staleTime,
   });
@@ -91,6 +100,12 @@ export function useVyer(
     staleTime,
   });
   const postningar = usePostningar();
+  // `Nyss kopplad` (§10.4): klientens, som postningarna — ingen fråga går.
+  const { data: kopplingar } = useQuery<Koppling[]>({
+    queryKey: KOPPLINGAR_NYCKEL,
+    enabled: false,
+    staleTime: Infinity,
+  });
   const fakturor = useQuery({
     queryKey: ["skal", "fakturor"],
     queryFn: betalaApi.getFakturor,
@@ -124,8 +139,14 @@ export function useVyer(
     "bocker.resultat": utanAr ?? vy([resultat], (r) => resultatVy(ar!, r)),
     "bocker.verifikationer":
       utanAr ??
-      vy([postade, utkast, beslut, forslag], (p, u, b, f) =>
-        verifikationerVy(ar!, p, u, { beslut: b.decisions, forslag: f.drafts, postningar })
+      vy([postade, utkast, beslut, forslag, saknar], (p, u, b, f, s) =>
+        verifikationerVy(ar!, p, u, {
+          beslut: b.decisions,
+          forslag: f.drafts,
+          postningar,
+          saknar: s,
+          kopplingar: kopplingar ?? [],
+        })
       ),
     "betala.fakturering": vy([fakturor], faktureringVy),
     "betala.loner": vy([loner], lonerVy),

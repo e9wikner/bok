@@ -14,6 +14,7 @@ import { formatVerifikationsnummer } from "@/lib/utils";
 import type { VyData, VyRadData, VySektionData } from "@/lib/skal/vydata";
 import type { OverviewFiscalYear } from "@/lib/skal/api";
 import type { BeslutSvar, ForslagStatusSvar } from "@/lib/chattyta/api";
+import type { Koppling } from "@/lib/chattyta/kopplingar";
 import type { Postning } from "@/lib/chattyta/postningar";
 
 // ─── API-svaren, bara de fält vyerna läser ────────────────────────────────
@@ -67,11 +68,19 @@ export interface Verifikation {
   status: string;
   total_debit: number;
   missing_attachment?: boolean;
+  /** Serverns `age_days` (hela dagar sedan verifikationsdatumet). Klienten räknar den inte. */
+  age_days?: number;
   posted_at?: string | null;
   /** Den postade rättelsen av den här (flode-verifikationer §7.5). */
   corrected_by?: VerifikationRef | null;
   /** Verifikationen den här rättar. */
   corrects?: VerifikationRef | null;
+  /**
+   * Den postade verifikation som hänvisar till den här verifikationens
+   * kvitto (SPEC-flode-underlag.md §5, D2): A-121 för A-118. Valfri: en
+   * server från före FU16 skickar den inte.
+   */
+  referenced_by?: VerifikationRef | null;
 }
 
 /** `api/schemas.py::VoucherRefResponse`. */
@@ -104,10 +113,16 @@ export const bockerApi = {
     return data;
   },
 
+  /**
+   * `missingAttachment` (SPEC-flode-underlag.md §10.4): `false` ger Postade
+   * utan dem som saknar underlag, så att en verifikation står på ett ställe.
+   * Utelämnad skickas den inte.
+   */
   getVerifikationer: async (
     fiscalYearId: string,
     status: "posted" | "draft",
-    limit?: number
+    limit?: number,
+    missingAttachment?: boolean
   ): Promise<Verifikationslista> => {
     const { data } = await apiClient.get<Verifikationslista>("/api/v1/vouchers", {
       params: {
@@ -116,6 +131,25 @@ export const bockerApi = {
         limit,
         sort_by: "date",
         sort_order: "desc",
+        exclude_series: "IB",
+        missing_attachment: missingAttachment,
+      },
+    });
+    return data;
+  },
+
+  /**
+   * Sektionen `Saknar underlag` (§10.4): postade verifikationer som saknar
+   * underlag, äldst först — `sort_by=age` är stigande som standard
+   * (`VoucherRepository.list_all`). Samma predikat som headerns räknare.
+   */
+  getSaknarUnderlag: async (fiscalYearId: string): Promise<Verifikationslista> => {
+    const { data } = await apiClient.get<Verifikationslista>("/api/v1/vouchers", {
+      params: {
+        fiscal_year_id: fiscalYearId,
+        status: "posted",
+        missing_attachment: true,
+        sort_by: "age",
         exclude_series: "IB",
       },
     });
@@ -283,17 +317,60 @@ function nyMeta(nummer: string, postadKl: string | null): string {
   return `${nummer} · postad${postadKl ? ` ${postadKl}` : ""} · du · låst`;
 }
 
+/** ` · A-121 korrigering` när en annan verifikation hänvisar till den här verifikationens kvitto (§10.4). */
+function korrigering(v: { referenced_by?: VerifikationRef | null }): string {
+  return v.referenced_by ? ` · ${nummerAv(v.referenced_by)} korrigering` : "";
+}
+
 function verifikationsrad(v: Verifikation): VyRadData {
   const nummer = nummerAv(v);
   const saknar = v.status === "posted" && v.missing_attachment === true;
   const rattadAv = v.corrected_by ? ` · rättad av ${nummerAv(v.corrected_by)}` : "";
   const rattar = v.status === "posted" && v.corrects ? ` · rättar ${nummerAv(v.corrects)}` : "";
+  const korr = v.status === "posted" ? korrigering(v) : "";
   return {
     id: v.id,
     titel: v.description,
-    meta: `${nummer} · ${v.date}${saknar ? " · saknar underlag" : ""}${rattadAv}${rattar}`,
+    meta: `${nummer} · ${v.date}${saknar ? " · saknar underlag" : ""}${rattadAv}${rattar}${korr}`,
     hoger: formatBeloppHela(v.total_debit),
     variant: v.status === "draft" ? "vantar" : saknar ? "saknar" : undefined,
+  };
+}
+
+/** `Saknar underlag` (§10.4): `{serie}-{nummer} · kvitto saknas sedan {n} dgr`, `n` = serverns `age_days`. */
+function saknarrad(v: Verifikation): VyRadData {
+  const alder = v.age_days ?? 0;
+  return {
+    id: v.id,
+    titel: v.description,
+    meta: `${nummerAv(v)} · kvitto saknas sedan ${alder} dgr`,
+    hoger: formatBeloppHela(v.total_debit),
+    variant: "saknar",
+    ageDays: v.age_days,
+  };
+}
+
+type KoppladVerifikation = Pick<
+  Verifikation,
+  "id" | "series" | "number" | "date" | "description" | "total_debit" | "referenced_by"
+>;
+
+/** `Nyss kopplad`: `{serie}-{nummer} · kvitto kopplat HH:MM` (+ korrigeringen), läget `ny`. */
+function nyssKoppladRad(v: KoppladVerifikation, k: Koppling): VyRadData {
+  return {
+    id: v.id,
+    titel: v.description,
+    meta: `${nummerAv(v)} · kvitto kopplat ${k.klockslag}${korrigering(v)}`,
+    hoger: formatBeloppHela(v.total_debit),
+    variant: "ny",
+  };
+}
+
+/** `Kopplad`, efter markeringen: `{serie}-{nummer} · {datum} · kvitto kopplat`. */
+function koppladRad(v: Verifikation): VyRadData {
+  return {
+    ...verifikationsrad({ ...v, missing_attachment: false }),
+    meta: `${nummerAv(v)} · ${v.date} · kvitto kopplat${korrigering(v)}`,
   };
 }
 
@@ -305,7 +382,18 @@ export interface VantarUnderlag {
   forslag: readonly ForslagStatusSvar[];
   /** §11.2, ur `POSTNINGAR_NYCKEL`. */
   postningar?: readonly Postning[];
+  /**
+   * `GET /vouchers?missing_attachment=true&sort_by=age` (SPEC-flode-underlag.md
+   * §10.4). Utelämnad: ingen sektion, och Postade märker `saknar` som förut.
+   */
+  saknar?: Verifikationslista;
+  /** `Nyss kopplad`, ur `KOPPLINGAR_NYCKEL` (§10.4). */
+  kopplingar?: readonly Koppling[];
 }
+
+/** Vyns fot, panelens ord (SPEC-flode-underlag.md §10.4). */
+export const FOT_UNDERLAG =
+  "Underlag kan släppas i chatten när som helst. Agenten kopplar det till rätt verifikation och säger till om något inte stämmer.";
 
 const INGET_UNDERLAG: VantarUnderlag = { beslut: [], forslag: [] };
 
@@ -363,10 +451,12 @@ function postningsrad(p: Postning): VyRadData {
 }
 
 /**
- * Tre sektioner (flode-verifikationer §11.1): **Väntar på beslut** (öppna
- * beslut och väntande trådförslag), **Postade** (senast först, med den
- * optimistiska raden överst, §11.2) och **Utkast** (utkast som inte är
- * trådens). Ett trådutkast visas på ett enda ställe.
+ * Fyra sektioner (flode-verifikationer §11.1, flode-underlag §10.4):
+ * **Väntar på beslut** (öppna beslut och väntande trådförslag), **Saknar
+ * underlag** (postade utan underlag, äldst först), **Postade** (senast
+ * först, med de optimistiska raderna och `Nyss kopplad` överst, §11.2) och
+ * **Utkast** (utkast som inte är trådens). En verifikation visas på ett
+ * enda ställe; en tom sektion visas inte.
  *
  * Ett väntande förslag som svarar på ett öppet beslut står i beslutets
  * ställe. Statusens tal räknas som `count_waiting` (§11.3): en gång per
@@ -404,7 +494,18 @@ export function verifikationerVy(
     ...synligaForslag.map(vantarPa),
   ]).size;
 
-  // Postade: de optimistiska överst, sedan serverns lista.
+  // Saknar underlag: utan dem som nyss kopplats (listan kan vara gammal
+  // tills omhämtningen svarat) och utan dem som postas.
+  const kopplingar = underlag.kopplingar ?? [];
+  const kopplade = new Map(kopplingar.map((k) => [k.voucherId, k]));
+  const saknarLista = underlag.saknar?.vouchers ?? [];
+  const saknarPerId = new Map(saknarLista.map((v) => [v.id, v]));
+  const saknarRader = saknarLista
+    .filter((v) => !kopplade.has(v.id) && !postas.has(v.id))
+    .map(saknarrad);
+  const iSaknar = new Set(saknarRader.map((r) => r.id));
+
+  // Postade: de optimistiska överst, sedan de nyss kopplade, sedan serverns lista.
   const postadePerId = new Map(postade.vouchers.map((v) => [v.id, v]));
   const nyss = new Set(postningar.filter((p) => p.lage === "postad").map((p) => p.draftId));
   const optimistiska = postningar.map((p): VyRadData => {
@@ -414,9 +515,18 @@ export function verifikationerVy(
     }
     return postningsrad(p);
   });
+  const nyssKopplade = kopplingar.filter((k) => k.ny && !postas.has(k.voucherId));
+  const nyssKoppladeIds = new Set(nyssKopplade.map((k) => k.voucherId));
+  const koppladeRader = nyssKopplade.flatMap((k) => {
+    const v = postadePerId.get(k.voucherId) ?? saknarPerId.get(k.voucherId) ?? k.verifikation;
+    return v ? [nyssKoppladRad(v, k)] : [];
+  });
   const postadeRader = [
     ...optimistiska,
-    ...postade.vouchers.filter((v) => !postas.has(v.id) && !nyss.has(v.id)).map(verifikationsrad),
+    ...koppladeRader,
+    ...postade.vouchers
+      .filter((v) => !postas.has(v.id) && !nyss.has(v.id) && !nyssKoppladeIds.has(v.id) && !iSaknar.has(v.id))
+      .map((v) => (kopplade.has(v.id) ? koppladRad(v) : verifikationsrad(v))),
   ];
 
   // Utkast: bara de som inte är trådens (och inte postas just nu).
@@ -424,27 +534,33 @@ export function verifikationerVy(
 
   const sektioner: VySektionData[] = [];
   if (vantarRader.length > 0) sektioner.push({ titel: "Väntar på beslut", rader: vantarRader });
+  if (saknarRader.length > 0) sektioner.push({ titel: "Saknar underlag", rader: saknarRader });
   if (postadeRader.length > 0) sektioner.push({ titel: "Postade", rader: postadeRader });
   if (egnaUtkast.length > 0) {
     sektioner.push({ titel: "Utkast", rader: egnaUtkast.map(verifikationsrad) });
   }
 
   const tomt = sektioner.length === 0;
-  const visade = postade.vouchers.length;
+  // Serverns tal, inte raderna: `total` räknar också dem utanför sidan.
+  // Nyss kopplade dras inte av — omhämtningen ger rätt tal strax.
+  const antalSaknar = saknarRader.length > 0 ? (underlag.saknar?.total ?? 0) : 0;
   return {
-    lage: tomt ? "tomt" : antalVantar > 0 || egnaUtkast.length > 0 ? "vantar" : "normal",
+    lage: tomt ? "tomt" : antalVantar > 0 || antalSaknar > 0 || egnaUtkast.length > 0 ? "vantar" : "normal",
     status: tomt
       ? "inga verifikationer"
       : antalVantar > 0
         ? `${antalVantar} väntar på dig`
-        : egnaUtkast.length > 0
-          ? `${egnaUtkast.length} utkast`
-          : `${postade.total} postade`,
-    period: `${arsrubrik(ar)} · ${postade.total} postade verifikationer`,
+        : antalSaknar > 0
+          ? `${antalSaknar} saknar underlag`
+          : egnaUtkast.length > 0
+            ? `${egnaUtkast.length} utkast`
+            : `${postade.total} postade`,
+    // Panelen: "Kompletteringar först · postade nedan".
+    period:
+      saknarRader.length > 0
+        ? `${arsrubrik(ar)} · kompletteringar först · postade nedan`
+        : `${arsrubrik(ar)} · ${postade.total} postade verifikationer`,
     sektioner,
-    fot:
-      visade < postade.total
-        ? `Visar de ${visade} senaste. Alla finns i verifikationslistan.`
-        : "Alla årets verifikationer visas.",
+    fot: FOT_UNDERLAG,
   };
 }

@@ -363,7 +363,7 @@ till dem.
   - Obs: avvikelse 8 — `komponenter.md`s mått och copy för `drop` ligger i designpaketet, inte i
     repot. Finns det inte till hands: stanna och fråga. Inga förslagschips (`SPEC-skal.md` §2.1).
 
-- [ ] **FU21 — Sektionen `Saknar underlag`, `Nyss kopplad` och foten (§10.4)**
+- [x] **FU21 — Sektionen `Saknar underlag`, `Nyss kopplad` och foten (§10.4)**
   - Beror på: FU20, FU9 (`source_linked`), FU16 (`referenced_by`)
   - Acceptans: `verifikationerVy` (`lib/skal/bocker.ts:376`) får sektionerna i ordningen Väntar på
     beslut, Saknar underlag, Postade, Utkast. `Saknar underlag` ur `GET
@@ -381,6 +381,15 @@ till dem.
   - Obs: avvikelse 7 — `useTrad` invaliderar redan `vouchers` och `overview` vid varje
     `view.changed`; testfall 51 blir en vakt. `Nyss kopplad` hålls utanför `VOUCHERS_NYCKEL`, som
     `postningar.ts`, så att invalideringen inte tar den. `{n}` är serverns `age_days`.
+  - Gjort 2026-09-28: `lib/skal/__tests__/underlag.test.ts` (49b, 49c),
+    `lib/chattyta/__tests__/kopplingar.test.ts`, `components/skal/__tests__/saknar.test.tsx` (genom
+    `useVyer`) och testfall 51 i `useTrad.test.tsx`. `view.changed` bär det ändrade under `changed`
+    (som `voucher_posted`); `lasKoppling` läser båda formerna. `VoucherResponse` säger inte att en
+    verifikation har ett kopplat kvitto, så `Kopplad` (`{datum} · kvitto kopplat`) gäller bara
+    kopplingar klienten sett i sessionen; posten står kvar med `ny: false` efter 6 s. Statusen säger
+    `{n} saknar underlag` (serverns `total`) när inget väntar på beslut; perioden säger
+    `kompletteringar först · postade nedan` när sektionen finns. Foten byts helt; `bocker.test.ts`s
+    fottest och `optimistisk.test.tsx`s mock (svarar tomt på `missing_attachment=true`) uppdaterade.
 
 - [ ] **FU22 — `note` i `receipt` (D7) och `FilInlagg`s länk**
   - Beror på: kontraktet i FU8. Kan byggas efter FU1; verifieras mot backend när FU8 landat.

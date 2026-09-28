@@ -80,6 +80,8 @@ let server: {
 function svaraGet(url: string, config?: { params?: Record<string, unknown> }) {
   const params = config?.params ?? {};
   if (url === "/api/v1/vouchers") {
+    // Sektionen `Saknar underlag` (flode-underlag §10.4): inget saknar här.
+    if (params.missing_attachment === true) return Promise.resolve({ data: { total: 0, vouchers: [] } });
     const lista = params.status === "draft" ? server.utkast : server.postade;
     return Promise.resolve({ data: { total: lista.length, vouchers: lista } });
   }

@@ -11,6 +11,7 @@ import {
   VOUCHERS_NYCKEL,
   type TradSvar,
 } from "@/lib/chattyta/api";
+import { KOPPLINGAR_NYCKEL, type Koppling } from "@/lib/chattyta/kopplingar";
 import type { SseHandelse, StromAlternativ } from "@/lib/chattyta/strom";
 import type { RaInlagg } from "@/lib/chattyta/typer";
 import { FIXTUR_AGENT_TEXT, FIXTUR_USER_FILE, FIXTUR_USER_TEXT } from "@/lib/chattyta/__fixtures__/inlagg";
@@ -394,6 +395,30 @@ describe("useTrad — invalidering av frågorna (§6.3, §7)", () => {
     expect(nycklar(spion)).toEqual(
       expect.arrayContaining([VOUCHERS_NYCKEL, BESLUT_NYCKEL, DRAFTS_NYCKEL, OVERVIEW_NYCKEL])
     );
+  });
+
+  it("testfall 51 (flode-underlag): source_linked invaliderar vouchers och overview, och blir Nyss kopplad", async () => {
+    const { spion } = await medStrom();
+    qc.setQueryData([...VOUCHERS_NYCKEL, "skal", "fy", "saknar"], {
+      total: 1,
+      vouchers: [{ id: "a118", series: "A", number: 118, date: "2026-06-03", description: "Förbrukningsinventarier", total_debit: 448000 }],
+    });
+    sand("view.changed", {
+      view_key: "bocker.verifikationer",
+      changed: { voucher_id: "a118", source_id: "src-1", kind: "source_linked" },
+    });
+    expect(nycklar(spion)).toEqual(expect.arrayContaining([VOUCHERS_NYCKEL, OVERVIEW_NYCKEL]));
+    // Utanför vouchers-nyckeln, så att invalideringen inte tar den (avvikelse 7).
+    const kopplingar = qc.getQueryData<Koppling[]>(KOPPLINGAR_NYCKEL) ?? [];
+    expect(kopplingar).toHaveLength(1);
+    expect(kopplingar[0]).toMatchObject({ voucherId: "a118", sourceId: "src-1", ny: true });
+    expect(kopplingar[0].verifikation?.description).toBe("Förbrukningsinventarier");
+  });
+
+  it("voucher_posted blir ingen koppling", async () => {
+    await medStrom();
+    sand("view.changed", { view_key: "x", changed: { voucher_id: "v-1", kind: "voucher_posted" } });
+    expect(qc.getQueryData(KOPPLINGAR_NYCKEL)).toBeUndefined();
   });
 
   it("vouchers-nyckeln är roten för useVouchers (hooks/useData.ts)", () => {

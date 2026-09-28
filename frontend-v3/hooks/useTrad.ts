@@ -25,6 +25,7 @@ import {
   skickaMeddelande,
   VOUCHERS_NYCKEL,
 } from "@/lib/chattyta/api";
+import { kopplingKlar, lasKoppling } from "@/lib/chattyta/kopplingar";
 import { oppnaStrom, type SseHandelse } from "@/lib/chattyta/strom";
 import {
   listaInlagg,
@@ -85,6 +86,10 @@ export function useTrad(viewKey: string): UseTrad {
     (h: SseHandelse) => {
       dispatch({ typ: "handelse", handelse: h });
       if (h.event === "view.changed") {
+        // En koppling (flode-underlag §9.3) blir `Nyss kopplad` i vyn. Före
+        // invalideringen: raden tas ur listorna som de ser ut nu.
+        const koppling = lasKoppling(h.data);
+        if (koppling) kopplingKlar(qc, koppling.voucherId, koppling.sourceId);
         // Headern, besluten, förslagen och verifikationslistan kan alla ha
         // följt med (§6.3; flode-verifikationer §14.4 testfall 47).
         void qc.invalidateQueries({ queryKey: OVERVIEW_NYCKEL });

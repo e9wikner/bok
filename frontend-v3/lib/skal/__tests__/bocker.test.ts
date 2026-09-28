@@ -3,6 +3,7 @@ import {
   type Balansrakning,
   type Resultatrakning,
   type Verifikation,
+  FOT_UNDERLAG,
   balansVy,
   resultatVy,
   verifikationerVy,
@@ -165,9 +166,11 @@ describe("verifikationerVy", () => {
     expect(a118.meta).toBe("A-118 · 2026-09-04 · rättad av B-7");
   });
 
-  it("säger i foten när listan är avkortad", () => {
+  it("foten är panelens, också när listan är avkortad (flode-underlag §10.4)", () => {
+    // Foten sade förut "Visar de N senaste"; panelens fot säger vad agenten
+    // gör med ett underlag, och fottexten säger inget mer (vydata.ts).
     const vy = verifikationerVy(AR, { total: 90, vouchers: [v({})] }, { total: 0, vouchers: [] });
-    expect(vy.fot).toMatch(/Visar de 1 senaste/);
+    expect(vy.fot).toBe(FOT_UNDERLAG);
     expect(vy.status).toBe("90 postade");
   });
 });
