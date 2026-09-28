@@ -9,6 +9,17 @@ from db.database import db
 from domain.models import IntakeProcessingAttempt, IntakeSource, VoucherIntakeSource
 from domain.types import IntakeSourceType, IntakeStatus
 
+# SPEC-flode-underlag.md §11.3 (D4): a file dropped in a thread is the
+# thread's -- the turn reads and interprets it, and the human decides there.
+# The intake pass must not abstain from it mid-conversation, so the pass's
+# queue (`list_pending`/`count_pending`, and through them `las_underlag`,
+# `GET /agent/intake/pending` and `queue_depth`) leaves out every source a
+# `user_file` post names. A correlated `NOT EXISTS`, one statement.
+_NOT_IN_A_THREAD_SQL = (
+    "NOT EXISTS (SELECT 1 FROM thread_posts tp WHERE tp.type = 'user_file'"
+    " AND json_extract(tp.body_json, '$.intake_source_id') = intake_sources.id)"
+)
+
 
 class IntakeRepository:
     """Manage uploaded voucher source material and processing history."""
@@ -87,10 +98,13 @@ class IntakeRepository:
 
     @staticmethod
     def list_pending(limit: int = 100, offset: int = 0) -> List[IntakeSource]:
+        """The intake pass's queue: `pending`, without the sources a thread
+        owns (`_NOT_IN_A_THREAD_SQL`). The intake page reads
+        `list_by_status`, which still shows them."""
         rows = db.execute(
-            """
+            f"""
             SELECT * FROM intake_sources
-            WHERE status = ?
+            WHERE status = ? AND {_NOT_IN_A_THREAD_SQL}
             ORDER BY uploaded_at ASC
             LIMIT ? OFFSET ?
             """,
@@ -225,8 +239,10 @@ class IntakeRepository:
 
     @staticmethod
     def count_pending() -> int:
+        """`list_pending`'s count, with the same filter."""
         row = db.execute(
-            "SELECT COUNT(*) AS count FROM intake_sources WHERE status = ?",
+            "SELECT COUNT(*) AS count FROM intake_sources "
+            f"WHERE status = ? AND {_NOT_IN_A_THREAD_SQL}",
             (IntakeStatus.PENDING.value,),
         ).fetchone()
         return row["count"] if row else 0

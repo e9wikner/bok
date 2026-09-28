@@ -330,7 +330,15 @@ till dem.
     beslut kopplade ett underlag till *samma* verifikation som postas kan inte uppstå
     (`CHECK (voucher_id != via_voucher_id)`), men testa att `CHECK`en avvisar det om det gör det.
 
-- [ ] **FU11 — Passet hoppar över trådens filer (D4, §11.3)**
+- [x] **FU11 — Passet hoppar över trådens filer (D4, §11.3)**
+  - Gjort 2026-09-28: 4 tester i `tests/test_flode_underlag_pass.py` (testfall 38 med två
+    SQL-anrop räknade, `GET /intake/workspace` visar båda, `las_underlag` och `GET
+    /agent/intake/pending` följer med, ett `user_text`-inlägg tar inte källan), 2 sedda röda
+    först; de två vakterna var gröna redan. Villkoret är en modulkonstant
+    `_NOT_IN_A_THREAD_SQL` i `repositories/intake_repo.py` (korrelerad `NOT EXISTS` med
+    `json_extract`), i `list_pending` och `count_pending`; `list_by_status`/`count_by_status`
+    orörda. `tests/test_intake_api.py` och `tests/test_bank_input_agent.py` gröna. Hela sviten
+    1431 gröna. mypy 61.
   - Beror på: FU1 (hjälparna)
   - Acceptans: `IntakeRepository.list_pending` och `count_pending` får villkoret i §11.3, i en
     fråga. `list_by_status`/`count_by_status` (intagssidan) oförändrade.
