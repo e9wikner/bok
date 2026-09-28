@@ -345,21 +345,53 @@ Instruktionen (§9, testfall 38) ligger i U9 `6d046f4`.
 
 - **Kriterium 6 med riktig LLM:** ett kvitto för en bankbokförd verifikation ger ett avstående,
   inte en ny verifikation. Kontrolleras tillsammans med `flode-verifikationer`s visuella kontroll.
-- **(a) `agent_run_id` i drift (U6):** varken trådturen (`services/thread_stream.py`) eller
-  intagspasset (`run_session` har inget `tool_context`) för fram den, så kolumnen blir NULL.
-- **(b) Specen, §6.3 (U6):** "samma fel som `las_underlag`" stämmer inte — `las_underlag` ger
-  `intake_not_found` och avvisar inte en raderad källa. Specen bör säga `source_not_found`/
-  `source_deleted` för sig.
-- **(c) "huvudboken" (U7):** §6.2:s ordagranna beskrivning nämner den, så `agentruntime` 17,
-  `beslut` 26 och `tradar` 14 har ett undantag för `tolka_underlag` så länge den säger "ändrar
-  ingenting i bokföringen". Godta undantaget eller skriv om beskrivningen.
-- **(d) Utan `document_date` (U5):** exakt belopp blir `amount_diff` med `diff_ore = 0` och ingen
-  hypotes, så instruktionens punkt 2 säger inte att agenten ska avstå. Ska den?
-- **(e) Läsvägens `expected` (U8):** `expected: null` plus `expected_voucher_id`, eftersom §5
-  inte sparar jämförelsen. `flode-underlag` får räkna om den öppet eller specen spara den.
-- **(f) Ingen HTTP-väg för `tolka_underlag` (U9):** bara runtime-verktyg, så en extern session
-  (`bok-curl`) kan inte följa instruktionens punkt 1.
-- **(g) `text_layer` (U3):** ett trippel som inte går ihop ger `not_available`, inte
-  `disagrees`; en läsning utan moms mot en text med moms ger `disagrees`. Bekräfta valen.
-- **(h) Mjukraderad källa (U8):** tolkningen läses ändå genom `GET` (§8 nämner bara två
-  404:or). Beslut utan stöd i specen.
+
+Frågorna (a)–(h) som U1–U10 lämnade är besvarade 2026-09-28, spec §12.6. (b) och (g) är införda
+i specens text; resten byggs i U11–U15 nedan.
+
+---
+
+## Uppföljning: U11–U15 (spec §12.6)
+
+- [ ] **U11 — `agent_run_id` i `tool_context` (§12.6 a)**
+  - Acceptans: trådturen (`services/thread_stream.py`, `run_thread_session`) och intagspasset
+    (`services/agent_runtime.py`, `run_session`) lägger körningens id i `tool_context` som
+    `agent_run_id`. En tolkning från vardera vägen sparar id:t. Inga andra verktyg ändrar
+    beteende.
+  - Verifiera: ett test per väg; testfall 39 kontrollerar att `agent_run_id` är satt.
+  - Filer: `services/thread_stream.py`, `services/agent_runtime.py`, `services/agent_tools.py`
+    (docstringen), tester.
+
+- [ ] **U12 — Verktygsbeskrivningen utan "huvudboken" (§12.6 c)**
+  - Acceptans: §6.2:s citat och `_TOOL_SPECS` säger t.ex. "matchning mot postade verifikationer"
+    och nämner inte "huvudboken". Undantagen för `tolka_underlag` i `agentruntime` 17, `beslut`
+    26 och `tradar` 14 tas bort. De elva första verktygen orörda (testfall 34:s hash).
+  - Filer: spec §6.2, `services/agent_tools.py`, `tests/test_agent_runtime.py`,
+    `tests/test_beslut.py`, `tests/test_tradar.py`.
+
+- [ ] **U13 — `kind = "exact_no_date"` (§12.6 d)**
+  - Acceptans: exakt belopp (`diff_ore = 0`) utan `document_date` ger `exact_no_date`, inte
+    `amount_diff`. `MatchKind`, `build_match` och spec §7.4 uppdaterade. Instruktionens punkt 2
+    (`03_…`): `exact_no_date` → avstå i passet med verifikationsnumret, fråga i tråden.
+  - Verifiera: testfall 24 och ett nytt `test_u13_*`; testfall 38 utökat.
+  - Filer: `domain/interpretation.py`, `services/interpretation.py`, spec §7.4,
+    `docs/to_agent/03_bokforingsinstruktion.md`, tester.
+
+- [ ] **U14 — `expected_json` och `source_status` i läsvägen (§12.6 e, h)**
+  - Acceptans: `db/migrations/031_add_interpretation_expected.sql` lägger till `expected_json`
+    (ADD COLUMN; triggrarna från 030 gäller oförändrat). `tolka_underlag` sparar `expected`;
+    `GET /intake/{id}/interpretation` visar det sparade `expected` och `source_status`. Spec §5,
+    §8 uppdaterade.
+  - Verifiera: testfall 30 (triggrarna) fortfarande grönt; läsvägen visar samma `expected` som
+    verktyget svarade, även efter att verifikationen fått underlag.
+  - Filer: migrationen, `domain/interpretation.py`, `repositories/interpretation_repo.py`,
+    `services/interpretation_service.py`, tester.
+
+- [ ] **U15 — `POST /api/v1/intake/{id}/interpretation` (§12.6 f)**
+  - Acceptans: bearer-autentiserad; body = `TolkaUnderlagArgs` utan `source_id` (id:t ur
+    sökvägen), `extra="forbid"`; anropar `InterpretationService.interpret` med `thread_id =
+    None`; svarar som verktyget. PUT/PATCH/DELETE ger fortfarande 405. Instruktionens punkt 1
+    nämner vägen för sessioner utan verktyget. Spec §8 uppdaterad.
+  - Verifiera: testfall 16 över HTTP; `test_u8_requires_bearer_and_has_no_writing_method`
+    justerat (POST tillåten, övriga 405); testfall 38 utökat.
+  - Filer: `api/routes/intake.py`, spec §8, `docs/to_agent/03_bokforingsinstruktion.md`, tester.

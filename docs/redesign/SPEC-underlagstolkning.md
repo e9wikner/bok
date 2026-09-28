@@ -8,6 +8,7 @@ Status: **Klar 2026-09-28 (U1–U10).** Skriven 2026-09-24, godkänd 2026-09-28.
 predikatet för "saknar underlag" lagas först, i den här modulen, och undantar
 `created_by = 'sie4_import'`; `hypothesis` sätts bara när en rad på underlaget bär den; ett hårt
 stopp i postningen skjuts till `flode-underlag`. §13:s två frågor är besvarade, se §12.4–§12.5.
+Efter U1–U10 besvarades modulens öppna frågor (§12.6); U11–U15 bygger det som kräver kod.
 
 ---
 
@@ -328,7 +329,7 @@ Alla körs, och ingen avvisar anropet utom de hårda felen längst ned. Resultat
 | `lines_sum` | `ok` · `mismatch` · `not_applicable` | Σ`lines.amount_ore` = `total_ore`, ±1 öre per rad; `not_applicable` utan rader |
 | `vat_rate` | `ok` · `mismatch` · `not_applicable` | Varje rad med `vat_rate`: momsen ur raden räknad baklänges; Σ = `vat_ore` ±1 öre per rad |
 | `vat_share` | `ok` · `implausible` · `not_applicable` | Utan rader: `vat_ore / (total_ore − vat_ore)` ligger nära 25, 12 eller 6 %, ±0,5 procentenheter, eller är 0 |
-| `text_layer` | `agrees` · `disagrees` · `not_available` | PDF med textlager där `reconciliation_result` hittar ett trippel: dess `total_ore` och `vat_ore` jämförs med modellens. Bild, skannad PDF eller inget trippel: `not_available` |
+| `text_layer` | `agrees` · `disagrees` · `not_available` | PDF med textlager där `reconciliation_result` hittar ett trippel som går ihop: dess `total_ore` och `vat_ore` jämförs med modellens, och en läsning utan `vat_ore` mot en text med moms är `disagrees`. Bild, skannad PDF, inget trippel eller ett trippel som inte går ihop: `not_available` (§12.6) |
 | `date` | `ok` · `future` · `missing` | `document_date` efter i dag → `future` |
 | `currency` | `sek` · `not_sek` | `not_sek` stänger av matchningen (§7.1) men sänker inte säkerheten |
 
@@ -337,7 +338,8 @@ servern, vilket kostar millisekunder och inga token. Det är den enda kontroll d
 egen källa att jämföra modellen med. Därför är det den som skiljer `high` från `medium`.
 
 Hårda fel: okänd `source_id` → `IntakeError("source_not_found")`. En källa med status `deleted`
-→ `IntakeError("source_deleted")`. Samma fel som `las_underlag` ger i dag.
+→ `IntakeError("source_deleted")`. `las_underlag` ger andra koder (`intake_not_found`) och
+avvisar inte en raderad källa; den ändras inte här (§12.6).
 
 ### 6.4 Säkerheten
 
@@ -677,6 +679,34 @@ underlag" om det inte undantar dem uttryckligen. Utan undantaget fylls komplette
 matchningens kandidater (§7.2) av historik. §2.1:s predikat utökas med
 `AND vouchers.created_by != 'sie4_import'`, vilket ändrar vad "saknar underlag" betyder men gör
 predikatet sant mot det det påstår sig mäta. Fall 5b (§10.1).
+
+### 12.6 Efter U1–U10: modulens öppna frågor — **BESLUTAT 2026-09-28**
+
+Frågorna (a)–(h) under "Kvar för beställaren" i `tasks/underlagstolkning/todo.md`. (b) och (g)
+är införda i texten ovan; resten är uppgifterna U11–U15.
+
+- **(a) `agent_run_id` förs fram.** Trådturen och intagspasset lägger körningens id i
+  `tool_context`, så att `intake_interpretations.agent_run_id` fylls i drift. → U11.
+- **(b) Felkoderna står för sig.** `source_not_found`/`source_deleted` enligt §6.3;
+  "samma fel som `las_underlag`" struket. `las_underlag` är oförändrad.
+- **(c) Beskrivningen skrivs om.** §6.2:s text nämner inte "huvudboken"; regeln att bara
+  `posta_verifikation` nämner den gäller igen utan undantag. De elva första verktygen orörda.
+  → U12.
+- **(d) `kind = "exact_no_date"`.** Exakt belopp utan `document_date` är en egen sort: agenten
+  avstår i passet och frågar i tråden med verifikationsnumret, men ett hårt stopp i
+  `flode-underlag` (§12.4) slår bara på `exact`. Utan datum skiljer ingenting ett återkommande
+  belopp (hyra, abonnemang) från samma köp. → U13.
+- **(e) `expected` sparas.** Migration 031 lägger till `expected_json` på
+  `intake_interpretations`. Läsvägen visar den sparade jämförelsen; ingenting räknas om mot dagens
+  huvudbok. → U14.
+- **(f) HTTP-väg.** `POST /api/v1/intake/{id}/interpretation` med samma argument och service som
+  verktyget, så att externa sessioner kan följa instruktionens punkt 1. Den skriver bara en ny
+  tolkningsrad: append-only gäller (inga PUT/PATCH/DELETE), inget LLM-anrop (§12.1 står). → U15.
+- **(g) `text_layer`.** Ett trippel som inte går ihop är ingen källa att jämföra med
+  (`not_available`, högst `medium`). En läsning utan moms mot en text med moms är en felläsning
+  (`disagrees`, `low`). Infört i §6.3.
+- **(h) Raderad källa i läsvägen.** `GET` ger 200 som förut, men svaret bär `source_status`, så
+  att klienten ser att källan är raderad. Tolkningen är en del av spåret. → U14.
 
 ---
 
