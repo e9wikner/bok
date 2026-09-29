@@ -88,6 +88,11 @@ Regel 9 och eventuella andra ställen som motsäger stycket justeras så att de 
 `docs/to_agent/*.md` är körtidsinnehåll: `tests/test_agent_entrypoint.py` ska kräva att stycket
 finns (rubriken och regeln om `be_om_beslut`-svaret).
 
+**L6** (tillagd efter L2): verktygsbeskrivningarna i `services/agent_tools.py` och
+`docs/to_agent/02_bokforingsprocess.md` säger "människan"; det är det agenten läser och
+upprepar. De säger "användaren". `BeOmBeslutArgs.reason`, `consequence` och
+`BeOmBeslutOption.rationale` får `Field(description=…)` med längden ur stycket ovan.
+
 ### 4.3 Spår-chippen bort (L3)
 
 Klienten ritar inga spår. Bort: `SparChip`, `SparChipRad`, deras användning i `TradInlagg`,
@@ -133,6 +138,7 @@ utan att andra vyer påverkas.
 | L2 | `docs/to_agent/03_bokforingsinstruktion.md`, `tests/test_agent_entrypoint.py` | — |
 | L3 | `frontend-v3/components/chattyta/{TradInlagg,TradRenderare,FelKort}.tsx`, `frontend-v3/lib/chattyta/etiketter.ts`, `services/thread_service.py` (`_TRACE_LABELS`) | — |
 | L4 | `frontend-v3/components/chattyta/TradInlagg.tsx`, `frontend-v3/package.json`, `package-lock.json` | L3 |
+| L6 | `services/agent_tools.py`, `docs/to_agent/02_bokforingsprocess.md` | L2 |
 | L5 | `frontend-v3/hooks/useVyer.ts`, `frontend-v3/lib/skal/bocker.ts`, `frontend-v3/lib/skal/vydata.ts`, `frontend-v3/components/skal/VyInnehall.tsx` | — |
 
 L1 och L3 rör båda `services/thread_service.py` men olika ställen (`_render` resp.
