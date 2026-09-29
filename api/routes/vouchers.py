@@ -536,11 +536,6 @@ def _post_and_record(
                     entity_id=voucher.id,
                     _commit=False,
                 )
-            # From the period, as `LedgerService.post_voucher` does:
-            # `Voucher.fiscal_year_id` is optional and may be unset.
-            period = ledger.periods.get_period(voucher.period_id)
-            fiscal_year_id = period.fiscal_year_id if period else None
-            is_opening_balance = voucher.series.value == "IB"
     except ValidationError as e:
         # The transaction is rolled back here.
         if e.code == "already_posted":
@@ -557,18 +552,6 @@ def _post_and_record(
         )
 
     _after_posting(voucher_id, actor)
-
-    # `post_voucher(_commit=False)` skips the opening-balance update, so it
-    # runs here: after the commit and best-effort, as in `_correct_and_record`.
-    if fiscal_year_id and not is_opening_balance:
-        try:
-            from services.opening_balance import OpeningBalanceService
-
-            OpeningBalanceService().update_opening_balances_for_next_year(
-                fiscal_year_id, actor
-            )
-        except Exception:
-            pass
 
     return response
 
@@ -763,7 +746,6 @@ def _correct_and_record(
     """B-series voucher, correction history and key row, in one transaction."""
     try:
         rows_data = [r.model_dump() for r in request.corrected_rows]
-        fiscal_year_id = None
         with db.transaction():
             correction = ledger.create_posted_correction(
                 original_voucher_id=voucher_id,
@@ -773,7 +755,6 @@ def _correct_and_record(
                 _commit=False,
             )
             response = _voucher_to_response(correction)
-            fiscal_year_id = correction.fiscal_year_id
 
             # The key row commits with the correction. Written afterwards it
             # would leave a window where the B-series voucher exists but the
@@ -788,20 +769,6 @@ def _correct_and_record(
                     entity_id=correction.id,
                     _commit=False,
                 )
-
-        # Posting inside a transaction skips the opening-balance trigger in
-        # LedgerService.post_voucher, so it runs here instead: after the
-        # commit and best-effort, as in api/routes/agent.py.
-        if fiscal_year_id:
-            try:
-                from services.opening_balance import OpeningBalanceService
-
-                OpeningBalanceService().update_opening_balances_for_next_year(
-                    fiscal_year_id,
-                    actor,
-                )
-            except Exception:
-                pass
 
         return response
     except ValidationError as e:

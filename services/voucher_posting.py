@@ -84,8 +84,6 @@ def post_agent_voucher(
         bank_transaction_ids,
     )
 
-    fiscal_year_id = None
-    voucher_series = None
     with db.transaction():
         ledger = LedgerService()
         voucher = ledger.create_voucher(
@@ -101,7 +99,6 @@ def post_agent_voucher(
             voucher.id,
             actor=actor,
             _commit=False,
-            update_opening_balance=False,
         )
         processing_attempt_ids = []
         summary = request.reasoning_summary or request.description
@@ -122,8 +119,6 @@ def post_agent_voucher(
             actor=actor,
             _commit=False,
         )
-        fiscal_year_id = voucher.fiscal_year_id
-        voucher_series = voucher.series.value
 
         from api.routes.vouchers import _voucher_to_response
 
@@ -154,16 +149,6 @@ def post_agent_voucher(
                 entity_id=voucher.id,
                 _commit=False,
             )
-    if fiscal_year_id and voucher_series != "IB":
-        try:
-            from services.opening_balance import OpeningBalanceService
-
-            OpeningBalanceService().update_opening_balances_for_next_year(
-                fiscal_year_id,
-                actor,
-            )
-        except Exception:
-            pass
     return response
 
 

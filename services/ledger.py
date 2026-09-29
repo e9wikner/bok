@@ -55,6 +55,17 @@ class LedgerService:
         flode-verifikationer §4.3). An explicit number, as in the SIE4
         import, is passed to `post_voucher`.
         """
+        # IB is opening state, not a voucher (services/opening_balance.py).
+        # An `IB`-series voucher would be ignored by every report.
+        if series == VoucherSeries.IB.value:
+            raise ValidationError(
+                "opening_balance_not_a_voucher",
+                "Opening balances are not booked as vouchers",
+                "state the first fiscal year's opening balance with PUT "
+                "/api/v1/fiscal-years/{id}/opening-balances; later years "
+                "derive theirs from the previous year",
+            )
+
         # Get period to verify it's open
         period = self.periods.get_period(period_id)
         if not period:
@@ -146,7 +157,6 @@ class LedgerService:
         auto_post: bool = False,
         actor: str = "system",
         _commit: bool = True,
-        update_opening_balance: bool = True,
         number: int | None = None,
     ) -> Voucher:
         """Post voucher (make immutable - BFL varaktighet requirement).
@@ -172,9 +182,6 @@ class LedgerService:
         # Validate can post
         VoucherValidator.validate_can_post(voucher, period)
 
-        # Store fiscal year ID for IB update trigger
-        fiscal_year_id = period.fiscal_year_id
-
         # Post (make immutable) and number it
         voucher.number = self.vouchers.post(voucher.id, number=number, _commit=_commit)
 
@@ -192,18 +199,6 @@ class LedgerService:
             },
             _commit=_commit,
         )
-
-        # Trigger IB update for next fiscal year (if this is a regular voucher, not IB)
-        if _commit and update_opening_balance and voucher.series != VoucherSeries.IB:
-            try:
-                from services.opening_balance import OpeningBalanceService
-
-                ob_service = OpeningBalanceService()
-                # This will update the next year's IB if it exists and is not locked
-                ob_service.update_opening_balances_for_next_year(fiscal_year_id, actor)
-            except Exception:
-                # IB update is best-effort, don't fail the posting if it fails
-                pass
 
         # Reload to get updated status
         return self.vouchers.get(voucher.id)
@@ -327,18 +322,6 @@ class LedgerService:
                     actor=actor,
                     _commit=False,
                 )
-            # Skipped by `post_voucher(_commit=False)`; best-effort, as in
-            # `api/routes/vouchers.py`.
-            try:
-                from services.opening_balance import OpeningBalanceService
-
-                period = self.periods.get_period(correction.period_id)
-                if period is not None:
-                    OpeningBalanceService().update_opening_balances_for_next_year(
-                        period.fiscal_year_id, actor
-                    )
-            except Exception:
-                pass
             return correction
 
         original = self.vouchers.get(original_voucher_id)
@@ -827,12 +810,23 @@ class LedgerService:
             )
         ]
 
-        balances = {}
+        from services.opening_balance import OpeningBalanceService
+
+        # Opening balance first (services/opening_balance.py); a posted
+        # `IB`-series voucher predates migration 033 and is not a movement.
+        balances = {
+            code: {"debit": max(amount, 0), "credit": max(-amount, 0)}
+            for code, amount in OpeningBalanceService()
+            .balances(period.fiscal_year_id)
+            .items()
+        }
 
         for period_id_item in relevant_periods:
             vouchers = self.vouchers.list_for_period(period_id_item, status="posted")
 
             for voucher in vouchers:
+                if voucher.series == VoucherSeries.IB:
+                    continue
                 for row in voucher.rows:
                     if row.account_code not in balances:
                         balances[row.account_code] = {"debit": 0, "credit": 0}
@@ -859,13 +853,32 @@ class LedgerService:
             )
         ]
 
+        from services.opening_balance import OpeningBalanceService
+
         ledger_rows = []
-        running_balance = 0
+        running_balance = (
+            OpeningBalanceService().balances(period.fiscal_year_id).get(account_code, 0)
+        )
+        if running_balance:
+            fiscal_year = self.periods.get_fiscal_year(period.fiscal_year_id)
+            ledger_rows.append(
+                {
+                    "date": fiscal_year.start_date.isoformat(),
+                    "voucher_series": "IB",
+                    "voucher_number": "",
+                    "description": "Ingående balans",
+                    "debit": max(running_balance, 0),
+                    "credit": max(-running_balance, 0),
+                    "balance": running_balance,
+                }
+            )
 
         for period_id_item in relevant_periods:
             vouchers = self.vouchers.list_for_period(period_id_item, status="posted")
 
             for voucher in vouchers:
+                if voucher.series == VoucherSeries.IB:
+                    continue
                 for row in voucher.rows:
                     if row.account_code == account_code:
                         debit = row.debit

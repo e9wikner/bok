@@ -214,12 +214,27 @@ class TestSIE4ExportIntegration:
             exporter.export(fiscal_year_id="nonexistent")
 
 
+def _ib_file(amount: int) -> str:
+    return f"""#FLAGGA 0
+#FORMAT PC8
+#PROGRAM "Test" 1.0
+#FNAMN "Test AB"
+#FORGN 5566778899
+#RAR 0 20260101 20261231
+#KONTO 1930 "Företagskonto"
+#KONTO 2081 "Aktieägartillskott"
+#IB 0 1930 {amount}
+#IB 0 2081 -{amount}
+"""
+
+
 class TestSIE4ImportOpeningBalances:
     """Testa SIE4-import av ingående balanser (IB)."""
 
-    def test_import_creates_ib_voucher_with_correct_series(self, client, auth_headers):
-        """Testa att IB-verifikation skapas med serie 'IB'."""
-        # Skapa räkenskapsår
+    def test_import_states_opening_balance_without_a_voucher(
+        self, client, auth_headers
+    ):
+        """Filens #IB blir årets angivna ingående balans — ingen verifikation."""
         fy = PeriodRepository.create_fiscal_year(
             start_date=date(2026, 1, 1),
             end_date=date(2026, 12, 31),
@@ -232,55 +247,34 @@ class TestSIE4ImportOpeningBalances:
             end_date=date(2026, 1, 31),
         )
 
-        # SIE4-fil med IB
-        sie4_content = """#FLAGGA 0
-#FORMAT PC8
-#PROGRAM "Test" 1.0
-#FNAMN "Test AB"
-#FORGN 5566778899
-#RAR 0 20260101 20261231
-#KONTO 1930 "Företagskonto"
-#KONTO 2081 "Aktieägartillskott"
-#IB 0 1930 100000
-#IB 0 2081 -100000
-"""
-
-        # Importera SIE4
         resp = client.post(
             "/api/v1/import/sie4",
             headers=auth_headers,
-            json={"content": sie4_content, "fiscal_year_id": fy.id},
+            json={"content": _ib_file(100000), "fiscal_year_id": fy.id},
         )
         assert resp.status_code == 200
+        assert resp.json()["success"] is True
+        assert resp.json()["imported"]["vouchers"] == 0
+        assert resp.json()["imported"]["opening_balances"] == 2
 
-        # Verifiera att IB-verifikation skapades med serie "IB"
-        vouchers_resp = client.get(
+        vouchers = client.get(
             "/api/v1/vouchers",
             headers=auth_headers,
             params={"fiscal_year_id": fy.id},
-        )
-        assert vouchers_resp.status_code == 200
-        vouchers = vouchers_resp.json()["vouchers"]
+        ).json()["vouchers"]
+        assert vouchers == []
 
-        ib_vouchers = [v for v in vouchers if v["series"] == "IB"]
-        assert len(ib_vouchers) == 1
+        opening = client.get(f"/api/v1/fiscal-years/{fy.id}/opening-balances").json()
+        assert opening["source"] == "stated"
+        assert opening["balanced"] is True
+        assert opening["balances"] == [
+            {"account": "1930", "amount": 10000000},
+            {"account": "2081", "amount": -10000000},
+        ]
 
-        ib = ib_vouchers[0]
-        assert ib["series"] == "IB"
-        assert "Ingående balans" in ib["description"]
-        assert "2026" in ib["description"]
-
-    def test_import_posts_ib_voucher_and_refuses_a_second_import(
-        self, client, auth_headers
-    ):
-        """IB-verifikationen ska bokföras direkt, och en andra import i samma
-        räkenskapsår ska då avvisas i stället för att skriva över den.
-
-        Bokförda verifikationer är oföränderliga (BFL), så en IB-verifikation
-        kan inte längre uppdateras sedan den bokförts vid den första importen.
-        Det matchar vad dropzonen redan kräver: automatisk import sker bara i
-        ett tomt räkenskapsår."""
-        # Skapa räkenskapsår
+    def test_reimport_replaces_the_stated_opening_balance(self, client, auth_headers):
+        """IB är inte bokförd, så en ny import i ett olåst år ersätter den —
+        och ett låst års IB går inte att ändra."""
         fy = PeriodRepository.create_fiscal_year(
             start_date=date(2026, 1, 1),
             end_date=date(2026, 12, 31),
@@ -292,93 +286,106 @@ class TestSIE4ImportOpeningBalances:
             start_date=date(2026, 1, 1),
             end_date=date(2026, 1, 31),
         )
+        for amount in (100000, 150000):
+            resp = client.post(
+                "/api/v1/import/sie4",
+                headers=auth_headers,
+                json={"content": _ib_file(amount), "fiscal_year_id": fy.id},
+            )
+            assert resp.json()["success"] is True
 
-        # Skapa konton
-        for code in ["1930", "2081"]:
-            if not AccountRepository.exists(code):
-                AccountRepository.create(code, f"Konto {code}", "asset")
+        opening = client.get(f"/api/v1/fiscal-years/{fy.id}/opening-balances").json()
+        assert {"account": "1930", "amount": 15000000} in opening["balances"]
 
-        # Första importen med IB
-        sie4_content_1 = """#FLAGGA 0
-#FORMAT PC8
-#PROGRAM "Test" 1.0
-#FNAMN "Test AB"
-#FORGN 5566778899
-#RAR 0 20260101 20261231
-#KONTO 1930 "Företagskonto"
-#KONTO 2081 "Aktieägartillskott"
-#IB 0 1930 100000
-#IB 0 2081 -100000
-"""
-        resp1 = client.post(
+        lock = client.post(f"/api/v1/fiscal-years/{fy.id}/lock", headers=auth_headers)
+        assert lock.status_code == 200
+
+        resp = client.post(
             "/api/v1/import/sie4",
             headers=auth_headers,
-            json={"content": sie4_content_1, "fiscal_year_id": fy.id},
+            json={"content": _ib_file(200000), "fiscal_year_id": fy.id},
         )
-        assert resp1.status_code == 200
+        assert resp.json()["success"] is False
+        opening = client.get(f"/api/v1/fiscal-years/{fy.id}/opening-balances").json()
+        assert {"account": "1930", "amount": 15000000} in opening["balances"]
 
-        # Hämta första IB-verifikationen
-        vouchers_resp = client.get(
-            "/api/v1/vouchers",
-            headers=auth_headers,
-            params={"fiscal_year_id": fy.id},
-        )
-        first_ib = [v for v in vouchers_resp.json()["vouchers"] if v["series"] == "IB"][
-            0
-        ]
-        assert first_ib["status"] == "posted"
-
-        # Andra importen försöker skriva en annan IB till samma räkenskapsår
-        sie4_content_2 = """#FLAGGA 0
-#FORMAT PC8
-#PROGRAM "Test" 1.0
-#FNAMN "Test AB"
-#FORGN 5566778899
-#RAR 0 20260101 20261231
-#KONTO 1930 "Företagskonto"
-#KONTO 2081 "Aktieägartillskott"
-#IB 0 1930 150000
-#IB 0 2081 -150000
-"""
-        resp2 = client.post(
-            "/api/v1/import/sie4",
-            headers=auth_headers,
-            json={"content": sie4_content_2, "fiscal_year_id": fy.id},
-        )
-        assert resp2.status_code == 200
-        assert resp2.json()["success"] is False
-        assert any("posted" in error.lower() for error in resp2.json()["errors"])
-
-        # Verifiera att det fortfarande bara finns en IB-verifikation, och att
-        # den ursprungliga bokförda verifikationen inte ändrats
-        vouchers_resp = client.get(
-            "/api/v1/vouchers",
-            headers=auth_headers,
-            params={"fiscal_year_id": fy.id},
-        )
-        ib_vouchers = [
-            v for v in vouchers_resp.json()["vouchers"] if v["series"] == "IB"
-        ]
-        assert len(ib_vouchers) == 1
-        assert ib_vouchers[0]["id"] == first_ib["id"]
-
-        row_1930 = next(
-            (r for r in ib_vouchers[0]["rows"] if r["account"] == "1930"), None
-        )
-        assert row_1930 is not None
-        assert row_1930["debit"] == 10000000  # unchanged: 100000.00 kr in öre
-
-    def test_export_reflects_imported_opening_balance_voucher(
+    def test_later_year_derives_its_ib_and_reconciles_the_file(
         self, client, auth_headers
     ):
-        """Exporten ska spegla den importerade IB-verifikationen.
+        """Ett år med föregående år i böckerna räknar fram sin IB. Filens #IB
+        sparas bara för avstämning, och en avvikelse är en varning."""
+        fy_2025 = PeriodRepository.create_fiscal_year(
+            start_date=date(2025, 1, 1), end_date=date(2025, 12, 31)
+        )
+        PeriodRepository.create_period(
+            fiscal_year_id=fy_2025.id,
+            year=2025,
+            month=1,
+            start_date=date(2025, 1, 1),
+            end_date=date(2025, 1, 31),
+        )
+        sie_2025 = """#FLAGGA 0
+#FORMAT PC8
+#RAR 0 20250101 20251231
+#KONTO 1930 "Företagskonto"
+#KONTO 2081 "Aktieägartillskott"
+#KONTO 3010 "Försäljning tjänster"
+#IB 0 1930 100000
+#IB 0 2081 -100000
+#VER A 1 20250115 "Försäljning"
+{
+#TRANS 1930 {} 20000.00
+#TRANS 3010 {} -20000.00
+}
+"""
+        resp = client.post(
+            "/api/v1/import/sie4",
+            headers=auth_headers,
+            json={"content": sie_2025, "fiscal_year_id": fy_2025.id},
+        )
+        assert resp.json()["success"] is True
 
-        Regressionstest: tidigare härledde exporten IB genom att spela om
-        föregående års *bokförda* verifikationer. IB-verifikationen lämnas som
-        utkast av importern, så alla ingående balanser som bara fanns där
-        (aktiekapital, periodiseringsfonder, upplupna löner ...) försvann ur
-        #IB/#UB och driften växte år för år.
-        """
+        # The file says 2099 was never credited: it differs from what Bok
+        # derives (the 2025 result carried to 2099).
+        sie_2026 = """#FLAGGA 0
+#FORMAT PC8
+#RAR 0 20260101 20261231
+#KONTO 1930 "Företagskonto"
+#KONTO 2081 "Aktieägartillskott"
+#IB 0 1930 120000
+#IB 0 2081 -120000
+"""
+        resp = client.post(
+            "/api/v1/import/sie4",
+            headers=auth_headers,
+            json={"content": sie_2026},
+        )
+        body = resp.json()
+        assert body["success"] is True
+        assert len(body["warnings"]) == 1
+        assert "2099" in body["warnings"][0]
+
+        fy_2026_id = body["fiscal_year"]["id"]
+        opening = client.get(
+            f"/api/v1/fiscal-years/{fy_2026_id}/opening-balances"
+        ).json()
+        assert opening["source"] == "derived"
+        assert opening["previous_fiscal_year_id"] == fy_2025.id
+        assert opening["balanced"] is True
+        assert opening["balances"] == [
+            {"account": "1930", "amount": 12000000},
+            {"account": "2081", "amount": -10000000},
+            {"account": "2099", "amount": -2000000},
+        ]
+        assert {d["account"] for d in opening["stated_differences"]} == {
+            "2081",
+            "2099",
+        }
+
+    def test_export_reflects_imported_opening_balance(self, client, auth_headers):
+        """Exporten ska spegla den importerade ingående balansen — även konton
+        som ingen verifikation under året rör (aktiekapital,
+        periodiseringsfonder, upplupna löner ...)."""
         for code, name, acc_type in [
             ("1930", "Företagskonto", "asset"),
             ("2081", "Aktiekapital", "equity"),
@@ -437,13 +444,13 @@ class TestSIE4ImportOpeningBalances:
         assert "#IB 0 2081 -50000.00" in content
         assert "#IB 0 2890 -150000.00" in content
 
-        # UB = IB + rörelse, utan dubbelräkning av IB-verifikationen.
+        # UB = IB + rörelse.
         assert "#UB 0 1930 190000.00" in content  # 200000 - 10000
         assert "#UB 0 2081 -50000.00" in content  # oförändrat
         assert "#UB 0 2890 -150000.00" in content  # oförändrat
         assert "#RES 0 5010 10000.00" in content
 
-        # IB-verifikationen skrivs aldrig ut som #VER.
+        # IB är ingen verifikation och skrivs aldrig ut som #VER.
         assert "#VER IB" not in content
         assert "#VER A 1" in content
 

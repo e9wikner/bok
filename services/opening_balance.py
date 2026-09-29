@@ -1,255 +1,258 @@
-"""Opening balance service - manages IB (ingående balans) vouchers."""
+"""Opening balance (ingående balans, IB) of a fiscal year.
 
+IB is not a voucher: it records no business transaction, it is the
+previous fiscal year's closing position (balanskontinuitet). So:
+
+- A fiscal year with a preceding fiscal year in the books has its IB
+  *derived* on every read: the previous year's IB plus its posted
+  movements on the balance accounts (class 1-2), with the year's net on the
+  result accounts (class 3-8) -- the result not yet closed to equity --
+  carried to 2099. It follows every change to the previous year until that
+  year is locked, with nothing to update or re-post.
+- The first fiscal year in the books has nothing to derive from: its IB is
+  *stated* -- from an SIE4 file's `#IB 0`, or entered -- and kept in
+  `opening_balances`, editable until the year is locked.
+
+A stated IB for a year that has a predecessor (an SIE4 file imported after
+its previous year) does not count; it is kept only to be reconciled
+against the derived one (`stated_differences`).
+
+Amounts are öre, debit positive (SIE4 sign convention).
+"""
+
+from collections import defaultdict
+from dataclasses import dataclass, field
 from datetime import date
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
-from domain.models import FiscalYear, Period, Voucher
-from domain.types import VoucherSeries, VoucherStatus
+from domain.models import FiscalYear
+from domain.types import AuditAction
 from domain.validation import ValidationError
 from repositories.audit_repo import AuditRepository
+from repositories.opening_balance_repo import OpeningBalanceRepository
 from repositories.period_repo import PeriodRepository
-from repositories.voucher_repo import VoucherRepository
-from services.ledger import LedgerService
+
+# Årets resultat (BAS): where the previous year's unclosed result lands.
+RESULT_ACCOUNT = "2099"
+
+SOURCE_DERIVED = "derived"
+SOURCE_STATED = "stated"
+SOURCE_NONE = "none"
+
+
+def is_balance_account(code: str) -> bool:
+    return code[:1] in ("1", "2")
+
+
+def is_result_account(code: str) -> bool:
+    return code[:1] in ("3", "4", "5", "6", "7", "8")
+
+
+def balance_differences(
+    stated: Dict[str, int], derived: Dict[str, int]
+) -> Dict[str, Tuple[int, int]]:
+    """Accounts where two IBs disagree: `{account: (stated, derived)}`."""
+    return {
+        code: (stated.get(code, 0), derived.get(code, 0))
+        for code in sorted(set(stated) | set(derived))
+        if stated.get(code, 0) != derived.get(code, 0)
+    }
+
+
+def carry_forward(opening: Dict[str, int], movements: Dict[str, int]) -> Dict[str, int]:
+    """The next year's IB from one year's IB and posted movements."""
+    closing: Dict[str, int] = defaultdict(int)
+    for code, amount in opening.items():
+        if is_balance_account(code):
+            closing[code] += amount
+    result = 0
+    for code, net in movements.items():
+        if is_balance_account(code):
+            closing[code] += net
+        elif is_result_account(code):
+            result += net
+    closing[RESULT_ACCOUNT] += result
+    return {code: amount for code, amount in closing.items() if amount != 0}
+
+
+@dataclass
+class OpeningBalance:
+    fiscal_year_id: str
+    source: str
+    balances: Dict[str, int]
+    previous_fiscal_year_id: Optional[str] = None
+    stated_differences: Dict[str, Tuple[int, int]] = field(default_factory=dict)
+
+    @property
+    def balanced(self) -> bool:
+        return sum(self.balances.values()) == 0
 
 
 class OpeningBalanceService:
-    """Manages opening balance (IB) vouchers.
-
-    IB vouchers are special vouchers with series "IB" that represent
-    the opening balances for a fiscal year.
-    """
+    """Reads and states the IB of a fiscal year."""
 
     def __init__(self):
-        self.vouchers = VoucherRepository()
         self.periods = PeriodRepository()
-        self.fiscal_years = PeriodRepository()
+        self.repo = OpeningBalanceRepository()
         self.audit = AuditRepository()
-        self.ledger = LedgerService()
 
-    def update_opening_balances(
-        self, fiscal_year_id: str, actor: str = "system"
-    ) -> Optional[Voucher]:
-        """Update or create IB voucher for a fiscal year."""
-        fy = self.fiscal_years.get_fiscal_year(fiscal_year_id)
-        if not fy:
+    def balances(self, fiscal_year_id: str) -> Dict[str, int]:
+        """The IB that counts for the fiscal year, per account."""
+        return self.get(fiscal_year_id).balances
+
+    def get(self, fiscal_year_id: str) -> OpeningBalance:
+        years = self.periods.list_fiscal_years()
+        fiscal_year = next((y for y in years if y.id == fiscal_year_id), None)
+        if fiscal_year is None:
             raise ValidationError("fiscal_year_not_found", "Fiscal year not found")
 
-        prev_fy = self._get_previous_fiscal_year(fy)
-        if not prev_fy:
-            return None
+        chain = [fiscal_year]
+        while (previous := self._previous(chain[-1], years)) is not None:
+            chain.append(previous)
+        chain.reverse()  # oldest first, the requested year last
 
-        opening_balances = self._calculate_prior_year_balances(prev_fy.id)
-        if not opening_balances:
-            return None
-
-        ib_voucher = self._find_ib_voucher(fiscal_year_id)
-        first_period = self._get_first_period(fiscal_year_id)
-        if not first_period:
-            raise ValidationError("period_not_found", "No period found for fiscal year")
-
-        rows_data = []
-        for account_code, balance in opening_balances.items():
-            if balance == 0:
-                continue
-            if balance > 0:
-                rows_data.append(
-                    {
-                        "account": account_code,
-                        "debit": balance,
-                        "credit": 0,
-                        "description": "Ingående balans",
-                    }
-                )
-            else:
-                rows_data.append(
-                    {
-                        "account": account_code,
-                        "debit": 0,
-                        "credit": abs(balance),
-                        "description": "Ingående balans",
-                    }
-                )
-
-        if not rows_data:
-            return None
-
-        if ib_voucher:
-            return self._update_ib_voucher(
-                ib_voucher, rows_data, fy.start_date.year, actor
-            )
-        else:
-            return self._create_ib_voucher(
-                fiscal_year_id, first_period.id, fy.start_date, rows_data, actor
+        stated_first = {
+            code: amount
+            for code, amount in self.repo.get_stated(chain[0].id).items()
+            if is_balance_account(code)
+        }
+        if len(chain) == 1:
+            return OpeningBalance(
+                fiscal_year_id=fiscal_year_id,
+                source=SOURCE_STATED if stated_first else SOURCE_NONE,
+                balances=stated_first,
             )
 
-    def _find_ib_voucher(self, fiscal_year_id: str) -> Optional[Voucher]:
-        vouchers, _ = self.vouchers.list_all(fiscal_year_id=fiscal_year_id)
-        for voucher in vouchers:
-            if voucher.series == VoucherSeries.IB:
-                return voucher
-        return None
+        balances = stated_first
+        for year in chain[:-1]:
+            balances = carry_forward(balances, self.repo.movements(year.id))
 
-    def _get_first_period(self, fiscal_year_id: str) -> Optional[Period]:
-        periods = self.periods.list_periods(fiscal_year_id)
-        if not periods:
-            return None
-        return min(periods, key=lambda p: (p.year, p.month))
-
-    def _get_previous_fiscal_year(self, fy: FiscalYear) -> Optional[FiscalYear]:
-        all_years = self.fiscal_years.list_fiscal_years()
-        prev_year = None
-        for year in all_years:
-            if year.end_date < fy.start_date:
-                if prev_year is None or year.end_date > prev_year.end_date:
-                    prev_year = year
-        return prev_year
-
-    def _calculate_prior_year_balances(
-        self, prev_fiscal_year_id: str
-    ) -> Dict[str, int]:
-        vouchers, _ = self.vouchers.list_all(
-            fiscal_year_id=prev_fiscal_year_id, status="posted"
+        stated = self.repo.get_stated(fiscal_year_id)
+        return OpeningBalance(
+            fiscal_year_id=fiscal_year_id,
+            source=SOURCE_DERIVED,
+            balances=balances,
+            previous_fiscal_year_id=chain[-2].id,
+            stated_differences=(
+                balance_differences(stated, balances) if stated else {}
+            ),
         )
 
-        balances = {}
-        for voucher in vouchers:
-            for row in voucher.rows:
-                code = row.account_code
-                if not code or len(code) < 1 or code[0] not in ("1", "2"):
-                    continue
+    def position_at(self, day: date) -> Dict[str, int]:
+        """Balance accounts at the start of *day*: the IB of the fiscal year
+        holding it plus that year's movements before it. After the last
+        fiscal year, that year's closing position; before the first, nothing.
+        """
+        years = self.periods.list_fiscal_years()
+        holding = next((y for y in years if y.start_date <= day <= y.end_date), None)
+        if holding is not None:
+            position: Dict[str, int] = defaultdict(int, self.balances(holding.id))
+            for code, net in self.repo.movements(holding.id, before=day).items():
+                if is_balance_account(code):
+                    position[code] += net
+            return {code: amount for code, amount in position.items() if amount}
+        earlier = [y for y in years if y.end_date < day]
+        if not earlier:
+            return {}
+        last = max(earlier, key=lambda y: y.end_date)
+        return carry_forward(self.balances(last.id), self.repo.movements(last.id))
 
-                if code not in balances:
-                    balances[code] = 0
+    def previous_fiscal_year(self, fiscal_year_id: str) -> Optional[FiscalYear]:
+        years = self.periods.list_fiscal_years()
+        fiscal_year = next((y for y in years if y.id == fiscal_year_id), None)
+        return self._previous(fiscal_year, years) if fiscal_year else None
 
-                if code[0] == "1":
-                    balances[code] += (row.debit or 0) - (row.credit or 0)
-                else:
-                    balances[code] += (row.credit or 0) - (row.debit or 0)
+    def next_fiscal_year(self, fiscal_year_id: str) -> Optional[FiscalYear]:
+        years = self.periods.list_fiscal_years()
+        fiscal_year = next((y for y in years if y.id == fiscal_year_id), None)
+        if fiscal_year is None:
+            return None
+        later = [y for y in years if y.start_date > fiscal_year.end_date]
+        return min(later, key=lambda y: y.start_date) if later else None
 
-        return balances
-
-    def _create_ib_voucher(
+    def state(
         self,
         fiscal_year_id: str,
-        period_id: str,
-        voucher_date: date,
-        rows_data: List[Dict],
+        balances: Dict[str, int],
         actor: str,
-    ) -> Voucher:
-        year = voucher_date.year
+        require_first_year: bool = True,
+    ) -> OpeningBalance:
+        """Replace the stated IB of a fiscal year.
 
-        voucher = self.ledger.create_voucher(
-            series=VoucherSeries.IB.value,
-            date=voucher_date,
-            period_id=period_id,
-            description=f"Ingående balans {year}",
-            rows_data=rows_data,
-            created_by=actor,
-        )
+        It counts only for the first fiscal year in the books; for a later
+        year `require_first_year` refuses it (`opening_balance_derived`) --
+        the SIE4 import passes False to keep a file's IB for reconciliation.
+        A stated IB that counts must balance.
+        """
+        from repositories.account_repo import AccountRepository
 
-        voucher = self.ledger.post_voucher(voucher.id, actor=actor)
-
-        self.audit.log(
-            entity_type="opening_balance",
-            entity_id=voucher.id,
-            action="created",
-            actor=actor,
-            payload={
-                "fiscal_year_id": fiscal_year_id,
-                "year": year,
-                "accounts_count": len(rows_data),
-            },
-        )
-
-        return voucher
-
-    def _update_ib_voucher(
-        self, ib_voucher: Voucher, rows_data: List[Dict], year: int, actor: str
-    ) -> Voucher:
-        old_rows = [
-            {"account": r.account_code, "debit": r.debit, "credit": r.credit}
-            for r in ib_voucher.rows
-        ]
-
-        if ib_voucher.status == VoucherStatus.DRAFT:
-            self.vouchers.delete_draft(ib_voucher.id)
-        else:
+        fiscal_year = self.periods.get_fiscal_year(fiscal_year_id)
+        if fiscal_year is None:
+            raise ValidationError("fiscal_year_not_found", "Fiscal year not found")
+        if fiscal_year.locked:
             raise ValidationError(
-                "ib_voucher_posted",
-                "Cannot update posted IB voucher",
-                "IB vouchers should not be posted before update",
+                "fiscal_year_locked",
+                "Fiscal year is locked",
+                "the opening balance of a locked fiscal year cannot change",
             )
 
-        fiscal_year_id = ib_voucher.fiscal_year_id
-        period_id = ib_voucher.period_id
+        balances = {code: amount for code, amount in balances.items() if amount}
+        not_balance = sorted(c for c in balances if not is_balance_account(c))
+        if not_balance:
+            raise ValidationError(
+                "opening_balance_not_balance_account",
+                "Opening balances are only for balance accounts (class 1-2)",
+                f"accounts={','.join(not_balance)}",
+            )
+        missing = sorted(c for c in balances if not AccountRepository.exists(c))
+        if missing:
+            raise ValidationError(
+                "account_not_found",
+                "Account not found",
+                f"accounts={','.join(missing)}",
+            )
 
-        new_voucher = self.ledger.create_voucher(
-            series=VoucherSeries.IB.value,
-            date=ib_voucher.date,
-            period_id=period_id,
-            description=f"Ingående balans {year}",
-            rows_data=rows_data,
-            created_by=actor,
+        is_first_year = (
+            self._previous(fiscal_year, self.periods.list_fiscal_years()) is None
         )
+        if require_first_year and not is_first_year:
+            raise ValidationError(
+                "opening_balance_derived",
+                "The fiscal year's opening balance is derived from the previous year",
+                "only the first fiscal year in the books has a stated opening balance",
+            )
+        total = sum(balances.values())
+        if is_first_year and total != 0:
+            raise ValidationError(
+                "opening_balance_unbalanced",
+                "Opening balance does not balance",
+                f"debit-credit={total}",
+            )
 
-        new_voucher = self.ledger.post_voucher(new_voucher.id, actor=actor)
+        from db.database import db
 
-        self.audit.log(
-            entity_type="opening_balance",
-            entity_id=new_voucher.id,
-            action="updated",
-            actor=actor,
-            payload={
-                "fiscal_year_id": fiscal_year_id,
-                "year": year,
-                "accounts_count": len(rows_data),
-                "previous_accounts_count": len(old_rows),
-            },
-        )
+        before = self.repo.get_stated(fiscal_year_id)
+        with db.transaction():
+            self.repo.replace_stated(fiscal_year_id, balances, actor, _commit=False)
+            self.audit.log(
+                entity_type="opening_balance",
+                entity_id=fiscal_year_id,
+                action=(
+                    AuditAction.UPDATED.value if before else AuditAction.CREATED.value
+                ),
+                actor=actor,
+                payload={
+                    "fiscal_year": f"{fiscal_year.start_date} - {fiscal_year.end_date}",
+                    "before": before,
+                    "after": balances,
+                },
+                _commit=False,
+            )
+        return self.get(fiscal_year_id)
 
-        return new_voucher
-
-    def update_opening_balances_for_next_year(
-        self, current_fiscal_year_id: str, actor: str = "system"
-    ) -> Optional[Voucher]:
-        """Update IB for the next fiscal year when current year changes.
-
-        This should be called after posting a voucher in the current year
-        to ensure the next year's IB is up to date.
-
-        Args:
-            current_fiscal_year_id: The fiscal year that had changes
-            actor: Who triggered the update
-
-        Returns:
-            The updated IB voucher for the next year, or None
-        """
-        # Get current fiscal year
-        fy = self.fiscal_years.get_fiscal_year(current_fiscal_year_id)
-        if not fy:
-            return None
-
-        # Find next fiscal year
-        next_fy = self._get_next_fiscal_year(fy)
-        if not next_fy:
-            return None
-
-        # Check if next year has IB voucher
-        existing_ib = self._find_ib_voucher(next_fy.id)
-
-        # Only update if IB exists (don't create new one automatically)
-        # This prevents creating IB vouchers unexpectedly
-        if existing_ib:
-            return self.update_opening_balances(next_fy.id, actor)
-
-        return None
-
-    def _get_next_fiscal_year(self, fy: FiscalYear) -> Optional[FiscalYear]:
-        """Get the fiscal year immediately after the given one."""
-        all_years = self.fiscal_years.list_fiscal_years()
-        next_year = None
-        for year in all_years:
-            if year.start_date > fy.end_date:
-                if next_year is None or year.start_date < next_year.start_date:
-                    next_year = year
-        return next_year
+    @staticmethod
+    def _previous(
+        fiscal_year: FiscalYear, years: List[FiscalYear]
+    ) -> Optional[FiscalYear]:
+        earlier = [y for y in years if y.end_date < fiscal_year.start_date]
+        return max(earlier, key=lambda y: y.end_date) if earlier else None

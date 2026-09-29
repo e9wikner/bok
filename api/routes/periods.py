@@ -5,9 +5,17 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from api.deps import get_current_actor, get_human_actor, get_ledger_service
-from api.schemas import FiscalYearResponse, PeriodResponse
+from api.schemas import (
+    FiscalYearResponse,
+    OpeningBalanceDifference,
+    OpeningBalanceRequest,
+    OpeningBalanceResponse,
+    OpeningBalanceRow,
+    PeriodResponse,
+)
 from domain.validation import ValidationError
 from services.ledger import LedgerService
+from services.opening_balance import OpeningBalance, OpeningBalanceService
 
 router = APIRouter(prefix="/api/v1", tags=["periods"])
 
@@ -219,6 +227,72 @@ async def unlock_fiscal_year(
         return _fiscal_year_to_response(ledger.unlock_fiscal_year(fy_id, actor=actor))
     except ValidationError as e:
         raise _lock_error(e)
+
+
+@router.get(
+    "/fiscal-years/{fy_id}/opening-balances",
+    response_model=OpeningBalanceResponse,
+)
+async def get_opening_balances(fy_id: str):
+    """
+    The fiscal year's opening balance (ingående balans, IB).
+
+    IB is not a voucher. A year with a previous fiscal year in the books
+    derives it from that year's closing position, the unclosed result on
+    2099 (`source: derived`), so it follows every change until the previous
+    year is locked. The first year's is stated (`source: stated`). A stated
+    IB kept for a derived year -- an SIE4 file's -- is reconciled in
+    `stated_differences`.
+    """
+    try:
+        return _opening_balance_response(OpeningBalanceService().get(fy_id))
+    except ValidationError as e:
+        raise _lock_error(e)
+
+
+@router.put(
+    "/fiscal-years/{fy_id}/opening-balances",
+    response_model=OpeningBalanceResponse,
+)
+async def put_opening_balances(
+    fy_id: str,
+    request: OpeningBalanceRequest,
+    actor: str = Depends(get_current_actor),
+):
+    """
+    Replace the first fiscal year's stated opening balance.
+
+    Only the first fiscal year in the books has one: a later year's is
+    derived (`400 opening_balance_derived`). Balance accounts only, and it
+    must balance (`opening_balance_unbalanced`). Refused while the year is
+    locked (`fiscal_year_locked`). Audit-logged with before and after.
+    """
+    balances: dict = {}
+    for row in request.balances:
+        balances[row.account] = balances.get(row.account, 0) + row.amount
+    try:
+        return _opening_balance_response(
+            OpeningBalanceService().state(fy_id, balances, actor=actor)
+        )
+    except ValidationError as e:
+        raise _lock_error(e)
+
+
+def _opening_balance_response(opening: OpeningBalance) -> OpeningBalanceResponse:
+    return OpeningBalanceResponse(
+        fiscal_year_id=opening.fiscal_year_id,
+        source=opening.source,
+        previous_fiscal_year_id=opening.previous_fiscal_year_id,
+        balanced=opening.balanced,
+        balances=[
+            OpeningBalanceRow(account=code, amount=amount)
+            for code, amount in sorted(opening.balances.items())
+        ],
+        stated_differences=[
+            OpeningBalanceDifference(account=code, stated=stated, derived=derived)
+            for code, (stated, derived) in opening.stated_differences.items()
+        ],
+    )
 
 
 @router.post("/periods/{period_id}/lock", response_model=PeriodResponse)
