@@ -127,8 +127,32 @@ export function oppnaKvitto(voucherId: string): Promise<boolean> {
   return oppnaUnderlag(async () => kvittoKalla(await bockerApi.getKallkontext(voucherId)));
 }
 
-/** Så många postade verifikationer visas; resten finns i /vouchers. */
+/** Postade hämtas så många i taget; nästa sida när listans slut syns (SPEC-lasbarhet.md §4.5). */
 export const VERIFIKATIONER_ANTAL = 50;
+
+/**
+ * Postades hämtade sidor som en lista. Listan kan ha ändrats mellan två
+ * sidor — en ny postning skjuter allt ett steg — så en verifikation står
+ * bara på sin första plats. `total` är den senast hämtade sidans.
+ */
+export function slaSamman(sidor: readonly Verifikationslista[]): Verifikationslista {
+  const sedda = new Set<string>();
+  const vouchers: Verifikation[] = [];
+  for (const sida of sidor) {
+    for (const v of sida.vouchers) {
+      if (sedda.has(v.id)) continue;
+      sedda.add(v.id);
+      vouchers.push(v);
+    }
+  }
+  return { total: sidor[sidor.length - 1]?.total ?? 0, vouchers };
+}
+
+/** Nästa sidas `offset`, eller `undefined` när `total` är nådd (eller sidan var tom). */
+export function nastaSida(sida: Verifikationslista, offset: number): number | undefined {
+  const nasta = offset + sida.vouchers.length;
+  return sida.vouchers.length > 0 && nasta < sida.total ? nasta : undefined;
+}
 
 export const bockerApi = {
   getBalansrakning: async (fiscalYearId: string): Promise<Balansrakning> => {
@@ -148,19 +172,21 @@ export const bockerApi = {
   /**
    * `missingAttachment` (SPEC-flode-underlag.md §10.4): `false` ger Postade
    * utan dem som saknar underlag, så att en verifikation står på ett ställe.
-   * Utelämnad skickas den inte.
+   * Utelämnad skickas den inte. `offset` sidar Postade (SPEC-lasbarhet.md §4.5).
    */
   getVerifikationer: async (
     fiscalYearId: string,
     status: "posted" | "draft",
     limit?: number,
-    missingAttachment?: boolean
+    missingAttachment?: boolean,
+    offset?: number
   ): Promise<Verifikationslista> => {
     const { data } = await apiClient.get<Verifikationslista>("/api/v1/vouchers", {
       params: {
         fiscal_year_id: fiscalYearId,
         status,
         limit,
+        offset,
         sort_by: "date",
         sort_order: "desc",
         exclude_series: "IB",

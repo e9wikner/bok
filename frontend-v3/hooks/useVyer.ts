@@ -1,6 +1,7 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useCallback } from "react";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { BESLUT_GRANS, beslutStatusNyckel } from "@/hooks/useBeslut";
 import { FORSLAG_GRANS, forslagNyckel } from "@/hooks/useForslag";
 import { usePostningar } from "@/hooks/usePostningar";
@@ -8,7 +9,15 @@ import { VOUCHERS_NYCKEL, hamtaBeslut, hamtaForslag } from "@/lib/chattyta/api";
 import { KOPPLINGAR_NYCKEL, type Koppling } from "@/lib/chattyta/kopplingar";
 import type { OverviewFiscalYear } from "@/lib/skal/api";
 import { betalaApi, faktureringVy, lonerVy } from "@/lib/skal/betala";
-import { VERIFIKATIONER_ANTAL, balansVy, bockerApi, resultatVy, verifikationerVy } from "@/lib/skal/bocker";
+import {
+  VERIFIKATIONER_ANTAL,
+  balansVy,
+  bockerApi,
+  nastaSida,
+  resultatVy,
+  slaSamman,
+  verifikationerVy,
+} from "@/lib/skal/bocker";
 import { atgarderVy, bokslutApi, rapporterVy } from "@/lib/skal/bokslut";
 import { FEL_VY, INGET_AR_VY, LADDAR_VY, type VyData } from "@/lib/skal/vydata";
 import type { Sidnyckel, ViewKey } from "@/lib/skal/vyer";
@@ -65,12 +74,27 @@ export function useVyer(
   // postning (`usePostaUtkast`) når listorna utan att känna till vyn.
   // Postade utan dem som saknar underlag: de står i sin egen sektion, och
   // en verifikation visas på ett ställe (SPEC-flode-underlag.md §10.4).
-  const postade = useQuery({
+  //
+  // Sida för sida (SPEC-lasbarhet.md §4.5): nästa sida när listans slut syns.
+  // En invalidering hämtar om alla hämtade sidor, från offset 0.
+  const postadeSidor = useInfiniteQuery({
     queryKey: [...VOUCHERS_NYCKEL, "skal", id, "posted"],
-    queryFn: () => bockerApi.getVerifikationer(id, "posted", VERIFIKATIONER_ANTAL, false),
+    queryFn: ({ pageParam }) =>
+      bockerApi.getVerifikationer(id, "posted", VERIFIKATIONER_ANTAL, false, pageParam),
+    initialPageParam: 0,
+    getNextPageParam: (sida, _sidor, offset) => nastaSida(sida, offset),
     enabled: bocker,
     staleTime,
   });
+  const postade = {
+    data: postadeSidor.data ? slaSamman(postadeSidor.data.pages) : undefined,
+    isError: postadeSidor.isError,
+  };
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = postadeSidor;
+  const hamtaFler = useCallback(() => {
+    // Utan spärren avbryter ett andra anrop det pågående och börjar om.
+    if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
   const saknar = useQuery({
     queryKey: [...VOUCHERS_NYCKEL, "skal", id, "saknar"],
     queryFn: () => bockerApi.getSaknarUnderlag(id),
@@ -139,15 +163,17 @@ export function useVyer(
     "bocker.resultat": utanAr ?? vy([resultat], (r) => resultatVy(ar!, r)),
     "bocker.verifikationer":
       utanAr ??
-      vy([postade, utkast, beslut, forslag, saknar], (p, u, b, f, s) =>
-        verifikationerVy(ar!, p, u, {
+      vy([postade, utkast, beslut, forslag, saknar], (p, u, b, f, s) => ({
+        ...verifikationerVy(ar!, p, u, {
           beslut: b.decisions,
           forslag: f.drafts,
           postningar,
           saknar: s,
           kopplingar: kopplingar ?? [],
-        })
-      ),
+        }),
+        harFler: hasNextPage,
+        hamtaFler,
+      })),
     "betala.fakturering": vy([fakturor], faktureringVy),
     "betala.loner": vy([loner], lonerVy),
     "bokslut.rapporter": vy([rakenskapsar], rapporterVy),

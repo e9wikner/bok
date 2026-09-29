@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { VyBanner } from "@/components/skal/VyBanner";
 import { VyHeaderStatus } from "@/components/skal/VyHeaderStatus";
 import { VyRad, VyRadSkelett } from "@/components/skal/VyRad";
@@ -85,10 +86,40 @@ export function VyInnehall({
           ))
         )}
 
+        {!laddar && data.harFler && data.hamtaFler && <LaddarFler hamtaFler={data.hamtaFler} />}
+
         <div className="pt-5 text-[13px] leading-[1.55] text-bok-text-svag [text-wrap:pretty]">
           {data.fot}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Vakten sist i listan (SPEC-lasbarhet.md §4.5): när raden syns hämtas
+ * nästa sida. Observatören görs om när `hamtaFler` byts — efter varje
+ * hämtad sida — så att en vakt som fortfarande syns ber om nästa.
+ */
+function LaddarFler({ hamtaFler }: { hamtaFler: () => void }) {
+  const vakt = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = vakt.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const observator = new IntersectionObserver(
+      (poster) => {
+        if (poster.some((p) => p.isIntersecting)) hamtaFler();
+      },
+      { rootMargin: "200px 0px" }
+    );
+    observator.observe(el);
+    return () => observator.disconnect();
+  }, [hamtaFler]);
+
+  return (
+    <div ref={vakt} className="bok-mono pt-4 text-[12px] text-bok-meta" aria-live="polite">
+      Laddar fler…
     </div>
   );
 }

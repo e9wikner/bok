@@ -44,6 +44,13 @@ export interface VyData {
   sektioner: VySektionData[];
   /** Fottexten säger vad agenten gör härnäst. Inget mer. */
   fot: string;
+  /**
+   * Listan har fler rader på servern (SPEC-lasbarhet.md §4.5). Då står
+   * "Laddar fler…" sist, och `hamtaFler` anropas när raden syns. En vy
+   * utan dem är hel.
+   */
+  harFler?: boolean;
+  hamtaFler?: () => void;
 }
 
 // ─── Vyernas rader ────────────────────────────────────────────────────────
