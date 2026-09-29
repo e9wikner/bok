@@ -18,7 +18,7 @@ from repositories.audit_repo import AuditRepository
 from repositories.customer_article_repo import ArticleRepository, CustomerRepository
 from repositories.invoice_draft_repo import InvoiceDraftRepository
 from repositories.period_repo import PeriodRepository
-from services.invoice import InvoiceService, unit_of_work
+from services.invoice import unit_of_work
 
 
 def _refuse_issued(draft) -> None:
@@ -192,89 +192,6 @@ class InvoiceDraftService:
             )
 
         return updated
-
-    def send(
-        self,
-        draft_id: str,
-        period_id: Optional[str] = None,
-        actor: str = "system",
-        _commit: bool = True,
-    ):
-        with unit_of_work(_commit):
-            draft = self.get_draft(draft_id)
-            _refuse_issued(draft)
-            if draft.status == "sent":
-                raise ValidationError(
-                    "draft_already_sent", "Invoice draft is already sent"
-                )
-            if draft.status == "rejected":
-                raise ValidationError(
-                    "draft_rejected", "Rejected invoice draft cannot be sent"
-                )
-            if not draft.rows:
-                raise ValidationError("missing_rows", "Invoice draft has no rows")
-            # The old send path books through InvoiceService.create_invoice,
-            # which only knows whole quantities. It is replaced by /issue
-            # (SPEC-fakturering.md §7); until then it refuses rather than
-            # booking a rounded amount.
-            if any((row.quantity_centi or 0) % 100 for row in draft.rows):
-                raise ValidationError(
-                    "decimal_quantity_not_supported",
-                    "A draft with a decimal quantity cannot be sent this way",
-                )
-
-            period_id = period_id or self._resolve_period_id(draft.invoice_date)
-            invoice_service = InvoiceService()
-            invoice = invoice_service.create_invoice(
-                customer_name=draft.customer_name,
-                invoice_date=draft.invoice_date,
-                due_date=draft.due_date,
-                rows_data=[
-                    {
-                        "description": row.description,
-                        "quantity": row.quantity,
-                        "unit_price": row.unit_price,
-                        "vat_code": row.vat_code,
-                        "revenue_account": row.revenue_account,
-                    }
-                    for row in draft.rows
-                ],
-                customer_org_number=draft.customer_org_number,
-                customer_email=draft.customer_email,
-                description=draft.description or draft.reference,
-                created_by=actor,
-                _commit=False,
-            )
-            invoice_service.send_invoice(invoice.id, actor=actor, _commit=False)
-            voucher_id = invoice_service.create_booking_for_invoice(
-                invoice.id, period_id, actor=actor, _commit=False
-            )
-            self.drafts.mark_sent(draft.id, invoice.id, voucher_id)
-
-            self.audit.log(
-                entity_type="invoice_draft",
-                entity_id=draft.id,
-                action="sent",
-                actor=actor,
-                payload={
-                    "invoice_id": invoice.id,
-                    "voucher_id": voucher_id,
-                    "period_id": period_id,
-                },
-                _commit=False,
-            )
-
-        if _commit:
-            from services.ledger import run_statement_match_after_posting
-
-            run_statement_match_after_posting()
-
-        return {
-            "draft": self.drafts.get(draft.id),
-            "invoice": invoice_service.invoices.get(invoice.id),
-            "voucher_id": voucher_id,
-            "pdf_url": f"/api/v1/export/pdf/invoice/{invoice.id}",
-        }
 
     def reject(self, draft_id: str, actor: str = "system", _commit: bool = True):
         with unit_of_work(_commit):

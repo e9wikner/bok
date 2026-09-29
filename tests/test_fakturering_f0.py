@@ -608,7 +608,6 @@ def test_08_issued_invoice_is_append_only_in_the_database(test_db):
 # --- 9, 10, 14: routes (uppgift 8) ------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="F0 uppgift 8")
 def test_09_the_api_key_may_not_issue(client, customer, auth_headers):
     draft = _draft(customer)
     before = _snapshot()
@@ -622,7 +621,6 @@ def test_09_the_api_key_may_not_issue(client, customer, auth_headers):
     assert _snapshot() == before
 
 
-@pytest.mark.xfail(strict=True, reason="F0 uppgift 8")
 def test_09b_issue_route_status_codes(client, customer, human_headers):
     unnumbered = _draft(customer, invoice_number=None)
     missing = client.post(
@@ -656,7 +654,6 @@ def test_09b_issue_route_status_codes(client, customer, human_headers):
     assert taken.json()["detail"]["invoice_id"] == body["invoice_id"]
 
 
-@pytest.mark.xfail(strict=True, reason="F0 uppgift 8")
 def test_10_pdf_download_is_the_stored_file(
     client, customer, human_headers, auth_headers, monkeypatch
 ):
@@ -738,7 +735,6 @@ def test_14_old_invoices_keep_their_numbers_and_can_be_read_and_paid(
     assert pdf.content.startswith(b"%PDF")
 
 
-@pytest.mark.xfail(strict=True, reason="F0 uppgift 8")
 def test_14b_the_old_invoice_routes_are_gone(client, books, customer, auth_headers):
     invoice_id = _insert_old_invoice()
     draft = _draft(customer)

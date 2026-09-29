@@ -26,7 +26,7 @@ import sqlite3
 import uuid
 from datetime import date, datetime
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 from config import settings
 from db.database import db
@@ -112,6 +112,35 @@ class InvoiceIssueService:
             "voucher_id": voucher_id,
             "pdf_url": f"/api/v1/invoices/{invoice_id}/pdf",
         }
+
+    def stored_pdf(self, invoice_id: str) -> Tuple[str, bytes]:
+        """The PDF stored when *invoice_id* was issued, byte for byte, and
+        its download name. Never renders (§3.6).
+
+        `invoice_not_found`; `pdf_not_stored` for an invoice from before F0,
+        with `export_url` to the rendering export; `pdf_file_missing` when
+        the row names a file that is not on disk -- an operations fault.
+        """
+        invoice = self.invoices.get(invoice_id)
+        if invoice is None:
+            raise ValidationError("invoice_not_found", "Invoice not found")
+        if not invoice.pdf_path:
+            raise ValidationError(
+                "pdf_not_stored",
+                "The invoice was not issued in Bok and has no stored PDF",
+                "the export renders one from the current data",
+                payload={"export_url": f"/api/v1/export/pdf/invoice/{invoice_id}"},
+            )
+        root = Path(settings.intake_dir).resolve()
+        path = (root / invoice.pdf_path).resolve()
+        if root not in path.parents or not path.is_file():
+            raise ValidationError(
+                "pdf_file_missing",
+                "The invoice's stored PDF is not on disk",
+                f"pdf_path={invoice.pdf_path}",
+                payload={"pdf_path": invoice.pdf_path},
+            )
+        return f"faktura_{invoice.invoice_number}.pdf", path.read_bytes()
 
     # --- checks (§5 step 2: each has its code, and nothing is written) ------
 

@@ -287,3 +287,41 @@ def test_book_invoice(invoice_service, invoice_period):
     # Verify invoice is linked to voucher
     updated = invoice_service.invoices.get(invoice.id)
     assert updated.voucher_id == voucher_id
+
+
+def test_an_old_invoice_has_no_stored_pdf(invoice_service):
+    """An invoice from before F0 was never issued in Bok: its PDF route is a
+    404 that points to the rendering export, not a newly rendered file."""
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+    from config import settings
+
+    invoice = invoice_service.create_invoice(
+        customer_name="Gammal Kund AB",
+        invoice_date=date(2026, 3, 1),
+        due_date=date(2026, 3, 31),
+        rows_data=[
+            {
+                "description": "Tjänst",
+                "quantity": 1,
+                "unit_price": 100000,
+                "vat_code": "MP1",
+            }
+        ],
+    )
+    client = TestClient(app)
+    headers = {"Authorization": f"Bearer {settings.api_key}"}
+
+    response = client.get(f"/api/v1/invoices/{invoice.id}/pdf", headers=headers)
+    assert response.status_code == 404
+    detail = response.json()["detail"]
+    assert detail["code"] == "pdf_not_stored"
+    assert detail["export_url"] == f"/api/v1/export/pdf/invoice/{invoice.id}"
+
+    listed = client.get("/api/v1/invoices", headers=headers).json()["invoices"]
+    assert listed[0]["pdf_url"] is None and listed[0]["issued_at"] is None
+
+    missing = client.get("/api/v1/invoices/no-such-id/pdf", headers=headers)
+    assert missing.status_code == 404
+    assert missing.json()["detail"]["code"] == "invoice_not_found"

@@ -6,7 +6,7 @@ from typing import List, Optional, Union
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from api.deps import get_current_actor
+from api.deps import get_current_actor, get_human_actor
 from domain.invoice_validation import ValidationError, quantity_from_centi
 from services.invoice_draft import InvoiceDraftService
 
@@ -77,10 +77,6 @@ class CreateInvoiceDraftRequest(BaseModel):
 
 class UpdateInvoiceDraftRequest(CreateInvoiceDraftRequest):
     pass
-
-
-class SendInvoiceDraftRequest(BaseModel):
-    period_id: Optional[str] = None
 
 
 @router.post("", response_model=dict, status_code=status.HTTP_201_CREATED)
@@ -171,30 +167,56 @@ async def update_invoice_draft(
         )
 
 
-@router.post("/{draft_id}/send", response_model=dict)
-async def send_invoice_draft(
+_ISSUE_CONFLICTS = ("draft_already_issued", "number_taken", "period_locked")
+
+
+@router.post(
+    "/{draft_id}/issue",
+    response_model=dict,
+    status_code=status.HTTP_201_CREATED,
+)
+async def issue_invoice_draft(
     draft_id: str,
-    request: SendInvoiceDraftRequest,
-    actor: str = Depends(get_current_actor),
+    actor: str = Depends(get_human_actor),
 ):
+    """
+    Issue the draft (utfärda, SPEC-fakturering.md §5): the invoice with the
+    draft's number, a posted A-series voucher (1510 / 30xx / 26xx), the PDF
+    stored and linked as underlag, and the draft marked `issued`, in one
+    transaction -- all of it or none of it.
+
+    Logged-in users only (JWT): the agent's API key gets `403 human_only`.
+    The agent proposes the draft; a human issues it.
+
+    - `201 {invoice_id, invoice_number, voucher_id, pdf_url}`
+    - `404 draft_not_found`
+    - `409 draft_already_issued {invoice_id}`,
+      `409 number_taken {invoice_number, invoice_id}`,
+      `409 period_locked {locked_by, locked_at}`
+    - `422 invoice_number_missing | number_is_date | invalid_invoice_number
+      | missing_rows | draft_rejected | customer_address_missing
+      | delivery_date_missing | company_info_incomplete {missing}
+      | period_not_found`
+    """
+    from services.invoice_issue import InvoiceIssueService
+
     try:
-        result = InvoiceDraftService().send(
-            draft_id=draft_id,
-            period_id=request.period_id,
-            actor=actor,
-        )
-        draft = result["draft"]
-        invoice = result["invoice"]
-        return {
-            "draft": _draft_to_dict(draft),
-            "invoice_id": invoice.id,
-            "invoice_number": invoice.invoice_number,
-            "voucher_id": result["voucher_id"],
-            "pdf_url": result["pdf_url"],
-        }
+        return InvoiceIssueService().issue(draft_id, actor=actor)
     except ValidationError as exc:
+        if exc.code == "draft_not_found":
+            code = status.HTTP_404_NOT_FOUND
+        elif exc.code in _ISSUE_CONFLICTS:
+            code = status.HTTP_409_CONFLICT
+        else:
+            code = 422  # HTTP_422_UNPROCESSABLE_{ENTITY,CONTENT} varies by Starlette
         raise HTTPException(
-            status_code=400, detail={"code": exc.code, "error": exc.message}
+            status_code=code,
+            detail={
+                "error": exc.message,
+                "code": exc.code,
+                "details": exc.details,
+                **exc.payload,
+            },
         )
 
 
@@ -236,14 +258,20 @@ def _draft_to_list_item(draft) -> dict:
         "agent_confidence": draft.agent_confidence,
         "approved_invoice_id": draft.approved_invoice_id,
         "approved_voucher_id": draft.approved_voucher_id,
-        "pdf_url": (
-            f"/api/v1/export/pdf/invoice/{draft.approved_invoice_id}"
-            if draft.approved_invoice_id
-            else None
-        ),
+        "pdf_url": _pdf_url(draft),
         "created_at": draft.created_at,
         "row_count": len(draft.rows),
     }
+
+
+def _pdf_url(draft) -> Optional[str]:
+    """An issued draft's invoice has a stored PDF; one sent the old way
+    only has the rendering export."""
+    if not draft.approved_invoice_id:
+        return None
+    if draft.status == "issued":
+        return f"/api/v1/invoices/{draft.approved_invoice_id}/pdf"
+    return f"/api/v1/export/pdf/invoice/{draft.approved_invoice_id}"
 
 
 def _draft_to_dict(draft) -> dict:

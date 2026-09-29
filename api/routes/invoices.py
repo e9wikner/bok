@@ -4,36 +4,16 @@ from datetime import date
 from typing import List, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from api.deps import get_current_actor
 from domain.invoice_validation import ValidationError as InvoiceValidationError
+from domain.invoice_validation import quantity_from_centi
 from domain.validation import ValidationError
 from services.invoice import InvoiceService
 
 router = APIRouter(prefix="/api/v1/invoices", tags=["invoices"])
-
-
-class InvoiceRowRequest(BaseModel):
-    """Request model for invoice row."""
-
-    description: str
-    quantity: int = Field(..., gt=0)
-    unit_price: int = Field(..., ge=0, description="Unit price in öre")
-    vat_code: str = Field(..., pattern="^(MP1|MP2|MP3|MF)$")
-    revenue_account: Optional[str] = None
-
-
-class CreateInvoiceRequest(BaseModel):
-    """Request model for creating an invoice."""
-
-    customer_name: str = Field(..., min_length=1)
-    invoice_date: date
-    due_date: date
-    description: Optional[str] = None
-    customer_org_number: Optional[str] = None
-    customer_email: Optional[str] = None
-    rows: List[InvoiceRowRequest] = Field(..., min_length=1)
 
 
 class PreviewInvoiceRowRequest(BaseModel):
@@ -82,69 +62,6 @@ async def preview_invoice(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
-        )
-
-
-@router.post("", response_model=dict, status_code=status.HTTP_201_CREATED)
-async def create_invoice(
-    request: CreateInvoiceRequest,
-    actor: str = Depends(get_current_actor),
-):
-    """
-    Create new invoice (Faktura).
-
-    Request body should include invoice rows:
-    ```json
-    {
-      "rows": [
-        {
-          "description": "Consulting services",
-          "quantity": 10,
-          "unit_price": 100000,  # 1,000 kr in öre
-          "vat_code": "MP1"  # 25% VAT
-        }
-      ]
-    }
-    ```
-    """
-    try:
-        service = InvoiceService()
-
-        rows_data = [r.model_dump() for r in request.rows]
-
-        invoice = service.create_invoice(
-            customer_name=request.customer_name,
-            invoice_date=request.invoice_date,
-            due_date=request.due_date,
-            rows_data=rows_data,
-            customer_org_number=request.customer_org_number,
-            customer_email=request.customer_email,
-            description=request.description,
-            created_by=actor,
-        )
-
-        return {
-            "id": invoice.id,
-            "invoice_number": invoice.invoice_number,
-            "customer_name": invoice.customer_name,
-            "invoice_date": invoice.invoice_date,
-            "due_date": invoice.due_date,
-            "amount_ex_vat": invoice.amount_ex_vat,
-            "vat_amount": invoice.vat_amount,
-            "amount_inc_vat": invoice.amount_inc_vat,
-            "status": invoice.status,
-            "rows_count": len(invoice.rows),
-            "created_at": invoice.created_at,
-        }
-
-    except (ValidationError, InvoiceValidationError) as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": str(e), "code": getattr(e, "code", "validation_error")},
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
 
 
@@ -219,6 +136,39 @@ def _invoice_to_list_item(inv) -> dict:
         "is_overdue": inv.is_overdue(),
         "row_count": len(inv.rows),
         "created_at": inv.created_at,
+        # SPEC-fakturering.md §4.3–4.4. Empty on invoices from before F0.
+        "issued_at": inv.issued_at,
+        "pdf_url": _pdf_url(inv),
+        "customer_address": inv.customer_address,
+        "customer_reference": inv.customer_reference,
+        "payment_terms_days": inv.payment_terms_days,
+        "source_draft_id": inv.source_draft_id,
+    }
+
+
+def _pdf_url(inv) -> Optional[str]:
+    """The stored PDF's URL; None for an invoice with none stored, whose
+    PDF only the rendering export (`/export/pdf/invoice/{id}`) gives."""
+    return f"/api/v1/invoices/{inv.id}/pdf" if inv.pdf_path else None
+
+
+def _invoice_row_to_dict(r) -> dict:
+    quantity_centi = r.quantity_centi or r.quantity * 100
+    return {
+        "description": r.description,
+        "quantity": quantity_from_centi(quantity_centi),
+        "quantity_centi": quantity_centi,
+        "unit": r.unit,
+        "unit_price": r.unit_price,
+        "vat_code": r.vat_code,
+        "revenue_account": r.revenue_account,
+        "article_number": r.article_number,
+        "delivery_from": r.delivery_from,
+        "delivery_to": r.delivery_to,
+        "delivery_month": r.delivery_month,
+        "amount_ex_vat": r.amount_ex_vat,
+        "vat_amount": r.vat_amount,
+        "amount_inc_vat": r.amount_inc_vat,
     }
 
 
@@ -250,22 +200,17 @@ async def get_invoice(invoice_id: str):
             "remaining_amount": invoice.remaining_amount(),
             "status": invoice.status,
             "is_overdue": invoice.is_overdue(),
-            "rows": [
-                {
-                    "description": r.description,
-                    "quantity": r.quantity,
-                    "unit_price": r.unit_price,
-                    "vat_code": r.vat_code,
-                    "revenue_account": r.revenue_account,
-                    "amount_ex_vat": r.amount_ex_vat,
-                    "vat_amount": r.vat_amount,
-                    "amount_inc_vat": r.amount_inc_vat,
-                }
-                for r in invoice.rows
-            ],
+            "rows": [_invoice_row_to_dict(r) for r in invoice.rows],
             "created_at": invoice.created_at,
             "sent_at": invoice.sent_at,
             "voucher_id": invoice.voucher_id,
+            "issued_at": invoice.issued_at,
+            "issued_by": invoice.issued_by,
+            "pdf_url": _pdf_url(invoice),
+            "customer_address": invoice.customer_address,
+            "customer_reference": invoice.customer_reference,
+            "payment_terms_days": invoice.payment_terms_days,
+            "source_draft_id": invoice.source_draft_id,
         }
 
     except HTTPException:
@@ -276,70 +221,42 @@ async def get_invoice(invoice_id: str):
         )
 
 
-@router.post("/{invoice_id}/send", response_model=dict)
-async def send_invoice(
-    invoice_id: str,
-    actor: str = Depends(get_current_actor),
-):
-    """Send invoice to customer."""
-    try:
-        service = InvoiceService()
-        invoice = service.send_invoice(invoice_id, actor=actor)
-
-        return {
-            "id": invoice.id,
-            "invoice_number": invoice.invoice_number,
-            "status": invoice.status,
-            "sent_at": invoice.sent_at,
-        }
-
-    except (ValidationError, InvoiceValidationError) as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": str(e), "code": getattr(e, "code", "validation_error")},
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
-        )
-
-
-class BookInvoiceRequest(BaseModel):
-    """Request model for booking an invoice."""
-
-    period_id: str
-
-
-@router.post("/{invoice_id}/book", response_model=dict)
-async def book_invoice(
-    invoice_id: str,
-    request: BookInvoiceRequest,
-    actor: str = Depends(get_current_actor),
-):
+@router.get("/{invoice_id}/pdf")
+async def get_invoice_pdf(invoice_id: str):
     """
-    Auto-book invoice to accounting system.
+    The PDF stored when the invoice was issued, byte for byte
+    (SPEC-fakturering.md §3.6). It is never rendered again.
 
-    Creates a double-entry voucher:
-    - Debit: Customer receivables (1510)
-    - Credit: Revenue + VAT
+    - `404 invoice_not_found`
+    - `404 pdf_not_stored`: an invoice from before F0, not issued in Bok.
+      `export_url` renders one from the current data; it is not the stored
+      original.
+    - `500 pdf_file_missing`: the row names a file that is not on disk.
     """
+    from services.invoice_issue import InvoiceIssueService
+
     try:
-        service = InvoiceService()
-        voucher_id = service.create_booking_for_invoice(
-            invoice_id, request.period_id, actor=actor
+        filename, pdf_bytes = InvoiceIssueService().stored_pdf(invoice_id)
+    except ValidationError as e:
+        code = (
+            status.HTTP_500_INTERNAL_SERVER_ERROR
+            if e.code == "pdf_file_missing"
+            else status.HTTP_404_NOT_FOUND
         )
-
-        return {"invoice_id": invoice_id, "voucher_id": voucher_id, "status": "booked"}
-
-    except (ValidationError, InvoiceValidationError) as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": str(e), "code": getattr(e, "code", "validation_error")},
+            status_code=code,
+            detail={
+                "error": e.message,
+                "code": e.code,
+                "details": e.details,
+                **e.payload,
+            },
         )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
-        )
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 class RegisterPaymentRequest(BaseModel):

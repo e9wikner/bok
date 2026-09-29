@@ -292,17 +292,6 @@ class InvoiceDraftRepository:
         ]
 
     @staticmethod
-    def mark_sent(draft_id: str, invoice_id: str, voucher_id: str) -> None:
-        db.execute(
-            """
-            UPDATE invoice_drafts
-            SET status = 'sent', approved_invoice_id = ?, approved_voucher_id = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (invoice_id, voucher_id, datetime.now(), draft_id),
-        )
-
-    @staticmethod
     def mark_issued(draft_id: str, invoice_id: str, voucher_id: str) -> None:
         """SPEC-fakturering.md §5 step 6. Only a draft that is not yet
         issued changes."""

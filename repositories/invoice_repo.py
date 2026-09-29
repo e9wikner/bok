@@ -23,6 +23,12 @@ def _as_date(value) -> Optional[date]:
     return date.fromisoformat(str(value)[:10])
 
 
+def _as_datetime(value) -> Optional[datetime]:
+    if value is None or isinstance(value, datetime):
+        return value
+    return datetime.fromisoformat(str(value))
+
+
 class InvoiceRepository:
     """Manage invoices."""
 
@@ -199,6 +205,10 @@ class InvoiceRepository:
             customer_reference=_col(row, "customer_reference"),
             payment_terms_days=_col(row, "payment_terms_days"),
             source_draft_id=_col(row, "source_draft_id"),
+            pdf_sha256=_col(row, "pdf_sha256"),
+            pdf_path=_col(row, "pdf_path"),
+            issued_at=_as_datetime(_col(row, "issued_at")),
+            issued_by=_col(row, "issued_by"),
         )
 
     @staticmethod

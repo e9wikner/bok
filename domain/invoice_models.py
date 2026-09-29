@@ -69,6 +69,10 @@ class Invoice:
     customer_reference: Optional[str] = None  # Er referens
     payment_terms_days: Optional[int] = None
     source_draft_id: Optional[str] = None
+    pdf_sha256: Optional[str] = None
+    pdf_path: Optional[str] = None  # relative to settings.intake_dir
+    issued_at: Optional[datetime] = None
+    issued_by: Optional[str] = None
 
     def is_draft(self) -> bool:
         """Check if invoice is still draft."""

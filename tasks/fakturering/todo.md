@@ -17,7 +17,7 @@ Spec: `docs/redesign/SPEC-fakturering.md`. Tester först, en uppgift i taget.
       inbäddat monospace-typsnitt. Testfall 13 och 15.
 - [x] 7. `InvoiceIssueService.issue` i en transaktion (§5), med PDF lagrad och
       kopplad som underlag. Testfall 1–7.
-- [ ] 8. Routes: `POST /invoice-drafts/{id}/issue` (JWT, felmappning) och
+- [x] 8. Routes: `POST /invoice-drafts/{id}/issue` (JWT, felmappning) och
       `GET /invoices/{id}/pdf`. Ta bort `POST /invoices`, `/send`, `/book` och
       `/invoice-drafts/{id}/send` (§7). Testfall 9, 10 och 14.
 - [ ] 9. Agentinstruktionen i `docs/to_agent/` (§8). Kör
