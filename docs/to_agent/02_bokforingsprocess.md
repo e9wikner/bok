@@ -23,7 +23,7 @@ Agenten nås i sin tur på två sätt, och de har olika utfall:
   Använd `registrera_avstaende` när du verkligen avstår från att bokföra ett
   underlag — inte för att avsluta ett samtal. Kräver samtalet i stället ett
   beslut du inte kan ta själv, lägg fram det med `be_om_beslut` — se "Lägg
-  fram ett beslut" nedan. Vill du att människan ser en kontering innan den
+  fram ett beslut" nedan. Vill du att användaren ser en kontering innan den
   bokförs, lägg fram den med `foresla_verifikation` — se "Lägg fram ett
   förslag" nedan.
 
@@ -247,7 +247,7 @@ Avstå från att posta och be om mänsklig komplettering när:
 ## Lägg fram ett beslut
 
 Ett avstående i ett samtal behöver inte vara ett tyst stopp. Verktyget
-`be_om_beslut` lägger fram ett beslut för människan att ta ställning till,
+`be_om_beslut` lägger fram ett beslut för användaren att ta ställning till,
 mitt i ett samtal i en tråd — med en motivering (`reason`), en konsekvens
 (`consequence`) och, om det finns, en lista med alternativ. Det postar
 ingenting, det ändrar ingenting och det rör bara beslutets egna tabeller: ett
@@ -261,7 +261,7 @@ andra.
 
 Samma lista som under "När agenten ska avstå" avgör *om* agenten ska avstå i
 stället för att gissa rätt konto, momssats eller period. Det `be_om_beslut`
-ändrar är vad avståendet blir: inte bara ett stopp, utan ett beslut människan
+ändrar är vad avståendet blir: inte bara ett stopp, utan ett beslut användaren
 kan svara på — med ett knapptryck eller med fritext.
 
 Tröskeln för när ett alternativ hör hemma under ett beslut i stället för att
@@ -278,30 +278,31 @@ avvisar listan annars:
 - sista alternativet ska alltid vara en väg ut
 
 `reason`, `consequence` och varje alternativs `rationale` lagras och visas för
-människan ordagrant, precis som de skrevs. Formulera dem för en läsare, inte
-för en logg.
+användaren ordagrant, precis som de skrevs. Formulera dem för en läsare, inte
+för en logg. Hur långa de får vara står i "Att skriva i en tråd" i
+`03_bokforingsinstruktion.md`.
 
 ## Lägg fram ett förslag
 
 I en tråd kan du lägga fram en verifikation i stället för att posta den.
 Verktyget `foresla_verifikation` skapar ett förslag — ett utkast utan nummer —
-och ett kort i tråden. Det postar aldrig. Människan postar förslaget med ett
+och ett kort i tråden. Det postar aldrig. Användaren postar förslaget med ett
 tryck, och numret sätts först då. Verktyget hör till ett samtal i en vy, inte
 till ett underlag i intagskön.
 
 Lägg fram ett förslag när:
 
-- människan har besvarat ett beslut och konteringen följer av svaret — ange
+- användaren har besvarat ett beslut och konteringen följer av svaret — ange
   beslutets id i `decision_id`, så att ändringen ligger under det beslut
-  människan tog
-- människan ber om en bokföring och du vill att människan ser konteringen innan
+  användaren tog
+- användaren ber om en bokföring och du vill att användaren ser konteringen innan
   den bokförs
 
 Posta direkt med `posta_verifikation` när underlaget och konteringen är
 tillräckligt klara, som förut. Ett förslag är inte ett sätt att slippa avstå:
 är konto, momssats eller period oklar, lägg fram ett beslut först.
 
-Vill människan ändra ett förslag som väntar, lägg fram ett nytt med det gamla
+Vill användaren ändra ett förslag som väntar, lägg fram ett nytt med det gamla
 förslagets id i `replaces_draft_id`. Det gamla förslaget ersätts; det blir
 aldrig två förslag för samma sak.
 
@@ -312,7 +313,7 @@ bygger servern; skicka den inte själv. Har verifikationen en öppen
 korrigeringsnotering — `las_korrigeringar` med `voucher_id` visar dem under
 `open_notes` — och är det den rättelsen svarar på, ange noteringens id i
 `correction_note_id`; noteringen stängs när rättelsen postas. Går förslaget inte
-att lägga fram, säg det till människan i svaret och posta aldrig en rättelse
+att lägga fram, säg det till användaren i svaret och posta aldrig en rättelse
 själv.
 (`POST /api/v1/vouchers/{id}/correct` under "Korrigera fel" gäller en extern
 session som anropar API:t direkt, inte en tråd.)

@@ -2223,9 +2223,10 @@ def test_u6_voucher_candidate_row_is_one_posted_voucher_any_window(
 # sha256 of `json.dumps(AGENT_TOOL_DEFINITIONS[:11])`, taken on `9523c81`,
 # before U7 touched `_TOOL_SPECS`. No `sort_keys`: the key order inside each
 # definition is part of the bytes the model is sent, and so of the cached
-# prefix (SPEC-agentruntime §6.6).
+# prefix (SPEC-agentruntime §6.6). Re-taken for SPEC-lasbarhet L6, which
+# deliberately rewords `be_om_beslut` and `foresla_verifikation`.
 _FIRST_ELEVEN_SHA256 = (
-    "fb742d38defdbfd4b9243def499d30a4917779f6a57c8e2199a7c67b31480ad6"
+    "7313a839ddbe6a6325de5ff6b0c847bd793cf8d61cf59495a26dd8329befba60"
 )
 
 

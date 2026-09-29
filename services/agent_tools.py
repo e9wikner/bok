@@ -288,11 +288,11 @@ class PostaVerifikationArgs(BaseModel):
 
 
 class ForeslaVerifikationArgs(BaseModel):
-    """Föreslå en verifikation i tråden, för människan att posta
+    """Föreslå en verifikation i tråden, för användaren att posta
     (SPEC-flode-verifikationer.md §5).
 
     Skapar ett utkast utan nummer och ett kort i tråden. Postar aldrig:
-    människans tryck på `Posta` är godkännandet. `description` blir
+    användarens tryck på `Posta` är godkännandet. `description` blir
     verifikationens text ordagrant; `footnote` visas bara i kortet. Serien
     väljer servern. Radtypen och spårbarhetsfälten är samma som
     ``posta_verifikation``s, så ett förslag som postas bär exakt det en
@@ -341,7 +341,13 @@ class BeOmBeslutOption(BaseModel):
     `recommended` skrivs ordagrant/exakt som satta, aldrig omräknade."""
 
     title: str
-    rationale: str
+    rationale: str = Field(
+        ...,
+        description=(
+            "En mening: varför alternativet passar. Förklara inte utförligt "
+            "varför ett alternativ inte rekommenderas."
+        ),
+    )
     account: Optional[str] = None
     amount_ore: Optional[int] = None
     recommended: bool = Field(
@@ -361,7 +367,7 @@ class BeOmBeslutOption(BaseModel):
 
 
 class BeOmBeslutArgs(BaseModel):
-    """Lägg fram ett beslut för människan att ta ställning till, mitt i ett
+    """Lägg fram ett beslut för användaren att ta ställning till, mitt i ett
     samtal (SPEC-beslut.md §6.4).
 
     Skriver ett `decision`-inlägg (och ett `options`-inlägg när `options`
@@ -375,8 +381,14 @@ class BeOmBeslutArgs(BaseModel):
     """
 
     title: str
-    reason: str
-    consequence: str
+    reason: str = Field(
+        ...,
+        description="Högst två meningar: varför beslutet behövs, med de belopp som skiljer.",
+    )
+    consequence: str = Field(
+        ...,
+        description="En mening: vad beslutet får för följd.",
+    )
     amount_ore: Optional[int] = None
     source: Optional[BeOmBeslutSource] = None
     options: list[BeOmBeslutOption] = Field(
@@ -1119,7 +1131,7 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
     ),
     (
         "be_om_beslut",
-        "Lägg fram ett beslut för människan att ta ställning till, mitt i "
+        "Lägg fram ett beslut för användaren att ta ställning till, mitt i "
         "ett samtal, med en motivering och en konsekvens -- och valfritt en "
         "lista med alternativ. Postar ingenting, ändrar ingenting och rör "
         "bara beslutets egna tabeller: skriver ett kort i tråden och en rad "
@@ -1131,11 +1143,11 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
     ),
     (
         "foresla_verifikation",
-        "Lägg fram en verifikation som ett förslag för människan att posta: "
+        "Lägg fram en verifikation som ett förslag för användaren att posta: "
         "skapar ett utkast utan nummer och ett kort i tråden. Postar aldrig "
-        "-- människan postar förslaget med ett tryck, och numret sätts först "
+        "-- användaren postar förslaget med ett tryck, och numret sätts först "
         "vid postningen. Ange decision_id när förslaget följer på ett "
-        "besvarat beslut, och replaces_draft_id när människan vill ändra ett "
+        "besvarat beslut, och replaces_draft_id när användaren vill ändra ett "
         "väntande förslag. Hör till ett samtal i en vy -- "
         "för ett underlag i intagskön, använd posta_verifikation eller "
         "registrera_avstaende i stället.",

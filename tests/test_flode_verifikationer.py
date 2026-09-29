@@ -847,8 +847,10 @@ _FIRST_TEN = [
 # sha256 of `json.dumps(AGENT_TOOL_DEFINITIONS[:10], ensure_ascii=False)`,
 # taken on `cc47e5c`, before F7 touched `_TOOL_SPECS`. No `sort_keys`: the key
 # order inside each definition is part of the bytes the model is sent, and
-# so of the cached prefix (SPEC-agentruntime §6.6).
-_FIRST_TEN_SHA256 = "503ba62181d07802fb1a2c521e9453a4d2f213098f3e2aa73a20e67f6259f5d4"
+# so of the cached prefix (SPEC-agentruntime §6.6). Re-taken for
+# SPEC-lasbarhet L6, which deliberately rewords `be_om_beslut` ("användaren",
+# field lengths).
+_FIRST_TEN_SHA256 = "5cae3d02d4347ab92f8a38a19e743a4c46d3a69dbfea721edb411ddcf01835db"
 
 
 def test_case_22_foresla_verifikation_is_last_and_the_first_ten_are_unchanged():

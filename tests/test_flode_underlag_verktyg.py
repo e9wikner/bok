@@ -29,9 +29,10 @@ period_id = fu.period_id
 #: sha256 of `json.dumps(AGENT_TOOL_DEFINITIONS[:12])`, taken on `a326fdf`
 #: (FU4), before FU5 touched `_TOOL_SPECS`. No `sort_keys`: the key order
 #: inside each definition is part of the bytes the model is sent, and so of
-#: the cached prefix (SPEC-agentruntime §6.6).
+#: the cached prefix (SPEC-agentruntime §6.6). Re-taken for SPEC-lasbarhet
+#: L6, which deliberately rewords `be_om_beslut` and `foresla_verifikation`.
 _FIRST_TWELVE_SHA256 = (
-    "be290000a292ee0ae80c858077b7904379c8debf3f2b133d90f33a00298b72e9"
+    "1856c91f97cd9e3a1c0f1f4e2dba588d6fd7810d68143acf275b795350b2a463"
 )
 
 

@@ -406,7 +406,7 @@ def test_agent_process_doc_says_the_agents_own_text_is_stored_verbatim():
 
     assert (
         "`reason`, `consequence` och varje alternativs `rationale` lagras "
-        "och visas för\nmänniskan ordagrant" in text
+        "och visas för\nanvändaren ordagrant" in text
     )
 
 
@@ -436,9 +436,9 @@ def test_agent_process_doc_says_when_to_propose_and_when_to_post_directly():
     """
     text = _process_doc_flat()
 
-    assert "människan har besvarat ett beslut" in text
+    assert "användaren har besvarat ett beslut" in text
     assert "ange beslutets id i `decision_id`" in text
-    assert "vill att människan ser konteringen innan den bokförs" in text
+    assert "vill att användaren ser konteringen innan den bokförs" in text
     assert "Posta direkt med `posta_verifikation` när" in text
     assert "Ett förslag är inte ett sätt att slippa avstå" in text
     assert "`replaces_draft_id`" in text
@@ -700,3 +700,38 @@ def test_runtime_system_prompt_has_the_thread_writing_section(test_db):
     from services.agent_session import build_system_prompt
 
     _assert_thread_writing_rules(build_system_prompt())
+
+
+# The one place "människan" may stand: the rule in 03 that forbids it,
+# quoted. Everything else the agent reads says "användaren".
+_MANNISKAN_PROHIBITION = 'Kalla aldrig användaren "människan"'
+
+
+def test_agent_reads_anvandaren_not_manniskan():
+    """SPEC-lasbarhet.md §4.2, L6: the agent repeats what it reads, so
+    neither the tool schema the model gets nor ``docs/to_agent/*.md`` calls
+    the user "människan" -- save the quoted rule that forbids it."""
+    from services.agent_tools import AGENT_TOOL_DEFINITIONS
+
+    schema = json.dumps(AGENT_TOOL_DEFINITIONS, ensure_ascii=False)
+    assert "människan" not in schema.lower()
+
+    for path in sorted(Path("docs/to_agent").glob("*.md")):
+        text = " ".join(path.read_text(encoding="utf-8").split())
+        text = text.replace(_MANNISKAN_PROHIBITION, "")
+        assert "människan" not in text.lower(), path.name
+
+
+def test_be_om_beslut_fields_state_their_length():
+    """SPEC-lasbarhet.md §4.2, L6: the lengths from "Att skriva i en tråd"
+    are in the schema, on the fields themselves."""
+    from services.agent_tools import AGENT_TOOL_DEFINITIONS
+
+    (tool,) = [t for t in AGENT_TOOL_DEFINITIONS if t["name"] == "be_om_beslut"]
+    schema = tool["input_schema"]
+    props = schema["properties"]
+    assert "högst två meningar" in props["reason"]["description"].lower()
+    assert "belopp" in props["reason"]["description"]
+    assert "en mening" in props["consequence"]["description"].lower()
+    option = schema["$defs"]["BeOmBeslutOption"]["properties"]
+    assert "en mening" in option["rationale"]["description"].lower()
