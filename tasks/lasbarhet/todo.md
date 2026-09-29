@@ -19,15 +19,20 @@ bockar av och committar per uppgift.
     `frontend-v3/lib/chattyta/etiketter.ts`, `services/thread_service.py` (`_TRACE_LABELS`)
   - Gjort 2026-09-29: chippen och "Visa vad som hände" borta; 13 verktyg i båda etikettabellerna, testade mot verktygslistan. Avvikelse: kvittots "{n} kvar" och "kompletteringsflagga satt" syns inte längre (kom bara som spår).
   - Beror på: —
-- [ ] **L4 — Agentens text som markdown** (§4.4, M5)
+- [x] **L4 — Agentens text som markdown** (§4.4, M5)
   - Filer: `frontend-v3/components/chattyta/TradInlagg.tsx`, `frontend-v3/package.json`,
     `frontend-v3/package-lock.json`
+  - Gjort 2026-09-29: `react-markdown@^10.1.0` + `remark-gfm@^4.0.1`; 10 tester i `markdown.test.tsx`. Utöver specen: bilder visas som alt-text och laddas aldrig.
   - Beror på: L3
 - [x] **L5 — Postade verifikationer sida för sida vid skroll** (§4.5, M6)
   - Filer: `frontend-v3/hooks/useVyer.ts`, `frontend-v3/lib/skal/bocker.ts`,
     `frontend-v3/lib/skal/vydata.ts`, `frontend-v3/components/skal/VyInnehall.tsx`
   - Gjort 2026-09-29: `useInfiniteQuery`, vakt i `VyInnehall`, `slaSamman`/`nastaSida` i `bocker.ts`. Obs: `utkastIVyn`/`verifikationIVyn` hoppar över den sidade cachen — ofarligt, utkast och saknar ligger i egna frågor.
   - Beror på: —
-- [ ] **L6 — "användaren" i stället för "människan" i det agenten läser; fältlängder i `be_om_beslut`** (§4.2, M3)
+- [x] **L6 — "användaren" i stället för "människan" i det agenten läser; fältlängder i `be_om_beslut`** (§4.2, M3)
   - Filer: `services/agent_tools.py` (beskrivningar och docstrings), `docs/to_agent/02_bokforingsprocess.md`
+  - Gjort 2026-09-29: 7 ställen i `agent_tools.py`, 11 i `02`; fältbeskrivningar med längd på `reason`, `consequence`, `rationale`; test mot "människan" i schemat och `docs/to_agent`. Tre verktygshashar omtagna (avsiktlig ändring). Ej kontrollerat: företagets egna instruktioner i databasen.
   - Beror på: L2
+- [ ] **L7 — Agenten driver inte underlagskön** (§4.2 L7-stycket)
+  - Filer: `docs/to_agent/03_bokforingsinstruktion.md`, `tests/test_agent_entrypoint.py`
+  - Beror på: L6 (båda kan röra `test_agent_entrypoint.py`)

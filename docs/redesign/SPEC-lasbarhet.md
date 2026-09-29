@@ -81,8 +81,8 @@ Deltaströmmens protokoll ändras inte.
   mening; varje alternativs `rationale` en mening. Ett alternativ som inte rekommenderas förklaras
   inte utförligt.
 - Efter en postning: nämn verifikationsnumret.
-- Efter en koppling (regel 9 i underlagsavsnittet): en mening om kopplingen, en om nästa
-  verifikation som saknar underlag med nummer, belopp och ålder, och frågan om underlaget.
+- Efter en koppling (regel 9 i underlagsavsnittet): en mening om kopplingen. ~~Nästa
+  verifikation som saknar underlag~~ — ändrat i L7, se nedan.
 
 Regel 9 och eventuella andra ställen som motsäger stycket justeras så att de inte krockar.
 `docs/to_agent/*.md` är körtidsinnehåll: `tests/test_agent_entrypoint.py` ska kräva att stycket
@@ -130,6 +130,17 @@ serverns `total` som förut.
 `VyData` får det som behövs för att vyn ska kunna be om mer (t.ex. `harFler` och `hamtaFler`),
 utan att andra vyer påverkas.
 
+**L7** (beställarens beslut 2026-09-29, efter L2): agenten driver inte kön av verifikationer som
+saknar underlag. Listan i Böcker → Verifikationer visar vilka som saknar underlag, och användaren
+väljer själv vad som laddas upp härnäst. Alltså:
+
+- Efter en koppling: en mening om kopplingen, inget om nästa verifikation.
+- Regel 1 ("Be om underlag … äldst först") blir: agenten ber inte om underlag på eget initiativ.
+  Frågar användaren vilka som saknar underlag, svarar agenten ur `las_verifikationer`
+  (`missing_attachment`, `age_days`); motiveringen per verifikation står kvar som regel för det
+  svaret.
+- Kvittot i tråden får ingen rad om hur många som är kvar (L3:s avvikelse stängs utan åtgärd).
+
 ## 5. Uppgifter och filägarskap
 
 | Uppgift | Filer (testfiler oräknade) | Beror på |
@@ -139,6 +150,7 @@ utan att andra vyer påverkas.
 | L3 | `frontend-v3/components/chattyta/{TradInlagg,TradRenderare,FelKort}.tsx`, `frontend-v3/lib/chattyta/etiketter.ts`, `services/thread_service.py` (`_TRACE_LABELS`) | — |
 | L4 | `frontend-v3/components/chattyta/TradInlagg.tsx`, `frontend-v3/package.json`, `package-lock.json` | L3 |
 | L6 | `services/agent_tools.py`, `docs/to_agent/02_bokforingsprocess.md` | L2 |
+| L7 | `docs/to_agent/03_bokforingsinstruktion.md`, `tests/test_agent_entrypoint.py` | L6 |
 | L5 | `frontend-v3/hooks/useVyer.ts`, `frontend-v3/lib/skal/bocker.ts`, `frontend-v3/lib/skal/vydata.ts`, `frontend-v3/components/skal/VyInnehall.tsx` | — |
 
 L1 och L3 rör båda `services/thread_service.py` men olika ställen (`_render` resp.
