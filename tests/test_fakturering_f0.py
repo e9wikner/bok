@@ -328,7 +328,6 @@ def _render_invoice_pdf(invoice_id: str) -> bytes:
 # --- 1–7: utfärdandetjänsten (uppgift 7) ------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="F0 uppgift 7")
 def test_01_issue_creates_invoice_posted_voucher_and_stored_pdf(customer):
     draft = _draft(customer)
 
@@ -375,7 +374,6 @@ def test_01_issue_creates_invoice_posted_voucher_and_stored_pdf(customer):
     assert _field(result, "pdf_url") == f"/api/v1/invoices/{invoice['id']}/pdf"
 
 
-@pytest.mark.xfail(strict=True, reason="F0 uppgift 7")
 def test_02_same_number_on_two_drafts_gives_number_taken(customer):
     first = _draft(customer)
     second = _draft(customer)
@@ -391,7 +389,6 @@ def test_02_same_number_on_two_drafts_gives_number_taken(customer):
     assert InvoiceDraftService().get_draft(second.id).status == "needs_review"
 
 
-@pytest.mark.xfail(strict=True, reason="F0 uppgift 7")
 def test_03_failure_after_posting_rolls_everything_back(customer, monkeypatch):
     from services.pdf_export import PDFEngine
 
@@ -484,7 +481,6 @@ def test_03_prerequisite_the_issue_path_leaves_commit_to_the_caller(books, custo
     assert InvoiceDraftService().get_draft(draft.id).status == "needs_review"
 
 
-@pytest.mark.xfail(strict=True, reason="F0 uppgift 7")
 def test_04_issuing_the_same_draft_twice_gives_one_invoice(customer):
     draft = _draft(customer)
     first = _issue(draft.id)
@@ -497,7 +493,6 @@ def test_04_issuing_the_same_draft_twice_gives_one_invoice(customer):
     assert _count("vouchers") == 1
 
 
-@pytest.mark.xfail(strict=True, reason="F0 uppgift 7")
 def test_05_locked_period_gives_period_locked(books, customer):
     from services.ledger import LedgerService
 
@@ -514,7 +509,6 @@ def test_05_locked_period_gives_period_locked(books, customer):
     assert InvoiceDraftService().get_draft(draft.id).status == "needs_review"
 
 
-@pytest.mark.xfail(strict=True, reason="F0 uppgift 7")
 def test_06_invoice_number_missing_or_a_date(customer):
     from domain.validation import ValidationError
 
@@ -531,7 +525,6 @@ def test_06_invoice_number_missing_or_a_date(customer):
     assert _count("invoices") == 0 and _count("vouchers") == 0
 
 
-@pytest.mark.xfail(strict=True, reason="F0 uppgift 7")
 def test_07_customer_address_and_delivery_date_are_required(books, customer):
     no_address = CustomerService().create_customer(
         name="Adresslös Aktiebolag", payment_terms_days=30
@@ -545,7 +538,6 @@ def test_07_customer_address_and_delivery_date_are_required(books, customer):
     assert _count("invoices") == 0 and _count("vouchers") == 0
 
 
-@pytest.mark.xfail(strict=True, reason="F0 uppgift 7")
 def test_07b_delivery_on_the_draft_covers_rows_without_one(customer):
     draft = _draft(
         customer,
@@ -562,7 +554,6 @@ def test_07b_delivery_on_the_draft_covers_rows_without_one(customer):
     assert row["delivery_month"] == "2026-07"
 
 
-@pytest.mark.xfail(strict=True, reason="F0 uppgift 7")
 def test_11b_issue_refuses_incomplete_company_info(customer):
     _set_company_info(
         {

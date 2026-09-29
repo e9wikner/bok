@@ -21,6 +21,17 @@ from repositories.period_repo import PeriodRepository
 from services.invoice import InvoiceService, unit_of_work
 
 
+def _refuse_issued(draft) -> None:
+    """An issued draft is history: it has become an invoice
+    (SPEC-fakturering.md §5) and changes no more."""
+    if draft.status == "issued":
+        raise ValidationError(
+            "draft_already_issued",
+            "Invoice draft is already issued",
+            payload={"invoice_id": draft.approved_invoice_id},
+        )
+
+
 class InvoiceDraftService:
     def __init__(self):
         self.drafts = InvoiceDraftRepository()
@@ -129,6 +140,7 @@ class InvoiceDraftService:
     ):
         with unit_of_work(_commit):
             draft = self.get_draft(draft_id)
+            _refuse_issued(draft)
             if draft.status == "sent":
                 raise ValidationError(
                     "draft_already_sent", "Sent invoice draft cannot be updated"
@@ -190,6 +202,7 @@ class InvoiceDraftService:
     ):
         with unit_of_work(_commit):
             draft = self.get_draft(draft_id)
+            _refuse_issued(draft)
             if draft.status == "sent":
                 raise ValidationError(
                     "draft_already_sent", "Invoice draft is already sent"
@@ -266,6 +279,7 @@ class InvoiceDraftService:
     def reject(self, draft_id: str, actor: str = "system", _commit: bool = True):
         with unit_of_work(_commit):
             draft = self.get_draft(draft_id)
+            _refuse_issued(draft)
             if draft.status == "sent":
                 raise ValidationError(
                     "draft_already_sent", "Sent invoice draft cannot be rejected"

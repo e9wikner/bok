@@ -23,6 +23,16 @@ class ValidationError(Exception):
         super().__init__(f"{code}: {message}")
 
 
+def period_lock_payload(period: Period) -> Dict[str, Any]:
+    """Who locked *period* and when, for a `period_locked` error
+    (SPEC-fakturering.md §5)."""
+    return {
+        "period_id": period.id,
+        "locked_by": period.locked_by,
+        "locked_at": period.locked_at.isoformat() if period.locked_at else None,
+    }
+
+
 class VoucherValidator:
     """Validate voucher business rules (BFL requirements)."""
 
@@ -79,6 +89,7 @@ class VoucherValidator:
                 code="period_locked",
                 message=f"Period {period.id} is locked - cannot post vouchers",
                 details="period is immutable after locking",
+                payload=period_lock_payload(period),
             )
 
         if not (period.start_date <= voucher.date <= period.end_date):
@@ -158,6 +169,7 @@ class PeriodValidator:
                 code="period_locked",
                 message="Period is locked - cannot add vouchers",
                 details="period is immutable after locking",
+                payload=period_lock_payload(period),
             )
 
 

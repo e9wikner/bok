@@ -239,8 +239,12 @@ class InvoiceService:
         period_id: str,
         actor: str = "system",
         _commit: bool = True,
+        description: Optional[str] = None,
     ) -> str:
-        """Auto-book invoice to accounting system (creates voucher)."""
+        """Auto-book invoice to accounting system (creates voucher).
+
+        *description* is the voucher's text; the issue path passes
+        "Faktura {nr} {kund}" (SPEC-fakturering.md §5)."""
         with unit_of_work(_commit):
             invoice = self.invoices.get(invoice_id)
             if not invoice:
@@ -321,7 +325,8 @@ class InvoiceService:
                 series="A",
                 date=invoice.invoice_date,
                 period_id=period_id,
-                description=f"Invoice {invoice.invoice_number} - {invoice.customer_name}",
+                description=description
+                or f"Invoice {invoice.invoice_number} - {invoice.customer_name}",
                 rows_data=voucher_rows,
                 created_by=actor,
                 _commit=False,

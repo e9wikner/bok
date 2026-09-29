@@ -278,6 +278,156 @@ class InvoiceRepository:
         db.execute(sql, (ex_vat, vat, inc_vat, invoice_id))
         return True
 
+    # --- Utfärdande (SPEC-fakturering.md §5) --------------------------------
+    #
+    # Migration 038 locks every column but status and paid_amount once
+    # issued_at is set. The issue path therefore inserts the invoice with
+    # issued_at NULL, links the voucher, and sets the issue columns in one
+    # last UPDATE (`mark_issued`).
+
+    @staticmethod
+    def create_for_issue(
+        invoice_number: str,
+        source_draft_id: str,
+        customer_name: str,
+        invoice_date: date,
+        due_date: date,
+        customer_org_number: Optional[str],
+        customer_email: Optional[str],
+        customer_address: str,
+        customer_reference: Optional[str],
+        payment_terms_days: int,
+        description: Optional[str],
+        amount_ex_vat: int,
+        vat_amount: int,
+        amount_inc_vat: int,
+        created_by: str,
+    ) -> str:
+        """Insert the invoice with the given number, not yet issued. The
+        UNIQUE number and the unique index on `source_draft_id` raise
+        `sqlite3.IntegrityError` for a taken number or an issued draft."""
+        invoice_id = str(uuid.uuid4())
+        db.execute(
+            """
+            INSERT INTO invoices (
+                id, invoice_number, customer_name, customer_org_number,
+                customer_email, customer_address, customer_reference,
+                payment_terms_days, invoice_date, due_date, description,
+                status, amount_ex_vat, vat_amount, amount_inc_vat, paid_amount,
+                source_draft_id, created_by, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, 0, ?, ?, ?)
+            """,
+            (
+                invoice_id,
+                invoice_number,
+                customer_name,
+                customer_org_number,
+                customer_email,
+                customer_address,
+                customer_reference,
+                payment_terms_days,
+                invoice_date.isoformat(),
+                due_date.isoformat(),
+                description,
+                amount_ex_vat,
+                vat_amount,
+                amount_inc_vat,
+                source_draft_id,
+                created_by,
+                datetime.now(),
+            ),
+        )
+        return invoice_id
+
+    @staticmethod
+    def insert_issue_row(
+        invoice_id: str,
+        description: str,
+        quantity: int,
+        quantity_centi: int,
+        unit: str,
+        unit_price: int,
+        vat_code: str,
+        revenue_account: Optional[str],
+        amount_ex_vat: int,
+        vat_amount: int,
+        amount_inc_vat: int,
+        delivery_from: Optional[date],
+        delivery_to: Optional[date],
+        delivery_month: Optional[str],
+        article_number: Optional[str],
+    ) -> str:
+        """Insert one row as given. The amounts are the caller's, computed
+        on `quantity_centi` (§4.2); `quantity` is the legacy column."""
+        row_id = str(uuid.uuid4())
+        db.execute(
+            """
+            INSERT INTO invoice_rows (
+                id, invoice_id, description, quantity, quantity_centi, unit,
+                unit_price, vat_code, revenue_account, amount_ex_vat, vat_amount,
+                amount_inc_vat, delivery_from, delivery_to, delivery_month,
+                article_number, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row_id,
+                invoice_id,
+                description,
+                quantity,
+                quantity_centi,
+                unit,
+                unit_price,
+                vat_code,
+                revenue_account,
+                amount_ex_vat,
+                vat_amount,
+                amount_inc_vat,
+                delivery_from.isoformat() if delivery_from else None,
+                delivery_to.isoformat() if delivery_to else None,
+                delivery_month,
+                article_number,
+                datetime.now(),
+            ),
+        )
+        return row_id
+
+    @staticmethod
+    def mark_issued(
+        invoice_id: str,
+        pdf_sha256: str,
+        pdf_path: str,
+        issued_at: datetime,
+        issued_by: str,
+        status: str = "sent",
+    ) -> None:
+        """The last write to the invoice: after it, the triggers let only
+        status and paid_amount change."""
+        db.execute(
+            """
+            UPDATE invoices
+            SET pdf_sha256 = ?, pdf_path = ?, issued_at = ?, issued_by = ?,
+                status = ?
+            WHERE id = ? AND issued_at IS NULL
+            """,
+            (pdf_sha256, pdf_path, issued_at, issued_by, status, invoice_id),
+        )
+
+    @staticmethod
+    def find_id_by_number(invoice_number: str) -> Optional[str]:
+        row = db.execute(
+            "SELECT id FROM invoices WHERE invoice_number = ? LIMIT 1",
+            (invoice_number,),
+        ).fetchone()
+        return row["id"] if row else None
+
+    @staticmethod
+    def find_id_by_source_draft(draft_id: str) -> Optional[str]:
+        row = db.execute(
+            "SELECT id FROM invoices WHERE source_draft_id = ? LIMIT 1",
+            (draft_id,),
+        ).fetchone()
+        return row["id"] if row else None
+
     @staticmethod
     def _get_next_invoice_num(year: int) -> str:
         """Get next sequential invoice number for year."""

@@ -15,7 +15,7 @@ Spec: `docs/redesign/SPEC-fakturering.md`. Tester först, en uppgift i taget.
       och fullständighetskontroll (§6). Testfall 11.
 - [x] 6. Mallen `templates/pdf/invoice.html` efter förlagan (§6.1), med ett
       inbäddat monospace-typsnitt. Testfall 13 och 15.
-- [ ] 7. `InvoiceIssueService.issue` i en transaktion (§5), med PDF lagrad och
+- [x] 7. `InvoiceIssueService.issue` i en transaktion (§5), med PDF lagrad och
       kopplad som underlag. Testfall 1–7.
 - [ ] 8. Routes: `POST /invoice-drafts/{id}/issue` (JWT, felmappning) och
       `GET /invoices/{id}/pdf`. Ta bort `POST /invoices`, `/send`, `/book` och
