@@ -1,41 +1,20 @@
 /**
- * Verktygsnamn → svensk etikett (SPEC-chattyta.md §5, testfall 11).
+ * Verktygsnamn → svensk presensetikett för `SkriverIndikator`
+ * (SPEC-chattyta.md §5, SPEC-lasbarhet §4.3).
  *
- * Servern skickar två saker om samma verktygsanrop: ett spår i inläggets
- * `traces[]`, där `label` redan är översatt av `build_trace`, och ett
- * `message.delta {activity}` medan agenten arbetar, där bara verktygets
- * NAMN följer med (`services/thread_stream.py::_on_tool_call`). Indikatorn
- * måste alltså översätta själv — och med SAMMA ord som chippet som följer,
- * annars heter ett verktyg en sak medan det körs och en annan när det är
- * klart.
+ * Medan agenten arbetar skickar servern `message.delta {activity}` med bara
+ * verktygets NAMN (`services/thread_stream.py::_on_tool_call`). Indikatorn
+ * översätter själv. Klienten ritar inga spår (`traces[]`), så det här är
+ * enda stället ett verktygsnamn blir ord i klienten.
  *
- * Tabellen är en kopia av `services/thread_service.py::_TRACE_LABELS` och
- * ska hållas lika. Testet i `components/chattyta/__tests__/text.test.tsx`
- * listar den ordagrant; ändras serverns ändras båda i samma commit. Den står
- * här, på ett ställe, i stället för i `SkriverIndikator`, så att den som
- * letar efter "var översätts verktygsnamn i klienten" hittar ett svar.
- */
-
-export const SPAR_ETIKETTER: Readonly<Record<string, string>> = {
-  las_kontoplan: "kontoplanen läst",
-  las_perioder: "perioderna lästa",
-  las_verifikationer: "verifikationer lästa",
-  las_korrigeringar: "korrigeringshistoriken läst",
-  las_underlag: "underlag lästa",
-  hamta_underlagsfil: "underlagsfilen hämtad",
-  las_bankhandelser: "bankhändelser lästa",
-  posta_verifikation: "verifikation postad",
-  registrera_avstaende: "avstående registrerat",
-};
-
-/**
- * Samma verktyg, i presens — vad `SkriverIndikator` säger MEDAN det körs.
+ * `activity` sänds när verktyget anropas, inte när det är klart. Etiketten
+ * står därför i presens — perfekt (`verifikation postad`) vore ett
+ * påstående om huvudboken som inte har hänt än. komponenter.md ger formen:
+ * *"Postar verifikation A-118…"*.
  *
- * `activity` sänds när verktyget anropas, inte när det är klart
- * (`_on_tool_call`). Chippets perfekt (`verifikation postad`) vore därför
- * ett påstående om huvudboken som inte har hänt än. komponenter.md ger
- * formen: *"Postar verifikation A-118…"*. Samma nycklar som
- * `SPAR_ETIKETTER`; testet kräver att båda tabellerna täcker samma verktyg.
+ * Varje verktyg i `services/agent_tools.py::_TOOL_SPECS` ska ha en etikett.
+ * Testet i `components/chattyta/__tests__/text.test.tsx` listar verktygen;
+ * `tests/test_tradar.py` kontrollerar att listan är serverns.
  */
 export const SKRIVER_ETIKETTER: Readonly<Record<string, string>> = {
   las_kontoplan: "Läser kontoplanen…",
@@ -47,6 +26,10 @@ export const SKRIVER_ETIKETTER: Readonly<Record<string, string>> = {
   las_bankhandelser: "Läser bankhändelser…",
   posta_verifikation: "Postar verifikation…",
   registrera_avstaende: "Registrerar avstående…",
+  be_om_beslut: "Lägger fram ett beslut…",
+  foresla_verifikation: "Föreslår en verifikation…",
+  tolka_underlag: "Tolkar underlaget…",
+  koppla_underlag: "Kopplar underlaget…",
 };
 
 /**

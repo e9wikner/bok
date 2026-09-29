@@ -798,13 +798,14 @@ def test_thread_turn_hands_the_proposal_sequence_to_the_tools(monkeypatch):
     """§5.5's `{post_id}` is the trigger post's: `run_thread_session` puts a
     fresh `ProposalSequence` for it in the opaque `tool_context`."""
     import services.thread_session as thread_session
+    from services.agent_session import SessionOutcome
 
     thread, period, trigger = _books()
     captured = {}
 
     def _fake_loop(client, **kwargs):
         captured.update(kwargs)
-        return None
+        return SessionOutcome(kind="answered")
 
     monkeypatch.setattr(thread_session, "run_tool_loop", _fake_loop)
     thread_session.run_thread_session(

@@ -221,6 +221,10 @@ class ThreadBroker:
             if isinstance(data.get("text"), str):
                 current["text"] += data["text"]
             if isinstance(data.get("activity"), str):
+                # A tool call ends the paragraph, exactly as the client's
+                # reducer does (SPEC-lasbarhet §4.1): a reconnect mid-turn
+                # must not bring back text the live stream already cleared.
+                current["text"] = ""
                 current["activity"] = data["activity"]
         elif event == EVENT_MESSAGE_COMPLETED and data.get("run_id") == current.get(
             "run_id"
@@ -360,13 +364,16 @@ class ThreadTurnRunner:
             },
         )
 
-        collected: list[str] = []
+        # The current paragraph: the text since the latest tool call. Only
+        # the last one is the turn's answer; what the agent writes between
+        # tool calls is lead-in, and is never stored (SPEC-lasbarhet §4.1).
+        paragraph: list[str] = []
 
         def _on_text(increment: str) -> None:
             # Deltas are a delivery, not an event worth a row (§8.5): they
             # go over the stream and are accumulated here only so the post
-            # that gets stored is what the human actually watched appear.
-            collected.append(increment)
+            # that gets stored is what the human was left looking at.
+            paragraph.append(increment)
             self.broker.publish(
                 thread.id,
                 EVENT_MESSAGE_DELTA,
@@ -375,6 +382,9 @@ class ThreadTurnRunner:
 
         def _on_tool_call(tool_name: str) -> None:
             # What `SkriverIndikator` says. "Aldrig en anonym spinner."
+            # It also ends the paragraph -- the client clears the streamed
+            # text on this frame, and so does the post that gets stored.
+            paragraph.clear()
             self.broker.publish(
                 thread.id,
                 EVENT_MESSAGE_DELTA,
@@ -442,7 +452,9 @@ class ThreadTurnRunner:
                 run.id,
                 outcome,
                 actor=actor,
-                answer_text="".join(collected) if collected else None,
+                # Empty when the turn ended with a tool call: `_render`
+                # then falls back to the outcome's own text.
+                answer_text="".join(paragraph).strip() or None,
             )
             AgentRunRepository.update_status(run.id, "completed")
             self._publish_completed(thread, post)

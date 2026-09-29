@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
-import { SparChipRad, klockslag } from "@/components/chattyta/TradInlagg";
+import { useEffect, useRef } from "react";
+import { klockslag } from "@/components/chattyta/TradInlagg";
 import { felText, usePostaUtkast } from "@/hooks/usePostaUtkast";
 import type { ErrorInlagg } from "@/lib/chattyta/typer";
 
@@ -26,10 +26,9 @@ import type { ErrorInlagg } from "@/lib/chattyta/typer";
  * härledda nyckel som förslagskortets `Posta` (§8 steg 1), så ett omförsök
  * kan aldrig ge en andra verifikation.
  *
- * **`Visa vad som hände`** fäller ut `traces[]` på plats (§5). Knappen finns
- * alltid, även utan spår: §9 säger att kortet har den, och en knapp som
- * ibland saknas lär människan att den inte går att lita på. Utan spår säger
- * ytan det i en neutral rad i stället för att vara tom.
+ * Kortet ritar inte `traces[]` och har ingen `Visa vad som hände`
+ * (SPEC-lasbarhet §4.3): knappen fällde bara ut spår-chippen, och de är
+ * borta ur klienten. Servern lagrar spåren fortfarande, för revisionen.
  */
 
 /**
@@ -45,9 +44,6 @@ function orsaksKod(cause: string): string | null {
 
 export function FelKort({ inlagg }: { inlagg: ErrorInlagg }) {
   const { cause, consequence, retry_draft_id } = inlagg.body;
-  const [utfalld, setUtfalld] = useState(false);
-  const sparId = useId();
-  const spar = inlagg.traces ?? [];
   const meta = [klockslag(inlagg.created_at), orsaksKod(cause)].filter(Boolean).join(" · ");
 
   return (
@@ -84,28 +80,9 @@ export function FelKort({ inlagg }: { inlagg: ErrorInlagg }) {
         <p className="m-0">{consequence}</p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-[10px]">
-        {retry_draft_id && <ForsokIgen draftId={retry_draft_id} />}
-        <button
-          type="button"
-          aria-expanded={utfalld}
-          aria-controls={sparId}
-          onClick={() => setUtfalld((u) => !u)}
-          className={SEKUNDAR}
-        >
-          Visa vad som hände
-        </button>
-      </div>
-
-      {utfalld && (
-        <div id={sparId} data-testid="fel-spar">
-          {spar.length > 0 ? (
-            <SparChipRad spar={spar} />
-          ) : (
-            <p data-testid="fel-inga-spar" className="bok-mono m-0 text-[12px] text-bok-text-dampad">
-              Inga spår sparades för den här turen.
-            </p>
-          )}
+      {retry_draft_id && (
+        <div className="flex flex-wrap items-center gap-[10px]">
+          <ForsokIgen draftId={retry_draft_id} />
         </div>
       )}
     </div>
@@ -117,8 +94,6 @@ export function FelKort({ inlagg }: { inlagg: ErrorInlagg }) {
 // Träffyta 46: mobilens krav (SPEC-chattyta §11), som också täcker desktopens 44.
 const PRIMAR =
   "min-h-[46px] rounded-[8px] bg-bok-black px-[16px] text-[14px] font-medium text-bok-yta hover:bg-bok-black-hover aria-disabled:cursor-default aria-disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bok-lank";
-const SEKUNDAR =
-  "min-h-[46px] rounded-[8px] border border-bok-fel-kant bg-bok-yta px-[16px] text-[14px] text-bok-text hover:bg-bok-yta-svag focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bok-lank";
 
 /**
  * Primärknappen, bara med ett utkast. Egen komponent så att ett kort utan

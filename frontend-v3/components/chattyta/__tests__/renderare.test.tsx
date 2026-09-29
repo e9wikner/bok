@@ -94,11 +94,12 @@ beforeEach(() => {
 // ─── Switchen ─────────────────────────────────────────────────────────────
 
 describe("TradRenderare väljer komponent per type (SPEC §5)", () => {
-  it("agent_text → TradInlagg/agent med metarad och spår", () => {
+  it("agent_text → TradInlagg/agent med metarad, utan spår-chip", () => {
     rendera([typad(FIXTUR_AGENT_TEXT)]);
     expect(screen.getByText(/Jag postar elnätsfakturan från Nordkraft/)).toBeInTheDocument();
     expect(screen.getByText(/^agenten · \d\d:\d\d$/)).toBeInTheDocument();
-    expect(screen.getAllByTestId("sparchip")).toHaveLength(2);
+    // Fixturen bär två spår; klienten ritar dem inte (SPEC-lasbarhet M4).
+    expect(screen.queryAllByTestId("sparchip")).toHaveLength(0);
     expect(screen.queryByTestId("jamforelse-rad")).toBeNull();
   });
 
@@ -331,7 +332,7 @@ describe("live-regionen annonserar indikatorbyte och färdigt inlägg, inte varj
 // ─── Träffytor (SPEC §11) ─────────────────────────────────────────────────
 
 describe("kortens knappar har träffyta ≥ 46 — mobilens krav, som också täcker desktopens 44 (§11)", () => {
-  it("Posta, Ändra, Försök igen och Visa vad som hände", () => {
+  it("Posta, Ändra och Försök igen", () => {
     const felMedUtkast = typad(
       medKropp(FIXTUR_ERROR, { ...kropp(FIXTUR_ERROR), retry_draft_id: "utkast-1" })
     );
@@ -342,7 +343,7 @@ describe("kortens knappar har träffyta ≥ 46 — mobilens krav, som också tä
         </ChattFaltFokus.Provider>
       )
     );
-    const namn = ["Posta", "Ändra", "Försök igen", "Visa vad som hände"];
+    const namn = ["Posta", "Ändra", "Försök igen"];
     for (const n of namn) {
       const knapp = screen.getByRole("button", { name: n });
       expect(knapp.tagName).toBe("BUTTON");

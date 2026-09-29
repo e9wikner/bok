@@ -195,17 +195,19 @@ describe("tradReducer — strömmen (§6.3)", () => {
     expect(t.strommande?.text).toBe("Kundfordringar");
   });
 
-  it("delta {activity} byter indikatorns text utan att röra den ihopsamlade texten (testfall 11)", () => {
+  it("delta {activity} nollställer den strömmande texten och byter indikatorn (testfall 11, lasbarhet M2)", () => {
     let t = kor(skapad("r-1"), delta("r-1", "Jag tittar"));
     expect(t.strommande?.activity).toBeNull();
+    // Mellantexten syns bara till nästa verktygsanrop (SPEC-lasbarhet §4.1).
     t = tradReducer(t, aktivitet("r-1", "las_bankhandelser"));
-    expect(t.strommande).toMatchObject({ text: "Jag tittar", activity: "las_bankhandelser" });
+    expect(t.strommande).toMatchObject({ text: "", activity: "las_bankhandelser" });
+    t = tradReducer(t, delta("r-1", "Mellan"));
     t = tradReducer(t, aktivitet("r-1", "posta_verifikation"));
-    expect(t.strommande?.activity).toBe("posta_verifikation");
+    expect(t.strommande).toMatchObject({ text: "", activity: "posta_verifikation" });
     // En textdelta efteråt tömmer inte aktiviteten — indikatorn är aldrig tom.
-    t = tradReducer(t, delta("r-1", " på det."));
+    t = tradReducer(t, delta("r-1", "Klart."));
     expect(t.strommande).toMatchObject({
-      text: "Jag tittar på det.",
+      text: "Klart.",
       activity: "posta_verifikation",
     });
   });

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { AgentTextInlagg, Spar, UserTextInlagg } from "@/lib/chattyta/typer";
+import type { AgentTextInlagg, UserTextInlagg } from "@/lib/chattyta/typer";
 
 /**
  * `TradInlagg/agent` och `TradInlagg/du` (komponenter.md §Chatten,
@@ -8,12 +8,11 @@ import type { AgentTextInlagg, Spar, UserTextInlagg } from "@/lib/chattyta/typer
  * Markupen är skalets (`components/skal/ChattKolumn.tsx`) flyttad hit, så
  * att tråden ser likadan ut före och efter att C5 byter renderaren. Det som
  * är nytt är att metaraden räknas ur `created_at` i stället för att vara en
- * färdig mocksträng, och att agentens `traces[]` blir `SparChip`.
+ * färdig mocksträng.
  *
- * `SparChip` bor i den här filen: den är en del av agentinlägget
- * (komponenter.md: *"valfria SparChip under texten"*) och har ingen egen
- * inläggstyp i renderaren. Den exporteras för `FelKort`s `Visa vad som
- * hände` (SPEC §5), som fäller ut samma spår.
+ * Agentens `traces[]` ritas inte (SPEC-lasbarhet §4.3): spåren gav inget
+ * för beslutet. Servern skickar och lagrar dem fortfarande — de är
+ * revisionsspår — men klienten visar bara texten.
  */
 
 // ─── Metaraden ────────────────────────────────────────────────────────────
@@ -40,44 +39,6 @@ export function klockslag(createdAt: string): string | null {
 export function AgentMeta({ tid }: { tid?: string | null }) {
   return (
     <span className="bok-etikett text-[11px] text-bok-meta">{tid ? `agenten · ${tid}` : "agenten"}</span>
-  );
-}
-
-// ─── SparChip ─────────────────────────────────────────────────────────────
-
-/**
- * Ett spår: `label` + ` · detail` när detail finns (testfall 13). Texten är
- * serverns (`build_trace`), ordagrant — agenten formulerar, klienten
- * skriver inte om (antagande 3).
- *
- * komponenter.md: mono 12 #52525b, bakgrund #f4f4f5, kant 1px #e5e7eb,
- * radius 999, padding 4/10.
- */
-export function SparChip({ spar }: { spar: Spar }) {
-  // Ett tomt `detail` är inget detail: annars står det `label · ` med en
-  // hängande punkt, som ser ut som att något saknas.
-  const text = spar.detail ? `${spar.label} · ${spar.detail}` : spar.label;
-  return (
-    <span
-      data-testid="sparchip"
-      className="bok-mono rounded-full border border-bok-linje bg-bok-linje-svagast px-[10px] py-1 text-[12px] text-bok-text-dampad"
-    >
-      {text}
-    </span>
-  );
-}
-
-/** Chipraden: gap 8, radbryter (komponenter.md). Tom lista → ingenting. */
-export function SparChipRad({ spar }: { spar: Spar[] }) {
-  if (spar.length === 0) return null;
-  return (
-    <div data-testid="sparchip-rad" className="flex flex-wrap gap-2">
-      {spar.map((s, i) => (
-        // Samma verktyg kan anropas två gånger i en körning; ordningen är
-        // serverns och ändras aldrig, så indexet är ett stabilt nyckelbidrag.
-        <SparChip key={`${s.tool}-${i}`} spar={s} />
-      ))}
-    </div>
   );
 }
 
@@ -114,7 +75,6 @@ export function TradInlagg({
       <AgentMeta tid={klockslag(inlagg.created_at)} />
       <p className="m-0 max-w-[54ch] text-[15px] leading-[1.6] [text-wrap:pretty]">{inlagg.body.text}</p>
       {radLista}
-      {inlagg.traces && <SparChipRad spar={inlagg.traces} />}
     </div>
   );
 }

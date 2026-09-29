@@ -281,8 +281,8 @@ describe("nya postningsfel vid Posta (§9): inline, ingen Försök igen", () => 
   });
 });
 
-describe("kvittots chip (§8.2) renderas", () => {
-  it("posta_utkast, rattar, kompletteringsflagga och vantar syns alla", () => {
+describe("kvittots spår ritas inte (SPEC-lasbarhet M4)", () => {
+  it("traces[] finns men inga sparchip; titeln bär numret och rättelsen", () => {
     servern([]);
     tradInlagg = [
       typad({
@@ -297,12 +297,9 @@ describe("kvittots chip (§8.2) renderas", () => {
       } as RaInlagg),
     ];
     rendera();
-    const chip = screen.getAllByTestId("sparchip").map((c) => c.textContent);
-    expect(chip).toEqual([
-      "verifikation postad · B-3",
-      "rättar A-1 · A-1",
-      "kompletteringsflagga satt",
-      "2 kvar",
-    ]);
+    expect(screen.queryAllByTestId("sparchip")).toHaveLength(0);
+    expect(screen.queryByText("2 kvar")).toBeNull();
+    expect(screen.queryByText("kompletteringsflagga satt")).toBeNull();
+    expect(screen.getByText("B-3 postad · rättar A-1")).toBeInTheDocument();
   });
 });

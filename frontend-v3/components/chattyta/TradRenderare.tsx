@@ -5,7 +5,7 @@ import { FelKort } from "@/components/chattyta/FelKort";
 import { FilInlagg } from "@/components/chattyta/FilInlagg";
 import { JamforelseRader, RadLista } from "@/components/chattyta/JamforelseRader";
 import { SkriverIndikator } from "@/components/chattyta/SkriverIndikator";
-import { SparChipRad, TradInlagg } from "@/components/chattyta/TradInlagg";
+import { TradInlagg } from "@/components/chattyta/TradInlagg";
 import { PostaKnappar, VerifikationsForslag } from "@/components/chattyta/VerifikationsForslag";
 import { useBeslut } from "@/hooks/useBeslut";
 import { useForslag } from "@/hooks/useForslag";
@@ -150,12 +150,11 @@ export function InlaggRenderare({ inlagg, viewKey }: { inlagg: Inlagg; viewKey?:
     case "user_file":
       return <FilInlagg inlagg={inlagg} />;
     case "receipt":
-      // Kvittots chip (`verifikation postad`, `rättar …`, `{n} kvar`;
-      // flode-verifikationer §8.2) under jämförelsen.
+      // Kvittots `traces[]` ritas inte (SPEC-lasbarhet §4.3); titeln bär
+      // numret och det som rättas (`B-7 postad · rättar A-118`).
       return (
         <div className="flex max-w-[560px] flex-col gap-2">
           <JamforelseRader kropp={inlagg.body} />
-          {inlagg.traces && <SparChipRad spar={inlagg.traces} />}
         </div>
       );
     case "draft":

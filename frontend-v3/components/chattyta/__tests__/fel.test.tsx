@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { FelKort } from "@/components/chattyta/FelKort";
@@ -160,14 +160,13 @@ describe("FelKort — rubrik, orsak och konsekvens (komponenter.md, antagande 3)
 // ─── Försök igen ──────────────────────────────────────────────────────────
 
 describe("FelKort — Försök igen (SPEC §9)", () => {
-  it("testfall 29: utan retry_draft_id finns ingen primärknapp — bara Visa vad som hände", () => {
+  it("testfall 29: utan retry_draft_id har kortet ingen knapp alls", () => {
     // Renderas UTAN QueryClientProvider: utan utkast finns ingen postning,
     // och kortet får då inte kräva en (ChattKolumn-testerna ritar det så).
+    // `Visa vad som hände` är borta med spår-chippen (SPEC-lasbarhet §4.3).
     render(<FelKort inlagg={felUtanOmforsok()} />);
     expect(screen.queryByRole("button", { name: /Försök igen/ })).toBeNull();
-    const knappar = screen.getAllByRole("button");
-    expect(knappar).toHaveLength(1);
-    expect(knappar[0]).toHaveTextContent("Visa vad som hände");
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
     expect(post).not.toHaveBeenCalled();
   });
 
@@ -262,49 +261,25 @@ describe("FelKort — Försök igen (SPEC §9)", () => {
   });
 });
 
-// ─── Visa vad som hände ───────────────────────────────────────────────────
+// ─── Inga spår (SPEC-lasbarhet §4.3) ──────────────────────────────────────
 
-describe("FelKort — Visa vad som hände (SPEC §5)", () => {
-  it("fäller ut traces[] på plats som SparChip, och in igen; aria-expanded följer", async () => {
-    const user = userEvent.setup();
+describe("FelKort ritar inga spår (SPEC-lasbarhet M4)", () => {
+  it("med traces[]: ingen Visa vad som hände, inga sparchip, ingen spåryta", () => {
     render(<FelKort inlagg={{ ...felUtanOmforsok(), traces: SPAR }} />);
-    const knapp = screen.getByRole("button", { name: "Visa vad som hände" });
-
-    expect(knapp).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: "Visa vad som hände" })).toBeNull();
     expect(screen.queryAllByTestId("sparchip")).toHaveLength(0);
-
-    await user.click(knapp);
-    expect(knapp).toHaveAttribute("aria-expanded", "true");
-    const chips = screen.getAllByTestId("sparchip");
-    expect(chips.map((c) => c.textContent)).toEqual([
-      "period hämtad · 2026-09",
-      "postning nekad",
-    ]);
-    // Knappen pekar ut ytan den styr.
-    const yta = document.getElementById(knapp.getAttribute("aria-controls")!);
-    expect(yta).not.toBeNull();
-    expect(within(yta!).getAllByTestId("sparchip")).toHaveLength(2);
-
-    await user.click(knapp);
-    expect(knapp).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryAllByTestId("sparchip")).toHaveLength(0);
+    expect(screen.queryByTestId("fel-spar")).toBeNull();
+    expect(screen.queryByText(/period hämtad/)).toBeNull();
+    // Orsak och konsekvens står kvar.
+    expect(screen.getByTestId("fel-rubrik")).toHaveTextContent("Något gick fel");
+    expect(screen.getByTestId("fel-text")).toBeInTheDocument();
   });
 
-  it("utan spår: en neutral rad i stället för en tom yta", async () => {
-    const user = userEvent.setup();
-    render(<FelKort inlagg={felUtanOmforsok()} />);
-    await user.click(screen.getByRole("button", { name: "Visa vad som hände" }));
-    expect(screen.getByTestId("fel-inga-spar")).toHaveTextContent(
-      "Inga spår sparades för den här turen."
-    );
-    expect(screen.queryAllByTestId("sparchip")).toHaveLength(0);
-  });
-
-  it("en tom spårlista är samma sak som inga spår", async () => {
-    const user = userEvent.setup();
-    render(<FelKort inlagg={{ ...felUtanOmforsok(), traces: [] }} />);
-    await user.click(screen.getByRole("button", { name: "Visa vad som hände" }));
-    expect(screen.getByTestId("fel-inga-spar")).toBeInTheDocument();
+  it("med retry_draft_id är Försök igen enda knappen", () => {
+    render(medKlient(<FelKort inlagg={{ ...felMedOmforsok(), traces: SPAR }} />));
+    const knappar = screen.getAllByRole("button");
+    expect(knappar).toHaveLength(1);
+    expect(knappar[0]).toHaveTextContent("Försök igen");
   });
 });
 

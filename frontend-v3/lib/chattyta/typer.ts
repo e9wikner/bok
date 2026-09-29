@@ -26,10 +26,13 @@ export interface RaInlagg {
   run_id?: string | null;
 }
 
-/** Ett `SparChip`: vad agenten läste, räknade och gjorde (`build_trace`). */
+/**
+ * Ett spår: vad agenten läste, räknade och gjorde (`build_trace`). Servern
+ * skickar dem; klienten ritar dem inte (SPEC-lasbarhet §4.3).
+ */
 export interface Spar {
   tool: string;
-  /** På svenska, färdig att rendera. */
+  /** På svenska (`_TRACE_LABELS`). */
   label: string;
   /** En rad värd att visa, t.ex. `A-118`. */
   detail?: string;

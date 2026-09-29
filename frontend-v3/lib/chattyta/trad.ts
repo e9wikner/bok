@@ -123,12 +123,15 @@ function handelse(t: TradTillstand, { event, data }: SseHandelse): TradTillstand
               activity: null,
             };
       // Två former (§2): `{text}` byggs på, `{activity}` byter indikatorn.
-      // Den ena rör aldrig den andra, så indikatorn blir aldrig tom igen.
+      // En text rör aldrig aktiviteten, så indikatorn blir aldrig tom igen.
       if (typeof data.text === "string") {
         return { ...t, strommande: { ...nu, text: nu.text + data.text } };
       }
+      // Ett verktygsanrop avslutar stycket: mellantexten syns bara till
+      // nästa anrop och sparas aldrig (SPEC-lasbarhet §4.1). Tom text låter
+      // `SkriverIndikator` visa verktygets presensetikett igen.
       if (typeof data.activity === "string") {
-        return { ...t, strommande: { ...nu, activity: data.activity } };
+        return { ...t, strommande: { ...nu, text: "", activity: data.activity } };
       }
       return t;
     }

@@ -31,6 +31,7 @@ What this module deliberately is *not*:
 
 import json
 import logging
+from dataclasses import replace
 from datetime import date
 from typing import Any, Optional
 
@@ -236,7 +237,7 @@ def run_thread_session(
     )
     window = build_thread_window(history, window_budget_tokens)
 
-    return run_tool_loop(
+    outcome = run_tool_loop(
         client,
         # Byte for byte the document path's prompt: the cache breakpoint sits
         # at the end of it, and moving it for the thread's sake would throw
@@ -288,3 +289,20 @@ def run_thread_session(
             "agent_run_id": agent_run_id,
         },
     )
+    return _final_paragraph_only(outcome)
+
+
+def _final_paragraph_only(outcome: SessionOutcome) -> SessionOutcome:
+    """Keep `outcome.text` to the turn's answer (SPEC-lasbarhet §4.1).
+
+    `run_tool_loop` sets `text` to the last LLM turn's text. For `answered`
+    that turn made no tool call, so its text is the final paragraph. For
+    `posted` and `abstained` the last turn ended *in* the terminal tool call,
+    so its text is lead-in written before that call ("Jag bokför ...") --
+    and the session stops there, so no paragraph follows. The thread must
+    not store it: `ThreadService._render` falls back to a statement of fact
+    instead. The run's events still carry the text (`turns` is untouched).
+    """
+    if outcome.kind in ("posted", "abstained") and outcome.text:
+        return replace(outcome, text="")
+    return outcome

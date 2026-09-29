@@ -90,7 +90,10 @@ def compact(
 # Traces (SparChip)
 # ---------------------------------------------------------------------------
 
-#: What each tool did, in the human's words, for the chip's label.
+#: What each tool did, in the human's words, stored as the trace's label.
+#: The client no longer renders traces (SPEC-lasbarhet §4.3); the labels keep
+#: stored traces readable in the audit trail. Every tool in
+#: ``services/agent_tools.py`` has one (``tests/test_tradar.py`` checks).
 #: `komponenter.md`'s examples are of this shape: "16 händelser lästa",
 #: "kompletteringsflagga satt" -- what happened, not which function ran.
 _TRACE_LABELS = {
@@ -103,6 +106,10 @@ _TRACE_LABELS = {
     "las_bankhandelser": "bankhändelser lästa",
     "posta_verifikation": "verifikation postad",
     "registrera_avstaende": "avstående registrerat",
+    "be_om_beslut": "beslut framlagt",
+    "foresla_verifikation": "verifikation föreslagen",
+    "tolka_underlag": "underlaget tolkat",
+    "koppla_underlag": "underlaget kopplat",
 }
 
 
@@ -202,6 +209,20 @@ def _error_body(reason: Optional[str], retry_draft_id: Optional[str] = None) -> 
     }
 
 
+def _posted_fallback(tool_result: Optional[dict]) -> str:
+    """What a posting says when the agent said nothing after it.
+
+    `posta_verifikation`'s result is the voucher response, `series` and
+    `number` included (`services/voucher_posting.py`); an idempotent replay
+    returns the same payload.
+    """
+    series = (tool_result or {}).get("series")
+    number = (tool_result or {}).get("number")
+    if series and number is not None:
+        return f"Verifikation {series}-{number} är postad."
+    return "Verifikationen är postad."
+
+
 def _decision_body(outcome: SessionOutcome, decision_id: str) -> dict:
     """`BeslutKort`'s body (§6.2) for a registered abstention.
 
@@ -257,10 +278,11 @@ class ThreadService:
         """Render `outcome` as the one post that closes this turn.
 
         `answer_text` overrides the outcome's own text -- the stream
-        accumulates the deltas it sent, and what the human watched appear is
-        what should end up stored, so the post matches the thread she read
+        passes the last paragraph it sent, the text after the turn's final
+        tool call, so the post matches what the human was left reading
         (SPEC §4: the client replaces its optimistic rows with this post at
-        `message.completed`).
+        `message.completed`). What the agent wrote between tool calls is
+        never stored (SPEC-lasbarhet §4.1).
 
         Returns the post. The mapping, per §6.2 and §11:
 
@@ -362,13 +384,13 @@ class ThreadService:
             return "agent_text", {"text": text}
 
         if outcome.kind == "posted":
-            # The posting itself is visible as a chip
-            # (`verifikation postad`, with the voucher's number) and in the
-            # ledger. The post is the agent's own words about it; where it
+            # The post is the agent's own words about the posting; where it
             # said nothing, a plain statement of fact rather than a
-            # fabricated explanation.
+            # fabricated explanation. The client no longer shows trace chips
+            # (SPEC-lasbarhet §4.3), so the fact names the voucher's number
+            # whenever the posting's result carries it.
             return "agent_text", {
-                "text": text or "Verifikationen är postad.",
+                "text": text or _posted_fallback(outcome.tool_result),
                 "voucher_id": outcome.voucher_id,
             }
 

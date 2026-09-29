@@ -1612,6 +1612,20 @@ class TestTracesAreChipsNotPosts:
 
         assert post.traces is None
 
+    def test_every_agent_tool_has_a_trace_label(self):
+        """SPEC-lasbarhet §4.3: the client no longer renders traces, but the
+        stored ones stay readable in the audit trail -- no tool's trace may
+        fall back to its technical name. The client's present-tense table
+        (`SKRIVER_ETIKETTER`) is checked against the same tool list in
+        `frontend-v3/components/chattyta/__tests__/text.test.tsx`."""
+        from services.thread_service import _TRACE_LABELS, build_trace
+
+        tools = {t["name"] for t in AGENT_TOOL_DEFINITIONS}
+        assert set(_TRACE_LABELS) == tools
+        for name in tools:
+            label = build_trace({"name": name})["label"]
+            assert label and label != name
+
 
 class TestBase64NeverReachesAPost:
     """Test case 17 — the `_compact_tool_result` precedent, applied again
@@ -1755,6 +1769,26 @@ class TestOutcomeRendering:
         )
 
         assert post.body["text"] == "Verifikationen är postad."
+
+    def test_a_silent_posting_names_the_voucher_number_when_it_is_known(self):
+        """SPEC-lasbarhet §4.1: with the trace chips gone from the client,
+        the fallback is the only place the number shows without the agent
+        writing it."""
+        thread, _ = _thread_with_posts()
+        run_id = _run_with_tool_calls()
+
+        post = ThreadService.record_outcome(
+            thread,
+            run_id,
+            SessionOutcome(
+                kind="posted",
+                voucher_id="v-1",
+                text="",
+                tool_result={"id": "v-1", "series": "A", "number": 118},
+            ),
+        )
+
+        assert post.body["text"] == "Verifikation A-118 är postad."
 
     def test_a_registered_abstention_becomes_a_decision(self):
         """§11: `registrera_avstaende` → `abstained`, blir ett
@@ -3129,12 +3163,15 @@ class TestSseFraming:
         finally:
             loop.close()
 
+        # An activity ends the paragraph, as it does in the client's reducer
+        # (SPEC-lasbarhet §4.1): the snapshot carries only what came after
+        # the latest tool call.
         assert snapshot == {
             "id": "streaming-r1",
             "type": "agent_text",
             "actor": "agent",
             "run_id": "r1",
-            "text": "Jag läser.",
+            "text": "läser.",
             "activity": "las_bankhandelser",
         }
 
@@ -3720,3 +3757,66 @@ class TestStatusNeverLeaksTheKey:
         flattened = json.dumps(body, ensure_ascii=False).lower()
         for fragment in ("sk-hemlig", "nyckel-42", "llm_api_key", "api_key"):
             assert fragment not in flattened
+
+
+class TestOnlyTheFinalAnswerIsStored:
+    """SPEC-lasbarhet M1 (§4.1): an agent post holds the turn's answer, never
+    the text the agent writes between its tool calls."""
+
+    def test_text_tool_text_stores_only_the_last_paragraph(self, agent_enabled):
+        _ensure_accounts()
+        thread, posts = _thread_with_posts("Hur ser mars ut?")
+        client = FakeLLMClient(
+            [
+                _turn(
+                    text="Jag läser kontoplanen.",
+                    tool_calls=[ToolCall(id="t1", name="las_kontoplan", arguments={})],
+                    stop="tool_calls",
+                ),
+                _turn(text="\n\nMars är klar.  "),
+            ]
+        )
+
+        broker, outcome = _run_turn_synchronously(thread, posts[0], client)
+
+        assert outcome.kind == "answered"
+        stored = ThreadRepository.list_posts(thread.id)[-1]
+        assert stored.type == "agent_text"
+        assert stored.body["text"] == "Mars är klar."
+        completed = [d for e, d in broker.published if e == EVENT_MESSAGE_COMPLETED]
+        assert completed[0]["body"]["text"] == "Mars är klar."
+
+    def test_a_turn_ending_in_a_posting_stores_the_voucher_number_not_the_lead_in(
+        self, agent_enabled, tmp_path
+    ):
+        """The text before `posta_verifikation` is lead-in, not the answer --
+        and the session ends at the posting, so there is no text after it.
+        The post falls back to the fact, with the number."""
+        thread, trigger, period, source = _posting_thread(tmp_path)
+        client = FakeLLMClient(
+            [
+                _turn(
+                    text="Jag bokför kvittot på 6212.",
+                    tool_calls=[
+                        ToolCall(
+                            id="t1",
+                            name="posta_verifikation",
+                            arguments=_posting_args(period.id, source.id),
+                        )
+                    ],
+                    stop="tool_calls",
+                )
+            ]
+        )
+
+        _, outcome = _run_turn_synchronously(thread, trigger, client)
+
+        assert outcome is not None and outcome.kind == "posted"
+        assert outcome.text == ""
+        result = outcome.tool_result
+        assert result is not None
+        stored = ThreadRepository.list_posts(thread.id)[-1]
+        assert stored.body["text"] == (
+            f"Verifikation {result['series']}-{result['number']} är postad."
+        )
+        assert stored.body["voucher_id"] == outcome.voucher_id

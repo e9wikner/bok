@@ -1,9 +1,11 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { FilInlagg, filMeta } from "@/components/chattyta/FilInlagg";
 import { SkriverIndikator } from "@/components/chattyta/SkriverIndikator";
-import { SparChip, SparChipRad, TradInlagg, klockslag } from "@/components/chattyta/TradInlagg";
-import { SKRIVER_ETIKETTER, SPAR_ETIKETTER, skriverText } from "@/lib/chattyta/etiketter";
+import { TradInlagg, klockslag } from "@/components/chattyta/TradInlagg";
+import { SKRIVER_ETIKETTER, skriverText } from "@/lib/chattyta/etiketter";
 import { parseInlagg } from "@/lib/chattyta/parse";
 import type {
   AgentTextInlagg,
@@ -71,25 +73,21 @@ describe("TradInlagg/agent (komponenter.md, SPEC §5)", () => {
     expect(text).toHaveClass("text-[15px]", "leading-[1.6]", "max-w-[54ch]", "[text-wrap:pretty]");
   });
 
-  it("`traces[]` blir ett SparChip per spår, i serverns ordning", () => {
-    render(<TradInlagg inlagg={agent()} />);
-    const chips = screen.getAllByTestId("sparchip");
-    expect(chips.map((c) => c.textContent)).toEqual([
-      "bankhändelser lästa",
-      "verifikation postad · A-118",
-    ]);
-  });
-
-  it("utan spår ritas ingen tom chiprad", () => {
-    render(<TradInlagg inlagg={{ ...agent(), traces: null }} />);
+  it("`traces[]` ritas inte — inga spår-chip (SPEC-lasbarhet M4)", () => {
+    // Fixturen bär två spår; servern skickar dem, klienten visar dem inte.
+    expect(agent().traces).toHaveLength(2);
+    const { container } = render(<TradInlagg inlagg={agent()} />);
+    expect(screen.queryByTestId("sparchip")).not.toBeInTheDocument();
     expect(screen.queryByTestId("sparchip-rad")).not.toBeInTheDocument();
+    expect(container).not.toHaveTextContent("bankhändelser lästa");
+    expect(container).not.toHaveTextContent("verifikation postad");
   });
 
-  it("en radlista (C9) ritas mellan texten och spåren när den skickas in", () => {
+  it("en radlista (C9) ritas under texten när den skickas in", () => {
     render(<TradInlagg inlagg={agent()} radLista={<div data-testid="radlista" />} />);
+    const text = screen.getByText(String(kropp(FIXTUR_AGENT_TEXT).text));
     const radlista = screen.getByTestId("radlista");
-    const chips = screen.getByTestId("sparchip-rad");
-    expect(radlista.compareDocumentPosition(chips) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(text.compareDocumentPosition(radlista) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
 
@@ -115,50 +113,6 @@ describe("TradInlagg/du (komponenter.md)", () => {
     render(<TradInlagg inlagg={du()} />);
     expect(screen.queryByText(/agenten/)).not.toBeInTheDocument();
     expect(screen.queryByTestId("sparchip")).not.toBeInTheDocument();
-  });
-});
-
-// ─── SparChip ─────────────────────────────────────────────────────────────
-
-describe("SparChip ur traces[] (testfall 13)", () => {
-  it("`label · detail` när detail finns (testfall 13)", () => {
-    render(<SparChip spar={{ tool: "posta_verifikation", label: "verifikation postad", detail: "A-118" }} />);
-    expect(screen.getByTestId("sparchip")).toHaveTextContent(/^verifikation postad · A-118$/);
-  });
-
-  it("bara `label` utan detail — ingen hängande punkt (testfall 13)", () => {
-    render(<SparChip spar={{ tool: "las_kontoplan", label: "kontoplanen läst" }} />);
-    expect(screen.getByTestId("sparchip")).toHaveTextContent(/^kontoplanen läst$/);
-  });
-
-  it("ett tomt detail räknas som inget detail (testfall 13)", () => {
-    render(<SparChip spar={{ tool: "las_kontoplan", label: "kontoplanen läst", detail: "" }} />);
-    expect(screen.getByTestId("sparchip")).toHaveTextContent(/^kontoplanen läst$/);
-  });
-
-  it("mono 12 #52525b, bakgrund #f4f4f5, kant #e5e7eb, radius 999, padding 4/10", () => {
-    render(<SparChip spar={{ tool: "x", label: "16 händelser lästa" }} />);
-    expect(screen.getByTestId("sparchip")).toHaveClass(
-      "bok-mono",
-      "text-[12px]",
-      "text-bok-text-dampad",
-      "bg-bok-linje-svagast",
-      "border",
-      "border-bok-linje",
-      "rounded-full",
-      "px-[10px]",
-      "py-1"
-    );
-  });
-
-  it("raden har gap 8 och radbryter", () => {
-    render(<SparChipRad spar={[{ tool: "a", label: "a" }, { tool: "b", label: "b" }]} />);
-    expect(screen.getByTestId("sparchip-rad")).toHaveClass("flex", "flex-wrap", "gap-2");
-  });
-
-  it("en tom lista ritar ingenting", () => {
-    const { container } = render(<SparChipRad spar={[]} />);
-    expect(container).toBeEmptyDOMElement();
   });
 });
 
@@ -239,10 +193,11 @@ describe("SkriverIndikator — delta {activity} (testfall 11)", () => {
   it("säger vad som görs, aldrig vad som är gjort — `activity` sänds när verktyget ANROPAS", () => {
     // En indikator som säger `verifikation postad` medan postningen pågår
     // påstår något om huvudboken som inte har hänt än.
-    for (const verktyg of Object.keys(SPAR_ETIKETTER)) {
+    for (const verktyg of Object.keys(SKRIVER_ETIKETTER)) {
       render(<SkriverIndikator activity={verktyg} />);
       const text = screen.getByTestId("skriver-text").textContent ?? "";
-      expect(text).not.toBe(SPAR_ETIKETTER[verktyg]);
+      expect(text).toBe(SKRIVER_ETIKETTER[verktyg]);
+      expect(text).not.toMatch(/(läst|lästa|hämtad|postad|registrerat)$/);
       expect(text.endsWith("…")).toBe(true);
       cleanup();
     }
@@ -255,10 +210,6 @@ describe("SkriverIndikator — delta {activity} (testfall 11)", () => {
       expect(screen.getByTestId("skriver-text")).toHaveTextContent(/^Läser…$/);
     }
   );
-
-  it("presens- och perfekttabellen täcker samma verktyg", () => {
-    expect(Object.keys(SKRIVER_ETIKETTER).sort()).toEqual(Object.keys(SPAR_ETIKETTER).sort());
-  });
 
   it("ett okänt verktyg visas med sitt namn, som `build_trace` gör (testfall 11)", () => {
     render(<SkriverIndikator activity="nytt_verktyg" />);
@@ -291,23 +242,37 @@ describe("SkriverIndikator — delta {activity} (testfall 11)", () => {
   });
 });
 
-// ─── Etiketterna står på ett ställe ───────────────────────────────────────
+// ─── Varje verktyg har en presensetikett ─────────────────────────────────
 
-describe("etiketterna är serverns (services/thread_service.py::_TRACE_LABELS)", () => {
-  it("samma nio verktyg, samma svenska ord", () => {
-    // Glider klientens lista från serverns säger indikatorn något annat än
-    // chippet som följer — samma verktyg, två namn. Ändra båda samtidigt.
-    expect(SPAR_ETIKETTER).toEqual({
-      las_kontoplan: "kontoplanen läst",
-      las_perioder: "perioderna lästa",
-      las_verifikationer: "verifikationer lästa",
-      las_korrigeringar: "korrigeringshistoriken läst",
-      las_underlag: "underlag lästa",
-      hamta_underlagsfil: "underlagsfilen hämtad",
-      las_bankhandelser: "bankhändelser lästa",
-      posta_verifikation: "verifikation postad",
-      registrera_avstaende: "avstående registrerat",
-    });
+/**
+ * Verktygsnamnen ur `services/agent_tools.py::_TOOL_SPECS`, lästa ur källan
+ * (som `parse.test.ts` läser specen). Varje post i tabellen börjar med
+ * namnet på en egen rad, indraget åtta steg.
+ */
+function serverVerktyg(): string[] {
+  const kalla = readFileSync(path.resolve(__dirname, "../../../../services/agent_tools.py"), "utf8");
+  const start = kalla.indexOf("_TOOL_SPECS:");
+  const slut = kalla.indexOf("\n)\n", start);
+  expect(start).toBeGreaterThan(-1);
+  expect(slut).toBeGreaterThan(start);
+  return Array.from(kalla.slice(start, slut).matchAll(/^ {8}"([a-z_]+)",$/gm), (m) => m[1]);
+}
+
+describe("varje agentverktyg har en presensetikett (SPEC-lasbarhet §4.3)", () => {
+  it("SKRIVER_ETIKETTER täcker exakt verktygen i agent_tools.py", () => {
+    const verktyg = serverVerktyg();
+    // Ett trasigt mönster ska inte ge ett tomt, trivialt grönt test.
+    expect(verktyg).toEqual(
+      expect.arrayContaining(["las_kontoplan", "posta_verifikation", "be_om_beslut", "koppla_underlag"])
+    );
+    expect(Object.keys(SKRIVER_ETIKETTER).sort()).toEqual([...verktyg].sort());
+  });
+
+  it("de fyra som saknades har sina etiketter", () => {
+    expect(skriverText("tolka_underlag")).toBe("Tolkar underlaget…");
+    expect(skriverText("be_om_beslut")).toBe("Lägger fram ett beslut…");
+    expect(skriverText("koppla_underlag")).toBe("Kopplar underlaget…");
+    expect(skriverText("foresla_verifikation")).toBe("Föreslår en verifikation…");
   });
 
   it("skriverText är aldrig tom", () => {
