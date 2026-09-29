@@ -516,7 +516,6 @@ def test_11b_issue_refuses_incomplete_company_info(customer):
 # --- 8: triggers (uppgift 2) ------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="F0 uppgift 2")
 def test_08_issued_invoice_is_append_only_in_the_database(test_db):
     invoice_id = _insert_issued_invoice()
     row_id = db.execute(

@@ -52,7 +52,7 @@ Efter F0 gäller följande:
 F0 bygger inget nytt gränssnitt. De gamla sidorna byter bara anrop och får
 fälten som behövs (§7).
 
-## 4. Datamodell (migration 036)
+## 4. Datamodell (migration 038)
 
 ### 4.1 Nummer
 
@@ -115,8 +115,11 @@ Triggers när `issued_at IS NOT NULL`:
 - DELETE på `invoices` avvisas.
 - UPDATE och DELETE på `invoice_rows` avvisas när fakturan är utfärdad.
 
-Alla nya kolumner läggs till med `ALTER TABLE ADD COLUMN`, så ingen tabell
-behöver byggas om.
+Alla nya kolumner läggs till med `ALTER TABLE ADD COLUMN`, utom på
+`invoice_drafts`. Dess CHECK på `status` räknar upp de tillåtna värdena, och
+SQLite kan inte ändra en CHECK, så den tabellen byggs om för att tillåta
+`issued` (som i migration 016). `source_draft_id` blir unik genom ett unikt
+index, eftersom `ADD COLUMN` inte tar `UNIQUE`.
 
 ## 5. Utfärda
 
