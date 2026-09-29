@@ -1,4 +1,8 @@
-"""Repository for agent-created invoice drafts."""
+"""Repository for agent-created invoice drafts.
+
+Nothing here commits. The caller owns the transaction, so that issuing an
+invoice can run in one `with db.transaction():` (SPEC-fakturering.md §5).
+"""
 
 import uuid
 from datetime import datetime
@@ -54,7 +58,6 @@ class InvoiceDraftRepository:
                 now,
             ),
         )
-        db.commit()
         return InvoiceDraftRepository.get(draft_id)
 
     @staticmethod
@@ -96,7 +99,6 @@ class InvoiceDraftRepository:
                 now,
             ),
         )
-        db.commit()
         return InvoiceDraftRow(
             id=row_id,
             draft_id=draft_id,
@@ -116,7 +118,6 @@ class InvoiceDraftRepository:
     @staticmethod
     def replace_rows(draft_id: str, rows: List[dict]) -> None:
         db.execute("DELETE FROM invoice_draft_rows WHERE draft_id = ?", (draft_id,))
-        db.commit()
         for row in rows:
             InvoiceDraftRepository.add_row(draft_id=draft_id, **row)
         InvoiceDraftRepository.recalculate_totals(draft_id)
@@ -172,7 +173,6 @@ class InvoiceDraftRepository:
                 draft_id,
             ),
         )
-        db.commit()
 
     @staticmethod
     def recalculate_totals(draft_id: str) -> None:
@@ -201,7 +201,6 @@ class InvoiceDraftRepository:
                 draft_id,
             ),
         )
-        db.commit()
 
     @staticmethod
     def get(draft_id: str) -> Optional[InvoiceDraft]:
@@ -241,7 +240,6 @@ class InvoiceDraftRepository:
             """,
             (invoice_id, voucher_id, datetime.now(), draft_id),
         )
-        db.commit()
 
     @staticmethod
     def update_status(draft_id: str, status: str) -> None:
@@ -249,7 +247,6 @@ class InvoiceDraftRepository:
             "UPDATE invoice_drafts SET status = ?, updated_at = ? WHERE id = ?",
             (status, datetime.now(), draft_id),
         )
-        db.commit()
 
     @staticmethod
     def _row_to_draft(row) -> InvoiceDraft:

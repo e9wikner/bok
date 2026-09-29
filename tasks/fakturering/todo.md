@@ -6,7 +6,7 @@ Spec: `docs/redesign/SPEC-fakturering.md`. Tester först, en uppgift i taget.
 - [x] 2. Migration `038_invoice_issue.sql`: nya kolumner på utkast, fakturor och
       rader (nummer, adress, leverans, enhet, `quantity_centi`) och triggers
       (§4). Testfall 8 grönt.
-- [ ] 3. Ta bort `db.commit()` ur fakturarepona och `InvoiceService` på
+- [x] 3. Ta bort `db.commit()` ur fakturarepona och `InvoiceService` på
       utfärdandevägen. `test_invoices.py`/`test_invoice_drafts.py` ska
       fortfarande gå igenom.
 - [ ] 4. Decimalt antal och enhet i utkast och förhandsberäkning (§4.2).

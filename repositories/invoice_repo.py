@@ -1,4 +1,8 @@
-"""Invoice repository - data access for invoices (Fas 2)."""
+"""Invoice repository - data access for invoices (Fas 2).
+
+Nothing here commits. The caller owns the transaction, so that issuing an
+invoice can run in one `with db.transaction():` (SPEC-fakturering.md §5).
+"""
 
 import uuid
 from datetime import date, datetime
@@ -47,7 +51,6 @@ class InvoiceRepository:
                 now,
             ),
         )
-        db.commit()
 
         return Invoice(
             id=invoice_id,
@@ -102,7 +105,6 @@ class InvoiceRepository:
                 now,
             ),
         )
-        db.commit()
 
         return InvoiceRow(
             id=row_id,
@@ -217,7 +219,6 @@ class InvoiceRepository:
         """Update invoice status."""
         sql = "UPDATE invoices SET status = ? WHERE id = ?"
         db.execute(sql, (status, invoice_id))
-        db.commit()
         return True
 
     @staticmethod
@@ -225,7 +226,6 @@ class InvoiceRepository:
         """Mark invoice as sent."""
         sql = "UPDATE invoices SET status = 'sent', sent_at = ? WHERE id = ?"
         db.execute(sql, (datetime.now(), invoice_id))
-        db.commit()
         return True
 
     @staticmethod
@@ -241,7 +241,6 @@ class InvoiceRepository:
         WHERE id = ?
         """
         db.execute(sql, (payment_amount, payment_amount, invoice_id))
-        db.commit()
         return True
 
     @staticmethod
@@ -249,7 +248,6 @@ class InvoiceRepository:
         """Link invoice to accounting voucher."""
         sql = "UPDATE invoices SET voucher_id = ? WHERE id = ?"
         db.execute(sql, (voucher_id, invoice_id))
-        db.commit()
         return True
 
     @staticmethod
@@ -257,7 +255,6 @@ class InvoiceRepository:
         """Update invoice totals."""
         sql = "UPDATE invoices SET amount_ex_vat = ?, vat_amount = ?, amount_inc_vat = ? WHERE id = ?"
         db.execute(sql, (ex_vat, vat, inc_vat, invoice_id))
-        db.commit()
         return True
 
     @staticmethod
@@ -304,7 +301,6 @@ class PaymentRepository:
                 now,
             ),
         )
-        db.commit()
 
         return Payment(
             id=payment_id,
@@ -358,7 +354,6 @@ class PaymentRepository:
         """Link payment to accounting voucher."""
         sql = "UPDATE payments SET voucher_id = ? WHERE id = ?"
         db.execute(sql, (voucher_id, payment_id))
-        db.commit()
         return True
 
 
@@ -402,7 +397,6 @@ class CreditNoteRepository:
                 now,
             ),
         )
-        db.commit()
 
         return CreditNote(
             id=credit_id,
@@ -446,5 +440,4 @@ class CreditNoteRepository:
         """Link credit note to accounting voucher."""
         sql = "UPDATE credit_notes SET voucher_id = ? WHERE id = ?"
         db.execute(sql, (voucher_id, credit_id))
-        db.commit()
         return True

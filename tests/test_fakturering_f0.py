@@ -417,6 +417,73 @@ def test_03_failure_after_posting_rolls_everything_back(customer, monkeypatch):
     assert _field(result, "invoice_number") == "2026-1"
 
 
+def test_03_prerequisite_the_issue_path_leaves_commit_to_the_caller(books, customer):
+    """Förutsättningen i §5 (uppgift 3): repona och `InvoiceService` committar
+    inte själva på utfärdandevägen. En rollback efter dem lämnar databasen
+    som den var."""
+    from repositories.invoice_draft_repo import InvoiceDraftRepository
+    from services.invoice import InvoiceService
+
+    draft = InvoiceDraftService().create_draft(
+        customer_id=customer.id,
+        invoice_date=date(2026, 7, 31),
+        rows_data=[
+            {
+                "description": "Konsulttjänster",
+                "quantity": 28,
+                "unit_price": 80000,
+                "vat_code": "MP1",
+                "revenue_account": "3011",
+            }
+        ],
+        created_by="agent",
+    )
+
+    def state() -> dict:
+        return {
+            **_snapshot(),
+            "voucher_rows": _count("voucher_rows"),
+            "audit_log": _count("audit_log"),
+        }
+
+    before = state()
+
+    service = InvoiceService()
+    invoice = service.create_invoice(
+        customer_name=draft.customer_name,
+        invoice_date=draft.invoice_date,
+        due_date=draft.due_date,
+        rows_data=[
+            {
+                "description": row.description,
+                "quantity": row.quantity,
+                "unit_price": row.unit_price,
+                "vat_code": row.vat_code,
+                "revenue_account": row.revenue_account,
+            }
+            for row in draft.rows
+        ],
+        created_by="stefan",
+        _commit=False,
+    )
+    voucher_id = service.create_booking_for_invoice(
+        invoice.id, books[7].id, actor="stefan", _commit=False
+    )
+    InvoiceDraftRepository.update_status(draft.id, "issued")
+
+    # Skrivet på anslutningen, men inte committat.
+    written = state()
+    assert written["invoices"] == before["invoices"] + 1
+    assert written["vouchers"] == before["vouchers"] + 1
+    assert _invoice_row(invoice.id)["voucher_id"] == voucher_id
+
+    db.rollback()
+
+    assert state() == before
+    assert _invoice_row(invoice.id) is None
+    assert InvoiceDraftService().get_draft(draft.id).status == "needs_review"
+
+
 @pytest.mark.xfail(strict=True, reason="F0 uppgift 7")
 def test_04_issuing_the_same_draft_twice_gives_one_invoice(customer):
     draft = _draft(customer)
