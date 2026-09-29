@@ -2,7 +2,7 @@
 
 Spec: `docs/redesign/SPEC-fakturering.md`. Tester först, en uppgift i taget.
 
-- [ ] 1. `tests/test_fakturering_f0.py`: testfall 1–15 ur §9, alla röda.
+- [x] 1. `tests/test_fakturering_f0.py`: testfall 1–15 ur §9, alla röda.
 - [ ] 2. Migration `036_invoice_issue.sql`: nya kolumner på utkast, fakturor och
       rader (nummer, adress, leverans, enhet, `quantity_centi`) och triggers
       (§4). Testfall 8 grönt.
