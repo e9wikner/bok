@@ -6,7 +6,9 @@ from fastapi.responses import FileResponse
 
 from api.deps import get_current_actor
 from domain.models import BankInput
+from repositories.bank_input_repo import BankInputRepository
 from services.bank_inputs import (
+    AUTO_CONNECTION_REFERENCE,
     BankConnectionNotFoundError,
     BankInputConflictError,
     BankInputError,
@@ -28,18 +30,36 @@ async def upload_bank_input(
     bank_connection_id: str = Form(...),
     actor: str = Depends(get_current_actor),
 ):
-    """Upload bank CSV source material before agent voucher posting."""
+    """Upload a bank CSV (an account statement).
+
+    `bank_connection_id` is a connection id, `account:<kontokod>`, or `auto`
+    -- the account is then read from the file name's leading account code,
+    or is 1630 for Skatteverket's tax-account export (the chat's upload).
+    Imported transactions that are the underlag of already posted vouchers
+    are linked to them at once; the answer says how many vouchers that is
+    (`linked_voucher_count`) and which account (`account_code`)."""
     content = await _read_limited_upload(file)
     service = BankInputService()
     try:
+        reference = bank_connection_id
+        if reference == AUTO_CONNECTION_REFERENCE:
+            reference = service.resolve_auto_reference(file.filename, content)
+        connection_id = service.resolve_connection_reference(reference)
         bank_input = service.create_from_upload_content(
             filename=file.filename,
             content_type=file.content_type,
             content=content,
-            bank_connection_id=service.resolve_connection_reference(bank_connection_id),
+            bank_connection_id=connection_id,
             actor=actor,
         )
-        return _bank_input_to_dict(bank_input)
+        connection = BankIntegrationService().get_connection(connection_id)
+        return {
+            **_bank_input_to_dict(bank_input),
+            "account_code": connection.account_number if connection else None,
+            "linked_voucher_count": len(
+                BankInputRepository.list_voucher_links_for_input(bank_input.id)
+            ),
+        }
     except BankInputError as exc:
         raise _http_error(exc) from exc
 

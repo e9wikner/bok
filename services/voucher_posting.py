@@ -149,6 +149,12 @@ def post_agent_voucher(
                 entity_id=voucher.id,
                 _commit=False,
             )
+
+    # Deferred import (AGENTS.md: service-to-service imports wait until the
+    # method runs).
+    from services.ledger import run_statement_match_after_posting
+
+    run_statement_match_after_posting()
     return response
 
 

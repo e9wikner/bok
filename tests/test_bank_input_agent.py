@@ -435,10 +435,30 @@ def test_bank_input_upload_records_duplicate_transaction_skip_count(
         actor="api",
     )
 
+    # Two identical rows in one file are two transactions (two fees of the
+    # same amount on the same day), not a duplicate.
     assert bank_input.status == BankInputStatus.PROCESSED
-    assert bank_input.imported_count == 1
-    assert bank_input.skipped_count == 1
-    assert BankInputRepository.count_transactions_for_input(bank_input.id) == 1
+    assert bank_input.imported_count == 2
+    assert bank_input.skipped_count == 0
+    assert BankInputRepository.count_transactions_for_input(bank_input.id) == 2
+
+    # A later, overlapping export of the same rows finds both again.
+    again = BankInputService().create_from_upload_content(
+        filename="transactions-later.csv",
+        content_type="text/csv",
+        content="\n".join(
+            [
+                "Datum;Belopp;Text",
+                "2026-03-01;-100,00;Bankavgift",
+                "2026-03-01;-100,00;Bankavgift",
+                "2026-03-02;-5,00;Avgift",
+            ]
+        ).encode(),
+        bank_connection_id=conn.id,
+        actor="api",
+    )
+    assert again.imported_count == 1
+    assert again.skipped_count == 2
 
 
 def test_bank_csv_import_detects_supported_format_and_reports_details(test_db):
@@ -528,22 +548,25 @@ def test_bank_csv_import_rejects_unsupported_format(test_db):
 
 def test_bank_csv_import_reports_duplicate_rows(test_db):
     conn = _active_connection()
-    result = BankIntegrationService().import_csv(
-        conn.id,
-        "\n".join(
-            [
-                "Datum;Belopp;Text",
-                "2026-03-01;-100,00;Bankavgift",
-                "2026-03-01;-100,00;Bankavgift",
-            ]
-        ),
-    )
+    rows = [
+        "Datum;Belopp;Text",
+        "2026-03-01;-100,00;Bankavgift",
+        "2026-03-01;-100,00;Bankavgift",
+    ]
+    service = BankIntegrationService()
+    first = service.import_csv(conn.id, "\n".join(rows))
+    # The second identical row on the same day is its own transaction.
+    assert first.detected_format == "swedish_standard_semicolon"
+    assert first.imported_count == 2
+    assert first.skipped_count == 0
 
-    assert result.detected_format == "swedish_standard_semicolon"
-    assert result.imported_count == 1
-    assert result.skipped_count == 1
-    assert len(result.imported_transaction_ids) == 1
-    assert result.skipped_external_ids == ["csv-2026-03-01--100.00-Bankavgift"]
+    result = service.import_csv(conn.id, "\n".join(rows))
+    assert result.imported_count == 0
+    assert result.skipped_count == 2
+    assert result.skipped_external_ids == [
+        "csv-2026-03-01--100.00-Bankavgift",
+        "csv-2026-03-01--100.00-Bankavgift#2",
+    ]
 
 
 @pytest.mark.asyncio

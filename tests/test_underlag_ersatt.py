@@ -718,10 +718,11 @@ def test_no_voucher_is_touched(period_id):
     assert table_rows("voucher_rows") == rows
 
 
-def test_the_tool_is_last_and_writes_no_voucher():
+def test_the_tool_is_fifteenth_and_writes_no_voucher():
     from services.agent_tools import AGENT_TOOL_DEFINITIONS, KopplaBortUnderlagArgs
 
-    last = AGENT_TOOL_DEFINITIONS[-1]
+    # Appended after `stang_perioder`; the two statement tools came after it.
+    last = AGENT_TOOL_DEFINITIONS[14]
     assert last["name"] == "koppla_bort_underlag"
     assert last["input_schema"] == KopplaBortUnderlagArgs.model_json_schema()
     assert "Skapar ingen verifikation och ändrar ingen." in last["description"]

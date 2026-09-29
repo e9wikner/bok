@@ -162,6 +162,27 @@ describe("länken på raden (49d)", () => {
     expect(fonster.close).toHaveBeenCalled();
   });
 
+  it("en överföring utan kvitto öppnar kontoutdraget den har som underlag", async () => {
+    svara({
+      source_material: [bankfil],
+      statement_links: [
+        {
+          account_code: "1630",
+          date: "2026-09-12",
+          amount_ore: 1500000,
+          description: "Inbetalning",
+          original_filename: "skattekonto.csv",
+          download_url: "/api/v1/bank-inputs/b-1/file",
+        },
+      ],
+    });
+    render(<VyRad titel="Inbetalning till skattekontot" meta="A-17 · 2026-09-12" hoger="15 000" kvitto={{ voucherId: "a17", nummer: "A-17" }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Öppna kvittot till A-17" }));
+    await waitFor(() =>
+      expect(get).toHaveBeenCalledWith("/api/v1/bank-inputs/b-1/file", { responseType: "blob" })
+    );
+  });
+
   it("ett fel: raden säger att kvittot inte kunde öppnas", async () => {
     get.mockImplementationOnce(() => Promise.reject(new Error("500")));
     render(<VyRad titel="Hyra" meta="A-116 · 2026-06-01" hoger="9 400" kvitto={{ voucherId: "a116", nummer: "A-116" }} />);

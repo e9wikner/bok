@@ -139,6 +139,10 @@ class Voucher:
     # voucher that was built in memory rather than read back.
     missing_attachment: Optional[bool] = None
     age_days: Optional[int] = None
+    # Derived (domain/statement_coverage.py): the statement accounts -- 1630,
+    # 1900-1989 -- whose rows still lack a linked bank transaction, while the
+    # voucher lacks underlag. Empty for a purchase: its underlag is a receipt.
+    missing_statement_accounts: List[str] = field(default_factory=list)
     # Derived from vouchers.correction_of (SPEC-flode-verifikationer §7.5):
     # the posted correction of this voucher, and the voucher this one corrects.
     corrected_by: Optional[VoucherRef] = None

@@ -290,6 +290,36 @@ räcker inte alltid för att avgöra kostnadens art, moms eller avdragsrätt.
 Bankavgifter bokförs normalt som kostnad utan moms, men kontrollera underlaget.
 Ränta, amortering och avgifter ska separeras.
 
+## Kontoutdrag som underlag
+
+För en händelse som bara är en rörelse på bankkontot eller skattekontot är
+kontoutdragets rad underlaget: överföringar mellan egna konton (bank och
+skattekonto, placeringar, utdelning), skattekontots händelser (debiterad
+preliminärskatt, ränta), bankavgifter och kundinbetalningar. Ett inköp, en
+arbetsgivardeklaration eller en momsredovisning behöver sin faktura, sitt kvitto
+eller sin deklaration; ett kontoutdrag visar bara betalningen.
+
+Kontoutdrag kommer in som CSV, i Dropzone (`Kontoutdrag/<kontokod> …/`) eller i
+tråden. Servern läser in raderna, håller en transaktion per verklig transaktion
+även när exporterna överlappar, och kopplar själv varje transaktion som har
+exakt en postad verifikation med samma belopp på samma konto och samma datum.
+Det gäller också en verifikation som postas efter att utdraget kom in. Be aldrig
+användaren ladda upp ett utdrag igen för att perioderna överlappar.
+
+- En överföring mellan två konton är komplett först när båda kontona har ett
+  utdrag. `missing_statement_accounts` på verifikationen säger vilka som saknas.
+- Resten läser du med `las_okopplade_banktransaktioner`. Vid `candidates`
+  (flera verifikationer, eller datum som skiljer några dagar) lägger du fram ett
+  beslut med `be_om_beslut` och kopplar efter svaret med
+  `koppla_banktransaktion`. I ett intagspass kopplar du ingenting utan beslut.
+- En verifikation med ingående moms kopplas aldrig till ett kontoutdrag.
+- När ett meddelande säger att ett kontoutdrag lästs in, svara med vad det gav:
+  hur många verifikationer som fick underlag och vilka transaktioner som behöver
+  ett beslut. Räkna inte upp resten av listan.
+- När du själv postar en överföring eller skattekontohändelse, skriv i
+  verifikationstexten var raden finns, till exempel "Överföring till
+  skattekontot, se kontoutdrag 1930 sep 2026, rad 2026-09-12, 15 000 kr".
+
 ## Lön, skatt och ägare
 
 Lön och arbetsgivaravgifter ska bara bokföras från löneunderlag eller skattekonto-

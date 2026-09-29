@@ -65,12 +65,12 @@ describe("filväljaren (testfall 45)", () => {
     expect(klick).toHaveBeenCalledTimes(1);
   });
 
-  it("desktop tar serverns typer, flera filer; mobilen öppnar kameran", () => {
+  it("desktop tar serverns typer och kontoutdrag som csv, flera filer; mobilen öppnar kameran", () => {
     const { container: desktop } = render(<ChattFalt vyTitel="Verifikationer" />);
     const d = filvaljare(desktop);
     expect(d.multiple).toBe(true);
     expect(d.accept.split(",").sort()).toEqual(
-      ["application/pdf", "image/gif", "image/jpeg", "image/png", "image/webp"].sort()
+      [".csv", "application/pdf", "image/gif", "image/jpeg", "image/png", "image/webp", "text/csv"].sort()
     );
     expect(d).not.toHaveAttribute("capture");
 

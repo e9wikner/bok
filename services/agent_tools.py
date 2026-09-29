@@ -54,6 +54,15 @@ wrong link on an answered decision about the underlag: a row in
 ``voucher_intake_unlinks``, the link row itself left as the trace. It
 creates no voucher and changes none, and it is not terminal.
 
+A sixteenth and seventeenth, ``las_okopplade_banktransaktioner``
+(read-only) and ``koppla_banktransaktion``, are appended after
+``koppla_bort_underlag`` for the same reason. They concern account
+statements as underlag (``services/statement_match.py``): the first lists the statement
+transactions not yet linked to a posted voucher, with their candidates; the
+second links one to the voucher it is underlag for. The server links exact
+matches itself; the tool is for the cases the user decided. It creates no
+voucher and changes none.
+
 ``posta_verifikation`` is the only tool that posts to the general ledger,
 and it goes through the exact same code as ``POST /api/v1/agent/vouchers``
 (``services/voucher_posting.post_agent_voucher``, A1) -- same
@@ -274,6 +283,22 @@ class LasBankhandelserArgs(BaseModel):
     bank_input_id: Optional[str] = None
     limit: int = Field(20, ge=1, le=100)
     offset: int = Field(0, ge=0)
+
+
+class LasOkoppladeBanktransaktionerArgs(BaseModel):
+    """Läs transaktionerna på kontoutdragskonton som ännu inte är underlag
+    för någon verifikation, med matchning och kandidater."""
+
+    limit: int = Field(50, ge=1, le=200)
+    offset: int = Field(0, ge=0)
+
+
+class KopplaBanktransaktionArgs(BaseModel):
+    """Koppla en transaktion från ett kontoutdrag till en postad
+    verifikation som den är underlag för."""
+
+    bank_transaction_id: str
+    voucher_id: str
 
 
 class PostaVerifikationRow(BaseModel):
@@ -1151,6 +1176,54 @@ def _run_stang_perioder(
     }
 
 
+def _run_las_okopplade_banktransaktioner(
+    args: LasOkoppladeBanktransaktionerArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """Read-only: exact matches are linked after each import and posting,
+    not here."""
+    # Deferred import (AGENTS.md: service-to-service imports wait until the
+    # method runs).
+    from services.statement_match import StatementMatchService
+
+    items = [m.to_dict() for m in StatementMatchService().open_transactions()]
+    return {
+        "total": len(items),
+        "limit": args.limit,
+        "offset": args.offset,
+        "items": items[args.offset : args.offset + args.limit],
+    }
+
+
+def _run_koppla_banktransaktion(
+    args: KopplaBanktransaktionArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """Not terminal. Idempotent through the schema: a transaction is linked
+    to at most one voucher (`UNIQUE(bank_transaction_id)`), and the same
+    link again is a replay."""
+    context = tool_context or {}
+    thread = context.get("thread")
+
+    # Deferred import -- the same import-cycle rule as `_run_be_om_beslut`.
+    from services.statement_match import StatementMatchService
+
+    return StatementMatchService().link(
+        args.bank_transaction_id,
+        args.voucher_id,
+        actor=actor,
+        thread_id=thread.id if thread is not None else None,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Tool definitions and dispatcher (SPEC §6.4, §6.6)
 # ---------------------------------------------------------------------------
@@ -1300,6 +1373,28 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
         KopplaBortUnderlagArgs,
         _run_koppla_bort_underlag,
     ),
+    (
+        "las_okopplade_banktransaktioner",
+        "Läs transaktionerna från kontoutdrag (1630, 1900-1989) som ännu "
+        "inte är underlag för någon postad verifikation, var och en med "
+        "match (exact/candidates/none) och kandidatverifikationer med "
+        "datumskillnad. Exakta matchningar kopplar servern själv efter varje "
+        "import och postning. Skrivskyddat.",
+        LasOkoppladeBanktransaktionerArgs,
+        _run_las_okopplade_banktransaktioner,
+    ),
+    (
+        "koppla_banktransaktion",
+        "Koppla en transaktion från ett kontoutdrag (1630, 1900-1989) som "
+        "underlag till en redan postad verifikation. Exakta matchningar "
+        "kopplar servern själv; använd detta när användaren har avgjort ett "
+        "tvetydigt fall (las_okopplade_banktransaktioner). Beloppet "
+        "på kontot måste stämma; datumet får skilja. Vägras för en "
+        "verifikation med ingående moms -- ett inköp behöver kvitto. Skapar "
+        "ingen verifikation och ändrar ingen, och går inte att ångra.",
+        KopplaBanktransaktionArgs,
+        _run_koppla_banktransaktion,
+    ),
 )
 
 #: Anthropic tool-definition shape: {"name", "description", "input_schema"}.
@@ -1328,9 +1423,10 @@ def execute_tool(
     idempotency_key: Optional[str] = None,
     tool_context: Optional[Mapping[str, Any]] = None,
 ) -> Any:
-    """Validate and run one model-requested tool call -- one of the fifteen
-    tools in ``_TOOL_SPECS``, the last of them ``koppla_bort_underlag``
-    (the fourteenth is ``stang_perioder``).
+    """Validate and run one model-requested tool call -- one of the seventeen
+    tools in ``_TOOL_SPECS``, the last of them ``koppla_banktransaktion``
+    (the fifteenth is ``koppla_bort_underlag``, the fourteenth
+    ``stang_perioder``).
 
     ``idempotency_key`` is the caller's own key for a posting made during
     this session, and only ``posta_verifikation`` reads it -- the thread

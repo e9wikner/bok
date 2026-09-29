@@ -3,9 +3,11 @@
 import { forwardRef, useCallback, useEffect, useId, useRef, useState, type RefObject } from "react";
 import { filMeta } from "@/components/chattyta/FilInlagg";
 import {
+  arInlastKontoutdrag,
   bilagor,
   chipStatus,
   kanSkicka,
+  kontoutdragsnotiser,
   laddaUppChip,
   laddarUpp,
   medUtfall,
@@ -38,8 +40,8 @@ import {
  * här utan att skicka något (SPEC-chattyta.md §8 steg 4, chattyta C12).
  */
 
-/** Filväljarens typer på desktop: serverns, speglade i `uppladdning.ts`. */
-const ACCEPT_DESKTOP = [...TILLATNA_TYPER].join(",");
+/** Filväljarens typer på desktop: serverns, speglade i `uppladdning.ts`, och kontoutdrag som CSV. */
+const ACCEPT_DESKTOP = [...TILLATNA_TYPER, ".csv", "text/csv"].join(",");
 
 let chipnummer = 0;
 
@@ -146,15 +148,22 @@ export const ChattFalt = forwardRef<
           const skickad = text.trim();
           if (skickar || !onSkicka || !kanSkicka(text, chips)) return;
           const bifogade = bilagor(chips);
+          // Kontoutdragen är redan inlästa; meddelandet säger vad de gav.
+          const notiser = kontoutdragsnotiser(chips);
+          const sand = [skickad, ...notiser].filter((t) => t !== "").join("\n");
           setSkickar(true);
           try {
-            const ok = bifogade.length > 0 ? await onSkicka(skickad, bifogade) : await onSkicka(skickad);
+            const ok = bifogade.length > 0 ? await onSkicka(sand, bifogade) : await onSkicka(sand);
             if (ok) {
               // Har människan hunnit skriva något nytt medan anropet var i
               // flykt är det hennes nästa fråga, inte den som skickades.
               setText((nu) => (nu.trim() === skickad ? "" : nu));
               // De skickade chipen går; ett felchip står kvar tills det tas bort.
-              setChips((cs) => cs.filter((c) => !(c.lage === "klar" && c.id !== null && bifogade.includes(c.id))));
+              setChips((cs) =>
+                cs.filter(
+                  (c) => !arInlastKontoutdrag(c) && !(c.lage === "klar" && c.id !== null && bifogade.includes(c.id))
+                )
+              );
             }
           } finally {
             setSkickar(false);

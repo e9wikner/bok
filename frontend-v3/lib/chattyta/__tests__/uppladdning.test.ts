@@ -4,6 +4,7 @@ import {
   bilagor,
   chipStatus,
   kanSkicka,
+  kontoutdragsnotiser,
   kontrolleraFil,
   laddaUppChip,
   laddarUpp,
@@ -284,5 +285,57 @@ describe("skickaMeddelande — med och utan bilagor", () => {
       text: "",
       attachments: ["src-1", "src-2"],
     });
+  });
+});
+
+// ─── Kontoutdrag som CSV (services/statement_match.py) ────────────────────
+
+describe("kontoutdrag — en CSV i chatten", () => {
+  const csv = (namn = "1930 september.csv", typ = "text/csv") => fil(namn, typ, 1_200);
+
+  it("en csv godtas, också utan typ", () => {
+    expect(kontrolleraFil({ name: "skattekonto.csv", type: "", size: 10 })).toBeNull();
+    expect(kontrolleraFil({ name: "x.csv", type: "text/csv", size: 10 })).toBeNull();
+  });
+
+  it("laddas upp till /bank-inputs med bank_connection_id=auto, inte till intagskön", async () => {
+    post.mockResolvedValue({
+      status: 201,
+      data: { id: "bi-1", status: "processed", imported_count: 4, skipped_count: 3, account_code: "1630", linked_voucher_count: 2 },
+    });
+    const utfall = await laddaUppChip(csv("skattekonto.csv"));
+    const [url, kropp] = post.mock.calls[0];
+    expect(url).toBe("/api/v1/bank-inputs");
+    expect((kropp as FormData).get("bank_connection_id")).toBe("auto");
+    expect(utfall).toEqual({
+      lage: "klar",
+      id: null,
+      dubblett: false,
+      kontoutdrag: { konto: "1630", nya: 4, kopplade: 2 },
+    });
+  });
+
+  it("samma fil igen är klar, inte fel; okänt konto säger hur filen ska heta", async () => {
+    post.mockRejectedValueOnce(axiosFel(409, { error: "dup", code: "duplicate_bank_input" }));
+    expect(await laddaUppChip(csv())).toEqual({ lage: "klar", id: null, dubblett: true, kontoutdrag: null });
+
+    post.mockRejectedValueOnce(axiosFel(400, { error: "x", code: "statement_account_unknown" }));
+    const okant = await laddaUppChip(csv("utdrag.csv"));
+    expect(okant.lage === "fel" && okant.orsak).toMatch(/kontokoden/);
+  });
+
+  it("chipet säger vad inläsningen gav, och ↵ går utan text", () => {
+    const inlast = chip({ id: null, namn: "skattekonto.csv", kontoutdrag: { konto: "1630", nya: 4, kopplade: 2 } });
+    expect(chipStatus(inlast)).toBe("inläst · kontoutdrag 1630 · 4 nya · 2 kopplade");
+    expect(chipStatus(chip({ id: null, dubblett: true, kontoutdrag: null }))).toBe("klar · kontoutdraget fanns redan");
+    expect(bilagor([inlast])).toEqual([]);
+    expect(kanSkicka("", [inlast])).toBe(true);
+  });
+
+  it("meddelandet får en rad per kontoutdrag", () => {
+    const inlast = chip({ id: null, namn: "skattekonto.csv", kontoutdrag: { konto: "1630", nya: 4, kopplade: 2 } });
+    expect(kontoutdragsnotiser([inlast, chip()])).toEqual([
+      "[Kontoutdrag skattekonto.csv inläst för konto 1630: 4 nya transaktioner, 2 verifikationer fick underlag.]",
+    ]);
   });
 });

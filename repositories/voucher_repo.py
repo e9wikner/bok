@@ -7,6 +7,11 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from db.database import db
 from domain.models import Voucher, VoucherRef, VoucherRow
+from domain.statement_coverage import (
+    INPUT_VAT_RANGE,
+    STATEMENT_ACCOUNT_RANGE,
+    STATEMENT_ACCOUNT_SINGLES,
+)
 from domain.types import VoucherSeries, VoucherStatus
 
 # Derived voucher fields (SPEC-oversikt.md §3). Never stored: migration 014
@@ -25,6 +30,10 @@ from domain.types import VoucherSeries, VoucherStatus
 # there is no receipt to ask for (D3) -- and no row in
 # `voucher_source_references` -- a difference booked as its own voucher has
 # its underlag through the voucher carrying the receipt's link (D2).
+# And one more (domain/statement_coverage.py): not covered by account
+# statements -- every row on a statement account (1630, 1900-1989) has a
+# linked bank transaction imported for that same account, and the voucher is
+# not a purchase (no input VAT). A transfer 1930 -> 1630 needs both.
 # Parenthesised as a whole: callers negate it (`NOT {MISSING_ATTACHMENT_SQL}`).
 #
 # Only *current* links count (migration 035, underlag-ersatt): a link with a
@@ -35,6 +44,46 @@ from domain.types import VoucherSeries, VoucherStatus
 CURRENT_LINK_SQL = (
     "NOT EXISTS (SELECT 1 FROM voucher_intake_unlinks u WHERE u.link_id = {alias}.id)"
 )
+
+
+def _statement_account_sql(column: str) -> str:
+    low, high = STATEMENT_ACCOUNT_RANGE
+    singles = ", ".join(f"'{code}'" for code in STATEMENT_ACCOUNT_SINGLES)
+    return f"({column} IN ({singles}) OR {column} BETWEEN '{low}' AND '{high}')"
+
+
+_HAS_INPUT_VAT_SQL = (
+    "EXISTS (SELECT 1 FROM voucher_rows vat_r WHERE vat_r.voucher_id = vouchers.id"
+    f" AND vat_r.account_code BETWEEN '{INPUT_VAT_RANGE[0]}'"
+    f" AND '{INPUT_VAT_RANGE[1]}')"
+)
+# The statement-account rows of the voucher that no linked transaction
+# covers. A transaction covers a row when it was imported for the row's
+# account (`bank_connections.account_number`).
+_UNCOVERED_STATEMENT_ROWS_SQL = (
+    "FROM voucher_rows st_r WHERE st_r.voucher_id = vouchers.id"
+    " AND (st_r.debit > 0 OR st_r.credit > 0)"
+    f" AND {_statement_account_sql('st_r.account_code')}"
+    " AND NOT EXISTS (SELECT 1 FROM voucher_bank_transactions st_vbt"
+    " JOIN bank_transactions st_bt ON st_bt.id = st_vbt.bank_transaction_id"
+    " JOIN bank_connections st_bc ON st_bc.id = st_bt.bank_connection_id"
+    " WHERE st_vbt.voucher_id = vouchers.id"
+    " AND st_bc.account_number = st_r.account_code)"
+)
+STATEMENT_COVERED_SQL = (
+    "(EXISTS (SELECT 1 FROM voucher_bank_transactions cov_vbt"
+    " WHERE cov_vbt.voucher_id = vouchers.id)"
+    f" AND NOT EXISTS (SELECT 1 {_UNCOVERED_STATEMENT_ROWS_SQL})"
+    f" AND NOT {_HAS_INPUT_VAT_SQL})"
+)
+# Comma-separated statement accounts still without a transaction; NULL for a
+# purchase (its underlag is a receipt, never a statement) or when none.
+MISSING_STATEMENT_ACCOUNTS_SQL = (
+    f"CASE WHEN {_HAS_INPUT_VAT_SQL} THEN NULL ELSE"
+    f" (SELECT group_concat(DISTINCT st_r.account_code)"
+    f" {_UNCOVERED_STATEMENT_ROWS_SQL}) END"
+)
+
 MISSING_ATTACHMENT_SQL = (
     "(NOT EXISTS (SELECT 1 FROM attachments a WHERE a.voucher_id = vouchers.id)"
     " AND NOT EXISTS (SELECT 1 FROM voucher_intake_sources vis"
@@ -43,7 +92,8 @@ MISSING_ATTACHMENT_SQL = (
     " AND vouchers.created_by != 'sie4_import'"
     " AND vouchers.correction_of IS NULL"
     " AND NOT EXISTS (SELECT 1 FROM voucher_source_references vsr"
-    " WHERE vsr.voucher_id = vouchers.id))"
+    " WHERE vsr.voucher_id = vouchers.id)"
+    f" AND NOT {STATEMENT_COVERED_SQL})"
 )
 # Age of the business event, not of the posting: counted from vouchers.date,
 # in whole days, local time.
@@ -65,6 +115,7 @@ VOUCHER_SELECT_SQL = f"""
     SELECT vouchers.*,
            {MISSING_ATTACHMENT_SQL} AS missing_attachment,
            {AGE_DAYS_SQL} AS age_days,
+           {MISSING_STATEMENT_ACCOUNTS_SQL} AS missing_statement_accounts,
            cb.id AS corrected_by_id,
            cb.series AS corrected_by_series,
            cb.number AS corrected_by_number,
@@ -162,6 +213,13 @@ def _voucher_from_row(row, rows: List[VoucherRow]) -> Voucher:
         posted_at=datetime.fromisoformat(posted_at) if posted_at else None,
         missing_attachment=bool(row["missing_attachment"]),
         age_days=row["age_days"],
+        # Only meaningful while the voucher lacks underlag: a receipt covers
+        # it whatever the statements say.
+        missing_statement_accounts=(
+            sorted(row["missing_statement_accounts"].split(","))
+            if row["missing_attachment"] and row["missing_statement_accounts"]
+            else []
+        ),
         corrected_by=_ref(row, "corrected_by"),
         corrects=_ref(row, "corrects"),
         referenced_by=_ref(row, "referenced_by"),

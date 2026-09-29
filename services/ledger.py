@@ -21,6 +21,16 @@ from repositories.voucher_repo import VoucherRepository
 logger = logging.getLogger(__name__)
 
 
+def run_statement_match_after_posting() -> None:
+    """Link statement transactions to vouchers posted since the last run
+    (`services/statement_match.py`). Never raises: the posting already
+    succeeded. Deferred import (AGENTS.md: service-to-service imports wait
+    until the method runs)."""
+    from services.statement_match import StatementMatchService
+
+    StatementMatchService().run_quietly()
+
+
 def _today() -> date:
     """The server's date, for where a correction is booked
     (SPEC-flode-verifikationer §7.2). A function so tests can fix it."""
@@ -199,6 +209,13 @@ class LedgerService:
             },
             _commit=_commit,
         )
+
+        # A statement imported earlier may hold this voucher's underlag. Only
+        # once committed: inside a caller's transaction the caller runs it
+        # after its own commit (`run_statement_match_after_posting`). A SIE4
+        # import's documents live in the old system.
+        if _commit and actor != "sie4_import":
+            run_statement_match_after_posting()
 
         # Reload to get updated status
         return self.vouchers.get(voucher.id)

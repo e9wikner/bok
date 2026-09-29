@@ -158,6 +158,13 @@ class VoucherResponse(BaseModel):
         False, description="True when no attachment is linked to the voucher"
     )
     age_days: int = Field(0, description="Whole days since the voucher date")
+    missing_statement_accounts: List[str] = Field(
+        default_factory=list,
+        description=(
+            "While the voucher lacks underlag: the statement accounts (1630, "
+            "1900-1989) whose rows have no linked bank transaction yet"
+        ),
+    )
     corrected_by: Optional[VoucherRefResponse] = Field(
         None, description="The posted voucher that corrects this one"
     )

@@ -120,6 +120,31 @@ export async function laddaUppUnderlag(fil: File): Promise<UnderlagSvar> {
   return data;
 }
 
+/** `api/routes/bank_inputs.py::upload_bank_input`, de fält klienten läser. */
+export interface KontoutdragSvar {
+  id: string;
+  status: string;
+  imported_count: number;
+  skipped_count: number;
+  account_code?: string | null;
+  linked_voucher_count?: number;
+}
+
+/**
+ * `POST /api/v1/bank-inputs` med `bank_connection_id=auto`: servern läser
+ * kontot ur filnamnet eller formatet. En fil utan typ (vissa webbläsare ger
+ * `.csv` en tom typ) skickas som `text/csv`, som servern kräver.
+ */
+export async function laddaUppKontoutdrag(fil: File): Promise<KontoutdragSvar> {
+  const form = new FormData();
+  form.append("file", fil.type ? fil : new File([fil], fil.name, { type: "text/csv" }));
+  form.append("bank_connection_id", "auto");
+  const { data } = await apiClient.post<KontoutdragSvar>("/api/v1/bank-inputs", form, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data;
+}
+
 /** Hur länge blob-adressen lever efter att fönstret fått den. */
 const BLOB_LIVSTID_MS = 60_000;
 
@@ -135,14 +160,32 @@ const BLOB_LIVSTID_MS = 60_000;
  * fel stänger fönstret och kastas vidare.
  */
 export async function oppnaUnderlag(kalla: string | (() => Promise<string | null>)): Promise<boolean> {
+  if (typeof kalla === "string") return oppnaFil(underlagsfilSokvag(kalla));
+  return oppnaFil(async () => {
+    const sourceId = await kalla();
+    return sourceId === null ? null : underlagsfilSokvag(sourceId);
+  });
+}
+
+/** `GET /intake/{id}/file` för en källa i intagskön. */
+export function underlagsfilSokvag(sourceId: string): string {
+  return `/api/v1/intake/${encodeURIComponent(sourceId)}/file`;
+}
+
+/**
+ * Som `oppnaUnderlag`, men för vilken skyddad fil som helst: API-sökvägen
+ * (t.ex. ett kontoutdrags `/bank-inputs/{id}/file`), eller en funktion som
+ * slår upp den och svarar `null` när det inte fanns någon fil.
+ */
+export async function oppnaFil(sokvag: string | (() => Promise<string | null>)): Promise<boolean> {
   const fonster = window.open("", "_blank");
   try {
-    const sourceId = typeof kalla === "string" ? kalla : await kalla();
-    if (sourceId === null) {
+    const vag = typeof sokvag === "string" ? sokvag : await sokvag();
+    if (vag === null) {
       fonster?.close();
       return false;
     }
-    const { data } = await apiClient.get<Blob>(`/api/v1/intake/${encodeURIComponent(sourceId)}/file`, {
+    const { data } = await apiClient.get<Blob>(vag, {
       responseType: "blob",
     });
     const url = URL.createObjectURL(data);

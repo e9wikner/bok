@@ -84,13 +84,16 @@ def test_36_koppla_underlag_is_last_and_the_first_twelve_are_unchanged():
 
     names = [t["name"] for t in AGENT_TOOL_DEFINITIONS]
     # `stang_perioder` has since been appended after it, the fourteenth,
-    # and `koppla_bort_underlag` after that, the fifteenth.
-    assert len(names) == 15
+    # `koppla_bort_underlag` after that, the fifteenth, and the two
+    # statement tools after that.
+    assert len(names) == 17
     assert names[11:] == [
         "tolka_underlag",
         "koppla_underlag",
         "stang_perioder",
         "koppla_bort_underlag",
+        "las_okopplade_banktransaktioner",
+        "koppla_banktransaktion",
     ]
     first_twelve = json.dumps(AGENT_TOOL_DEFINITIONS[:12])
     assert hashlib.sha256(first_twelve.encode()).hexdigest() == _FIRST_TWELVE_SHA256
@@ -127,8 +130,9 @@ def test_fu5_the_docstrings_say_thirteen_tools():
 
     assert "thirteenth" in (agent_tools.__doc__ or "")
     assert "koppla_underlag" in (agent_tools.__doc__ or "")
-    # Fifteen since underlag-ersatt appended `koppla_bort_underlag`.
-    assert "fifteen" in (agent_tools.execute_tool.__doc__ or "")
+    # Seventeen since the statement tools were appended after
+    # `koppla_bort_underlag`.
+    assert "seventeen" in (agent_tools.execute_tool.__doc__ or "")
 
 
 def test_01_exact_match_through_the_tool_in_a_thread(period_id):

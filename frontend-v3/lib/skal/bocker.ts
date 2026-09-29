@@ -13,7 +13,7 @@ import { formatBeloppHela } from "@/lib/skal/format";
 import { formatVerifikationsnummer } from "@/lib/utils";
 import type { VyData, VyRadData, VySektionData } from "@/lib/skal/vydata";
 import type { OverviewFiscalYear } from "@/lib/skal/api";
-import { oppnaUnderlag, type BeslutSvar, type ForslagStatusSvar } from "@/lib/chattyta/api";
+import { oppnaFil, underlagsfilSokvag, type BeslutSvar, type ForslagStatusSvar } from "@/lib/chattyta/api";
 import type { Koppling } from "@/lib/chattyta/kopplingar";
 import type { Postning } from "@/lib/chattyta/postningar";
 import { periodnamn, type LasData, type Period } from "@/lib/skal/las";
@@ -72,6 +72,12 @@ export interface Verifikation {
   missing_attachment?: boolean;
   /** Serverns `age_days` (hela dagar sedan verifikationsdatumet). Klienten räknar den inte. */
   age_days?: number;
+  /**
+   * Medan verifikationen saknar underlag: kontoutdragskontona (1630,
+   * 1900–1989) vars rader ännu saknar en kopplad transaktion. Tom för ett
+   * inköp — dess underlag är ett kvitto.
+   */
+  missing_statement_accounts?: string[];
   posted_at?: string | null;
   /** Den postade rättelsen av den här (flode-verifikationer §7.5). */
   corrected_by?: VerifikationRef | null;
@@ -109,6 +115,29 @@ export interface Kallkontext {
     original_filename?: string;
     via_voucher_id?: string | null;
   }>;
+  /**
+   * Kontoutdragstransaktionerna som är verifikationens underlag
+   * (`services/statement_match.py`), med filen de kom från. Valfri: en
+   * server från före kontoutdragen skickar den inte.
+   */
+  statement_links?: Array<{
+    account_code: string;
+    date: string;
+    amount_ore: number;
+    description: string | null;
+    original_filename: string | null;
+    download_url: string | null;
+  }>;
+}
+
+/**
+ * Filen kvittolänken öppnar: kvittot om det finns ett, annars kontoutdraget
+ * med den första kopplade transaktionen.
+ */
+export function underlagsfil(ctx: Kallkontext): string | null {
+  const kvitto = kvittoKalla(ctx);
+  if (kvitto !== null) return underlagsfilSokvag(kvitto);
+  return (ctx.statement_links ?? []).find((l) => l.download_url)?.download_url ?? null;
 }
 
 /**
@@ -126,7 +155,7 @@ export function kvittoKalla(ctx: Kallkontext): string | null {
  * används — inte per rad (FU23). `false` när verifikationen inte har något.
  */
 export function oppnaKvitto(voucherId: string): Promise<boolean> {
-  return oppnaUnderlag(async () => kvittoKalla(await bockerApi.getKallkontext(voucherId)));
+  return oppnaFil(async () => underlagsfil(await bockerApi.getKallkontext(voucherId)));
 }
 
 /** Postade hämtas så många i taget; nästa sida när listans slut syns (SPEC-lasbarhet.md §4.5). */
@@ -420,13 +449,21 @@ function harUnderlag(v: Pick<Verifikation, "status" | "missing_attachment" | "co
   return v.status === "posted" && v.missing_attachment === false && !v.corrects;
 }
 
-/** `Saknar underlag` (§10.4): `{serie}-{nummer} · kvitto saknas sedan {n} dgr`, `n` = serverns `age_days`. */
+/**
+ * `Saknar underlag` (§10.4): `{serie}-{nummer} · kvitto saknas sedan {n} dgr`,
+ * `n` = serverns `age_days`. En verifikation vars underlag är kontoutdrag
+ * (en överföring, en skattekontohändelse) säger i stället vilka konton som
+ * saknar utdrag: `kontoutdrag 1630 saknas`, eller `1630 och 1930` när inget
+ * av dem finns.
+ */
 function saknarrad(v: Verifikation): VyRadData {
   const alder = v.age_days ?? 0;
+  const konton = v.missing_statement_accounts ?? [];
+  const vad = konton.length > 0 ? `kontoutdrag ${konton.join(" och ")} saknas` : "kvitto saknas";
   return {
     id: v.id,
     titel: v.description,
-    meta: `${nummerAv(v)} · kvitto saknas sedan ${alder} dgr`,
+    meta: `${nummerAv(v)} · ${vad} sedan ${alder} dgr`,
     hoger: formatBeloppHela(v.total_debit),
     variant: "saknar",
     ageDays: v.age_days,

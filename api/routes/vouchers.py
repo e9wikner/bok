@@ -36,7 +36,7 @@ from repositories.intake_repo import IntakeRepository
 from services.correction_notes import CorrectionNoteError, CorrectionNoteService
 from services.draft_service import DraftService, SourceAlreadyBookedError
 from services.idempotency import IdempotencyOutcome, IdempotencyService
-from services.ledger import LedgerService
+from services.ledger import LedgerService, run_statement_match_after_posting
 
 logger = logging.getLogger(__name__)
 
@@ -455,6 +455,26 @@ async def get_voucher_source_context(
             key=lambda note: note["created_at"],
         ),
         "correction_chain": _correction_chain_for_voucher(voucher),
+        # The statement transactions that are the voucher's underlag
+        # (services/statement_match.py), each with the file it came from.
+        "statement_links": [
+            {
+                "bank_transaction_id": link["bank_transaction_id"],
+                "account_code": link["account_code"],
+                "date": str(link["transaction_date"])[:10],
+                "amount_ore": link["amount"],
+                "description": link["description"],
+                "bank_input_id": link["bank_input_id"],
+                "original_filename": link["original_filename"],
+                "download_url": (
+                    f"/api/v1/bank-inputs/{link['bank_input_id']}/file"
+                    if link["bank_input_id"]
+                    else None
+                ),
+                "linked_by": link["linked_by"],
+            }
+            for link in bank_repo.list_statement_links_for_voucher(voucher_id)
+        ],
     }
 
 
@@ -596,6 +616,7 @@ def _after_posting(voucher_id: str, actor: str) -> None:
             DraftService().on_posted(voucher, actor=actor)
     except Exception:
         logger.exception("Receipt for posted voucher %s failed", voucher_id)
+    run_statement_match_after_posting()
 
 
 def _after_failed_posting(voucher_id: str, error: ValidationError, actor: str) -> None:
@@ -1119,6 +1140,7 @@ def _voucher_to_response(voucher, account_names=None) -> VoucherResponse:
         posted_at=voucher.posted_at,
         missing_attachment=missing_attachment,
         age_days=age_days,
+        missing_statement_accounts=list(voucher.missing_statement_accounts),
         corrected_by=_ref_response(voucher.corrected_by),
         corrects=_ref_response(voucher.corrects),
         referenced_by=_ref_response(voucher.referenced_by),

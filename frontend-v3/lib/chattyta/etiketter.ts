@@ -32,6 +32,8 @@ export const SKRIVER_ETIKETTER: Readonly<Record<string, string>> = {
   koppla_underlag: "Kopplar underlaget…",
   stang_perioder: "Låser perioder…",
   koppla_bort_underlag: "Kopplar bort underlaget…",
+  las_okopplade_banktransaktioner: "Läser okopplade banktransaktioner…",
+  koppla_banktransaktion: "Kopplar kontoutdraget…",
 };
 
 /**

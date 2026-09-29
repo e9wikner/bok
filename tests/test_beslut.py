@@ -1697,7 +1697,7 @@ class TestBeOmBeslutIsLastInAgentToolDefinitions:
     def test_case_25_be_om_beslut_is_tenth_and_the_first_nine_are_unchanged(self):
         names = [tool["name"] for tool in AGENT_TOOL_DEFINITIONS]
 
-        assert len(names) == 15
+        assert len(names) == 17
         assert names[:9] == self._EXPECTED_FIRST_NINE
         assert names[9] == "be_om_beslut"
         assert names[10:] == [
@@ -1706,6 +1706,8 @@ class TestBeOmBeslutIsLastInAgentToolDefinitions:
             "koppla_underlag",
             "stang_perioder",
             "koppla_bort_underlag",
+            "las_okopplade_banktransaktioner",
+            "koppla_banktransaktion",
         ]
 
 

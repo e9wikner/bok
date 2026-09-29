@@ -1091,6 +1091,10 @@ _EXPECTED_TOOL_NAMES = [
     # The fifteenth, appended the same way (underlag-ersatt): it undoes a
     # wrong link on an answered decision, and never touches a voucher.
     "koppla_bort_underlag",
+    # The sixteenth and seventeenth, appended the same way: account statements
+    # as underlag -- read the unlinked transactions, link one after a decision.
+    "las_okopplade_banktransaktioner",
+    "koppla_banktransaktion",
 ]
 
 
@@ -1212,6 +1216,9 @@ class TestAppendOnlyToolSurface:
         `koppla_bort_underlag` joined them with underlag-ersatt: it writes a
         `voucher_intake_unlinks` row and the source's status, never a
         voucher.
+        `koppla_banktransaktion` joined them with account statements as
+        underlag: it writes the link between a statement transaction and a
+        posted voucher and the audit log, never a voucher.
         """
         write_tool_names = {
             "posta_verifikation",
@@ -1222,6 +1229,7 @@ class TestAppendOnlyToolSurface:
             "koppla_underlag",
             "stang_perioder",
             "koppla_bort_underlag",
+            "koppla_banktransaktion",
         }
         read_tool_names = set(_EXPECTED_TOOL_NAMES) - write_tool_names
         for tool in AGENT_TOOL_DEFINITIONS:

@@ -114,6 +114,20 @@ describe("sektionen Saknar underlag (testfall 49b)", () => {
     expect(rader[1].meta).toBe("A-118 · kvitto saknas sedan 3 dgr");
   });
 
+  it("en överföring säger vilket kontoutdrag som saknas, inte kvitto", () => {
+    const vy = verifikationerVy(AR, TOM, TOM, {
+      beslut: [],
+      forslag: [],
+      saknar: lista(
+        { ...a118, age_days: 31, missing_statement_accounts: ["1630"] },
+        { ...a109, age_days: 12, missing_statement_accounts: ["1630", "1930"] }
+      ),
+    });
+    const rader = sektion(vy, "Saknar underlag");
+    expect(rader[0].meta).toBe("A-118 · kontoutdrag 1630 saknas sedan 31 dgr");
+    expect(rader[1].meta).toBe("A-109 · kontoutdrag 1630 och 1930 saknas sedan 12 dgr");
+  });
+
   it("n är serverns age_days, inte räknat ur datumet", () => {
     const vy = verifikationerVy(AR, TOM, TOM, {
       beslut: [],
