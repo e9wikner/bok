@@ -4,7 +4,7 @@ from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from api.deps import get_current_actor, get_ledger_service
+from api.deps import get_current_actor, get_human_actor, get_ledger_service
 from api.schemas import FiscalYearResponse, PeriodResponse
 from domain.validation import ValidationError
 from services.ledger import LedgerService
@@ -182,6 +182,45 @@ async def get_period(
         )
 
 
+@router.post("/fiscal-years/{fy_id}/lock", response_model=FiscalYearResponse)
+async def lock_fiscal_year(
+    fy_id: str,
+    ledger: LedgerService = Depends(get_ledger_service),
+    actor: str = Depends(get_current_actor),
+):
+    """
+    Lock a fiscal year and every period in it that is still open.
+
+    One transaction: a period with draft vouchers (other than a thread's
+    pending proposals, which are marked `period_locked`) stops the whole lock
+    with `400 draft_vouchers_exist`. The agent may lock; only a human may
+    unlock.
+    """
+    try:
+        return _fiscal_year_to_response(ledger.lock_fiscal_year(fy_id, actor=actor))
+    except ValidationError as e:
+        raise _lock_error(e)
+
+
+@router.post("/fiscal-years/{fy_id}/unlock", response_model=FiscalYearResponse)
+async def unlock_fiscal_year(
+    fy_id: str,
+    ledger: LedgerService = Depends(get_ledger_service),
+    actor: str = Depends(get_human_actor),
+):
+    """
+    Open a locked fiscal year again, and every period in it.
+
+    Logged-in users only (JWT): the agent's API key gets `403 human_only`.
+    Posted vouchers stay immutable; the audit log keeps who locked and who
+    unlocked.
+    """
+    try:
+        return _fiscal_year_to_response(ledger.unlock_fiscal_year(fy_id, actor=actor))
+    except ValidationError as e:
+        raise _lock_error(e)
+
+
 @router.post("/periods/{period_id}/lock", response_model=PeriodResponse)
 async def lock_period(
     period_id: str,
@@ -189,27 +228,48 @@ async def lock_period(
     actor: str = Depends(get_current_actor),
 ):
     """
-    Lock period (irreversible - BFL varaktighet requirement).
+    Lock period: no new vouchers can be posted in it.
 
     All draft vouchers must be posted or deleted before locking
     (`400 draft_vouchers_exist`) -- except a thread's pending proposals: the
     lock goes through and marks them `period_locked`, with an error post in
-    their thread (SPEC-flode-verifikationer §9, F16). Once locked, no new
-    vouchers can be added to this period.
+    their thread (SPEC-flode-verifikationer §9, F16). Only a human can open
+    the period again (`/unlock`).
     """
     try:
-        period = ledger.lock_period(period_id, actor=actor)
-        return _period_to_response(period)
-
+        return _period_to_response(ledger.lock_period(period_id, actor=actor))
     except ValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": e.message, "code": e.code, "details": e.details},
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
-        )
+        raise _lock_error(e)
+
+
+@router.post("/periods/{period_id}/unlock", response_model=PeriodResponse)
+async def unlock_period(
+    period_id: str,
+    ledger: LedgerService = Depends(get_ledger_service),
+    actor: str = Depends(get_human_actor),
+):
+    """
+    Open a locked period again.
+
+    Logged-in users only (JWT): the agent's API key gets `403 human_only`.
+    A period in a locked fiscal year stays locked (`400 fiscal_year_locked`)
+    until the year is opened.
+    """
+    try:
+        return _period_to_response(ledger.unlock_period(period_id, actor=actor))
+    except ValidationError as e:
+        raise _lock_error(e)
+
+
+def _lock_error(e: ValidationError) -> HTTPException:
+    """`404` for a missing period or year, `400` for every other refusal."""
+    not_found = e.code in ("period_not_found", "fiscal_year_not_found")
+    return HTTPException(
+        status_code=(
+            status.HTTP_404_NOT_FOUND if not_found else status.HTTP_400_BAD_REQUEST
+        ),
+        detail={"error": e.message, "code": e.code, "details": e.details},
+    )
 
 
 def _fiscal_year_to_response(fy) -> FiscalYearResponse:

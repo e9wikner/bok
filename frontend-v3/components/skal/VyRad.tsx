@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { LasKnapp } from "@/components/skal/LasKnapp";
 import { aldersTon } from "@/lib/chattyta/alder";
 import { oppnaKvitto } from "@/lib/skal/bocker";
+import type { LasData } from "@/lib/skal/las";
 import type { RadVariant } from "@/lib/skal/vydata";
 
 /**
@@ -56,6 +58,7 @@ export function VyRad({
   storlek = "desktop",
   ageDays,
   kvitto,
+  las,
 }: {
   titel: string;
   meta?: string;
@@ -70,6 +73,8 @@ export function VyRad({
    * `/v4` har ingen raddetalj; det här är det minsta som bär länken.
    */
   kvitto?: { voucherId: string; nummer: string };
+  /** Ett lås sist på raden, efter högerkolumnen. */
+  las?: LasData;
 }) {
   // Markeringen tas bort av sig själv; raden ligger kvar.
   const [nyAktiv, setNyAktiv] = useState(variant === "ny");
@@ -117,6 +122,11 @@ export function VyRad({
         style={{ color: textFarg, fontWeight: summa ? 500 : undefined }}
       >
         {hoger}
+        {las && (
+          <span className={hoger ? "ml-[10px]" : undefined}>
+            <LasKnapp {...las} />
+          </span>
+        )}
       </span>
     </div>
   );

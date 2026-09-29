@@ -229,12 +229,12 @@ class PeriodRepository:
     def lock_period(
         period_id: str, actor: Optional[str] = None, _commit: bool = True
     ) -> bool:
-        """Lock period (irreversible - BFL varaktighet requirement).
+        """Lock period: no new vouchers can be posted in it.
 
         Records who locked it, so a later conflict can name them instead of
         leaving the caller to dig through the audit log. `_commit=False`
-        lets `LedgerService.lock_period` mark the period's pending thread
-        drafts in the same transaction (F16).
+        lets `LedgerService` mark the period's pending thread drafts -- and
+        lock a whole fiscal year -- in the same transaction (F16).
         """
         sql = "UPDATE periods SET locked = 1, locked_at = ?, locked_by = ? WHERE id = ?"
         db.execute(sql, (datetime.now(), actor, period_id))
@@ -243,9 +243,33 @@ class PeriodRepository:
         return True
 
     @staticmethod
-    def lock_fiscal_year(fy_id: str) -> bool:
-        """Lock fiscal year."""
+    def unlock_period(period_id: str, _commit: bool = True) -> bool:
+        """Open a locked period again. Who locked it, and who opened it, stays
+        in the audit log; posted vouchers are untouched either way."""
+        sql = (
+            "UPDATE periods SET locked = 0, locked_at = NULL, locked_by = NULL "
+            "WHERE id = ?"
+        )
+        db.execute(sql, (period_id,))
+        if _commit:
+            db.commit()
+        return True
+
+    @staticmethod
+    def lock_fiscal_year(fy_id: str, _commit: bool = True) -> bool:
+        """Lock fiscal year. Its periods are locked by `LedgerService`."""
         sql = "UPDATE fiscal_years SET locked = 1, locked_at = ? WHERE id = ?"
         db.execute(sql, (datetime.now(), fy_id))
-        db.commit()
+        if _commit:
+            db.commit()
+        return True
+
+    @staticmethod
+    def unlock_fiscal_year(fy_id: str, _commit: bool = True) -> bool:
+        """Open a locked fiscal year again. Its periods are opened by
+        `LedgerService`."""
+        sql = "UPDATE fiscal_years SET locked = 0, locked_at = NULL WHERE id = ?"
+        db.execute(sql, (fy_id,))
+        if _commit:
+            db.commit()
         return True

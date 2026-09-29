@@ -16,6 +16,7 @@ import type { OverviewFiscalYear } from "@/lib/skal/api";
 import { oppnaUnderlag, type BeslutSvar, type ForslagStatusSvar } from "@/lib/chattyta/api";
 import type { Koppling } from "@/lib/chattyta/kopplingar";
 import type { Postning } from "@/lib/chattyta/postningar";
+import { periodnamn, type LasData, type Period } from "@/lib/skal/las";
 
 // ─── API-svaren, bara de fält vyerna läser ────────────────────────────────
 
@@ -468,6 +469,62 @@ export interface VantarUnderlag {
   kopplingar?: readonly Koppling[];
 }
 
+/**
+ * Postade, en sektion per månad med månadens lås i rubriken. Utan den står
+ * de postade i en enda sektion, `Postade` — som när perioderna inte gick att
+ * hämta.
+ */
+export interface Manader {
+  /** Räkenskapsårets perioder, `GET /periods?fiscal_year_id=`. */
+  perioder: readonly Period[];
+  las: (p: Period) => LasData;
+  /** Dagens datum, `YYYY-MM-DD`: en tom månad efter i dag visas inte. */
+  idag: string;
+  /**
+   * Postade har fler sidor på servern. Då visas en tom månad bara om den
+   * ligger efter den äldsta hämtade verifikationen — annars vet vyn inte om
+   * den är tom.
+   */
+  harFler: boolean;
+}
+
+/**
+ * En sektion per period, senaste först. En månad visas när den har rader,
+ * eller när den har börjat och vyn vet att den är tom — den kan ju behöva
+ * låsas ändå. En rad utan datum i någon period står i dagens månad, annars
+ * i den senaste.
+ */
+function manadssektioner(
+  rader: readonly { rad: VyRadData; datum?: string }[],
+  aldstaHamtade: string | undefined,
+  m: Manader
+): VySektionData[] {
+  const perioder = [...m.perioder].sort((a, b) => b.start_date.localeCompare(a.start_date));
+  const iPeriod = (datum: string | undefined) =>
+    datum ? perioder.find((p) => p.start_date <= datum && datum <= p.end_date) : undefined;
+  const reserv = iPeriod(m.idag) ?? perioder[0];
+
+  const perPeriod = new Map<string, VyRadData[]>(perioder.map((p) => [p.id, []]));
+  for (const { rad, datum } of rader) {
+    perPeriod.get((iPeriod(datum) ?? reserv).id)!.push(rad);
+  }
+
+  return perioder.flatMap((p) => {
+    const periodRader = perPeriod.get(p.id)!;
+    const kand = p.start_date <= m.idag && (!m.harFler || (aldstaHamtade !== undefined && p.end_date >= aldstaHamtade));
+    if (periodRader.length === 0 && !kand) return [];
+    const namn = periodnamn(p);
+    return [
+      {
+        titel: namn.charAt(0).toUpperCase() + namn.slice(1),
+        rader: periodRader,
+        las: m.las(p),
+        tom: "inga postade verifikationer",
+      },
+    ];
+  });
+}
+
 /** Vyns fot, panelens ord (SPEC-flode-underlag.md §10.4). */
 export const FOT_UNDERLAG =
   "Underlag kan släppas i chatten när som helst. Agenten kopplar det till rätt verifikation och säger till om något inte stämmer.";
@@ -544,7 +601,8 @@ export function verifikationerVy(
   ar: OverviewFiscalYear,
   postade: Verifikationslista,
   utkast: Verifikationslista,
-  underlag: VantarUnderlag = INGET_UNDERLAG
+  underlag: VantarUnderlag = INGET_UNDERLAG,
+  manader?: Manader
 ): VyData {
   const postningar = underlag.postningar ?? [];
   const postas = new Set(postningar.map((p) => p.draftId));
@@ -585,26 +643,31 @@ export function verifikationerVy(
   // Postade: de optimistiska överst, sedan de nyss kopplade, sedan serverns lista.
   const postadePerId = new Map(postade.vouchers.map((v) => [v.id, v]));
   const nyss = new Set(postningar.filter((p) => p.lage === "postad").map((p) => p.draftId));
-  const optimistiska = postningar.map((p): VyRadData => {
+  const optimistiska = postningar.map((p): { rad: VyRadData; datum?: string } => {
     const v = postadePerId.get(p.draftId);
     if (p.lage === "postad" && v) {
-      return { ...verifikationsrad(v), variant: "ny", meta: nyMeta(nummerAv(v), klockslag(v.posted_at)) };
+      return {
+        rad: { ...verifikationsrad(v), variant: "ny", meta: nyMeta(nummerAv(v), klockslag(v.posted_at)) },
+        datum: v.date,
+      };
     }
-    return postningsrad(p);
+    const datum = (p.lage === "postad" ? p.verifikation?.date : undefined) ?? utkastPerId.get(p.draftId)?.date;
+    return { rad: postningsrad(p), datum };
   });
   const nyssKopplade = kopplingar.filter((k) => k.ny && !postas.has(k.voucherId));
   const nyssKoppladeIds = new Set(nyssKopplade.map((k) => k.voucherId));
   const koppladeRader = nyssKopplade.flatMap((k) => {
     const v = postadePerId.get(k.voucherId) ?? saknarPerId.get(k.voucherId) ?? k.verifikation;
-    return v ? [nyssKoppladRad(v, k)] : [];
+    return v ? [{ rad: nyssKoppladRad(v, k), datum: v.date }] : [];
   });
-  const postadeRader = [
+  const postadeMedDatum = [
     ...optimistiska,
     ...koppladeRader,
     ...postade.vouchers
       .filter((v) => !postas.has(v.id) && !nyss.has(v.id) && !nyssKoppladeIds.has(v.id) && !iSaknar.has(v.id))
-      .map((v) => (kopplade.has(v.id) ? koppladRad(v) : verifikationsrad(v))),
+      .map((v) => ({ rad: kopplade.has(v.id) ? koppladRad(v) : verifikationsrad(v), datum: v.date })),
   ];
+  const postadeRader = postadeMedDatum.map((r) => r.rad);
 
   // Utkast: bara de som inte är trådens (och inte postas just nu).
   const egnaUtkast = utkast.vouchers.filter((u) => !tradens.has(u.id) && !postas.has(u.id));
@@ -612,12 +675,21 @@ export function verifikationerVy(
   const sektioner: VySektionData[] = [];
   if (vantarRader.length > 0) sektioner.push({ titel: "Väntar på beslut", rader: vantarRader });
   if (saknarRader.length > 0) sektioner.push({ titel: "Saknar underlag", rader: saknarRader });
-  if (postadeRader.length > 0) sektioner.push({ titel: "Postade", rader: postadeRader });
+  if (manader && manader.perioder.length > 0) {
+    const aldsta = postade.vouchers.reduce<string | undefined>(
+      (min, v) => (min === undefined || v.date < min ? v.date : min),
+      undefined
+    );
+    sektioner.push(...manadssektioner(postadeMedDatum, aldsta, manader));
+  } else if (postadeRader.length > 0) {
+    sektioner.push({ titel: "Postade", rader: postadeRader });
+  }
   if (egnaUtkast.length > 0) {
     sektioner.push({ titel: "Utkast", rader: egnaUtkast.map(verifikationsrad) });
   }
 
-  const tomt = sektioner.length === 0;
+  // Tomma månader räknas inte: de står där för låsets skull.
+  const tomt = sektioner.every((s) => s.rader.length === 0);
   // Serverns tal, inte raderna: `total` räknar också dem utanför sidan.
   // Nyss kopplade dras inte av — omhämtningen ger rätt tal strax.
   const antalSaknar = saknarRader.length > 0 ? (underlag.saknar?.total ?? 0) : 0;

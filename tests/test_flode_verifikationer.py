@@ -850,7 +850,9 @@ _FIRST_TEN = [
 # so of the cached prefix (SPEC-agentruntime §6.6). Re-taken for
 # SPEC-lasbarhet L6, which deliberately rewords `be_om_beslut` ("användaren",
 # field lengths).
-_FIRST_TEN_SHA256 = "5cae3d02d4347ab92f8a38a19e743a4c46d3a69dbfea721edb411ddcf01835db"
+# Re-taken again for the period lock, which rewords `las_perioder` (it said
+# locking was never the agent's).
+_FIRST_TEN_SHA256 = "3f9f490366d3b62a889ea82a33e7c40ac0b65f7147fc6667822b906fac26701d"
 
 
 def test_case_22_foresla_verifikation_is_last_and_the_first_ten_are_unchanged():
@@ -868,6 +870,7 @@ def test_case_22_foresla_verifikation_is_last_and_the_first_ten_are_unchanged():
         "foresla_verifikation",
         "tolka_underlag",
         "koppla_underlag",
+        "stang_perioder",
     ]
     first_ten = json.dumps(AGENT_TOOL_DEFINITIONS[:10], ensure_ascii=False)
     assert hashlib.sha256(first_ten.encode("utf-8")).hexdigest() == _FIRST_TEN_SHA256

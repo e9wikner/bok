@@ -116,12 +116,30 @@ class PeriodValidator:
 
     @staticmethod
     def validate_can_lock(period: Period) -> None:
-        """Check if period can be locked (irreversible)."""
+        """Check if period can be locked."""
         if period.locked:
             raise ValidationError(
                 code="already_locked",
                 message="Period is already locked",
                 details="period cannot be locked twice",
+            )
+
+    @staticmethod
+    def validate_can_unlock(period: Period, fiscal_year: Optional[FiscalYear]) -> None:
+        """Check if period can be opened again. A month in a locked fiscal
+        year stays locked until the year is opened: the year's lock means
+        every month in it is locked."""
+        if not period.locked:
+            raise ValidationError(
+                code="not_locked",
+                message="Period is not locked",
+                details="only a locked period can be unlocked",
+            )
+        if fiscal_year is not None and fiscal_year.locked:
+            raise ValidationError(
+                code="fiscal_year_locked",
+                message="Fiscal year is locked - unlock the fiscal year instead",
+                details=f"fiscal_year_id={fiscal_year.id}",
             )
 
     @staticmethod
@@ -146,6 +164,16 @@ class FiscalYearValidator:
                 code="already_locked",
                 message="Fiscal year is already locked",
                 details="fiscal_year cannot be locked twice",
+            )
+
+    @staticmethod
+    def validate_can_unlock(fiscal_year: FiscalYear) -> None:
+        """Check if fiscal year can be opened again."""
+        if not fiscal_year.locked:
+            raise ValidationError(
+                code="not_locked",
+                message="Fiscal year is not locked",
+                details="only a locked fiscal year can be unlocked",
             )
 
 

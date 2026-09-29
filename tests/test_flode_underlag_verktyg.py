@@ -30,9 +30,11 @@ period_id = fu.period_id
 #: (FU4), before FU5 touched `_TOOL_SPECS`. No `sort_keys`: the key order
 #: inside each definition is part of the bytes the model is sent, and so of
 #: the cached prefix (SPEC-agentruntime §6.6). Re-taken for SPEC-lasbarhet
-#: L6, which deliberately rewords `be_om_beslut` and `foresla_verifikation`.
+#: L6, which deliberately rewords `be_om_beslut` and `foresla_verifikation`. Re-taken again for the period lock, which rewords
+#: `las_perioder` (it said locking was never the agent's) and appends
+#: `stang_perioder`.
 _FIRST_TWELVE_SHA256 = (
-    "1856c91f97cd9e3a1c0f1f4e2dba588d6fd7810d68143acf275b795350b2a463"
+    "7a250f41c8f64fcfb80eb6c7f5e52aa0f8a04d919eb4c8208ca2e7d888a38d97"
 )
 
 
@@ -85,8 +87,9 @@ def test_36_koppla_underlag_is_last_and_the_first_twelve_are_unchanged():
     from services.agent_tools import AGENT_TOOL_DEFINITIONS, KopplaUnderlagArgs
 
     names = [t["name"] for t in AGENT_TOOL_DEFINITIONS]
-    assert len(names) == 13
-    assert names[11:] == ["tolka_underlag", "koppla_underlag"]
+    # `stang_perioder` has since been appended after it, the fourteenth.
+    assert len(names) == 14
+    assert names[11:] == ["tolka_underlag", "koppla_underlag", "stang_perioder"]
     first_twelve = json.dumps(AGENT_TOOL_DEFINITIONS[:12])
     assert hashlib.sha256(first_twelve.encode()).hexdigest() == _FIRST_TWELVE_SHA256
     assert AGENT_TOOL_DEFINITIONS[12]["input_schema"] == (
@@ -124,7 +127,8 @@ def test_fu5_the_docstrings_say_thirteen_tools():
 
     assert "thirteenth" in (agent_tools.__doc__ or "")
     assert "koppla_underlag" in (agent_tools.__doc__ or "")
-    assert "thirteen" in (agent_tools.execute_tool.__doc__ or "")
+    # Fourteen since the period lock appended `stang_perioder`.
+    assert "fourteen" in (agent_tools.execute_tool.__doc__ or "")
 
 
 def test_01_exact_match_through_the_tool_in_a_thread(period_id):

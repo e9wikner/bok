@@ -2224,9 +2224,10 @@ def test_u6_voucher_candidate_row_is_one_posted_voucher_any_window(
 # before U7 touched `_TOOL_SPECS`. No `sort_keys`: the key order inside each
 # definition is part of the bytes the model is sent, and so of the cached
 # prefix (SPEC-agentruntime §6.6). Re-taken for SPEC-lasbarhet L6, which
-# deliberately rewords `be_om_beslut` and `foresla_verifikation`.
+# deliberately rewords `be_om_beslut` and `foresla_verifikation`. Re-taken
+# again for the period lock, which rewords `las_perioder`.
 _FIRST_ELEVEN_SHA256 = (
-    "7313a839ddbe6a6325de5ff6b0c847bd793cf8d61cf59495a26dd8329befba60"
+    "a820eb76949af28c78d96f8eef29ba4a459edfe3bdcd74db93751b8072b1c6be"
 )
 
 
@@ -2250,7 +2251,7 @@ def test_34_tolka_underlag_is_twelfth_and_the_first_eleven_are_unchanged():
     it."""
     from services.agent_tools import AGENT_TOOL_DEFINITIONS, TolkaUnderlagArgs
 
-    assert len(AGENT_TOOL_DEFINITIONS) == 13
+    assert len(AGENT_TOOL_DEFINITIONS) == 14
     assert [t["name"] for t in AGENT_TOOL_DEFINITIONS][10:12] == [
         "foresla_verifikation",
         "tolka_underlag",
@@ -2276,8 +2277,8 @@ def test_u7_the_docstrings_say_twelve_tools():
 
     assert "twelfth" in (agent_tools.__doc__ or "")
     assert "tolka_underlag" in (agent_tools.__doc__ or "")
-    # Thirteen since `flode-underlag` (SPEC-flode-underlag.md §6.7).
-    assert "thirteen" in (agent_tools.execute_tool.__doc__ or "")
+    # Fourteen since the period lock appended `stang_perioder`.
+    assert "fourteen" in (agent_tools.execute_tool.__doc__ or "")
 
 
 # ---------------------------------------------------------------------------

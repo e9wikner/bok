@@ -30,6 +30,7 @@ export const SKRIVER_ETIKETTER: Readonly<Record<string, string>> = {
   foresla_verifikation: "Föreslår en verifikation…",
   tolka_underlag: "Tolkar underlaget…",
   koppla_underlag: "Kopplar underlaget…",
+  stang_perioder: "Låser perioder…",
 };
 
 /**

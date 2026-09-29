@@ -42,6 +42,12 @@ queue to an already posted voucher, with a basis the server checks (an
 exact match, or an answered decision about the underlag) -- it creates no
 voucher and changes none. It is not terminal.
 
+A fourteenth, ``stang_perioder``, locks a period or a whole fiscal year
+(the same ``LedgerService`` call as ``POST /periods/{id}/lock`` and
+``POST /fiscal-years/{id}/lock``) and is appended after ``koppla_underlag``
+for the same reason. It can only lock: opening a period again is a human's
+call, made in the frontend, and there is no tool for it.
+
 ``posta_verifikation`` is the only tool that posts to the general ledger,
 and it goes through the exact same code as ``POST /api/v1/agent/vouchers``
 (``services/voucher_posting.post_agent_voucher``, A1) -- same
@@ -218,6 +224,13 @@ class LasPerioderArgs(BaseModel):
 
     fiscal_year_id: Optional[str] = None
     include_locked: bool = True
+
+
+class StangPerioderArgs(BaseModel):
+    """Lås en period eller ett helt räkenskapsår -- exakt ett av fälten."""
+
+    period_id: Optional[str] = None
+    fiscal_year_id: Optional[str] = None
 
 
 class LasVerifikationerArgs(BaseModel):
@@ -1048,6 +1061,43 @@ def _run_koppla_underlag(
     )
 
 
+def _run_stang_perioder(
+    args: StangPerioderArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    if (args.period_id is None) == (args.fiscal_year_id is None):
+        raise ValidationError(
+            code="invalid_tool_arguments",
+            message="Ange exakt ett av period_id och fiscal_year_id",
+            details=f"period_id={args.period_id}, fiscal_year_id={args.fiscal_year_id}",
+        )
+    # Deferred import (AGENTS.md: service-to-service imports wait until the
+    # method runs).
+    from services.ledger import LedgerService
+
+    ledger = LedgerService()
+    if args.period_id is not None:
+        return _period_dict(ledger.lock_period(args.period_id, actor=actor))
+    assert args.fiscal_year_id is not None  # exactly one, checked above
+    fiscal_year = ledger.lock_fiscal_year(args.fiscal_year_id, actor=actor)
+    return {
+        "id": fiscal_year.id,
+        "start_date": fiscal_year.start_date.isoformat(),
+        "end_date": fiscal_year.end_date.isoformat(),
+        "locked": fiscal_year.locked,
+        "locked_at": (
+            fiscal_year.locked_at.isoformat() if fiscal_year.locked_at else None
+        ),
+        "periods": [
+            _period_dict(p) for p in PeriodRepository.list_periods(fiscal_year.id)
+        ],
+    }
+
+
 # ---------------------------------------------------------------------------
 # Tool definitions and dispatcher (SPEC §6.4, §6.6)
 # ---------------------------------------------------------------------------
@@ -1070,8 +1120,7 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
     (
         "las_perioder",
         "Läs bokföringsperioder, med låsstatus (`locked_by`/`locked_at`). "
-        "Skrivskyddat -- perioder låses via ett separat, mänskligt flöde, "
-        "aldrig av agenten.",
+        "Skrivskyddat -- lås med stang_perioder.",
         LasPerioderArgs,
         _run_las_perioder,
     ),
@@ -1177,6 +1226,16 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
         KopplaUnderlagArgs,
         _run_koppla_underlag,
     ),
+    (
+        "stang_perioder",
+        "Lås en period (en månad, period_id) eller ett helt räkenskapsår med "
+        "alla dess perioder (fiscal_year_id) -- ange exakt ett. I en låst "
+        "period kan inget nytt bokföras; postade verifikationer påverkas "
+        "inte. Vägras om perioden har utkast som inte är väntande förslag. "
+        "Kan bara låsa: att låsa upp gör användaren själv i gränssnittet.",
+        StangPerioderArgs,
+        _run_stang_perioder,
+    ),
 )
 
 #: Anthropic tool-definition shape: {"name", "description", "input_schema"}.
@@ -1205,8 +1264,8 @@ def execute_tool(
     idempotency_key: Optional[str] = None,
     tool_context: Optional[Mapping[str, Any]] = None,
 ) -> Any:
-    """Validate and run one model-requested tool call -- one of the thirteen
-    tools in ``_TOOL_SPECS``, the last of them ``koppla_underlag``.
+    """Validate and run one model-requested tool call -- one of the fourteen
+    tools in ``_TOOL_SPECS``, the last of them ``stang_perioder``.
 
     ``idempotency_key`` is the caller's own key for a posting made during
     this session, and only ``posta_verifikation`` reads it -- the thread

@@ -110,6 +110,7 @@ _TRACE_LABELS = {
     "foresla_verifikation": "verifikation föreslagen",
     "tolka_underlag": "underlaget tolkat",
     "koppla_underlag": "underlaget kopplat",
+    "stang_perioder": "perioder låsta",
 }
 
 

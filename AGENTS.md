@@ -44,8 +44,13 @@ purpose, so that no single layer's bug can violate BFL:
 2. `VoucherValidator` (service layer) checks before posting.
 3. No PATCH/PUT endpoints exist for posted resources.
 
-Corrections go through B-series reversal vouchers only. Period locking is
-irreversible. `draft` is editable; `posted` is not.
+Corrections go through B-series reversal vouchers only. `draft` is editable;
+`posted` is not.
+
+A period (a month) or a fiscal year can be locked so nothing new is posted in
+it. The agent may lock (`stang_perioder`, or the API key); only a logged-in
+human may unlock (JWT — the API key gets `403 human_only`). Unlocking never
+touches posted vouchers, and both lock and unlock are audit-logged.
 
 Do not add an "edit posted voucher" path, relax a trigger, or delete rows to fix
 test data — reverse and re-post instead.

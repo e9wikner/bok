@@ -1,12 +1,13 @@
 /**
  * Rapporter och Åtgärder ur riktiga data (modul `skal`).
  *
- * Rapporter listar räkenskapsåren och om de är låsta; själva rapporterna
+ * Rapporter listar räkenskapsåren med ett lås per år; själva rapporterna
  * tas fram per år i den gamla bokslutsvyn. Åtgärder är de öppna
  * avvikelserna från BFL-kontrollerna (`/api/v1/compliance/issues`).
  */
 
 import apiClient from "@/lib/api";
+import type { LasData } from "@/lib/skal/las";
 import type { RadVariant, VyData, VyRadData } from "@/lib/skal/vydata";
 
 // ─── API-svaren ───────────────────────────────────────────────────────────
@@ -58,7 +59,14 @@ export function arsnamn(ar: { start_date: string; end_date: string }): string {
   return fran === till ? fran : `${fran}/${till.slice(2)}`;
 }
 
-export function rapporterVy(lista: Rakenskapsarslista): VyData {
+/**
+ * `las` ger varje år sitt lås. Utan den visar raden läget i text, som
+ * innan låset fanns.
+ */
+export function rapporterVy(
+  lista: Rakenskapsarslista,
+  las?: (ar: Rakenskapsar) => LasData
+): VyData {
   const ar = [...lista.fiscal_years].sort((a, b) => b.start_date.localeCompare(a.start_date));
   const lasta = ar.filter((a) => a.locked).length;
 
@@ -66,7 +74,8 @@ export function rapporterVy(lista: Rakenskapsarslista): VyData {
     id: a.id,
     titel: `Räkenskapsår ${arsnamn(a)}`,
     meta: `${a.start_date} – ${a.end_date}${a.locked && a.locked_at ? ` · låst ${a.locked_at.slice(0, 10)}` : ""}`,
-    hoger: a.locked ? "låst" : "öppet",
+    hoger: las ? "" : a.locked ? "låst" : "öppet",
+    las: las?.(a),
   }));
 
   const tomt = rader.length === 0;

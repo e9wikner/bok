@@ -4,6 +4,7 @@ import { useCallback } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { BESLUT_GRANS, beslutStatusNyckel } from "@/hooks/useBeslut";
 import { FORSLAG_GRANS, forslagNyckel } from "@/hooks/useForslag";
+import { useLasning } from "@/hooks/useLasning";
 import { usePostningar } from "@/hooks/usePostningar";
 import { VOUCHERS_NYCKEL, hamtaBeslut, hamtaForslag } from "@/lib/chattyta/api";
 import { KOPPLINGAR_NYCKEL, type Koppling } from "@/lib/chattyta/kopplingar";
@@ -19,8 +20,16 @@ import {
   verifikationerVy,
 } from "@/lib/skal/bocker";
 import { atgarderVy, bokslutApi, rapporterVy } from "@/lib/skal/bokslut";
+import { lasApi } from "@/lib/skal/las";
 import { FEL_VY, INGET_AR_VY, LADDAR_VY, type VyData } from "@/lib/skal/vydata";
 import type { Sidnyckel, ViewKey } from "@/lib/skal/vyer";
+
+/** Dagens datum i lokal tid, `YYYY-MM-DD`. */
+function idag(): string {
+  const d = new Date();
+  const tva = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${tva(d.getMonth() + 1)}-${tva(d.getDate())}`;
+}
 
 export interface VyInnehallData {
   data: VyData;
@@ -123,6 +132,19 @@ export function useVyer(
     enabled: bocker,
     staleTime,
   });
+  // Månaderna i Postade, med sina lås. Frågan väntas in, men ett fel fäller
+  // inte vyn: då står de postade i en enda sektion som förut.
+  const perioder = useQuery({
+    queryKey: ["skal", "perioder", id],
+    queryFn: () => lasApi.getPerioder(id),
+    enabled: bocker,
+    staleTime,
+  });
+  const perioderFraga = {
+    data: perioder.isError ? { periods: [] } : perioder.data,
+    isError: false,
+  };
+  const lasning = useLasning();
   const postningar = usePostningar();
   // `Nyss kopplad` (§10.4): klientens, som postningarna — ingen fråga går.
   const { data: kopplingar } = useQuery<Koppling[]>({
@@ -163,20 +185,31 @@ export function useVyer(
     "bocker.resultat": utanAr ?? vy([resultat], (r) => resultatVy(ar!, r)),
     "bocker.verifikationer":
       utanAr ??
-      vy([postade, utkast, beslut, forslag, saknar], (p, u, b, f, s) => ({
-        ...verifikationerVy(ar!, p, u, {
-          beslut: b.decisions,
-          forslag: f.drafts,
-          postningar,
-          saknar: s,
-          kopplingar: kopplingar ?? [],
-        }),
+      vy([postade, utkast, beslut, forslag, saknar, perioderFraga], (p, u, b, f, s, per) => ({
+        ...verifikationerVy(
+          ar!,
+          p,
+          u,
+          {
+            beslut: b.decisions,
+            forslag: f.drafts,
+            postningar,
+            saknar: s,
+            kopplingar: kopplingar ?? [],
+          },
+          {
+            perioder: per.periods,
+            las: lasning.period,
+            idag: idag(),
+            harFler: hasNextPage,
+          }
+        ),
         harFler: hasNextPage,
         hamtaFler,
       })),
     "betala.fakturering": vy([fakturor], faktureringVy),
     "betala.loner": vy([loner], lonerVy),
-    "bokslut.rapporter": vy([rakenskapsar], rapporterVy),
+    "bokslut.rapporter": vy([rakenskapsar], (r) => rapporterVy(r, lasning.ar)),
     "bokslut.atgarder": vy([avvikelser], atgarderVy),
   };
 }

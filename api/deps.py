@@ -61,6 +61,33 @@ async def get_current_actor(api_key: str = Depends(verify_api_key)) -> str:
     return "api"
 
 
+async def get_human_actor(api_key: str = Depends(verify_api_key)) -> str:
+    """The logged-in human, for what only a human may do (opening a locked
+    period or fiscal year).
+
+    The agent authenticates with the static API key, the frontend with a
+    JWT. A request made with the key is refused, so the agent cannot reach
+    these routes through the HTTP API either.
+    """
+    if api_key == settings.api_key:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "Only a logged-in user can do this",
+                "code": "human_only",
+                "details": "the API key is the agent's; log in to the frontend",
+            },
+        )
+    username = AuthService().verify_jwt(api_key).get("sub")
+    if not username:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return username
+
+
 async def get_idempotency_key(
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ) -> Optional[str]:

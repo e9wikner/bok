@@ -1085,6 +1085,9 @@ _EXPECTED_TOOL_NAMES = [
     # The thirteenth, appended the same way (SPEC-flode-underlag.md §6.7,
     # task FU5): the twelve above keep their positions.
     "koppla_underlag",
+    # The fourteenth, appended the same way (the period lock): it can only
+    # lock -- opening a period again is a human's, with no tool for it.
+    "stang_perioder",
 ]
 
 
@@ -1120,7 +1123,7 @@ class TestAppendOnlyToolSurface:
     """
 
     def test_tool_names_are_exactly_the_allowed_tools(self):
-        """Thirteen since `flode-underlag` (SPEC §6.6). The count is asserted
+        """Fourteen since the period lock (SPEC §6.6). The count is asserted
         against the expected list rather than a literal, so adding a tool
         without adding it there still fails -- which is the point: this is
         the append-only rule's only automatic check through the agent's
@@ -1198,6 +1201,10 @@ class TestAppendOnlyToolSurface:
         but it writes the link, an attempt, the source's status and an
         `intake_link_basis` row -- not read-only, and it does not name the
         general ledger (§6.2).
+
+        `stang_perioder` joined them with the period lock: it writes
+        `periods` and `fiscal_years` (the lock) and the audit log, never a
+        voucher. It locks only; there is no tool that opens a period again.
         """
         write_tool_names = {
             "posta_verifikation",
@@ -1206,6 +1213,7 @@ class TestAppendOnlyToolSurface:
             "foresla_verifikation",
             "tolka_underlag",
             "koppla_underlag",
+            "stang_perioder",
         }
         read_tool_names = set(_EXPECTED_TOOL_NAMES) - write_tool_names
         for tool in AGENT_TOOL_DEFINITIONS:

@@ -5,6 +5,8 @@
  * `bocker.ts`, `betala.ts` och `bokslut.ts`; skalet har ingen påhittad data.
  */
 
+import type { LasData } from "@/lib/skal/las";
+
 /** De sex lägena i README.md §Tillstånd. En vy ska kunna visa alla sex. */
 export type VyLage = "normal" | "vantar" | "pagaende" | "klart" | "fel" | "tomt";
 
@@ -28,11 +30,21 @@ export interface VyRadData {
    * slås upp först när länken används, inte per rad.
    */
   kvitto?: { voucherId: string; nummer: string };
+  /** Räkenskapsårets lås, sist på raden (Rapporter). */
+  las?: LasData;
 }
 
 export interface VySektionData {
   titel: string;
   rader: VyRadData[];
+  /** Månadens lås, i rubrikraden (Verifikationer, en sektion per månad). */
+  las?: LasData;
+  /**
+   * Visas i stället för rader när sektionen är tom. Utan den visas en tom
+   * sektion inte alls; med den är tomheten själv uppgiften — en månad utan
+   * verifikationer kan ändå behöva låsas.
+   */
+  tom?: string;
 }
 
 export interface VyData {
