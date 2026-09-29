@@ -30,5 +30,10 @@ def is_statement_account(code: str) -> bool:
     return code in STATEMENT_ACCOUNT_SINGLES or _in_range(code, STATEMENT_ACCOUNT_RANGE)
 
 
+def is_bank_account(code: str) -> bool:
+    """Whether *code* is a cash or bank account (not the tax account)."""
+    return _in_range(code, STATEMENT_ACCOUNT_RANGE)
+
+
 def is_input_vat_account(code: str) -> bool:
     return _in_range(code, INPUT_VAT_RANGE)

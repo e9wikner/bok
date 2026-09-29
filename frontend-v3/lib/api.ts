@@ -325,6 +325,29 @@ export interface PayrollRun {
   validation?: PayrollRunValidation | null;
 }
 
+export interface AgiIndividual {
+  employee_id: string;
+  name: string;
+  personal_number?: string | null;
+  gross_salary: number;
+  preliminary_tax: number;
+  employer_fee: number;
+}
+
+export interface AgiDeclaration {
+  year: number;
+  month: number;
+  due_date: string;
+  individuals: AgiIndividual[];
+  total_gross_salary: number;
+  total_preliminary_tax: number;
+  total_employer_fee: number;
+  total_to_pay: number;
+  unbooked_payslips: number;
+  voucher_ids: Partial<Record<"tax" | "employer_fee", string>>;
+  booked: boolean;
+}
+
 export type IntakeStatus =
   | "pending"
   | "processing"
@@ -760,6 +783,16 @@ export const api = {
   bookPayslip: async (id: string, bankTransactionId: string) => {
     const { data } = await apiClient.post(`/api/v1/payroll/payslips/${id}/book`, {
       bank_transaction_id: bankTransactionId,
+    });
+    return data;
+  },
+  getAgi: async (year: number, month: number): Promise<AgiDeclaration> => {
+    const { data } = await apiClient.get(`/api/v1/payroll/agi/${year}/${month}`);
+    return data;
+  },
+  bookAgi: async (year: number, month: number, voucherDate?: string): Promise<AgiDeclaration> => {
+    const { data } = await apiClient.post(`/api/v1/payroll/agi/${year}/${month}/book`, {
+      voucher_date: voucherDate || null,
     });
     return data;
   },

@@ -2,7 +2,9 @@ from datetime import date
 
 import pytest
 
+from domain.payroll_models import agi_due_date
 from domain.validation import ValidationError
+from repositories.account_repo import AccountRepository
 from services.bank_integration import BankIntegrationService
 from services.payroll import PayrollService
 from services.pdf_export import CompanyInfo, PDFExportService
@@ -119,7 +121,7 @@ def test_book_payslip_creates_balanced_payroll_voucher(ledger_service):
     voucher = ledger_service.vouchers.get(booked.voucher_id)
     assert voucher.is_posted()
     rows = {row.account_code: row for row in voucher.rows}
-    assert rows["7010"].debit == 5000000
+    assert rows["7000"].debit == 5000000
     assert rows["7510"].debit == 1571000
     assert rows["2710"].credit == 1500000
     assert rows["2730"].credit == 1571000
@@ -181,3 +183,214 @@ def test_payslip_html_contains_salary_amounts(ledger_service):
     assert "15 000,00" in html
     assert "35 000,00" in html
     assert "15 710,00" in html
+    assert "Skatteavdrag (30,0 %)" in html
+    assert "Insättning på bankkonto 1234-567890" in html
+
+
+def test_book_payslip_credits_the_statements_bank_account(ledger_service):
+    payroll, payslip = _setup_payslip(ledger_service)
+    if not AccountRepository.exists("1920"):
+        AccountRepository.create("1920", "Plusgiro", "asset")
+    bank = BankIntegrationService()
+    connection = bank.create_connection("csv", "Företagskonto", account_number="1920")
+    bank.import_transactions(
+        connection.id,
+        [
+            {
+                "external_id": "salary-anna-2026-03",
+                "date": "2026-03-25",
+                "amount": -35000.0,
+                "description": "Lön Anna Andersson",
+            }
+        ],
+    )
+    tx = bank.get_transactions(connection_id=connection.id)[0]
+
+    booked = payroll.match_bank_transaction_and_book(payslip.id, tx.id)
+
+    voucher = ledger_service.vouchers.get(booked.voucher_id)
+    rows = {row.account_code: row for row in voucher.rows}
+    assert rows["1920"].credit == 3500000
+    assert "1930" not in rows
+
+
+def _book_salary(payroll, payslip):
+    bank = BankIntegrationService()
+    connection = bank.create_connection("manual", "Testbanken")
+    bank.import_transactions(
+        connection.id,
+        [
+            {
+                "external_id": f"salary-{payslip.id}",
+                "date": payslip.payment_date.isoformat(),
+                "amount": -payslip.net_salary / 100,
+                "description": "Lön",
+            }
+        ],
+    )
+    tx = bank.get_transactions(connection_id=connection.id)[0]
+    return payroll.match_bank_transaction_and_book(payslip.id, tx.id)
+
+
+def _april_period(ledger_service):
+    fiscal_year = ledger_service.periods.list_fiscal_years()[0]
+    return ledger_service.periods.create_period(
+        fiscal_year_id=fiscal_year.id,
+        year=2026,
+        month=4,
+        start_date=date(2026, 4, 1),
+        end_date=date(2026, 4, 30),
+    )
+
+
+def test_agi_due_date():
+    assert agi_due_date(2026, 3) == date(2026, 4, 13)  # the 12th is a Sunday
+    assert agi_due_date(2025, 12) == date(2026, 1, 19)  # the 17th, a Saturday
+    assert agi_due_date(2026, 7) == date(2026, 8, 17)
+    assert agi_due_date(2026, 9) == date(2026, 10, 12)
+
+
+def test_agi_sums_the_payslips_paid_in_the_month(ledger_service):
+    payroll, payslip = _setup_payslip(ledger_service)
+
+    agi = payroll.get_agi(2026, 3)
+
+    assert [i.name for i in agi.individuals] == ["Anna Andersson"]
+    assert agi.individuals[0].personal_number == "19900101-1234"
+    assert agi.total_gross_salary == 5000000
+    assert agi.total_preliminary_tax == 1500000
+    assert agi.total_employer_fee == 1571000
+    assert agi.total_to_pay == 3071000
+    assert agi.unbooked_payslips == 1
+    assert agi.voucher_ids == {}
+    assert agi.booked is False
+    assert payroll.get_agi(2026, 4).individuals == []
+
+
+def _rows(ledger_service, voucher_id):
+    voucher = ledger_service.vouchers.get(voucher_id)
+    assert voucher.is_posted()
+    assert voucher.get_total_debit() == voucher.get_total_credit()
+    return voucher, {r.account_code: (r.debit, r.credit) for r in voucher.rows}
+
+
+def test_book_agi_as_one_voucher_per_tax_account_transaction(ledger_service):
+    payroll, payslip = _setup_payslip(ledger_service)
+    _april_period(ledger_service)
+
+    with pytest.raises(ValidationError, match="agi_payslips_not_booked"):
+        payroll.book_agi(2026, 3)
+
+    _book_salary(payroll, payslip)
+    agi = payroll.book_agi(2026, 3)
+
+    assert agi.booked is True
+    tax, tax_rows = _rows(ledger_service, agi.voucher_ids["tax"])
+    fee, fee_rows = _rows(ledger_service, agi.voucher_ids["employer_fee"])
+    assert tax.date == fee.date == date(2026, 4, 13)
+    assert tax.description == "Arbetsgivardeklaration 2026-03, avdragen skatt"
+    assert fee.description == "Arbetsgivardeklaration 2026-03, arbetsgivaravgifter"
+    assert tax_rows == {"2710": (1500000, 0), "1630": (0, 1500000)}
+    assert fee_rows == {"2730": (1571000, 0), "1630": (0, 1571000)}
+
+    with pytest.raises(ValidationError, match="agi_already_booked"):
+        payroll.book_agi(2026, 3)
+
+
+def test_agi_vouchers_match_the_two_tax_account_transactions(ledger_service):
+    from services.statement_match import StatementMatchService
+
+    payroll, payslip = _setup_payslip(ledger_service)
+    _april_period(ledger_service)
+    _book_salary(payroll, payslip)
+    agi = payroll.book_agi(2026, 3)
+
+    bank = BankIntegrationService()
+    skattekonto = bank.create_connection("csv", "Skattekonto", account_number="1630")
+    bank.import_transactions(
+        skattekonto.id,
+        [
+            {
+                "external_id": "agi-avgift-202603",
+                "date": "2026-04-13",
+                "amount": -15710.0,
+                "description": "Arbetsgivaravgift 202603",
+            },
+            {
+                "external_id": "agi-skatt-202603",
+                "date": "2026-04-13",
+                "amount": -15000.0,
+                "description": "Avdragen skatt 202603",
+            },
+        ],
+    )
+
+    linked = StatementMatchService().run()["linked"]
+
+    assert {link["voucher_id"] for link in linked} == set(agi.voucher_ids.values())
+
+
+def test_book_agi_again_after_a_part_is_reversed(ledger_service):
+    payroll, payslip = _setup_payslip(ledger_service)
+    _april_period(ledger_service)
+    _book_salary(payroll, payslip)
+    first = payroll.book_agi(2026, 3, voucher_date=date(2026, 4, 14))
+    original = ledger_service.vouchers.get(first.voucher_ids["tax"])
+    assert original.date == date(2026, 4, 14)
+
+    correction = ledger_service.create_correction(
+        original.id,
+        [
+            {
+                "account": r.account_code,
+                "debit": r.credit,
+                "credit": r.debit,
+                "description": r.description,
+            }
+            for r in original.rows
+        ],
+        voucher_date=date(2026, 4, 20),
+    )
+    ledger_service.post_voucher(correction.id)
+    assert payroll.get_agi(2026, 3).unbooked_parts == ["tax"]
+
+    second = payroll.book_agi(2026, 3)
+    assert second.voucher_ids["tax"] != first.voucher_ids["tax"]
+    assert second.voucher_ids["employer_fee"] == first.voucher_ids["employer_fee"]
+
+
+def test_book_agi_without_payslips(ledger_service):
+    _setup_period(ledger_service)
+    with pytest.raises(ValidationError, match="agi_no_payslips"):
+        PayrollService().book_agi(2026, 3)
+
+
+def test_agi_api(ledger_service, auth_headers):
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+
+    payroll, payslip = _setup_payslip(ledger_service)
+    _april_period(ledger_service)
+    _book_salary(payroll, payslip)
+    client = TestClient(app)
+
+    response = client.get("/api/v1/payroll/agi/2026/3", headers=auth_headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["due_date"] == "2026-04-13"
+    assert body["total_to_pay"] == 3071000
+    assert body["individuals"][0]["gross_salary"] == 5000000
+
+    response = client.post(
+        "/api/v1/payroll/agi/2026/3/book", json={}, headers=auth_headers
+    )
+    assert response.status_code == 200
+    assert response.json()["booked"] is True
+    assert set(response.json()["voucher_ids"]) == {"tax", "employer_fee"}
+
+    response = client.post(
+        "/api/v1/payroll/agi/2026/3/book", json={}, headers=auth_headers
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "agi_already_booked"

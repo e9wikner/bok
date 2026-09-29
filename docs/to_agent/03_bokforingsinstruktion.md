@@ -188,7 +188,7 @@ men ska inte användas om kontot saknas eller företagets instruktion säger ann
 - `6570` Bankkostnader
 - `6991` Övriga externa kostnader, avdragsgilla
 - `6992` Övriga externa kostnader, ej avdragsgilla
-- `7210` Löner tjänstemän
+- `7000` Löner
 - `7510` Arbetsgivaravgifter
 - `7519` Arbetsgivaravgifter semester- och löneskuld, om relevant
 - `8410` Räntekostnader

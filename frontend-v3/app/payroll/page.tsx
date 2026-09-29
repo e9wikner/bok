@@ -3,12 +3,12 @@
 import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Banknote, FileText, Plus, ReceiptText, Search, Send, Trash2, WalletCards } from "lucide-react";
+import { AlertTriangle, Banknote, FileText, Landmark, Plus, ReceiptText, Search, Send, Trash2, WalletCards } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { usePayrollEmployees, usePayrollRuns } from "@/hooks/useData";
+import { useAgi, usePayrollEmployees, usePayrollRuns } from "@/hooks/useData";
 import { api, PayrollEmployee, PayrollRun } from "@/lib/api";
 
 const inputClass =
@@ -29,6 +29,91 @@ function payrollPaymentDate(yearText: string, monthText: string, dayText: string
   const day = parseInt(dayText) || 25;
   const lastDay = new Date(year, month, 0).getDate();
   return `${year}-${String(month).padStart(2, "0")}-${String(Math.min(day, lastDay)).padStart(2, "0")}`;
+}
+
+/**
+ * The month's arbetsgivardeklaration: the fields to type into Skatteverket's
+ * e-tjänst, and the booking that moves 2710 and 2730 to the tax account
+ * (1630) -- two vouchers, since the tax account debits them separately.
+ */
+function AgiPanel({ year, month }: { year: number; month: number }) {
+  const queryClient = useQueryClient();
+  const agiQuery = useAgi(year, month);
+  const [voucherDate, setVoucherDate] = useState("");
+  const [booking, setBooking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const agi = agiQuery.data;
+  if (!agi || agi.individuals.length === 0) return null;
+
+  const book = async () => {
+    setBooking(true);
+    setError(null);
+    try {
+      const updated = await api.bookAgi(year, month, voucherDate || undefined);
+      queryClient.setQueryData(["payroll-agi", year, month], updated);
+    } catch (err: any) {
+      setError(err?.response?.data?.detail?.error || "Kunde inte bokföra arbetsgivardeklarationen.");
+    } finally {
+      setBooking(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3 border-b p-4 text-sm">
+      <h3 className="flex items-center gap-2 font-semibold">
+        <Landmark className="h-4 w-4 text-primary" />
+        Arbetsgivardeklaration {year}-{String(month).padStart(2, "0")}
+      </h3>
+      <p className="text-muted-foreground">
+        Lämnas och betalas senast {agi.due_date}. Skriv in uppgifterna i Skatteverkets e-tjänst.
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b text-muted-foreground">
+              <th className="py-2 text-left font-medium">Individuppgift</th>
+              <th className="py-2 text-left font-medium">Personnummer (215)</th>
+              <th className="py-2 text-right font-medium">Kontant ersättning (011)</th>
+              <th className="py-2 text-right font-medium">Avdragen skatt (001)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {agi.individuals.map((individual) => (
+              <tr key={individual.employee_id} className="border-b last:border-0">
+                <td className="py-2">{individual.name}</td>
+                <td className="py-2">{individual.personal_number || "saknas"}</td>
+                <td className="py-2 text-right">{sek(individual.gross_salary)}</td>
+                <td className="py-2 text-right">{sek(individual.preliminary_tax)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="grid gap-3 md:grid-cols-3">
+        <div><span className="text-muted-foreground">Summa arbetsgivaravgifter (487)</span><br />{sek(agi.total_employer_fee)}</div>
+        <div><span className="text-muted-foreground">Summa skatteavdrag (497)</span><br />{sek(agi.total_preliminary_tax)}</div>
+        <div><span className="text-muted-foreground">Att betala</span><br />{sek(agi.total_to_pay)}</div>
+      </div>
+      {error && <p className="text-red-700 dark:text-red-300">{error}</p>}
+      {agi.booked ? (
+        <p className="text-muted-foreground">
+          Bokförd som två verifikationer, en per dragning på skattekontot: 2710 och 2730 mot 1630.
+        </p>
+      ) : agi.unbooked_payslips > 0 ? (
+        <p className="text-muted-foreground">Bokför månadens löner först, sedan arbetsgivardeklarationen.</p>
+      ) : (
+        <div className="flex flex-col gap-2 md:flex-row md:items-end">
+          <label className="font-medium">
+            Dragningsdag på skattekontot
+            <input className={`${inputClass} mt-1`} type="date" value={voucherDate} placeholder={agi.due_date} onChange={(e) => setVoucherDate(e.target.value)} />
+          </label>
+          <Button onClick={book} disabled={booking}>
+            {booking ? "Bokför..." : "Bokför arbetsgivardeklarationen"}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function PayrollPage() {
@@ -396,6 +481,7 @@ export default function PayrollPage() {
                     <div><span className="text-muted-foreground">Avgifter</span><br />{sek(run.total_employer_fee)}</div>
                     <div><span className="text-muted-foreground">Total kostnad</span><br />{sek(run.total_employer_cost)}</div>
                   </div>
+                  {run.payslips.length > 0 && <AgiPanel year={run.year} month={run.month} />}
                   {run.payslips.length > 0 && (
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
