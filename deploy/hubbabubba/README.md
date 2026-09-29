@@ -80,9 +80,14 @@ with no extra configuration.
 ## Deploy
 
 ```bash
-ssh hubbabubba
+ssh e9wikner@hubbabubba
 ~/Development/bok/deploy/hubbabubba/deploy.sh
 ```
+
+Log in as `e9wikner` explicitly: a plain `ssh hubbabubba` may land as another
+user, who has neither the checkout in `~/Development/bok` nor the user
+systemd units. The login shell is fish, so pass multi-line bash to it as
+`ssh e9wikner@hubbabubba bash -s <<'EOF' … EOF`.
 
 What it does:
 
