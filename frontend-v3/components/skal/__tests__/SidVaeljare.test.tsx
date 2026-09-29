@@ -57,6 +57,16 @@ describe("SidVaeljare (testfall 10)", () => {
     expect(knapp.textContent).not.toContain("1 väntar på dig");
   });
 
+  it("visar väntar-pricken bara när något väntar på den aktiva sidan", () => {
+    const { rerender } = render(
+      <SidVaeljare aktiv="bocker" metaPerSida={meta} onValj={vi.fn()} variant="desktop" />
+    );
+    expect(screen.getByTestId("sidvaljare-vantar")).toBeInTheDocument();
+
+    rerender(<SidVaeljare aktiv="bokslut" metaPerSida={meta} onValj={vi.fn()} variant="desktop" />);
+    expect(screen.queryByTestId("sidvaljare-vantar")).not.toBeInTheDocument();
+  });
+
   it("bär sidornas metarader i listan, i väntar-färg när något väntar", async () => {
     const user = userEvent.setup();
     render(<SidVaeljare aktiv="bocker" metaPerSida={meta} onValj={vi.fn()} variant="desktop" />);

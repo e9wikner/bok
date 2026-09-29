@@ -10,8 +10,9 @@ import { SIDOR, type Sidnyckel } from "@/lib/skal/vyer";
  * kapabilitetskartan (ANALYS.md §8) räknar upp `SidVaeljare` men inte
  * tabbarna. Se SPEC-skal.md §2.2 — beslutet togs en gång, där.
  *
- * Knappen bär bara sidtiteln, så att headerraden hålls låg. Sidornas
- * metarader (väntar-färgen) visas i den utfällda listan.
+ * Knappen bär bara sidtiteln, så att headerraden hålls låg, och en
+ * väntar-prick när något väntar på den aktiva sidan. Sidornas metarader
+ * (väntar-färgen) visas i den utfällda listan.
  */
 
 export interface SidMeta {
@@ -44,6 +45,7 @@ export function SidVaeljare({
   }, [oppen]);
 
   const aktivSida = SIDOR.find((s) => s.key === aktiv)!;
+  const vantar = metaPerSida[aktiv]?.waiting ?? false;
 
   const valj = (sida: Sidnyckel) => {
     setOppen(false);
@@ -64,7 +66,16 @@ export function SidVaeljare({
             : "flex min-h-[44px] min-w-0 flex-1 items-center gap-2 rounded-[10px] px-2 text-left"
         }
       >
-        <span className="min-w-0 truncate text-[15px] font-medium text-bok-text">{aktivSida.titel}</span>
+        <span className="flex min-w-0 items-center gap-[6px]">
+          <span className="truncate text-[15px] font-medium text-bok-text">{aktivSida.titel}</span>
+          {vantar && (
+            <span
+              data-testid="sidvaljare-vantar"
+              aria-hidden="true"
+              className="h-[7px] w-[7px] shrink-0 rounded-full bg-bok-vantar-prick"
+            />
+          )}
+        </span>
         <span aria-hidden="true" className="shrink-0 text-[10px] text-bok-text-svag">
           {oppen ? "▲" : "▼"}
         </span>
