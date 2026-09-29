@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { Header } from "@/components/skal/Header";
 import { AgentStatus } from "@/components/skal/AgentStatus";
 import { arsrad } from "@/lib/skal/header";
@@ -26,17 +27,19 @@ function renderaHeader(over: Partial<Parameters<typeof Header>[0]> = {}) {
 }
 
 describe("headern räknar ingenting (testfall 8)", () => {
-  it("visar serverns meta-sträng ordagrant", () => {
+  it("visar serverns meta-sträng ordagrant", async () => {
     renderaHeader();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Välj sida" }));
     expect(screen.getByText("3 väntar på dig · 7 saknar underlag")).toBeInTheDocument();
   });
 
-  it("visar serverns sträng även när den inte går att härleda ur några siffror", () => {
+  it("visar serverns sträng även när den inte går att härleda ur några siffror", async () => {
     // Servern bestämmer formuleringen (datakontraktets regel 2). Om klienten
     // räknade skulle den här strängen inte kunna uppstå.
     renderaHeader({
       metaPerSida: { bocker: { waiting: false, meta: "Allt är avstämt sedan i morse" } },
     });
+    await userEvent.setup().click(screen.getByRole("button", { name: "Välj sida" }));
     expect(screen.getByText("Allt är avstämt sedan i morse")).toBeInTheDocument();
   });
 

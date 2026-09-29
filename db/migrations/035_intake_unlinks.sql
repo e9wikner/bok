@@ -1,4 +1,4 @@
--- Migration 034: underlag-ersatt -- a link can be undone, and the undoing stays
+-- Migration 035: underlag-ersatt -- a link can be undone, and the undoing stays
 --
 -- A wrongly linked underlag must be replaceable "och lämna spår" (flöde 4,
 -- D10). Nothing is removed for that: a link row stays where it is, and a row
@@ -146,7 +146,7 @@ CREATE TRIGGER prevent_delete_voucher_intake_unlinks
 BEFORE DELETE ON voucher_intake_unlinks
 BEGIN SELECT RAISE(ABORT, 'voucher intake unlinks are append-only'); END;
 
-INSERT OR IGNORE INTO schema_version (version) VALUES (34);
+INSERT OR IGNORE INTO schema_version (version) VALUES (35);
 
 COMMIT;
 

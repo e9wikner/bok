@@ -151,6 +151,7 @@ def build_thread_user_turn(
     open_periods: list[Period],
     *,
     omitted_posts: int = 0,
+    reset_posts: int = 0,
 ) -> list[dict]:
     """Build the volatile user turn for a thread reply (SPEC §6.1 step 4).
 
@@ -163,6 +164,11 @@ def build_thread_user_turn(
     hidden. The model is told the conversation is older than what it can see
     -- it is not shown a summary of the missing part, and not left to assume
     it has the whole thread.
+
+    A reset (migration 034) is stated the same way, and kept apart from the
+    budget cut: the human chose to start over, so the model is told that the
+    earlier posts are disconnected on purpose rather than that they did not
+    fit.
     """
     lines = [
         f"Dagens datum: {today.isoformat()}",
@@ -173,6 +179,13 @@ def build_thread_user_turn(
         f"Tråd: {thread.view_key} (räkenskapsår {thread.fiscal_year_id})",
         "",
     ]
+    if reset_posts:
+        lines.append(
+            f"(Människan har nollställt konversationen: {reset_posts} tidigare "
+            "inlägg är medvetet bortkopplade från kontexten. Utgå inte från "
+            "något som sades före nollställningen.)"
+        )
+        lines.append("")
     if omitted_posts:
         lines.append(
             f"(Tidigare i tråden: {omitted_posts} inlägg som inte fick plats i "
@@ -217,8 +230,10 @@ def run_thread_session(
 
     `trigger_post` is the human's own post -- the one already written to the
     thread before this was called, per §6.1 step 2 -- and it is what the
-    posting key hangs on. `history` is the thread's posts to consider for the
-    window; `build_thread_window` decides how many of them fit.
+    posting key hangs on. `history` is the thread's posts; those at or before
+    `thread.context_from_seq` were reset away by the human (migration 034)
+    and never reach the window. `build_thread_window` decides how many of
+    the rest fit.
 
     The caps: `max_tool_turns` and `max_output_tokens` are the same two the
     loop always enforced, per session. `check_between_turns` is where the
@@ -235,7 +250,8 @@ def run_thread_session(
         if max_tool_turns is not None
         else settings.agent_max_tool_turns_per_item
     )
-    window = build_thread_window(history, window_budget_tokens)
+    eligible = [post for post in history if post.seq > thread.context_from_seq]
+    window = build_thread_window(eligible, window_budget_tokens)
 
     outcome = run_tool_loop(
         client,
@@ -249,7 +265,8 @@ def run_thread_session(
             message,
             today,
             open_periods,
-            omitted_posts=len(history) - len(window),
+            omitted_posts=len(eligible) - len(window),
+            reset_posts=len(history) - len(eligible),
         ),
         # Unchanged, in `_TOOL_SPECS`' unchanged order -- the tool list is
         # part of the cached prefix, and the thread gets no tool of its own

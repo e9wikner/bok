@@ -22,11 +22,14 @@ Two rules the §6.2 table does not state but the contract depends on:
 import json
 import logging
 import uuid
+from datetime import datetime
 from typing import Any, Optional
 
 from db.database import db
 from domain.models import Thread, ThreadPost
+from domain.types import AuditAction
 from repositories.agent_run_repo import AgentRunRepository
+from repositories.audit_repo import AuditRepository
 from repositories.thread_repo import ThreadRepository
 from services.agent_session import SessionOutcome
 
@@ -467,3 +470,36 @@ class ThreadService:
                 "intake_source_id": intake_source_id,
             },
         )
+
+    @staticmethod
+    def reset_context(thread: Thread, actor: str) -> Thread:
+        """Reset the view's conversation (migration 034).
+
+        Moves the thread's context boundary to its last `seq`, so the next
+        turn's window starts empty. A boundary and not a deletion: posts are
+        append-only (§8.2 p.4), decisions and drafts point at them, and the
+        human can still read what was said -- the client folds it away above
+        a divider. Audit-logged in the same transaction as the move, with the
+        boundary before and after, so a reset is as traceable as a lock.
+        """
+        from_seq = ThreadRepository.last_seq(thread.id)
+        now = datetime.now()
+        with db.transaction():
+            updated = ThreadRepository.reset_context(
+                thread.id, from_seq, now, _commit=False
+            )
+            AuditRepository.log(
+                entity_type="thread",
+                entity_id=thread.id,
+                action=AuditAction.CONTEXT_RESET.value,
+                actor=actor,
+                payload={
+                    "view_key": thread.view_key,
+                    "fiscal_year_id": thread.fiscal_year_id,
+                    "context_from_seq_before": thread.context_from_seq,
+                    "context_from_seq": from_seq,
+                },
+                _commit=False,
+            )
+        assert updated is not None  # the row was just updated
+        return updated

@@ -78,6 +78,8 @@ const tomTradSvar = (over: Partial<TradSvar> = {}): TradSvar => ({
   posts: [],
   cursor: 0,
   archive_fiscal_year_ids: [],
+  context_from_seq: 0,
+  context_reset_at: null,
   ...over,
 });
 

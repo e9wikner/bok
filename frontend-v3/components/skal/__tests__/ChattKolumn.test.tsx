@@ -26,6 +26,9 @@ const tradSvar: UseTrad = {
   skicka: async () => true,
   laddar: false,
   fel: null,
+  kontextFran: 0,
+  nollstalldVid: null,
+  nollstall: async () => true,
 };
 const useTrad = vi.fn((_viewKey: string): UseTrad => tradSvar);
 vi.mock("@/hooks/useTrad", () => ({ useTrad: (vk: string) => useTrad(vk) }));
@@ -255,5 +258,24 @@ describe("ChattList på mobilen (testfall 16)", () => {
     expect(getByRole("button", { name: "Visa eller minimera chatten" }).className).toContain(
       "min-h-[50px]"
     );
+  });
+});
+
+describe("ny konversation (migration 034)", () => {
+  it("knappen står under tråden, utanför fältets formulär", () => {
+    const { container } = render(<ChattKolumn vyTitel="Balansräkning" viewKey="bocker.balans" />);
+    const knapp = screen.getByRole("button", { name: /ny konversation/ });
+    expect(container.querySelector("form")!.contains(knapp)).toBe(false);
+  });
+
+  it("visas inte när inget har sagts sedan gränsen", () => {
+    useTrad.mockImplementation(() => ({ ...tradSvar, kontextFran: 99 }));
+    render(<ChattKolumn vyTitel="Balansräkning" viewKey="bocker.balans" />);
+    expect(screen.queryByRole("button", { name: /ny konversation/ })).not.toBeInTheDocument();
+  });
+
+  it("visas inte för en inaktiv vy", () => {
+    render(<ChattKolumn vyTitel="Balansräkning" viewKey="bocker.balans" aktiv={false} />);
+    expect(screen.queryByRole("button", { name: /ny konversation/ })).not.toBeInTheDocument();
   });
 });

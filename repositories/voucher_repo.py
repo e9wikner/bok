@@ -27,7 +27,7 @@ from domain.types import VoucherSeries, VoucherStatus
 # its underlag through the voucher carrying the receipt's link (D2).
 # Parenthesised as a whole: callers negate it (`NOT {MISSING_ATTACHMENT_SQL}`).
 #
-# Only *current* links count (migration 034, underlag-ersatt): a link with a
+# Only *current* links count (migration 035, underlag-ersatt): a link with a
 # row in `voucher_intake_unlinks` has been undone and no longer gives the
 # voucher its underlag. A reference (D2) keeps counting after the link it
 # went through is undone -- A-121 still has the receipt and the decision as

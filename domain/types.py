@@ -46,6 +46,7 @@ class AuditAction(str, Enum):
     CORRECTED = "corrected"
     APPROVED_AND_BOOKED = "approved_and_booked"
     REJECTED = "rejected"
+    CONTEXT_RESET = "context_reset"
 
 
 class PeriodLockStatus(str, Enum):

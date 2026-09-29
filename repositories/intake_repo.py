@@ -363,7 +363,7 @@ class IntakeRepository:
         )
 
     # A link is *current* while it has no row in `voucher_intake_unlinks`
-    # (migration 034). Every read below says which it returns: the current
+    # (migration 035). Every read below says which it returns: the current
     # link, or the history with the undone ones marked.
     _LINK_SELECT = """
         SELECT vis.*, u.created_at AS unlinked_at, u.actor AS unlinked_by,

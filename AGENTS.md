@@ -56,7 +56,7 @@ Do not add an "edit posted voucher" path, relax a trigger, or delete rows to fix
 test data — reverse and re-post instead.
 
 The link between an underlag (intake source) and a voucher follows the same
-rule (migration 034). `voucher_intake_sources`, `intake_link_basis` and
+rule (migration 035). `voucher_intake_sources`, `intake_link_basis` and
 `voucher_intake_unlinks` refuse UPDATE/DELETE. A wrong link is undone by an
 unlink row (`IntakeLinkService.unlink`, the tool `koppla_bort_underlag`,
 `POST /api/v1/intake/{id}/unlink`). The link row stays. A trigger allows at most

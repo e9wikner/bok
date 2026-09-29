@@ -20,10 +20,12 @@ import { FIXTUR_AGENT_TEXT, FIXTUR_USER_FILE, FIXTUR_USER_TEXT } from "@/lib/cha
 
 const hamtaTrad = vi.fn();
 const skickaMeddelande = vi.fn();
+const nollstallTrad = vi.fn();
 vi.mock("@/lib/chattyta/api", async (original) => ({
   ...(await original<typeof import("@/lib/chattyta/api")>()),
   hamtaTrad: (...a: unknown[]) => hamtaTrad(...a),
   skickaMeddelande: (...a: unknown[]) => skickaMeddelande(...a),
+  nollstallTrad: (...a: unknown[]) => nollstallTrad(...a),
 }));
 
 /** Strömmen står öppen tills signalen avbryts, som den riktiga. */
@@ -60,6 +62,8 @@ const trad = (over: Partial<TradSvar> = {}): TradSvar => ({
   posts: [],
   cursor: 0,
   archive_fiscal_year_ids: [],
+  context_from_seq: 0,
+  context_reset_at: null,
   ...over,
 });
 
@@ -100,6 +104,7 @@ beforeEach(() => {
   qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   hamtaTrad.mockReset();
   skickaMeddelande.mockReset();
+  nollstallTrad.mockReset();
   oppnaStrom.mockClear();
   logout.mockReset();
 });
@@ -461,5 +466,68 @@ describe("useTrad — invalidering av frågorna (§6.3, §7)", () => {
     sand("message.delta", { id: "streaming-r-1", text: "x" });
     sand("message.completed", agent("p-1", 1, "x", "r-1"));
     expect(spion).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Nollställning (migration 034) ────────────────────────────────────────
+
+describe("useTrad — nollställ konversationen", () => {
+  it("GET bär gränsen", async () => {
+    hamtaTrad.mockResolvedValue(
+      trad({ posts: [agent("p-1", 1, "hej")], cursor: 1, context_from_seq: 1, context_reset_at: "2026-09-29T14:02:00" })
+    );
+    const { result } = montera();
+    await waitFor(() => expect(result.current.laddar).toBe(false));
+
+    expect(result.current.kontextFran).toBe(1);
+    expect(result.current.nollstalldVid).toBe("2026-09-29T14:02:00");
+  });
+
+  it("nollstall flyttar gränsen och behåller varje inlägg", async () => {
+    hamtaTrad.mockResolvedValue(trad({ posts: [agent("p-1", 1, "hej"), du("p-2", 2, "då")], cursor: 2 }));
+    nollstallTrad.mockResolvedValue({
+      thread_id: "t-1",
+      view_key: "verifikationer",
+      context_from_seq: 2,
+      context_reset_at: "2026-09-29T14:02:00",
+    });
+    const { result } = montera();
+    await waitFor(() => expect(result.current.laddar).toBe(false));
+
+    let ok = false;
+    await act(async () => {
+      ok = await result.current.nollstall();
+    });
+
+    expect(ok).toBe(true);
+    expect(nollstallTrad).toHaveBeenCalledWith("verifikationer");
+    expect(result.current.kontextFran).toBe(2);
+    expect(idn(result)).toEqual(["p-1", "p-2"]);
+  });
+
+  it("ett nej från servern svarar false och rör inte felraden", async () => {
+    hamtaTrad.mockResolvedValue(trad({ posts: [agent("p-1", 1, "hej")], cursor: 1 }));
+    nollstallTrad.mockRejectedValue({ response: { status: 409 } });
+    const { result } = montera();
+    await waitFor(() => expect(result.current.laddar).toBe(false));
+
+    let ok = true;
+    await act(async () => {
+      ok = await result.current.nollstall();
+    });
+
+    expect(ok).toBe(false);
+    expect(result.current.kontextFran).toBe(0);
+    expect(result.current.fel).toBeNull();
+  });
+
+  it("thread.reset från en annan flik flyttar gränsen", async () => {
+    hamtaTrad.mockResolvedValue(trad({ posts: [agent("p-1", 1, "hej")], cursor: 1 }));
+    const { result } = montera();
+    await waitFor(() => expect(oppnaStrom).toHaveBeenCalled());
+
+    sand("thread.reset", { id: "t-1", context_from_seq: 1, context_reset_at: "2026-09-29T14:02:00" });
+
+    expect(result.current.kontextFran).toBe(1);
   });
 });

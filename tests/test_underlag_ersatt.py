@@ -2,7 +2,7 @@
 
 Flöde 4's panel: "Fel verifikation vald: vägen tillbaka måste vara lika lätt
 som vägen fram" and "Ersätta ett felaktigt kopplat underlag ska vara möjligt
-och lämna spår" (D10 in SPEC-flode-underlag.md). Migration 034 moves the
+och lämna spår" (D10 in SPEC-flode-underlag.md). Migration 035 moves the
 guard against a receipt booked twice from `UNIQUE(intake_source_id)` to a
 trigger over *current* links, and `voucher_intake_unlinks` records an
 unlink without removing the link row.
@@ -153,13 +153,13 @@ def _code(excinfo) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Migration 034
+# Migration 035
 # ---------------------------------------------------------------------------
 
 
-def test_migration_034_is_applied_with_its_triggers(test_db):
+def test_migration_035_is_applied_with_its_triggers(test_db):
     conn = test_db.connect()
-    assert conn.execute("SELECT 1 FROM schema_version WHERE version = 34").fetchone()
+    assert conn.execute("SELECT 1 FROM schema_version WHERE version = 35").fetchone()
     triggers = {
         r["name"]
         for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'trigger'")
@@ -181,8 +181,8 @@ def test_migration_034_is_applied_with_its_triggers(test_db):
     assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
-def test_migration_034_carries_links_and_bases_over():
-    """A database at version 33 with a link and its basis: after 034 the
+def test_migration_035_carries_links_and_bases_over():
+    """A database at version 34 with a link and its basis: after 035 the
     link is the same row and the basis names it."""
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
@@ -195,7 +195,7 @@ def test_migration_034_carries_links_and_bases_over():
         )
         migrations = sorted(MIGRATIONS.glob("*.sql"))
         for migration in migrations:
-            if int(migration.name.split("_")[0]) < 34:
+            if int(migration.name.split("_")[0]) < 35:
                 conn.executescript(migration.read_text())
         conn.executescript("""
             INSERT INTO fiscal_years (id, start_date, end_date)
@@ -219,8 +219,8 @@ def test_migration_034_carries_links_and_bases_over():
                 VALUES ('s', 'v', 'exact_match', 'i', 'agent');
             """)
 
-        [m034] = [m for m in migrations if m.name.startswith("034_")]
-        conn.executescript(m034.read_text())
+        [m035] = [m for m in migrations if m.name.startswith("035_")]
+        conn.executescript(m035.read_text())
 
         link = conn.execute("SELECT * FROM voucher_intake_sources").fetchone()
         assert (link["id"], link["voucher_id"], link["intake_source_id"]) == (

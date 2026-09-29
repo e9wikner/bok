@@ -352,7 +352,7 @@ def test_fu1_migration_is_applied_with_four_triggers(test_db):
 
 def _basis_rows(period_id: str, *, basis: str = "decision"):
     """A real row for each foreign key: voucher, source, interpretation,
-    thread, run and decision -- and, since migration 034, the link row the
+    thread, run and decision -- and, since migration 035, the link row the
     basis belongs to."""
     from domain.intake_link import IntakeLinkBasis
 

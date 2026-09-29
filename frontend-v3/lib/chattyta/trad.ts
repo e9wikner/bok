@@ -45,12 +45,28 @@ export interface TradTillstand {
   strommande: Strommande | null;
   /** Högsta `seq` klienten sett. */
   maxSeq: number;
+  /**
+   * Konversationens nollställningsgräns (migration 034): inlägg med `seq`
+   * ≤ den går inte längre till agenten. De står kvar i tråden — ytan fäller
+   * ihop dem ovanför avdelaren. 0 = aldrig nollställd.
+   */
+  kontextFran: number;
+  /** När den senast nollställdes, ISO-tid ur servern. */
+  nollstalldVid: string | null;
 }
 
 export type TradHandling =
   | { typ: "nollstall" }
   /** `GET /threads/{vk}` (§6.3 rad 1). */
-  | { typ: "hamtad"; posts: RaInlagg[]; cursor: number }
+  | {
+      typ: "hamtad";
+      posts: RaInlagg[];
+      cursor: number;
+      kontextFran?: number;
+      nollstalldVid?: string | null;
+    }
+  /** `POST …/reset` svarade, eller en annan flik nollställde (`thread.reset`). */
+  | { typ: "kontextNollstalld"; kontextFran: number; nollstalldVid: string }
   | { typ: "optimistisk"; id: string; text: string; skapad: string }
   /** `POST …/messages` svarade: det optimistiska byts mot serverns. */
   | { typ: "skickad"; lokaltId: string; posts: RaInlagg[]; cursor: number }
@@ -67,7 +83,7 @@ export const LOKALT_PREFIX = "lokal-";
 export const arOptimistisk = (i: Inlagg): boolean => i.id.startsWith(LOKALT_PREFIX);
 
 export function tomTrad(): TradTillstand {
-  return { inlagg: new Map(), strommande: null, maxSeq: 0 };
+  return { inlagg: new Map(), strommande: null, maxSeq: 0, kontextFran: 0, nollstalldVid: null };
 }
 
 const STROMMANDE_PREFIX = "streaming-";
@@ -148,6 +164,7 @@ function handelse(t: TradTillstand, { event, data }: SseHandelse): TradTillstand
       const inlagg = new Map(t.inlagg);
       const seq = finns ? 0 : laggIn(inlagg, [raw]);
       return {
+        ...t,
         inlagg,
         // Det lagrade ersätter platshållaren. Den ihopsamlade texten kastas —
         // även om den skiljer sig är det lagrade sanningen (testfall 10).
@@ -156,10 +173,26 @@ function handelse(t: TradTillstand, { event, data }: SseHandelse): TradTillstand
       };
     }
 
+    case "thread.reset": {
+      const fran = data.context_from_seq;
+      const vid = data.context_reset_at;
+      if (typeof fran !== "number" || typeof vid !== "string") return t;
+      return nyGrans(t, fran, vid);
+    }
+
     // `view.changed` rör inte tråden; hooken invaliderar frågorna (§6.3).
     default:
       return t;
   }
+}
+
+/**
+ * Gränsen flyttas bara framåt: POST-svaret och `thread.reset` för samma
+ * nollställning kan komma i vilken ordning som helst.
+ */
+function nyGrans(t: TradTillstand, fran: number, vid: string): TradTillstand {
+  if (fran < t.kontextFran || (fran === t.kontextFran && t.nollstalldVid === vid)) return t;
+  return { ...t, kontextFran: fran, nollstalldVid: vid };
 }
 
 export function tradReducer(t: TradTillstand, h: TradHandling): TradTillstand {
@@ -173,8 +206,17 @@ export function tradReducer(t: TradTillstand, h: TradHandling): TradTillstand {
       const inlagg = new Map<string, Inlagg>();
       for (const [id, i] of t.inlagg) if (arOptimistisk(i)) inlagg.set(id, i);
       laggIn(inlagg, h.posts);
-      return { ...t, inlagg, maxSeq: h.cursor };
+      return {
+        ...t,
+        inlagg,
+        maxSeq: h.cursor,
+        kontextFran: h.kontextFran ?? 0,
+        nollstalldVid: h.nollstalldVid ?? null,
+      };
     }
+
+    case "kontextNollstalld":
+      return nyGrans(t, h.kontextFran, h.nollstalldVid);
 
     case "optimistisk": {
       const inlagg = new Map(t.inlagg);

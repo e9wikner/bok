@@ -1,6 +1,6 @@
 """Repositories for `intake_link_basis` and `voucher_source_references`
 (migration 032, SPEC-flode-underlag.md §5) and `voucher_intake_unlinks`
-(migration 034, underlag-ersatt).
+(migration 035, underlag-ersatt).
 
 All SQL for the two tables lives here -- see AGENTS.md's layering rule.
 Same `@staticmethod` form and `_commit: bool = True` convention as
@@ -24,7 +24,7 @@ class IntakeLinkRepository:
     @staticmethod
     def insert(basis: IntakeLinkBasis, _commit: bool = True) -> IntakeLinkBasis:
         """Insert one row as given, `created_at` included. *basis* must name
-        its link (`link_id`, migration 034)."""
+        its link (`link_id`, migration 035)."""
         if basis.link_id is None:
             raise ValueError("intake_link_basis needs the link it is the basis of")
         db.execute(
@@ -88,7 +88,7 @@ class IntakeLinkRepository:
 
 
 class IntakeUnlinkRepository:
-    """`voucher_intake_unlinks` (migration 034): insert and read only."""
+    """`voucher_intake_unlinks` (migration 035): insert and read only."""
 
     @staticmethod
     def insert(unlink: IntakeUnlink, _commit: bool = True) -> IntakeUnlink:

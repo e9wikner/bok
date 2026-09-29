@@ -51,6 +51,9 @@ EVENT_MESSAGE_CREATED = "message.created"
 EVENT_MESSAGE_DELTA = "message.delta"
 EVENT_MESSAGE_COMPLETED = "message.completed"
 EVENT_VIEW_CHANGED = "view.changed"
+#: Not one of §6.5's four: the human reset the conversation (migration 034).
+#: Carries the new boundary so every open client folds the same posts away.
+EVENT_THREAD_RESET = "thread.reset"
 
 
 def format_sse(event: str, data: dict) -> str:
@@ -184,6 +187,11 @@ class ThreadBroker:
                 self._subscribers[thread_id] = remaining
             else:
                 self._subscribers.pop(thread_id, None)
+
+    def turn_in_progress(self, thread_id: str) -> bool:
+        """Whether a turn is streaming in this thread right now."""
+        with self._guard:
+            return thread_id in self._inflight
 
     def subscriber_count(self, thread_id: str) -> int:
         with self._guard:

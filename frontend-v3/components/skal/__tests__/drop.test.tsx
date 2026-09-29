@@ -17,7 +17,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 const skicka = vi.fn(async (_text: string, _bilagor?: readonly string[]) => true);
-const tradSvar = (): UseTrad => ({ inlagg: [], strommande: null, skicka, laddar: false, fel: null });
+const tradSvar = (): UseTrad => ({ inlagg: [], strommande: null, skicka, laddar: false, fel: null, kontextFran: 0, nollstalldVid: null, nollstall: async () => true });
 vi.mock("@/hooks/useTrad", () => ({ useTrad: () => tradSvar() }));
 
 beforeEach(() => {

@@ -49,7 +49,7 @@ UnlinkBasis = Literal["human", "decision"]
 
 @dataclass(frozen=True)
 class IntakeUnlink:
-    """One `voucher_intake_unlinks` row (migration 034): *link_id* no
+    """One `voucher_intake_unlinks` row (migration 035): *link_id* no
     longer holds. The link row itself stays."""
 
     link_id: str

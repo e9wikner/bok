@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useLayoutEffect, useRef } from "react";
+import { delaVidGrans, NollstallKnapp, TidigareKonversation } from "@/components/chattyta/Nollstallning";
 import { ChattFaltFokus, TradRenderare } from "@/components/chattyta/TradRenderare";
 import { ChattFalt } from "@/components/skal/ChattFalt";
 import { useTrad, type UseTrad } from "@/hooks/useTrad";
@@ -18,8 +19,21 @@ import { useTrad, type UseTrad } from "@/hooks/useTrad";
  * båda talen. Skalet ritar inga inlägg själv.
  */
 
-/** Det ytan behöver ur tråden. `skicka` går till fältet, inte hit. */
-export type TradData = Pick<UseTrad, "inlagg" | "strommande" | "fel">;
+/**
+ * Det ytan behöver ur tråden. `skicka` går till fältet, inte hit.
+ * Nollställningsgränsen är valfri: utan den är tråden aldrig nollställd.
+ */
+export type TradData = Pick<UseTrad, "inlagg" | "strommande" | "fel"> &
+  Partial<Pick<UseTrad, "kontextFran" | "nollstalldVid">>;
+
+/**
+ * `Ny konversation` visas bara när det finns något att glömma: ett lagrat
+ * inlägg efter gränsen. En tom tråd, eller en som just nollställts, har inget.
+ */
+export function kanNollstallas(trad: TradData): boolean {
+  const grans = trad.kontextFran ?? 0;
+  return trad.inlagg.some((i) => i.seq > grans);
+}
 
 /**
  * En tråd som inte läses (en inaktiv vy). Tomt är ett ärligt läge här: vyn
@@ -61,6 +75,8 @@ export function TradYta({
 }) {
   const yta = useRef<HTMLDivElement>(null);
   const langstNer = useRef(true);
+  const kontextFran = trad.kontextFran ?? 0;
+  const { fore, efter } = delaVidGrans(trad.inlagg, kontextFran);
 
   // Följ med nedåt när något nytt kommer — men bara om människan redan var
   // längst ner. Den som skrollat upp för att läsa ett gammalt beslut ska inte
@@ -103,7 +119,10 @@ export function TradYta({
             : "flex min-h-full flex-col justify-end gap-[18px] px-[18px] pb-[18px] pt-4 [&>*]:shrink-0"
         }
       >
-        <TradRenderare inlagg={trad.inlagg} strommande={trad.strommande} viewKey={viewKey} />
+        {kontextFran > 0 && (
+          <TidigareKonversation inlagg={fore} nollstalldVid={trad.nollstalldVid ?? null} viewKey={viewKey} />
+        )}
+        <TradRenderare inlagg={efter} strommande={trad.strommande} viewKey={viewKey} />
         {trad.fel != null && (
           <p data-testid="trad-fel" className="bok-mono m-0 text-[12px] text-bok-text-svag">
             {felText(trad.fel)}
@@ -140,7 +159,15 @@ export function ChattKolumn({
 
 function AktivKolumn({ vyTitel, viewKey }: { vyTitel: string; viewKey: string }) {
   const trad = useTrad(viewKey);
-  return <KolumnLayout vyTitel={vyTitel} viewKey={viewKey} trad={trad} onSkicka={trad.skicka} />;
+  return (
+    <KolumnLayout
+      vyTitel={vyTitel}
+      viewKey={viewKey}
+      trad={trad}
+      onSkicka={trad.skicka}
+      onNollstall={trad.nollstall}
+    />
+  );
 }
 
 function KolumnLayout({
@@ -148,11 +175,13 @@ function KolumnLayout({
   viewKey,
   trad,
   onSkicka,
+  onNollstall,
 }: {
   vyTitel: string;
   viewKey: string;
   trad: TradData;
   onSkicka?: UseTrad["skicka"];
+  onNollstall?: UseTrad["nollstall"];
 }) {
   // Förslagskortets `Ändra` ska till DEN HÄR kolumnens fält (chattyta C12).
   const falt = useRef<HTMLInputElement>(null);
@@ -165,6 +194,9 @@ function KolumnLayout({
       <ChattFaltFokus.Provider value={fokuseraFalt}>
         <TradYta vyTitel={vyTitel} viewKey={viewKey} trad={trad} />
       </ChattFaltFokus.Provider>
+      {onNollstall && kanNollstallas(trad) && (
+        <NollstallKnapp onNollstall={onNollstall} arbetar={trad.strommande !== null} />
+      )}
       <ChattFalt ref={falt} vyTitel={vyTitel} onSkicka={onSkicka} slappYta={kolumn} />
     </div>
   );

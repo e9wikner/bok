@@ -301,8 +301,9 @@ def test_migration_033_moves_ib_drafts_out_of_the_voucher_table():
             UPDATE vouchers SET status = 'posted', number = 1 WHERE id = 'posted-ib';
             """)
 
-        [m033] = [m for m in migrations if m.name.startswith("033_")]
-        conn.executescript(m033.read_text())
+        # By number, not `migrations[-1]`: later migrations exist.
+        migration_033 = next(m for m in migrations if m.name.startswith("033_"))
+        conn.executescript(migration_033.read_text())
 
         stated = {
             (row["fiscal_year_id"], row["account_code"]): row["amount"]

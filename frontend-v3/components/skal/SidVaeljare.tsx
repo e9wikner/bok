@@ -10,8 +10,9 @@ import { SIDOR, type Sidnyckel } from "@/lib/skal/vyer";
  * kapabilitetskartan (ANALYS.md §8) räknar upp `SidVaeljare` men inte
  * tabbarna. Se SPEC-skal.md §2.2 — beslutet togs en gång, där.
  *
- * Tabbens informationsinnehåll finns kvar i väljaren: väntar-pricken och
- * sidans metarad, i samma färger.
+ * Knappen bär bara sidtiteln, så att headerraden hålls låg, och en
+ * väntar-prick när något väntar på den aktiva sidan. Sidornas metarader
+ * (väntar-färgen) visas i den utfällda listan.
  */
 
 export interface SidMeta {
@@ -44,7 +45,7 @@ export function SidVaeljare({
   }, [oppen]);
 
   const aktivSida = SIDOR.find((s) => s.key === aktiv)!;
-  const aktivMeta = metaPerSida[aktiv];
+  const vantar = metaPerSida[aktiv]?.waiting ?? false;
 
   const valj = (sida: Sidnyckel) => {
     setOppen(false);
@@ -61,27 +62,19 @@ export function SidVaeljare({
         onClick={() => setOppen((v) => !v)}
         className={
           variant === "desktop"
-            ? // Tre rader måste rymmas i headerns 62 px: fasta radhöjder och
-              // padding 4 ger 56 px höjd, så knappen står mitt i headern och
-              // inte sticker ut under dess kantlinje.
-              "flex min-h-[44px] items-center gap-4 rounded-[10px] border border-bok-kant bg-bok-yta px-[14px] py-[4px] text-left hover:bg-bok-yta-svag"
+            ? "flex min-h-[44px] items-center gap-4 rounded-[10px] border border-bok-kant bg-bok-yta px-[14px] py-[4px] text-left hover:bg-bok-yta-svag"
             : "flex min-h-[44px] min-w-0 flex-1 items-center gap-2 rounded-[10px] px-2 text-left"
         }
       >
-        <span className="flex min-w-0 flex-col">
-          {variant === "desktop" && (
-            <span className="bok-etikett text-[10px] leading-[12px] text-bok-meta">Sida</span>
+        <span className="flex min-w-0 items-center gap-[6px]">
+          <span className="truncate text-[15px] font-medium text-bok-text">{aktivSida.titel}</span>
+          {vantar && (
+            <span
+              data-testid="sidvaljare-vantar"
+              aria-hidden="true"
+              className="h-[7px] w-[7px] shrink-0 rounded-full bg-bok-vantar-prick"
+            />
           )}
-          <span className="truncate text-[15px] font-medium leading-[20px] text-bok-text">
-            {aktivSida.titel}
-          </span>
-          <span
-            className={`bok-mono truncate text-[11px] leading-[14px] ${
-              aktivMeta?.waiting ? "text-bok-vantar-meta" : "text-bok-meta"
-            }`}
-          >
-            {aktivMeta?.meta ?? ""}
-          </span>
         </span>
         <span aria-hidden="true" className="shrink-0 text-[10px] text-bok-text-svag">
           {oppen ? "▲" : "▼"}
