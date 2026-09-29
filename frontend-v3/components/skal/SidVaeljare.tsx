@@ -10,8 +10,8 @@ import { SIDOR, type Sidnyckel } from "@/lib/skal/vyer";
  * kapabilitetskartan (ANALYS.md §8) räknar upp `SidVaeljare` men inte
  * tabbarna. Se SPEC-skal.md §2.2 — beslutet togs en gång, där.
  *
- * Tabbens informationsinnehåll finns kvar i väljaren: väntar-pricken och
- * sidans metarad, i samma färger.
+ * Knappen bär bara sidtiteln, så att headerraden hålls låg. Sidornas
+ * metarader (väntar-färgen) visas i den utfällda listan.
  */
 
 export interface SidMeta {
@@ -44,7 +44,6 @@ export function SidVaeljare({
   }, [oppen]);
 
   const aktivSida = SIDOR.find((s) => s.key === aktiv)!;
-  const aktivMeta = metaPerSida[aktiv];
 
   const valj = (sida: Sidnyckel) => {
     setOppen(false);
@@ -61,23 +60,11 @@ export function SidVaeljare({
         onClick={() => setOppen((v) => !v)}
         className={
           variant === "desktop"
-            ? "flex min-h-[44px] items-center gap-4 rounded-[10px] border border-bok-kant bg-bok-yta px-[14px] py-[6px] text-left hover:bg-bok-yta-svag"
+            ? "flex min-h-[44px] items-center gap-4 rounded-[10px] border border-bok-kant bg-bok-yta px-[14px] py-[4px] text-left hover:bg-bok-yta-svag"
             : "flex min-h-[44px] min-w-0 flex-1 items-center gap-2 rounded-[10px] px-2 text-left"
         }
       >
-        <span className="flex min-w-0 flex-col gap-px">
-          {variant === "desktop" && (
-            <span className="bok-etikett text-[10px] text-bok-meta">Sida</span>
-          )}
-          <span className="truncate text-[15px] font-medium text-bok-text">{aktivSida.titel}</span>
-          <span
-            className={`bok-mono truncate text-[11px] ${
-              aktivMeta?.waiting ? "text-bok-vantar-meta" : "text-bok-meta"
-            }`}
-          >
-            {aktivMeta?.meta ?? ""}
-          </span>
-        </span>
+        <span className="min-w-0 truncate text-[15px] font-medium text-bok-text">{aktivSida.titel}</span>
         <span aria-hidden="true" className="shrink-0 text-[10px] text-bok-text-svag">
           {oppen ? "▲" : "▼"}
         </span>

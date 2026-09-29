@@ -49,11 +49,22 @@ describe("SidVaeljare (testfall 10)", () => {
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 
-  it("bär sidans metarad i väntar-färg när något väntar", async () => {
+  it("knappen bär bara sidtiteln — ingen etikett, ingen metarad", () => {
     render(<SidVaeljare aktiv="bocker" metaPerSida={meta} onValj={vi.fn()} variant="desktop" />);
     const knapp = screen.getByRole("button", { name: "Välj sida" });
-    expect(knapp.textContent).toContain("1 väntar på dig");
-    expect(knapp.querySelector(".text-bok-vantar-meta")).not.toBeNull();
+    expect(knapp.textContent).toContain("Böcker");
+    expect(knapp.textContent).not.toContain("Sida");
+    expect(knapp.textContent).not.toContain("1 väntar på dig");
+  });
+
+  it("bär sidornas metarader i listan, i väntar-färg när något väntar", async () => {
+    const user = userEvent.setup();
+    render(<SidVaeljare aktiv="bocker" metaPerSida={meta} onValj={vi.fn()} variant="desktop" />);
+
+    await user.click(screen.getByRole("button", { name: "Välj sida" }));
+    const rad = screen.getByRole("menuitem", { name: /Böcker/ });
+    expect(rad.textContent).toContain("1 väntar på dig");
+    expect(rad.querySelector(".text-bok-vantar-meta")).not.toBeNull();
   });
 
   it("har en träffyta på minst 44 px", () => {

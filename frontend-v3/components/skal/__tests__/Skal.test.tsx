@@ -100,7 +100,9 @@ describe("skalet i drift", () => {
   });
 
   it("hämtar sidornas metarader från servern och visar dem ordagrant", async () => {
+    const user = userEvent.setup();
     renderaSkal();
+    await user.click(await screen.findByRole("button", { name: "Välj sida" }));
     expect(await screen.findByText("1 väntar på dig")).toBeInTheDocument();
   });
 
