@@ -10,30 +10,14 @@ den är avgjord och skriv beslutet i koden eller i commit-meddelandet, inte här
 
 ## Före och vid driftsättning
 
-Det här är kontroller, inte beslut. De kräver en människa och en riktig LLM.
+Det här är en kontroll, inte ett beslut. Den kräver en människa och en riktig LLM.
 
-1. **Visuell kontroll i `/v4` med riktig LLM.**
-   - Den optimistiska raden blinkar inte när `view.changed` kommer före svaret.
-   - `ny` visas i 6 s.
-   - Två tryck på `Posta` ger en postning.
-   - Rättelse i låst period.
-   - Raden blir röd från sju dagar.
-   - Headerns räknare stämmer med vyns.
-   - `Postar fortfarande…` visas.
-2. **Kvitton med riktig LLM:**
+1. **Kvitton med riktig LLM:**
    - Ett kvitto för en verifikation som redan är bokförd från banken ger ett avstående i
      underlagspasset.
    - I en tråd ger samma kvitto en koppling, aldrig en ny verifikation.
    - Säg "fel verifikation" om en koppling. Agenten ska då lägga fram ett beslut, koppla bort
      och koppla rätt (instruktionen punkt 10).
-3. **Omstart efter driftsättning:**
-   - Tom databas.
-   - SIE4-filerna importeras igen. Den ingående balansen är nu ett saldo och ingen verifikation
-     (migration 033).
-   - Kör `POST /api/v1/compliance/check` och jämför luckkontrollen med filerna.
-   - Första kontrollen ger ett `missing_attachments`-ärende för gamla verifikationer. Det är rätt.
-4. **`NEXT_PUBLIC_SKAL=1`** i `bok.env` på hubbabubba om `/v4` ska byggas in. Flaggan läses vid
-   bygget.
 
 ## Produktbeslut
 
@@ -95,6 +79,11 @@ Beteendet är inte ändrat. Det här är iakttagelser.
 - "kvitto kopplat" syns bara för kopplingar gjorda medan sidan är öppen. `VoucherResponse` säger
   inte att en verifikation har ett kopplat kvitto.
 - Ett meddelande med bara blanktecken och utan bilagor ger `422`.
+- **SIE4-importen hoppar över helt strukna verifikationer.** En verifikation vars rader alla är
+  `#BTRANS` (strukna i det tidigare systemet) blir tom och importeras inte. Saldona stämmer,
+  men numret saknas: 21 verifikationer i filerna 2010–2025, som ger 18 `voucher_sequence`-ärenden
+  i compliance-kontrollen. Ska importen spara dem som tomma eller makulerade verifikationer så
+  att serien är obruten, eller räcker det att kontrollen förklarar luckan?
 
 ## Städning och skuld
 
