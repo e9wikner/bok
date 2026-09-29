@@ -75,7 +75,7 @@ function ListLayout({
       : { text: `${trad.inlagg.length} inlägg`, vantar: false };
 
   return (
-    <div ref={list} className="flex shrink-0 flex-col border-t border-bok-linje bg-bok-yta shadow-bok-chattlist">
+    <div ref={list} className="flex shrink-0 flex-col border-t border-bok-linje bg-bok-yta pb-[env(safe-area-inset-bottom)] shadow-bok-chattlist">
       <button
         type="button"
         aria-label="Visa eller minimera chatten"

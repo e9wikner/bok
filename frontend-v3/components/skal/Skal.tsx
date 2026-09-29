@@ -79,7 +79,9 @@ export function Skal() {
   const vyStatus = { text: data.status, fg: lageFarg(data.lage) };
 
   return (
-    <div className="flex h-screen min-h-0 flex-col bg-bok-app">
+    // h-dvh, inte h-screen: 100vh är i iOS Safari höjden med adressraden
+    // indragen, så chattlisten längst ner hamnade bakom den.
+    <div className="flex h-screen h-dvh min-h-0 flex-col bg-bok-app">
       <Header
         variant={bred ? "desktop" : "mobil"}
         sida={sida}
