@@ -9,11 +9,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
+import { describeInvoiceError, downloadInvoicePdf, formatQuantity } from "@/lib/fakturering";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
   ArrowLeft,
-  Send,
-  BookOpen,
+  CheckCircle2,
+  Download,
   CreditCard,
   Receipt,
   AlertTriangle,
@@ -60,33 +61,7 @@ export default function InvoiceDetailPage() {
     enabled: !!id,
   });
 
-  const sendMutation = useMutation({
-    mutationFn: () => api.sendInvoice(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["invoice", id] });
-      setActionMessage({ type: "success", text: "Fakturan har skickats" });
-    },
-    onError: () => {
-      setActionMessage({
-        type: "error",
-        text: "Kunde inte skicka fakturan",
-      });
-    },
-  });
-
-  const bookMutation = useMutation({
-    mutationFn: () => api.bookInvoice(id, invoice?.period_id || "default"),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["invoice", id] });
-      setActionMessage({ type: "success", text: "Fakturan har bokförts" });
-    },
-    onError: () => {
-      setActionMessage({
-        type: "error",
-        text: "Kunde inte bokföra fakturan",
-      });
-    },
-  });
+  const [downloading, setDownloading] = useState(false);
 
   const paymentMutation = useMutation({
     mutationFn: (data: {
@@ -164,6 +139,22 @@ export default function InvoiceDetailPage() {
     vatByCode[code].vat += r.vat_amount || 0;
   });
 
+  // The PDF stored at issue; an invoice from before F0 has none and gets
+  // the rendering export of today's data instead.
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      await downloadInvoicePdf(invoice);
+    } catch (err: unknown) {
+      setActionMessage({
+        type: "error",
+        text: describeInvoiceError(err, "Kunde inte ladda ner PDF:en"),
+      });
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   const handlePayment = () => {
     const amountInOre = Math.round(parseFloat(paymentAmount) * 100);
     if (!amountInOre || amountInOre <= 0) return;
@@ -212,6 +203,16 @@ export default function InvoiceDetailPage() {
                   Org.nr: {invoice.customer_org_number}
                 </p>
               )}
+              {invoice.customer_address && (
+                <p className="text-sm text-muted-foreground whitespace-pre-line">
+                  {invoice.customer_address}
+                </p>
+              )}
+              {invoice.customer_reference && (
+                <p className="text-sm text-muted-foreground">
+                  Er referens: {invoice.customer_reference}
+                </p>
+              )}
             </div>
             <Badge variant={statusConfig.variant} className="text-sm">
               {statusConfig.label}
@@ -246,28 +247,41 @@ export default function InvoiceDetailPage() {
             </div>
           </div>
 
+          {invoice.issued_at && (
+            <p className="mt-4 flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400">
+              <CheckCircle2 className="h-4 w-4" />
+              Utfärdad {formatDate(invoice.issued_at)}
+              {invoice.issued_by ? ` av ${invoice.issued_by}` : ""}. Bokförd och låst.
+            </p>
+          )}
+
           {/* Action buttons */}
           <div className="flex flex-wrap gap-2 mt-6 pt-4 border-t">
-            {invoice.status === "draft" && (
-              <Button
-                onClick={() => sendMutation.mutate()}
-                disabled={sendMutation.isPending}
-                className="gap-2"
+            <Button
+              onClick={handleDownload}
+              disabled={downloading}
+              variant="outline"
+              className="gap-2"
+              title={
+                invoice.pdf_url
+                  ? "Den PDF som sparades vid utfärdandet"
+                  : "Ingen sparad PDF: renderas från dagens uppgifter"
+              }
+            >
+              <Download className="h-4 w-4" />
+              {downloading
+                ? "Hämtar..."
+                : invoice.pdf_url
+                  ? "Ladda ner PDF"
+                  : "Exportera PDF"}
+            </Button>
+            {invoice.voucher_id && (
+              <Link
+                href={`/vouchers/${invoice.voucher_id}`}
+                className="self-center px-2 text-sm text-primary hover:underline"
               >
-                <Send className="h-4 w-4" />
-                {sendMutation.isPending ? "Skickar..." : "Skicka faktura"}
-              </Button>
-            )}
-            {invoice.status === "sent" && (
-              <Button
-                onClick={() => bookMutation.mutate()}
-                disabled={bookMutation.isPending}
-                variant="outline"
-                className="gap-2"
-              >
-                <BookOpen className="h-4 w-4" />
-                {bookMutation.isPending ? "Bokför..." : "Bokför"}
-              </Button>
+                Visa verifikationen
+              </Link>
             )}
             {(invoice.status === "sent" || invoice.status === "partial") && (
               <Button
@@ -384,7 +398,8 @@ export default function InvoiceDetailPage() {
                   >
                     <td className="p-4">{row.description}</td>
                     <td className="p-4 text-right font-mono">
-                      {row.quantity}
+                      {formatQuantity(row.quantity)}
+                      {row.unit ? ` ${row.unit}` : ""}
                     </td>
                     <td className="p-4 text-right font-mono">
                       {formatCurrency(row.unit_price || 0)}

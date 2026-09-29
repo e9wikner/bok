@@ -128,15 +128,92 @@ export interface Invoice {
   vat_amount: number;
   rows: InvoiceRow[];
   created_at: string;
+  voucher_id?: string | null;
+  // SPEC-fakturering.md §4.3–4.4. Empty on invoices from before F0.
+  issued_at?: string | null;
+  issued_by?: string | null;
+  /** The stored PDF; null for an invoice not issued in Bok. */
+  pdf_url?: string | null;
+  customer_address?: string | null;
+  customer_reference?: string | null;
+  payment_terms_days?: number | null;
+  source_draft_id?: string | null;
 }
 
 export interface InvoiceRow {
   description: string;
+  /** Decimal, at most two decimals (7.5 h). */
   quantity: number;
+  quantity_centi?: number;
+  unit?: string | null;
   unit_price: number;
   vat_code: string;
-  vat_rate: number;
-  total: number;
+  revenue_account?: string | null;
+  article_number?: string | null;
+  delivery_from?: string | null;
+  delivery_to?: string | null;
+  delivery_month?: string | null;
+  amount_ex_vat?: number;
+  vat_amount?: number;
+  amount_inc_vat?: number;
+}
+
+/** A row as `POST/PUT /invoice-drafts` takes it. */
+export interface InvoiceDraftRowPayload {
+  article_id?: string | null;
+  description?: string | null;
+  /** Positive, at most two decimals; 7.5 or "7,5". */
+  quantity: number | string;
+  unit?: string | null;
+  unit_price?: number | null;
+  vat_code?: string | null;
+  revenue_account?: string | null;
+  source_note?: string | null;
+  article_number?: string | null;
+  delivery_from?: string | null;
+  delivery_to?: string | null;
+  delivery_month?: string | null;
+}
+
+/**
+ * The whole draft as `POST/PUT /invoice-drafts` takes it. PUT replaces the
+ * draft: a field left out is cleared.
+ */
+export interface InvoiceDraftPayload {
+  customer_id?: string | null;
+  customer_name?: string | null;
+  customer_org_number?: string | null;
+  customer_email?: string | null;
+  invoice_date: string;
+  due_date?: string | null;
+  /** Er referens. */
+  reference?: string | null;
+  description?: string | null;
+  invoice_number?: string | null;
+  customer_address?: string | null;
+  delivery_from?: string | null;
+  delivery_to?: string | null;
+  /** YYYY-MM, when the exact date is not known. */
+  delivery_month?: string | null;
+  status?: "draft" | "needs_review";
+  rows: InvoiceDraftRowPayload[];
+  agent_notes?: {
+    summary?: string | null;
+    confidence?: number | null;
+    warnings?: string[];
+  };
+}
+
+export interface IssuedInvoice {
+  invoice_id: string;
+  invoice_number: string;
+  voucher_id: string;
+  pdf_url: string;
+}
+
+export interface InvoicePdf {
+  blob: Blob;
+  filename: string | null;
 }
 
 export interface Customer {
@@ -537,28 +614,11 @@ export const api = {
     const { data } = await apiClient.get(`/api/v1/invoices/${id}`);
     return data;
   },
-  createInvoice: async (payload: {
-    customer_name: string;
-    customer_org_number?: string;
-    customer_email?: string;
-    invoice_date: string;
-    due_date: string;
-    description?: string;
-    rows: {
-      description: string;
-      quantity: number;
-      unit_price: number;
-      vat_code: string;
-      revenue_account?: string;
-    }[];
-  }) => {
-    const { data } = await apiClient.post("/api/v1/invoices", payload);
-    return data;
-  },
   previewInvoice: async (payload: {
     rows: {
       description: string;
-      quantity: number;
+      quantity: number | string;
+      unit?: string | null;
       unit_price: number;
       vat_code: string;
       revenue_account?: string;
@@ -567,13 +627,18 @@ export const api = {
     const { data } = await apiClient.post("/api/v1/invoices/preview", payload);
     return data;
   },
-  sendInvoice: async (id: string) => {
-    const { data } = await apiClient.post(`/api/v1/invoices/${id}/send`);
-    return data;
-  },
-  bookInvoice: async (id: string, periodId: string) => {
-    const { data } = await apiClient.post(`/api/v1/invoices/${id}/book`, { period_id: periodId });
-    return data;
+  /**
+   * The PDF stored when the invoice was issued, byte for byte. An invoice
+   * from before F0 has none (404 `pdf_not_stored`); `getPdfExport` renders
+   * one from `/api/v1/export/pdf/invoice/{id}` instead.
+   */
+  getInvoicePdf: async (id: string): Promise<InvoicePdf> => {
+    const response = await apiClient.get(`/api/v1/invoices/${id}/pdf`, {
+      responseType: "blob",
+    });
+    const disposition: string | undefined = response.headers?.["content-disposition"];
+    const match = disposition?.match(/filename="?([^";]+)"?/);
+    return { blob: response.data as Blob, filename: match ? match[1] : null };
   },
   registerPayment: async (id: string, payload: { amount: number; payment_date: string; payment_method: string; reference?: string }) => {
     const { data } = await apiClient.post(`/api/v1/invoices/${id}/payment`, payload);
@@ -589,66 +654,22 @@ export const api = {
     const { data } = await apiClient.get(`/api/v1/invoice-drafts/${id}`);
     return data;
   },
-  createInvoiceDraft: async (payload: {
-    customer_id?: string | null;
-    customer_name?: string | null;
-    customer_org_number?: string | null;
-    customer_email?: string | null;
-    invoice_date: string;
-    due_date?: string | null;
-    reference?: string | null;
-    description?: string | null;
-    status?: "draft" | "needs_review";
-    rows: {
-      article_id?: string | null;
-      description?: string | null;
-      quantity: number;
-      unit_price?: number | null;
-      vat_code?: string | null;
-      revenue_account?: string | null;
-      source_note?: string | null;
-    }[];
-    agent_notes?: {
-      summary?: string | null;
-      confidence?: number | null;
-      warnings?: string[];
-    };
-  }) => {
+  createInvoiceDraft: async (payload: InvoiceDraftPayload) => {
     const { data } = await apiClient.post("/api/v1/invoice-drafts", payload);
     return data;
   },
-  updateInvoiceDraft: async (id: string, payload: {
-    customer_id?: string | null;
-    customer_name?: string | null;
-    customer_org_number?: string | null;
-    customer_email?: string | null;
-    invoice_date: string;
-    due_date?: string | null;
-    reference?: string | null;
-    description?: string | null;
-    status?: "draft" | "needs_review";
-    rows: {
-      article_id?: string | null;
-      description?: string | null;
-      quantity: number;
-      unit_price?: number | null;
-      vat_code?: string | null;
-      revenue_account?: string | null;
-      source_note?: string | null;
-    }[];
-    agent_notes?: {
-      summary?: string | null;
-      confidence?: number | null;
-      warnings?: string[];
-    };
-  }) => {
+  updateInvoiceDraft: async (id: string, payload: InvoiceDraftPayload) => {
     const { data } = await apiClient.put(`/api/v1/invoice-drafts/${id}`, payload);
     return data;
   },
-  sendInvoiceDraft: async (id: string, periodId?: string) => {
-    const { data } = await apiClient.post(`/api/v1/invoice-drafts/${id}/send`, {
-      period_id: periodId || undefined,
-    });
+  /**
+   * Issue the draft (SPEC-fakturering.md §5): the invoice, its posted voucher
+   * and the stored PDF, all or nothing. Logged-in users only; errors come as
+   * `detail.code` (`number_taken`, `period_locked`, `company_info_incomplete`,
+   * `human_only`, ...) with their payload.
+   */
+  issueInvoiceDraft: async (id: string): Promise<IssuedInvoice> => {
+    const { data } = await apiClient.post(`/api/v1/invoice-drafts/${id}/issue`);
     return data;
   },
   rejectInvoiceDraft: async (id: string) => {

@@ -94,11 +94,20 @@ describe("skalet håller sig innanför sin gräns (testfall 18)", () => {
       "frontend-v3/app/vouchers/page.tsx",
       "frontend-v3/app/vouchers/[id]/page.tsx",
     ];
+    // Undantag, inte skalets: fakturering F0 (SPEC-fakturering.md §7) ger de
+    // gamla fakturasidorna nummer, adress, leverans och `/issue`. Exakt de här.
+    const faktureringen = [
+      "frontend-v3/app/invoices/new/page.tsx",
+      "frontend-v3/app/invoices/[id]/page.tsx",
+      "frontend-v3/app/invoices/drafts/page.tsx",
+      "frontend-v3/app/invoices/drafts/[id]/page.tsx",
+    ];
     const tillatet = (f: string) =>
       f.includes("frontend-v3/app/v4/") ||
       f.endsWith("frontend-v3/app/globals.css") ||
       f.endsWith("frontend-v3/app/layout.tsx") ||
-      numreringen.includes(f);
+      numreringen.includes(f) ||
+      faktureringen.includes(f);
     expect(andrade.filter((f) => !tillatet(f))).toEqual([]);
   });
 });

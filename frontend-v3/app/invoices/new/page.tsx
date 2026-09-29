@@ -6,8 +6,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useArticles, useCustomers } from "@/hooks/useData";
-import { api, Article, Customer } from "@/lib/api";
-import { Plus, Trash2, ArrowLeft, Save } from "lucide-react";
+import { api, Article, Customer, InvoiceDraftPayload, IssuedInvoice } from "@/lib/api";
+import { describeInvoiceError, downloadInvoicePdf, normaliseQuantity } from "@/lib/fakturering";
+import { Plus, Trash2, ArrowLeft, Save, FileText, Download, CheckCircle2 } from "lucide-react";
 
 const VAT_CODES = [
   { code: "MP1", label: "MP1 (25%)", rate: 0.25 },
@@ -35,7 +36,9 @@ function datePlusDays(dateString: string, days: number): string {
 interface InvoiceRowData {
   articleId: string;
   description: string;
+  /** As typed: "7,5" or "7.5". */
   quantity: string;
+  unit: string;
   unitPrice: string;
   vatCode: string;
   revenueAccount: string;
@@ -67,6 +70,7 @@ const emptyRow = (): InvoiceRowData => ({
   articleId: "",
   description: "",
   quantity: "1",
+  unit: "",
   unitPrice: "",
   vatCode: "MP1",
   revenueAccount: "3010",
@@ -93,16 +97,24 @@ export default function NewInvoicePage() {
   const [orgNumber, setOrgNumber] = useState("");
   const [email, setEmail] = useState("");
   const [address, setAddress] = useState("");
+  const [reference, setReference] = useState("");
+  const [invoiceNumber, setInvoiceNumber] = useState("");
 
   // Dates
   const [invoiceDate, setInvoiceDate] = useState(todayStr);
   const [dueDate, setDueDate] = useState(plus30);
+  const [deliveryFrom, setDeliveryFrom] = useState("");
+  const [deliveryTo, setDeliveryTo] = useState("");
+  const [deliveryMonth, setDeliveryMonth] = useState("");
 
   // Rows
   const [rows, setRows] = useState<InvoiceRowData[]>([emptyRow()]);
 
   // State
-  const [submitting, setSubmitting] = useState(false);
+  // The draft this page has saved; a second save or issue updates it.
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [issued, setIssued] = useState<IssuedInvoice | null>(null);
+  const [submitting, setSubmitting] = useState<"save" | "issue" | "pdf" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<InvoicePreview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -135,6 +147,7 @@ export default function NewInvoicePage() {
               ...row,
               articleId: article.id,
               description: article.description || article.name,
+              unit: article.unit || row.unit,
               unitPrice: (article.unit_price / 100).toString(),
               vatCode: article.vat_code,
               revenueAccount: article.revenue_account,
@@ -155,7 +168,8 @@ export default function NewInvoicePage() {
     () => ({
       rows: rows.map((r) => ({
         description: r.description,
-        quantity: parseInt(r.quantity) || 1,
+        quantity: normaliseQuantity(r.quantity) || "1",
+        unit: r.unit.trim() || null,
         unit_price: Math.round(parseFloat(r.unitPrice) * 100) || 0,
         vat_code: r.vatCode,
         revenue_account: r.revenueAccount || undefined,
@@ -187,58 +201,113 @@ export default function NewInvoicePage() {
     return () => window.clearTimeout(timeout);
   }, [loadPreview]);
 
-  const handleSubmit = async () => {
+  const validate = (): boolean => {
     if (!customerName.trim()) {
       setError("Kundnamn krävs");
-      return;
+      return false;
     }
     const hasEmptyRow = rows.some(
-      (r) => !r.description.trim() || !r.quantity || !r.unitPrice
+      (r) => !r.description.trim() || !r.quantity.trim() || !r.unitPrice
     );
     if (hasEmptyRow) {
       setError("Alla rader måste ha beskrivning, antal och à-pris");
-      return;
+      return false;
     }
-
     setError(null);
-    setSubmitting(true);
+    return true;
+  };
+
+  const draftPayload = (): InvoiceDraftPayload => ({
+    customer_id: selectedCustomerId || null,
+    customer_name: customerName.trim(),
+    customer_org_number: orgNumber.trim() || null,
+    customer_email: email.trim() || null,
+    customer_address: address.trim() || null,
+    reference: reference.trim() || null,
+    invoice_number: invoiceNumber.trim() || null,
+    invoice_date: invoiceDate,
+    due_date: dueDate,
+    delivery_from: deliveryFrom || null,
+    delivery_to: deliveryTo || null,
+    delivery_month: deliveryMonth || null,
+    status: "draft",
+    rows: rows.map((r) => ({
+      article_id: r.articleId || null,
+      description: r.description,
+      quantity: normaliseQuantity(r.quantity),
+      unit: r.unit.trim() || null,
+      unit_price: Math.round(parseFloat(r.unitPrice) * 100) || 0,
+      vat_code: r.vatCode,
+      revenue_account: r.revenueAccount || null,
+      source_note: null,
+    })),
+    agent_notes: {
+      summary: null,
+      confidence: null,
+      warnings: [],
+    },
+  });
+
+  // Creates the draft the first time, then replaces it (PUT takes it whole).
+  const saveDraft = async (): Promise<string> => {
+    const payload = draftPayload();
+    const draft = draftId
+      ? await api.updateInvoiceDraft(draftId, payload)
+      : await api.createInvoiceDraft(payload);
+    setDraftId(draft.id);
+    await queryClient.invalidateQueries({ queryKey: ["invoice-drafts"] });
+    return draft.id;
+  };
+
+  const handleSubmit = async () => {
+    if (!validate()) return;
+    setSubmitting("save");
     try {
-      const payload = {
-        customer_id: selectedCustomerId || null,
-        customer_name: customerName.trim(),
-        customer_org_number: orgNumber.trim() || undefined,
-        customer_email: email.trim() || undefined,
-        invoice_date: invoiceDate,
-        due_date: dueDate,
-        description: address.trim() || undefined,
-        status: "draft" as const,
-        rows: rows.map((r) => ({
-          article_id: r.articleId || null,
-          description: r.description,
-          quantity: parseInt(r.quantity) || 1,
-          unit_price: Math.round(parseFloat(r.unitPrice) * 100) || 0,
-          vat_code: r.vatCode,
-          revenue_account: r.revenueAccount || null,
-          source_note: null,
-        })),
-        agent_notes: {
-          summary: null,
-          confidence: null,
-          warnings: [],
-        },
-      };
-      const draft = await api.createInvoiceDraft(payload);
-      await queryClient.invalidateQueries({ queryKey: ["invoice-drafts"] });
-      router.push(`/invoices/drafts/${draft.id}`);
-    } catch (err: any) {
-      const msg =
-        err?.response?.data?.detail?.error ||
-        err?.response?.data?.detail ||
-        err?.message ||
-        "Något gick fel";
-      setError(typeof msg === "string" ? msg : JSON.stringify(msg));
+      const id = await saveDraft();
+      router.push(`/invoices/drafts/${id}`);
+    } catch (err: unknown) {
+      setError(describeInvoiceError(err, "Kunde inte spara utkastet."));
     } finally {
-      setSubmitting(false);
+      setSubmitting(null);
+    }
+  };
+
+  // Utfärda (SPEC-fakturering.md §5): save the draft, then issue it. The
+  // voucher is posted and the invoice locked; all or nothing.
+  const handleIssue = async () => {
+    if (!validate()) return;
+    setSubmitting("issue");
+    let saved = false;
+    try {
+      const id = await saveDraft();
+      saved = true;
+      const result = await api.issueInvoiceDraft(id);
+      setIssued(result);
+      await queryClient.invalidateQueries({ queryKey: ["invoice-drafts"] });
+      await queryClient.invalidateQueries({ queryKey: ["invoices"] });
+    } catch (err: unknown) {
+      setError(
+        describeInvoiceError(err, "Kunde inte utfärda fakturan. Ingenting bokfördes.") +
+          (saved ? " Utkastet är sparat." : "")
+      );
+    } finally {
+      setSubmitting(null);
+    }
+  };
+
+  const handleDownload = async () => {
+    if (!issued) return;
+    setSubmitting("pdf");
+    try {
+      await downloadInvoicePdf({
+        id: issued.invoice_id,
+        invoice_number: issued.invoice_number,
+        pdf_url: issued.pdf_url,
+      });
+    } catch (err: unknown) {
+      setError(describeInvoiceError(err, "Kunde inte ladda ner PDF:en."));
+    } finally {
+      setSubmitting(null);
     }
   };
 
@@ -346,15 +415,22 @@ export default function NewInvoicePage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">Adress</label>
+              <label className="block text-sm font-medium mb-1">Er referens</label>
               <input
                 type="text"
+                value={reference}
+                onChange={(e) => setReference(e.target.value)}
+                placeholder="Kundens kontaktperson"
+                className={inputClass}
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="block text-sm font-medium mb-1">Kundadress</label>
+              <textarea
                 value={address}
-                onChange={(e) => {
-                  setSelectedCustomerId("");
-                  setAddress(e.target.value);
-                }}
-                placeholder="Storgatan 1, 111 22 Stockholm"
+                onChange={(e) => setAddress(e.target.value)}
+                placeholder={"Storgatan 1\n111 22 Stockholm"}
+                rows={3}
                 className={inputClass}
               />
             </div>
@@ -365,8 +441,20 @@ export default function NewInvoicePage() {
       {/* Dates */}
       <Card>
         <CardContent className="p-6 space-y-4">
-          <h2 className="text-lg font-semibold">Datum</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <h2 className="text-lg font-semibold">Nummer och datum</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                Fakturanummer
+              </label>
+              <input
+                type="text"
+                value={invoiceNumber}
+                onChange={(e) => setInvoiceNumber(e.target.value)}
+                placeholder="2026-1"
+                className={`${inputClass} font-mono`}
+              />
+            </div>
             <div>
               <label className="block text-sm font-medium mb-1">
                 Fakturadatum
@@ -397,6 +485,38 @@ export default function NewInvoicePage() {
               />
             </div>
           </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Leverans från</label>
+              <input
+                type="date"
+                value={deliveryFrom}
+                onChange={(e) => setDeliveryFrom(e.target.value)}
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Leverans till</label>
+              <input
+                type="date"
+                value={deliveryTo}
+                onChange={(e) => setDeliveryTo(e.target.value)}
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Eller leveransmånad</label>
+              <input
+                type="month"
+                value={deliveryMonth}
+                onChange={(e) => setDeliveryMonth(e.target.value)}
+                className={inputClass}
+              />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Leveransdatum eller, om det exakta datumet inte är känt, leveransmånad.
+          </p>
         </CardContent>
       </Card>
 
@@ -421,7 +541,7 @@ export default function NewInvoicePage() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[980px] text-sm">
+            <table className="w-full min-w-[1060px] text-sm">
               <thead>
                 <tr className="border-b bg-muted/50">
                   <th className="text-left p-3 font-medium text-muted-foreground w-56">
@@ -432,6 +552,9 @@ export default function NewInvoicePage() {
                   </th>
                   <th className="text-left p-3 font-medium text-muted-foreground w-20">
                     Antal
+                  </th>
+                  <th className="text-left p-3 font-medium text-muted-foreground w-20">
+                    Enhet
                   </th>
                   <th className="text-left p-3 font-medium text-muted-foreground w-28">
                     À-pris (kr)
@@ -478,12 +601,24 @@ export default function NewInvoicePage() {
                     </td>
                     <td className="p-2">
                       <input
-                        type="number"
-                        min="1"
+                        type="text"
+                        inputMode="decimal"
+                        aria-label="Antal"
                         value={row.quantity}
                         onChange={(e) =>
                           updateRow(i, "quantity", e.target.value)
                         }
+                        placeholder="7,5"
+                        className={`${inputClass} text-right font-mono`}
+                      />
+                    </td>
+                    <td className="p-2">
+                      <input
+                        type="text"
+                        aria-label="Enhet"
+                        value={row.unit}
+                        onChange={(e) => updateRow(i, "unit", e.target.value)}
+                        placeholder="st"
                         className={inputClass}
                       />
                     </td>
@@ -590,19 +725,42 @@ export default function NewInvoicePage() {
       </Card>
 
       {/* Actions */}
-      <div className="flex items-center justify-end gap-3">
-        <Button
-          variant="outline"
-          onClick={() => router.push("/invoices")}
-          disabled={submitting}
-        >
-          Avbryt
-        </Button>
-        <Button onClick={handleSubmit} disabled={submitting}>
-          <Save className="h-4 w-4 mr-2" />
-          {submitting ? "Sparar..." : "Spara som utkast"}
-        </Button>
-      </div>
+      {issued ? (
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          <p className="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400">
+            <CheckCircle2 className="h-4 w-4" />
+            Faktura {issued.invoice_number} är utfärdad och bokförd.
+          </p>
+          <Button variant="outline" onClick={handleDownload} disabled={!!submitting}>
+            <Download className="h-4 w-4 mr-2" />
+            {submitting === "pdf" ? "Hämtar..." : "Ladda ner PDF"}
+          </Button>
+          <Button onClick={() => router.push(`/invoices/${issued.invoice_id}`)}>
+            Visa fakturan
+          </Button>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          <span className="font-mono text-xs text-muted-foreground">
+            Bokförs och låses vid utfärdande
+          </span>
+          <Button
+            variant="outline"
+            onClick={() => router.push("/invoices")}
+            disabled={!!submitting}
+          >
+            Avbryt
+          </Button>
+          <Button variant="outline" onClick={handleSubmit} disabled={!!submitting}>
+            <Save className="h-4 w-4 mr-2" />
+            {submitting === "save" ? "Sparar..." : "Spara som utkast"}
+          </Button>
+          <Button onClick={handleIssue} disabled={!!submitting}>
+            <FileText className="h-4 w-4 mr-2" />
+            {submitting === "issue" ? "Utfärdar..." : "Utfärda"}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
