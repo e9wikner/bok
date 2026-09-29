@@ -1,13 +1,13 @@
 """API routes for agent-created invoice drafts."""
 
 from datetime import date
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from api.deps import get_current_actor
-from domain.invoice_validation import ValidationError
+from domain.invoice_validation import ValidationError, quantity_from_centi
 from services.invoice_draft import InvoiceDraftService
 
 router = APIRouter(prefix="/api/v1/invoice-drafts", tags=["invoice-drafts"])
@@ -22,11 +22,26 @@ class InvoiceDraftAgentNotes(BaseModel):
 class InvoiceDraftRowRequest(BaseModel):
     article_id: Optional[str] = None
     description: Optional[str] = None
-    quantity: int = Field(..., gt=0)
+    quantity: Union[int, float, str] = Field(
+        ...,
+        description="Positive, at most two decimals; 7.5 or '7,5'",
+        examples=[7.5],
+    )
+    unit: Optional[str] = Field(
+        None, description="Unit, e.g. 'h'. Default: the article's, else 'st'"
+    )
     unit_price: Optional[int] = Field(None, ge=0)
     vat_code: Optional[str] = Field(None, pattern="^(MP1|MP2|MP3|MF)$")
     revenue_account: Optional[str] = None
     source_note: Optional[str] = None
+    article_number: Optional[str] = Field(
+        None, description="Taken from the article when article_id is given"
+    )
+    delivery_from: Optional[date] = None
+    delivery_to: Optional[date] = None
+    delivery_month: Optional[str] = Field(
+        None, description="YYYY-MM, when the exact date is not known"
+    )
 
 
 class CreateInvoiceDraftRequest(BaseModel):
@@ -36,8 +51,25 @@ class CreateInvoiceDraftRequest(BaseModel):
     customer_email: Optional[str] = None
     invoice_date: date
     due_date: Optional[date] = None
-    reference: Optional[str] = None
+    reference: Optional[str] = Field(
+        None, description="Er referens. Default: the customer's contact_person"
+    )
     description: Optional[str] = None
+    invoice_number: Optional[str] = Field(
+        None,
+        description=(
+            "Proposed number, ^[A-Za-z0-9-]{1,32}$ and not a bare date. "
+            "Unique only when issued."
+        ),
+    )
+    customer_address: Optional[str] = Field(
+        None, description="Default: the customer's address"
+    )
+    delivery_from: Optional[date] = Field(
+        None, description="Delivery for rows without their own"
+    )
+    delivery_to: Optional[date] = None
+    delivery_month: Optional[str] = Field(None, description="YYYY-MM")
     status: str = Field("needs_review", pattern="^(draft|needs_review)$")
     rows: List[InvoiceDraftRowRequest] = Field(..., min_length=1)
     agent_notes: InvoiceDraftAgentNotes = Field(default_factory=InvoiceDraftAgentNotes)
@@ -76,6 +108,7 @@ async def create_invoice_draft(
                 else None
             ),
             created_by=actor,
+            **_draft_fields(request),
         )
         return _draft_to_dict(draft)
     except ValidationError as exc:
@@ -129,6 +162,7 @@ async def update_invoice_draft(
                 else None
             ),
             actor=actor,
+            **_draft_fields(request),
         )
         return _draft_to_dict(draft)
     except ValidationError as exc:
@@ -177,9 +211,20 @@ async def reject_invoice_draft(
         )
 
 
+def _draft_fields(request: CreateInvoiceDraftRequest) -> dict:
+    return {
+        "invoice_number": request.invoice_number,
+        "customer_address": request.customer_address,
+        "delivery_from": request.delivery_from,
+        "delivery_to": request.delivery_to,
+        "delivery_month": request.delivery_month,
+    }
+
+
 def _draft_to_list_item(draft) -> dict:
     return {
         "id": draft.id,
+        "invoice_number": draft.invoice_number,
         "customer_name": draft.customer_name,
         "invoice_date": draft.invoice_date,
         "due_date": draft.due_date,
@@ -208,6 +253,10 @@ def _draft_to_dict(draft) -> dict:
             "customer_id": draft.customer_id,
             "customer_org_number": draft.customer_org_number,
             "customer_email": draft.customer_email,
+            "customer_address": draft.customer_address,
+            "delivery_from": draft.delivery_from,
+            "delivery_to": draft.delivery_to,
+            "delivery_month": draft.delivery_month,
             "description": draft.description,
             "agent_notes": {
                 "summary": draft.agent_summary,
@@ -223,22 +272,28 @@ def _draft_to_dict(draft) -> dict:
 
 
 def _draft_row_to_dict(row) -> dict:
-    article_number = None
+    article_number = row.article_number
     article_name = None
     if row.article_id:
         from repositories.customer_article_repo import ArticleRepository
 
         article = ArticleRepository.get(row.article_id)
         if article:
-            article_number = article.article_number
+            article_number = article_number or article.article_number
             article_name = article.name
+    quantity_centi = row.quantity_centi or row.quantity * 100
     return {
         "id": row.id,
         "article_id": row.article_id,
         "article_number": article_number,
         "article_name": article_name,
         "description": row.description,
-        "quantity": row.quantity,
+        "quantity": quantity_from_centi(quantity_centi),
+        "quantity_centi": quantity_centi,
+        "unit": row.unit,
+        "delivery_from": row.delivery_from,
+        "delivery_to": row.delivery_to,
+        "delivery_month": row.delivery_month,
         "unit_price": row.unit_price,
         "vat_code": row.vat_code,
         "revenue_account": row.revenue_account,

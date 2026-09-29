@@ -5,11 +5,24 @@ invoice can run in one `with db.transaction():` (SPEC-fakturering.md §5).
 """
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import List, Optional
 
 from db.database import db
 from domain.invoice_draft_models import InvoiceDraft, InvoiceDraftRow
+
+
+def _iso(value) -> Optional[str]:
+    """A date as stored: ISO text, or NULL."""
+    if value is None:
+        return None
+    return value.isoformat() if isinstance(value, date) else str(value)
+
+
+def _as_date(value) -> Optional[date]:
+    if value is None or isinstance(value, date):
+        return value
+    return date.fromisoformat(str(value)[:10])
 
 
 class InvoiceDraftRepository:
@@ -28,6 +41,11 @@ class InvoiceDraftRepository:
         agent_confidence: Optional[float] = None,
         agent_warnings: Optional[str] = None,
         created_by: str = "system",
+        invoice_number: Optional[str] = None,
+        customer_address: Optional[str] = None,
+        delivery_from=None,
+        delivery_to=None,
+        delivery_month: Optional[str] = None,
     ) -> InvoiceDraft:
         draft_id = str(uuid.uuid4())
         now = datetime.now()
@@ -36,8 +54,9 @@ class InvoiceDraftRepository:
             INSERT INTO invoice_drafts
                 (id, customer_id, customer_name, customer_org_number, customer_email,
                  invoice_date, due_date, reference, description, status,
-                 agent_summary, agent_confidence, agent_warnings, created_at, created_by, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 agent_summary, agent_confidence, agent_warnings, created_at, created_by, updated_at,
+                 invoice_number, customer_address, delivery_from, delivery_to, delivery_month)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 draft_id,
@@ -56,6 +75,11 @@ class InvoiceDraftRepository:
                 now,
                 created_by,
                 now,
+                invoice_number,
+                customer_address,
+                _iso(delivery_from),
+                _iso(delivery_to),
+                delivery_month,
             ),
         )
         return InvoiceDraftRepository.get(draft_id)
@@ -73,15 +97,25 @@ class InvoiceDraftRepository:
         amount_inc_vat: int,
         article_id: Optional[str] = None,
         source_note: Optional[str] = None,
+        quantity_centi: Optional[int] = None,
+        unit: str = "st",
+        delivery_from=None,
+        delivery_to=None,
+        delivery_month: Optional[str] = None,
+        article_number: Optional[str] = None,
     ) -> InvoiceDraftRow:
         row_id = str(uuid.uuid4())
         now = datetime.now()
+        if quantity_centi is None:
+            quantity_centi = quantity * 100
         db.execute(
             """
             INSERT INTO invoice_draft_rows
                 (id, draft_id, article_id, description, quantity, unit_price, vat_code,
-                 revenue_account, amount_ex_vat, vat_amount, amount_inc_vat, source_note, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 revenue_account, amount_ex_vat, vat_amount, amount_inc_vat, source_note,
+                 created_at, quantity_centi, unit, delivery_from, delivery_to,
+                 delivery_month, article_number)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 row_id,
@@ -97,6 +131,12 @@ class InvoiceDraftRepository:
                 amount_inc_vat,
                 source_note,
                 now,
+                quantity_centi,
+                unit,
+                _iso(delivery_from),
+                _iso(delivery_to),
+                delivery_month,
+                article_number,
             ),
         )
         return InvoiceDraftRow(
@@ -113,6 +153,12 @@ class InvoiceDraftRepository:
             amount_inc_vat=amount_inc_vat,
             source_note=source_note,
             created_at=now,
+            quantity_centi=quantity_centi,
+            unit=unit,
+            delivery_from=_as_date(delivery_from),
+            delivery_to=_as_date(delivery_to),
+            delivery_month=delivery_month,
+            article_number=article_number,
         )
 
     @staticmethod
@@ -137,6 +183,11 @@ class InvoiceDraftRepository:
         agent_summary: Optional[str],
         agent_confidence: Optional[float],
         agent_warnings: Optional[str],
+        invoice_number: Optional[str] = None,
+        customer_address: Optional[str] = None,
+        delivery_from=None,
+        delivery_to=None,
+        delivery_month: Optional[str] = None,
     ) -> None:
         db.execute(
             """
@@ -153,6 +204,11 @@ class InvoiceDraftRepository:
                 agent_summary = ?,
                 agent_confidence = ?,
                 agent_warnings = ?,
+                invoice_number = ?,
+                customer_address = ?,
+                delivery_from = ?,
+                delivery_to = ?,
+                delivery_month = ?,
                 updated_at = ?
             WHERE id = ?
             """,
@@ -169,6 +225,11 @@ class InvoiceDraftRepository:
                 agent_summary,
                 agent_confidence,
                 agent_warnings,
+                invoice_number,
+                customer_address,
+                _iso(delivery_from),
+                _iso(delivery_to),
+                delivery_month,
                 datetime.now(),
                 draft_id,
             ),
@@ -272,6 +333,11 @@ class InvoiceDraftRepository:
             created_at=datetime.fromisoformat(row["created_at"]),
             created_by=row["created_by"],
             updated_at=datetime.fromisoformat(row["updated_at"]),
+            invoice_number=row["invoice_number"],
+            customer_address=row["customer_address"],
+            delivery_from=_as_date(row["delivery_from"]),
+            delivery_to=_as_date(row["delivery_to"]),
+            delivery_month=row["delivery_month"],
         )
 
     @staticmethod
@@ -290,4 +356,10 @@ class InvoiceDraftRepository:
             amount_inc_vat=row["amount_inc_vat"],
             source_note=row["source_note"],
             created_at=datetime.fromisoformat(row["created_at"]),
+            quantity_centi=row["quantity_centi"],
+            unit=row["unit"],
+            delivery_from=_as_date(row["delivery_from"]),
+            delivery_to=_as_date(row["delivery_to"]),
+            delivery_month=row["delivery_month"],
+            article_number=row["article_number"],
         )

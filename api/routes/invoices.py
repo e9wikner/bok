@@ -1,7 +1,7 @@
 """API routes for invoices (Fas 2)."""
 
 from datetime import date
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -36,10 +36,29 @@ class CreateInvoiceRequest(BaseModel):
     rows: List[InvoiceRowRequest] = Field(..., min_length=1)
 
 
+class PreviewInvoiceRowRequest(BaseModel):
+    """A preview row, computed like a draft row (SPEC-fakturering.md §4.2)."""
+
+    description: str
+    quantity: Union[int, float, str] = Field(
+        ...,
+        description="Positive, at most two decimals; 7.5 or '7,5'",
+        examples=[7.5],
+    )
+    unit: Optional[str] = Field(None, description="Unit, e.g. 'h' (default 'st')")
+    unit_price: int = Field(..., ge=0, description="Unit price in öre")
+    vat_code: str = Field(..., pattern="^(MP1|MP2|MP3|MF)$")
+    revenue_account: Optional[str] = None
+    article_number: Optional[str] = None
+    delivery_from: Optional[date] = None
+    delivery_to: Optional[date] = None
+    delivery_month: Optional[str] = Field(None, description="YYYY-MM")
+
+
 class PreviewInvoiceRequest(BaseModel):
     """Request model for previewing invoice totals without saving."""
 
-    rows: List[InvoiceRowRequest] = Field(..., min_length=1)
+    rows: List[PreviewInvoiceRowRequest] = Field(..., min_length=1)
 
 
 @router.post("/preview", response_model=dict)

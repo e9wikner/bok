@@ -9,7 +9,7 @@ Spec: `docs/redesign/SPEC-fakturering.md`. Tester först, en uppgift i taget.
 - [x] 3. Ta bort `db.commit()` ur fakturarepona och `InvoiceService` på
       utfärdandevägen. `test_invoices.py`/`test_invoice_drafts.py` ska
       fortfarande gå igenom.
-- [ ] 4. Decimalt antal och enhet i utkast och förhandsberäkning (§4.2).
+- [x] 4. Decimalt antal och enhet i utkast och förhandsberäkning (§4.2).
       Testfall 12.
 - [ ] 5. `CompanyInfo` ur `company_info`, med nya nycklar `seat` och `f_skatt`,
       och fullständighetskontroll (§6). Testfall 11.

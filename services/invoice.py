@@ -6,7 +6,15 @@ from typing import Dict, List, Optional
 
 from db.database import db
 from domain.invoice_models import CreditNote, Invoice, Payment
-from domain.invoice_validation import InvoiceValidator, ValidationError, VATCalculator
+from domain.invoice_validation import (
+    InvoiceValidator,
+    ValidationError,
+    VATCalculator,
+    amount_ex_vat_from_centi,
+    normalize_delivery,
+    parse_quantity_centi,
+    quantity_from_centi,
+)
 from domain.types import AuditAction
 from repositories.audit_repo import AuditRepository
 from repositories.invoice_repo import (
@@ -54,9 +62,15 @@ class InvoiceService:
                     details="valid codes: MP1, MP2, MP3, MF",
                 )
 
-            quantity = int(row_data["quantity"])
+            # Same arithmetic as a saved draft row (SPEC-fakturering.md §4.2).
+            quantity_centi = parse_quantity_centi(row_data["quantity"])
             unit_price = int(row_data["unit_price"])
-            amount_ex_vat = quantity * unit_price
+            amount_ex_vat = amount_ex_vat_from_centi(quantity_centi, unit_price)
+            delivery_from, delivery_to, delivery_month = normalize_delivery(
+                row_data.get("delivery_from"),
+                row_data.get("delivery_to"),
+                row_data.get("delivery_month"),
+            )
             vat_amount = VATCalculator.calculate_vat(amount_ex_vat, vat_code)
             amount_inc_vat = amount_ex_vat + vat_amount
             vat_rate = VATCalculator.get_vat_rate(vat_code)
@@ -65,13 +79,19 @@ class InvoiceService:
                 {
                     "index": index,
                     "description": row_data["description"],
-                    "quantity": quantity,
+                    "quantity": quantity_from_centi(quantity_centi),
+                    "quantity_centi": quantity_centi,
+                    "unit": (row_data.get("unit") or "").strip() or "st",
+                    "article_number": row_data.get("article_number"),
                     "unit_price": unit_price,
                     "vat_code": vat_code,
                     "vat_rate": vat_rate,
                     "amount_ex_vat": amount_ex_vat,
                     "vat_amount": vat_amount,
                     "amount_inc_vat": amount_inc_vat,
+                    "delivery_from": delivery_from,
+                    "delivery_to": delivery_to,
+                    "delivery_month": delivery_month,
                 }
             )
 

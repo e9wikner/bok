@@ -813,7 +813,6 @@ def test_11c_vat_number_format_is_checked(test_db):
 # --- 12: decimalt antal och enhet (uppgift 4) -------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="F0 uppgift 4")
 def test_12_decimal_quantity_in_draft_and_preview(books, client, auth_headers):
     draft = InvoiceDraftService().create_draft(
         customer_name="Decimal Aktiebolag",
