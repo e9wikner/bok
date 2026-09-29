@@ -1,6 +1,7 @@
 """Tests for the public agent instruction entrypoint."""
 
 import json
+import re
 from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
@@ -529,6 +530,19 @@ def _assert_interpretation_rules(text: str) -> None:
     assert "uttryckligen säger att det är en gissning" in text
 
 
+def _assert_no_queue_driving(text: str) -> None:
+    """L7: nothing tells the agent to ask for an underlag on its own, oldest
+    first, or to name the next voucher missing one. Phrasings, not sentences."""
+    flat = _flat(text).lower()
+    assert "**be om underlag**" not in flat
+    assert "be om ett i taget" not in flat
+    assert "äldst först" not in flat
+    assert "be om dess underlag" not in flat
+    assert not re.search(r"nästa\s+(verifikation|underlag)", flat)
+    assert not re.search(r"nästa[^.]{0,80}saknar underlag", flat)
+    assert "hur många som är kvar" not in flat
+
+
 def _assert_linking_rules(text: str) -> None:
     """SPEC-flode-underlag.md §11.2's nine points (test case 43)."""
     instruction = text[text.index("# Bokföringsinstruktion för svensk redovisning") :]
@@ -538,13 +552,16 @@ def _assert_linking_rules(text: str) -> None:
         )
     ]
 
-    # 1. Ask for the underlag, oldest first, with the reason for this voucher.
-    assert "**Be om underlag**" in section
+    # 1. The agent does not drive the queue of vouchers missing an underlag
+    # (SPEC-lasbarhet.md §4.2, L7): it answers when asked, from
+    # las_verifikationer, with the reason per voucher.
+    assert "be inte om underlag på eget initiativ" in section
+    assert "Frågar användaren vilka som saknar underlag" in section
+    assert "`las_verifikationer`" in section
     assert "`missing_attachment`" in section
-    assert "äldst först" in section
-    assert "Be om ett i taget" in section
-    assert "verifikationsnumret, beloppet och datumet" in section
-    assert "säg varför underlaget behövs för just den verifikationen" in section
+    assert "`age_days`" in section
+    assert "varför underlaget behövs för just den verifikationen" in section
+    _assert_no_queue_driving(section)
 
     # 2. Nothing linked without a yes but the exact. The old "say you read
     # the file" is gone: SPEC-lasbarhet.md §4.2, the agent does not narrate
@@ -593,12 +610,11 @@ def _assert_linking_rules(text: str) -> None:
     # 8. Low confidence: ask for a new underlag, do not link.
     assert "gissa inte fram ett belopp och koppla inte" in section
 
-    # 9. After a link: name the next one missing, with its number, amount
-    # and age (SPEC-lasbarhet.md §4.2).
-    assert (
-        "nämn nästa verifikation som saknar underlag, med nummer, belopp och "
-        "ålder" in section
-    )
+    # 9. After a link: one sentence about the link, nothing about the next
+    # voucher (SPEC-lasbarhet.md §4.2, L7).
+    rule_9 = section[section.index("**Efter en koppling:**") :]
+    assert "en mening om kopplingen" in rule_9
+    assert "ålder" not in rule_9
 
     # The stop list names the link.
     stop = instruction[instruction.index("## Stopplista") :]
@@ -685,9 +701,14 @@ def _assert_thread_writing_rules(text: str) -> None:
     assert any('"du"' in b and '"människan"' in b for b in bullets)
     assert any("verktyg" in b and "skriv resultatet" in b for b in bullets)
 
-    # After a posting, the number; after a link, the next one missing.
+    # After a posting, the number; after a link, one sentence about the link
+    # and nothing about the next voucher (L7).
     assert any("postning" in b and "verifikationsnumret" in b for b in bullets)
-    assert any("koppling" in b and "ålder" in b for b in bullets)
+    after_link = [b for b in bullets if b.startswith("efter en koppling")]
+    assert after_link, "no rule on the final answer after a link"
+    assert "en mening om kopplingen" in after_link[0]
+    assert "ålder" not in after_link[0]
+    _assert_no_queue_driving(section)
 
 
 def test_accounting_instruction_has_the_thread_writing_section():
@@ -700,6 +721,13 @@ def test_runtime_system_prompt_has_the_thread_writing_section(test_db):
     from services.agent_session import build_system_prompt
 
     _assert_thread_writing_rules(build_system_prompt())
+
+
+def test_accounting_instruction_does_not_drive_the_underlag_queue():
+    """SPEC-lasbarhet.md §4.2 L7: the list in Böcker → Verifikationer shows
+    what is missing, and the user picks what to upload next. Nowhere in 03
+    does the agent ask for an underlag on its own or name the next one."""
+    _assert_no_queue_driving(ACCOUNTING_DOC_PATH.read_text(encoding="utf-8"))
 
 
 # The one place "människan" may stand: the rule in 03 that forbids it,
