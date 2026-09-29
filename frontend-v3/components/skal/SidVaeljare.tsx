@@ -61,17 +61,22 @@ export function SidVaeljare({
         onClick={() => setOppen((v) => !v)}
         className={
           variant === "desktop"
-            ? "flex min-h-[44px] items-center gap-4 rounded-[10px] border border-bok-kant bg-bok-yta px-[14px] py-[6px] text-left hover:bg-bok-yta-svag"
+            ? // Tre rader måste rymmas i headerns 62 px: fasta radhöjder och
+              // padding 4 ger 56 px höjd, så knappen står mitt i headern och
+              // inte sticker ut under dess kantlinje.
+              "flex min-h-[44px] items-center gap-4 rounded-[10px] border border-bok-kant bg-bok-yta px-[14px] py-[4px] text-left hover:bg-bok-yta-svag"
             : "flex min-h-[44px] min-w-0 flex-1 items-center gap-2 rounded-[10px] px-2 text-left"
         }
       >
-        <span className="flex min-w-0 flex-col gap-px">
+        <span className="flex min-w-0 flex-col">
           {variant === "desktop" && (
-            <span className="bok-etikett text-[10px] text-bok-meta">Sida</span>
+            <span className="bok-etikett text-[10px] leading-[12px] text-bok-meta">Sida</span>
           )}
-          <span className="truncate text-[15px] font-medium text-bok-text">{aktivSida.titel}</span>
+          <span className="truncate text-[15px] font-medium leading-[20px] text-bok-text">
+            {aktivSida.titel}
+          </span>
           <span
-            className={`bok-mono truncate text-[11px] ${
+            className={`bok-mono truncate text-[11px] leading-[14px] ${
               aktivMeta?.waiting ? "text-bok-vantar-meta" : "text-bok-meta"
             }`}
           >
@@ -97,7 +102,7 @@ export function SidVaeljare({
             aria-label="Sidor"
             className={
               variant === "desktop"
-                ? "absolute left-0 top-[52px] z-[2] flex w-[430px] flex-col gap-[2px] rounded-[12px] border border-bok-kant bg-bok-yta p-[6px] shadow-bok-meny"
+                ? "absolute left-0 top-[calc(100%+6px)] z-[2] flex w-[430px] flex-col gap-[2px] rounded-[12px] border border-bok-kant bg-bok-yta p-[6px] shadow-bok-meny"
                 : "fixed left-2 right-2 top-[56px] z-[2] flex flex-col gap-[2px] rounded-b-[14px] border border-bok-kant bg-bok-yta p-[6px] shadow-bok-meny"
             }
           >

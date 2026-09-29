@@ -81,7 +81,9 @@ export function Skal() {
   return (
     // h-dvh, inte h-screen: 100vh är i iOS Safari höjden med adressraden
     // indragen, så chattlisten längst ner hamnade bakom den.
-    <div className="flex h-screen h-dvh min-h-0 flex-col bg-bok-app">
+    // `overflow-hidden`: skalet är exakt en skärm. Allt som skrollar gör det
+    // i sin egen yta, aldrig dokumentet.
+    <div className="flex h-screen h-dvh min-h-0 flex-col overflow-hidden bg-bok-app">
       <Header
         variant={bred ? "desktop" : "mobil"}
         sida={sida}
@@ -112,7 +114,10 @@ export function Skal() {
             return (
               <div
                 className="grid min-h-0 flex-1"
-                style={{ gridTemplateColumns: "1fr var(--bok-vykolumn)" }}
+                // `minmax(0, 1fr)`, inte `1fr`: en bred tabell eller ett
+                // kodblock i tråden gör annars chattkolumnen lika bred som
+                // innehållet och trycker ut läskolumnen ur skärmen.
+                style={{ gridTemplateColumns: "minmax(0, 1fr) var(--bok-vykolumn)" }}
               >
                 <ChattKolumn vyTitel={vy.titel} viewKey={vy.key} aktiv={aktiv} />
                 <VyInnehall vy={vy} data={innehall} laddar={laddar} />
