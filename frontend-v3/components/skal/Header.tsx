@@ -66,7 +66,7 @@ export function Header({
 
   return (
     <header
-      className="flex h-[62px] shrink-0 items-center justify-between border-b border-bok-linje bg-bok-yta px-5"
+      className="flex h-[52px] shrink-0 items-center justify-between border-b border-bok-linje bg-bok-yta px-5"
       style={{ position: "relative", zIndex: 6 }}
     >
       <div className="flex items-center gap-4">

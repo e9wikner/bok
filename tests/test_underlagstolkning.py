@@ -500,14 +500,21 @@ def _purchase(
         rows.append({"account": "2640", "debit": vat, "credit": 0})
     rows.append({"account": "1930", "debit": 0, "credit": total})
     ledger = LedgerService()
+    # No new `IB`-series voucher can be created (migration 033); a legacy
+    # one is made the way it was before: a draft, moved to `IB`, posted.
     draft = ledger.create_voucher(
-        series=series,
+        series="A" if series == "IB" else series,
         date=date(2026, 3, day),
         period_id=period_id,
         description=f"Inköp {uuid.uuid4().hex[:6]}",
         rows_data=rows,
         created_by=created_by,
     )
+    if series == "IB":
+        from db.database import db as _db
+
+        _db.execute("UPDATE vouchers SET series = 'IB' WHERE id = ?", (draft.id,))
+        _db.commit()
     if not post:
         return draft.id
     return ledger.post_voucher(draft.id, actor=created_by).id

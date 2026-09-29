@@ -91,7 +91,11 @@ export function VySvep({
       tabIndex={0}
       role="group"
       aria-label={`Vyer i ${sida.titel}`}
-      className="bok-dold-skroll bok-svep flex min-h-0 flex-1 overflow-x-auto overflow-y-hidden outline-none"
+      // `relative`: raden måste vara innehållande block. Annars räknas
+      // absolut placerade element i vyerna utanför skärmen (`sr-only`-
+      // etiketter) mot dokumentet i stället för mot raden, och sidan blir
+      // en skärmbredd bredare per vy — tomt fält till höger om skalet.
+      className="bok-dold-skroll bok-svep relative flex min-h-0 flex-1 overflow-x-auto overflow-y-hidden outline-none"
       style={{ scrollSnapType: "x mandatory", scrollBehavior: "smooth" }}
     >
       {sida.vyer.map((vy, i) => (

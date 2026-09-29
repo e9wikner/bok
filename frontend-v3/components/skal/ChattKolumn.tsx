@@ -161,7 +161,7 @@ function KolumnLayout({
   // (SPEC-flode-underlag.md §10.1).
   const kolumn = useRef<HTMLDivElement>(null);
   return (
-    <div ref={kolumn} className="flex min-h-0 flex-col border-r border-bok-linje">
+    <div ref={kolumn} className="flex min-h-0 min-w-0 flex-col border-r border-bok-linje">
       <ChattFaltFokus.Provider value={fokuseraFalt}>
         <TradYta vyTitel={vyTitel} viewKey={viewKey} trad={trad} />
       </ChattFaltFokus.Provider>

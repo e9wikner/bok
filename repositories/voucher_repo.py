@@ -636,6 +636,7 @@ class VoucherRepository:
                        JOIN vouchers AS o ON o.id = r.voucher_id
                        WHERE r.account_code = t.account_code
                          AND o.status = 'posted'
+                         AND o.series != 'IB'
                          AND o.fiscal_year_id = v.fiscal_year_id
                          AND o.id != v.id
                          AND (COALESCE(o.posted_at, '') < v.posted_at

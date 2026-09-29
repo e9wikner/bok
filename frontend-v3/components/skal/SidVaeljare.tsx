@@ -84,7 +84,7 @@ export function SidVaeljare({
             aria-label="Sidor"
             className={
               variant === "desktop"
-                ? "absolute left-0 top-[52px] z-[2] flex w-[430px] flex-col gap-[2px] rounded-[12px] border border-bok-kant bg-bok-yta p-[6px] shadow-bok-meny"
+                ? "absolute left-0 top-[calc(100%+6px)] z-[2] flex w-[430px] flex-col gap-[2px] rounded-[12px] border border-bok-kant bg-bok-yta p-[6px] shadow-bok-meny"
                 : "fixed left-2 right-2 top-[56px] z-[2] flex flex-col gap-[2px] rounded-b-[14px] border border-bok-kant bg-bok-yta p-[6px] shadow-bok-meny"
             }
           >

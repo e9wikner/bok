@@ -38,7 +38,8 @@ Taggen `#IB` anger ingående balans för konton:
 ```
 
 - `#IB 0` = Ingående balans för filens aktuella räkenskapsår.
-- Systemet kan skapa en IB-verifikation baserat på dessa värden.
+- Ingående balans är ingen verifikation. Importen sparar filens `#IB 0` som
+  räkenskapsårets angivna ingående balans.
 - Beloppen måste balansera (debet = kredit) för att vara giltiga.
 
 Exempel från verklig data:
@@ -89,13 +90,22 @@ Systemet stödjer import av flera SIE4-filer med olika räkenskapsår:
 
 Verifikationerna fortsätter i A-serien från föregående import.
 
-## IB-verifikationer vid import
+## Ingående balans i Bok
 
-Vid import kan systemet skapa IB-verifikationer automatiskt:
+Ingående balans bokförs inte som verifikation, och det finns ingen IB-serie att
+bokföra i (`opening_balance_not_a_voucher`).
 
-- Format: `A<år>` där `<år>` är räkenskapsåret (t.ex. A190 för IB 2025).
-- Belopp måste balansera exakt: D = K.
-- Endast konton med saldo > 0 inkluderas.
+- **Första räkenskapsåret i böckerna:** ingående balansen är angiven — ur
+  SIE4-filens `#IB 0` eller via `PUT /api/v1/fiscal-years/{id}/opening-balances`.
+  Den går att ändra tills året låses.
+- **Senare räkenskapsår:** ingående balansen räknas fram ur föregående års
+  utgående balans. Resultatet som inte förts till eget kapital hamnar på 2099.
+  Den följer varje ändring i föregående år tills det året låses, så inget
+  behöver bokas om när ett bokslut blir klart.
+- Vid import av ett senare år jämförs filens `#IB` mot den framräknade. En
+  avvikelse blir en varning i importsvaret, inget fel.
+- `GET /api/v1/fiscal-years/{id}/opening-balances` visar årets ingående balans,
+  varifrån den kommer (`source`) och eventuella avvikelser mot filen.
 
 ## Viktiga principer
 

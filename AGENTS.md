@@ -70,6 +70,12 @@ Service-to-service imports are deferred inside methods to avoid import cycles.
   threads or share one between requests.
 - **Migrations are plain numbered SQL files** in `db/migrations/`, applied in
   order at startup. Add a new file; never edit an applied one.
+- **Opening balance (IB) is not a voucher** (`services/opening_balance.py`).
+  The first fiscal year's is stated in `opening_balances`; every later year's
+  is derived on read from the previous year (unclosed result on 2099). No
+  `IB`-series voucher can be created; a posted one from before migration 033 is
+  ignored as movement everywhere. Anything that sums balances must start from
+  `OpeningBalanceService`, not from vouchers.
 - **Invoice auto-booking** produces a balanced voucher: debit 1510 (kundfordringar)
   incl. VAT, credit 3011 (försäljning) excl. VAT, credit 2610 (utgående moms).
   Payment registration creates a second voucher: debit 1010 (bank), credit 1510.

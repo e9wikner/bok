@@ -542,6 +542,8 @@ class DropzoneScanner:
             importer.imported["accounts"],
             fiscal_year_id,
         )
+        for warning in importer.warnings:
+            logger.warning("Dropzone SIE4 %s: %s", filename, warning)
 
     def _ingest_bank_input(
         self,

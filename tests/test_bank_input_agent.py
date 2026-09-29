@@ -39,7 +39,6 @@ from services.bank_inputs import (
 from services.bank_integration import BankIntegrationService
 from services.intake import IntakeService
 from services.ledger import LedgerService
-from services.opening_balance import OpeningBalanceService
 
 
 @pytest.fixture
@@ -1049,37 +1048,6 @@ async def test_agent_posting_rolls_back_voucher_when_traceability_link_fails(
     assert exc_info.value.detail["code"] == "forced_traceability_failure"
     _, after_count = VoucherRepository.list_all()
     assert after_count == before_count
-
-
-@pytest.mark.asyncio
-async def test_agent_posting_updates_next_year_opening_balances_after_commit(
-    test_period,
-    bank_input_dir,
-    monkeypatch,
-):
-    bank_input, _transaction_ids = _processed_bank_input()
-    calls = []
-    original_update = OpeningBalanceService.update_opening_balances_for_next_year
-
-    def spy_update(self, fiscal_year_id: str, actor: str = "system"):
-        _, voucher_count = VoucherRepository.list_all()
-        calls.append((fiscal_year_id, actor, voucher_count))
-        return original_update(self, fiscal_year_id, actor)
-
-    monkeypatch.setattr(
-        OpeningBalanceService,
-        "update_opening_balances_for_next_year",
-        spy_update,
-    )
-
-    response = await create_and_post_agent_voucher(
-        _agent_sale_request(test_period.id, bank_input_ids=[bank_input.id]),
-        actor="api",
-        idempotency_key=None,
-    )
-
-    assert response["status"] == "posted"
-    assert calls == [(test_period.fiscal_year_id, "api", 1)]
 
 
 @pytest.mark.asyncio

@@ -283,6 +283,43 @@ class FiscalYearResponse(BaseModel):
     created_at: DateTimeType
 
 
+class OpeningBalanceRow(BaseModel):
+    """One account's opening balance."""
+
+    account: str = Field(..., description="Account code, class 1-2")
+    amount: int = Field(..., description="Öre, debit positive, credit negative")
+
+
+class OpeningBalanceDifference(BaseModel):
+    """An account where the stated IB and the derived one disagree."""
+
+    account: str
+    stated: int
+    derived: int
+
+
+class OpeningBalanceResponse(BaseModel):
+    """A fiscal year's opening balance (ingående balans).
+
+    `source`: `derived` -- from the previous fiscal year, follows it until
+    that year is locked; `stated` -- the first year's, entered or imported;
+    `none` -- a first year without one.
+    """
+
+    fiscal_year_id: str
+    source: str
+    previous_fiscal_year_id: Optional[str] = None
+    balanced: bool
+    balances: List[OpeningBalanceRow]
+    stated_differences: List[OpeningBalanceDifference] = []
+
+
+class OpeningBalanceRequest(BaseModel):
+    """Replaces the first fiscal year's stated opening balance."""
+
+    balances: List[OpeningBalanceRow]
+
+
 # Report Schemas
 
 

@@ -21,7 +21,7 @@ function konto(code: string, name: string, closing: number) {
 const BALANS: Balansrakning = {
   closing_assets: 150000,
   closing_equity_liabilities: 100000,
-  has_ib_vouchers: true,
+  opening_balance_source: "stated",
   fixed_assets_details: [],
   receivables_details: [konto("1510", "Kundfordringar", 50000)],
   bank_and_cash_details: [konto("1930", "Företagskonto", 100000), konto("1940", "Tomt", 0)],

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 import { Providers } from "./providers";
@@ -21,6 +21,14 @@ const geistMono = localFont({
 export const metadata: Metadata = {
   title: "BokAi - Bokföringssystem",
   description: "Modernt bokföringssystem för svenska företag",
+};
+
+// viewport-fit=cover ger env(safe-area-inset-*) värden, så att chattlisten
+// kan hålla sig ovanför hemindikatorn och Safaris flytande verktygsrad.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

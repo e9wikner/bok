@@ -157,62 +157,26 @@ class SRUExportService:
         if not fiscal_year:
             raise ValueError(f"Fiscal year {fiscal_year_id} not found")
 
-        has_opening_balance = (
-            db.execute(
-                """
-                SELECT COUNT(*) as count
-                FROM vouchers
-                WHERE fiscal_year_id = ? AND series = 'IB' AND status = 'posted'
-                """,
-                (fiscal_year_id,),
-            ).fetchone()["count"]
-            > 0
-        )
+        from repositories.opening_balance_repo import OpeningBalanceRepository
+        from services.opening_balance import OpeningBalanceService, is_balance_account
 
-        # Balance-sheet accounts need closing balance (UB). If there is no IB
-        # voucher for the year, carry forward prior posted vouchers as opening.
-        # Income-statement accounts must only use the selected fiscal year.
-        cursor = db.execute(
-            """
-            SELECT
-                a.code,
-                a.name,
-                a.account_type,
-                COALESCE(SUM(CASE
-                    WHEN v.id IS NULL THEN 0
-                    WHEN CAST(a.code AS INTEGER) BETWEEN 1000 AND 2999 THEN
-                        CASE
-                            WHEN ? = 1 AND v.fiscal_year_id = ? THEN
-                                CASE WHEN vr.debit > 0 THEN vr.debit WHEN vr.credit > 0 THEN -vr.credit ELSE 0 END
-                            WHEN ? = 0 AND v.date <= ? THEN
-                                CASE WHEN vr.debit > 0 THEN vr.debit WHEN vr.credit > 0 THEN -vr.credit ELSE 0 END
-                            ELSE 0
-                        END
-                    WHEN v.fiscal_year_id = ? THEN
-                        CASE WHEN vr.debit > 0 THEN vr.debit WHEN vr.credit > 0 THEN -vr.credit ELSE 0 END
-                    ELSE 0
-                END), 0) as balance
-            FROM accounts a
-            LEFT JOIN voucher_rows vr ON a.code = vr.account_code
-            LEFT JOIN vouchers v ON vr.voucher_id = v.id AND v.status = 'posted'
-            GROUP BY a.code, a.name, a.account_type
-            ORDER BY a.code
-            """,
-            (
-                1 if has_opening_balance else 0,
-                fiscal_year_id,
-                1 if has_opening_balance else 0,
-                fiscal_year["end_date"],
-                fiscal_year_id,
-            ),
-        )
+        # Balance accounts: the fiscal year's IB (services/opening_balance.py)
+        # plus the year's movements. Result accounts: the year's only.
+        opening = OpeningBalanceService().balances(fiscal_year_id)
+        movements = OpeningBalanceRepository.movements(fiscal_year_id)
 
         accounts = {}
-        for row in cursor.fetchall():
-            accounts[row["code"]] = {
-                "id": row["code"],
+        for row in db.execute(
+            "SELECT code, name, account_type FROM accounts ORDER BY code"
+        ).fetchall():
+            code = row["code"]
+            balance = movements.get(code, 0)
+            if is_balance_account(code):
+                balance += opening.get(code, 0)
+            accounts[code] = {
+                "id": code,
                 "name": row["name"],
-                "balance": row["balance"],  # In öre
+                "balance": balance,  # In öre
                 "account_type": row["account_type"],
             }
 

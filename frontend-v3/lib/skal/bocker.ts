@@ -31,7 +31,8 @@ export interface BalansKonto {
 export interface Balansrakning {
   closing_assets: number;
   closing_equity_liabilities: number;
-  has_ib_vouchers: boolean;
+  /** stated: första årets, angiven · derived: ur föregående år · none: saknas */
+  opening_balance_source: "stated" | "derived" | "none";
   fixed_assets_details: BalansKonto[];
   receivables_details: BalansKonto[];
   bank_and_cash_details: BalansKonto[];
@@ -244,6 +245,13 @@ function sorterade(...listor: BalansKonto[][]): BalansKonto[] {
     .sort((a, b) => a.code.localeCompare(b.code));
 }
 
+/** Varifrån årets ingående balans kommer — IB är ingen verifikation. */
+const IB_FOT: Record<Balansrakning["opening_balance_source"], string> = {
+  derived: "Ingående balanser framräknade ur föregående räkenskapsårs utgående balans.",
+  stated: "Ingående balanser angivna för första räkenskapsåret i böckerna.",
+  none: "Räkenskapsåret saknar ingående balans.",
+};
+
 /**
  * Balansräkningen per räkenskapsårets utgång, med årets resultat.
  *
@@ -302,9 +310,7 @@ export function balansVy(
         rader: [...skuldrader, summarad("sum-s", "Summa eget kapital och skulder", summaSkulder)],
       },
     ],
-    fot: b.has_ib_vouchers
-      ? "Ingående balanser från årets IB-verifikation."
-      : "Ingående balanser räknade ur tidigare års verifikationer; året saknar IB-verifikation.",
+    fot: IB_FOT[b.opening_balance_source],
   };
 
   if (differens !== 0) {

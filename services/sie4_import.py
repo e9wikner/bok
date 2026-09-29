@@ -529,11 +529,14 @@ class SIE4Importer:
         }
         self.parser = SIE4Parser()
         self.errors: List[str] = []
+        # Not failures: the import went through, but something needs a look.
+        self.warnings: List[str] = []
         self.imported: Dict[str, int] = {
             "accounts": 0,
             "vouchers": 0,
             "periods_created": 0,
             "sru_mappings": 0,
+            "opening_balances": 0,
         }
         self.fiscal_year_resolution: Optional[Dict[str, str]] = None
 
@@ -685,9 +688,8 @@ class SIE4Importer:
         if data.sru_mappings and fiscal_year_id:
             self._import_sru_mappings(data.sru_mappings, fiscal_year_id)
 
-        # Import opening balances as a special voucher. The counter is bumped
-        # inside _import_opening_balances only when a voucher is actually
-        # written — an all-zero #IB block is a no-op success.
+        # The file's #IB is the fiscal year's stated opening balance -- not
+        # a voucher. An all-zero #IB block is a no-op success.
         if not self._import_opening_balances(data, fiscal_year_id):
             success = False
 
@@ -697,6 +699,8 @@ class SIE4Importer:
                 self.imported["vouchers"] += 1
             else:
                 success = False
+
+        self._reconcile_next_year(fiscal_year_id)
 
         return success
 
@@ -884,125 +888,82 @@ class SIE4Importer:
     def _import_opening_balances(
         self, data: SIEData, fiscal_year_id: Optional[str] = None
     ) -> bool:
-        """Import opening balances (IB) as a special opening balance voucher.
+        """Take the file's `#IB 0` as the fiscal year's stated opening balance.
 
-        Creates or updates a voucher on the first day of the fiscal year with rows
-        representing the opening balances from the SIE file.
-        Uses upsert logic while the IB voucher is still a draft. Once posted, an
-        IB voucher is immutable like every other posted voucher.
+        IB is not a voucher (services/opening_balance.py). For the first
+        fiscal year in the books the file's IB is what counts; for a later
+        year the IB is derived from the previous year, and the file's is
+        kept only to be reconciled -- a difference is a warning, not an
+        error, since the previous year may still be incomplete.
         """
-        from domain.types import VoucherStatus
         from domain.validation import ValidationError
-        from services.ledger import LedgerService
+        from services.opening_balance import OpeningBalanceService
 
-        if not data.fiscal_year_start:
+        if not data.fiscal_year_start or not fiscal_year_id:
             return False
 
         # An all-zero #IB block (a start-up year's first fiscal year, or a file
         # that lists every account at 0) is "nothing to book", not a failure —
         # returning False here would flag the whole import as incomplete and
         # send a perfectly good file to the dropzone's _Problem/ folder.
-        if not data.opening_balances or all(
-            amount == 0 for amount in data.opening_balances.values()
-        ):
+        stated = {
+            account: amount
+            for account, amount in (data.opening_balances or {}).items()
+            if amount != 0
+        }
+        if not stated:
             return True
 
-        # Find period for the first day of fiscal year
-        period_id = self._get_or_create_period(data.fiscal_year_start, fiscal_year_id)
-        if not period_id:
-            self.errors.append(
-                f"No period found for opening balance date {data.fiscal_year_start}"
-            )
-            return False
-
-        # Build rows from opening balances
-        rows = []
-        for account, amount in data.opening_balances.items():
-            if amount == 0:
-                continue
-            # SIE: positive = debit, negative = credit
-            if amount >= 0:
-                rows.append(
-                    {
-                        "account": account,
-                        "debit": amount,
-                        "credit": 0,
-                        "description": "Ingående balans",
-                    }
-                )
-            else:
-                rows.append(
-                    {
-                        "account": account,
-                        "debit": 0,
-                        "credit": abs(amount),
-                        "description": "Ingående balans",
-                    }
-                )
-
-        if not rows:
-            return True
-
-        # Check if an IB voucher already exists for this fiscal year
-        year = data.fiscal_year_start.year
-        existing_ib = self._find_existing_ib_voucher(fiscal_year_id)
-
-        ledger = LedgerService()
-        description = f"Ingående balans {year}"
-
+        service = OpeningBalanceService()
         try:
-            if existing_ib:
-                if existing_ib.status == VoucherStatus.POSTED:
-                    self.errors.append(
-                        "Cannot update opening balance voucher because it is posted and immutable. "
-                        "The fiscal year already has an opening balance — re-import is only "
-                        "possible into an empty fiscal year."
-                    )
-                    return False
-                voucher = ledger.update_voucher(
-                    voucher_id=existing_ib.id,
-                    rows_data=rows,
-                    description=description,
-                    reason="SIE4 opening balance import",
-                    actor="sie4_import",
-                )
-            else:
-                voucher = ledger.create_voucher(
-                    series="IB",
-                    date=data.fiscal_year_start,
-                    period_id=period_id,
-                    description=description,
-                    rows_data=rows,
-                    created_by="sie4_import",
-                )
-            # Post immediately: reports (balance sheet, trial balance, opening
-            # balance carry-forward) only ever read posted vouchers, so a draft
-            # IB voucher is invisible to them. Posting also makes it immutable,
-            # which is what closes off the upsert path above on a later import
-            # into the same fiscal year — matching the dropzone's "only an
-            # empty fiscal year can be imported" rule for the manual endpoint.
-            ledger.post_voucher(voucher.id, actor="sie4_import")
-            self.imported["vouchers"] += 1
-            return True
+            opening = service.state(
+                fiscal_year_id,
+                stated,
+                actor="sie4_import",
+                require_first_year=False,
+            )
         except ValidationError as e:
-            self.errors.append(f"Failed to import opening balance voucher: {e.message}")
-            return False
-        except Exception as e:
-            self.errors.append(f"Failed to import opening balance voucher: {str(e)}")
+            self.errors.append(f"Failed to import opening balance: {e.message}")
             return False
 
-    def _find_existing_ib_voucher(self, fiscal_year_id: Optional[str]):
-        """Find existing IB voucher for a fiscal year."""
-        from repositories.voucher_repo import VoucherRepository
+        self.imported["opening_balances"] = len(stated)
+        self._warn_differences(
+            "Filens ingående balans avviker från den som räknats fram ur "
+            "föregående räkenskapsår",
+            opening.stated_differences,
+        )
+        return True
+
+    def _reconcile_next_year(self, fiscal_year_id: Optional[str]) -> None:
+        """An earlier year imported after a later one: the later year's
+        stated IB now gives way to the derived one. Say where they differ."""
+        from services.opening_balance import OpeningBalanceService
 
         if not fiscal_year_id:
-            return None
+            return
+        service = OpeningBalanceService()
+        next_year = service.next_fiscal_year(fiscal_year_id)
+        if next_year is None:
+            return
+        self._warn_differences(
+            f"Räkenskapsåret {next_year.start_date}–{next_year.end_date} har en "
+            "importerad ingående balans som avviker från den som nu räknas fram",
+            service.get(next_year.id).stated_differences,
+        )
 
-        vouchers, _ = VoucherRepository.list_all(fiscal_year_id=fiscal_year_id)
-        for voucher in vouchers:
-            if voucher.series.value == "IB":
-                return voucher
-        return None
+    def _warn_differences(self, message: str, differences: Dict) -> None:
+        if not differences:
+            return
+        shown = [
+            f"{code}: {stated / 100:.2f} ≠ {derived / 100:.2f}"
+            for code, (stated, derived) in list(differences.items())[:10]
+        ]
+        more = len(differences) - len(shown)
+        self.warnings.append(
+            f"{message} ({len(differences)} konton): "
+            + "; ".join(shown)
+            + (f"; och {more} till" if more > 0 else "")
+        )
 
     def _get_or_create_period(
         self, voucher_date: date, fiscal_year_id: Optional[str] = None

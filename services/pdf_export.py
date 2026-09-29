@@ -367,42 +367,23 @@ class PDFExportService:
 
         target_year = period.year
 
-        # Get all vouchers
-        vouchers, _ = VoucherRepository.list_all(status="posted")
+        from services.opening_balance import OpeningBalanceService
 
-        # Separate IB vouchers from regular vouchers for the target year
-        ib_vouchers = []
-        regular_vouchers = []
-        prior_vouchers = []
-
-        for voucher in vouchers:
-            voucher_date = voucher.date
-            if isinstance(voucher_date, str):
-                from datetime import date as date_type
-
-                voucher_date = date_type.fromisoformat(voucher_date)
-
-            if voucher_date.year == target_year:
-                if voucher.series.value == "IB":
-                    ib_vouchers.append(voucher)
-                else:
-                    regular_vouchers.append(voucher)
-            elif voucher_date.year < target_year:
-                prior_vouchers.append(voucher)
+        # The period's fiscal year: its IB (services/opening_balance.py) and
+        # its posted vouchers. A posted `IB`-series voucher predates
+        # migration 033 -- opening state, never a movement.
+        vouchers, _ = VoucherRepository.list_all(
+            fiscal_year_id=period.fiscal_year_id, status="posted"
+        )
+        regular_vouchers = [v for v in vouchers if v.series.value != "IB"]
 
         all_accounts = AccountRepository.get_all_as_dict()
 
-        # Calculate opening balances from IB vouchers, or from prior year totals
-        opening_balances = {}
-        source_vouchers = ib_vouchers if ib_vouchers else prior_vouchers
-
-        for voucher in source_vouchers:
-            for row in voucher.rows:
-                code = row.account_code
-                if code not in opening_balances:
-                    opening_balances[code] = {"debit": 0, "credit": 0}
-                opening_balances[code]["debit"] += row.debit or 0
-                opening_balances[code]["credit"] += row.credit or 0
+        opening = OpeningBalanceService().get(period.fiscal_year_id)
+        opening_balances = {
+            code: {"debit": max(amount, 0), "credit": max(-amount, 0)}
+            for code, amount in opening.balances.items()
+        }
 
         # Calculate changes from regular vouchers
         change_balances = {}
@@ -552,7 +533,7 @@ class PDFExportService:
             "total_equity_and_liabilities_change": total_eq_liab_change,
             "total_equity_and_liabilities_closing": total_eq_liab_closing,
             "balanced": abs(total_assets_closing - total_eq_liab_closing) < 100,
-            "has_ib_vouchers": len(ib_vouchers) > 0,
+            "opening_balance_source": opening.source,
             "compare_period": None,
             "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         }
