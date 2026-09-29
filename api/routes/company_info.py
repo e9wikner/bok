@@ -76,10 +76,11 @@ async def get_company_info(
 ):
     """Return editable company metadata."""
     values = CompanyInfoRepository.get_all()
-    return CompanyInfoResponse(
-        **{key: values.get(key) for key in COMPANY_INFO_KEYS if values.get(key)},
-        f_skatt=(values.get("f_skatt") or "").strip().lower() == "true",
-    )
+    fields: dict[str, object] = {
+        key: values[key] for key in COMPANY_INFO_KEYS if values.get(key)
+    }
+    fields["f_skatt"] = (values.get("f_skatt") or "").strip().lower() == "true"
+    return CompanyInfoResponse.model_validate(fields)
 
 
 @router.put("", response_model=CompanyInfoResponse)

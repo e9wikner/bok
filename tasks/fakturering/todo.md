@@ -23,7 +23,7 @@ Spec: `docs/redesign/SPEC-fakturering.md`. Tester först, en uppgift i taget.
 - [x] 9. Agentinstruktionen i `docs/to_agent/` (§8). Kör
       `tests/test_agent_entrypoint.py`.
 - [x] 10. Frontend (gamla sidor): nya fält i utkastformuläret, `/issue`, PDF-länk.
-- [ ] 11. black, isort, flake8, pytest. Uppdatera `AGENTS.md`: utfärdade
+- [x] 11. black, isort, flake8, pytest. Uppdatera `AGENTS.md`: utfärdade
       fakturor är append-only.
 - [ ] 12. Fyll i `company_info` på hubbabubba (säte, momsnummer, bankgiro,
       F-skatt) och kör kontrollen i §7.

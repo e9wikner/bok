@@ -68,6 +68,15 @@ Det här är en kontroll, inte ett beslut. Den kräver en människa och en rikti
    människa kan också använda routen direkt. Frånkopplade underlag visas i
    `source-context.unlinked_source_material`, men `/v4` ritar dem inte ännu.
 
+## fakturering F0: val som gjordes i bygget, att bekräfta
+
+1. **Momsen trunkeras till hela ören** i `VATCalculator` (`int(belopp * sats)`) i stället för
+   att avrundas. Ska den avrundas (half-up) per rad eller på fakturan?
+2. **`sent_at` lämnas `NULL` vid utfärdande.** Triggern i migration 038 låser `sent_at` på en
+   utfärdad faktura, så F2 (markera som skickad) behöver en egen kolumn eller tabell.
+3. **Leverans per rad** går inte att redigera i de gamla sidorna, bara leveransen för hela
+   utkastet.
+
 ## Observerat beteende att ta ställning till
 
 Beteendet är inte ändrat. Det här är iakttagelser.
@@ -90,8 +99,10 @@ Beteendet är inte ändrat. Det här är iakttagelser.
 - **De 24 gamla sidorna** i `frontend-v3` står kvar och ska tas bort en vy i taget när `/v4`
   används. `audit` (revisionsspåret, ett BFL-krav) får inte försvinna innan det finns en
   ersättare.
-- **Fakturering och Löner** ska byggas som läsvyer med tråd men utan skrivflöde. Skrivning sker
-  tills vidare via `/invoices` och `/payroll`.
+- **Fakturering och Löner** ska byggas som läsvyer med tråd men utan skrivflöde. En faktura
+  skrivs genom att en inloggad människa utfärdar ett utkast (`POST /invoice-drafts/{id}/issue`,
+  i de gamla sidorna `/invoices`); `/v4`-vyn förblir läsvy till F1. Löner skrivs tills vidare
+  via `/payroll`.
 - **`mypy .`** ger 58 fel i 22 filer. Alla fanns före redesignen.
 - **CI** har `continue-on-error: true` på backendens steg (pytest, black, isort, flake8, mypy)
   och Docker-bygget, liksom på frontendens lint. Bara `npm test` fäller bygget. En grön bock

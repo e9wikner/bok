@@ -63,6 +63,15 @@ unlink row (`IntakeLinkService.unlink`, the tool `koppla_bort_underlag`,
 one *current* link per source, and "current" means the link has no unlink row.
 Anything that asks "is this linked?" must read current links only.
 
+An issued invoice is append-only too. An invoice comes into being only when a
+logged-in human issues a draft (`POST /api/v1/invoice-drafts/{id}/issue`; the
+API key gets `403 human_only`). Issuing creates the invoice, its posted voucher
+and the stored PDF in one transaction (`services/invoice_issue.py`). Migration
+038's triggers let only `status` and `paid_amount` change once `issued_at` is
+set. The PDF is räkenskapsinformation: it is linked to the voucher as underlag
+and served byte for byte (`GET /api/v1/invoices/{id}/pdf`), never re-rendered.
+A wrong invoice is corrected with a credit note.
+
 ## Layering
 
 - `api/routes/` — HTTP only: parse, authenticate, map domain errors to status codes.
@@ -84,9 +93,10 @@ Service-to-service imports are deferred inside methods to avoid import cycles.
   `IB`-series voucher can be created; a posted one from before migration 033 is
   ignored as movement everywhere. Anything that sums balances must start from
   `OpeningBalanceService`, not from vouchers.
-- **Invoice auto-booking** produces a balanced voucher: debit 1510 (kundfordringar)
-  incl. VAT, credit 3011 (försäljning) excl. VAT, credit 2610 (utgående moms).
-  Payment registration creates a second voucher: debit 1010 (bank), credit 1510.
+- **Issuing an invoice books it** in the same transaction: debit 1510
+  (kundfordringar) incl. VAT, credit revenue excl. VAT and output VAT per VAT
+  code (25 %: 3011/2610). Payment registration creates a second voucher:
+  debit 1010 (bank), credit 1510.
 - **`docs/to_agent/*.md` is runtime content, not documentation.** It is read and
   served to agents by `repositories/system_instructions.py` and asserted on by
   `tests/test_agent_entrypoint.py`. Editing it changes system behaviour.
