@@ -33,6 +33,16 @@ bockar av och committar per uppgift.
   - Filer: `services/agent_tools.py` (beskrivningar och docstrings), `docs/to_agent/02_bokforingsprocess.md`
   - Gjort 2026-09-29: 7 ställen i `agent_tools.py`, 11 i `02`; fältbeskrivningar med längd på `reason`, `consequence`, `rationale`; test mot "människan" i schemat och `docs/to_agent`. Tre verktygshashar omtagna (avsiktlig ändring). Ej kontrollerat: företagets egna instruktioner i databasen.
   - Beror på: L2
-- [ ] **L7 — Agenten driver inte underlagskön** (§4.2 L7-stycket)
+- [x] **L7 — Agenten driver inte underlagskön** (§4.2 L7-stycket)
   - Filer: `docs/to_agent/03_bokforingsinstruktion.md`, `tests/test_agent_entrypoint.py`
+  - Gjort 2026-09-29: regel 1 (inte på eget initiativ; svar ur `las_verifikationer` när användaren frågar), regel 9 och punkten i "Att skriva i en tråd" (en mening om kopplingen). `_assert_no_queue_driving` + test mot hela 03. Inget liknande hittat utanför 03.
   - Beror på: L6 (båda kan röra `test_agent_entrypoint.py`)
+
+---
+
+## Modulen stängd 2026-09-29
+
+M1–M6 har var sitt test. `pytest tests/ -q` och `vitest run`, `tsc`, `lint` gröna.
+Avvikelser: L3 — kvittots "{n} kvar" syns inte längre, stängt med L7 (listan visar det).
+L6 — företagets egna instruktioner i databasen är inte kontrollerade för "människan".
+Inte gjort: visuell kontroll med en riktig agenttur (kräver LLM-nyckel och drift).
