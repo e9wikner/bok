@@ -25,7 +25,7 @@ import {
   skickaMeddelande,
   VOUCHERS_NYCKEL,
 } from "@/lib/chattyta/api";
-import { kopplingKlar, lasKoppling } from "@/lib/chattyta/kopplingar";
+import { kopplingBorttagen, kopplingKlar, lasFrankoppling, lasKoppling } from "@/lib/chattyta/kopplingar";
 import { oppnaStrom, type SseHandelse } from "@/lib/chattyta/strom";
 import {
   listaInlagg,
@@ -90,6 +90,9 @@ export function useTrad(viewKey: string): UseTrad {
         // invalideringen: raden tas ur listorna som de ser ut nu.
         const koppling = lasKoppling(h.data);
         if (koppling) kopplingKlar(qc, koppling.voucherId, koppling.sourceId);
+        // En frånkoppling (underlag-ersatt): raden är inte längre kopplad.
+        const frankoppling = lasFrankoppling(h.data);
+        if (frankoppling) kopplingBorttagen(qc, frankoppling.voucherId);
         // Headern, besluten, förslagen och verifikationslistan kan alla ha
         // följt med (§6.3; flode-verifikationer §14.4 testfall 47).
         void qc.invalidateQueries({ queryKey: OVERVIEW_NYCKEL });

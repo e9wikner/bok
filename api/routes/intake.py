@@ -16,7 +16,7 @@ from fastapi import status as http_status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, create_model
 
-from api.deps import get_current_actor
+from api.deps import Caller, get_caller, get_current_actor
 from domain.models import (
     BankInput,
     IntakeProcessingAttempt,
@@ -68,6 +68,17 @@ class LinkRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     voucher_id: str
+    decision_id: str | None = None
+
+
+class UnlinkRequest(BaseModel):
+    """`koppla_bort_underlag`'s arguments without `source_id`. With the API
+    key `decision_id` is required; a logged-in user needs none."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    voucher_id: str
+    reason: str
     decision_id: str | None = None
 
 
@@ -213,9 +224,12 @@ async def get_intake_workspace_detail(
                 _attempt_to_dict(attempt)
                 for attempt in service.list_attempts_for_source(source.id)
             ],
+            # The whole history: an undone link stays, marked `unlinked_at`.
             "voucher_links": [
                 _voucher_source_link_to_dict(link)
-                for link in service.sources.list_links_for_source(source.id)
+                for link in service.sources.list_links_for_source(
+                    source.id, include_unlinked=True
+                )
             ],
             "deleted_at": source.deleted_at.isoformat() if source.deleted_at else None,
             "deleted_by": source.deleted_by,
@@ -322,6 +336,32 @@ async def link_intake_source(
         raise _http_error(exc) from exc
     if result.replayed:
         response.status_code = http_status.HTTP_200_OK
+    return result.to_dict()
+
+
+@router.post("/{source_id}/unlink", response_model=dict)
+async def unlink_intake_source(
+    source_id: str,
+    request: UnlinkRequest,
+    caller: Caller = Depends(get_caller),
+):
+    """Undo a wrong link (underlag-ersatt): the link row stays as the
+    trace, a `voucher_intake_unlinks` row says it no longer holds, and the
+    source can be linked again. A logged-in user may do it on their own
+    say; the agent's API key needs an answered decision about the
+    underlag. `200` both when undone and on a replay (`replayed: true`).
+    No voucher is created, changed or removed."""
+    try:
+        result = IntakeLinkService().unlink(
+            source_id,
+            request.voucher_id,
+            reason=request.reason,
+            actor=caller.actor,
+            human=caller.human,
+            decision_id=request.decision_id,
+        )
+    except IntakeError as exc:
+        raise _http_error(exc) from exc
     return result.to_dict()
 
 
@@ -525,6 +565,9 @@ def _voucher_source_link_to_dict(link: VoucherIntakeSource) -> dict:
         "linked_by": link.linked_by,
         "linked_at": link.linked_at.isoformat(),
         "link_reason": link.link_reason,
+        "unlinked_at": link.unlinked_at.isoformat() if link.unlinked_at else None,
+        "unlinked_by": link.unlinked_by,
+        "unlink_reason": link.unlink_reason,
     }
 
 

@@ -362,37 +362,86 @@ class IntakeRepository:
             link_reason=link_reason,
         )
 
+    # A link is *current* while it has no row in `voucher_intake_unlinks`
+    # (migration 034). Every read below says which it returns: the current
+    # link, or the history with the undone ones marked.
+    _LINK_SELECT = """
+        SELECT vis.*, u.created_at AS unlinked_at, u.actor AS unlinked_by,
+               u.reason AS unlink_reason
+        FROM voucher_intake_sources vis
+        LEFT JOIN voucher_intake_unlinks u ON u.link_id = vis.id
+    """
+
     @staticmethod
     def get_link_by_source_id(source_id: str) -> Optional[VoucherIntakeSource]:
+        """The source's current link, or `None` -- never an undone one."""
         row = db.execute(
-            "SELECT * FROM voucher_intake_sources WHERE intake_source_id = ? LIMIT 1",
+            IntakeRepository._LINK_SELECT
+            + " WHERE vis.intake_source_id = ? AND u.link_id IS NULL LIMIT 1",
             (source_id,),
         ).fetchone()
         return IntakeRepository._row_to_link(row) if row else None
 
     @staticmethod
     def list_links_for_voucher(voucher_id: str) -> List[VoucherIntakeSource]:
+        """The voucher's current links: the underlag it has now."""
         rows = db.execute(
-            """
-            SELECT * FROM voucher_intake_sources
-            WHERE voucher_id = ?
-            ORDER BY linked_at ASC
-            """,
+            IntakeRepository._LINK_SELECT
+            + " WHERE vis.voucher_id = ? AND u.link_id IS NULL"
+            " ORDER BY vis.linked_at ASC, vis.rowid ASC",
             (voucher_id,),
         ).fetchall()
         return [IntakeRepository._row_to_link(row) for row in rows]
 
     @staticmethod
-    def list_links_for_source(source_id: str) -> List[VoucherIntakeSource]:
+    def list_unlinked_for_voucher(voucher_id: str) -> List[VoucherIntakeSource]:
+        """The voucher's undone links, oldest first: the trace a replaced
+        underlag leaves (underlag-ersatt)."""
         rows = db.execute(
-            """
-            SELECT * FROM voucher_intake_sources
-            WHERE intake_source_id = ?
-            ORDER BY linked_at ASC
-            """,
+            IntakeRepository._LINK_SELECT
+            + " WHERE vis.voucher_id = ? AND u.link_id IS NOT NULL"
+            " ORDER BY vis.linked_at ASC, vis.rowid ASC",
+            (voucher_id,),
+        ).fetchall()
+        return [IntakeRepository._row_to_link(row) for row in rows]
+
+    @staticmethod
+    def list_links_for_source(
+        source_id: str, *, include_unlinked: bool = False
+    ) -> List[VoucherIntakeSource]:
+        """The source's current link as a list (at most one), or its whole
+        history with *include_unlinked*, oldest first."""
+        where = " WHERE vis.intake_source_id = ?"
+        if not include_unlinked:
+            where += " AND u.link_id IS NULL"
+        rows = db.execute(
+            IntakeRepository._LINK_SELECT
+            + where
+            + " ORDER BY vis.linked_at ASC, vis.rowid ASC",
             (source_id,),
         ).fetchall()
         return [IntakeRepository._row_to_link(row) for row in rows]
+
+    @staticmethod
+    def latest_link(source_id: str, voucher_id: str) -> Optional[VoucherIntakeSource]:
+        """The latest link between the two, current or undone."""
+        row = db.execute(
+            IntakeRepository._LINK_SELECT
+            + " WHERE vis.intake_source_id = ? AND vis.voucher_id = ?"
+            " ORDER BY vis.linked_at DESC, vis.rowid DESC LIMIT 1",
+            (source_id, voucher_id),
+        ).fetchone()
+        return IntakeRepository._row_to_link(row) if row else None
+
+    @staticmethod
+    def was_unlinked_from(source_id: str, voucher_id: str) -> bool:
+        """Whether a link between the two has ever been undone."""
+        row = db.execute(
+            "SELECT 1 FROM voucher_intake_unlinks"
+            " WHERE intake_source_id = ? AND voucher_id = ? LIMIT 1",
+            (source_id, voucher_id),
+        ).fetchone()
+        return row is not None
 
     @staticmethod
     def list_attempts_for_source(source_id: str) -> List[IntakeProcessingAttempt]:
@@ -455,6 +504,22 @@ class IntakeRepository:
             voucher_id=row["voucher_id"],
             intake_source_id=row["intake_source_id"],
             linked_by=row["linked_by"],
-            linked_at=datetime.fromisoformat(row["linked_at"]),
+            linked_at=_as_datetime(row["linked_at"]),
             link_reason=row["link_reason"],
+            unlinked_at=(
+                _as_datetime(row["unlinked_at"])
+                if "unlinked_at" in row.keys() and row["unlinked_at"]
+                else None
+            ),
+            unlinked_by=row["unlinked_by"] if "unlinked_by" in row.keys() else None,
+            unlink_reason=(
+                row["unlink_reason"] if "unlink_reason" in row.keys() else None
+            ),
         )
+
+
+def _as_datetime(value) -> datetime:
+    """A timestamp column as SQLite hands it back: already parsed, or text."""
+    if isinstance(value, datetime):
+        return value
+    return datetime.fromisoformat(value)

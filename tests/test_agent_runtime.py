@@ -1088,6 +1088,9 @@ _EXPECTED_TOOL_NAMES = [
     # The fourteenth, appended the same way (the period lock): it can only
     # lock -- opening a period again is a human's, with no tool for it.
     "stang_perioder",
+    # The fifteenth, appended the same way (underlag-ersatt): it undoes a
+    # wrong link on an answered decision, and never touches a voucher.
+    "koppla_bort_underlag",
 ]
 
 
@@ -1123,7 +1126,7 @@ class TestAppendOnlyToolSurface:
     """
 
     def test_tool_names_are_exactly_the_allowed_tools(self):
-        """Fourteen since the period lock (SPEC §6.6). The count is asserted
+        """Fifteen since underlag-ersatt (SPEC §6.6). The count is asserted
         against the expected list rather than a literal, so adding a tool
         without adding it there still fails -- which is the point: this is
         the append-only rule's only automatic check through the agent's
@@ -1205,6 +1208,10 @@ class TestAppendOnlyToolSurface:
         `stang_perioder` joined them with the period lock: it writes
         `periods` and `fiscal_years` (the lock) and the audit log, never a
         voucher. It locks only; there is no tool that opens a period again.
+
+        `koppla_bort_underlag` joined them with underlag-ersatt: it writes a
+        `voucher_intake_unlinks` row and the source's status, never a
+        voucher.
         """
         write_tool_names = {
             "posta_verifikation",
@@ -1214,6 +1221,7 @@ class TestAppendOnlyToolSurface:
             "tolka_underlag",
             "koppla_underlag",
             "stang_perioder",
+            "koppla_bort_underlag",
         }
         read_tool_names = set(_EXPECTED_TOOL_NAMES) - write_tool_names
         for tool in AGENT_TOOL_DEFINITIONS:

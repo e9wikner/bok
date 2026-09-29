@@ -7,10 +7,17 @@ when a check fails. When they all pass, one transaction writes the link,
 the attempt, the source's status and the row in `intake_link_basis`.
 
 A link never creates, changes or removes a voucher (§15 "Aldrig"), and it
-cannot be undone: `intake_link_basis` is append-only in three layers and
-`voucher_intake_sources` has `UNIQUE(intake_source_id)`. That is why it
-needs a basis, as a posting does -- the latest interpretation's exact match
+is never rewritten or removed: `voucher_intake_sources` and
+`intake_link_basis` are append-only in three layers. That is why it needs a
+basis, as a posting does -- the latest interpretation's exact match
 (`exact_match`, D1) or an answered decision about the source (`decision`).
+
+`IntakeLinkService.unlink` (underlag-ersatt, D10) is the way back: it
+writes a row in `voucher_intake_unlinks` saying the link no longer holds,
+and leaves the link row where it is. The source can then carry a new link.
+An unlink needs a basis too -- a logged-in human, or an answered decision
+about the underlag made after the link. Behind `koppla_bort_underlag` and
+`POST /api/v1/intake/{id}/unlink`.
 
 No SQL here (AGENTS.md's layering rule): it lives in
 `repositories/intake_repo.py`, `repositories/intake_link_repo.py`,
@@ -21,15 +28,27 @@ never on the code string.
 """
 
 import logging
+from dataclasses import replace
 from typing import List, Optional, Sequence
 
 from db.database import db
-from domain.intake_link import IntakeLinkBasis, LinkBasis, LinkResult
+from domain.intake_link import (
+    IntakeLinkBasis,
+    IntakeUnlink,
+    LinkBasis,
+    LinkResult,
+    UnlinkBasis,
+    UnlinkResult,
+)
 from domain.interpretation import Candidate, Interpretation
 from domain.models import IntakeSource, ThreadPost, Voucher
 from domain.types import IntakeStatus, VoucherStatus
 from repositories.decision_repo import DecisionRepository
-from repositories.intake_link_repo import IntakeLinkRepository
+from repositories.intake_link_repo import (
+    IntakeLinkRepository,
+    IntakeUnlinkRepository,
+    VoucherSourceReferenceRepository,
+)
 from repositories.intake_repo import IntakeRepository
 from repositories.interpretation_repo import InterpretationRepository
 from repositories.thread_repo import ThreadRepository
@@ -37,6 +56,9 @@ from repositories.voucher_repo import VoucherRepository
 from services.intake import IntakeError, IntakeService
 
 logger = logging.getLogger(__name__)
+
+#: Longest reason an unlink takes; it is read by a human in the trace.
+UNLINK_REASON_MAX = 500
 
 #: Check 5 (D9): the posting lets only `pending`/`processing` through
 #: (`IntakeService._ensure_can_record_outcome`, untouched); a link after the
@@ -56,6 +78,7 @@ VIEW_KEY = "bocker.verifikationer"
 #: receipt's own tool name (`services/draft_service.py`), so the chip that
 #: set the flag and the one that removes it are the same chip.
 RECEIPT_LINK_TOOL = "koppla_underlag"
+RECEIPT_UNLINK_TOOL = "koppla_bort_underlag"
 RECEIPT_FLAG_TOOL = "kompletteringsflagga"
 RECEIPT_MISSING_TOOL = "saknar_underlag"
 
@@ -71,14 +94,17 @@ class LinkNotFoundError(IntakeLinkError):
 class LinkConflictError(IntakeLinkError):
     """The state does not allow the link (409): `source_deleted`,
     `intake_already_linked`, `intake_not_linkable`, `voucher_not_posted`,
-    `decision_still_open`, `decision_superseded`, `decision_declined`."""
+    `decision_still_open`, `decision_superseded`, `decision_declined`,
+    `decision_already_used`; for an unlink also `source_not_linked`,
+    `source_linked_elsewhere` and `decision_predates_link`."""
 
 
 class LinkRejectedError(IntakeLinkError):
     """The request lacks what a link needs (400): `interpretation_required`,
     `voucher_not_in_interpretation`, `voucher_is_opening_balance`,
     `link_requires_decision`, `decision_not_for_source`,
-    `decision_not_in_thread`."""
+    `decision_not_in_thread`; for an unlink also `unlink_requires_decision`
+    and `unlink_reason_required`."""
 
 
 class SourceMatchesPostedVoucherError(LinkConflictError):
@@ -172,6 +198,15 @@ class IntakeLinkService:
         interpretation = self._interpretation(source_id, voucher)
         if decision_id is not None and decisions_allowed:
             self._decision(decision_id, source_id, thread_id)
+            # A decision bases one link. Without this, the decision behind
+            # a link that was undone could put it back without anyone
+            # having said so again.
+            if IntakeLinkRepository.get_by_decision(decision_id) is not None:
+                raise LinkConflictError(
+                    "decision_already_used",
+                    "The decision is already the basis of a link",
+                    f"decision_id={decision_id}",
+                )
             basis_kind: LinkBasis = "decision"
         else:
             basis_kind = self._exact_match(source_id, voucher, interpretation)
@@ -188,13 +223,14 @@ class IntakeLinkService:
             thread_id=thread_id,
         )
         with db.transaction():
-            IntakeService().persist_voucher_link(
+            _attempt, link = IntakeService().persist_voucher_link(
                 source_id,
                 voucher_id,
                 actor=actor,
                 summary=f"Underlag kopplat till {number} ({basis_kind})",
                 link_reason=self._link_reason(basis),
             )
+            basis = replace(basis, link_id=link.id)
             IntakeLinkRepository.insert(basis, _commit=False)
 
         result = self._result(basis, voucher, replayed=False)
@@ -207,6 +243,278 @@ class IntakeLinkService:
             thread_id=thread_id,
         )
         return result
+
+    # -- the way back: unlink (underlag-ersatt, D10) --------------------------
+
+    def unlink(
+        self,
+        source_id: str,
+        voucher_id: str,
+        *,
+        reason: str,
+        actor: str,
+        human: bool = False,
+        decision_id: Optional[str] = None,
+        thread_id: Optional[str] = None,
+        agent_run_id: Optional[str] = None,
+    ) -> UnlinkResult:
+        """Undo *source_id*'s current link to *voucher_id*, or raise an
+        `IntakeLinkError` without writing anything.
+
+        The basis is *human* (a logged-in user through the route) or an
+        answered decision about the source (*decision_id*): answered after
+        the link was made, not the link's own basis, not answered with its
+        way out, used for no other unlink, and in *thread_id* when given.
+
+        One transaction writes the `voucher_intake_unlinks` row, an attempt
+        saying so, and sets the source to `needs_attention`: it has no voucher now, it is not
+        picked up by the intake pass, and a link after the fact takes it
+        (D9). No voucher is created, changed or removed. A second call for
+        a link already undone is a replay: the same answer with
+        `replayed: true`, nothing written."""
+        source = IntakeRepository.get_source(source_id)
+        if source is None:
+            raise LinkNotFoundError(
+                "source_not_found", "Intake source not found", f"source_id={source_id}"
+            )
+        voucher = VoucherRepository.get(voucher_id)
+        if voucher is None:
+            raise LinkNotFoundError(
+                "voucher_not_found", "Voucher not found", f"voucher_id={voucher_id}"
+            )
+
+        current = IntakeRepository.get_link_by_source_id(source_id)
+        if current is None or current.voucher_id != voucher_id:
+            latest = IntakeRepository.latest_link(source_id, voucher_id)
+            if latest is not None and not latest.is_current:
+                done = IntakeUnlinkRepository.get_for_link(latest.id)
+                assert done is not None  # not current means it was undone
+                return self._unlink_result(done, voucher, replayed=True)
+            if current is not None:
+                elsewhere = VoucherRepository.get(current.voucher_id)
+                raise LinkConflictError(
+                    "source_linked_elsewhere",
+                    "The underlag is linked to another voucher",
+                    f"source_id={source_id}, voucher="
+                    f"{(_number(elsewhere) if elsewhere else None) or current.voucher_id}",
+                )
+            raise LinkConflictError(
+                "source_not_linked",
+                "The underlag is not linked to the voucher",
+                f"source_id={source_id}, voucher={_number(voucher) or voucher_id}",
+            )
+
+        reason = (reason or "").strip()
+        if not reason or len(reason) > UNLINK_REASON_MAX:
+            raise LinkRejectedError(
+                "unlink_reason_required",
+                f"Say why the link is undone, in at most {UNLINK_REASON_MAX} "
+                "characters",
+                f"length={len(reason)}",
+            )
+
+        basis_kind: UnlinkBasis
+        if human:
+            basis_kind = "human"
+            decision_id = None
+        else:
+            if decision_id is None:
+                raise LinkRejectedError(
+                    "unlink_requires_decision",
+                    "Undoing a link needs an answered decision about the "
+                    "underlag, or a logged-in user",
+                    f"source_id={source_id}",
+                )
+            self._decision(decision_id, source_id, thread_id)
+            self._unlink_decision(decision_id, current)
+            basis_kind = "decision"
+
+        unlink = IntakeUnlink(
+            link_id=current.id,
+            intake_source_id=source_id,
+            voucher_id=voucher_id,
+            basis=basis_kind,
+            reason=reason,
+            actor=actor,
+            decision_id=decision_id,
+            agent_run_id=agent_run_id,
+            thread_id=thread_id,
+        )
+        with db.transaction():
+            IntakeUnlinkRepository.insert(unlink, _commit=False)
+            # The source's latest attempt is what the decision queue shows
+            # for a source that needs attention (`_intake_to_view`); without
+            # this it would still say the underlag was linked.
+            IntakeRepository.record_attempt(
+                intake_source_id=source_id,
+                status="failed",
+                summary=(
+                    f"Underlaget kopplades bort från {_number(voucher) or voucher_id}: "
+                    f"{reason}"
+                ),
+                voucher_id=voucher_id,
+                actor=actor,
+                _commit=False,
+            )
+            IntakeRepository.update_status(
+                source_id,
+                IntakeStatus.NEEDS_ATTENTION.value,
+                actor=actor,
+                _commit=False,
+            )
+
+        result = self._unlink_result(unlink, voucher, replayed=False)
+        self._after_unlink(unlink, voucher, result, thread_id=thread_id)
+        return result
+
+    @staticmethod
+    def _unlink_decision(decision_id: str, link) -> None:
+        """What `_decision` does not know about an unlink: the decision was
+        answered after the link, is not the link's own basis, and has not
+        undone another link already."""
+        basis = IntakeLinkRepository.get_for_link(link.id)
+        if (
+            basis is not None and basis.decision_id == decision_id
+        ) or IntakeUnlinkRepository.get_by_decision(decision_id) is not None:
+            raise LinkConflictError(
+                "decision_already_used",
+                "The decision is already the basis of a link or an unlink",
+                f"decision_id={decision_id}",
+            )
+        decision = DecisionRepository.get(decision_id)
+        assert decision is not None  # `_decision` found it
+        if decision.answered_at is None or decision.answered_at < link.linked_at:
+            raise LinkConflictError(
+                "decision_predates_link",
+                "The decision was answered before the link was made",
+                f"decision_id={decision_id}",
+            )
+
+    @staticmethod
+    def _unlink_result(
+        unlink: IntakeUnlink, voucher: Voucher, *, replayed: bool
+    ) -> UnlinkResult:
+        """The answer, with the references that went through the link (D2)
+        and the counter read after the commit."""
+        references = VoucherSourceReferenceRepository.list_through(
+            unlink.intake_source_id, unlink.voucher_id
+        )
+        numbers = VoucherRepository.numbers_for([r.voucher_id for r in references])
+        orphaned = [
+            f"{numbers[r.voucher_id][0]}-{numbers[r.voucher_id][1]}"
+            for r in references
+            if r.voucher_id in numbers and numbers[r.voucher_id][1] is not None
+        ]
+        return UnlinkResult(
+            source_id=unlink.intake_source_id,
+            voucher_id=unlink.voucher_id,
+            voucher_number=_number(voucher),
+            link_id=unlink.link_id,
+            basis=unlink.basis,
+            decision_id=unlink.decision_id,
+            reason=unlink.reason,
+            replayed=replayed,
+            orphaned_references=orphaned,
+            missing_attachments=VoucherRepository.count_missing_attachments(),
+        )
+
+    def _after_unlink(
+        self,
+        unlink: IntakeUnlink,
+        voucher: Voucher,
+        result: UnlinkResult,
+        *,
+        thread_id: Optional[str],
+    ) -> None:
+        """In a thread: a `receipt` post, then `message.completed`; and
+        `view.changed` with `kind: "source_unlinked"` on the thread and on
+        `bocker.verifikationer`'s. After the commit and never fatal, as
+        for a link (§9.3)."""
+        try:
+            post = None
+            if thread_id is not None:
+                post = ThreadRepository.add_post(
+                    thread_id=thread_id,
+                    post_type="receipt",
+                    actor=self._unlink_actor(unlink),
+                    body=self._unlink_body(unlink, voucher, result),
+                    traces=[
+                        {
+                            "tool": RECEIPT_UNLINK_TOOL,
+                            "label": "underlag frånkopplat",
+                            "detail": _number(voucher),
+                            "voucher_id": voucher.id,
+                        },
+                        {
+                            "tool": RECEIPT_MISSING_TOOL,
+                            "label": f"{result.missing_attachments} saknar underlag",
+                        },
+                    ],
+                )
+            self._publish(
+                unlink.intake_source_id,
+                voucher,
+                post,
+                thread_id,
+                kind="source_unlinked",
+            )
+        except Exception:
+            logger.exception(
+                "Receipt for the unlink of source %s was not written",
+                unlink.intake_source_id,
+            )
+
+    @staticmethod
+    def _unlink_actor(unlink: IntakeUnlink) -> str:
+        if unlink.basis == "decision" and unlink.decision_id is not None:
+            decision = DecisionRepository.get(unlink.decision_id)
+            if decision is not None and decision.answered_by:
+                return decision.answered_by
+        return unlink.actor
+
+    @staticmethod
+    def _unlink_body(
+        unlink: IntakeUnlink, voucher: Voucher, result: UnlinkResult
+    ) -> dict:
+        """The receipt: the comparison the link was made on, when there is
+        one, and the reason. A voucher that referred to the underlag through
+        the link is named, since it lacks underlag again."""
+        from services.interpretation import COMPARISON_DOCUMENT_LABEL, comparison_rows
+
+        number = _number(voucher) or voucher.id
+        rows: list = []
+        basis = IntakeLinkRepository.get_for_link(unlink.link_id)
+        interpretation = (
+            InterpretationRepository.get(basis.interpretation_id)
+            if basis is not None
+            else InterpretationRepository.latest_for_source(unlink.intake_source_id)
+        )
+        if interpretation is not None:
+            parts: List[Optional[Candidate]] = [
+                interpretation.match,
+                interpretation.expected,
+                *interpretation.candidates,
+            ]
+            part = next(
+                (p for p in parts if p is not None and p.voucher_id == voucher.id),
+                None,
+            )
+            if part is not None:
+                rows = comparison_rows(part)
+        note = f"Skäl: {unlink.reason}"
+        if result.orphaned_references:
+            note += (
+                f" {', '.join(result.orphaned_references)} bokfördes på underlaget "
+                f"via {number}; ta ställning till om den ska rättas."
+            )
+        return {
+            "title": f"Underlag frånkopplat från {number}",
+            "labels": [COMPARISON_DOCUMENT_LABEL, number],
+            "rows": rows,
+            "voucher_id": voucher.id,
+            "source_id": unlink.intake_source_id,
+            "note": note,
+        }
 
     # -- the stop in the posting (§8, D5) ----------------------------------
 
@@ -232,6 +540,10 @@ class IntakeLinkService:
             if match is None or match.kind != "exact":
                 continue
             if not VoucherRepository.match_still_open(match.voucher_id, source_id):
+                continue
+            # Unlinked from that voucher: someone said it does not belong
+            # there, so the match is no reason to stop a new voucher.
+            if IntakeRepository.was_unlinked_from(source_id, match.voucher_id):
                 continue
             raise SourceMatchesPostedVoucherError(
                 "source_matches_posted_voucher",
@@ -314,6 +626,16 @@ class IntakeLinkService:
         Otherwise `link_requires_decision`, with the match kind, so the
         agent knows to lay out a decision."""
         match = interpretation.match
+        if IntakeRepository.was_unlinked_from(source_id, voucher.id):
+            # underlag-ersatt: the link between the two was undone. An
+            # exact match does not put it back; a new decision does.
+            raise LinkRejectedError(
+                "link_requires_decision",
+                "The underlag was unlinked from this voucher; linking it "
+                "again needs a decision",
+                f"source_id={source_id}, voucher={_number(voucher)}, "
+                "previously_unlinked=true",
+            )
         if (
             match is not None
             and match.kind == "exact"
@@ -414,7 +736,7 @@ class IntakeLinkService:
                 )
             elif result.replayed:
                 return
-            self._publish(basis, voucher, post, thread_id)
+            self._publish(basis.intake_source_id, voucher, post, thread_id)
         except Exception:
             logger.exception(
                 "Receipt for the link of source %s was not written",
@@ -490,10 +812,12 @@ class IntakeLinkService:
 
     @staticmethod
     def _publish(
-        basis: IntakeLinkBasis,
+        source_id: str,
         voucher: Voucher,
         post: Optional[ThreadPost],
         thread_id: Optional[str],
+        *,
+        kind: str = "source_linked",
     ) -> None:
         """`message.completed` for the receipt, and `view.changed` with
         `kind: "source_linked"` -- the shape `voucher_posted` has -- on the
@@ -530,8 +854,8 @@ class IntakeLinkService:
                     "view_key": thread.view_key,
                     "changed": {
                         "voucher_id": voucher.id,
-                        "source_id": basis.intake_source_id,
-                        "kind": "source_linked",
+                        "source_id": source_id,
+                        "kind": kind,
                     },
                 },
             )

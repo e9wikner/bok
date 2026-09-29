@@ -371,7 +371,8 @@ def test_fu1_migration_is_applied_with_four_triggers(test_db):
 
 def _basis_rows(period_id: str, *, basis: str = "decision"):
     """A real row for each foreign key: voucher, source, interpretation,
-    thread, run and decision."""
+    thread, run and decision -- and, since migration 034, the link row the
+    basis belongs to."""
     from domain.intake_link import IntakeLinkBasis
 
     voucher_id = a118(period_id)
@@ -380,8 +381,12 @@ def _basis_rows(period_id: str, *, basis: str = "decision"):
     thread = make_thread(period_id)
     run_id = make_run()
     decision = make_decision(thread, source_id)
+    link = IntakeRepository.create_voucher_link(
+        intake_source_id=source_id, voucher_id=voucher_id, linked_by="stefan"
+    )
     return (
         IntakeLinkBasis(
+            link_id=link.id,
             intake_source_id=source_id,
             voucher_id=voucher_id,
             basis=basis,  # type: ignore[arg-type]
@@ -536,9 +541,14 @@ def test_fu1_repositories_have_no_update_or_delete():
     assert public(IntakeLinkRepository) == {
         "insert",
         "get_for_source",
+        "get_for_link",
         "get_by_decision",
     }
-    assert public(VoucherSourceReferenceRepository) == {"insert", "get_for_voucher"}
+    assert public(VoucherSourceReferenceRepository) == {
+        "insert",
+        "get_for_voucher",
+        "list_through",
+    }
     source = (REPO_ROOT / "repositories" / "intake_link_repo.py").read_text(
         encoding="utf-8"
     )

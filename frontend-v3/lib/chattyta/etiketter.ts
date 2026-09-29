@@ -31,6 +31,7 @@ export const SKRIVER_ETIKETTER: Readonly<Record<string, string>> = {
   tolka_underlag: "Tolkar underlaget…",
   koppla_underlag: "Kopplar underlaget…",
   stang_perioder: "Låser perioder…",
+  koppla_bort_underlag: "Kopplar bort underlaget…",
 };
 
 /**

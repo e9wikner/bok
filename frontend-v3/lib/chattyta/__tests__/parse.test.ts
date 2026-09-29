@@ -129,6 +129,15 @@ describe("kontraktsbrott blir okant_kontrakt (testfall 3, 4)", () => {
     expect(inlagg.brott).toMatch(/båda talen/);
   });
 
+  it("receipt med tom rows är giltigt (frånkoppling utan jämförelse, underlag-ersatt)", () => {
+    const inlagg = parseInlagg(medKropp(FIXTUR_RECEIPT, { ...kropp(FIXTUR_RECEIPT), rows: [] }));
+    expect(inlagg?.type).toBe("receipt");
+  });
+
+  it("receipt utan rows alls", () => {
+    brott(medKropp(FIXTUR_RECEIPT, kroppUtan(FIXTUR_RECEIPT, "rows")));
+  });
+
   it("receipt utan två etiketter", () => {
     brott(medKropp(FIXTUR_RECEIPT, { ...kropp(FIXTUR_RECEIPT), labels: ["var"] }));
   });

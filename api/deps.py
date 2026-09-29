@@ -2,6 +2,7 @@
 
 import logging
 import uuid
+from dataclasses import dataclass
 from typing import Optional
 
 from fastapi import Depends, Header, HTTPException, status
@@ -86,6 +87,30 @@ async def get_human_actor(api_key: str = Depends(verify_api_key)) -> str:
             headers={"WWW-Authenticate": "Bearer"},
         )
     return username
+
+
+@dataclass(frozen=True)
+class Caller:
+    """Who is calling: the agent's API key (`human=False`, actor `"api"`)
+    or a logged-in user (`human=True`, actor the username)."""
+
+    actor: str
+    human: bool
+
+
+async def get_caller(api_key: str = Depends(verify_api_key)) -> Caller:
+    """For a route that lets a human do on their own what the agent needs a
+    decision for (undoing a link, underlag-ersatt)."""
+    if api_key == settings.api_key:
+        return Caller(actor="api", human=False)
+    username = AuthService().verify_jwt(api_key).get("sub")
+    if not username:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return Caller(actor=username, human=True)
 
 
 async def get_idempotency_key(

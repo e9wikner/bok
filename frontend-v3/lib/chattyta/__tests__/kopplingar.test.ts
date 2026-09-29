@@ -5,7 +5,9 @@ import { VOUCHERS_NYCKEL } from "@/lib/chattyta/api";
 import {
   KOPPLINGAR_NYCKEL,
   NY_KOPPLING_MS,
+  kopplingBorttagen,
   kopplingKlar,
+  lasFrankoppling,
   lasKoppling,
   type Koppling,
 } from "@/lib/chattyta/kopplingar";
@@ -58,6 +60,29 @@ describe("lasKoppling", () => {
     expect(lasKoppling({ kind: "source_linked" })).toBeNull();
     expect(lasKoppling(null)).toBeNull();
     expect(lasKoppling("source_linked")).toBeNull();
+  });
+});
+
+describe("frånkoppling (underlag-ersatt)", () => {
+  it("lasFrankoppling läser source_unlinked och inget annat", () => {
+    expect(
+      lasFrankoppling({
+        view_key: "bocker.verifikationer",
+        changed: { voucher_id: "a118", source_id: "src-1", kind: "source_unlinked" },
+      })
+    ).toEqual({ voucherId: "a118" });
+    expect(lasFrankoppling({ changed: { voucher_id: "a118", kind: "source_linked" } })).toBeNull();
+    expect(lasFrankoppling({ kind: "source_unlinked" })).toBeNull();
+    expect(lasKoppling({ voucher_id: "a118", kind: "source_unlinked" })).toBeNull();
+  });
+
+  it("kopplingBorttagen tar klientens post om kopplingen", () => {
+    kopplingKlar(qc, "a118", "src-1");
+    kopplingKlar(qc, "a119", "src-2");
+    kopplingBorttagen(qc, "a118");
+    expect(kopplingar().map((k) => k.voucherId)).toEqual(["a119"]);
+    kopplingBorttagen(qc, "saknas");
+    expect(kopplingar()).toHaveLength(1);
   });
 });
 

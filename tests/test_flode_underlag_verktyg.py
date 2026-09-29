@@ -87,9 +87,15 @@ def test_36_koppla_underlag_is_last_and_the_first_twelve_are_unchanged():
     from services.agent_tools import AGENT_TOOL_DEFINITIONS, KopplaUnderlagArgs
 
     names = [t["name"] for t in AGENT_TOOL_DEFINITIONS]
-    # `stang_perioder` has since been appended after it, the fourteenth.
-    assert len(names) == 14
-    assert names[11:] == ["tolka_underlag", "koppla_underlag", "stang_perioder"]
+    # `stang_perioder` has since been appended after it, the fourteenth,
+    # and `koppla_bort_underlag` after that, the fifteenth.
+    assert len(names) == 15
+    assert names[11:] == [
+        "tolka_underlag",
+        "koppla_underlag",
+        "stang_perioder",
+        "koppla_bort_underlag",
+    ]
     first_twelve = json.dumps(AGENT_TOOL_DEFINITIONS[:12])
     assert hashlib.sha256(first_twelve.encode()).hexdigest() == _FIRST_TWELVE_SHA256
     assert AGENT_TOOL_DEFINITIONS[12]["input_schema"] == (
@@ -127,8 +133,8 @@ def test_fu5_the_docstrings_say_thirteen_tools():
 
     assert "thirteenth" in (agent_tools.__doc__ or "")
     assert "koppla_underlag" in (agent_tools.__doc__ or "")
-    # Fourteen since the period lock appended `stang_perioder`.
-    assert "fourteen" in (agent_tools.execute_tool.__doc__ or "")
+    # Fifteen since underlag-ersatt appended `koppla_bort_underlag`.
+    assert "fifteen" in (agent_tools.execute_tool.__doc__ or "")
 
 
 def test_01_exact_match_through_the_tool_in_a_thread(period_id):

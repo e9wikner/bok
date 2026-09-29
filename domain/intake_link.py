@@ -17,7 +17,7 @@ No logic here beyond `to_dict`. The checks live in
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 # §6.4: exactly one of two. `exact_match` without a human, `decision` with
 # an answered decision about the source.
@@ -37,6 +37,54 @@ class IntakeLinkBasis:
     agent_run_id: Optional[str] = None
     thread_id: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
+    #: The `voucher_intake_sources` row this is the basis of (migration
+    #: 034). Set by the service once the link is written.
+    link_id: Optional[str] = None
+
+
+# underlag-ersatt: an unlink is either a logged-in human's (the route with a
+# JWT) or rests on an answered decision about the underlag.
+UnlinkBasis = Literal["human", "decision"]
+
+
+@dataclass(frozen=True)
+class IntakeUnlink:
+    """One `voucher_intake_unlinks` row (migration 034): *link_id* no
+    longer holds. The link row itself stays."""
+
+    link_id: str
+    intake_source_id: str
+    voucher_id: str
+    basis: UnlinkBasis
+    reason: str
+    actor: str
+    decision_id: Optional[str] = None
+    agent_run_id: Optional[str] = None
+    thread_id: Optional[str] = None
+    created_at: datetime = field(default_factory=datetime.now)
+
+
+@dataclass(frozen=True)
+class UnlinkResult:
+    """What `koppla_bort_underlag` and `POST /intake/{id}/unlink` answer.
+    `orphaned_references` are the vouchers (numbers) booked on the underlag
+    through this link (D2, A-121 via A-118): their reference stands, but
+    whether they should be corrected is a human's call;
+    `missing_attachments` is the counter after the unlink."""
+
+    source_id: str
+    voucher_id: str
+    voucher_number: Optional[str]
+    link_id: str
+    basis: UnlinkBasis
+    decision_id: Optional[str]
+    reason: str
+    replayed: bool
+    orphaned_references: List[str]
+    missing_attachments: int
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass(frozen=True)

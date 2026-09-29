@@ -103,6 +103,29 @@ function verifikationIVyn(qc: QueryClient, voucherId: string): KopplingVerifikat
 }
 
 /**
+ * `view.changed`s kropp när den gäller en frånkoppling (underlag-ersatt,
+ * `kind: "source_unlinked"`), annars `null`.
+ */
+export function lasFrankoppling(data: unknown): { voucherId: string } | null {
+  if (!arObjekt(data)) return null;
+  const d = arObjekt(data.changed) ? data.changed : data;
+  if (d.kind !== "source_unlinked" || typeof d.voucher_id !== "string" || !d.voucher_id) return null;
+  return { voucherId: d.voucher_id };
+}
+
+/**
+ * Underlaget är bortkopplat: klientens post om kopplingen tas bort, så att
+ * raden inte längre står som `kvitto kopplat`. Omhämtningen som samma
+ * händelse gör flyttar den tillbaka till `Saknar underlag`.
+ */
+export function kopplingBorttagen(qc: QueryClient, voucherId: string): void {
+  const nu = lista(qc);
+  if (nu.some((k) => k.voucherId === voucherId)) {
+    skriv(qc, nu.filter((k) => k.voucherId !== voucherId));
+  }
+}
+
+/**
  * Händelsen kom: raden blir `Nyss kopplad`. Ögonblicksbilden tas INNAN
  * invalideringen hunnit hämta om listorna — då står verifikationen
  * fortfarande i `Saknar underlag`s svar.

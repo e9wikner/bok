@@ -78,6 +78,14 @@ class InterpretationRepository:
         return InterpretationRepository._row_to_interpretation(row) if row else None
 
     @staticmethod
+    def get(interpretation_id: str) -> Optional[Interpretation]:
+        """One interpretation by id, or `None`."""
+        row = db.execute(
+            "SELECT * FROM intake_interpretations WHERE id = ?", (interpretation_id,)
+        ).fetchone()
+        return InterpretationRepository._row_to_interpretation(row) if row else None
+
+    @staticmethod
     def count_for_source(source_id: str) -> int:
         """How many interpretations `source_id` has; `superseded_count` in
         §8 is this minus one."""

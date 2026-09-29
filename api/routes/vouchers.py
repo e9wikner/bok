@@ -350,7 +350,11 @@ async def get_voucher_source_context(
     # from it too.
     reference = VoucherSourceReferenceRepository.get_for_voucher(voucher_id)
     if reference is not None:
-        via_link = intake_repo.get_link_by_source_id(reference.intake_source_id)
+        # The link the reference went through, current or since undone:
+        # the reference stands either way (underlag-ersatt).
+        via_link = intake_repo.latest_link(
+            reference.intake_source_id, reference.via_voucher_id
+        )
         source = intake_repo.get_source(reference.intake_source_id)
         via = ledger.vouchers.get(reference.via_voucher_id)
         if source is not None and via_link is not None:
@@ -423,9 +427,29 @@ async def get_voucher_source_context(
             }
         )
 
+    # underlag-ersatt: underlag once linked here and since unlinked. Not
+    # `source_material` -- the voucher does not have it -- but the trace
+    # the replacement leaves, with who undid it and why.
+    unlinked_source_material = []
+    for link in intake_repo.list_unlinked_for_voucher(voucher_id):
+        source = intake_repo.get_source(link.intake_source_id)
+        if source is None:
+            continue
+        unlinked_source_material.append(
+            {
+                **_voucher_source_material(source, link),
+                "unlinked_at": (
+                    link.unlinked_at.isoformat() if link.unlinked_at else None
+                ),
+                "unlinked_by": link.unlinked_by,
+                "unlink_reason": link.unlink_reason,
+            }
+        )
+
     return {
         "voucher_id": voucher_id,
         "source_material": source_material,
+        "unlinked_source_material": unlinked_source_material,
         "processing_notes": sorted(
             processing_notes,
             key=lambda note: note["created_at"],

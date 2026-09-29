@@ -26,10 +26,20 @@ from domain.types import VoucherSeries, VoucherStatus
 # `voucher_source_references` -- a difference booked as its own voucher has
 # its underlag through the voucher carrying the receipt's link (D2).
 # Parenthesised as a whole: callers negate it (`NOT {MISSING_ATTACHMENT_SQL}`).
+#
+# Only *current* links count (migration 034, underlag-ersatt): a link with a
+# row in `voucher_intake_unlinks` has been undone and no longer gives the
+# voucher its underlag. A reference (D2) keeps counting after the link it
+# went through is undone -- A-121 still has the receipt and the decision as
+# its basis; the unlink names it so that a human can decide on a correction.
+CURRENT_LINK_SQL = (
+    "NOT EXISTS (SELECT 1 FROM voucher_intake_unlinks u WHERE u.link_id = {alias}.id)"
+)
 MISSING_ATTACHMENT_SQL = (
     "(NOT EXISTS (SELECT 1 FROM attachments a WHERE a.voucher_id = vouchers.id)"
     " AND NOT EXISTS (SELECT 1 FROM voucher_intake_sources vis"
-    " WHERE vis.voucher_id = vouchers.id)"
+    " WHERE vis.voucher_id = vouchers.id"
+    f" AND {CURRENT_LINK_SQL.format(alias='vis')})"
     " AND vouchers.created_by != 'sie4_import'"
     " AND vouchers.correction_of IS NULL"
     " AND NOT EXISTS (SELECT 1 FROM voucher_source_references vsr"
@@ -490,8 +500,8 @@ class VoucherRepository:
     def match_still_open(voucher_id: str, intake_source_id: str) -> bool:
         """`match.still_open` (SPEC-underlagstolkning.md §8), at read time:
         the voucher still lacks underlag by the shared predicate **and** the
-        source has no row in `voucher_intake_sources` (linked to neither
-        this voucher nor another). Reads only."""
+        source has no current row in `voucher_intake_sources` (linked to
+        neither this voucher nor another). Reads only."""
         row = db.execute(
             f"""
             SELECT EXISTS (
@@ -499,8 +509,9 @@ class VoucherRepository:
                        WHERE vouchers.id = ? AND {MISSING_ATTACHMENT_SQL}
                    )
                AND NOT EXISTS (
-                       SELECT 1 FROM voucher_intake_sources
-                       WHERE intake_source_id = ?
+                       SELECT 1 FROM voucher_intake_sources vis
+                       WHERE vis.intake_source_id = ?
+                         AND {CURRENT_LINK_SQL.format(alias='vis')}
                    ) AS still_open
             """,
             (voucher_id, intake_source_id),

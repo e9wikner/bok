@@ -247,6 +247,15 @@ class VoucherIntakeSource:
     linked_by: str
     linked_at: datetime = field(default_factory=datetime.now)
     link_reason: Optional[str] = None
+    # Set when the link has been undone (`voucher_intake_unlinks`, migration
+    # 034); `None` for a current link.
+    unlinked_at: Optional[datetime] = None
+    unlinked_by: Optional[str] = None
+    unlink_reason: Optional[str] = None
+
+    @property
+    def is_current(self) -> bool:
+        return self.unlinked_at is None
 
 
 @dataclass

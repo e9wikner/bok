@@ -150,7 +150,10 @@ const KONTROLLER: Record<InlaggsTyp, Kontroll> = {
     if (!Array.isArray(b.labels) || b.labels.length !== 2 || !b.labels.every(arStrang)) {
       return "labels är inte två strängar";
     }
-    if (!Array.isArray(b.rows) || b.rows.length === 0) return "rows saknas";
+    // Tom lista är tillåten: en frånkoppling (underlag-ersatt) av en koppling
+    // som inte gjordes på en jämförelse har inga tal att visa. Varje rad som
+    // finns ska ändå visa båda talen.
+    if (!Array.isArray(b.rows)) return "rows saknas";
     for (const r of b.rows) {
       if (!arObjekt(r) || saknar(r, { key: arStrang, text: arStrang })) {
         return "en rad saknar key eller text";

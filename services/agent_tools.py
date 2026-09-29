@@ -48,6 +48,12 @@ A fourteenth, ``stang_perioder``, locks a period or a whole fiscal year
 for the same reason. It can only lock: opening a period again is a human's
 call, made in the frontend, and there is no tool for it.
 
+A fifteenth, ``koppla_bort_underlag``, was added by ``underlag-ersatt``
+and appended after ``stang_perioder`` for the same reason. It undoes a
+wrong link on an answered decision about the underlag: a row in
+``voucher_intake_unlinks``, the link row itself left as the trace. It
+creates no voucher and changes none, and it is not terminal.
+
 ``posta_verifikation`` is the only tool that posts to the general ledger,
 and it goes through the exact same code as ``POST /api/v1/agent/vouchers``
 (``services/voucher_posting.post_agent_voucher``, A1) -- same
@@ -458,6 +464,16 @@ class KopplaUnderlagArgs(BaseModel):
     source_id: str
     voucher_id: str
     decision_id: Optional[str] = None
+
+
+class KopplaBortUnderlagArgs(BaseModel):
+    """Koppla bort ett felkopplat underlag från en postad verifikation
+    (underlag-ersatt). Beslutet är grunden; `reason` står i spåret."""
+
+    source_id: str
+    voucher_id: str
+    decision_id: str
+    reason: str = Field(..., min_length=1, max_length=500)
 
 
 # ---------------------------------------------------------------------------
@@ -1061,6 +1077,43 @@ def _run_koppla_underlag(
     )
 
 
+def _run_koppla_bort_underlag(
+    args: KopplaBortUnderlagArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """underlag-ersatt: undo a link on an answered decision. Not terminal.
+
+    Opens ``tool_context`` for the ``thread`` (the decision must be in it)
+    and the turn's ``agent_run_id``. Without a thread there is no decision
+    to rest on, and the service refuses with ``unlink_requires_decision``
+    -- the intake pass cannot unlink. Idempotent through the schema: a
+    link is undone once, and a second call is a replay.
+    """
+    context = tool_context or {}
+    thread = context.get("thread")
+
+    # Deferred import -- the same import-cycle rule as `_run_be_om_beslut`.
+    from services.intake_link import IntakeLinkService
+
+    return (
+        IntakeLinkService()
+        .unlink(
+            args.source_id,
+            args.voucher_id,
+            reason=args.reason,
+            actor=actor,
+            decision_id=args.decision_id if thread is not None else None,
+            thread_id=thread.id if thread is not None else None,
+            agent_run_id=context.get("agent_run_id"),
+        )
+        .to_dict()
+    )
+
+
 def _run_stang_perioder(
     args: StangPerioderArgs,
     *,
@@ -1236,6 +1289,17 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
         StangPerioderArgs,
         _run_stang_perioder,
     ),
+    (
+        "koppla_bort_underlag",
+        "Koppla bort ett underlag från en postad verifikation det felaktigt "
+        "kopplats till. Kräver decision_id för ett besvarat beslut om just "
+        "det underlaget, fattat efter kopplingen, och ett kort skäl. "
+        "Kopplingen står kvar som spår; underlaget kan sedan kopplas till "
+        "rätt verifikation med koppla_underlag och samma beslut. Skapar "
+        "ingen verifikation och ändrar ingen.",
+        KopplaBortUnderlagArgs,
+        _run_koppla_bort_underlag,
+    ),
 )
 
 #: Anthropic tool-definition shape: {"name", "description", "input_schema"}.
@@ -1264,8 +1328,9 @@ def execute_tool(
     idempotency_key: Optional[str] = None,
     tool_context: Optional[Mapping[str, Any]] = None,
 ) -> Any:
-    """Validate and run one model-requested tool call -- one of the fourteen
-    tools in ``_TOOL_SPECS``, the last of them ``stang_perioder``.
+    """Validate and run one model-requested tool call -- one of the fifteen
+    tools in ``_TOOL_SPECS``, the last of them ``koppla_bort_underlag``
+    (the fourteenth is ``stang_perioder``).
 
     ``idempotency_key`` is the caller's own key for a posting made during
     this session, and only ``posta_verifikation`` reads it -- the thread
@@ -1286,7 +1351,8 @@ def execute_tool(
     (``thread`` and ``agent_run_id``, SPEC-underlagstolkning.md §6.6) and
     works without it. ``koppla_underlag`` opens the same two: the thread
     binds a decision to it, and without one only an exact match links
-    (SPEC-flode-underlag.md §6.7). It is handed to every handler rather than branched on here, for
+    (SPEC-flode-underlag.md §6.7). ``koppla_bort_underlag`` opens the
+    same two, and needs the thread for its decision. It is handed to every handler rather than branched on here, for
     the same reason ``idempotency_key`` is: the dispatcher stays a table
     lookup with no special case in it.
 

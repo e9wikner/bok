@@ -374,7 +374,7 @@ def test_30_repository_has_no_update_or_delete():
     """The second of §5's three layers: nothing in the repository rewrites
     or removes a row."""
     public = {n for n in vars(InterpretationRepository) if not n.startswith("_")}
-    assert public == {"insert", "latest_for_source", "count_for_source"}
+    assert public == {"insert", "get", "latest_for_source", "count_for_source"}
     source = (REPO_ROOT / "repositories" / "interpretation_repo.py").read_text(
         encoding="utf-8"
     )
@@ -2258,7 +2258,7 @@ def test_34_tolka_underlag_is_twelfth_and_the_first_eleven_are_unchanged():
     it."""
     from services.agent_tools import AGENT_TOOL_DEFINITIONS, TolkaUnderlagArgs
 
-    assert len(AGENT_TOOL_DEFINITIONS) == 14
+    assert len(AGENT_TOOL_DEFINITIONS) == 15
     assert [t["name"] for t in AGENT_TOOL_DEFINITIONS][10:12] == [
         "foresla_verifikation",
         "tolka_underlag",
@@ -2284,8 +2284,8 @@ def test_u7_the_docstrings_say_twelve_tools():
 
     assert "twelfth" in (agent_tools.__doc__ or "")
     assert "tolka_underlag" in (agent_tools.__doc__ or "")
-    # Fourteen since the period lock appended `stang_perioder`.
-    assert "fourteen" in (agent_tools.execute_tool.__doc__ or "")
+    # Fifteen since underlag-ersatt appended `koppla_bort_underlag`.
+    assert "fifteen" in (agent_tools.execute_tool.__doc__ or "")
 
 
 # ---------------------------------------------------------------------------

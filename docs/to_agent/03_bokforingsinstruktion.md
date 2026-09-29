@@ -104,6 +104,20 @@ Därför:
    nytt underlag eller säg vad som inte stämmer; `checks` visar vilken kontroll
    som inte gick igenom.
 9. **Efter en koppling:** skriv en mening om kopplingen. Mer behövs inte.
+10. **Fel koppling:** säger användaren att ett underlag är kopplat till fel
+    verifikation, lägg fram ett beslut med `be_om_beslut` och
+    `source: {"kind": "intake_source", "id": …}`. Nämn verifikationen det är
+    kopplat till nu i `reason`. Alternativen är *Koppla till A-117 i stället*
+    (den verifikation användaren pekar ut), *Koppla bort utan ny koppling* och
+    *Låt kopplingen stå* (`is_exit`). När beslutet är besvarat: koppla bort med
+    `koppla_bort_underlag`, beslutets `decision_id` och ett kort skäl. Koppla
+    sedan till rätt verifikation med `koppla_underlag` och samma `decision_id`.
+    Står den verifikationen inte i tolkningen, tolka om med `expected_voucher_id`
+    först. Kopplingen tas aldrig bort, den står kvar som spår. Nämner svaret
+    `orphaned_references`, säg att de verifikationerna bokfördes på underlaget
+    och fråga om de ska rättas. Ett underlag som kopplats bort kopplas inte
+    tillbaka till samma verifikation utan ett nytt beslut. Utan tråd, i ett
+    underlagspass, kan ingenting kopplas bort.
 
 **`hypothesis`:** återge den som en hypotes, inte som ett faktum: "skillnaden
 ser ut att motsvara raden ...". Är `hypothesis = null` förklarar ingen rad på

@@ -78,19 +78,22 @@ export function JamforelseRader({ kropp }: { kropp: ReceiptKropp }) {
   return (
     <div data-testid="jamforelse" className="flex max-w-[560px] flex-col gap-2">
       <span className="text-[14px] font-medium">{kropp.title}</span>
-      <Ram>
-        <div
-          data-testid="jamforelse-etiketter"
-          className="flex justify-end gap-4 border-b border-bok-linje-svag px-4 py-2"
-        >
-          <span className={`bok-mono text-[11px] text-bok-meta ${TALKOLUMN}`}>{vanster}</span>
-          <span className={`bok-mono text-[11px] text-bok-meta ${TALKOLUMN}`}>{hoger}</span>
-        </div>
-        {kropp.rows.map((r, i) => (
-          // `key` är inte garanterat unikt (samma konto kan stå två gånger).
-          <Rad key={`${r.key}-${i}`} nyckel={r.key} text={r.text} tal={[r.left_ore, r.right_ore]} />
-        ))}
-      </Ram>
+      {/* Utan rader ingen ram: en frånkoppling kan sakna jämförelse. */}
+      {kropp.rows.length > 0 && (
+        <Ram>
+          <div
+            data-testid="jamforelse-etiketter"
+            className="flex justify-end gap-4 border-b border-bok-linje-svag px-4 py-2"
+          >
+            <span className={`bok-mono text-[11px] text-bok-meta ${TALKOLUMN}`}>{vanster}</span>
+            <span className={`bok-mono text-[11px] text-bok-meta ${TALKOLUMN}`}>{hoger}</span>
+          </div>
+          {kropp.rows.map((r, i) => (
+            // `key` är inte garanterat unikt (samma konto kan stå två gånger).
+            <Rad key={`${r.key}-${i}`} nyckel={r.key} text={r.text} tal={[r.left_ore, r.right_ore]} />
+          ))}
+        </Ram>
+      )}
       {kropp.note !== undefined && (
         // Serverns hypotes (SPEC-flode-underlag.md D7): mono 12 #52525b, som
         // förslagskortets konsekvensnotis — läsbar, inte metatext.

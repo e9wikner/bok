@@ -111,6 +111,7 @@ _TRACE_LABELS = {
     "tolka_underlag": "underlaget tolkat",
     "koppla_underlag": "underlaget kopplat",
     "stang_perioder": "perioder låsta",
+    "koppla_bort_underlag": "underlaget bortkopplat",
 }
 
 
