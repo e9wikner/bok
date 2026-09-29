@@ -12,6 +12,17 @@ from db.database import db
 from domain.invoice_models import CreditNote, Invoice, InvoiceRow, Payment
 
 
+def _col(row, name: str):
+    """A column that only exists after a later migration, or None."""
+    return row[name] if name in row.keys() else None
+
+
+def _as_date(value) -> Optional[date]:
+    if value is None or isinstance(value, date):
+        return value
+    return date.fromisoformat(str(value)[:10])
+
+
 class InvoiceRepository:
     """Manage invoices."""
 
@@ -152,6 +163,12 @@ class InvoiceRepository:
                         else None
                     ),
                     created_at=datetime.fromisoformat(row_data["created_at"]),
+                    quantity_centi=_col(row_data, "quantity_centi"),
+                    unit=_col(row_data, "unit") or "st",
+                    delivery_from=_as_date(_col(row_data, "delivery_from")),
+                    delivery_to=_as_date(_col(row_data, "delivery_to")),
+                    delivery_month=_col(row_data, "delivery_month"),
+                    article_number=_col(row_data, "article_number"),
                 )
             )
 
@@ -178,6 +195,10 @@ class InvoiceRepository:
             created_at=datetime.fromisoformat(row["created_at"]),
             created_by=row["created_by"],
             sent_at=sent_at,
+            customer_address=_col(row, "customer_address"),
+            customer_reference=_col(row, "customer_reference"),
+            payment_terms_days=_col(row, "payment_terms_days"),
+            source_draft_id=_col(row, "source_draft_id"),
         )
 
     @staticmethod

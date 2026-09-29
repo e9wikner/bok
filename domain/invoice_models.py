@@ -32,6 +32,14 @@ class InvoiceRow:
     amount_inc_vat: int  # amount_ex_vat + vat_amount
     revenue_account: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
+    # SPEC-fakturering.md §4.2 (migration 038). Old rows have quantity * 100
+    # and 'st', and no delivery.
+    quantity_centi: Optional[int] = None
+    unit: str = "st"
+    delivery_from: Optional[date] = None
+    delivery_to: Optional[date] = None
+    delivery_month: Optional[str] = None  # YYYY-MM
+    article_number: Optional[str] = None
 
 
 @dataclass
@@ -56,6 +64,11 @@ class Invoice:
     created_at: datetime = field(default_factory=datetime.now)
     created_by: str = "system"
     sent_at: Optional[datetime] = None
+    # SPEC-fakturering.md §4.3–4.4 (migration 038). Empty on old invoices.
+    customer_address: Optional[str] = None
+    customer_reference: Optional[str] = None  # Er referens
+    payment_terms_days: Optional[int] = None
+    source_draft_id: Optional[str] = None
 
     def is_draft(self) -> bool:
         """Check if invoice is still draft."""

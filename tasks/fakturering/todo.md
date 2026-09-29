@@ -13,7 +13,7 @@ Spec: `docs/redesign/SPEC-fakturering.md`. Tester först, en uppgift i taget.
       Testfall 12.
 - [x] 5. `CompanyInfo` ur `company_info`, med nya nycklar `seat` och `f_skatt`,
       och fullständighetskontroll (§6). Testfall 11.
-- [ ] 6. Mallen `templates/pdf/invoice.html` efter förlagan (§6.1), med ett
+- [x] 6. Mallen `templates/pdf/invoice.html` efter förlagan (§6.1), med ett
       inbäddat monospace-typsnitt. Testfall 13 och 15.
 - [ ] 7. `InvoiceIssueService.issue` i en transaktion (§5), med PDF lagrad och
       kopplad som underlag. Testfall 1–7.

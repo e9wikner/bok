@@ -893,7 +893,6 @@ def test_12_decimal_quantity_in_draft_and_preview(books, client, auth_headers):
 # --- 13, 15: PDF:ens innehåll (uppgift 6) -----------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="F0 uppgift 6")
 def test_13_pdf_has_every_required_detail(test_db):
     _set_company_info(_COMPANY)
     invoice_id = _insert_issued_invoice(
@@ -986,7 +985,6 @@ def test_13_pdf_has_every_required_detail(test_db):
     assert all(embedded for _, embedded in courier)
 
 
-@pytest.mark.xfail(strict=True, reason="F0 uppgift 6")
 def test_15_the_model_invoice_recreated(test_db):
     """Förlagan nr 101282: QRTECH, 28 h à 800 kr, 25 %. Den visuella
     jämförelsen mot förlagan görs för hand och sparas inte i repot."""
