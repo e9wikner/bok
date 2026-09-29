@@ -546,10 +546,12 @@ def _assert_linking_rules(text: str) -> None:
     assert "verifikationsnumret, beloppet och datumet" in section
     assert "säg varför underlaget behövs för just den verifikationen" in section
 
-    # 2. Say you read the file; nothing linked without a yes but the exact.
-    assert "säg att du läser den innan du anropar verktygen" in section
+    # 2. Nothing linked without a yes but the exact. The old "say you read
+    # the file" is gone: SPEC-lasbarhet.md §4.2, the agent does not narrate
+    # its tools.
+    assert "säg att du läser den" not in section
     assert (
-        "Ingenting kopplas förrän människan har sagt ja, utom vid exakt match"
+        "Ingenting kopplas förrän användaren har sagt ja, utom vid exakt match"
         in section
     )
 
@@ -591,8 +593,12 @@ def _assert_linking_rules(text: str) -> None:
     # 8. Low confidence: ask for a new underlag, do not link.
     assert "gissa inte fram ett belopp och koppla inte" in section
 
-    # 9. After a link: name the next one missing, with its age.
-    assert "nämn nästa verifikation som saknar underlag, med dess ålder" in section
+    # 9. After a link: name the next one missing, with its number, amount
+    # and age (SPEC-lasbarhet.md §4.2).
+    assert (
+        "nämn nästa verifikation som saknar underlag, med nummer, belopp och "
+        "ålder" in section
+    )
 
     # The stop list names the link.
     stop = instruction[instruction.index("## Stopplista") :]
@@ -630,3 +636,67 @@ def test_agent_system_access_doc_does_not_advertise_removed_schema_routes():
     assert "GET /api/v1/agent/spec/openapi" not in text
     assert "POST /api/v1/agent/spec/tools" not in text
     assert "finns inte i aktuell version" in text
+
+
+ACCOUNTING_DOC_PATH = Path("docs/to_agent/03_bokforingsinstruktion.md")
+
+
+def _thread_writing_section(text: str) -> str:
+    """The section "Att skriva i en tråd" (SPEC-lasbarhet.md §4.2, M3),
+    sliced out of the accounting instruction."""
+    instruction = text[text.index("# Bokföringsinstruktion för svensk redovisning") :]
+    heading = "## Att skriva i en tråd"
+    assert heading in instruction
+    start = instruction.index(heading)
+    # After the agent's writing rules, before the stop list.
+    assert instruction.index("## Skrivregler för agenten") < start
+    return instruction[start : instruction.index("## Stopplista")]
+
+
+def _bullets(section: str) -> list[str]:
+    """The section's bullets, flattened and without emphasis markers."""
+    return [
+        _flat(chunk).replace("**", "").lower() for chunk in section.split("\n- ")[1:]
+    ]
+
+
+def _assert_thread_writing_rules(text: str) -> None:
+    section = _thread_writing_section(text)
+    bullets = _bullets(section)
+
+    # After be_om_beslut the final answer is one sentence pointing at the
+    # decision, without repeating the card.
+    after_decision = [
+        b
+        for b in bullets
+        if "`be_om_beslut`" in b and "slutsvar" in b and "en mening" in b
+    ]
+    assert after_decision, "no rule on the final answer after be_om_beslut"
+    assert "upprepa inte" in after_decision[0]
+
+    # The final answer is at most three sentences otherwise.
+    assert any("slutsvar" in b and "tre meningar" in b for b in bullets)
+
+    # The decision's own fields are short.
+    fields = [b for b in bullets if "`reason`" in b and "`consequence`" in b]
+    assert fields and "`rationale`" in fields[0]
+
+    # The user is "du"; the agent does not narrate its tools.
+    assert any('"du"' in b and '"människan"' in b for b in bullets)
+    assert any("verktyg" in b and "skriv resultatet" in b for b in bullets)
+
+    # After a posting, the number; after a link, the next one missing.
+    assert any("postning" in b and "verifikationsnumret" in b for b in bullets)
+    assert any("koppling" in b and "ålder" in b for b in bullets)
+
+
+def test_accounting_instruction_has_the_thread_writing_section():
+    """SPEC-lasbarhet.md M3: the file itself carries the section."""
+    _assert_thread_writing_rules(ACCOUNTING_DOC_PATH.read_text(encoding="utf-8"))
+
+
+def test_runtime_system_prompt_has_the_thread_writing_section(test_db):
+    """M3, the runtime's side: the section reaches the model's system prompt."""
+    from services.agent_session import build_system_prompt
+
+    _assert_thread_writing_rules(build_system_prompt())
