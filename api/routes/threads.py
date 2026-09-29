@@ -372,7 +372,11 @@ async def stream_thread(
         _events(),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
+            # `no-transform`: `/v4` reaches this through the Next server's
+            # `/api` rewrite, and its `compress` gzips a proxied response when
+            # the browser asks -- gzip buffers, so nothing arrived until the
+            # turn ended. Next's `compression` skips `no-transform`.
+            "Cache-Control": "no-cache, no-transform",
             "Connection": "keep-alive",
             # Nginx and friends buffer `text/event-stream` by default, which
             # turns every delta into a delivery that arrives with the last

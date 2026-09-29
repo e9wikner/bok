@@ -2763,6 +2763,36 @@ class TestStreamReconnect:
 
         assert get_broker().subscriber_count(thread.id) == 0
 
+    @pytest.mark.asyncio
+    async def test_the_stream_forbids_compressing_proxies(self, current_fiscal_year):
+        """`/v4` reaches the stream through the Next server's `/api` rewrite,
+        whose `compress` gzips a proxied response when the browser asks for
+        it -- and gzip buffers, so every delta arrived with the turn's last
+        one (found on hubbabubba 2026-09-29: 10 bytes in 5 s through :3000,
+        the whole replay direct on :8000). `no-transform` is what Next's
+        `compression` honours, and any other proxy should too."""
+        thread = ThreadRepository.get_or_create(
+            view_key="bocker.balans",
+            fiscal_year_id=current_fiscal_year.id,
+            model="opencode/claude-opus-5",
+        )
+        ThreadRepository.add_post(
+            thread_id=thread.id,
+            post_type="agent_text",
+            actor="agent",
+            body={"text": "a"},
+        )
+
+        response = await stream_thread(
+            view_key="bocker.balans", request=_FakeRequest(), since=0, actor="api"
+        )
+        await _collect_frames(response, expected=1)
+
+        cache_control = response.headers["cache-control"]
+        assert "no-transform" in cache_control
+        assert "no-cache" in cache_control
+        assert response.headers["x-accel-buffering"] == "no"
+
     def test_a_stream_for_a_view_without_a_thread_is_404(
         self, client, auth_headers, current_fiscal_year
     ):
