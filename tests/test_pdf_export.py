@@ -9,7 +9,8 @@ from api.main import app
 
 
 @pytest.fixture
-def client():
+def client(test_db):
+    # Without company query parameters the route reads `company_info`.
     return TestClient(app)
 
 

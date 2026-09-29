@@ -13,34 +13,60 @@ router = APIRouter(prefix="/api/v1/export/pdf", tags=["export-pdf"])
 
 
 def _get_pdf_service(
-    company_name: str = Query("Mitt Företag AB", description="Företagsnamn"),
-    org_number: str = Query("", description="Organisationsnummer"),
-    vat_number: str = Query("", description="Momsregistreringsnummer"),
-    address: str = Query("", description="Företagsadress"),
-    phone: str = Query("", description="Telefon"),
-    email: str = Query("", description="E-post"),
-    website: str = Query("", description="Webbplats"),
-    bankgiro: str = Query("", description="Bankgiro"),
-    plusgiro: str = Query("", description="Plusgiro"),
-    swish: str = Query("", description="Swish-nummer"),
-    iban: str = Query("", description="IBAN"),
-    bic: str = Query("", description="BIC/SWIFT"),
-    logo_url: str = Query("", description="URL till logotyp"),
+    company_name: Optional[str] = Query(None, description="Företagsnamn"),
+    org_number: Optional[str] = Query(None, description="Organisationsnummer"),
+    vat_number: Optional[str] = Query(None, description="Momsregistreringsnummer"),
+    address: Optional[str] = Query(None, description="Företagsadress"),
+    phone: Optional[str] = Query(None, description="Telefon"),
+    email: Optional[str] = Query(None, description="E-post"),
+    website: Optional[str] = Query(None, description="Webbplats"),
+    bankgiro: Optional[str] = Query(None, description="Bankgiro"),
+    plusgiro: Optional[str] = Query(None, description="Plusgiro"),
+    swish: Optional[str] = Query(None, description="Swish-nummer"),
+    iban: Optional[str] = Query(None, description="IBAN"),
+    bic: Optional[str] = Query(None, description="BIC/SWIFT"),
+    logo_url: Optional[str] = Query(None, description="URL till logotyp"),
 ) -> PDFExportService:
-    """Build PDFExportService from query params (company info)."""
+    """Build PDFExportService with the company info for headers and footers.
+
+    With no company query parameter at all, the details come from
+    `company_info` (`CompanyInfo.load()`). As soon as one is given, the
+    parameters are used as before and `company_info` is not read.
+    """
+    params = [
+        company_name,
+        org_number,
+        vat_number,
+        address,
+        phone,
+        email,
+        website,
+        bankgiro,
+        plusgiro,
+        swish,
+        iban,
+        bic,
+        logo_url,
+    ]
+    if all(p is None for p in params):
+        company = CompanyInfo.load()
+        if not company.name:
+            company.name = CompanyInfo.name
+        return PDFExportService(company=company)
+
     company = CompanyInfo(
-        name=company_name,
-        org_number=org_number,
-        vat_number=vat_number,
-        address=address,
-        phone=phone,
-        email=email,
-        website=website,
-        bankgiro=bankgiro,
-        plusgiro=plusgiro,
-        swish=swish,
-        iban=iban,
-        bic=bic,
+        name=company_name if company_name is not None else CompanyInfo.name,
+        org_number=org_number or "",
+        vat_number=vat_number or "",
+        address=address or "",
+        phone=phone or "",
+        email=email or "",
+        website=website or "",
+        bankgiro=bankgiro or "",
+        plusgiro=plusgiro or "",
+        swish=swish or "",
+        iban=iban or "",
+        bic=bic or "",
         logo_url=logo_url or None,
         f_skatt=True,
     )

@@ -7,9 +7,10 @@ Falls back gracefully if WeasyPrint is not available (requires system libraries)
 import base64
 import io
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import qrcode
 from jinja2 import Environment, FileSystemLoader
@@ -23,6 +24,8 @@ except (ImportError, OSError):
     WEASYPRINT_AVAILABLE = False
     HTML = None  # type: ignore
 
+from domain.validation import ValidationError
+from repositories.company_info_repo import CompanyInfoRepository
 from repositories.period_repo import PeriodRepository
 from services.invoice import InvoiceService
 from services.k2_report import K2ReportService
@@ -51,12 +54,69 @@ class CompanyInfo:
     bic: str = ""
     f_skatt: bool = True
     contact_person: str = ""
+    seat: str = ""
+    postnr: str = ""
+    postort: str = ""
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "CompanyInfo":
         """Create from dictionary, ignoring unknown keys."""
         known = {f.name for f in cls.__dataclass_fields__.values()}
         return cls(**{k: v for k, v in data.items() if k in known})
+
+    @classmethod
+    def load(cls) -> "CompanyInfo":
+        """Read the seller's details from `company_info` (SPEC-fakturering.md §6).
+
+        The keys are the field names. `f_skatt` is stored as the string
+        `"true"`; anything else, or no key, is False. Older rows name the
+        contact person `contact_name` (the company-info route and the SIE
+        import write that key); it is used when `contact_person` is absent.
+        """
+        values = CompanyInfoRepository.get_all()
+        data: Dict[str, Any] = {
+            name: (values.get(name) or "").strip()
+            for name in cls.__dataclass_fields__
+            if name not in ("f_skatt", "logo_url")
+        }
+        if not data["contact_person"]:
+            data["contact_person"] = (values.get("contact_name") or "").strip()
+        data["logo_url"] = values.get("logo_url") or None
+        data["f_skatt"] = _parse_bool(values.get("f_skatt"))
+        return cls(**data)
+
+    def missing_for_invoice(self) -> List[str]:
+        """The keys an invoice requires that are absent or malformed (§6)."""
+        missing = [
+            key
+            for key in ("name", "address", "org_number", "seat")
+            if not (getattr(self, key) or "").strip()
+        ]
+        if not VAT_NUMBER_RE.fullmatch(self.vat_number or ""):
+            missing.append("vat_number")
+        if not (self.bankgiro or "").strip() and not (self.plusgiro or "").strip():
+            missing.append("bankgiro_or_plusgiro")
+        return missing
+
+    def check_complete_for_invoice(self) -> None:
+        """Raise `company_info_incomplete` listing every missing key (§6)."""
+        missing = self.missing_for_invoice()
+        if missing:
+            raise ValidationError(
+                code="company_info_incomplete",
+                message="Company info is incomplete for issuing an invoice",
+                details=f"missing: {', '.join(missing)}",
+                payload={"missing": missing},
+            )
+
+
+# Momsregistreringsnummer: SE + organisationsnumrets 10 siffror + 01, utan
+# bindestreck eller mellanslag (SPEC-fakturering.md §6).
+VAT_NUMBER_RE = re.compile(r"SE\d{10}01")
+
+
+def _parse_bool(value: Optional[str]) -> bool:
+    return (value or "").strip().lower() in ("true", "1", "yes", "ja")
 
 
 # --- Template filters ---

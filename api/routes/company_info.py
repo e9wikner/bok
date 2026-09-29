@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from api.deps import get_current_actor, verify_api_key
 from db.database import get_db
+from repositories.company_info_repo import CompanyInfoRepository
 
 router = APIRouter(prefix="/api/v1/company-info", tags=["company-info"])
 
@@ -20,9 +21,21 @@ class CompanyInfoResponse(BaseModel):
     postort: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
+    website: Optional[str] = None
+    seat: Optional[str] = None
+    vat_number: Optional[str] = None
+    bankgiro: Optional[str] = None
+    plusgiro: Optional[str] = None
+    f_skatt: bool = False
 
 
 class CompanyInfoUpdate(BaseModel):
+    """Only the fields sent are written; `null` or `""` removes a field.
+
+    A client that does not know a field (e.g. an older settings page without
+    `seat`) therefore leaves it as it is.
+    """
+
     name: str
     org_number: str
     contact_name: Optional[str] = None
@@ -31,6 +44,12 @@ class CompanyInfoUpdate(BaseModel):
     postort: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
+    website: Optional[str] = None
+    seat: Optional[str] = None
+    vat_number: Optional[str] = None
+    bankgiro: Optional[str] = None
+    plusgiro: Optional[str] = None
+    f_skatt: Optional[bool] = None
 
 
 COMPANY_INFO_KEYS = [
@@ -42,14 +61,12 @@ COMPANY_INFO_KEYS = [
     "postort",
     "email",
     "phone",
+    "website",
+    "seat",
+    "vat_number",
+    "bankgiro",
+    "plusgiro",
 ]
-
-
-def _read_company_info() -> dict:
-    db = get_db()
-    rows = db.execute("SELECT key, value FROM company_info").fetchall()
-    values = {row["key"]: row["value"] for row in rows}
-    return {key: values.get(key) for key in COMPANY_INFO_KEYS}
 
 
 @router.get("", response_model=CompanyInfoResponse)
@@ -58,16 +75,10 @@ async def get_company_info(
     api_key: str = Depends(verify_api_key),
 ):
     """Return editable company metadata."""
-    values = _read_company_info()
+    values = CompanyInfoRepository.get_all()
     return CompanyInfoResponse(
-        name=values.get("name") or "",
-        org_number=values.get("org_number") or "",
-        contact_name=values.get("contact_name"),
-        address=values.get("address"),
-        postnr=values.get("postnr"),
-        postort=values.get("postort"),
-        email=values.get("email"),
-        phone=values.get("phone"),
+        **{key: values.get(key) for key in COMPANY_INFO_KEYS if values.get(key)},
+        f_skatt=(values.get("f_skatt") or "").strip().lower() == "true",
     )
 
 
@@ -78,29 +89,13 @@ async def update_company_info(
     api_key: str = Depends(verify_api_key),
 ):
     """Update editable company metadata."""
-    db = get_db()
+    sent = payload.model_fields_set
     values = payload.model_dump()
-    for key in COMPANY_INFO_KEYS:
-        value = values.get(key)
-        if value is None:
-            db.execute("DELETE FROM company_info WHERE key = ?", (key,))
-            continue
-
-        normalized = value.strip() if isinstance(value, str) else value
-        if normalized == "":
-            db.execute("DELETE FROM company_info WHERE key = ?", (key,))
-            continue
-
-        db.execute(
-            """
-            INSERT INTO company_info (key, value, updated_at)
-            VALUES (?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(key) DO UPDATE SET
-                value = excluded.value,
-                updated_at = CURRENT_TIMESTAMP
-            """,
-            (key, normalized),
-        )
-    db.commit()
+    updates = {key: values[key] for key in COMPANY_INFO_KEYS if key in sent}
+    if "f_skatt" in sent:
+        f_skatt = values["f_skatt"]
+        updates["f_skatt"] = None if f_skatt is None else str(f_skatt).lower()
+    CompanyInfoRepository.set_values(updates)
+    get_db().commit()
 
     return await get_company_info(actor=actor, api_key=api_key)

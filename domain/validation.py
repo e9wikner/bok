@@ -1,6 +1,6 @@
 """Business rule validation."""
 
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from domain.models import FiscalYear, Period, Voucher
 
@@ -8,10 +8,18 @@ from domain.models import FiscalYear, Period, Voucher
 class ValidationError(Exception):
     """Business validation error."""
 
-    def __init__(self, code: str, message: str, details: Optional[str] = None):
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        details: Optional[str] = None,
+        payload: Optional[Dict[str, Any]] = None,
+    ):
         self.code = code
         self.message = message
         self.details = details
+        # Data the caller needs to act on the error (e.g. `missing`).
+        self.payload: Dict[str, Any] = payload or {}
         super().__init__(f"{code}: {message}")
 
 

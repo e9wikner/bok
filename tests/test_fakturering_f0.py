@@ -767,7 +767,6 @@ def test_14b_the_old_invoice_routes_are_gone(client, books, customer, auth_heade
 # --- 11: säljarens uppgifter (uppgift 5) ------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="F0 uppgift 5")
 def test_11_incomplete_company_info_lists_everything_missing(test_db):
     from domain.validation import ValidationError
     from services.pdf_export import CompanyInfo
@@ -796,7 +795,6 @@ def test_11_incomplete_company_info_lists_everything_missing(test_db):
     CompanyInfo.load().check_complete_for_invoice()
 
 
-@pytest.mark.xfail(strict=True, reason="F0 uppgift 5")
 def test_11c_vat_number_format_is_checked(test_db):
     from domain.validation import ValidationError
     from services.pdf_export import CompanyInfo

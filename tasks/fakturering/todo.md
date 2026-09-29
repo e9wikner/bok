@@ -11,7 +11,7 @@ Spec: `docs/redesign/SPEC-fakturering.md`. Tester först, en uppgift i taget.
       fortfarande gå igenom.
 - [x] 4. Decimalt antal och enhet i utkast och förhandsberäkning (§4.2).
       Testfall 12.
-- [ ] 5. `CompanyInfo` ur `company_info`, med nya nycklar `seat` och `f_skatt`,
+- [x] 5. `CompanyInfo` ur `company_info`, med nya nycklar `seat` och `f_skatt`,
       och fullständighetskontroll (§6). Testfall 11.
 - [ ] 6. Mallen `templates/pdf/invoice.html` efter förlagan (§6.1), med ett
       inbäddat monospace-typsnitt. Testfall 13 och 15.
