@@ -222,8 +222,42 @@ GET /api/v1/agent-instructions/invoicing
 GET /api/v1/invoice-drafts
 ```
 
-Fakturautkast kan skapas och ändras av agenten. Bokföring sker först när fakturan
-skickas enligt systemets fakturaflöde.
+Agenten skapar och ändrar fakturautkast, men utfärdar aldrig:
+
+```http
+POST /api/v1/invoice-drafts
+PUT /api/v1/invoice-drafts/{draft_id}
+```
+
+Utkastet har `invoice_number`, `customer_address`, `reference` (Er referens) och
+rader med `description`, `quantity` (decimalt), `unit`, `unit_price` i öre,
+`vat_code` och `article_number`. `delivery_from`/`delivery_to` eller
+`delivery_month` sätts på utkastet eller per rad.
+
+`POST /api/v1/invoice-drafts/{draft_id}/issue` kräver att användaren är
+inloggad; agenten får `403 human_only`. Först när användaren utfärdar bokförs
+fakturan (1510 / 30xx / 26xx) och PDF:en skapas. Användaren laddar ner PDF:en
+och skickar den själv. Bok skickar ingenting.
+
+Fakturanummer:
+
+- Läs de senast utfärdade fakturornas nummer (`GET /api/v1/invoices`) och föreslå
+  nästa i samma serie, t.ex. `101282` → `101283` eller `2026-13` → `2026-14`.
+- Finns ingen utfärdad faktura: fråga användaren vilket nummer den senaste
+  fakturan utanför Bok hade.
+- Numret får inte vara bara ett datum.
+- Vid `number_taken`: föreslå ett nytt nummer. Försök inte igen med samma.
+- Kreditfakturor och påminnelsefakturor ska också ha unika nummer.
+
+Innehåll:
+
+- Kundens fullständiga namn, utan förkortningar, och adress.
+- Leveransdatum, eller leveransperiod eller leveransmånad om det exakta datumet
+  inte är känt — per rad om raderna skiljer sig.
+- Antal med enhet (`h`, `st`).
+- Betalningsvillkor enligt kunden.
+
+Vid `company_info_incomplete`: be användaren om fälten i `missing`, i en fråga.
 
 ## När agenten ska avstå
 

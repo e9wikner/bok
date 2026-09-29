@@ -20,7 +20,7 @@ Spec: `docs/redesign/SPEC-fakturering.md`. Tester först, en uppgift i taget.
 - [x] 8. Routes: `POST /invoice-drafts/{id}/issue` (JWT, felmappning) och
       `GET /invoices/{id}/pdf`. Ta bort `POST /invoices`, `/send`, `/book` och
       `/invoice-drafts/{id}/send` (§7). Testfall 9, 10 och 14.
-- [ ] 9. Agentinstruktionen i `docs/to_agent/` (§8). Kör
+- [x] 9. Agentinstruktionen i `docs/to_agent/` (§8). Kör
       `tests/test_agent_entrypoint.py`.
 - [ ] 10. Frontend (gamla sidor): nya fält i utkastformuläret, `/issue`, PDF-länk.
 - [ ] 11. black, isort, flake8, pytest. Uppdatera `AGENTS.md`: utfärdade
