@@ -47,6 +47,9 @@ const useTrad = vi.fn(
     skicka: async () => true,
     laddar: false,
     fel: null,
+    kontextFran: 0,
+    nollstalldVid: null,
+    nollstall: async () => true,
   })
 );
 vi.mock("@/hooks/useTrad", () => ({ useTrad: (vk: string) => useTrad(vk) }));

@@ -355,6 +355,9 @@ describe("skalets ytor ger korten vyns nyckel (testfall 20)", () => {
       skicka: async () => true,
       laddar: false,
       fel: null,
+      kontextFran: 0,
+      nollstalldVid: null,
+      nollstall: async () => true,
     };
     get.mockResolvedValue(svar([beslut({ id: "d-1", status: "answered" })]));
   });

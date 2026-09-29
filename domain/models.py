@@ -421,6 +421,12 @@ class Thread:
     fiscal_year_id: str
     model: str
     created_at: datetime = field(default_factory=datetime.now)
+    #: The conversation's reset boundary (migration 034): the highest `seq`
+    #: in the thread when the human last reset it. Only posts after it go
+    #: into the thread window; the older ones stay in the thread, unchanged.
+    #: 0 = never reset.
+    context_from_seq: int = 0
+    context_reset_at: Optional[datetime] = None
 
 
 @dataclass

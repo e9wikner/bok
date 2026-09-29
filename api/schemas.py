@@ -518,6 +518,10 @@ class ThreadResponse(BaseModel):
     `thread_id` is `None` when nothing has been said in this view this year
     yet. That is an empty thread, not an error: a thread is created by the
     first message, and a `GET` is a pure read that creates nothing.
+
+    `context_from_seq` is the conversation's reset boundary (migration 034):
+    posts with a `seq` at or below it are still returned, but no longer go
+    into the agent's context. 0 = never reset.
     """
 
     view_key: str
@@ -527,6 +531,21 @@ class ThreadResponse(BaseModel):
     posts: List[ThreadPostResponse] = Field(default_factory=list)
     cursor: int = 0
     archive_fiscal_year_ids: List[str] = Field(default_factory=list)
+    context_from_seq: int = 0
+    context_reset_at: Optional[DateTimeType] = None
+
+
+class ThreadResetResponse(BaseModel):
+    """`POST /api/v1/threads/{view_key}/reset` — the new context boundary.
+
+    Every post at or below `context_from_seq` stays in the thread; none of
+    them goes into the next turn's context.
+    """
+
+    thread_id: str
+    view_key: str
+    context_from_seq: int
+    context_reset_at: DateTimeType
 
 
 class ThreadModelRequest(BaseModel):

@@ -21,6 +21,7 @@ import {
   BESLUT_NYCKEL,
   DRAFTS_NYCKEL,
   hamtaTrad,
+  nollstallTrad,
   OVERVIEW_NYCKEL,
   skickaMeddelande,
   VOUCHERS_NYCKEL,
@@ -68,6 +69,19 @@ export interface UseTrad {
   laddar: boolean;
   /** Senaste felet från GET eller POST; nollställs av nästa lyckade. */
   fel: unknown;
+  /**
+   * Nollställningsgränsen: inlägg med `seq` ≤ den går inte längre till
+   * agenten och fälls ihop ovanför avdelaren. 0 = aldrig nollställd.
+   */
+  kontextFran: number;
+  nollstalldVid: string | null;
+  /**
+   * Nollställ konversationen. `false` när servern sa nej (t.ex. `409` medan
+   * agenten svarar). Rör inte `fel`: den raden säger att tråden inte kunde
+   * nås, och knappen säger själv att nollställningen misslyckades.
+   * Ingenting försvinner ur tråden.
+   */
+  nollstall: () => Promise<boolean>;
 }
 
 let lopnummer = 0;
@@ -135,7 +149,13 @@ export function useTrad(viewKey: string): UseTrad {
     hamtaTrad(viewKey)
       .then((svar) => {
         if (vy.avbryt.signal.aborted) return;
-        dispatch({ typ: "hamtad", posts: svar.posts, cursor: svar.cursor });
+        dispatch({
+          typ: "hamtad",
+          posts: svar.posts,
+          cursor: svar.cursor,
+          kontextFran: svar.context_from_seq,
+          nollstalldVid: svar.context_reset_at,
+        });
         // `thread_id: null` = ingen har sagt något här i år; ingen ström
         // förrän första POST skapat tråden (§6.2 punkt 1, testfall 8).
         if (svar.thread_id !== null) oppna(vy, svar.cursor);
@@ -192,7 +212,33 @@ export function useTrad(viewKey: string): UseTrad {
     [oppna]
   );
 
+  const nollstall = useCallback(async (): Promise<boolean> => {
+    const vy = vyRef.current;
+    if (!vy || vy.avbryt.signal.aborted) return false;
+    try {
+      const svar = await nollstallTrad(vy.viewKey);
+      if (vy.avbryt.signal.aborted) return true;
+      dispatch({
+        typ: "kontextNollstalld",
+        kontextFran: svar.context_from_seq,
+        nollstalldVid: svar.context_reset_at,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
   const inlagg = useMemo(() => listaInlagg(tillstand), [tillstand]);
 
-  return { inlagg, strommande: tillstand.strommande, skicka, laddar, fel };
+  return {
+    inlagg,
+    strommande: tillstand.strommande,
+    skicka,
+    laddar,
+    fel,
+    kontextFran: tillstand.kontextFran,
+    nollstalldVid: tillstand.nollstalldVid,
+    nollstall,
+  };
 }

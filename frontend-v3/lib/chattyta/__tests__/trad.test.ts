@@ -292,3 +292,48 @@ describe("tradReducer — strömmen (§6.3)", () => {
     expect(t).toEqual(tomTrad());
   });
 });
+
+// ─── Nollställningsgränsen (migration 034) ────────────────────────────────
+
+describe("nollställningsgränsen", () => {
+  const hamtad: TradHandling = { typ: "hamtad", posts: [agent("p-1", 1, "a")], cursor: 1 };
+
+  it("en tom tråd är aldrig nollställd", () => {
+    expect(tomTrad()).toMatchObject({ kontextFran: 0, nollstalldVid: null });
+  });
+
+  it("GET utan gräns ger 0", () => {
+    expect(kor(hamtad).kontextFran).toBe(0);
+  });
+
+  it("kontextNollstalld flyttar gränsen och rör inga inlägg", () => {
+    const fore = kor(hamtad);
+    const t = tradReducer(fore, { typ: "kontextNollstalld", kontextFran: 1, nollstalldVid: "2026-09-29T14:02:00" });
+    expect(t).toMatchObject({ kontextFran: 1, nollstalldVid: "2026-09-29T14:02:00" });
+    expect(t.inlagg).toBe(fore.inlagg);
+  });
+
+  it("gränsen går aldrig bakåt — POST-svaret och thread.reset kan komma i vilken ordning som helst", () => {
+    const t = kor(
+      hamtad,
+      { typ: "kontextNollstalld", kontextFran: 5, nollstalldVid: "2026-09-29T15:00:00" },
+      h("thread.reset", { id: "t-1", context_from_seq: 1, context_reset_at: "2026-09-29T14:00:00" })
+    );
+    expect(t.kontextFran).toBe(5);
+  });
+
+  it("message.completed behåller gränsen", () => {
+    const t = kor(
+      hamtad,
+      { typ: "kontextNollstalld", kontextFran: 1, nollstalldVid: "2026-09-29T14:02:00" },
+      h("message.completed", agent("p-2", 2, "b"))
+    );
+    expect(t.kontextFran).toBe(1);
+    expect(listaInlagg(t).map((i) => i.id)).toEqual(["p-1", "p-2"]);
+  });
+
+  it("ett thread.reset utan tal eller tid ignoreras", () => {
+    const fore = kor(hamtad);
+    expect(tradReducer(fore, h("thread.reset", { id: "t-1" }))).toBe(fore);
+  });
+});

@@ -24,6 +24,7 @@ from api.schemas import (
     ThreadModelRequest,
     ThreadModelResponse,
     ThreadPostResponse,
+    ThreadResetResponse,
     ThreadResponse,
 )
 from config import settings
@@ -39,6 +40,7 @@ from services.thread_service import ThreadService
 from services.thread_stream import (
     EVENT_MESSAGE_COMPLETED,
     EVENT_MESSAGE_CREATED,
+    EVENT_THREAD_RESET,
     ThreadTurnRunner,
     format_sse,
     get_broker,
@@ -150,6 +152,8 @@ async def get_thread(
         posts=[_post_response(post) for post in posts],
         cursor=ThreadRepository.last_seq(thread.id),
         archive_fiscal_year_ids=archive,
+        context_from_seq=thread.context_from_seq,
+        context_reset_at=thread.context_reset_at,
     )
 
 
@@ -235,6 +239,48 @@ async def post_message(
         posts=[_post_response(post) for post in posts],
         cursor=ThreadRepository.last_seq(thread.id),
     )
+
+
+@router.post("/{view_key}/reset", response_model=ThreadResetResponse)
+async def reset_thread(
+    view_key: str,
+    actor: str = Depends(get_current_actor),
+):
+    """Reset the view's conversation: the next turn starts without context.
+
+    Nothing is deleted. Posts are append-only (SPEC-tradar.md §8.2 p.4), so
+    the reset moves a boundary (migration 034): every post up to now stays
+    in the thread and in `GET`, but none of them goes into the agent's
+    context again. Audit-logged.
+
+    Refused with `409` while a turn is streaming: its answer would land on
+    the new side of the boundary while having been written from the old one.
+    """
+    thread = _require_thread(_validate_view_key(view_key))
+    broker = get_broker()
+    if broker.turn_in_progress(thread.id):
+        raise HTTPException(
+            status_code=http_status.HTTP_409_CONFLICT,
+            detail={
+                "error": "A turn is in progress in this thread",
+                "code": "turn_in_progress",
+                "details": "Wait for the agent's answer, then reset.",
+            },
+        )
+    updated = ThreadService.reset_context(thread, actor=actor)
+    assert updated.context_reset_at is not None  # just set
+    response = ThreadResetResponse(
+        thread_id=updated.id,
+        view_key=updated.view_key,
+        context_from_seq=updated.context_from_seq,
+        context_reset_at=updated.context_reset_at,
+    )
+    broker.publish(
+        updated.id,
+        EVENT_THREAD_RESET,
+        {"id": updated.id, **response.model_dump(mode="json")},
+    )
+    return response
 
 
 def _attachment_posts(

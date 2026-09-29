@@ -528,6 +528,15 @@ godtycklig gräns i antal inlägg. Priset är att vyn tappar sitt minne en gång
 Inom året gäller ändå ett token-budgeterat fönster (§6.3); ett räkenskapsår av dagligt
 bokföringssamtal är inte en kontext någon vill betala för.
 
+**Tillägg (migration 034): människan kan nollställa en vys konversation mitt i året.**
+`POST /threads/{view_key}/reset` flyttar en gräns (`threads.context_from_seq`) till trådens
+senaste `seq`. Inget inlägg ändras eller raderas (§8.2 p.4): allt före gränsen står kvar i
+`GET` och i gränssnittet — hopfällt ovanför en avdelare — men går aldrig mer in i fönstret.
+Modellen får veta att tidigare inlägg är medvetet bortkopplade, skilt från fönstrets
+"utelämnade, inte sammanfattade". Nollställningen revisionsloggas (`audit_log`,
+`entity_type = 'thread'`, `action = 'context_reset'`), sänds som `thread.reset` på strömmen och
+nekas med `409 turn_in_progress` medan en tur pågår.
+
 ### 12.4 Modell per tråd — ärvt från `agentruntime` §12.5
 
 `threads.model` är platsen människan klickar i sitt val. Runtimen tar modellen som argument, och

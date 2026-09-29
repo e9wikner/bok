@@ -101,6 +101,25 @@ class ThreadRepository:
         return ThreadRepository.get(thread_id)
 
     @staticmethod
+    def reset_context(
+        thread_id: str, from_seq: int, at: datetime, _commit: bool = True
+    ) -> Optional[Thread]:
+        """Move the thread's context boundary to `from_seq` (migration 034).
+
+        Touches the `threads` row only. No post is updated or deleted: the
+        boundary is what the thread window reads, and the posts before it
+        stay exactly as they were.
+        """
+        db.execute(
+            "UPDATE threads SET context_from_seq = ?, context_reset_at = ? "
+            "WHERE id = ?",
+            (from_seq, at, thread_id),
+        )
+        if _commit:
+            db.commit()
+        return ThreadRepository.get(thread_id)
+
+    @staticmethod
     def list_fiscal_years(view_key: str) -> List[str]:
         """Fiscal year ids this view has a thread in, newest year first.
 
@@ -255,6 +274,12 @@ class ThreadRepository:
             fiscal_year_id=row["fiscal_year_id"],
             model=row["model"],
             created_at=datetime.fromisoformat(row["created_at"]),
+            context_from_seq=row["context_from_seq"] or 0,
+            context_reset_at=(
+                datetime.fromisoformat(row["context_reset_at"])
+                if row["context_reset_at"]
+                else None
+            ),
         )
 
     @staticmethod

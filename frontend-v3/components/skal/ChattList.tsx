@@ -3,7 +3,8 @@
 import { useCallback, useRef, useState } from "react";
 import { ChattFaltFokus } from "@/components/chattyta/TradRenderare";
 import { ChattFalt } from "@/components/skal/ChattFalt";
-import { OLAST_TRAD, TradYta, type TradData } from "@/components/skal/ChattKolumn";
+import { NollstallKnapp } from "@/components/chattyta/Nollstallning";
+import { kanNollstallas, OLAST_TRAD, TradYta, type TradData } from "@/components/skal/ChattKolumn";
 import { useTrad, type UseTrad } from "@/hooks/useTrad";
 
 /**
@@ -46,7 +47,16 @@ function AktivList({
   vantandeBeslut: number;
 }) {
   const trad = useTrad(viewKey);
-  return <ListLayout vyTitel={vyTitel} viewKey={viewKey} trad={trad} vantandeBeslut={vantandeBeslut} onSkicka={trad.skicka} />;
+  return (
+    <ListLayout
+      vyTitel={vyTitel}
+      viewKey={viewKey}
+      trad={trad}
+      vantandeBeslut={vantandeBeslut}
+      onSkicka={trad.skicka}
+      onNollstall={trad.nollstall}
+    />
+  );
 }
 
 function ListLayout({
@@ -55,12 +65,14 @@ function ListLayout({
   trad,
   vantandeBeslut,
   onSkicka,
+  onNollstall,
 }: {
   vyTitel: string;
   viewKey: string;
   trad: TradData;
   vantandeBeslut: number;
   onSkicka?: UseTrad["skicka"];
+  onNollstall?: UseTrad["nollstall"];
 }) {
   const [oppen, setOppen] = useState(true);
   // Förslagskortets `Ändra` ska till listens eget fält (chattyta C12).
@@ -116,6 +128,9 @@ function ListLayout({
           <ChattFaltFokus.Provider value={fokuseraFalt}>
             <TradYta vyTitel={vyTitel} viewKey={viewKey} trad={trad} variant="mobil" />
           </ChattFaltFokus.Provider>
+          {onNollstall && kanNollstallas(trad) && (
+            <NollstallKnapp onNollstall={onNollstall} arbetar={trad.strommande !== null} variant="mobil" />
+          )}
           <ChattFalt ref={falt} vyTitel={vyTitel} variant="mobil" onSkicka={onSkicka} slappYta={list} />
         </div>
       )}

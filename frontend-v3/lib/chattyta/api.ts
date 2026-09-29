@@ -28,6 +28,20 @@ export interface TradSvar {
   /** Högsta `seq`; strömmen öppnas med `since` = den (§6.2 punkt 2). */
   cursor: number;
   archive_fiscal_year_ids: string[];
+  /**
+   * Nollställningsgränsen (migration 034). Inlägg med `seq` ≤ den finns kvar
+   * här men går inte längre till agenten. 0 = aldrig nollställd.
+   */
+  context_from_seq: number;
+  context_reset_at: string | null;
+}
+
+/** `api/schemas.py::ThreadResetResponse`. */
+export interface NollstallSvar {
+  thread_id: string;
+  view_key: string;
+  context_from_seq: number;
+  context_reset_at: string;
 }
 
 /**
@@ -46,6 +60,16 @@ const tradUrl = (viewKey: string) => `/api/v1/threads/${encodeURIComponent(viewK
 
 export async function hamtaTrad(viewKey: string): Promise<TradSvar> {
   const { data } = await apiClient.get<TradSvar>(tradUrl(viewKey));
+  return data;
+}
+
+/**
+ * Nollställ vyns konversation: nästa tur börjar utan kontext. Ingenting
+ * raderas — servern flyttar en gräns, och allt före den står kvar i tråden.
+ * `409 turn_in_progress` medan agenten svarar.
+ */
+export async function nollstallTrad(viewKey: string): Promise<NollstallSvar> {
+  const { data } = await apiClient.post<NollstallSvar>(`${tradUrl(viewKey)}/reset`);
   return data;
 }
 
