@@ -91,10 +91,10 @@ jobs:
       run: mypy .
       continue-on-error: true
 
-  # Frontenden hade noll tester före modulen `skal` (docs/redesign/ANALYS.md §5).
+  # Frontenden hade noll tester före modulen `skal` (ANALYS.md §5 i git-historiken, se AGENTS.md).
   # Till skillnad från jobben ovan är det här steget INTE continue-on-error:
   # ett testnät som inte kan fälla ett bygge är inte ett testnät.
-  # Se docs/redesign/SPEC-skal.md §12.
+  # Se SPEC-skal.md §12 i git-historiken.
   frontend:
     runs-on: ubuntu-latest
 

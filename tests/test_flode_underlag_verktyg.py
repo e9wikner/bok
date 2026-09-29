@@ -13,7 +13,6 @@ import pytest
 
 from tests import test_flode_underlag as fu
 from tests.test_flode_underlag import (
-    SPEC,
     a118,
     interpret,
     make_decision,
@@ -61,19 +60,16 @@ def _execute(name: str, arguments: dict, tool_context=None):
     )
 
 
-def _spec_6_2_description() -> str:
-    """The block quote under "Beskrivning i verktygslistan:" in §6.2, its
-    lines joined with a space -- read from the spec so that "verbatim" is
-    checked against the spec itself, not a copy of it."""
-    spec = SPEC.read_text(encoding="utf-8")
-    section = spec.split("### 6.2 Argumenten", 1)[1]
-    after = section.split("Beskrivning i verktygslistan:\n\n", 1)[1]
-    quoted = []
-    for line in after.splitlines():
-        if not line.startswith("> "):
-            break
-        quoted.append(line[2:].strip())
-    return " ".join(quoted)
+#: `koppla_underlag`'s description as the spec (§6.2) set it. The tool list
+#: is part of the cached prefix, so a change here is deliberate.
+_KOPPLA_UNDERLAG_DESCRIPTION = (
+    "Koppla ett underlag till en redan postad verifikation som det hör "
+    "till. Kräver en tolkning av underlaget (tolka_underlag). Utan "
+    "beslut: bara när tolkningens match är exakt och verifikationen "
+    "fortfarande saknar underlag. Annars: ange decision_id för ett "
+    "besvarat beslut om just det underlaget. Skapar ingen verifikation "
+    "och ändrar ingen."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -106,9 +102,7 @@ def test_36_koppla_underlag_is_last_and_the_first_twelve_are_unchanged():
 def test_36_the_description_is_section_6_2_verbatim():
     from services.agent_tools import AGENT_TOOL_DEFINITIONS
 
-    expected = _spec_6_2_description()
-    assert expected.startswith("Koppla ett underlag till en redan postad")
-    assert expected.endswith("Skapar ingen verifikation och ändrar ingen.")
+    expected = _KOPPLA_UNDERLAG_DESCRIPTION
     assert AGENT_TOOL_DEFINITIONS[12]["description"] == expected
     # §6.2, SPEC-underlagstolkning §12.6 c: it does not name the ledger.
     assert "huvudbok" not in expected.lower()

@@ -1,0 +1,111 @@
+# Öppna beslut efter redesignen (v4)
+
+Redesignen (`/v4`, bakom `NEXT_PUBLIC_SKAL`) är byggd: idempotens, översikt,
+agentruntime, trådar, beslut, skal, chattyta, flöde 1 (verifikationer), underlagstolkning,
+flöde 4 (underlag), läsbarhet och underlag-ersatt. Modulspecarna och uppgiftslistorna är
+borttagna ur trädet. De finns i git-historiken, se `AGENTS.md`.
+
+Här står bara det som fortfarande väntar på ett beslut eller en kontroll. Stryk en punkt när
+den är avgjord och skriv beslutet i koden eller i commit-meddelandet, inte här.
+
+## Före och vid driftsättning
+
+Det här är kontroller, inte beslut. De kräver en människa och en riktig LLM.
+
+1. **Visuell kontroll i `/v4` med riktig LLM.**
+   - Den optimistiska raden blinkar inte när `view.changed` kommer före svaret.
+   - `ny` visas i 6 s.
+   - Två tryck på `Posta` ger en postning.
+   - Rättelse i låst period.
+   - Raden blir röd från sju dagar.
+   - Headerns räknare stämmer med vyns.
+   - `Postar fortfarande…` visas.
+2. **Kvitton med riktig LLM:**
+   - Ett kvitto för en verifikation som redan är bokförd från banken ger ett avstående i
+     underlagspasset.
+   - I en tråd ger samma kvitto en koppling, aldrig en ny verifikation.
+   - Säg "fel verifikation" om en koppling. Agenten ska då lägga fram ett beslut, koppla bort
+     och koppla rätt (instruktionen punkt 10).
+3. **Omstart efter driftsättning:**
+   - Tom databas.
+   - SIE4-filerna importeras igen. Den ingående balansen är nu ett saldo och ingen verifikation
+     (migration 033).
+   - Kör `POST /api/v1/compliance/check` och jämför luckkontrollen med filerna.
+   - Första kontrollen ger ett `missing_attachments`-ärende för gamla verifikationer. Det är rätt.
+4. **`NEXT_PUBLIC_SKAL=1`** i `bok.env` på hubbabubba om `/v4` ska byggas in. Flaggan läses vid
+   bygget.
+
+## Produktbeslut
+
+1. **Tröskeln för beslutskort kontra val.** I dag hamnar varje alternativ som ändrar böckerna
+   under ett beslutskort, oavsett belopp. En differens på 2 kr blir alltså ett beslutskort.
+   Ändra det om det blir för tungt i praktiken.
+2. **Årsskiftet.** Nästa meddelande efter ett årsskifte hamnar i en ny tråd. Det avslutande
+   inlägget i den gamla tråden, som säger vart samtalet tog vägen, är inte byggt. Det är inte
+   heller bestämt vad som händer med ett öppet beslut eller ett väntande förslag i förra årets
+   tråd. I dag ligger de kvar där och syns ändå i `GET /decisions`.
+3. **`superseded` sätts aldrig automatiskt.** Kolumnen och `DecisionService.supersede()` finns,
+   men inget anropar dem. Möjliga utlösare är ett raderat underlag, en låst period eller en rättad
+   verifikation.
+4. **Intagspasset körs bara manuellt.** Schemaläggning (t.ex. var femtonde minut med
+   tomkö-kontroll) ska läggas på när ett pass kostnad och träffsäkerhet är mätta.
+   `agent_runs.trigger` har redan `'schedule'`.
+5. **Påminnelse om gamla kompletteringar.** Designen vill ha en. Det hör ihop med punkt 4.
+6. **Fritextsvar på ett kopplingsbeslut.** Servern släpper igenom fritext, så ett "nej, inte samma"
+   i fritext kopplas om agenten läser det fel. Alternativet är att ett kopplingsbeslut bara kan
+   besvaras med ett alternativ.
+7. **Ett kvitto med flera köp** stöds inte.
+8. **`thinking`-block över flera turer.** Frågan är om `LLMTurn` ska bära dem, så att långa
+   trådar går fram och tillbaka korrekt. Det ändrar agentruntimens gränsyta.
+9. **Små designfrågor:**
+   - Varaktigheten på `ny` är gissad (6 s).
+   - Headern visar `BokAi` i stället för bolagsnamnet.
+   - Bokslut-sidan säger alltid `Inget väntar`.
+   - `AgentStatus` syns bara som `pausad` på mobilen.
+
+## underlag-ersatt: val som gjordes i bygget, att bekräfta
+
+1. **Grunden för en frånkoppling** är en inloggad människa (`POST /intake/{id}/unlink` med JWT)
+   eller ett besvarat beslut om underlaget. Beslutet ska vara fattat efter kopplingen och får
+   inte vara kopplingens eget. Agenten kan aldrig koppla bort på eget initiativ, och
+   underlagspasset kan det inte alls.
+2. **Varje gällande koppling kan kopplas bort,** också en som gjordes när verifikationen postades
+   ur underlaget. Då är en rättelse ofta den riktiga vägen. Frånkopplingen gör bara att
+   verifikationen står som "saknar underlag".
+3. **Ett bortkopplat underlag blir `needs_attention`.** Det kan kopplas igen, men det kan inte
+   postas som en ny verifikation. Det gäller i dag också ett underlag som passet avstått från.
+   Utvägen "Det är ett annat köp" kräver alltså att underlaget raderas och laddas upp igen.
+   Beslut: ska posten släppa igenom `failed`/`needs_attention`?
+4. **En hänvisning står kvar.** A-121, som bokfördes på kvittot via A-118, räknas fortfarande som
+   att den har underlag. Svaret (`orphaned_references`) och kvittot i tråden namnger den, och
+   agenten frågar om den ska rättas.
+5. **Frånkoppling tillåts i en låst period,** precis som koppling. Ingen verifikation rörs.
+6. **Ingen knapp i gränssnittet.** Vägen tillbaka går genom tråden, som vägen fram. En inloggad
+   människa kan också använda routen direkt. Frånkopplade underlag visas i
+   `source-context.unlinked_source_material`, men `/v4` ritar dem inte ännu.
+
+## Observerat beteende att ta ställning till
+
+Beteendet är inte ändrat. Det här är iakttagelser.
+
+- Ett underlagspass som kopplar och sedan slutar räknas som `abstained: agent_no_outcome`, trots
+  att källan blir `processed`.
+- `POST /vouchers/{id}/post` svarar `missing_attachment: true` för en differensverifikation
+  (A-121). Svaret byggs före efterarbetet. En ny läsning ger `false`.
+- "kvitto kopplat" syns bara för kopplingar gjorda medan sidan är öppen. `VoucherResponse` säger
+  inte att en verifikation har ett kopplat kvitto.
+- Ett meddelande med bara blanktecken och utan bilagor ger `422`.
+
+## Städning och skuld
+
+- **De 24 gamla sidorna** i `frontend-v3` står kvar och ska tas bort en vy i taget när `/v4`
+  används. `audit` (revisionsspåret, ett BFL-krav) får inte försvinna innan det finns en
+  ersättare.
+- **Fakturering och Löner** ska byggas som läsvyer med tråd men utan skrivflöde. Skrivning sker
+  tills vidare via `/invoices` och `/payroll`.
+- **`mypy .`** ger 58 fel i 22 filer. Alla fanns före redesignen.
+- **CI** har `continue-on-error: true` på backendens steg (pytest, black, isort, flake8, mypy)
+  och Docker-bygget, liksom på frontendens lint. Bara `npm test` fäller bygget. En grön bock
+  betyder alltså lite förrän det tas bort.
+- **`BokAI App Redesign.zip`** är designunderlaget (v10, flödespanelerna) och ligger kvar som
+  referens för de vyer som återstår.

@@ -237,10 +237,6 @@ def test_05b_sie4_imported_voucher_is_not_missing(client, auth_headers, period_i
 # ---------------------------------------------------------------------------
 
 
-MIGRATION_030 = REPO_ROOT / "db" / "migrations" / "030_add_intake_interpretations.sql"
-SPEC = REPO_ROOT / "docs" / "redesign" / "SPEC-underlagstolkning.md"
-
-
 def _intake_source() -> str:
     """An `intake_sources` row for an interpretation to point at."""
     source_id = str(uuid.uuid4())
@@ -317,16 +313,6 @@ def _interpretation(source_id: str, **overrides) -> Interpretation:
     )
     values.update(overrides)
     return Interpretation(**values)  # type: ignore[arg-type]
-
-
-def test_30_migration_is_spec_section_5_verbatim():
-    """Migration 030 carries §5's SQL block verbatim: table, index and the
-    two triggers."""
-    spec = SPEC.read_text(encoding="utf-8")
-    section = spec.split("## 5. Datamodell — migration 030", 1)[1]
-    block = section.split("```sql\n", 1)[1].split("```", 1)[0]
-
-    assert block.strip() in MIGRATION_030.read_text(encoding="utf-8")
 
 
 def test_30_migration_is_applied(test_db):
@@ -2238,18 +2224,17 @@ _FIRST_ELEVEN_SHA256 = (
 )
 
 
-def _spec_6_2_description() -> str:
-    """The block quote under "Beskrivning i verktygslistan:" in §6.2,
-    its lines joined with a space -- read from the spec so that "verbatim"
-    is checked against the spec itself, not a copy of it."""
-    spec = (REPO_ROOT / "docs" / "redesign" / "SPEC-underlagstolkning.md").read_text()
-    after = spec.split("Beskrivning i verktygslistan:\n\n", 1)[1]
-    quoted = []
-    for line in after.splitlines():
-        if not line.startswith("> "):
-            break
-        quoted.append(line[2:].strip())
-    return " ".join(quoted)
+#: `tolka_underlag`'s description as the spec (§6.2) set it. The tool list is
+#: part of the cached prefix, so a change here is deliberate.
+_TOLKA_UNDERLAG_DESCRIPTION = (
+    "Lämna det du läst ur ett underlag (leverantör, datum, belopp, moms, "
+    "rader) för kontroll och matchning mot postade verifikationer. "
+    "Servern stämmer av momsen och textlagret, letar efter en postad "
+    "verifikation som saknar underlag och räknar differensen. Sparar "
+    "tolkningen men kopplar ingenting och ändrar ingenting i "
+    "bokföringen. Anropa efter hamta_underlagsfil och före "
+    "posta_verifikation eller foresla_verifikation för samma underlag."
+)
 
 
 def test_34_tolka_underlag_is_twelfth_and_the_first_eleven_are_unchanged():
@@ -2273,10 +2258,7 @@ def test_34_tolka_underlag_is_twelfth_and_the_first_eleven_are_unchanged():
 def test_34_the_description_is_section_6_2_verbatim():
     from services.agent_tools import AGENT_TOOL_DEFINITIONS
 
-    expected = _spec_6_2_description()
-    assert expected.startswith("Lämna det du läst ur ett underlag")
-    assert expected.endswith("för samma underlag.")
-    assert AGENT_TOOL_DEFINITIONS[11]["description"] == expected
+    assert AGENT_TOOL_DEFINITIONS[11]["description"] == _TOLKA_UNDERLAG_DESCRIPTION
 
 
 def test_u7_the_docstrings_say_twelve_tools():

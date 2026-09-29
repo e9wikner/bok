@@ -1,11 +1,10 @@
 /**
  * Ett råinlägg per typ, i serverns form (SPEC-chattyta.md §2).
  *
- * `FIXTUR_DRAFT.body` och `FIXTUR_RECEIPT.body` är ORDAGRANT §4.3:s JSON —
- * det är kontraktet `flode-verifikationer` skriver mot, och
- * `__tests__/parse.test.ts` läser specen och jämför. Ändras den ena ska den
- * andra ändras i samma commit. Platshållar-id:na (`<vouchers.id, …>`) är
- * alltså avsiktliga.
+ * `FIXTUR_DRAFT.body` och `FIXTUR_RECEIPT.body` är kontraktet servern skriver
+ * mot (ursprungligen SPEC-chattyta.md §4.3, i git-historiken). Ändras
+ * serverns kropp ska fixturen ändras i samma commit. Platshållar-id:na
+ * (`<vouchers.id, …>`) är avsiktliga.
  *
  * De övriga sex följer kropparna backenden skriver i dag:
  * `services/thread_service.py` (`_error_body`, `_decision_body`,

@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   FIXTUR_AGENT_TEXT,
@@ -175,65 +173,3 @@ describe("kontraktsbrott blir okant_kontrakt (testfall 3, 4)", () => {
     expect(inlagg.seq).toBe(FIXTUR_DRAFT.seq);
   });
 });
-
-/**
- * Fixturen för `draft` och `receipt` ÄR kontraktet `flode-verifikationer`
- * skriver mot (SPEC-chattyta.md §4.3). Glider den från specen är det ett
- * tyst kontraktsbrott — så testet läser specen.
- */
-describe("fixturerna är §4.3:s JSON, ordagrant", () => {
-  const spec = readFileSync(
-    path.resolve(__dirname, "../../../../docs/redesign/SPEC-chattyta.md"),
-    "utf8"
-  );
-  const avsnitt = spec.slice(spec.indexOf("### 4.3"), spec.indexOf("### 4.4"));
-  const block = /```jsonc\n([\s\S]*?)```/.exec(avsnitt)?.[1];
-  const objekt = block ? toppnivaObjekt(utanKommentarer(block)).map((s) => JSON.parse(s)) : [];
-
-  it("specen har ett jsonc-block med två objekt", () => {
-    expect(objekt).toHaveLength(2);
-  });
-
-  it("draft", () => {
-    expect(FIXTUR_DRAFT.body).toEqual(objekt[0]);
-  });
-
-  it("receipt", () => {
-    expect(FIXTUR_RECEIPT.body).toEqual(objekt[1]);
-  });
-});
-
-/** Tar bort `// …` till radslut, utom inuti strängar. */
-function utanKommentarer(s: string): string {
-  let ut = "";
-  let iStrang = false;
-  for (let i = 0; i < s.length; i++) {
-    const c = s[i];
-    if (iStrang) {
-      ut += c;
-      if (c === "\\") ut += s[++i] ?? "";
-      else if (c === '"') iStrang = false;
-    } else if (c === '"') {
-      iStrang = true;
-      ut += c;
-    } else if (c === "/" && s[i + 1] === "/") {
-      while (i < s.length && s[i] !== "\n") i++;
-      ut += "\n";
-    } else {
-      ut += c;
-    }
-  }
-  return ut;
-}
-
-/** Varje `{ … }` på toppnivå. Strängarna i blocket innehåller inga klamrar. */
-function toppnivaObjekt(s: string): string[] {
-  const ut: string[] = [];
-  let djup = 0;
-  let start = -1;
-  for (let i = 0; i < s.length; i++) {
-    if (s[i] === "{" && djup++ === 0) start = i;
-    else if (s[i] === "}" && --djup === 0) ut.push(s.slice(start, i + 1));
-  }
-  return ut;
-}

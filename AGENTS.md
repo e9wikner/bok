@@ -55,6 +55,14 @@ touches posted vouchers, and both lock and unlock are audit-logged.
 Do not add an "edit posted voucher" path, relax a trigger, or delete rows to fix
 test data — reverse and re-post instead.
 
+The link between an underlag (intake source) and a voucher follows the same
+rule (migration 034). `voucher_intake_sources`, `intake_link_basis` and
+`voucher_intake_unlinks` refuse UPDATE/DELETE. A wrong link is undone by an
+unlink row (`IntakeLinkService.unlink`, the tool `koppla_bort_underlag`,
+`POST /api/v1/intake/{id}/unlink`). The link row stays. A trigger allows at most
+one *current* link per source, and "current" means the link has no unlink row.
+Anything that asks "is this linked?" must read current links only.
+
 ## Layering
 
 - `api/routes/` — HTTP only: parse, authenticate, map domain errors to status codes.
@@ -82,6 +90,20 @@ Service-to-service imports are deferred inside methods to avoid import cycles.
 - **`docs/to_agent/*.md` is runtime content, not documentation.** It is read and
   served to agents by `repositories/system_instructions.py` and asserted on by
   `tests/test_agent_entrypoint.py`. Editing it changes system behaviour.
+
+## Design history
+
+The `/v4` redesign was built module by module from specs (`docs/redesign/SPEC-*.md`)
+and task lists (`tasks/*/`). Both were removed from the tree after the build. Code
+comments still cite them as `SPEC-<module>.md §n`; read them in git history:
+
+```bash
+git show 1a7a7b7:docs/redesign/SPEC-flode-underlag.md
+git show 1a7a7b7:tasks/flode-underlag/todo.md
+```
+
+What still needs deciding is in `docs/oppna-beslut.md`. The design source (v10 and
+the flow panels) is `BokAI App Redesign.zip`.
 
 ## Configuration
 

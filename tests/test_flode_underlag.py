@@ -28,8 +28,6 @@ from repositories.intake_repo import IntakeRepository
 from repositories.period_repo import PeriodRepository
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SPEC = REPO_ROOT / "docs" / "redesign" / "SPEC-flode-underlag.md"
-MIGRATION_032 = REPO_ROOT / "db" / "migrations" / "032_add_intake_link_basis.sql"
 
 #: The view whose thread flöde 4 runs in.
 VIEW_KEY = "bocker.verifikationer"
@@ -324,23 +322,6 @@ def table_rows(table: str) -> list:
 # ---------------------------------------------------------------------------
 # FU1 — migration 032, domain and repositories (§5; testfall 17, 42c)
 # ---------------------------------------------------------------------------
-
-
-def _section_5_blocks() -> list:
-    spec = SPEC.read_text(encoding="utf-8")
-    section = spec.split("## 5. Datamodell — migration 032", 1)[1]
-    section = section.split("\n## 6.", 1)[0]
-    return [part.split("```", 1)[0].strip() for part in section.split("```sql\n")[1:]]
-
-
-def test_fu1_migration_carries_section_5_verbatim():
-    """Both of §5's `sql` blocks stand in the migration as written."""
-    blocks = _section_5_blocks()
-    migration = MIGRATION_032.read_text(encoding="utf-8")
-
-    assert len(blocks) == 2
-    for block in blocks:
-        assert block in migration
 
 
 def test_fu1_migration_is_applied_with_four_triggers(test_db):

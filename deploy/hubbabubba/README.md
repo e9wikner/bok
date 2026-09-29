@@ -58,8 +58,8 @@ Everything below is off or defaulted when absent.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `NEXT_PUBLIC_SKAL` | unset | `1` builds the frontend with the new shell at `/v4` (`docs/redesign/SPEC-skal.md` §3). It takes effect at **build** time: `deploy.sh` passes it as a build arg and rebuilds the frontend when the value changes. The 24 existing pages are unaffected either way. |
-| `AGENT_RUNTIME_ENABLED` | `False` | `true` starts the internal agent worker (`docs/redesign/SPEC-agentruntime.md`), which books pending intake with an LLM. It costs money, so it is off unless you say so. `deploy.sh` refuses to run if it is `true` and `LLM_API_KEY` is empty. |
+| `NEXT_PUBLIC_SKAL` | unset | `1` builds the frontend with the new shell at `/v4` (`SPEC-skal.md` §3 in git history, see `AGENTS.md`). It takes effect at **build** time: `deploy.sh` passes it as a build arg and rebuilds the frontend when the value changes. The 24 existing pages are unaffected either way. |
+| `AGENT_RUNTIME_ENABLED` | `False` | `true` starts the internal agent worker (`SPEC-agentruntime.md` in git history), which books pending intake with an LLM. It costs money, so it is off unless you say so. `deploy.sh` refuses to run if it is `true` and `LLM_API_KEY` is empty. |
 | `LLM_API_KEY` | empty | The LLM gateway key. Never logged or returned by any endpoint. |
 | `LLM_BASE_URL` | `https://opencode.ai/zen/v1` | The OpenCode Zen gateway, for `opencode/…` models. |
 | `LLM_GO_BASE_URL` | `https://opencode.ai/zen/go/v1` | The OpenCode Go gateway, for `opencode-go/…` models. The model id's prefix picks the gateway, so both can be used side by side. |
