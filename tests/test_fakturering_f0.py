@@ -877,6 +877,37 @@ def test_12_decimal_quantity_in_draft_and_preview(books, client, auth_headers):
     assert rows[2]["amount_ex_vat"] == 52
 
 
+def test_12b_vat_is_rounded_half_up_per_row(books, client, auth_headers):
+    """Momsen avrundas till hela ören, 0,5 öre uppåt, och trunkeras inte."""
+    from domain.invoice_validation import VATCalculator
+
+    assert VATCalculator.calculate_vat(1002, "MP1") == 251  # 250,5
+    assert VATCalculator.calculate_vat(1001, "MP1") == 250  # 250,25
+    assert VATCalculator.calculate_vat(1003, "MP1") == 251  # 250,75
+    assert VATCalculator.calculate_vat(1175, "MP3") == 71  # 70,5
+    assert VATCalculator.calculate_vat(1004, "MP2") == 120  # 120,48
+    assert VATCalculator.calculate_vat(1002, "MF") == 0
+    # En kreditrad speglar debetraden.
+    assert VATCalculator.calculate_vat(-1002, "MP1") == -251
+
+    preview = client.post(
+        "/api/v1/invoices/preview",
+        headers=auth_headers,
+        json={
+            "rows": [
+                {
+                    "description": "Moms 250,5 öre",
+                    "quantity": 1,
+                    "unit_price": 1002,
+                    "vat_code": "MP1",
+                },
+            ]
+        },
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["rows"][0]["vat_amount"] == 251
+
+
 # --- 13, 15: PDF:ens innehåll (uppgift 6) -----------------------------------
 
 

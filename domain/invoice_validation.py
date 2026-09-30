@@ -146,19 +146,24 @@ class InvoiceValidator:
 class VATCalculator:
     """Calculate VAT based on rates and codes."""
 
-    VAT_RATES = {
-        "MP1": 0.25,  # 25% standard (consulting)
-        "MP2": 0.12,  # 12%
-        "MP3": 0.06,  # 6%
-        "MF": 0.00,  # 0% (export/exempt)
+    VAT_PERCENT = {
+        "MP1": 25,  # standard (consulting)
+        "MP2": 12,
+        "MP3": 6,
+        "MF": 0,  # export/exempt
     }
+    VAT_RATES = {code: percent / 100 for code, percent in VAT_PERCENT.items()}
 
     @staticmethod
     def calculate_vat(amount_ex_vat: int, vat_code: str) -> int:
-        """Calculate VAT for given amount and code (returns öre)."""
-        rate = VATCalculator.VAT_RATES.get(vat_code, 0)
-        vat = int(amount_ex_vat * rate)
-        return vat
+        """VAT in öre for one row, rounded half-up (away from zero, so a
+        credit row mirrors its debit row). Integer arithmetic, so no float
+        ever rounds the wrong way."""
+        percent = VATCalculator.VAT_PERCENT.get(vat_code, 0)
+        quotient, remainder = divmod(abs(amount_ex_vat) * percent, 100)
+        if remainder >= 50:
+            quotient += 1
+        return quotient if amount_ex_vat >= 0 else -quotient
 
     @staticmethod
     def get_vat_rate(vat_code: str) -> float:
