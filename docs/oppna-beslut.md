@@ -10,7 +10,7 @@ den är avgjord och skriv beslutet i koden eller i commit-meddelandet, inte här
 
 ## Före och vid driftsättning
 
-Det här är en kontroll, inte ett beslut. Den kräver en människa och en riktig LLM.
+Det här är kontroller, inte beslut. De kräver en människa, och den första en riktig LLM.
 
 1. **Kvitton med riktig LLM:**
    - Ett kvitto för en verifikation som redan är bokförd från banken ger ett avstående i
@@ -18,6 +18,13 @@ Det här är en kontroll, inte ett beslut. Den kräver en människa och en rikti
    - I en tråd ger samma kvitto en koppling, aldrig en ny verifikation.
    - Säg "fel verifikation" om en koppling. Agenten ska då lägga fram ett beslut, koppla bort
      och koppla rätt (instruktionen punkt 10).
+2. **Fakturering F0:**
+   - Fyll i `company_info`: säte (`seat`), momsnummer, bankgiro och F-skatt (`f_skatt`).
+     Utan dem vägrar utfärdandet (`company_info_incomplete`).
+   - Fakturor med `status = 'draft'` eller `voucher_id IS NULL` behöver ett eget beslut.
+     `/send` och `/book` finns inte längre, så inget bokför dem.
+   - Utfärda en riktig faktura. Kontrollera PDF:en mot förlagan och verifikationen
+     (1510 mot 30xx/26xx).
 
 ## Produktbeslut
 
@@ -68,14 +75,28 @@ Det här är en kontroll, inte ett beslut. Den kräver en människa och en rikti
    människa kan också använda routen direkt. Frånkopplade underlag visas i
    `source-context.unlinked_source_material`, men `/v4` ritar dem inte ännu.
 
-## fakturering F0: val som gjordes i bygget, att bekräfta
+## Fakturering: senare faser
 
-1. **Momsen trunkeras till hela ören** i `VATCalculator` (`int(belopp * sats)`) i stället för
-   att avrundas. Ska den avrundas (half-up) per rad eller på fakturan?
-2. **`sent_at` lämnas `NULL` vid utfärdande.** Triggern i migration 038 låser `sent_at` på en
-   utfärdad faktura, så F2 (markera som skickad) behöver en egen kolumn eller tabell.
-3. **Leverans per rad** går inte att redigera i de gamla sidorna, bara leveransen för hela
-   utkastet.
+F0 är byggd. F1–F4 är ramar och specas en i taget innan de byggs. Källan är
+`SPEC-fakturering.md` §10 i git-historiken (se `AGENTS.md`).
+
+- **F1 Agenten och tråden.** Verktygen `las_kunder`, `las_fakturor`, `foresla_faktura`
+  (utkast som `FakturaForslag` i `betala.fakturering`, med föreslaget nummer synligt) och
+  `andra_fakturautkast`. Knappen "Utfärda" i kortet. Kvittot länkar PDF:en och
+  verifikationen. Läsvyn blir en skrivvy. Leveransdatum per rad går i dag bara att sätta via
+  API:t, inte i de gamla sidorna. F1:s formulär bör ta det.
+- **F2 Utskickad.** Människan markerar fakturan som skickad, med datum, för påminnelser. Ingen
+  e-post från Bok. Triggern i migration 038 låser `sent_at` på en utfärdad faktura, och
+  `sent_at` lämnas `NULL` vid utfärdandet. F2 lägger därför markeringen i en egen
+  append-only-tabell, där en felaktig markering ångras med en ny rad, som
+  `voucher_intake_unlinks`.
+- **F3 Inbetalningar.** Bankhändelser matchas mot öppna fakturor. En säker träff bokförs som
+  1930/1510, annars blir det ett beslutskort.
+- **F4 Kreditfaktura, påminnelse och dröjsmålsränta.** Kreditfakturor och påminnelsefakturor
+  får egna unika nummer i samma nummerrymd, föreslagna av agenten. Kreditfakturan hänvisar
+  till originalet. Dröjsmålsräntan är referensräntan plus 8 procentenheter på beloppet
+  inklusive moms, utan moms på räntan. Påminnelser väntar på schemaläggningen
+  (produktbeslut 4).
 
 ## Observerat beteende att ta ställning till
 

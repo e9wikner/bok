@@ -110,6 +110,7 @@ comments still cite them as `SPEC-<module>.md §n`; read them in git history:
 ```bash
 git show 1a7a7b7:docs/redesign/SPEC-flode-underlag.md
 git show 1a7a7b7:tasks/flode-underlag/todo.md
+git show e313c5f:docs/redesign/SPEC-fakturering.md   # fakturering F0
 ```
 
 What still needs deciding is in `docs/oppna-beslut.md`. The design source (v10 and
