@@ -1,6 +1,7 @@
 import { createContext, useContext, useState } from "react";
 import { AlternativLista } from "@/components/chattyta/AlternativLista";
 import { BeslutKort } from "@/components/chattyta/BeslutKort";
+import { FakturaForslag, UtfardaKnappar } from "@/components/chattyta/FakturaForslag";
 import { FelKort } from "@/components/chattyta/FelKort";
 import { FilInlagg } from "@/components/chattyta/FilInlagg";
 import { JamforelseRader, RadLista } from "@/components/chattyta/JamforelseRader";
@@ -10,12 +11,14 @@ import { PostaKnappar, VerifikationsForslag } from "@/components/chattyta/Verifi
 import { useBeslut } from "@/hooks/useBeslut";
 import { useForslag } from "@/hooks/useForslag";
 import { skriverText } from "@/lib/chattyta/etiketter";
+import { oppnaPdf } from "@/lib/chattyta/pdf";
 import { arOptimistisk } from "@/lib/chattyta/trad";
 import type { Strommande } from "@/lib/chattyta/trad";
 import type {
   AgentTextInlagg,
   DecisionInlagg,
   DraftInlagg,
+  FakturaDraftInlagg,
   Inlagg,
   OptionsInlagg,
 } from "@/lib/chattyta/typer";
@@ -155,6 +158,8 @@ export function InlaggRenderare({ inlagg, viewKey }: { inlagg: Inlagg; viewKey?:
       return (
         <div className="flex max-w-[560px] flex-col gap-2">
           <JamforelseRader kropp={inlagg.body} />
+          {/* Ett fakturakvitto öppnar den sparade PDF:en (SPEC-fakturering-f1.md §8.2). */}
+          {inlagg.body.pdf_url && <OppnaPdf pdfUrl={inlagg.body.pdf_url} />}
         </div>
       );
     case "draft":
@@ -206,9 +211,27 @@ function ForslagInlagg({ inlagg, viewKey }: { inlagg: DraftInlagg; viewKey?: str
   const fokuseraFalt = useContext(ChattFaltFokus);
   // Statusen ur `GET /drafts`, en fråga per vy (flode-verifikationer §10).
   const forslag = useForslag(viewKey)?.get(inlagg.body.draft_id);
+  const body = inlagg.body;
+  if (body.kind === "invoice") {
+    // Fakturaförslaget (SPEC-fakturering-f1.md §6).
+    const faktura = { ...inlagg, body } as FakturaDraftInlagg;
+    return (
+      <FakturaForslag
+        inlagg={faktura}
+        forslag={forslag}
+        knappar={
+          <UtfardaKnappar
+            inlagg={faktura}
+            onAndra={fokuseraFalt ?? undefined}
+            serverFel={forslag?.last_error_code}
+          />
+        }
+      />
+    );
+  }
   return (
     <VerifikationsForslag
-      inlagg={inlagg}
+      inlagg={{ ...inlagg, body }}
       forslag={forslag}
       knappar={
         <PostaKnappar
@@ -218,6 +241,20 @@ function ForslagInlagg({ inlagg, viewKey }: { inlagg: DraftInlagg; viewKey?: str
         />
       }
     />
+  );
+}
+
+/** `Öppna PDF` under ett fakturakvitto (SPEC-fakturering-f1.md §8.2). */
+function OppnaPdf({ pdfUrl }: { pdfUrl: string }) {
+  return (
+    <button
+      type="button"
+      data-testid="kvitto-pdf"
+      onClick={() => void oppnaPdf(pdfUrl)}
+      className="self-start rounded-[8px] border border-bok-kant bg-bok-yta px-[14px] py-[8px] text-[14px] text-bok-text hover:bg-bok-yta-svag"
+    >
+      Öppna PDF
+    </button>
   );
 }
 

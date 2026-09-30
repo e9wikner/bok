@@ -68,7 +68,8 @@ export const SIDOR: readonly Sida[] = Object.freeze([
         slug: "fakturering",
         titel: "Fakturering",
         sida: "betala",
-        lasvy: true,
+        // Skrivvy sedan fakturering F1 (SPEC-fakturering-f1.md §10.2).
+        lasvy: false,
       },
       { key: "betala.loner", slug: "loner", titel: "Löner", sida: "betala", lasvy: true },
     ] as const),

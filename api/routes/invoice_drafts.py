@@ -1,6 +1,8 @@
 """API routes for agent-created invoice drafts."""
 
+import logging
 from datetime import date
+from functools import partial
 from typing import List, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -162,9 +164,7 @@ async def update_invoice_draft(
         )
         return _draft_to_dict(draft)
     except ValidationError as exc:
-        raise HTTPException(
-            status_code=400, detail={"code": exc.code, "error": exc.message}
-        )
+        raise _change_error(exc)
 
 
 _ISSUE_CONFLICTS = ("draft_already_issued", "number_taken", "period_locked")
@@ -199,10 +199,18 @@ async def issue_invoice_draft(
       | period_not_found`
     """
     from services.invoice_issue import InvoiceIssueService
+    from services.invoice_proposal import InvoiceProposalService
 
+    proposals = InvoiceProposalService()
     try:
-        return InvoiceIssueService().issue(draft_id, actor=actor)
+        result = InvoiceIssueService().issue(draft_id, actor=actor)
     except ValidationError as exc:
+        # SPEC-fakturering-f1.md §7.4, §9: the thread hears of it after the
+        # rollback. A repeated press resumes a receipt that is missing.
+        if exc.code == "draft_already_issued":
+            _thread_hook(proposals.on_issued, draft_id, actor)
+        else:
+            _thread_hook(partial(proposals.on_issue_failed, error=exc), draft_id, actor)
         if exc.code == "draft_not_found":
             code = status.HTTP_404_NOT_FOUND
         elif exc.code in _ISSUE_CONFLICTS:
@@ -218,6 +226,19 @@ async def issue_invoice_draft(
                 **exc.payload,
             },
         )
+    _thread_hook(proposals.on_issued, draft_id, actor)
+    return result
+
+
+def _thread_hook(hook, draft_id: str, actor: str) -> None:
+    """A thread hook after the issue: its failure is logged and never changes
+    the answer -- the invoice is already committed, or already refused."""
+    try:
+        hook(draft_id, actor=actor)
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "Thread hook after issuing invoice draft %s failed", draft_id
+        )
 
 
 @router.post("/{draft_id}/reject", response_model=dict)
@@ -228,9 +249,26 @@ async def reject_invoice_draft(
     try:
         return _draft_to_dict(InvoiceDraftService().reject(draft_id, actor=actor))
     except ValidationError as exc:
-        raise HTTPException(
-            status_code=400, detail={"code": exc.code, "error": exc.message}
+        raise _change_error(exc)
+
+
+def _change_error(exc: ValidationError) -> HTTPException:
+    """A refused PUT or reject. `draft_in_thread` is a conflict with the
+    pending card in the thread (SPEC-fakturering-f1.md §4.3) and carries
+    where it is; everything else is the old `400`."""
+    if exc.code == "draft_in_thread":
+        return HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": exc.code,
+                "error": exc.message,
+                "details": exc.details,
+                **exc.payload,
+            },
         )
+    return HTTPException(
+        status_code=400, detail={"code": exc.code, "error": exc.message}
+    )
 
 
 def _draft_fields(request: CreateInvoiceDraftRequest) -> dict:

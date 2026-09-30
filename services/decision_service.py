@@ -889,10 +889,16 @@ class DecisionService:
                 for status in _INTAKE_OPEN_STATUSES
             )
             waiting += CorrectionNoteRepository.count_open()
-        return waiting + ThreadDraftRepository.count_pending_not_yet_counted(
+        from repositories.invoice_proposal_repo import InvoiceProposalRepository
+
+        waiting += ThreadDraftRepository.count_pending_not_yet_counted(
             view_key=view_key,
             open_note_statuses=_CORRECTION_OPEN_STATUSES,
             notes_counted=include_synthetic,
+        )
+        # Invoice proposals, by the same rule (SPEC-fakturering-f1.md §10.3).
+        return waiting + InvoiceProposalRepository.count_pending_not_yet_counted(
+            view_key=view_key
         )
 
     def supersede(self, decision_id: str) -> Decision:

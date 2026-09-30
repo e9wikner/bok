@@ -20,6 +20,7 @@ import { useAuth } from "@/hooks/useAuth";
 import {
   BESLUT_NYCKEL,
   DRAFTS_NYCKEL,
+  FAKTUROR_NYCKEL,
   hamtaTrad,
   nollstallTrad,
   OVERVIEW_NYCKEL,
@@ -113,6 +114,8 @@ export function useTrad(viewKey: string): UseTrad {
         void qc.invalidateQueries({ queryKey: BESLUT_NYCKEL });
         void qc.invalidateQueries({ queryKey: DRAFTS_NYCKEL });
         void qc.invalidateQueries({ queryKey: VOUCHERS_NYCKEL });
+        // Ett utfärdande (SPEC-fakturering-f1.md §7.4): Fakturerings listor.
+        void qc.invalidateQueries({ queryKey: FAKTUROR_NYCKEL });
       } else if (h.event === "message.completed") {
         const typ = (h.data as { type?: unknown } | null)?.type;
         if (typeof typ === "string" && BESLUTSTYPER.has(typ)) {

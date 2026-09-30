@@ -3,7 +3,10 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { felText, usePostaUtkast, type PostaLage } from "@/hooks/usePostaUtkast";
 import type { ForslagStatusSvar } from "@/lib/chattyta/api";
-import type { DraftInlagg, KonteringsRad as KonteringsRadData } from "@/lib/chattyta/typer";
+import type {
+  KonteringsRad as KonteringsRadData,
+  VerifikationDraftInlagg,
+} from "@/lib/chattyta/typer";
 import { formatBelopp } from "@/lib/skal/format";
 
 /**
@@ -32,7 +35,7 @@ export function VerifikationsForslag({
   knappar,
   forslag,
 }: {
-  inlagg: DraftInlagg;
+  inlagg: VerifikationDraftInlagg;
   /** `PostaKnappar`, eller ingenting. Ritas bara i `pending`. */
   knappar?: ReactNode;
   /** Förslagets rad ur `GET /drafts`, eller `undefined` när den inte är känd. */

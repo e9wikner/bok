@@ -63,6 +63,15 @@ second links one to the voucher it is underlag for. The server links exact
 matches itself; the tool is for the cases the user decided. It creates no
 voucher and changes none.
 
+An eighteenth to twenty-first, ``las_kunder``, ``las_fakturor``,
+``foresla_faktura`` and ``andra_fakturautkast``, were added by fakturering
+F1 (``docs/redesign/SPEC-fakturering-f1.md`` §5) and appended after
+``koppla_banktransaktion`` for the same reason: the seventeen before them are
+unchanged byte for byte. The first two read. The last two write an invoice
+draft, its ``draft`` card and its ``thread_invoice_drafts`` row in
+Fakturering's thread; a change is a new draft that replaces the old one. None
+of them issues an invoice -- a logged-in human does that (F0 beslut 3).
+
 ``posta_verifikation`` is the only tool that posts to the general ledger,
 and it goes through the exact same code as ``POST /api/v1/agent/vouchers``
 (``services/voucher_posting.post_agent_voucher``, A1) -- same
@@ -82,6 +91,7 @@ session decides what a raise means.
 
 import uuid
 from datetime import date as DateType
+from decimal import Decimal
 from typing import Any, Callable, Literal, Mapping, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -299,6 +309,113 @@ class KopplaBanktransaktionArgs(BaseModel):
 
     bank_transaction_id: str
     voucher_id: str
+
+
+# --- fakturering F1 (SPEC-fakturering-f1.md §5) -----------------------------
+
+
+class LasKunderArgs(BaseModel):
+    """Läs kundregistret och artiklarna (§5.1)."""
+
+    query: Optional[str] = Field(
+        None, description="Delsträng i namn eller organisationsnummer"
+    )
+    customer_id: Optional[str] = None
+    include_inactive: bool = False
+
+
+class LasFakturorArgs(BaseModel):
+    """Läs kundfakturor eller fakturautkast (§5.2)."""
+
+    invoice_id: Optional[str] = Field(
+        None, description="En faktura med rader, leveranser och betalningar"
+    )
+    customer: Optional[str] = Field(None, description="Delsträng i kundnamnet")
+    status: Literal["unpaid", "overdue", "paid", "all"] = "all"
+    drafts: bool = Field(
+        False, description="Läs utkasten (draft/needs_review) i stället för fakturor"
+    )
+    limit: int = Field(20, ge=1, le=100)
+
+
+class FakturaRad(BaseModel):
+    """En fakturarad. Belopp i öre ex moms."""
+
+    article_id: Optional[str] = None
+    description: Optional[str] = Field(None, description="Krävs utan article_id")
+    quantity: Decimal = Field(..., gt=0, description="Antal, högst två decimaler")
+    unit: Optional[str] = Field(None, description="t.ex. 'h', 'st'; ur artikeln annars")
+    unit_price: Optional[int] = Field(
+        None, ge=0, description="Á-pris i öre ex moms; ur artikeln annars"
+    )
+    vat_code: Optional[Literal["MP1", "MP2", "MP3", "MF"]] = None
+    revenue_account: Optional[str] = None
+    article_number: Optional[str] = None
+    delivery_from: Optional[DateType] = None
+    delivery_to: Optional[DateType] = None
+    delivery_month: Optional[str] = Field(None, description="YYYY-MM")
+
+
+class ForeslaFakturaArgs(BaseModel):
+    """Föreslå en kundfaktura i Fakturerings tråd (§5.3)."""
+
+    invoice_number: str = Field(
+        ..., description="Nästa nummer i serien, ur las_fakturor latest_numbers"
+    )
+    invoice_date: DateType
+    customer_id: Optional[str] = None
+    customer_name: Optional[str] = Field(
+        None, description="Fullständigt namn; krävs utan customer_id"
+    )
+    customer_org_number: Optional[str] = None
+    customer_address: Optional[str] = Field(
+        None, description="Krävs om kunden saknar adress"
+    )
+    customer_email: Optional[str] = None
+    reference: Optional[str] = Field(None, description="Er referens")
+    due_date: Optional[DateType] = Field(
+        None, description="Ur kundens betalningsvillkor annars"
+    )
+    delivery_from: Optional[DateType] = Field(
+        None, description="Leverans för rader utan egen"
+    )
+    delivery_to: Optional[DateType] = None
+    delivery_month: Optional[str] = Field(None, description="YYYY-MM")
+    rows: list[FakturaRad] = Field(..., min_length=1)
+    footnote: Optional[str] = Field(
+        None, description="Visas i kortet: vad du hittade och antog"
+    )
+    decision_id: Optional[str] = None
+
+
+class AndraFakturautkastArgs(BaseModel):
+    """Ändra ett fakturaförslag: ett nytt utkast ersätter det gamla (§5.4).
+    Utelämnat eller null = oförändrat; tom sträng nollställer reference,
+    customer_email, customer_org_number och delivery_*."""
+
+    draft_id: str
+    invoice_number: Optional[str] = None
+    invoice_date: Optional[DateType] = None
+    customer_id: Optional[str] = None
+    customer_name: Optional[str] = None
+    customer_org_number: Optional[str] = None
+    customer_address: Optional[str] = None
+    customer_email: Optional[str] = None
+    reference: Optional[str] = None
+    due_date: Optional[DateType] = None
+    delivery_from: Optional[Union[DateType, Literal[""]]] = None
+    delivery_to: Optional[Union[DateType, Literal[""]]] = None
+    delivery_month: Optional[str] = None
+    rows: Optional[list[FakturaRad]] = Field(
+        None, min_length=1, description="Ersätter alla rader"
+    )
+    footnote: Optional[str] = None
+    decision_id: Optional[str] = None
+    reject_reason: Optional[str] = Field(
+        None,
+        description="Förkastar utkastet, bara när användaren ber om det; "
+        "inget annat fält får anges då",
+    )
 
 
 class PostaVerifikationRow(BaseModel):
@@ -1224,6 +1341,134 @@ def _run_koppla_banktransaktion(
     )
 
 
+# --- fakturering F1 (SPEC-fakturering-f1.md §5) -----------------------------
+
+
+def _invoice_thread(tool: str, tool_context: Optional[Mapping[str, Any]]):
+    thread = (tool_context or {}).get("thread")
+    if thread is None:
+        raise ValidationError(
+            code="draft_requires_thread",
+            message=f"{tool} can only be called from a thread turn",
+            details=(
+                "An invoice proposal is a card in Fakturering's thread for a "
+                "human to issue (SPEC-fakturering-f1.md §5.3)."
+            ),
+        )
+    return thread
+
+
+def _faktura_rows(rows) -> list:
+    out = []
+    for row in rows:
+        data = row.model_dump()
+        data["quantity"] = str(data["quantity"])
+        out.append(data)
+    return out
+
+
+def _run_las_kunder(
+    args: LasKunderArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """§5.1. Read-only."""
+    from services.invoice_proposal import InvoiceProposalService
+
+    return InvoiceProposalService.read_customers(
+        query=args.query,
+        customer_id=args.customer_id,
+        include_inactive=args.include_inactive,
+    )
+
+
+def _run_las_fakturor(
+    args: LasFakturorArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """§5.2. Read-only."""
+    from services.invoice_proposal import InvoiceProposalService
+
+    return InvoiceProposalService.read_invoices(
+        invoice_id=args.invoice_id,
+        customer=args.customer,
+        status=args.status,
+        drafts=args.drafts,
+        limit=args.limit,
+    )
+
+
+def _run_foresla_faktura(
+    args: ForeslaFakturaArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """§5.3. Not terminal. Shares the turn's ``proposals`` sequence with
+    ``foresla_verifikation``, so ``n`` counts every proposal in the turn."""
+    thread = _invoice_thread("foresla_faktura", tool_context)
+    proposals = (tool_context or {}).get("proposals")
+
+    from services.invoice_proposal import InvoiceProposalService
+
+    data = args.model_dump(exclude={"rows", "footnote", "decision_id"})
+    data["rows_data"] = _faktura_rows(args.rows)
+    result = InvoiceProposalService().propose(
+        thread,
+        fields=data,
+        footnote=args.footnote,
+        decision_id=args.decision_id,
+        actor=actor,
+        idempotency_key=proposals.key() if proposals is not None else None,
+    )
+    if proposals is not None:
+        proposals.advance()
+    return result
+
+
+def _run_andra_fakturautkast(
+    args: AndraFakturautkastArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """§5.4. Not terminal."""
+    thread = _invoice_thread("andra_fakturautkast", tool_context)
+    proposals = (tool_context or {}).get("proposals")
+
+    from services.invoice_proposal import InvoiceProposalService
+
+    changes = args.model_dump(
+        exclude={"draft_id", "rows", "footnote", "decision_id", "reject_reason"},
+        exclude_none=True,
+    )
+    result = InvoiceProposalService().change(
+        thread,
+        draft_id=args.draft_id,
+        changes=changes,
+        rows=_faktura_rows(args.rows) if args.rows is not None else None,
+        footnote=args.footnote,
+        decision_id=args.decision_id,
+        reject_reason=args.reject_reason,
+        actor=actor,
+        idempotency_key=proposals.key() if proposals is not None else None,
+    )
+    if proposals is not None:
+        proposals.advance()
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Tool definitions and dispatcher (SPEC §6.4, §6.6)
 # ---------------------------------------------------------------------------
@@ -1395,6 +1640,46 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
         KopplaBanktransaktionArgs,
         _run_koppla_banktransaktion,
     ),
+    (
+        "las_kunder",
+        "Läs kundregistret och artiklarna. Skrivskyddat -- ändrar ingenting. "
+        "Ange query för att söka på namn eller organisationsnummer, eller "
+        "customer_id för en kund.",
+        LasKunderArgs,
+        _run_las_kunder,
+    ),
+    (
+        "las_fakturor",
+        "Läs kundfakturor och fakturautkast. Skrivskyddat. Utan invoice_id: "
+        "en lista, nyast först, och latest_numbers, numren på de senast "
+        "skapade fakturorna, för att föreslå nästa nummer i serien. Med "
+        "invoice_id: en faktura med rader, leveranser och betalningar. "
+        "drafts=true läser utkasten i stället.",
+        LasFakturorArgs,
+        _run_las_fakturor,
+    ),
+    (
+        "foresla_faktura",
+        "Lägg fram en kundfaktura som ett förslag för användaren: skapar ett "
+        "fakturautkast och ett kort i Fakturerings tråd. Användaren "
+        "utfärdar förslaget med ett tryck, och först då bokförs fakturan och "
+        "PDF:en skapas -- detta verktyg bokför ingenting. Föreslå numret som "
+        "nästa i serien (las_fakturor, latest_numbers). Ändra ett väntande "
+        "förslag med andra_fakturautkast, inte med ett nytt.",
+        ForeslaFakturaArgs,
+        _run_foresla_faktura,
+    ),
+    (
+        "andra_fakturautkast",
+        "Ändra ett fakturaförslag som inte är utfärdat: ange draft_id och "
+        "bara de fält som ska ändras; rows ersätter alla rader. Skapar ett "
+        "nytt utkast och ett nytt kort som ersätter det gamla; det gamla "
+        "förkastas. reject_reason förkastar utkastet -- bara när användaren "
+        "ber om det. Kan aldrig ändra en utfärdad faktura; en sådan rättas "
+        "med en kreditfaktura.",
+        AndraFakturautkastArgs,
+        _run_andra_fakturautkast,
+    ),
 )
 
 #: Anthropic tool-definition shape: {"name", "description", "input_schema"}.
@@ -1423,9 +1708,10 @@ def execute_tool(
     idempotency_key: Optional[str] = None,
     tool_context: Optional[Mapping[str, Any]] = None,
 ) -> Any:
-    """Validate and run one model-requested tool call -- one of the seventeen
-    tools in ``_TOOL_SPECS``, the last of them ``koppla_banktransaktion``
-    (the fifteenth is ``koppla_bort_underlag``, the fourteenth
+    """Validate and run one model-requested tool call -- one of the
+    twenty-one tools in ``_TOOL_SPECS``, the last of them
+    ``andra_fakturautkast`` (the seventeenth is ``koppla_banktransaktion``,
+    the fifteenth ``koppla_bort_underlag``, the fourteenth
     ``stang_perioder``).
 
     ``idempotency_key`` is the caller's own key for a posting made during

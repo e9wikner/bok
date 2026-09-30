@@ -410,6 +410,11 @@ def _account_code(details: Optional[str]) -> Optional[str]:
 #: `GET /drafts?status=` (§10): the table's three states, or every one.
 DRAFT_LIST_STATUSES = ("pending", "posted", "superseded", "all")
 
+#: Statuses `GET /drafts` accepts once invoice proposals are in it
+#: (SPEC-fakturering-f1.md §10.1): `posted` is vouchers only, `issued` and
+#: `rejected` invoices only.
+VIEW_DRAFT_STATUSES = ("pending", "posted", "superseded", "issued", "rejected", "all")
+
 
 @dataclass
 class DraftListItem:
@@ -459,6 +464,38 @@ class DraftService:
             )
             items.append(DraftListItem(draft=draft, series=series, number=number))
         return items, total
+
+    def list_view_drafts(
+        self, *, view_key: str, status: str = "all", limit: Optional[int] = None
+    ) -> Tuple[List[Tuple[str, Any]], int]:
+        """`GET /drafts` with both kinds (SPEC-fakturering-f1.md §10.1):
+        `("voucher", DraftListItem)` and `("invoice", (InvoiceProposal,
+        invoice block))`, oldest first over both, and the total before
+        `limit`."""
+        if status not in VIEW_DRAFT_STATUSES:
+            raise ValidationError(
+                code="unknown_status",
+                message=f"Unknown status: {status!r}",
+                details="expected one of: " + ", ".join(VIEW_DRAFT_STATUSES),
+            )
+        rows: List[Tuple[Any, str, Any]] = []
+        total = 0
+        if status in DRAFT_LIST_STATUSES:
+            vouchers, n = self.list_drafts(view_key=view_key, status=status)
+            total += n
+            rows += [(v.draft.created_at, "voucher", v) for v in vouchers]
+        if status != "posted":
+            from services.invoice_proposal import InvoiceProposalService
+
+            invoices, n = InvoiceProposalService.list_proposals(
+                view_key=view_key, status=status
+            )
+            total += n
+            rows += [(p.created_at, "invoice", (p, block)) for p, block in invoices]
+        rows.sort(key=lambda r: r[0])
+        if limit is not None:
+            rows = rows[:limit]
+        return [(kind, item) for _, kind, item in rows], total
 
     # -- posting hooks (§8.1) ---------------------------------------------
 

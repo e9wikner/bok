@@ -63,10 +63,9 @@ describe("Fakturering och Löner är läsvyer utan skrivflöde (testfall 17)", (
     expect(screen.getByText(/Godkännande görs tills vidare i den gamla lönevyn/)).toBeInTheDocument();
   });
 
-  it("är de enda två vyerna som är märkta som läsvyer", () => {
-    expect(allaVyer().filter((v) => v.lasvy).map((v) => v.titel)).toEqual([
-      "Fakturering",
-      "Löner",
-    ]);
+  it("Löner är den enda vyn som är märkt som läsvy (SPEC-fakturering-f1.md testfall 38)", () => {
+    // Fakturering skriver sedan F1 — i tråden, genom kortets `Utfärda`, inte
+    // med knappar i vyn. Vyn själv har fortfarande ingen knapp (ovan).
+    expect(allaVyer().filter((v) => v.lasvy).map((v) => v.titel)).toEqual(["Löner"]);
   });
 });

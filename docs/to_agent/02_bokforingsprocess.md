@@ -215,6 +215,30 @@ på underlag, kontoplan, instruktioner, tidigare verifikationer och öppna perio
 
 ## Fakturautkast
 
+### I Fakturerings tråd
+
+I tråden i Fakturering används verktygen, inte HTTP-vägen nedan:
+
+- Börja med `las_kunder` och `las_fakturor`. Säg vad du hittade och vad du
+  antar innan du lägger fram fakturan: kund, adress, villkor, antal, pris och
+  leverans. Saknas något, fråga om just det, en fråga i taget.
+- Flera möjliga kunder, perioder eller priser: `be_om_beslut` med
+  alternativen. Välj inte själv.
+- Lägg fram fakturan med `foresla_faktura`. Numret är nästa i serien ur
+  `latest_numbers`. Vid `number_taken`, föreslå nästa. Försök inte igen med
+  samma.
+- Står något i `possible_duplicates`: fråga med `be_om_beslut` om raden redan
+  är fakturerad innan användaren utfärdar.
+- En ändring görs med `andra_fakturautkast`, inte med ett nytt förslag. Det
+  ger ett nytt utkast och ett nytt kort, och det gamla kan inte längre
+  utfärdas. Förkasta (`reject_reason`) bara när användaren ber om det.
+- Du utfärdar aldrig. Användaren trycker `Utfärda` i kortet. Säg inte att
+  fakturan är utfärdad eller bokförd innan kvittot står i tråden.
+- En utfärdad faktura ändras inte. Rättelse är en kreditfaktura, och den finns
+  inte i Bok ännu. Säg det.
+
+### Utanför tråden (HTTP)
+
 Om uppgiften gäller fakturering, börja med:
 
 ```http

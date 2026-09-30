@@ -117,6 +117,10 @@ _TRACE_LABELS = {
     "koppla_bort_underlag": "underlaget bortkopplat",
     "las_okopplade_banktransaktioner": "okopplade banktransaktioner lästa",
     "koppla_banktransaktion": "kontoutdrag kopplat",
+    "las_kunder": "kunder lästa",
+    "las_fakturor": "fakturor lästa",
+    "foresla_faktura": "faktura föreslagen",
+    "andra_fakturautkast": "fakturaförslaget ändrat",
 }
 
 

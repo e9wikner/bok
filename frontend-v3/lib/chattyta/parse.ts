@@ -41,6 +41,42 @@ const strangEllerNull = (v: unknown) => v === null || arStrang(v);
 const heltalEllerNull = (v: unknown) => v === null || arHeltal(v);
 const valfriStrang = (v: unknown) => v === undefined || arStrang(v);
 
+const SUMMANYCKLAR = new Set(["net", "vat", "vat_free", "total"]);
+
+/** `draft` med `kind: "invoice"` (SPEC-fakturering-f1.md §6.1). */
+function fakturaFel(b: Rad): string | null {
+  const fel = saknar(b, { terms: arStrang });
+  if (fel) return fel;
+  const m = b.recipient;
+  if (!arObjekt(m) || saknar(m, { name: arStrang, address: arStrang, reference: strangEllerNull })) {
+    return "recipient saknar namn, adress eller referens";
+  }
+  if (!Array.isArray(b.rows) || b.rows.length === 0) return "rows saknas";
+  for (const r of b.rows) {
+    if (
+      !arObjekt(r) ||
+      saknar(r, {
+        text: arStrang,
+        article_number: strangEllerNull,
+        delivery: strangEllerNull,
+        quantity_centi: arHeltal,
+        unit: arStrang,
+        unit_price_ore: arHeltal,
+        amount_ore: arHeltal,
+      })
+    ) {
+      return "en fakturarad saknar text, antal eller belopp";
+    }
+  }
+  if (!Array.isArray(b.totals) || b.totals.length === 0) return "totals saknas";
+  for (const t of b.totals) {
+    if (!arObjekt(t) || saknar(t, { text: arStrang, amount_ore: arHeltal }) || !SUMMANYCKLAR.has(t.key as string)) {
+      return "en summa saknar nyckel, text eller belopp";
+    }
+  }
+  return null;
+}
+
 const KONTROLLER: Record<InlaggsTyp, Kontroll> = {
   agent_text: (b) => {
     const fel = saknar(b, { text: arStrang, decision_id: valfriStrang });
@@ -124,7 +160,9 @@ const KONTROLLER: Record<InlaggsTyp, Kontroll> = {
       decision_id: strangEllerNull,
     });
     if (fel) return fel;
-    // Faktura- och löneförslag är ur scope (ANALYS.md §2, SPEC §4.3).
+    // Fakturaförslaget (SPEC-fakturering-f1.md §6.1). Löneförslag är
+    // fortfarande ur scope (ANALYS.md §2, SPEC §4.3).
+    if (b.kind === "invoice") return fakturaFel(b);
     if (b.kind !== "voucher") return `kind ${String(b.kind)} renderas inte`;
     if (!Array.isArray(b.rows) || b.rows.length === 0) return "rows saknas";
     for (const r of b.rows) {
@@ -145,7 +183,14 @@ const KONTROLLER: Record<InlaggsTyp, Kontroll> = {
 
   receipt: (b) => {
     // `note` (flode-underlag D7) är valfri; finns den ska den vara en sträng.
-    const fel = saknar(b, { title: arStrang, voucher_id: strangEllerNull, note: valfriStrang });
+    const fel = saknar(b, {
+      title: arStrang,
+      voucher_id: strangEllerNull,
+      note: valfriStrang,
+      // Ett fakturakvitto (SPEC-fakturering-f1.md §8.1).
+      invoice_id: valfriStrang,
+      pdf_url: valfriStrang,
+    });
     if (fel) return fel;
     if (!Array.isArray(b.labels) || b.labels.length !== 2 || !b.labels.every(arStrang)) {
       return "labels är inte två strängar";

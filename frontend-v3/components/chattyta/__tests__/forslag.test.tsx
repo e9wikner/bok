@@ -3,19 +3,19 @@ import { render, screen, within } from "@testing-library/react";
 import { VerifikationsForslag } from "@/components/chattyta/VerifikationsForslag";
 import { parseInlagg } from "@/lib/chattyta/parse";
 import { FIXTUR_DRAFT } from "@/lib/chattyta/__fixtures__/inlagg";
-import type { DraftInlagg } from "@/lib/chattyta/typer";
+import type { VerifikationDraftInlagg } from "@/lib/chattyta/typer";
 
 /**
  * `VerifikationsForslag` utan knapp (C10). Fixturen går genom
  * `parseInlagg` så att testet läser samma form som tråden får — inte en
  * handbyggd kopia som kan glida isär från kontraktet i SPEC §4.3.
  */
-function draft(): DraftInlagg {
+function draft(): VerifikationDraftInlagg {
   const inlagg = parseInlagg(FIXTUR_DRAFT);
-  if (!inlagg || inlagg.type !== "draft") {
-    throw new Error("FIXTUR_DRAFT parsas inte till draft");
+  if (!inlagg || inlagg.type !== "draft" || inlagg.body.kind !== "voucher") {
+    throw new Error("FIXTUR_DRAFT parsas inte till ett verifikationsförslag");
   }
-  return inlagg;
+  return { ...inlagg, body: inlagg.body };
 }
 
 function rader(container: HTMLElement): HTMLElement[] {

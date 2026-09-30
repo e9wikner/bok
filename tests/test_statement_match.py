@@ -396,8 +396,9 @@ def test_auto_account_unknown_is_refused(books):
 # --- agent tools ------------------------------------------------------------
 
 
-def test_koppla_banktransaktion_is_the_last_tool():
-    assert AGENT_TOOL_DEFINITIONS[-1]["name"] == "koppla_banktransaktion"
+def test_koppla_banktransaktion_is_the_seventeenth_tool():
+    # Fakturering F1 appended four after it (SPEC-fakturering-f1.md §5).
+    assert AGENT_TOOL_DEFINITIONS[16]["name"] == "koppla_banktransaktion"
 
 
 def test_agent_reads_open_transactions_and_links(books):

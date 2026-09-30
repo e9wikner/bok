@@ -423,6 +423,44 @@ class InvoiceRepository:
         )
 
     @staticmethod
+    def latest_numbers(limit: int = 5) -> List[str]:
+        """The numbers of the most recently created invoices: issued in Bok
+        by `issued_at`, older ones by `created_at` (SPEC-fakturering-f1.md
+        §5.2, `latest_numbers`)."""
+        rows = db.execute(
+            "SELECT invoice_number FROM invoices "
+            "ORDER BY COALESCE(issued_at, created_at) DESC, rowid DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [r["invoice_number"] for r in rows]
+
+    @staticmethod
+    def last_by_customer_names(names: List[str]) -> dict:
+        """`{customer_name: (invoice_number, invoice_date)}` for each name's
+        latest invoice, in one query (`las_kunder`'s `last_invoice`)."""
+        unique = list(dict.fromkeys(names))
+        if not unique:
+            return {}
+        placeholders = ", ".join("?" for _ in unique)
+        rows = db.execute(
+            f"""
+            SELECT customer_name, invoice_number, invoice_date FROM (
+                SELECT customer_name, invoice_number, invoice_date,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY customer_name
+                           ORDER BY invoice_date DESC, created_at DESC
+                       ) AS n
+                FROM invoices WHERE customer_name IN ({placeholders})
+            ) WHERE n = 1
+            """,
+            tuple(unique),
+        ).fetchall()
+        return {
+            r["customer_name"]: (r["invoice_number"], _as_date(r["invoice_date"]))
+            for r in rows
+        }
+
+    @staticmethod
     def find_id_by_number(invoice_number: str) -> Optional[str]:
         row = db.execute(
             "SELECT id FROM invoices WHERE invoice_number = ? LIMIT 1",

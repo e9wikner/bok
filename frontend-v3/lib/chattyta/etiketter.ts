@@ -34,6 +34,10 @@ export const SKRIVER_ETIKETTER: Readonly<Record<string, string>> = {
   koppla_bort_underlag: "Kopplar bort underlaget…",
   las_okopplade_banktransaktioner: "Läser okopplade banktransaktioner…",
   koppla_banktransaktion: "Kopplar kontoutdraget…",
+  las_kunder: "Läser kunderna…",
+  las_fakturor: "Läser fakturorna…",
+  foresla_faktura: "Föreslår en faktura…",
+  andra_fakturautkast: "Ändrar fakturaförslaget…",
 };
 
 /**

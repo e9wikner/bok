@@ -712,11 +712,24 @@ class DraftVoucherNumber(BaseModel):
     number: int
 
 
+class DraftInvoice(BaseModel):
+    """What an issued invoice proposal became (SPEC-fakturering-f1.md
+    §10.1)."""
+
+    invoice_id: str
+    invoice_number: str
+    voucher_id: Optional[str] = None
+    voucher: Optional[str] = None
+    pdf_url: Optional[str] = None
+
+
 class ThreadDraftResponse(BaseModel):
     """One row of `GET /drafts` (SPEC-flode-verifikationer §10). `voucher`
     is set only when `status='posted'` -- the one place the client gets a
     number from."""
 
+    # "voucher" or "invoice" (SPEC-fakturering-f1.md §10.1).
+    kind: str = "voucher"
     draft_id: str
     post_id: str
     decision_id: Optional[str] = None
@@ -730,6 +743,8 @@ class ThreadDraftResponse(BaseModel):
     voucher: Optional[DraftVoucherNumber] = None
     last_error_code: Optional[str] = None
     created_at: DateTimeType
+    # An invoice proposal that is issued: the invoice, its voucher and PDF.
+    invoice: Optional[DraftInvoice] = None
 
 
 class ThreadDraftListResponse(BaseModel):

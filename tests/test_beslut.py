@@ -1697,7 +1697,7 @@ class TestBeOmBeslutIsLastInAgentToolDefinitions:
     def test_case_25_be_om_beslut_is_tenth_and_the_first_nine_are_unchanged(self):
         names = [tool["name"] for tool in AGENT_TOOL_DEFINITIONS]
 
-        assert len(names) == 17
+        assert len(names) == 21
         assert names[:9] == self._EXPECTED_FIRST_NINE
         assert names[9] == "be_om_beslut"
         assert names[10:] == [
@@ -1708,6 +1708,10 @@ class TestBeOmBeslutIsLastInAgentToolDefinitions:
             "koppla_bort_underlag",
             "las_okopplade_banktransaktioner",
             "koppla_banktransaktion",
+            "las_kunder",
+            "las_fakturor",
+            "foresla_faktura",
+            "andra_fakturautkast",
         ]
 
 
@@ -1751,10 +1755,18 @@ class TestCaseTwentySixAppendOnlyToolSurfaceExtended:
         "modify a posted",
     ]
 
+    #: As in `tests/test_agent_runtime.py`: `andra_fakturautkast` changes an
+    #: invoice draft by replacing it, never anything issued or posted
+    #: (SPEC-fakturering-f1.md §5.4).
+    _NAME_FRAGMENT_EXCEPTIONS = {"andra_fakturautkast": {"andra"}}
+
     def test_case_26_no_tool_name_contains_a_mutate_or_delete_verb(self):
         for tool in AGENT_TOOL_DEFINITIONS:
             lowered = tool["name"].lower()
+            allowed = self._NAME_FRAGMENT_EXCEPTIONS.get(tool["name"], set())
             for fragment in self._FORBIDDEN_NAME_FRAGMENTS:
+                if fragment in allowed:
+                    continue
                 assert (
                     fragment not in lowered
                 ), f"tool name {tool['name']!r} contains {fragment!r}"

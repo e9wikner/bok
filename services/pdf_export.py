@@ -215,6 +215,19 @@ def format_delivery(
     return Markup("")
 
 
+def delivery_text(
+    delivery_from: Optional[date],
+    delivery_to: Optional[date],
+    delivery_month: Optional[str],
+) -> str:
+    """`format_delivery` as plain text on one line (`2026-06-29 --> 2026-07-02`,
+    `2026-07-01`, `juli 2026`), for the invoice proposal card
+    (SPEC-fakturering-f1.md §6.1): the same words the PDF will print."""
+    return str(format_delivery(delivery_from, delivery_to, delivery_month)).replace(
+        "<br>--&gt;<br>", " --> "
+    )
+
+
 def _iso_date(value: Any) -> str:
     if isinstance(value, (date, datetime)):
         return value.strftime("%Y-%m-%d")

@@ -35,6 +35,85 @@ def unit_of_work(commit: bool):
     return db.transaction() if commit else nullcontext()
 
 
+#: Revenue and output VAT account per VAT code, for rows without their own
+#: revenue account (legacy invoices).
+_VAT_ACCOUNTS = {
+    "MP1": ("3011", "2610"),  # Revenue 25%, VAT 25%
+    "MP2": ("3020", "2620"),  # Revenue 12%, VAT 12%
+    "MP3": ("3030", "2630"),  # Revenue 6%, VAT 6%
+    "MF": ("3010", None),  # Revenue 0%, No VAT
+}
+
+
+def default_revenue_account(vat_code: str) -> str:
+    return _VAT_ACCOUNTS.get(vat_code, ("3010", None))[0]
+
+
+def invoice_booking_rows(invoice_number, amount_inc_vat: int, rows) -> List[Dict]:
+    """The voucher rows an invoice is booked with: debit 1510 incl. VAT,
+    credit revenue per (VAT code, revenue account) and output VAT per VAT
+    code. `rows` need `vat_code`, `revenue_account`, `amount_ex_vat` and
+    `vat_amount`, as attributes or keys.
+
+    Shared by the booking and the invoice proposal card's consequence line
+    (SPEC-fakturering-f1.md §6.1), so the card and the voucher cannot
+    differ."""
+
+    def get(row, name):
+        return row[name] if isinstance(row, dict) else getattr(row, name)
+
+    voucher_rows: List[Dict] = [
+        {
+            "account": "1510",  # Kundfordringar
+            "debit": amount_inc_vat,
+            "credit": 0,
+            "description": f"Invoice {invoice_number}",
+        }
+    ]
+
+    # Group revenue by VAT code and revenue account. Article-based invoice
+    # drafts can set revenue_account per row; legacy invoices fall back to
+    # the original VAT-code mapping.
+    vat_groups: Dict = {}
+    for row in rows:
+        vat_code = get(row, "vat_code")
+        revenue_account = get(row, "revenue_account") or default_revenue_account(
+            vat_code
+        )
+        key = (vat_code, revenue_account)
+        if key not in vat_groups:
+            vat_groups[key] = {
+                "vat_code": vat_code,
+                "revenue_account": revenue_account,
+                "amount_ex_vat": 0,
+                "vat_amount": 0,
+            }
+        vat_groups[key]["amount_ex_vat"] += get(row, "amount_ex_vat")
+        vat_groups[key]["vat_amount"] += get(row, "vat_amount")
+
+    for amounts in vat_groups.values():
+        vat_code = amounts["vat_code"]
+        _, vat_acct = _VAT_ACCOUNTS.get(vat_code, ("3010", None))
+        voucher_rows.append(
+            {
+                "account": amounts["revenue_account"],
+                "debit": 0,
+                "credit": amounts["amount_ex_vat"],
+                "description": f"Revenue - {vat_code}",
+            }
+        )
+        if vat_acct and amounts["vat_amount"] > 0:
+            voucher_rows.append(
+                {
+                    "account": vat_acct,
+                    "debit": 0,
+                    "credit": amounts["vat_amount"],
+                    "description": f"VAT {vat_code}",
+                }
+            )
+    return voucher_rows
+
+
 class InvoiceService:
     """Manage invoices and payments."""
 
@@ -250,71 +329,9 @@ class InvoiceService:
             if not invoice:
                 raise ValidationError("invoice_not_found", "Invoice not found")
 
-            # Create voucher with invoice rows
-            voucher_rows = []
-
-            # Debit: Customer receivables
-            voucher_rows.append(
-                {
-                    "account": "1510",  # Kundfordringar
-                    "debit": invoice.amount_inc_vat,
-                    "credit": 0,
-                    "description": f"Invoice {invoice.invoice_number}",
-                }
+            voucher_rows = invoice_booking_rows(
+                invoice.invoice_number, invoice.amount_inc_vat, invoice.rows
             )
-
-            # Group revenue by VAT code and revenue account. Article-based invoice
-            # drafts can set revenue_account per row; legacy invoices fall back to
-            # the original VAT-code mapping.
-            vat_groups = {}
-            for row in invoice.rows:
-                revenue_account = row.revenue_account or self._default_revenue_account(
-                    row.vat_code
-                )
-                key = (row.vat_code, revenue_account)
-                if key not in vat_groups:
-                    vat_groups[key] = {
-                        "vat_code": row.vat_code,
-                        "revenue_account": revenue_account,
-                        "amount_ex_vat": 0,
-                        "vat_amount": 0,
-                    }
-                vat_groups[key]["amount_ex_vat"] += row.amount_ex_vat
-                vat_groups[key]["vat_amount"] += row.vat_amount
-
-            # Credit: Revenue and VAT
-            vat_account_map = {
-                "MP1": ("3011", "2610"),  # Revenue 25%, VAT 25%
-                "MP2": ("3020", "2620"),  # Revenue 12%, VAT 12%
-                "MP3": ("3030", "2630"),  # Revenue 6%, VAT 6%
-                "MF": ("3010", None),  # Revenue 0%, No VAT
-            }
-
-            for amounts in vat_groups.values():
-                vat_code = amounts["vat_code"]
-                revenue_acct = amounts["revenue_account"]
-                _, vat_acct = vat_account_map.get(vat_code, ("3010", None))
-
-                # Revenue
-                voucher_rows.append(
-                    {
-                        "account": revenue_acct,
-                        "debit": 0,
-                        "credit": amounts["amount_ex_vat"],
-                        "description": f"Revenue - {vat_code}",
-                    }
-                )
-
-                # VAT (if applicable)
-                if vat_acct and amounts["vat_amount"] > 0:
-                    voucher_rows.append(
-                        {
-                            "account": vat_acct,
-                            "debit": 0,
-                            "credit": amounts["vat_amount"],
-                            "description": f"VAT {vat_code}",
-                        }
-                    )
 
             # Create and post voucher
             from services.ledger import LedgerService
@@ -355,12 +372,7 @@ class InvoiceService:
         return voucher.id
 
     def _default_revenue_account(self, vat_code: str) -> str:
-        return {
-            "MP1": "3011",
-            "MP2": "3020",
-            "MP3": "3030",
-            "MF": "3010",
-        }.get(vat_code, "3010")
+        return default_revenue_account(vat_code)
 
     def register_payment(
         self,

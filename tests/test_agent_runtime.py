@@ -1095,7 +1095,22 @@ _EXPECTED_TOOL_NAMES = [
     # as underlag -- read the unlinked transactions, link one after a decision.
     "las_okopplade_banktransaktioner",
     "koppla_banktransaktion",
+    # The eighteenth to twenty-first, appended the same way (fakturering F1,
+    # SPEC-fakturering-f1.md §5): two read, two write an invoice draft and
+    # its card in Fakturering's thread. None of them issues an invoice.
+    "las_kunder",
+    "las_fakturor",
+    "foresla_faktura",
+    "andra_fakturautkast",
 ]
+
+#: Names that carry a forbidden fragment by design, and why it is not the
+#: edit the fragment guards against. `andra_fakturautkast` changes an
+#: invoice *draft* -- never an issued invoice or a posted voucher -- and even
+#: then by creating a new draft that replaces the old one
+#: (SPEC-fakturering-f1.md §5.4, beslut 1). The name is the one the spec
+#: and the user chose.
+_NAME_FRAGMENT_EXCEPTIONS = {"andra_fakturautkast": {"andra"}}
 
 
 class TestToolDefinitionsOrder:
@@ -1154,7 +1169,10 @@ class TestAppendOnlyToolSurface:
         ]
         for tool in AGENT_TOOL_DEFINITIONS:
             lowered = tool["name"].lower()
+            allowed = _NAME_FRAGMENT_EXCEPTIONS.get(tool["name"], set())
             for fragment in forbidden_fragments:
+                if fragment in allowed:
+                    continue
                 assert (
                     fragment not in lowered
                 ), f"tool name {tool['name']!r} contains {fragment!r}"
@@ -1219,6 +1237,10 @@ class TestAppendOnlyToolSurface:
         `koppla_banktransaktion` joined them with account statements as
         underlag: it writes the link between a statement transaction and a
         posted voucher and the audit log, never a voucher.
+        `foresla_faktura` and `andra_fakturautkast` joined them with
+        fakturering F1: they write an invoice draft, its `draft` card and its
+        `thread_invoice_drafts` row, and reject a replaced draft -- never an
+        invoice or a voucher.
         """
         write_tool_names = {
             "posta_verifikation",
@@ -1230,6 +1252,8 @@ class TestAppendOnlyToolSurface:
             "stang_perioder",
             "koppla_bort_underlag",
             "koppla_banktransaktion",
+            "foresla_faktura",
+            "andra_fakturautkast",
         }
         read_tool_names = set(_EXPECTED_TOOL_NAMES) - write_tool_names
         for tool in AGENT_TOOL_DEFINITIONS:

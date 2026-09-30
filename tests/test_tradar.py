@@ -1164,9 +1164,14 @@ class TestThreadToolSurface:
             "patch",
             "remove",
         ]
+        # `andra_fakturautkast` changes an invoice draft by replacing it --
+        # never anything issued or posted (SPEC-fakturering-f1.md §5.4).
+        exceptions = {"andra_fakturautkast": {"andra"}}
         for tool in client.calls[0]["tools"]:
             lowered = tool["name"].lower()
             for fragment in forbidden:
+                if fragment in exceptions.get(tool["name"], set()):
+                    continue
                 assert fragment not in lowered, f"{tool['name']!r} has {fragment!r}"
 
     def test_case_14_only_posta_verifikation_touches_the_ledger(self):

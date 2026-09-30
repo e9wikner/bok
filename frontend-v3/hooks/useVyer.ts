@@ -6,7 +6,8 @@ import { BESLUT_GRANS, beslutStatusNyckel } from "@/hooks/useBeslut";
 import { FORSLAG_GRANS, forslagNyckel } from "@/hooks/useForslag";
 import { useLasning } from "@/hooks/useLasning";
 import { usePostningar } from "@/hooks/usePostningar";
-import { VOUCHERS_NYCKEL, hamtaBeslut, hamtaForslag } from "@/lib/chattyta/api";
+import { useUtfardanden } from "@/hooks/useUtfardanden";
+import { FAKTUROR_NYCKEL, VOUCHERS_NYCKEL, hamtaBeslut, hamtaForslag } from "@/lib/chattyta/api";
 import { KOPPLINGAR_NYCKEL, type Koppling } from "@/lib/chattyta/kopplingar";
 import type { OverviewFiscalYear } from "@/lib/skal/api";
 import { betalaApi, faktureringVy, lonerVy } from "@/lib/skal/betala";
@@ -152,12 +153,35 @@ export function useVyer(
     enabled: false,
     staleTime: Infinity,
   });
+  // Under `FAKTUROR_NYCKEL`, så att ett utfärdande och `view.changed` når
+  // dem (SPEC-fakturering-f1.md §10.2).
   const fakturor = useQuery({
-    queryKey: ["skal", "fakturor"],
+    queryKey: [...FAKTUROR_NYCKEL, "skal"],
     queryFn: betalaApi.getFakturor,
     enabled: betala,
     staleTime,
   });
+  const fakturautkast = useQuery({
+    queryKey: [...FAKTUROR_NYCKEL, "skal", "utkast"],
+    queryFn: betalaApi.getFakturautkast,
+    enabled: betala,
+    staleTime,
+  });
+  // Samma nycklar som trådens `useBeslut`/`useForslag`, en fråga per vy.
+  const fakturering = "betala.fakturering";
+  const faktureringBeslut = useQuery({
+    queryKey: beslutStatusNyckel(fakturering),
+    queryFn: () => hamtaBeslut({ viewKey: fakturering, status: "all", limit: BESLUT_GRANS }),
+    enabled: betala,
+    staleTime,
+  });
+  const faktureringForslag = useQuery({
+    queryKey: forslagNyckel(fakturering),
+    queryFn: () => hamtaForslag({ viewKey: fakturering, status: "all", limit: FORSLAG_GRANS }),
+    enabled: betala,
+    staleTime,
+  });
+  const utfardanden = useUtfardanden();
   const loner = useQuery({
     queryKey: ["skal", "lonekorningar"],
     queryFn: betalaApi.getLonekorningar,
@@ -207,7 +231,11 @@ export function useVyer(
         harFler: hasNextPage,
         hamtaFler,
       })),
-    "betala.fakturering": vy([fakturor], faktureringVy),
+    "betala.fakturering": vy(
+      [fakturor, fakturautkast, faktureringBeslut, faktureringForslag],
+      (f, u, b, fs) =>
+        faktureringVy(f, { utkast: u.drafts, beslut: b.decisions, forslag: fs.drafts, utfardanden })
+    ),
     "betala.loner": vy([loner], lonerVy),
     "bokslut.rapporter": vy([rakenskapsar], (r) => rapporterVy(r, lasning.ar)),
     "bokslut.atgarder": vy([avvikelser], atgarderVy),

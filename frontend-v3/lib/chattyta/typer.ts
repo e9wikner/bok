@@ -115,10 +115,10 @@ export interface KonteringsRad {
   credit_ore: number | null;
 }
 
-export interface DraftKropp {
+export interface VerifikationKropp {
   /** `vouchers.id` för ett utkast. Klienten postar aldrig utan det (regel 3). */
   draft_id: string;
-  /** `invoice` och `payroll` är ur scope och blir `okant_kontrakt`. */
+  /** `payroll` är ur scope och blir `okant_kontrakt`. */
   kind: "voucher";
   title: string;
   meta: string;
@@ -128,6 +128,46 @@ export interface DraftKropp {
   consequence: string;
   decision_id: string | null;
 }
+
+/** En rad i fakturaförslaget (SPEC-fakturering-f1.md §6.1). Öre ex moms. */
+export interface FakturaRadData {
+  text: string;
+  article_number: string | null;
+  /** Samma text som PDF:ens KOMMENTAR, eller `null`. */
+  delivery: string | null;
+  /** Antalet × 100. Klienten formaterar, räknar inte. */
+  quantity_centi: number;
+  unit: string;
+  unit_price_ore: number;
+  amount_ore: number;
+}
+
+export interface FakturaSumma {
+  key: "net" | "vat" | "vat_free" | "total";
+  text: string;
+  amount_ore: number;
+}
+
+/**
+ * `draft` med `kind: "invoice"` — `FakturaForslag` (SPEC-fakturering-f1.md
+ * §6.1). Allt utom `footnote` är serverns.
+ */
+export interface FakturaKropp {
+  /** `invoice_drafts.id`. Klienten utfärdar aldrig utan det (regel 3). */
+  draft_id: string;
+  kind: "invoice";
+  title: string;
+  meta: string;
+  recipient: { name: string; address: string; reference: string | null };
+  rows: FakturaRadData[];
+  totals: FakturaSumma[];
+  terms: string;
+  footnote: string | null;
+  consequence: string;
+  decision_id: string | null;
+}
+
+export type DraftKropp = VerifikationKropp | FakturaKropp;
 
 export interface ErrorKropp {
   cause: string;
@@ -150,6 +190,10 @@ export interface ReceiptKropp {
   labels: [string, string];
   rows: JamforelseRad[];
   voucher_id: string | null;
+  /** Fakturan ett utfärdande gav (SPEC-fakturering-f1.md §8.1). Valfri. */
+  invoice_id?: string;
+  /** Den sparade PDF:en; hämtas med auth, aldrig som en vanlig länk. Valfri. */
+  pdf_url?: string;
   /**
    * Serverns hypotes om skillnaden, ordagrant (SPEC-flode-underlag.md §9.1,
    * D7). Bara serverns: agentens förklaring står i agentens text. Valfri —
@@ -166,6 +210,8 @@ export type UserFileInlagg = Kuvert & { type: "user_file"; body: UserFileKropp }
 export type DecisionInlagg = Kuvert & { type: "decision"; body: DecisionKropp };
 export type OptionsInlagg = Kuvert & { type: "options"; body: OptionsKropp };
 export type DraftInlagg = Kuvert & { type: "draft"; body: DraftKropp };
+export type VerifikationDraftInlagg = Kuvert & { type: "draft"; body: VerifikationKropp };
+export type FakturaDraftInlagg = Kuvert & { type: "draft"; body: FakturaKropp };
 export type ErrorInlagg = Kuvert & { type: "error"; body: ErrorKropp };
 export type ReceiptInlagg = Kuvert & { type: "receipt"; body: ReceiptKropp };
 

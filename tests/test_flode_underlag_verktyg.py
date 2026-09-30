@@ -86,7 +86,7 @@ def test_36_koppla_underlag_is_last_and_the_first_twelve_are_unchanged():
     # `stang_perioder` has since been appended after it, the fourteenth,
     # `koppla_bort_underlag` after that, the fifteenth, and the two
     # statement tools after that.
-    assert len(names) == 17
+    assert len(names) == 21
     assert names[11:] == [
         "tolka_underlag",
         "koppla_underlag",
@@ -94,6 +94,10 @@ def test_36_koppla_underlag_is_last_and_the_first_twelve_are_unchanged():
         "koppla_bort_underlag",
         "las_okopplade_banktransaktioner",
         "koppla_banktransaktion",
+        "las_kunder",
+        "las_fakturor",
+        "foresla_faktura",
+        "andra_fakturautkast",
     ]
     first_twelve = json.dumps(AGENT_TOOL_DEFINITIONS[:12])
     assert hashlib.sha256(first_twelve.encode()).hexdigest() == _FIRST_TWELVE_SHA256

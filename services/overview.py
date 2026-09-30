@@ -96,6 +96,7 @@ class OverviewService:
                 missing_attachments=VoucherRepository.count_missing_attachments(),
             ),
             "betala": PageCounters(
+                open_decisions=self._count_waiting_on_page("betala"),
                 overdue_invoices=self._count_overdue_invoices(today),
                 payroll_waiting=self._count_payroll_waiting(),
             ),
@@ -138,6 +139,22 @@ class OverviewService:
         from services.decision_service import DecisionService
 
         return DecisionService().count_waiting()
+
+    def _count_waiting_on_page(self, page: str) -> int:
+        """What waits on the human in one page's views, each view counted
+        with `DecisionService.count_waiting` -- for Fakturering and löner,
+        the invoice proposals and the decisions in its two threads
+        (SPEC-fakturering-f1.md §10.3). Böcker keeps the count without
+        `view_key` (`_count_open_decisions`)."""
+        from domain.types import ThreadViewKey
+        from services.decision_service import DecisionService
+
+        service = DecisionService()
+        return sum(
+            service.count_waiting(key.value)
+            for key in ThreadViewKey
+            if key.value.startswith(f"{page}.")
+        )
 
     def _count_overdue_invoices(self, today: date) -> int:
         """Same predicate as the invoice list summary — see Invoice.counts_as_overdue."""
