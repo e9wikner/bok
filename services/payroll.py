@@ -4,6 +4,7 @@ from calendar import monthrange
 from datetime import date
 from typing import Dict, List, Optional
 
+from db.database import db
 from domain.payroll_models import (
     AGI_PARTS,
     AgiDeclaration,
@@ -13,6 +14,8 @@ from domain.payroll_models import (
     PayrollRun,
     Payslip,
     agi_due_date,
+    declared_employer_fee,
+    whole_kronor,
 )
 from domain.statement_coverage import is_bank_account
 from domain.types import AuditAction
@@ -28,13 +31,16 @@ from repositories.payroll_repo import (
 )
 from repositories.period_repo import PeriodRepository
 from services.bank_integration import BankIntegrationService, BankTransaction
-from services.ledger import LedgerService
+from services.ledger import LedgerService, run_statement_match_after_posting
 
 #: Gross salary: the account the company has booked salaries on by hand.
 SALARY_ACCOUNT = "7000"
 
 #: The AGI moves withheld tax and employer fees to the tax account.
 TAX_ACCOUNT = "1630"
+
+#: What the AGI's whole kronor leave of the öre the payslips booked.
+ROUNDING_ACCOUNT = "3740"
 
 #: Net salary leaves this account when the bank transaction's connection
 #: names no bank account (1900-1989).
@@ -47,6 +53,7 @@ PAYROLL_ACCOUNTS = {
     "2730": ("Avräkning arbetsgivaravgifter", "liability"),
     SALARY_ACCOUNT: ("Löner", "expense"),
     "7510": ("Arbetsgivaravgifter", "expense"),
+    ROUNDING_ACCOUNT: ("Öres- och kronutjämning", "revenue"),
 }
 
 
@@ -373,27 +380,36 @@ class PayrollService:
         if month < 1 or month > 12:
             raise ValidationError("invalid_period", "Month must be 1-12")
         payslips = self.payslips.list_paid_in(year, month)
-        by_employee: Dict[str, AgiIndividual] = {}
+        sums: Dict[str, List[int]] = {}
         for payslip in payslips:
-            individual = by_employee.get(payslip.employee_id)
-            if individual is None:
-                employee = payslip.employee
-                individual = by_employee[payslip.employee_id] = AgiIndividual(
-                    employee_id=payslip.employee_id,
-                    name=employee.name if employee else payslip.employee_id,
+            employee_sums = sums.setdefault(payslip.employee_id, [0, 0, 0])
+            employee_sums[0] += payslip.gross_salary
+            employee_sums[1] += payslip.preliminary_tax
+            employee_sums[2] += payslip.employer_fee
+        employees = {p.employee_id: p.employee for p in payslips}
+        individuals = []
+        for employee_id, (gross, tax, fee) in sums.items():
+            employee = employees[employee_id]
+            individuals.append(
+                AgiIndividual(
+                    employee_id=employee_id,
+                    name=employee.name if employee else employee_id,
                     personal_number=employee.personal_number if employee else None,
-                    gross_salary=0,
-                    preliminary_tax=0,
-                    employer_fee=0,
+                    gross_salary=whole_kronor(gross),
+                    preliminary_tax=whole_kronor(tax),
+                    employer_fee=fee,
                 )
-            individual.gross_salary += payslip.gross_salary
-            individual.preliminary_tax += payslip.preliminary_tax
-            individual.employer_fee += payslip.employer_fee
+            )
         return AgiDeclaration(
             year=year,
             month=month,
             due_date=agi_due_date(year, month),
-            individuals=list(by_employee.values()),
+            individuals=individuals,
+            employer_fee=declared_employer_fee(payslips),
+            liabilities={
+                "tax": sum(p.preliminary_tax for p in payslips),
+                "employer_fee": sum(p.employer_fee for p in payslips),
+            },
             unbooked_payslips=sum(1 for p in payslips if not p.voucher_id),
             voucher_ids=self.agi_bookings.current_voucher_ids(year, month),
         )
@@ -409,7 +425,13 @@ class PayrollService:
         tax account: debit 2710 and credit 1630 for the withheld tax, debit
         2730 and credit 1630 for the employer fees. Books only the parts not
         already booked. Dated on the due date unless the tax account was
-        debited another day."""
+        debited another day.
+
+        The liability is cleared as the payslips booked it, in öre; the tax
+        account is credited the declared whole kronor; the difference goes to
+        öresutjämning (3740). Both parts and their booking rows are written
+        in one transaction, so a part is never posted without the row that
+        stops it from being booked again."""
         agi = self.get_agi(year, month)
         if not agi.individuals:
             raise ValidationError(
@@ -441,45 +463,69 @@ class PayrollService:
 
         self._ensure_payroll_accounts()
         ledger = LedgerService()
-        for kind in agi.unbooked_parts:
-            liability, label = AGI_PARTS[kind]
-            amount = agi.amount(kind)
-            voucher = ledger.create_voucher(
-                series="A",
-                date=voucher_date,
-                period_id=period.id,
-                description=f"Arbetsgivardeklaration {year}-{month:02d}, {label}",
-                rows_data=[
-                    {
-                        "account": liability,
-                        "debit": amount,
-                        "credit": 0,
-                        "description": label.capitalize(),
-                    },
-                    {
-                        "account": TAX_ACCOUNT,
-                        "debit": 0,
-                        "credit": amount,
-                        "description": label.capitalize(),
-                    },
-                ],
-                created_by=actor,
-            )
-            voucher = ledger.post_voucher(voucher.id, actor=actor)
-            booking_id = self.agi_bookings.create(year, month, kind, voucher.id, actor)
-            self.audit.log(
-                "payroll_agi_booking",
-                booking_id,
-                AuditAction.POSTED.value,
-                actor,
-                {
-                    "period": f"{year}-{month:02d}",
-                    "kind": kind,
-                    "voucher_id": voucher.id,
-                    "amount": amount,
-                },
-            )
+        with db.transaction():
+            for kind in agi.unbooked_parts:
+                self._book_agi_part(ledger, agi, kind, voucher_date, period.id, actor)
+        run_statement_match_after_posting()
         return self.get_agi(year, month)
+
+    def _book_agi_part(
+        self,
+        ledger: LedgerService,
+        agi: AgiDeclaration,
+        kind: str,
+        voucher_date: date,
+        period_id: str,
+        actor: str,
+    ) -> None:
+        """One part's voucher and booking row, inside the caller's
+        transaction."""
+        year, month = agi.year, agi.month
+        liability_account, label = AGI_PARTS[kind]
+        declared = agi.amount(kind)
+        liability = agi.liability(kind)
+        rounding = liability - declared
+        lines = [
+            (liability_account, liability, 0, label.capitalize()),
+            (TAX_ACCOUNT, 0, declared, label.capitalize()),
+            (ROUNDING_ACCOUNT, max(-rounding, 0), max(rounding, 0), "Öresutjämning"),
+        ]
+        voucher = ledger.create_voucher(
+            series="A",
+            date=voucher_date,
+            period_id=period_id,
+            description=f"Arbetsgivardeklaration {year}-{month:02d}, {label}",
+            rows_data=[
+                {
+                    "account": account,
+                    "debit": debit,
+                    "credit": credit,
+                    "description": description,
+                }
+                for account, debit, credit, description in lines
+                if debit or credit
+            ],
+            created_by=actor,
+            _commit=False,
+        )
+        voucher = ledger.post_voucher(voucher.id, actor=actor, _commit=False)
+        booking_id = self.agi_bookings.create(
+            year, month, kind, voucher.id, actor, _commit=False
+        )
+        self.audit.log(
+            "payroll_agi_booking",
+            booking_id,
+            AuditAction.POSTED.value,
+            actor,
+            {
+                "period": f"{year}-{month:02d}",
+                "kind": kind,
+                "voucher_id": voucher.id,
+                "amount": declared,
+                "rounding": rounding,
+            },
+            _commit=False,
+        )
 
     def get_payslip_context(self, payslip_id: str) -> Dict:
         payslip = self.payslips.get(payslip_id)

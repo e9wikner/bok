@@ -388,7 +388,12 @@ class AgiBookingRepository:
 
     @staticmethod
     def create(
-        year: int, month: int, kind: str, voucher_id: str, created_by: str
+        year: int,
+        month: int,
+        kind: str,
+        voucher_id: str,
+        created_by: str,
+        _commit: bool = True,
     ) -> str:
         booking_id = str(uuid.uuid4())
         db.execute(
@@ -397,7 +402,8 @@ class AgiBookingRepository:
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (booking_id, year, month, kind, voucher_id, datetime.now(), created_by),
         )
-        db.commit()
+        if _commit:
+            db.commit()
         return booking_id
 
     @staticmethod

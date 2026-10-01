@@ -91,10 +91,55 @@ def agi_due_date(year: int, month: int) -> date:
     return due
 
 
+def whole_kronor(ore: int) -> int:
+    """*ore* with the öre dropped, not rounded: the AGI reports whole kronor,
+    and the employer fee is computed "genom att ta bort ören" (Skatteverket,
+    SKV 401, Avrundning)."""
+    if ore < 0:
+        return -whole_kronor(-ore)
+    return ore - ore % 100
+
+
+def employer_fee_rate_bp(gross_salary: int, employer_fee: int) -> Optional[int]:
+    """The rate, in basis points, that gives *employer_fee* on
+    *gross_salary* the way `calculate_employer_fee` computes it, or None for
+    a fee that is no such rate (set as an amount). A payslip does not store
+    its rate; above a few hundred kronor the rate is unique."""
+    if gross_salary <= 0 or employer_fee <= 0:
+        return None
+    rate_bp = round(employer_fee * 10000 / gross_salary)
+    if round(gross_salary * rate_bp / 10000) != employer_fee:
+        return None
+    return rate_bp
+
+
+def declared_employer_fee(payslips: List["Payslip"]) -> int:
+    """Huvuduppgift ruta 487: for each rate, the rate on the cash salary
+    reported for its individuals (ruta 011, whole kronor), öre dropped, and
+    the results summed (SKV 401, Avrundning). A fee set as an amount has no
+    rate and counts as its own amount, öre dropped, per individual."""
+    by_rate: Dict[Optional[int], Dict[str, List[int]]] = {}
+    for payslip in payslips:
+        rate_bp = employer_fee_rate_bp(payslip.gross_salary, payslip.employer_fee)
+        sums = by_rate.setdefault(rate_bp, {}).setdefault(payslip.employee_id, [0, 0])
+        sums[0] += payslip.gross_salary
+        sums[1] += payslip.employer_fee
+    total = 0
+    for rate_bp, employees in by_rate.items():
+        if rate_bp is None:
+            total += sum(whole_kronor(fee) for _, fee in employees.values())
+        else:
+            reported = sum(whole_kronor(gross) for gross, _ in employees.values())
+            total += whole_kronor(reported * rate_bp // 10000)
+    return total
+
+
 @dataclass
 class AgiIndividual:
     """One employee's individuppgift: cash salary (ruta 011) and withheld
-    preliminary tax (ruta 001), plus the employer fee it gives rise to."""
+    preliminary tax (ruta 001) in whole kronor, as they are reported, and
+    the employer fee on the payslips (in öre; ruta 487 is computed per rate,
+    see `declared_employer_fee`)."""
 
     employee_id: str
     name: str
@@ -114,22 +159,31 @@ AGI_PARTS = {
 
 @dataclass
 class AgiDeclaration:
-    """The underlag for a month's arbetsgivardeklaration, summed from the
-    payslips paid that month. `voucher_ids` holds the current booking of
-    each part (`AGI_PARTS`) that has one."""
+    """The underlag for a month's arbetsgivardeklaration, from the payslips
+    paid that month. The declared amounts are whole kronor; `liabilities`
+    holds what the payslips booked on 2710 and 2730, in öre, which the
+    booking clears (the difference is öresutjämning). `voucher_ids` holds
+    the current booking of each part (`AGI_PARTS`) that has one."""
 
     year: int
     month: int
     due_date: date
     individuals: List[AgiIndividual]
+    employer_fee: int = 0
+    liabilities: Dict[str, int] = field(default_factory=dict)
     unbooked_payslips: int = 0
     voucher_ids: Dict[str, str] = field(default_factory=dict)
 
     def amount(self, kind: str) -> int:
+        """The part as declared and drawn from the tax account."""
         return {
             "tax": self.total_preliminary_tax,
             "employer_fee": self.total_employer_fee,
         }[kind]
+
+    def liability(self, kind: str) -> int:
+        """The part as the payslips booked it on its liability account."""
+        return self.liabilities.get(kind, 0)
 
     @property
     def unbooked_parts(self) -> List[str]:
@@ -137,7 +191,8 @@ class AgiDeclaration:
         return [
             kind
             for kind in AGI_PARTS
-            if self.amount(kind) > 0 and kind not in self.voucher_ids
+            if (self.amount(kind) > 0 or self.liability(kind) > 0)
+            and kind not in self.voucher_ids
         ]
 
     @property
@@ -156,7 +211,7 @@ class AgiDeclaration:
     @property
     def total_employer_fee(self) -> int:
         """Huvuduppgift ruta 487, summa arbetsgivaravgifter."""
-        return sum(i.employer_fee for i in self.individuals)
+        return self.employer_fee
 
     @property
     def total_to_pay(self) -> int:

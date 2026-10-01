@@ -32,6 +32,15 @@ function payrollPaymentDate(yearText: string, monthText: string, dayText: string
 }
 
 /**
+ * The AGI's redovisningsperiod: the month the salary is paid, which for a
+ * run paid after its month is not `run.month`.
+ */
+function agiPeriod(paymentDate: string) {
+  const [year, month] = paymentDate.slice(0, 10).split("-").map(Number);
+  return { year, month };
+}
+
+/**
  * The month's arbetsgivardeklaration: the fields to type into Skatteverket's
  * e-tjänst, and the booking that moves 2710 and 2730 to the tax account
  * (1630) -- two vouchers, since the tax account debits them separately.
@@ -481,7 +490,7 @@ export default function PayrollPage() {
                     <div><span className="text-muted-foreground">Avgifter</span><br />{sek(run.total_employer_fee)}</div>
                     <div><span className="text-muted-foreground">Total kostnad</span><br />{sek(run.total_employer_cost)}</div>
                   </div>
-                  {run.payslips.length > 0 && <AgiPanel year={run.year} month={run.month} />}
+                  {run.payslips.length > 0 && <AgiPanel {...agiPeriod(run.payment_date)} />}
                   {run.payslips.length > 0 && (
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
