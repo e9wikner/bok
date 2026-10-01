@@ -69,6 +69,14 @@ link the user pointed out: a row in ``voucher_bank_transaction_unlinks``
 (migration 039), the link row left as the trace. It creates no voucher and
 changes none, and it is not terminal.
 
+The nineteenth to twenty-second are payroll, appended after
+``koppla_bort_banktransaktion`` for the same reason: ``las_loner``
+(read-only), ``registrera_anstalld``, ``satt_lon`` and
+``skapa_lonekorning``. They call ``PayrollService``, the same code as
+/payroll, and write employees, salary settings, payroll runs and payslips --
+never a voucher. The three that write refuse outside a thread. Booking a
+payslip or an AGI stays on /payroll.
+
 ``posta_verifikation`` is the only tool that posts to the general ledger,
 and it goes through the exact same code as ``POST /api/v1/agent/vouchers``
 (``services/voucher_posting.post_agent_voucher``, A1) -- same
@@ -317,6 +325,59 @@ class KopplaBortBanktransaktionArgs(BaseModel):
         min_length=1,
         max_length=500,
         description="Varför kopplingen är fel, med användarens ord; sparas i spåret",
+    )
+
+
+class LasLonerArgs(BaseModel):
+    """Läs anställda, löneinställningar och lönekörningar; med år och månad
+    också den månadens AGI-underlag."""
+
+    year: Optional[int] = Field(None, ge=2000, le=2100)
+    month: Optional[int] = Field(None, ge=1, le=12)
+
+
+class RegistreraAnstalldArgs(BaseModel):
+    """Lägg upp en anställd, eller rätta uppgifterna om en (employee_id)."""
+
+    employee_id: Optional[str] = Field(
+        None, description="Ange för att rätta en befintlig anställd"
+    )
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+    personal_number: Optional[str] = Field(
+        None, description="Tolv siffror, ÅÅÅÅMMDD-NNNN"
+    )
+    bank_account: Optional[str] = Field(
+        None, max_length=40, description="Clearingnummer och kontonummer"
+    )
+    email: Optional[str] = Field(None, max_length=200)
+
+
+class SattLonArgs(BaseModel):
+    """Sätt en anställds månadslön, skatteavdrag och arbetsgivaravgift."""
+
+    employee_id: str
+    gross_monthly_salary: int = Field(
+        ..., gt=0, description="Bruttolön per månad i öre"
+    )
+    preliminary_tax: int = Field(
+        ..., ge=0, description="Skatteavdrag per månad i öre, enligt skattetabellen"
+    )
+    employer_fee_rate_bp: int = Field(
+        3142,
+        ge=0,
+        le=10000,
+        description="Arbetsgivaravgift i baspunkter; 3142 = 31,42 %",
+    )
+    payment_day: int = Field(25, ge=1, le=31)
+
+
+class SkapaLonekorningArgs(BaseModel):
+    """Skapa månadens lönekörning och dess lönebesked."""
+
+    year: int = Field(..., ge=2000, le=2100)
+    month: int = Field(..., ge=1, le=12)
+    payment_date: Optional[DateType] = Field(
+        None, description="Utbetalningsdag i månaden; utelämnad blir lönedagen"
     )
 
 
@@ -1273,6 +1334,232 @@ def _run_koppla_bort_banktransaktion(
 # to recognise them, not repeat them into the thread.
 
 
+def _require_thread_for_payroll(
+    tool_context: Optional[Mapping[str, Any]], tool_name: str
+) -> None:
+    if (tool_context or {}).get("thread") is None:
+        raise ValidationError(
+            code="payroll_requires_thread",
+            message=f"{tool_name} can only be called from a thread turn",
+            details="Payroll is set up when the user asks in a conversation.",
+        )
+
+
+def _employee_dict(employee: Any, setting: Any) -> dict:
+    from domain.payroll_models import mask_trailing
+
+    return {
+        "id": employee.id,
+        "name": employee.name,
+        "personal_number": mask_trailing(employee.personal_number),
+        "bank_account": mask_trailing(employee.bank_account),
+        "email": employee.email,
+        "active": employee.active,
+        "salary": (
+            {
+                "gross_monthly_salary": setting.gross_monthly_salary,
+                "preliminary_tax": setting.preliminary_tax,
+                "employer_fee_rate_bp": setting.employer_fee_rate_bp,
+                "employer_fee_amount": setting.employer_fee_amount,
+                "employer_fee": setting.calculate_employer_fee(),
+                "payment_day": setting.payment_day,
+                "active": setting.active,
+            }
+            if setting is not None
+            else None
+        ),
+    }
+
+
+def _payslip_dict(payslip: Any) -> dict:
+    return {
+        "id": payslip.id,
+        "employee_id": payslip.employee_id,
+        "employee_name": payslip.employee.name if payslip.employee else None,
+        "payment_date": payslip.payment_date.isoformat(),
+        "gross_salary": payslip.gross_salary,
+        "preliminary_tax": payslip.preliminary_tax,
+        "employer_fee": payslip.employer_fee,
+        "net_salary": payslip.net_salary,
+        "status": payslip.status,
+        "voucher_id": payslip.voucher_id,
+        "pdf_path": f"/api/v1/export/pdf/payslip/{payslip.id}",
+    }
+
+
+def _payroll_run_dict(run: Any, payslips: list) -> dict:
+    return {
+        "id": run.id,
+        "year": run.year,
+        "month": run.month,
+        "payment_date": run.payment_date.isoformat(),
+        "status": run.status,
+        "payslips": [_payslip_dict(p) for p in payslips],
+    }
+
+
+def _run_las_loner(
+    args: LasLonerArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    if (args.year is None) != (args.month is None):
+        raise ValidationError(
+            code="invalid_tool_arguments",
+            message="Ange både year och month, eller inget av dem",
+            details=f"year={args.year}, month={args.month}",
+        )
+    # Deferred import (AGENTS.md: service-to-service imports wait until the
+    # method runs).
+    from services.payroll import PayrollService
+
+    service = PayrollService()
+    result: dict = {
+        "employees": [
+            _employee_dict(e, service.settings.get_for_employee(e.id))
+            for e in service.employees.list_all()
+        ],
+        "payroll_runs": [
+            _payroll_run_dict(run, service.payslips.list_for_run(run.id))
+            for run in service.runs.list_all()
+        ],
+    }
+    if args.year is not None and args.month is not None:
+        agi = service.get_agi(args.year, args.month)
+        result["agi"] = {
+            "year": agi.year,
+            "month": agi.month,
+            "due_date": agi.due_date.isoformat(),
+            "individuals": [
+                {
+                    "employee_id": i.employee_id,
+                    "name": i.name,
+                    "gross_salary": i.gross_salary,
+                    "preliminary_tax": i.preliminary_tax,
+                }
+                for i in agi.individuals
+            ],
+            "total_preliminary_tax": agi.total_preliminary_tax,
+            "total_employer_fee": agi.total_employer_fee,
+            "total_to_pay": agi.total_to_pay,
+            "unbooked_payslips": agi.unbooked_payslips,
+            "booked": agi.booked,
+        }
+    return result
+
+
+def _run_registrera_anstalld(
+    args: RegistreraAnstalldArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """Not terminal. Without `employee_id` it creates an employee (a name is
+    required); with it, the fields given replace the stored ones and the
+    rest are kept."""
+    _require_thread_for_payroll(tool_context, "registrera_anstalld")
+    from domain.payroll_models import normalize_personal_number
+    from services.payroll import PayrollService
+
+    service = PayrollService()
+    personal_number = (
+        normalize_personal_number(args.personal_number)
+        if args.personal_number is not None
+        else None
+    )
+    if args.employee_id is None:
+        if not args.name:
+            raise ValidationError(
+                code="invalid_employee",
+                message="En ny anställd behöver ett namn",
+            )
+        employee = service.create_employee(
+            args.name,
+            personal_number=personal_number,
+            email=args.email,
+            bank_account=args.bank_account,
+            actor=actor,
+        )
+    else:
+        current = service.employees.get(args.employee_id)
+        if current is None:
+            raise ValidationError("employee_not_found", "Employee not found")
+        employee = service.update_employee(
+            current.id,
+            args.name or current.name,
+            personal_number or current.personal_number,
+            args.email if args.email is not None else current.email,
+            (
+                args.bank_account
+                if args.bank_account is not None
+                else current.bank_account
+            ),
+            current.active,
+            actor=actor,
+        )
+    return _employee_dict(employee, service.settings.get_for_employee(employee.id))
+
+
+def _run_satt_lon(
+    args: SattLonArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """Not terminal. Replaces the employee's salary setting; payslips already
+    generated keep their amounts."""
+    _require_thread_for_payroll(tool_context, "satt_lon")
+    from services.payroll import PayrollService
+
+    service = PayrollService()
+    service.set_salary_setting(
+        args.employee_id,
+        gross_monthly_salary=args.gross_monthly_salary,
+        preliminary_tax=args.preliminary_tax,
+        payment_day=args.payment_day,
+        employer_fee_rate_bp=args.employer_fee_rate_bp,
+        actor=actor,
+    )
+    employee = service.employees.get(args.employee_id)
+    return _employee_dict(employee, service.settings.get_for_employee(employee.id))
+
+
+def _run_skapa_lonekorning(
+    args: SkapaLonekorningArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """Not terminal. Creates the month's run and its payslips in one call;
+    a run whose payslips could not be generated is deleted again, so a retry
+    does not meet `payroll_run_already_exists`. Books nothing: a payslip is
+    booked against the bank transaction that paid it, in /payroll."""
+    _require_thread_for_payroll(tool_context, "skapa_lonekorning")
+    from services.payroll import PayrollService
+
+    service = PayrollService()
+    run = service.create_payroll_run(
+        args.year, args.month, payment_date=args.payment_date, actor=actor
+    )
+    try:
+        payslips = service.generate_payslips(run.id, actor=actor)
+    except Exception:
+        service.delete_payroll_run(run.id, actor=actor)
+        raise
+    result = _payroll_run_dict(service.runs.get(run.id), payslips)
+    result["warnings"] = service.validate_payroll_run(run.id)["warnings"]
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Tool definitions and dispatcher (SPEC §6.4, §6.6)
 # ---------------------------------------------------------------------------
@@ -1457,6 +1744,47 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
         KopplaBortBanktransaktionArgs,
         _run_koppla_bort_banktransaktion,
     ),
+    (
+        "las_loner",
+        "Läs de anställda med löneinställning, och lönekörningarna med sina "
+        "lönebesked (belopp i öre, pdf_path till lönebeskedet). Med year och "
+        "month också månadens AGI-underlag: skatteavdrag och "
+        "arbetsgivaravgifter för lönerna som betalades ut den månaden, och "
+        "sista dag att deklarera. Personnummer och bankkonto visas maskerade. "
+        "Skrivskyddat.",
+        LasLonerArgs,
+        _run_las_loner,
+    ),
+    (
+        "registrera_anstalld",
+        "Lägg upp en anställd med namn, personnummer (tolv siffror, "
+        "kontrollsiffran prövas), bankkonto och e-post, när användaren ber "
+        "om det i samtalet. Med employee_id rättas en befintlig anställds "
+        "uppgifter; fält som utelämnas behålls. Bara i ett samtal. Bokför "
+        "ingenting.",
+        RegistreraAnstalldArgs,
+        _run_registrera_anstalld,
+    ),
+    (
+        "satt_lon",
+        "Sätt en anställds månadslön: bruttolön och skatteavdrag i öre "
+        "(skatteavdraget enligt användarens skattetabell, gissa det aldrig), "
+        "arbetsgivaravgift i baspunkter (3142 = 31,42 %, den fulla avgiften) "
+        "och lönedag. Ersätter den tidigare inställningen; redan skapade "
+        "lönebesked behåller sina belopp. Bara i ett samtal. Bokför ingenting.",
+        SattLonArgs,
+        _run_satt_lon,
+    ),
+    (
+        "skapa_lonekorning",
+        "Skapa lönekörningen för en månad med ett lönebesked per anställd "
+        "med aktiv lön. Utbetalningsdagen ska ligga i månaden. En månad har "
+        "högst en lönekörning. Bokför ingenting: lönen bokförs mot "
+        "banktransaktionen som betalade ut den, och AGI:n mot skattekontot, "
+        "båda på sidan Löner. Bara i ett samtal.",
+        SkapaLonekorningArgs,
+        _run_skapa_lonekorning,
+    ),
 )
 
 #: Anthropic tool-definition shape: {"name", "description", "input_schema"}.
@@ -1485,9 +1813,9 @@ def execute_tool(
     idempotency_key: Optional[str] = None,
     tool_context: Optional[Mapping[str, Any]] = None,
 ) -> Any:
-    """Validate and run one model-requested tool call -- one of the eighteen
-    tools in ``_TOOL_SPECS``, the last of them ``koppla_bort_banktransaktion``
-    (the fifteenth is ``koppla_bort_underlag``, the fourteenth
+    """Validate and run one model-requested tool call -- one of the
+    twenty-two tools in ``_TOOL_SPECS``, the last of them ``skapa_lonekorning``
+    (the eighteenth ``koppla_bort_banktransaktion``, the fifteenth is ``koppla_bort_underlag``, the fourteenth
     ``stang_perioder``).
 
     ``idempotency_key`` is the caller's own key for a posting made during

@@ -118,6 +118,10 @@ _TRACE_LABELS = {
     "las_okopplade_banktransaktioner": "okopplade banktransaktioner lästa",
     "koppla_banktransaktion": "kontoutdrag kopplat",
     "koppla_bort_banktransaktion": "kontoutdrag bortkopplat",
+    "las_loner": "löner lästa",
+    "registrera_anstalld": "anställd registrerad",
+    "satt_lon": "lön satt",
+    "skapa_lonekorning": "lönekörning skapad",
 }
 
 

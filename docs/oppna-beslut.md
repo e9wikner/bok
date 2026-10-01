@@ -101,8 +101,10 @@ Beteendet är inte ändrat. Det här är iakttagelser.
   ersättare.
 - **Fakturering och Löner** ska byggas som läsvyer med tråd men utan skrivflöde. En faktura
   skrivs genom att en inloggad människa utfärdar ett utkast (`POST /invoice-drafts/{id}/issue`,
-  i de gamla sidorna `/invoices`); `/v4`-vyn förblir läsvy till F1. Löner skrivs tills vidare
-  via `/payroll`.
+  i de gamla sidorna `/invoices`); `/v4`-vyn förblir läsvy till F1. Löner sätts upp på `/payroll`
+  eller i samtalet med agenten. Agenten har `registrera_anstalld`, `satt_lon` och
+  `skapa_lonekorning`, som bara fungerar i en tråd. En lön eller en AGI bokförs
+  bara på `/payroll`.
 - **`mypy .`** ger 58 fel i 22 filer. Alla fanns före redesignen.
 - **CI** har `continue-on-error: true` på backendens steg (pytest, black, isort, flake8, mypy)
   och Docker-bygget, liksom på frontendens lint. Bara `npm test` fäller bygget. En grön bock

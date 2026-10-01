@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
 
+from domain.validation import ValidationError
+
 
 @dataclass
 class Employee:
@@ -76,6 +78,48 @@ class Payslip:
         if self.gross_salary <= 0:
             return 0.0
         return round(self.preliminary_tax * 100 / self.gross_salary, 1)
+
+
+def normalize_personal_number(value: str) -> str:
+    """*value* as ÅÅÅÅMMDD-NNNN, or ValidationError. Twelve digits, because
+    the AGI reports the personnummer with the century; a hyphen or plus
+    before the last four is allowed. The date must exist (a samordnings-
+    nummer adds 60 to the day) and the last digit is the Luhn check digit
+    over the ten digits after the century."""
+    digits = value.strip().replace("-", "").replace("+", "").replace(" ", "")
+    if len(digits) != 12 or not digits.isdigit():
+        raise ValidationError(
+            "invalid_personal_number",
+            "Personnumret ska ha tolv siffror, ÅÅÅÅMMDD-NNNN",
+            value,
+        )
+    day = int(digits[6:8])
+    try:
+        date(int(digits[:4]), int(digits[4:6]), day - 60 if day > 60 else day)
+    except ValueError:
+        raise ValidationError(
+            "invalid_personal_number", "Personnumrets datum finns inte", value
+        )
+    total = 0
+    for i, digit in enumerate(digits[2:]):
+        product = int(digit) * (2 if i % 2 == 0 else 1)
+        total += product - 9 if product > 9 else product
+    if total % 10 != 0:
+        raise ValidationError(
+            "invalid_personal_number",
+            "Personnumrets kontrollsiffra stämmer inte",
+            value,
+        )
+    return f"{digits[:8]}-{digits[8:]}"
+
+
+def mask_trailing(value: Optional[str], keep: int = 4) -> Optional[str]:
+    """*value* with all but its last *keep* characters hidden, for what the
+    agent reads back: it needs to recognise a personnummer or bank account,
+    not repeat it."""
+    if not value:
+        return value
+    return "*" * max(len(value) - keep, 0) + value[-keep:]
 
 
 def agi_due_date(year: int, month: int) -> date:

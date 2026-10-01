@@ -396,8 +396,8 @@ def test_auto_account_unknown_is_refused(books):
 # --- agent tools ------------------------------------------------------------
 
 
-def test_the_statement_tools_are_the_last_two():
-    assert [t["name"] for t in AGENT_TOOL_DEFINITIONS[-2:]] == [
+def test_the_statement_tools_come_before_the_payroll_tools():
+    assert [t["name"] for t in AGENT_TOOL_DEFINITIONS[16:18]] == [
         "koppla_banktransaktion",
         "koppla_bort_banktransaktion",
     ]

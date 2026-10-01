@@ -1097,6 +1097,12 @@ _EXPECTED_TOOL_NAMES = [
     "koppla_banktransaktion",
     # The eighteenth, appended the same way: undo a wrong statement link.
     "koppla_bort_banktransaktion",
+    # The nineteenth to twenty-second, appended the same way: payroll. They
+    # write employees, salary settings and payslips, never a voucher.
+    "las_loner",
+    "registrera_anstalld",
+    "satt_lon",
+    "skapa_lonekorning",
 ]
 
 
@@ -1223,6 +1229,9 @@ class TestAppendOnlyToolSurface:
         posted voucher and the audit log, never a voucher.
         `koppla_bort_banktransaktion` undoes one: a
         `voucher_bank_transaction_unlinks` row, never a voucher.
+        `registrera_anstalld`, `satt_lon` and `skapa_lonekorning` write
+        payroll: employees, salary settings, runs and payslips, never a
+        voucher.
         """
         write_tool_names = {
             "posta_verifikation",
@@ -1235,6 +1244,9 @@ class TestAppendOnlyToolSurface:
             "koppla_bort_underlag",
             "koppla_banktransaktion",
             "koppla_bort_banktransaktion",
+            "registrera_anstalld",
+            "satt_lon",
+            "skapa_lonekorning",
         }
         read_tool_names = set(_EXPECTED_TOOL_NAMES) - write_tool_names
         for tool in AGENT_TOOL_DEFINITIONS:
