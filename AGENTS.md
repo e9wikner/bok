@@ -111,6 +111,14 @@ Service-to-service imports are deferred inside methods to avoid import cycles.
   (kundfordringar) incl. VAT, credit revenue excl. VAT and output VAT per VAT
   code (25 %: 3011/2610). Payment registration creates a second voucher:
   debit 1010 (bank), credit 1510.
+- **A fiscal year is created by a human's press, not by the agent.** An
+  underlag dated outside every year gets a `foresla_rakenskapsar` decision card
+  (`services/fiscal_year_proposal.py`, migration 041); the create option, answered
+  through `POST /decisions/{id}/answer`, creates the year with the card's dates.
+  A dropzone underlag waiting on a card is out of the intake pass's queue until
+  then. The posting tools refuse to date an underlag out of a locked period
+  without a decision, or into another fiscal year
+  (`FiscalYearService.check_underlag_dates`).
 - **`docs/to_agent/*.md` is runtime content, not documentation.** It is read and
   served to agents by `repositories/system_instructions.py` and asserted on by
   `tests/test_agent_entrypoint.py`. Editing it changes system behaviour.

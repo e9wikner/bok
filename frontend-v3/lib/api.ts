@@ -392,6 +392,16 @@ export interface VoucherSourceWorkspaceItem extends IntakeWorkspaceBaseItem {
   agent_guidance?: string | null;
   latest_processing_summary?: string | null;
   latest_error_detail?: string | null;
+  /** Dated outside every fiscal year, or waiting on a proposed one. */
+  date_warning?: IntakeDateWarning | null;
+}
+
+export interface IntakeDateWarning {
+  code: "waiting_for_fiscal_year" | "outside_fiscal_years";
+  message: string;
+  decision_id?: string;
+  document_date?: string;
+  fiscal_year?: { start_date: string; end_date: string };
 }
 
 export interface BankInputWorkspaceItem extends IntakeWorkspaceBaseItem {
@@ -408,6 +418,8 @@ export interface BankInputWorkspaceItem extends IntakeWorkspaceBaseItem {
     status: string;
     matched_voucher_id?: string | null;
   }[];
+  /** Transactions no fiscal year holds: not bookable, shown in no year. */
+  transactions_outside_fiscal_years?: number;
 }
 
 export type IntakeWorkspaceItem =
@@ -453,6 +465,15 @@ export interface DropzoneStatus {
   ingested_total: number;
   problem_file_count: number;
   unknown_account_folders: string[];
+  /** Underlag and statement transactions dated outside every fiscal year. */
+  date_warnings?: {
+    underlag: (IntakeDateWarning & {
+      source_id: string;
+      original_filename: string;
+      status: string;
+    })[];
+    bank_transactions_outside_fiscal_years: number | null;
+  };
   last_error: string | null;
 }
 

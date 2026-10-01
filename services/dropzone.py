@@ -812,6 +812,7 @@ class DropzoneScanner:
                 exclude_suffix=PROBLEM_NOTE_SUFFIX,
             ),
             "unknown_account_folders": self.unknown_account_folders(),
+            "date_warnings": _date_warnings(),
             "last_error": state.last_error,
         }
 
@@ -900,6 +901,20 @@ def dropzone_status() -> dict:
 
 
 # --- helpers -----------------------------------------------------------
+
+
+def _date_warnings() -> dict:
+    """Underlag and statement transactions dated outside every fiscal year
+    (`FiscalYearProposalService.date_warnings`). A file that went in fine can
+    still be impossible to book: say so here instead of letting it go quiet.
+    Never fatal for the status."""
+    try:
+        from services.fiscal_year_proposal import FiscalYearProposalService
+
+        return FiscalYearProposalService().date_warnings()
+    except Exception:
+        logger.exception("Could not read the date warnings")
+        return {"underlag": [], "bank_transactions_outside_fiscal_years": None}
 
 
 def account_code_from_folder(name: str) -> str | None:

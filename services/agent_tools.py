@@ -86,6 +86,13 @@ The twenty-third to twenty-sixth are payroll, appended after
 never a voucher. The three that write refuse outside a thread. Booking a
 payslip or an AGI stays on /payroll.
 
+A twenty-seventh, ``foresla_rakenskapsar``, is appended after
+``skapa_lonekorning`` for the same reason. When an underlag is dated outside
+every fiscal year it raises a decision card proposing the year
+(``services/fiscal_year_proposal.py``); the human's press on the card creates
+it. Without a thread (the intake pass) the card goes in the Verifikationer
+thread and the underlag waits for the answer. It creates no voucher.
+
 ``posta_verifikation`` is the only tool that posts to the general ledger,
 and it goes through the exact same code as ``POST /api/v1/agent/vouchers``
 (``services/voucher_posting.post_agent_voucher``, A1) -- same
@@ -698,6 +705,17 @@ class KopplaBortUnderlagArgs(BaseModel):
     reason: str = Field(..., min_length=1, max_length=500)
 
 
+class ForeslaRakenskapsarArgs(BaseModel):
+    """Föreslå ett nytt räkenskapsår för underlag som är daterade utanför
+    alla räkenskapsår. Datumen räknar servern ut; ange start_date och
+    end_date bara om användaren har sagt ett annat räkenskapsår."""
+
+    document_date: DateType
+    source_ids: list[str] = Field(default_factory=list)
+    start_date: Optional[DateType] = None
+    end_date: Optional[DateType] = None
+
+
 # ---------------------------------------------------------------------------
 # JSON-serializable result shapes
 # ---------------------------------------------------------------------------
@@ -1077,6 +1095,28 @@ def _post_voucher(
         raise
 
 
+def _check_underlag_dates(
+    source_ids: list[str],
+    voucher_date: Optional[DateType],
+    *,
+    decision_id: Optional[str],
+    tool_context: Optional[Mapping[str, Any]],
+) -> None:
+    """An underlag in a locked period, or outside every fiscal year, is not
+    moved to another date without the user (``FiscalYearService.
+    check_underlag_dates``)."""
+    # Deferred import (AGENTS.md: service-to-service imports wait until the
+    # method runs).
+    from services.fiscal_years import FiscalYearService
+
+    FiscalYearService().check_underlag_dates(
+        source_ids,
+        voucher_date,
+        decision_id=decision_id,
+        in_thread=(tool_context or {}).get("thread") is not None,
+    )
+
+
 def _run_posta_verifikation(
     args: PostaVerifikationArgs,
     *,
@@ -1085,6 +1125,11 @@ def _run_posta_verifikation(
     idempotency_key: Optional[str] = None,
     tool_context: Optional[Mapping[str, Any]] = None,
 ) -> dict:
+    # No decision is ever behind a direct posting: a late booking is a
+    # proposal (`foresla_verifikation` with `decision_id`) or an abstention.
+    _check_underlag_dates(
+        args.intake_source_ids, args.date, decision_id=None, tool_context=tool_context
+    )
     return _post_voucher(args, actor=actor, idempotency_key=idempotency_key)
 
 
@@ -1197,6 +1242,12 @@ def _run_foresla_verifikation(
             ),
         )
     proposals = context.get("proposals")
+    _check_underlag_dates(
+        args.intake_source_ids,
+        args.date,
+        decision_id=args.decision_id,
+        tool_context=tool_context,
+    )
 
     # Deferred import -- the same import-cycle rule as `_run_be_om_beslut`.
     from services.draft_service import DraftService
@@ -1807,6 +1858,33 @@ def _run_skapa_lonekorning(
 # process run. SPEC §6.6: the tool list is part of the cached system prompt
 # prefix, and an accidental reorder is a silent cache-buster.
 
+
+def _run_foresla_rakenskapsar(
+    args: ForeslaRakenskapsarArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """Not terminal. Opens ``tool_context`` for the ``thread``: the card goes
+    in it. Without one (the intake pass) it goes in the Verifikationer
+    thread, and the underlag waits for the answer -- the pass should then
+    end without abstaining. Idempotent per year: a second call for the same
+    year joins the pending card."""
+    # Deferred import -- the same import-cycle rule as `_run_be_om_beslut`.
+    from services.fiscal_year_proposal import FiscalYearProposalService
+
+    return FiscalYearProposalService().propose(
+        (tool_context or {}).get("thread"),
+        document_date=args.document_date,
+        source_ids=args.source_ids,
+        start_date=args.start_date,
+        end_date=args.end_date,
+        actor=actor,
+    )
+
+
 _ToolHandler = Callable[..., Any]
 
 _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
@@ -2064,6 +2142,19 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
         SkapaLonekorningArgs,
         _run_skapa_lonekorning,
     ),
+    (
+        "foresla_rakenskapsar",
+        "Föreslå ett nytt räkenskapsår när ett underlag är daterat utanför "
+        "alla räkenskapsår (tolka_underlag: placement.status = "
+        "no_fiscal_year). Lägger ett beslutskort i tråden; användaren skapar "
+        "året med ett tryck. Servern räknar ut datumen: tolv månader direkt "
+        "efter det senaste året. Ange underlagens source_ids. Utan tråd "
+        "(intagskön) hamnar kortet i Verifikationers tråd och underlaget "
+        "väntar på svaret -- avsluta då utan att avstå. Skapar ingen "
+        "verifikation, och datera aldrig om ett underlag till ett annat år.",
+        ForeslaRakenskapsarArgs,
+        _run_foresla_rakenskapsar,
+    ),
 )
 
 #: Anthropic tool-definition shape: {"name", "description", "input_schema"}.
@@ -2093,8 +2184,9 @@ def execute_tool(
     tool_context: Optional[Mapping[str, Any]] = None,
 ) -> Any:
     """Validate and run one model-requested tool call -- one of the
-    twenty-six tools in ``_TOOL_SPECS``, the last of them
-    ``skapa_lonekorning`` (the twenty-second is ``koppla_bort_banktransaktion``,
+    twenty-seven tools in ``_TOOL_SPECS``, the last of them
+    ``foresla_rakenskapsar`` (the twenty-sixth ``skapa_lonekorning``, the
+    twenty-second is ``koppla_bort_banktransaktion``,
     the seventeenth ``koppla_banktransaktion``, the fifteenth
     ``koppla_bort_underlag``, the fourteenth ``stang_perioder``).
 

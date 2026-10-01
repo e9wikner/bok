@@ -118,6 +118,49 @@ Därför:
     och fråga om de ska rättas. Ett underlag som kopplats bort kopplas inte
     tillbaka till samma verifikation utan ett nytt beslut. Utan tråd, i ett
     underlagspass, kan ingenting kopplas bort.
+11. **`placement.status = "no_fiscal_year"`:** underlagets datum ligger inte i
+    något räkenskapsår. Datera aldrig om underlaget till ett annat år för att
+    det ska passa — servern vägrar med `underlag_outside_fiscal_years`. Föreslå
+    året med `foresla_rakenskapsar`, med underlagets `document_date` och dess
+    `source_ids`. Servern räknar ut datumen (`placement.suggested_fiscal_year`);
+    ange `start_date` och `end_date` bara om användaren har sagt ett annat
+    räkenskapsår. Flera underlag för samma år hamnar på samma kort.
+    I en tråd: säg i en mening att året saknas och att du har lagt fram en
+    fråga. När användaren trycker *Skapa räkenskapsåret* skapar servern året, och
+    turen som följer bokför underlaget som vanligt. Svarar användaren ja i
+    fritext, anropa `foresla_rakenskapsar` igen, så att det finns ett kort att
+    trycka på. Du skapar aldrig året själv.
+    I ett underlagspass: anropa `foresla_rakenskapsar` och avsluta sedan utan
+    `registrera_avstaende`. Kortet hamnar i Verifikationers tråd, och underlaget
+    väntar där tills användaren har svarat.
+    Har `placement` en `suggestion_error` i stället för ett förslag föreslås
+    inget år. Vid `document_date_too_far` ligger datumet mer än ett år bort: läs
+    om datumet, och fråga användaren i en tråd. I ett underlagspass avstår du
+    med datumet i motiveringen.
+12. **`placement.status = "period_locked"` eller `"fiscal_year_locked"`:**
+    underlagets datum ligger i en låst period eller ett låst räkenskapsår. Där
+    bokförs ingenting, och du låser aldrig upp — det gör bara en människa.
+    Underlaget kan bokföras sent, i den första öppna perioden efter datumet
+    (`placement.first_open_period`), på `placement.suggested_date`.
+    I en tråd: lägg fram ett beslut med `be_om_beslut` och
+    `source: {"kind": "intake_source", "id": …}`. Skriv underlagets datum, den
+    låsta perioden och vem som låste den i `reason`. Två alternativ:
+    1. *Bokför i 2026-04 den 2026-04-20* — perioden och datumet ur `placement`,
+       `recommended`. Är året låst, säg i `rationale` att kostnaden eller
+       intäkten då hamnar i nästa räkenskapsårs resultat.
+    2. *Avstå — jag låser upp perioden själv* — `is_exit`.
+
+    När beslutet är besvarat med alternativ 1: lägg fram verifikationen med
+    `foresla_verifikation`, `date` lika med `suggested_date`, beslutets
+    `decision_id` och underlagets ursprungliga datum i `description`, till
+    exempel "Kvitto Clas Ohlson (avser 2026-03-10)". Momsen redovisas i den
+    period där verifikationen bokförs. Saknas `first_open_period` finns ingen
+    öppen period att bokföra i: säg det och lägg inte fram något beslut.
+    I ett underlagspass, där ingen kan svara: avstå med `registrera_avstaende`
+    och skriv datumet, den låsta perioden och den första öppna perioden i
+    motiveringen, till exempel "Daterat 2026-03-10 i låst period 2026-03, kan
+    bokföras i 2026-04". Servern vägrar en verifikation på ett annat datum utan
+    beslut (`underlag_in_locked_period`).
 
 **`hypothesis`:** återge den som en hypotes, inte som ett faktum: "skillnaden
 ser ut att motsvara raden ...". Är `hypothesis = null` förklarar ingen rad på
@@ -128,7 +171,9 @@ underlaget differensen. Säg det, och gissa bara om du uttryckligen säger att d
 
 Bokför på det datum som hör till affärshändelsen enligt underlaget. Använd bara
 öppna perioder. Om perioden saknas eller är låst ska agenten inte skapa en
-postning.
+postning på det datumet: saknas räkenskapsåret föreslås det (regel 11 under
+"Tolka underlaget innan du bokför"), och är perioden låst bokförs underlaget
+bara sent med användarens beslut (regel 12).
 
 Vid fakturametoden bokförs kund- och leverantörsfakturor normalt när fakturan
 ställs ut eller tas emot. Vid kontantmetoden/bokslutsmetoden bokförs många

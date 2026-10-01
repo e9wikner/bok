@@ -29,6 +29,7 @@ from repositories.bank_input_repo import BankInputRepository
 from repositories.intake_repo import IntakeRepository
 from services.agent_tools import TolkaUnderlagArgs
 from services.dropzone import dropzone_status
+from services.fiscal_year_proposal import FiscalYearProposalService
 from services.intake import (
     DuplicateIntakeSourceError,
     IntakeConflictError,
@@ -493,6 +494,10 @@ def _workspace_source_item(source: IntakeSource, repo: IntakeRepository) -> dict
         "latest_processing_summary": latest_attempt.summary if latest_attempt else None,
         "latest_error_detail": latest_attempt.error_detail if latest_attempt else None,
         "linked_voucher_ids": [link.voucher_id for link in links],
+        # Dated outside every fiscal year, or waiting on a proposed one.
+        "date_warning": (
+            None if links else FiscalYearProposalService.source_date_warning(source.id)
+        ),
     }
 
 
@@ -519,6 +524,10 @@ def _workspace_bank_item(bank_input: BankInput, repo: BankInputRepository) -> di
         "transaction_count": len(transaction_ids),
         "match_signals": repo.list_transaction_signals_for_input(bank_input.id),
         "linked_voucher_ids": [link.voucher_id for link in links],
+        # Transactions no fiscal year holds: not bookable, shown in no year.
+        "transactions_outside_fiscal_years": (
+            repo.count_transactions_outside_fiscal_years(bank_input.id)
+        ),
     }
 
 

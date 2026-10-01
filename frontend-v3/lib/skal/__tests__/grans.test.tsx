@@ -105,13 +105,17 @@ describe("skalet håller sig innanför sin gräns (testfall 18)", () => {
     // Undantag, inte skalets: Löner skrivs tills vidare via /payroll
     // (docs/oppna-beslut.md), så arbetsgivardeklarationen bor där.
     const lonerna = ["frontend-v3/app/payroll/page.tsx"];
+    // Undantag, inte skalets: dropzonens status visas bara på intagssidan, och
+    // den varnar för underlag daterade utanför alla räkenskapsår.
+    const intaget = ["frontend-v3/app/vouchers/intake/page.tsx"];
     const tillatet = (f: string) =>
       f.includes("frontend-v3/app/v4/") ||
       f.endsWith("frontend-v3/app/globals.css") ||
       f.endsWith("frontend-v3/app/layout.tsx") ||
       numreringen.includes(f) ||
       faktureringen.includes(f) ||
-      lonerna.includes(f);
+      lonerna.includes(f) ||
+      intaget.includes(f);
     expect(andrade.filter((f) => !tillatet(f))).toEqual([]);
   });
 });

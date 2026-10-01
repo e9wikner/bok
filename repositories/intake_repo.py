@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Sequence
 from db.database import db
 from domain.models import IntakeProcessingAttempt, IntakeSource, VoucherIntakeSource
 from domain.types import IntakeSourceType, IntakeStatus
+from repositories.fiscal_year_proposal_repo import NOT_WAITING_FOR_FISCAL_YEAR_SQL
 
 # SPEC-flode-underlag.md §11.3 (D4): a file dropped in a thread is the
 # thread's -- the turn reads and interprets it, and the human decides there.
@@ -19,6 +20,11 @@ _NOT_IN_A_THREAD_SQL = (
     "NOT EXISTS (SELECT 1 FROM thread_posts tp WHERE tp.type = 'user_file'"
     " AND json_extract(tp.body_json, '$.intake_source_id') = intake_sources.id)"
 )
+
+# Migration 041: a source waiting on a pending fiscal-year proposal is out of
+# the pass's queue until the human has answered the card -- otherwise the pass
+# would read it again, and pay for it, every pass. Created, it is back in.
+_PASS_QUEUE_SQL = f"{_NOT_IN_A_THREAD_SQL} AND {NOT_WAITING_FOR_FISCAL_YEAR_SQL}"
 
 
 class IntakeRepository:
@@ -99,12 +105,12 @@ class IntakeRepository:
     @staticmethod
     def list_pending(limit: int = 100, offset: int = 0) -> List[IntakeSource]:
         """The intake pass's queue: `pending`, without the sources a thread
-        owns (`_NOT_IN_A_THREAD_SQL`). The intake page reads
-        `list_by_status`, which still shows them."""
+        owns (`_NOT_IN_A_THREAD_SQL`) or that wait on a fiscal-year proposal.
+        The intake page reads `list_by_status`, which still shows them."""
         rows = db.execute(
             f"""
             SELECT * FROM intake_sources
-            WHERE status = ? AND {_NOT_IN_A_THREAD_SQL}
+            WHERE status = ? AND {_PASS_QUEUE_SQL}
             ORDER BY uploaded_at ASC
             LIMIT ? OFFSET ?
             """,
@@ -238,11 +244,21 @@ class IntakeRepository:
         return row["count"] if row else 0
 
     @staticmethod
+    def is_in_a_thread(source_id: str) -> bool:
+        """Whether a `user_file` post names the source (`_NOT_IN_A_THREAD_SQL`
+        negated): a thread owns it, not the intake pass."""
+        row = db.execute(
+            f"SELECT 1 FROM intake_sources WHERE id = ? AND NOT {_NOT_IN_A_THREAD_SQL}",
+            (source_id,),
+        ).fetchone()
+        return row is not None
+
+    @staticmethod
     def count_pending() -> int:
         """`list_pending`'s count, with the same filter."""
         row = db.execute(
             "SELECT COUNT(*) AS count FROM intake_sources "
-            f"WHERE status = ? AND {_NOT_IN_A_THREAD_SQL}",
+            f"WHERE status = ? AND {_PASS_QUEUE_SQL}",
             (IntakeStatus.PENDING.value,),
         ).fetchone()
         return row["count"] if row else 0

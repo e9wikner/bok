@@ -883,6 +883,7 @@ def test_case_22_foresla_verifikation_is_last_and_the_first_ten_are_unchanged():
         "registrera_anstalld",
         "satt_lon",
         "skapa_lonekorning",
+        "foresla_rakenskapsar",
     ]
     first_ten = json.dumps(AGENT_TOOL_DEFINITIONS[:10], ensure_ascii=False)
     assert hashlib.sha256(first_ten.encode("utf-8")).hexdigest() == _FIRST_TEN_SHA256

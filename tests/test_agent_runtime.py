@@ -1110,6 +1110,7 @@ _EXPECTED_TOOL_NAMES = [
     "registrera_anstalld",
     "satt_lon",
     "skapa_lonekorning",
+    "foresla_rakenskapsar",
 ]
 
 #: Names that carry a forbidden fragment by design, and why it is not the
@@ -1254,6 +1255,8 @@ class TestAppendOnlyToolSurface:
         `registrera_anstalld`, `satt_lon` and `skapa_lonekorning` write
         payroll: employees, salary settings, runs and payslips, never a
         voucher.
+        `foresla_rakenskapsar` writes a decision card and a
+        `fiscal_year_proposals` row; the human's press creates the year.
         """
         write_tool_names = {
             "posta_verifikation",
@@ -1271,6 +1274,7 @@ class TestAppendOnlyToolSurface:
             "registrera_anstalld",
             "satt_lon",
             "skapa_lonekorning",
+            "foresla_rakenskapsar",
         }
         read_tool_names = set(_EXPECTED_TOOL_NAMES) - write_tool_names
         for tool in AGENT_TOOL_DEFINITIONS:

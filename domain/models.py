@@ -608,3 +608,27 @@ class InvoiceProposal:
     last_error_code: Optional[str] = None
     last_error_post_id: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class FiscalYearProposal:
+    """A new fiscal year proposed as a decision card in a thread
+    (`foresla_rakenskapsar`, migration 041), and the underlag waiting on it.
+    `status` moves only out of `pending`: to `created` when the human picks
+    the card's create option, `declined` on any other option, `superseded`
+    when a new card replaces one answered in free text."""
+
+    id: str
+    decision_id: str
+    create_option_id: str
+    thread_id: str
+    start_date: date
+    end_date: date
+    document_date: date
+    status: str
+    created_by: str
+    created_at: datetime
+    fiscal_year_id: Optional[str] = None
+    resolved_at: Optional[datetime] = None
+    resolved_by: Optional[str] = None
+    source_ids: List[str] = field(default_factory=list)

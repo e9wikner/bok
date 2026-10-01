@@ -15,8 +15,11 @@ class PeriodRepository:
     def create_fiscal_year(
         start_date: date,
         end_date: date,
+        _commit: bool = True,
     ) -> FiscalYear:
-        """Create new fiscal year (typically Jan 1 - Dec 31)."""
+        """Create new fiscal year (typically Jan 1 - Dec 31). `_commit=False`
+        lets `FiscalYearService` create the year and its periods in one
+        transaction."""
         fy_id = str(uuid.uuid4())
         sql = """
         INSERT INTO fiscal_years (id, start_date, end_date, locked, created_at)
@@ -24,7 +27,8 @@ class PeriodRepository:
         """
         now = datetime.now()
         db.execute(sql, (fy_id, start_date, end_date, now))
-        db.commit()
+        if _commit:
+            db.commit()
 
         return FiscalYear(
             id=fy_id, start_date=start_date, end_date=end_date, created_at=now
@@ -37,6 +41,7 @@ class PeriodRepository:
         month: int,
         start_date: date,
         end_date: date,
+        _commit: bool = True,
     ) -> Period:
         """Create new period (typically monthly)."""
         period_id = str(uuid.uuid4())
@@ -48,7 +53,8 @@ class PeriodRepository:
         db.execute(
             sql, (period_id, fiscal_year_id, year, month, start_date, end_date, now)
         )
-        db.commit()
+        if _commit:
+            db.commit()
 
         return Period(
             id=period_id,

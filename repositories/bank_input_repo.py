@@ -258,6 +258,29 @@ class BankInputRepository:
         return BankInputRepository._row_to_voucher_bank_transaction(row)
 
     @staticmethod
+    def count_transactions_outside_fiscal_years(
+        bank_input_id: str | None = None,
+    ) -> int:
+        """Statement transactions dated in no fiscal year -- of one bank
+        input, or of all of them. They cannot be booked or matched until the
+        year exists, and no year's views show them."""
+        sql = """
+            SELECT COUNT(DISTINCT bt.id) AS count
+            FROM bank_transactions bt
+            JOIN bank_input_transactions bit ON bit.bank_transaction_id = bt.id
+            WHERE NOT EXISTS (
+                SELECT 1 FROM fiscal_years fy
+                WHERE bt.transaction_date BETWEEN fy.start_date AND fy.end_date
+            )
+        """
+        params: tuple = ()
+        if bank_input_id is not None:
+            sql += " AND bit.bank_input_id = ?"
+            params = (bank_input_id,)
+        row = db.execute(sql, params).fetchone()
+        return row["count"] if row else 0
+
+    @staticmethod
     def list_transaction_ids_for_input(bank_input_id: str) -> list[str]:
         rows = db.execute(
             """

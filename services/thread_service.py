@@ -126,6 +126,7 @@ _TRACE_LABELS = {
     "registrera_anstalld": "anställd registrerad",
     "satt_lon": "lön satt",
     "skapa_lonekorning": "lönekörning skapad",
+    "foresla_rakenskapsar": "räkenskapsår föreslaget",
 }
 
 

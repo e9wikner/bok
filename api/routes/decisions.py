@@ -38,6 +38,7 @@ from services.decision_service import (
     DecisionService,
     DecisionView,
 )
+from services.fiscal_year_proposal import FiscalYearProposalService
 from services.thread_stream import ThreadTurnRunner
 
 logger = logging.getLogger(__name__)
@@ -258,6 +259,12 @@ async def answer_decision(
     # as `api/routes/threads.py::post_message`.
     thread = ThreadRepository.get(decision.thread_id)
     assert thread is not None  # decision.thread_id is a real foreign key
+
+    # A fiscal-year card (`foresla_rakenskapsar`): the press on its create
+    # option creates the year before the turn starts, so the agent's turn
+    # already sees the year's open periods. Any other decision: nothing.
+    FiscalYearProposalService().on_decision_answered(decision, actor=actor)
+
     if settings.agent_runtime_enabled:
         ThreadTurnRunner().start(thread, answer_post, answer_post.body["text"])
     else:

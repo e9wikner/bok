@@ -1893,6 +1893,7 @@ def test_16_flode4_the_whole_way_against_the_database(
         "match",
         "candidates",
         "expected",
+        "placement",
     ]
     assert result["source_id"] == source.id
     assert result["checks"] == {
@@ -2243,7 +2244,7 @@ def test_34_tolka_underlag_is_twelfth_and_the_first_eleven_are_unchanged():
     it."""
     from services.agent_tools import AGENT_TOOL_DEFINITIONS, TolkaUnderlagArgs
 
-    assert len(AGENT_TOOL_DEFINITIONS) == 26
+    assert len(AGENT_TOOL_DEFINITIONS) == 27
     assert [t["name"] for t in AGENT_TOOL_DEFINITIONS][10:12] == [
         "foresla_verifikation",
         "tolka_underlag",
@@ -2266,9 +2267,9 @@ def test_u7_the_docstrings_say_twelve_tools():
 
     assert "twelfth" in (agent_tools.__doc__ or "")
     assert "tolka_underlag" in (agent_tools.__doc__ or "")
-    # Twenty-six since fakturering F1 and the payroll tools were appended
-    # after the statement tools.
-    assert "twenty-six" in (agent_tools.execute_tool.__doc__ or "")
+    # Twenty-seven since fakturering F1, the payroll tools and
+    # foresla_rakenskapsar were appended after the statement tools.
+    assert "twenty-seven" in (agent_tools.execute_tool.__doc__ or "")
 
 
 # ---------------------------------------------------------------------------
@@ -2307,6 +2308,7 @@ def test_31_get_gives_the_later_with_superseded_count_one(
         "match",
         "candidates",
         "expected",
+        "placement",
         "expected_voucher_id",
         "created_at",
         "actor",
@@ -2975,6 +2977,7 @@ def test_u15_post_is_testfall_16_over_http(
         "match",
         "candidates",
         "expected",
+        "placement",
     ]
     assert result["source_id"] == source.id
     assert result["read"] == U6_ARGS

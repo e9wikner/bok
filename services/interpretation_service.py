@@ -32,6 +32,7 @@ from repositories.interpretation_repo import InterpretationRepository
 from repositories.thread_repo import ThreadRepository
 from repositories.voucher_repo import VoucherRepository
 from services.agent_documents import extract_pdf_text
+from services.fiscal_years import FiscalYearService
 from services.intake import IntakeConflictError, IntakeError, IntakeService
 from services.interpretation import (
     DATE_WINDOW_DAYS_AFTER,
@@ -166,6 +167,10 @@ class InterpretationService:
             "match": matching.match.to_dict() if matching.match else None,
             "candidates": [c.to_dict() for c in matching.candidates],
             "expected": compared.to_dict() if compared else None,
+            # Where the date lands in the books now: open, locked, or outside
+            # every fiscal year (`FiscalYearService.placement`). Computed, not
+            # stored -- a lock or a new year changes it.
+            "placement": FiscalYearService().placement(args.document_date, today=today),
         }
 
     def latest(self, source_id: str) -> Dict[str, Any]:
@@ -173,6 +178,9 @@ class InterpretationService:
         `created_at`, `actor`, `thread_id`, `superseded_count`,
         `source_status` and `match.still_open`. Reads only -- `still_open` is
         derived here, now, and the stored snapshot is returned as stored.
+
+        `placement` is where the date lands in the books now, computed on
+        read like `still_open`.
 
         `expected` is the comparison stored with the row (`expected_json`,
         migration 031), never recomputed against today's ledger, and
@@ -227,6 +235,7 @@ class InterpretationService:
             "expected": (
                 interpretation.expected.to_dict() if interpretation.expected else None
             ),
+            "placement": FiscalYearService().placement(interpretation.document_date),
             "expected_voucher_id": interpretation.expected_voucher_id,
             "created_at": interpretation.created_at.isoformat(),
             "actor": interpretation.actor,

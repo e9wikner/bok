@@ -279,6 +279,14 @@ class PeriodResponse(BaseModel):
     created_at: DateTimeType
 
 
+class FiscalYearCreateRequest(BaseModel):
+    """A new fiscal year. Periods are created per calendar month, clipped to
+    the year's own dates."""
+
+    start_date: DateType
+    end_date: DateType
+
+
 class FiscalYearResponse(BaseModel):
     """Response model for fiscal year."""
 

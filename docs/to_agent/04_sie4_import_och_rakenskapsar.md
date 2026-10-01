@@ -107,6 +107,20 @@ bokföra i (`opening_balance_not_a_voucher`).
 - `GET /api/v1/fiscal-years/{id}/opening-balances` visar årets ingående balans,
   varifrån den kommer (`source`) och eventuella avvikelser mot filen.
 
+## Nytt räkenskapsår
+
+Ett räkenskapsår skapas med `POST /api/v1/fiscal-years` och
+`{"start_date": "2027-01-01", "end_date": "2027-12-31"}`, med en period per
+kalendermånad. Åren följer varandra utan glapp och utan överlapp, och ett år är
+högst 18 månader. Servern svarar `409 fiscal_year_overlap` och `400
+fiscal_year_not_adjacent` eller `fiscal_year_too_long` annars.
+
+I en tråd och i ett underlagspass skapar agenten aldrig året själv. Ett
+underlag daterat utanför alla räkenskapsår föreslår året med
+`foresla_rakenskapsar`, och användaren skapar det med ett tryck på kortet. Se
+regel 11 under "Tolka underlaget innan du bokför" i
+`03_bokforingsinstruktion.md`.
+
 ## Viktiga principer
 
 1. **Datum är avgörande:** Verifikationer placeras alltid i den period som

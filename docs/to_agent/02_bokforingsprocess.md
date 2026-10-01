@@ -298,7 +298,10 @@ Avstå från att posta och be om mänsklig komplettering när:
 - transaktionen rör lön, skatt, anläggningstillgång, utdelning, lån till närstående,
   representation, bilförmån eller annat område med särskilda regler och underlaget
   inte är tydligt
-- perioden är låst eller saknas
+- perioden är låst eller saknas — se regel 11 och 12 under "Tolka underlaget
+  innan du bokför" i `03_bokforingsinstruktion.md`: ett saknat räkenskapsår
+  föreslås med `foresla_rakenskapsar`, och ett underlag i en låst period
+  bokförs bara sent med användarens beslut
 - verifikationen inte balanserar
 - transaktionen kan ha juridisk eller skattemässig effekt som inte framgår av underlaget
 
