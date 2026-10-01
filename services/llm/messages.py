@@ -92,6 +92,18 @@ class UnrecognizedStopReasonError(Exception):
 MESSAGES_MAX_TOKENS_FALLBACK = 32000
 
 
+def messages_sdk_base_url(gateway_base_url: str) -> str:
+    """The gateway base URL as the Anthropic SDK wants it: without `/v1`.
+
+    Both gateways are configured with their OpenAI-style base
+    (`https://opencode.ai/zen/v1`, `.../zen/go/v1`), which the OpenAI SDK
+    extends with `/chat/completions`. The Anthropic SDK appends
+    `/v1/messages` itself, so the same base would request `.../v1/v1/messages`
+    -- a 404 page, for every Messages-protocol model on either gateway.
+    """
+    return gateway_base_url.rstrip("/").removesuffix("/v1")
+
+
 class MessagesClient:
     """`LLMClient` adapter for Anthropic's Messages API (SPEC §2).
 
@@ -121,7 +133,7 @@ class MessagesClient:
         # stays trivial to construct with a dummy key in tests.
         self._client = anthropic.Anthropic(
             api_key=api_key,
-            base_url=base_url,
+            base_url=messages_sdk_base_url(base_url),
             default_headers=gateway_headers(session_id),
         )
 

@@ -384,6 +384,50 @@ _MODELS: dict[str, tuple[ProtocolName, ModelPrice]] = {
             cache_read_ore_per_million_tokens=150,
         ),
     ),
+    # Five more cheap Go models, added for the model evaluation
+    # (scripts/model_eval.py). Prices from https://opencode.ai/docs/go/,
+    # 2026-10-01; chat-protocol rows price a cache read as plain input, as
+    # above.
+    "opencode-go/mimo-v2.6-flash": (
+        "chat",
+        ModelPrice(
+            input_ore_per_million_tokens=140,
+            output_ore_per_million_tokens=280,
+            cache_read_ore_per_million_tokens=140,
+        ),
+    ),
+    "opencode-go/mimo-v2.6-pro": (
+        "chat",
+        ModelPrice(
+            input_ore_per_million_tokens=435,
+            output_ore_per_million_tokens=870,
+            cache_read_ore_per_million_tokens=435,
+        ),
+    ),
+    "opencode-go/hy3": (
+        "chat",
+        ModelPrice(
+            input_ore_per_million_tokens=140,
+            output_ore_per_million_tokens=580,
+            cache_read_ore_per_million_tokens=140,
+        ),
+    ),
+    "opencode-go/longcat-2.0": (
+        "chat",
+        ModelPrice(
+            input_ore_per_million_tokens=300,
+            output_ore_per_million_tokens=1_200,
+            cache_read_ore_per_million_tokens=300,
+        ),
+    ),
+    "opencode-go/qwen3.8-flash": (
+        "messages",
+        ModelPrice(
+            input_ore_per_million_tokens=150,
+            output_ore_per_million_tokens=470,
+            cache_read_ore_per_million_tokens=16,
+        ),
+    ),
     "opencode-go/qwen3.8-max": (
         "messages",
         ModelPrice(

@@ -2675,10 +2675,12 @@ class TestBuildLlmClient:
     @pytest.mark.parametrize(
         "model, base_url",
         [
+            # The Anthropic SDK appends /v1/messages itself, so a Messages
+            # model's SDK gets the gateway base without its /v1.
             ("opencode-go/glm-5.3", "https://go.example/v1"),
-            ("opencode-go/minimax-m3", "https://go.example/v1"),
+            ("opencode-go/minimax-m3", "https://go.example"),
             ("opencode/gpt-5.5", "https://zen.example/v1"),
-            ("opencode/claude-opus-5", "https://zen.example/v1"),
+            ("opencode/claude-opus-5", "https://zen.example"),
         ],
     )
     def test_model_prefix_picks_the_gateway(self, monkeypatch, model, base_url):

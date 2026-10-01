@@ -521,3 +521,18 @@ class TestMessagesAdapterRunTurnStreams:
 
         assert fake.iterated is False
         assert turn.stop == "end"
+
+
+def test_the_sdk_base_url_drops_the_gateways_v1():
+    """The SDK appends `/v1/messages`; the gateway base already ends in /v1."""
+    from services.llm.messages import MessagesClient, messages_sdk_base_url
+
+    assert messages_sdk_base_url("https://opencode.ai/zen/go/v1") == (
+        "https://opencode.ai/zen/go"
+    )
+    assert messages_sdk_base_url("https://opencode.ai/zen/v1/") == (
+        "https://opencode.ai/zen"
+    )
+    assert messages_sdk_base_url("http://127.0.0.1:0") == "http://127.0.0.1:0"
+    client = MessagesClient(api_key="k", base_url="https://opencode.ai/zen/go/v1")
+    assert str(client._client.base_url).rstrip("/") == "https://opencode.ai/zen/go"
