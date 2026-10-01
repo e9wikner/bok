@@ -254,12 +254,18 @@ def cmd_run(args: argparse.Namespace) -> None:
             "--env",
             str(args.env),
         ]
-        proc = subprocess.run(
-            cmd, cwd=REPO, capture_output=True, text=True, timeout=args.timeout
-        )
         path = _result_path(snap, model, case_id)
+        # A rerun replaces the old result; a stale error must not survive it.
+        path.unlink(missing_ok=True)
+        try:
+            proc = subprocess.run(
+                cmd, cwd=REPO, capture_output=True, text=True, timeout=args.timeout
+            )
+            failure = (proc.stderr or proc.stdout)[-2000:]
+        except subprocess.TimeoutExpired:
+            failure = f"timeout: no result within {args.timeout} s"
         if not path.exists():
-            # The worker died before writing: record why, as an error result.
+            # The worker died or timed out before writing: record why.
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(
                 json.dumps(
@@ -267,7 +273,7 @@ def cmd_run(args: argparse.Namespace) -> None:
                         "model": model,
                         "case": case_id,
                         "verdict": "error",
-                        "error": (proc.stderr or proc.stdout)[-2000:],
+                        "error": failure,
                     },
                     ensure_ascii=False,
                     indent=2,
@@ -277,8 +283,9 @@ def cmd_run(args: argparse.Namespace) -> None:
         return f"{model:34} {case_id:8} {verdict}"
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
-        for line in pool.map(run_one, jobs):
-            print(line, flush=True)
+        futures = [pool.submit(run_one, job) for job in jobs]
+        for future in concurrent.futures.as_completed(futures):
+            print(future.result(), flush=True)
     cmd_report(args)
 
 
