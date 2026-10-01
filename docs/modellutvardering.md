@@ -43,8 +43,10 @@ venv/bin/python scripts/model_eval.py freeze --name 2027-01-15 \
 öppna perioder, högst två per sorts underlag (`--per-group`). Facit
 (`cases.json`) är böckernas egen kontering, oftast agentens. Gå igenom det,
 rätta det som är fel och sätt `"verified": true`. Rapporten markerar fall
-utan verifierat facit. `manual-cases.json` innehåller handskrivna fall för
-underlag som ännu inte är bokförda, med samma format.
+utan verifierat facit. `report` poängsätter de sparade konteringarna mot
+`cases.json` som den ser ut nu, så ett rättat facit kräver ingen ny körning.
+`manual-cases.json` innehåller handskrivna fall för underlag som ännu inte är
+bokförda, med samma format.
 
 Resultat från olika ögonblicksbilder går inte att jämföra rakt av: fallen,
 instruktionerna och koden kan ha ändrats emellan. `meta.json` visar commit

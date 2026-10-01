@@ -522,9 +522,16 @@ def cmd_report(args: argparse.Namespace) -> None:
     snap = args.root / args.snapshot
     meta = json.loads((snap / "meta.json").read_text())
     cases = json.loads((snap / "cases.json").read_text())
+    expected = {case["id"]: case["expected"] for case in cases}
     results: dict[str, dict[str, dict]] = defaultdict(dict)
     for path in sorted((snap / "results").glob("*/*.json")):
         result = json.loads(path.read_text())
+        if result["case"] not in expected:
+            continue  # a case since removed from cases.json
+        if result["verdict"] != "error":
+            # Scored against the answer key as it is now, so a corrected
+            # cases.json takes effect without running any model again.
+            result["verdict"] = _score(expected[result["case"]], result.get("booked"))
         results[result["model"]][result["case"]] = result
     if not results:
         print("no results yet")
