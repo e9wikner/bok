@@ -1,126 +1,156 @@
-{% extends "base.html" %}
-{% block content %}
-<div class="header">
-  <div class="logo-area">
-    {% if company.logo_url %}
-    <img src="{{ company.logo_url }}" alt="{{ company.name }}">
-    {% else %}
-    <div class="company-name">{{ company.name }}</div>
-    {% endif %}
-  </div>
-  <div class="doc-info">
-    <div class="doc-title">FAKTURA</div>
-    <div>Nr: {{ invoice.invoice_number }}</div>
+<!DOCTYPE html>
+{#- Kundfaktura, SPEC-fakturering.md §6.1. Förlagan är användarens egen faktura;
+    positionerna på första sidan är uppmätta mot den. Typsnittet ligger i
+    fonts/ (SIL OFL, se fonts/OFL.txt) och bäddas in i PDF:en. -#}
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<title>Faktura {{ invoice.invoice_number }}</title>
+<style>
+  @font-face { font-family: "Courier Prime"; font-weight: 400; src: url("fonts/CourierPrime-Regular.ttf"); }
+  @font-face { font-family: "Courier Prime"; font-weight: 700; src: url("fonts/CourierPrime-Bold.ttf"); }
+
+  /* Sidfoten står i nedre marginalen på varje sida, så att många rader
+     flödar över till nästa sida i stället för att skriva över den. */
+  @page {
+    size: A4;
+    margin: 20mm 0 49mm 0;
+    @bottom-left { content: element(fot); width: 210mm; vertical-align: top; }
+  }
+  @page :first { margin-top: 0; }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Courier Prime", monospace; font-size: 9.5pt; line-height: 1.3; color: #111; }
+
+  .topp { position: relative; height: 125.5mm; }
+  .abs { position: absolute; }
+
+  h1 { font-weight: 400; font-size: 13pt; margin: 0; left: 26mm; top: 21mm; letter-spacing: .02em; }
+
+  .mottagare { left: 26mm; top: 46.5mm; width: 66mm; }
+  .etikett { margin-bottom: 1.5mm; }
+
+  .nyckel { left: 96mm; top: 47.5mm; width: 90mm; }
+  .nyckel table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+  .nyckel td { padding: 0 0 1.4mm 0; white-space: nowrap; }
+  .nyckel td.k { overflow: hidden; width: 57.5mm; }
+  /* prickade ledare: nyckeln följs av punkter som klipps vid cellkanten */
+  .nyckel td.k::after { content: " ........................................"; }
+  .nyckel td.v { padding-left: 2mm; }
+  .glapp td { padding-top: 13.5mm !important; }
+
+  .summa { left: 28mm; right: 29mm; top: 110.5mm; display: flex; justify-content: space-between; }
+
+  .rader { margin: 0 29mm 0 28mm; min-height: 79mm; }
+  .rader td, .rader th { white-space: normal; }
+  .nw { white-space: nowrap !important; }
+  .rader table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  .rader th { font-weight: 400; text-align: left; padding-bottom: 5mm; }
+  .rader td { vertical-align: top; padding-bottom: 4mm; padding-right: 1.5mm; }
+  .rader tr { page-break-inside: avoid; }
+  .rader td:last-child, .rader th:last-child { padding-right: 0; }
+  .r, .rader th.r { text-align: right; }
+
+  .summering { margin: 0 29mm 0 28mm; display: flex; justify-content: space-between; page-break-inside: avoid; }
+  .summering table { border-collapse: collapse; width: 66mm; }
+  .summering td.r { white-space: nowrap; }
+  .summering td { padding: 0 0 1.4mm 0; }
+
+  .fot { position: running(fot); padding: 0 25mm 0 26mm; font-size: 9pt; }
+  .fot .namn { font-weight: 700; font-size: 11pt; margin-bottom: 3mm; }
+  .fot .kol { position: relative; }
+  .fot table { border-collapse: collapse; }
+  .fot td { padding: 0 3mm 1.2mm 0; vertical-align: top; }
+  .fot .v2 { position: absolute; left: 85mm; top: 0; }
+  .fskatt { position: absolute; left: -16mm; top: 39mm; font-size: 8pt; }
+  .fot-ram { position: relative; height: 48mm; }
+</style>
+</head>
+<body>
+
+<div class="fot">
+  <div class="fot-ram">
+    <div class="namn">{{ company.name }}</div>
+    <div class="kol">
+      <table>
+        {% if company_address %}<tr><td>Adress</td><td>{% for line in company_address %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</td></tr>{% endif %}
+        {% if company.phone %}<tr><td>Telefon</td><td>{{ company.phone }}</td></tr>{% endif %}
+        {% if company.email %}<tr><td>E-post</td><td>{{ company.email }}</td></tr>{% endif %}
+        {% if company.website %}<tr><td>Webb</td><td>{{ company.website }}</td></tr>{% endif %}
+      </table>
+      <table class="v2">
+        {% if company.org_number %}<tr><td>Org.nr.</td><td>{{ company.org_number }}</td></tr>{% endif %}
+        {% if company.seat %}<tr><td>Säte</td><td>{{ company.seat }}</td></tr>{% endif %}
+        {% if company.vat_number %}<tr><td>VAT-nr.</td><td>{{ company.vat_number }}</td></tr>{% endif %}
+        {% if company.bankgiro %}<tr><td>Bankgiro</td><td>{{ company.bankgiro }}</td></tr>{% endif %}
+        {% if company.plusgiro %}<tr><td>Plusgiro</td><td>{{ company.plusgiro }}</td></tr>{% endif %}
+      </table>
+    </div>
+    {% if company.f_skatt %}<div class="fskatt">Godkänd för F-skatt.</div>{% endif %}
   </div>
 </div>
 
-<table class="meta-table">
-<tr>
-  <td style="width:50%">
-    <table class="meta-table">
-      <tr><td class="label">Kund:</td><td>{{ invoice.customer_name }}</td></tr>
-      {% if invoice.customer_org_number %}
-      <tr><td class="label">Org.nummer:</td><td>{{ invoice.customer_org_number }}</td></tr>
-      {% endif %}
-      {% if invoice.customer_address %}
-      <tr><td class="label">Adress:</td><td>{{ invoice.customer_address }}</td></tr>
-      {% endif %}
-    </table>
-  </td>
-  <td style="width:50%">
-    <table class="meta-table">
-      <tr><td class="label">Fakturadatum:</td><td>{{ invoice.invoice_date }}</td></tr>
-      <tr><td class="label">Förfallodatum:</td><td>{{ invoice.due_date }}</td></tr>
-      <tr><td class="label">Betalningsvillkor:</td><td>{{ invoice.payment_terms | default("30 dagar netto") }}</td></tr>
-      <tr><td class="label">Vår referens:</td><td>{{ invoice.our_reference | default(company.contact_person | default("")) }}</td></tr>
-    </table>
-  </td>
-</tr>
-</table>
+<div class="topp">
+  <h1 class="abs">FAKTURA</h1>
 
-{% if invoice.description %}
-<p><strong>Beskrivning:</strong> {{ invoice.description }}</p>
-{% endif %}
+  <div class="abs mottagare">
+    <div class="etikett">MOTTAGARE</div>
+    <div>{{ invoice.customer_name }}</div>
+    {% if invoice.customer_reference %}<div>{{ invoice.customer_reference }}</div>{% endif %}
+    {% for line in customer_address %}<div>{{ line }}</div>{% endfor %}
+  </div>
 
-<table class="data-table">
-  <thead>
-    <tr>
-      <th style="width:40%">Beskrivning</th>
-      <th class="right" style="width:10%">Antal</th>
-      <th class="right" style="width:15%">À-pris</th>
-      <th class="right" style="width:10%">Moms</th>
-      <th class="right" style="width:12%">Belopp ex moms</th>
-      <th class="right" style="width:13%">Belopp inkl moms</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for row in invoice.rows %}
-    <tr>
-      <td>{{ row.description }}</td>
-      <td class="right">{{ row.quantity }}</td>
-      <td class="right">{{ row.unit_price | format_sek }}</td>
-      <td class="right">{{ row.vat_code | vat_label }}</td>
-      <td class="right">{{ row.amount_ex_vat | format_sek }}</td>
-      <td class="right">{{ row.amount_inc_vat | format_sek }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
-
-<div class="clearfix">
-  <div class="totals-box">
+  <div class="abs nyckel">
     <table>
-      <tr>
-        <td class="label">Summa ex moms</td>
-        <td class="amount">{{ invoice.amount_ex_vat | format_sek }}</td>
-      </tr>
-      {% for vat_code, vat_amount in vat_summary.items() %}
-      <tr>
-        <td class="label">Moms {{ vat_code | vat_label }}</td>
-        <td class="amount">{{ vat_amount | format_sek }}</td>
-      </tr>
-      {% endfor %}
-      <tr class="total-row">
-        <td>Att betala</td>
-        <td class="amount">{{ invoice.amount_inc_vat | format_sek }}</td>
-      </tr>
+      <tr><td class="k">Fakturanummer</td><td class="v">{{ invoice.invoice_number }}</td></tr>
+      <tr><td class="k">Fakturadatum</td><td class="v">{{ invoice.invoice_date | iso_date }}</td></tr>
+      {% if invoice.payment_terms_days is not none %}<tr><td class="k">Betalningsvillkor</td><td class="v">{{ invoice.payment_terms_days }} dagar</td></tr>{% endif %}
+      <tr><td class="k">Förfallodatum</td><td class="v">{{ invoice.due_date | iso_date }}</td></tr>
+      {% set our_reference = company.contact_person %}
+      {% if invoice.customer_reference %}<tr class="glapp"><td class="k">Er referens</td><td class="v">{{ invoice.customer_reference }}</td></tr>{% endif %}
+      {% if our_reference %}<tr{% if not invoice.customer_reference %} class="glapp"{% endif %}><td class="k">Vår referens</td><td class="v">{{ our_reference }}</td></tr>{% endif %}
     </table>
   </div>
+
+  <div class="abs summa"><span>Summa att betala</span><span>{{ invoice.amount_inc_vat | kr }}</span></div>
 </div>
 
-<div class="payment-info">
-  <h3>Betalningsinformation</h3>
-  {% if company.bankgiro %}
-  <p><strong>Bankgiro:</strong> {{ company.bankgiro }}</p>
-  {% endif %}
-  {% if company.plusgiro %}
-  <p><strong>Plusgiro:</strong> {{ company.plusgiro }}</p>
-  {% endif %}
-  {% if company.swish %}
-  <p><strong>Swish:</strong> {{ company.swish }}</p>
-  {% endif %}
-  {% if company.iban %}
-  <p><strong>IBAN:</strong> {{ company.iban }}</p>
-  <p><strong>BIC/SWIFT:</strong> {{ company.bic | default("") }}</p>
-  {% endif %}
-  <p><strong>OCR/Referens:</strong> {{ invoice.invoice_number }}</p>
+<div class="rader">
+  <table>
+    <colgroup>
+      <col style="width:16mm"><col style="width:52mm"><col style="width:23mm">
+      <col style="width:12mm"><col style="width:24mm"><col>
+    </colgroup>
+    <thead>
+      <tr><th>ART.NR.</th><th>BESKRIVNING</th><th>KOMMENTAR</th><th>ANTAL</th><th class="r">À PRIS</th><th class="r">NETTO</th></tr>
+    </thead>
+    <tbody>
+    {% for row in rows %}
+      <tr>
+        <td>{{ row.article_number }}</td>
+        <td>{{ row.description }}</td>
+        <td>{{ row.delivery }}</td>
+        <td class="nw">{{ row.quantity }}</td>
+        <td class="r nw">{{ row.unit_price | kr }}</td>
+        <td class="r nw">{{ row.amount_ex_vat | kr }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
 </div>
 
-{% if qr_code_data %}
-<div class="qr-code">
-  <img src="data:image/png;base64,{{ qr_code_data }}" alt="QR-kod för betalning">
-  <p style="font-size:8pt;color:#888;">Skanna för att betala via Swish</p>
+<div class="summering">
+  <div>
+    <div>Momsgrundande belopp:</div>
+    {% for label, amount in vat_bases %}<div>{{ label }}: {{ amount | kr }}</div>{% endfor %}
+    {% if vat_exempt is not none %}<div>Momsfritt: {{ vat_exempt | kr }}</div>{% endif %}
+  </div>
+  <table>
+    <tr><td>Netto:</td><td class="r">{{ invoice.amount_ex_vat | kr }}</td></tr>
+    <tr><td>Moms</td><td class="r">{{ invoice.vat_amount | kr }}</td></tr>
+    <tr><td>Totalt:</td><td class="r">{{ invoice.amount_inc_vat | kr }}</td></tr>
+  </table>
 </div>
-{% endif %}
 
-<div class="footer">
-  {{ company.name }}
-  {% if company.org_number %} · Org.nr: {{ company.org_number }}{% endif %}
-  {% if company.vat_number %} · Momsreg.nr: {{ company.vat_number }}{% endif %}
-  {% if company.address %}<br>{{ company.address }}{% endif %}
-  {% if company.phone %} · Tel: {{ company.phone }}{% endif %}
-  {% if company.email %} · {{ company.email }}{% endif %}
-  {% if company.website %} · {{ company.website }}{% endif %}
-  {% if company.f_skatt %}<br>Godkänd för F-skatt{% endif %}
-</div>
-{% endblock %}
+</body>
+</html>

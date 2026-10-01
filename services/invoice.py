@@ -1,10 +1,20 @@
 """Invoice service - Fas 2 (Fakturering & Moms)."""
 
+from contextlib import nullcontext
 from datetime import date, datetime
 from typing import Dict, List, Optional
 
+from db.database import db
 from domain.invoice_models import CreditNote, Invoice, Payment
-from domain.invoice_validation import InvoiceValidator, ValidationError, VATCalculator
+from domain.invoice_validation import (
+    InvoiceValidator,
+    ValidationError,
+    VATCalculator,
+    amount_ex_vat_from_centi,
+    normalize_delivery,
+    parse_quantity_centi,
+    quantity_from_centi,
+)
 from domain.types import AuditAction
 from repositories.audit_repo import AuditRepository
 from repositories.invoice_repo import (
@@ -13,6 +23,95 @@ from repositories.invoice_repo import (
     PaymentRepository,
 )
 from repositories.voucher_repo import VoucherRepository
+
+
+def unit_of_work(commit: bool):
+    """The transaction a write runs in.
+
+    Repositories never commit (SPEC-fakturering.md §5). With `_commit=True`
+    the service method is its own transaction; with `_commit=False` it runs
+    inside the caller's, which commits or rolls back everything together.
+    """
+    return db.transaction() if commit else nullcontext()
+
+
+#: Revenue and output VAT account per VAT code, for rows without their own
+#: revenue account (legacy invoices).
+_VAT_ACCOUNTS = {
+    "MP1": ("3011", "2610"),  # Revenue 25%, VAT 25%
+    "MP2": ("3020", "2620"),  # Revenue 12%, VAT 12%
+    "MP3": ("3030", "2630"),  # Revenue 6%, VAT 6%
+    "MF": ("3010", None),  # Revenue 0%, No VAT
+}
+
+
+def default_revenue_account(vat_code: str) -> str:
+    return _VAT_ACCOUNTS.get(vat_code, ("3010", None))[0]
+
+
+def invoice_booking_rows(invoice_number, amount_inc_vat: int, rows) -> List[Dict]:
+    """The voucher rows an invoice is booked with: debit 1510 incl. VAT,
+    credit revenue per (VAT code, revenue account) and output VAT per VAT
+    code. `rows` need `vat_code`, `revenue_account`, `amount_ex_vat` and
+    `vat_amount`, as attributes or keys.
+
+    Shared by the booking and the invoice proposal card's consequence line
+    (SPEC-fakturering-f1.md §6.1), so the card and the voucher cannot
+    differ."""
+
+    def get(row, name):
+        return row[name] if isinstance(row, dict) else getattr(row, name)
+
+    voucher_rows: List[Dict] = [
+        {
+            "account": "1510",  # Kundfordringar
+            "debit": amount_inc_vat,
+            "credit": 0,
+            "description": f"Invoice {invoice_number}",
+        }
+    ]
+
+    # Group revenue by VAT code and revenue account. Article-based invoice
+    # drafts can set revenue_account per row; legacy invoices fall back to
+    # the original VAT-code mapping.
+    vat_groups: Dict = {}
+    for row in rows:
+        vat_code = get(row, "vat_code")
+        revenue_account = get(row, "revenue_account") or default_revenue_account(
+            vat_code
+        )
+        key = (vat_code, revenue_account)
+        if key not in vat_groups:
+            vat_groups[key] = {
+                "vat_code": vat_code,
+                "revenue_account": revenue_account,
+                "amount_ex_vat": 0,
+                "vat_amount": 0,
+            }
+        vat_groups[key]["amount_ex_vat"] += get(row, "amount_ex_vat")
+        vat_groups[key]["vat_amount"] += get(row, "vat_amount")
+
+    for amounts in vat_groups.values():
+        vat_code = amounts["vat_code"]
+        _, vat_acct = _VAT_ACCOUNTS.get(vat_code, ("3010", None))
+        voucher_rows.append(
+            {
+                "account": amounts["revenue_account"],
+                "debit": 0,
+                "credit": amounts["amount_ex_vat"],
+                "description": f"Revenue - {vat_code}",
+            }
+        )
+        if vat_acct and amounts["vat_amount"] > 0:
+            voucher_rows.append(
+                {
+                    "account": vat_acct,
+                    "debit": 0,
+                    "credit": amounts["vat_amount"],
+                    "description": f"VAT {vat_code}",
+                }
+            )
+    return voucher_rows
 
 
 class InvoiceService:
@@ -42,9 +141,15 @@ class InvoiceService:
                     details="valid codes: MP1, MP2, MP3, MF",
                 )
 
-            quantity = int(row_data["quantity"])
+            # Same arithmetic as a saved draft row (SPEC-fakturering.md §4.2).
+            quantity_centi = parse_quantity_centi(row_data["quantity"])
             unit_price = int(row_data["unit_price"])
-            amount_ex_vat = quantity * unit_price
+            amount_ex_vat = amount_ex_vat_from_centi(quantity_centi, unit_price)
+            delivery_from, delivery_to, delivery_month = normalize_delivery(
+                row_data.get("delivery_from"),
+                row_data.get("delivery_to"),
+                row_data.get("delivery_month"),
+            )
             vat_amount = VATCalculator.calculate_vat(amount_ex_vat, vat_code)
             amount_inc_vat = amount_ex_vat + vat_amount
             vat_rate = VATCalculator.get_vat_rate(vat_code)
@@ -53,13 +158,19 @@ class InvoiceService:
                 {
                     "index": index,
                     "description": row_data["description"],
-                    "quantity": quantity,
+                    "quantity": quantity_from_centi(quantity_centi),
+                    "quantity_centi": quantity_centi,
+                    "unit": (row_data.get("unit") or "").strip() or "st",
+                    "article_number": row_data.get("article_number"),
                     "unit_price": unit_price,
                     "vat_code": vat_code,
                     "vat_rate": vat_rate,
                     "amount_ex_vat": amount_ex_vat,
                     "vat_amount": vat_amount,
                     "amount_inc_vat": amount_inc_vat,
+                    "delivery_from": delivery_from,
+                    "delivery_to": delivery_to,
+                    "delivery_month": delivery_month,
                 }
             )
 
@@ -101,208 +212,167 @@ class InvoiceService:
         customer_email: Optional[str] = None,
         description: Optional[str] = None,
         created_by: str = "system",
+        _commit: bool = True,
     ) -> Invoice:
         """Create new invoice."""
-        # Create invoice
-        invoice = self.invoices.create(
-            customer_name=customer_name,
-            invoice_date=invoice_date,
-            due_date=due_date,
-            customer_org_number=customer_org_number,
-            customer_email=customer_email,
-            description=description,
-            created_by=created_by,
-        )
-
-        # Add rows and calculate totals
-        total_ex_vat = 0
-        total_vat = 0
-        total_inc_vat = 0
-
-        for row_data in rows_data:
-            # Validate VAT code
-            if not VATCalculator.validate_vat_code(row_data["vat_code"]):
-                raise ValidationError(
-                    code="invalid_vat_code",
-                    message=f"Invalid VAT code: {row_data['vat_code']}",
-                    details="valid codes: MP1, MP2, MP3, MF",
-                )
-
-            row = self.invoices.add_row(
-                invoice_id=invoice.id,
-                description=row_data["description"],
-                quantity=row_data["quantity"],
-                unit_price=row_data["unit_price"],
-                vat_code=row_data["vat_code"],
-                revenue_account=row_data.get("revenue_account"),
+        with unit_of_work(_commit):
+            # Create invoice
+            invoice = self.invoices.create(
+                customer_name=customer_name,
+                invoice_date=invoice_date,
+                due_date=due_date,
+                customer_org_number=customer_org_number,
+                customer_email=customer_email,
+                description=description,
+                created_by=created_by,
             )
-            invoice.rows.append(row)
 
-            total_ex_vat += row.amount_ex_vat
-            total_vat += row.vat_amount
-            total_inc_vat += row.amount_inc_vat
+            # Add rows and calculate totals
+            total_ex_vat = 0
+            total_vat = 0
+            total_inc_vat = 0
 
-        # Update totals
-        self.invoices.update_totals(invoice.id, total_ex_vat, total_vat, total_inc_vat)
-        invoice.amount_ex_vat = total_ex_vat
-        invoice.vat_amount = total_vat
-        invoice.amount_inc_vat = total_inc_vat
+            for row_data in rows_data:
+                # Validate VAT code
+                if not VATCalculator.validate_vat_code(row_data["vat_code"]):
+                    raise ValidationError(
+                        code="invalid_vat_code",
+                        message=f"Invalid VAT code: {row_data['vat_code']}",
+                        details="valid codes: MP1, MP2, MP3, MF",
+                    )
 
-        # Validate
-        InvoiceValidator.validate_new_invoice(invoice)
+                row = self.invoices.add_row(
+                    invoice_id=invoice.id,
+                    description=row_data["description"],
+                    quantity=row_data["quantity"],
+                    unit_price=row_data["unit_price"],
+                    vat_code=row_data["vat_code"],
+                    revenue_account=row_data.get("revenue_account"),
+                )
+                invoice.rows.append(row)
 
-        # Log
-        self.audit.log(
-            entity_type="invoice",
-            entity_id=invoice.id,
-            action=AuditAction.CREATED.value,
-            actor=created_by,
-            payload={
-                "invoice_number": invoice.invoice_number,
-                "customer": customer_name,
-                "amount_inc_vat": total_inc_vat,
-                "rows_count": len(invoice.rows),
-            },
-        )
+                total_ex_vat += row.amount_ex_vat
+                total_vat += row.vat_amount
+                total_inc_vat += row.amount_inc_vat
+
+            # Update totals
+            self.invoices.update_totals(
+                invoice.id, total_ex_vat, total_vat, total_inc_vat
+            )
+            invoice.amount_ex_vat = total_ex_vat
+            invoice.vat_amount = total_vat
+            invoice.amount_inc_vat = total_inc_vat
+
+            # Validate
+            InvoiceValidator.validate_new_invoice(invoice)
+
+            # Log
+            self.audit.log(
+                entity_type="invoice",
+                entity_id=invoice.id,
+                action=AuditAction.CREATED.value,
+                actor=created_by,
+                payload={
+                    "invoice_number": invoice.invoice_number,
+                    "customer": customer_name,
+                    "amount_inc_vat": total_inc_vat,
+                    "rows_count": len(invoice.rows),
+                },
+                _commit=False,
+            )
 
         return invoice
 
-    def send_invoice(self, invoice_id: str, actor: str = "system") -> Invoice:
+    def send_invoice(
+        self, invoice_id: str, actor: str = "system", _commit: bool = True
+    ) -> Invoice:
         """Send invoice to customer."""
-        invoice = self.invoices.get(invoice_id)
-        if not invoice:
-            raise ValidationError("invoice_not_found", "Invoice not found")
+        with unit_of_work(_commit):
+            invoice = self.invoices.get(invoice_id)
+            if not invoice:
+                raise ValidationError("invoice_not_found", "Invoice not found")
 
-        InvoiceValidator.validate_can_send(invoice)
+            InvoiceValidator.validate_can_send(invoice)
 
-        # Update status
-        self.invoices.update_sent(invoice_id)
+            # Update status
+            self.invoices.update_sent(invoice_id)
 
-        # Log
-        self.audit.log(
-            entity_type="invoice",
-            entity_id=invoice_id,
-            action=AuditAction.SENT.value,
-            actor=actor,
-            payload={
-                "customer_email": invoice.customer_email,
-                "sent_at": datetime.now().isoformat(),
-            },
-        )
+            # Log
+            self.audit.log(
+                entity_type="invoice",
+                entity_id=invoice_id,
+                action=AuditAction.SENT.value,
+                actor=actor,
+                payload={
+                    "customer_email": invoice.customer_email,
+                    "sent_at": datetime.now().isoformat(),
+                },
+                _commit=False,
+            )
 
         return self.invoices.get(invoice_id)
 
     def create_booking_for_invoice(
-        self, invoice_id: str, period_id: str, actor: str = "system"
+        self,
+        invoice_id: str,
+        period_id: str,
+        actor: str = "system",
+        _commit: bool = True,
+        description: Optional[str] = None,
     ) -> str:
-        """Auto-book invoice to accounting system (creates voucher)."""
-        invoice = self.invoices.get(invoice_id)
-        if not invoice:
-            raise ValidationError("invoice_not_found", "Invoice not found")
+        """Auto-book invoice to accounting system (creates voucher).
 
-        # Create voucher with invoice rows
-        voucher_rows = []
+        *description* is the voucher's text; the issue path passes
+        "Faktura {nr} {kund}" (SPEC-fakturering.md §5)."""
+        with unit_of_work(_commit):
+            invoice = self.invoices.get(invoice_id)
+            if not invoice:
+                raise ValidationError("invoice_not_found", "Invoice not found")
 
-        # Debit: Customer receivables
-        voucher_rows.append(
-            {
-                "account": "1510",  # Kundfordringar
-                "debit": invoice.amount_inc_vat,
-                "credit": 0,
-                "description": f"Invoice {invoice.invoice_number}",
-            }
-        )
-
-        # Group revenue by VAT code and revenue account. Article-based invoice
-        # drafts can set revenue_account per row; legacy invoices fall back to
-        # the original VAT-code mapping.
-        vat_groups = {}
-        for row in invoice.rows:
-            revenue_account = row.revenue_account or self._default_revenue_account(
-                row.vat_code
-            )
-            key = (row.vat_code, revenue_account)
-            if key not in vat_groups:
-                vat_groups[key] = {
-                    "vat_code": row.vat_code,
-                    "revenue_account": revenue_account,
-                    "amount_ex_vat": 0,
-                    "vat_amount": 0,
-                }
-            vat_groups[key]["amount_ex_vat"] += row.amount_ex_vat
-            vat_groups[key]["vat_amount"] += row.vat_amount
-
-        # Credit: Revenue and VAT
-        vat_account_map = {
-            "MP1": ("3011", "2610"),  # Revenue 25%, VAT 25%
-            "MP2": ("3020", "2620"),  # Revenue 12%, VAT 12%
-            "MP3": ("3030", "2630"),  # Revenue 6%, VAT 6%
-            "MF": ("3010", None),  # Revenue 0%, No VAT
-        }
-
-        for amounts in vat_groups.values():
-            vat_code = amounts["vat_code"]
-            revenue_acct = amounts["revenue_account"]
-            _, vat_acct = vat_account_map.get(vat_code, ("3010", None))
-
-            # Revenue
-            voucher_rows.append(
-                {
-                    "account": revenue_acct,
-                    "debit": 0,
-                    "credit": amounts["amount_ex_vat"],
-                    "description": f"Revenue - {vat_code}",
-                }
+            voucher_rows = invoice_booking_rows(
+                invoice.invoice_number, invoice.amount_inc_vat, invoice.rows
             )
 
-            # VAT (if applicable)
-            if vat_acct and amounts["vat_amount"] > 0:
-                voucher_rows.append(
-                    {
-                        "account": vat_acct,
-                        "debit": 0,
-                        "credit": amounts["vat_amount"],
-                        "description": f"VAT {vat_code}",
-                    }
-                )
+            # Create and post voucher
+            from services.ledger import LedgerService
 
-        # Create and post voucher
-        from services.ledger import LedgerService
+            ledger = LedgerService()
 
-        ledger = LedgerService()
+            voucher = ledger.create_voucher(
+                series="A",
+                date=invoice.invoice_date,
+                period_id=period_id,
+                description=description
+                or f"Invoice {invoice.invoice_number} - {invoice.customer_name}",
+                rows_data=voucher_rows,
+                created_by=actor,
+                _commit=False,
+            )
 
-        voucher = ledger.create_voucher(
-            series="A",
-            date=invoice.invoice_date,
-            period_id=period_id,
-            description=f"Invoice {invoice.invoice_number} - {invoice.customer_name}",
-            rows_data=voucher_rows,
-            created_by=actor,
-        )
+            ledger.post_voucher(voucher.id, actor=actor, _commit=False)
 
-        ledger.post_voucher(voucher.id, actor=actor)
+            # Link invoice to voucher
+            self.invoices.link_voucher(invoice_id, voucher.id)
 
-        # Link invoice to voucher
-        self.invoices.link_voucher(invoice_id, voucher.id)
+            # Log
+            self.audit.log(
+                entity_type="invoice",
+                entity_id=invoice_id,
+                action="booked",
+                actor=actor,
+                payload={"voucher_id": voucher.id, "period_id": period_id},
+                _commit=False,
+            )
 
-        # Log
-        self.audit.log(
-            entity_type="invoice",
-            entity_id=invoice_id,
-            action="booked",
-            actor=actor,
-            payload={"voucher_id": voucher.id, "period_id": period_id},
-        )
+        if _commit:
+            from services.ledger import run_statement_match_after_posting
+
+            run_statement_match_after_posting()
 
         return voucher.id
 
     def _default_revenue_account(self, vat_code: str) -> str:
-        return {
-            "MP1": "3011",
-            "MP2": "3020",
-            "MP3": "3030",
-            "MF": "3010",
-        }.get(vat_code, "3010")
+        return default_revenue_account(vat_code)
 
     def register_payment(
         self,
@@ -314,44 +384,52 @@ class InvoiceService:
         notes: Optional[str] = None,
         period_id: Optional[str] = None,
         actor: str = "system",
+        _commit: bool = True,
     ) -> Payment:
         """Register payment for invoice."""
-        invoice = self.invoices.get(invoice_id)
-        if not invoice:
-            raise ValidationError("invoice_not_found", "Invoice not found")
+        with unit_of_work(_commit):
+            invoice = self.invoices.get(invoice_id)
+            if not invoice:
+                raise ValidationError("invoice_not_found", "Invoice not found")
 
-        InvoiceValidator.validate_can_pay(invoice, amount)
+            InvoiceValidator.validate_can_pay(invoice, amount)
 
-        # Create payment record
-        payment = self.payments.create(
-            invoice_id=invoice_id,
-            amount=amount,
-            payment_date=payment_date,
-            payment_method=payment_method,
-            reference=reference,
-            notes=notes,
-            created_by=actor,
-        )
+            # Create payment record
+            payment = self.payments.create(
+                invoice_id=invoice_id,
+                amount=amount,
+                payment_date=payment_date,
+                payment_method=payment_method,
+                reference=reference,
+                notes=notes,
+                created_by=actor,
+            )
 
-        # Update invoice paid amount and status
-        self.invoices.update_paid_amount(invoice_id, amount)
+            # Update invoice paid amount and status
+            self.invoices.update_paid_amount(invoice_id, amount)
 
-        # Auto-book payment if period provided
-        if period_id:
-            self._create_payment_voucher(invoice, payment, period_id, actor)
+            # Auto-book payment if period provided
+            if period_id:
+                self._create_payment_voucher(invoice, payment, period_id, actor)
 
-        # Log
-        self.audit.log(
-            entity_type="payment",
-            entity_id=payment.id,
-            action="registered",
-            actor=actor,
-            payload={
-                "invoice_number": invoice.invoice_number,
-                "amount": amount,
-                "method": payment_method,
-            },
-        )
+            # Log
+            self.audit.log(
+                entity_type="payment",
+                entity_id=payment.id,
+                action="registered",
+                actor=actor,
+                payload={
+                    "invoice_number": invoice.invoice_number,
+                    "amount": amount,
+                    "method": payment_method,
+                },
+                _commit=False,
+            )
+
+        if _commit and period_id:
+            from services.ledger import run_statement_match_after_posting
+
+            run_statement_match_after_posting()
 
         return payment
 
@@ -384,9 +462,10 @@ class InvoiceService:
                 },
             ],
             created_by=actor,
+            _commit=False,
         )
 
-        ledger.post_voucher(voucher.id, actor=actor)
+        ledger.post_voucher(voucher.id, actor=actor, _commit=False)
         self.payments.link_voucher(payment.id, voucher.id)
 
     def create_credit_note(
@@ -397,48 +476,56 @@ class InvoiceService:
         credit_date: date,
         period_id: Optional[str] = None,
         actor: str = "system",
+        _commit: bool = True,
     ) -> CreditNote:
         """Create credit note for invoice."""
-        invoice = self.invoices.get(invoice_id)
-        if not invoice:
-            raise ValidationError("invoice_not_found", "Invoice not found")
+        with unit_of_work(_commit):
+            invoice = self.invoices.get(invoice_id)
+            if not invoice:
+                raise ValidationError("invoice_not_found", "Invoice not found")
 
-        InvoiceValidator.validate_can_create_credit_note(invoice, amount_ex_vat)
+            InvoiceValidator.validate_can_create_credit_note(invoice, amount_ex_vat)
 
-        # Calculate VAT (use average rate from original invoice)
-        original_rate = (
-            invoice.vat_amount / invoice.amount_ex_vat
-            if invoice.amount_ex_vat > 0
-            else 0
-        )
-        vat_amount = int(amount_ex_vat * original_rate)
+            # Calculate VAT (use average rate from original invoice)
+            original_rate = (
+                invoice.vat_amount / invoice.amount_ex_vat
+                if invoice.amount_ex_vat > 0
+                else 0
+            )
+            vat_amount = int(amount_ex_vat * original_rate)
 
-        # Create credit note
-        credit = self.credits.create(
-            invoice_id=invoice_id,
-            reason=reason,
-            amount_ex_vat=amount_ex_vat,
-            vat_amount=vat_amount,
-            credit_date=credit_date,
-            created_by=actor,
-        )
+            # Create credit note
+            credit = self.credits.create(
+                invoice_id=invoice_id,
+                reason=reason,
+                amount_ex_vat=amount_ex_vat,
+                vat_amount=vat_amount,
+                credit_date=credit_date,
+                created_by=actor,
+            )
 
-        # Auto-book if period provided
-        if period_id:
-            self._create_credit_voucher(invoice, credit, period_id, actor)
+            # Auto-book if period provided
+            if period_id:
+                self._create_credit_voucher(invoice, credit, period_id, actor)
 
-        # Log
-        self.audit.log(
-            entity_type="credit_note",
-            entity_id=credit.id,
-            action="created",
-            actor=actor,
-            payload={
-                "invoice_number": invoice.invoice_number,
-                "amount_inc_vat": credit.amount_inc_vat,
-                "reason": reason,
-            },
-        )
+            # Log
+            self.audit.log(
+                entity_type="credit_note",
+                entity_id=credit.id,
+                action="created",
+                actor=actor,
+                payload={
+                    "invoice_number": invoice.invoice_number,
+                    "amount_inc_vat": credit.amount_inc_vat,
+                    "reason": reason,
+                },
+                _commit=False,
+            )
+
+        if _commit and period_id:
+            from services.ledger import run_statement_match_after_posting
+
+            run_statement_match_after_posting()
 
         return credit
 
@@ -477,9 +564,10 @@ class InvoiceService:
                 },
             ],
             created_by=actor,
+            _commit=False,
         )
 
-        ledger.post_voucher(voucher.id, actor=actor)
+        ledger.post_voucher(voucher.id, actor=actor, _commit=False)
         self.credits.link_voucher(credit.id, voucher.id)
 
     def get_vat_summary_for_period(self, period_id: str) -> Dict:

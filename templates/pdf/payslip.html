@@ -26,6 +26,12 @@
     <td class="label">Status</td>
     <td>{{ payslip.status }}</td>
   </tr>
+  <tr>
+    <td class="label">Utbetalningssätt</td>
+    <td colspan="3">
+      {% if employee and employee.bank_account %}Insättning på bankkonto {{ employee.bank_account }}{% else %}Insättning på bankkonto{% endif %}
+    </td>
+  </tr>
 </table>
 
 <div class="section-title">Lön</div>
@@ -42,7 +48,7 @@
       <td class="right">{{ payslip.gross_salary|format_sek }} kr</td>
     </tr>
     <tr>
-      <td>Preliminärskatt</td>
+      <td>Skatteavdrag ({{ ("%.1f"|format(payslip.tax_rate_percent)).replace(".", ",") }} %)</td>
       <td class="right">-{{ payslip.preliminary_tax|format_sek }} kr</td>
     </tr>
   </tbody>

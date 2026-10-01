@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 from db.database import db
 from domain.models import CorrectionNote
@@ -85,6 +85,40 @@ class CorrectionNoteRepository:
             (limit, offset),
         ).fetchall()
         return [CorrectionNoteRepository._row_to_note(row) for row in rows]
+
+    @staticmethod
+    def list_by_statuses(statuses: Sequence[str]) -> List[CorrectionNote]:
+        """Every note whose status is in `statuses`, oldest `created_at`
+        first with `id` as a stable tie-breaker -- added for
+        `DecisionService.list_decisions` (SPEC-beslut.md §5, §6.1, B7),
+        which unions `correction_notes` (`pending`/`suggested`) with two
+        other sources and sorts and paginates the merged result itself.
+        Unlike `list_pending`, this takes several statuses in one query and
+        is deliberately unbounded, for the same reason
+        `IntakeRepository.list_by_statuses` is: `limit`/`offset` apply to
+        the union in the caller, not to any one source.
+        """
+        if not statuses:
+            return []
+        placeholders = ", ".join("?" for _ in statuses)
+        rows = db.execute(
+            f"""
+            SELECT * FROM correction_notes
+            WHERE status IN ({placeholders})
+            ORDER BY created_at ASC, id ASC
+            """,
+            tuple(statuses),
+        ).fetchall()
+        return [CorrectionNoteRepository._row_to_note(row) for row in rows]
+
+    @staticmethod
+    def count_open() -> int:
+        """Notes still awaiting a decision: raised, or suggested but unapplied."""
+        row = db.execute(
+            "SELECT COUNT(*) AS count FROM correction_notes "
+            "WHERE status IN ('pending', 'suggested')"
+        ).fetchone()
+        return row["count"]
 
     @staticmethod
     def count_pending() -> int:

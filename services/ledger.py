@@ -1,11 +1,13 @@
 """Ledger service - core accounting logic."""
 
+import logging
 from datetime import date, datetime
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
-from domain.models import Period, Voucher, VoucherRow
+from domain.models import FiscalYear, Period, Voucher, VoucherRow
 from domain.types import AuditAction, VoucherSeries, VoucherStatus
 from domain.validation import (
+    FiscalYearValidator,
     PeriodValidator,
     ValidationError,
     VoucherValidator,
@@ -15,6 +17,24 @@ from repositories.account_repo import AccountRepository
 from repositories.audit_repo import AuditRepository
 from repositories.period_repo import PeriodRepository
 from repositories.voucher_repo import VoucherRepository
+
+logger = logging.getLogger(__name__)
+
+
+def run_statement_match_after_posting() -> None:
+    """Link statement transactions to vouchers posted since the last run
+    (`services/statement_match.py`). Never raises: the posting already
+    succeeded. Deferred import (AGENTS.md: service-to-service imports wait
+    until the method runs)."""
+    from services.statement_match import StatementMatchService
+
+    StatementMatchService().run_quietly()
+
+
+def _today() -> date:
+    """The server's date, for where a correction is booked
+    (SPEC-flode-verifikationer §7.2). A function so tests can fix it."""
+    return date.today()
 
 
 class LedgerService:
@@ -34,7 +54,6 @@ class LedgerService:
         description: str,
         rows_data: List[Dict],
         created_by: str = "system",
-        number: int | None = None,
         _commit: bool = True,
     ) -> Voucher:
         """Create new draft voucher with rows.
@@ -42,9 +61,21 @@ class LedgerService:
         Validates all business rules before persisting to ensure
         no invalid data is written to the database.
 
-        If *number* is provided it is used as-is (e.g. SIE4 import);
-        otherwise the next sequential number is auto-assigned.
+        A draft has no number; `post_voucher` sets it (SPEC
+        flode-verifikationer §4.3). An explicit number, as in the SIE4
+        import, is passed to `post_voucher`.
         """
+        # IB is opening state, not a voucher (services/opening_balance.py).
+        # An `IB`-series voucher would be ignored by every report.
+        if series == VoucherSeries.IB.value:
+            raise ValidationError(
+                "opening_balance_not_a_voucher",
+                "Opening balances are not booked as vouchers",
+                "state the first fiscal year's opening balance with PUT "
+                "/api/v1/fiscal-years/{id}/opening-balances; later years "
+                "derive theirs from the previous year",
+            )
+
         # Get period to verify it's open
         period = self.periods.get_period(period_id)
         if not period:
@@ -58,12 +89,10 @@ class LedgerService:
         all_accounts = self.accounts.get_all_as_dict()
 
         # Build in-memory voucher for validation BEFORE persisting
-        if number is None:
-            number = self.vouchers.get_next_number(series, period.fiscal_year_id)
         temp_voucher = Voucher(
             id="temp",
             series=VoucherSeries(series),
-            number=number,
+            number=None,
             date=date,
             period_id=period_id,
             description=description,
@@ -88,7 +117,6 @@ class LedgerService:
         def persist_voucher() -> Voucher:
             voucher = self.vouchers.create(
                 series=series,
-                number=number,
                 date=date,
                 period_id=period_id,
                 description=description,
@@ -139,9 +167,15 @@ class LedgerService:
         auto_post: bool = False,
         actor: str = "system",
         _commit: bool = True,
-        update_opening_balance: bool = True,
+        number: int | None = None,
     ) -> Voucher:
-        """Post voucher (make immutable - BFL varaktighet requirement)."""
+        """Post voucher (make immutable - BFL varaktighet requirement).
+
+        The voucher gets its number here, in the same UPDATE as the status
+        change: *number* if given (SIE4 import keeps the file's numbers),
+        otherwise the next among posted vouchers in the series and fiscal
+        year.
+        """
         voucher = self.vouchers.get(voucher_id)
         if not voucher:
             raise ValidationError(
@@ -158,11 +192,8 @@ class LedgerService:
         # Validate can post
         VoucherValidator.validate_can_post(voucher, period)
 
-        # Store fiscal year ID for IB update trigger
-        fiscal_year_id = period.fiscal_year_id
-
-        # Post (make immutable)
-        self.vouchers.post(voucher.id, _commit=_commit)
+        # Post (make immutable) and number it
+        voucher.number = self.vouchers.post(voucher.id, number=number, _commit=_commit)
 
         # Log
         self.audit.log(
@@ -179,17 +210,12 @@ class LedgerService:
             _commit=_commit,
         )
 
-        # Trigger IB update for next fiscal year (if this is a regular voucher, not IB)
-        if _commit and update_opening_balance and voucher.series != VoucherSeries.IB:
-            try:
-                from services.opening_balance import OpeningBalanceService
-
-                ob_service = OpeningBalanceService()
-                # This will update the next year's IB if it exists and is not locked
-                ob_service.update_opening_balances_for_next_year(fiscal_year_id, actor)
-            except Exception:
-                # IB update is best-effort, don't fail the posting if it fails
-                pass
+        # A statement imported earlier may hold this voucher's underlag. Only
+        # once committed: inside a caller's transaction the caller runs it
+        # after its own commit (`run_statement_match_after_posting`). A SIE4
+        # import's documents live in the old system.
+        if _commit and actor != "sie4_import":
+            run_statement_match_after_posting()
 
         # Reload to get updated status
         return self.vouchers.get(voucher.id)
@@ -200,8 +226,23 @@ class LedgerService:
         correction_rows: List[Dict],
         actor: str = "system",
         _commit: bool = True,
+        voucher_date: Optional[date] = None,
+        description: Optional[str] = None,
     ) -> Voucher:
-        """Create correction voucher (B-series) for an original voucher."""
+        """Create correction voucher (B-series) for an original voucher.
+
+        Booked where SPEC-flode-verifikationer §7.2 says: the original's
+        period if open, otherwise the latest open period in the same fiscal
+        year. `voucher_date` defaults to the date `correction_target` derives
+        for today -- never the original's date, which lies outside the target
+        period when the original's is locked (F12) -- and `description` to
+        `Correction of voucher …`. A thread proposal passes its own date
+        (the same rule, its own clock) and the agent's description, which the
+        human sees on the card before posting.
+
+        `ValidationError(no_open_period)` when no date is given and the
+        fiscal year has no open period.
+        """
         original = self.vouchers.get(original_voucher_id)
         if not original:
             raise ValidationError("voucher_not_found", "Original voucher not found")
@@ -216,12 +257,11 @@ class LedgerService:
         # Find an unlocked period for the correction.
         # If the original period is locked, use the latest unlocked period
         # in the same fiscal year (BFL: corrections go in current period).
-        original_period = self.periods.get_period(original.period_id)
-        if original_period and original_period.locked:
-            unlocked = self._find_unlocked_period(original.period_id)
-            target_period_id = unlocked.id if unlocked else original.period_id
+        if voucher_date is None:
+            target, voucher_date = self.correction_target(original, _today())
         else:
-            target_period_id = original.period_id
+            target = self._target_correction_period(original)
+        target_period_id = target.id if target else original.period_id
 
         # Create B-series correction voucher
         correction = self.vouchers.create_correction(
@@ -230,6 +270,8 @@ class LedgerService:
             created_by=actor,
             period_id_override=target_period_id,
             _commit=_commit,
+            voucher_date=voucher_date,
+            description=description,
         )
 
         # Get period and accounts for validation
@@ -278,8 +320,27 @@ class LedgerService:
         """Create and post a B-series correction for a posted voucher.
 
         The posted correction contains reversal rows for the original voucher
-        followed by the corrected rows supplied by the caller.
+        followed by the corrected rows supplied by the caller, dated and
+        booked by `correction_target` (SPEC-flode-verifikationer §7.2).
+
+        The voucher, its number and the correction history are one unit: a
+        failure writing the history rolls the correction back (F12). With
+        `_commit=False` the caller's transaction is that unit; by default
+        this method opens one of its own.
         """
+        if _commit:
+            from db.database import db
+
+            with db.transaction():
+                correction = self.create_posted_correction(
+                    original_voucher_id,
+                    corrected_rows,
+                    reason=reason,
+                    actor=actor,
+                    _commit=False,
+                )
+            return correction
+
         original = self.vouchers.get(original_voucher_id)
         if not original:
             raise ValidationError("voucher_not_found", "Original voucher not found")
@@ -290,28 +351,22 @@ class LedgerService:
                 "original voucher must be in 'posted' status",
             )
 
-        target_period = self._target_correction_period(original)
-        reversal_rows = [
-            {
-                "account": row.account_code,
-                "debit": row.credit,
-                "credit": row.debit,
-                "description": f"Återföring {original.series.value}{original.number}",
-            }
-            for row in original.rows
-        ]
-        correction_rows = reversal_rows + corrected_rows
+        target_period, voucher_date = self.correction_target(original, _today())
+        correction_rows = self.reversal_rows(original) + corrected_rows
 
-        self._validate_correction_rows(original, target_period, correction_rows)
+        self._validate_correction_rows(
+            original, target_period, voucher_date, correction_rows
+        )
         correction = self.create_correction(
             original_voucher_id=original.id,
             correction_rows=correction_rows,
             actor=actor,
             _commit=_commit,
+            voucher_date=voucher_date,
         )
         correction = self.post_voucher(correction.id, actor=actor, _commit=_commit)
 
-        self._record_correction_history(
+        self.record_correction_history(
             original=original,
             correction=correction,
             corrected_rows=corrected_rows,
@@ -412,6 +467,41 @@ class LedgerService:
 
         return self.vouchers.get(voucher_id)
 
+    @staticmethod
+    def reversal_rows(original: Voucher) -> List[Dict]:
+        """The reversal of `original`: each of its rows, debit and credit
+        swapped. Mechanical, so that it cannot be wrong because a model
+        counted (SPEC-flode-verifikationer §7.1); `/correct` and a thread's
+        correction proposal both build it here."""
+        return [
+            {
+                "account": row.account_code,
+                "debit": row.credit,
+                "credit": row.debit,
+                "description": f"Återföring {original.series.value}{original.number}",
+            }
+            for row in original.rows
+        ]
+
+    def correction_target(self, original: Voucher, today: date) -> Tuple[Period, date]:
+        """Where a correction of `original` is booked, and on which date
+        (SPEC-flode-verifikationer §7.2): the original's period if open,
+        otherwise the latest open period in the same fiscal year; `today` if
+        it lies in that period, otherwise its last day.
+
+        `ValidationError(no_open_period)` when the fiscal year has no open
+        period -- a correction across the year end is out of scope."""
+        period = self._target_correction_period(original)
+        if period is None or period.locked:
+            raise ValidationError(
+                "no_open_period",
+                "No open period in the original voucher's fiscal year",
+                details=f"voucher_id={original.id}, period_id={original.period_id}",
+            )
+        if period.start_date <= today <= period.end_date:
+            return period, today
+        return period, period.end_date
+
     def _target_correction_period(self, original: Voucher) -> Period:
         original_period = self.periods.get_period(original.period_id)
         if original_period and original_period.locked:
@@ -423,14 +513,15 @@ class LedgerService:
         self,
         original: Voucher,
         period: Period,
+        voucher_date: date,
         correction_rows: List[Dict],
     ) -> None:
         all_accounts = self.accounts.get_all_as_dict()
         temp = Voucher(
             id="temp",
             series=VoucherSeries.B,
-            number=0,
-            date=original.date,
+            number=None,
+            date=voucher_date,
             period_id=period.id,
             description=f"Correction of voucher {original.series.value}{original.number:06d}",
             status=VoucherStatus.DRAFT,
@@ -450,7 +541,7 @@ class LedgerService:
             )
         validate_complete_voucher(temp, period, all_accounts)
 
-    def _record_correction_history(
+    def record_correction_history(
         self,
         original: Voucher,
         correction: Voucher,
@@ -459,35 +550,41 @@ class LedgerService:
         actor: str,
         _commit: bool = True,
     ) -> None:
-        try:
-            from repositories.accounting_correction_repo import (
-                AccountingCorrectionRepository,
-            )
+        """The `correction_history` row for a posted correction: the
+        original as it was (`original_data`) and as it should have been
+        (`corrected_data`: the original's description with the corrected
+        rows -- never the reversal).
 
-            AccountingCorrectionRepository.create(
-                original_voucher_id=original.id,
-                corrected_voucher_id=correction.id,
-                original_data=self._voucher_snapshot(original),
-                corrected_data={
-                    "description": original.description,
-                    "rows": [
-                        {
-                            "account_code": row["account"],
-                            "debit": row.get("debit", 0),
-                            "credit": row.get("credit", 0),
-                            "description": row.get("description"),
-                        }
-                        for row in corrected_rows
-                    ],
-                    "correction_voucher_id": correction.id,
-                },
-                change_type="multiple",
-                corrected_by=actor,
-                correction_reason=reason,
-                _commit=_commit,
-            )
-        except Exception:
-            pass
+        Raises on failure. It used to swallow every exception, which let a
+        correction be posted without its history; the posting's transaction
+        now rolls back instead (SPEC-flode-verifikationer §8.1, F12).
+        """
+        from repositories.accounting_correction_repo import (
+            AccountingCorrectionRepository,
+        )
+
+        AccountingCorrectionRepository.create(
+            original_voucher_id=original.id,
+            corrected_voucher_id=correction.id,
+            original_data=self._voucher_snapshot(original),
+            corrected_data={
+                "description": original.description,
+                "rows": [
+                    {
+                        "account_code": row["account"],
+                        "debit": row.get("debit", 0),
+                        "credit": row.get("credit", 0),
+                        "description": row.get("description"),
+                    }
+                    for row in corrected_rows
+                ],
+                "correction_voucher_id": correction.id,
+            },
+            change_type="multiple",
+            corrected_by=actor,
+            correction_reason=reason,
+            _commit=_commit,
+        )
 
     def _voucher_snapshot(self, voucher: Voucher) -> Dict:
         return {
@@ -517,38 +614,200 @@ class LedgerService:
         return unlocked[-1] if unlocked else None
 
     def lock_period(self, period_id: str, actor: str = "system") -> Period:
-        """Lock period (irreversible - BFL varaktighet requirement)."""
+        """Lock period: no new vouchers can be posted in it.
+
+        Posted vouchers are immutable whether or not their period is locked
+        (the SQL triggers); the lock stops *new* ones, e.g. after the VAT
+        return for the month has been filed. A human can open it again
+        (`unlock_period`); the agent cannot.
+        """
         period = self.periods.get_period(period_id)
         if not period:
             raise ValidationError("period_not_found", "Period not found")
 
         PeriodValidator.validate_can_lock(period)
 
-        # Check that no draft vouchers exist in period
-        drafts = self.vouchers.list_for_period(period_id, status="draft")
+        from db.database import db
+
+        with db.transaction():
+            marked = self._lock_period_in_transaction(period, actor)
+
+        self._after_periods_locked({period_id: marked}, actor)
+        return self.periods.get_period(period_id)
+
+    def lock_fiscal_year(self, fy_id: str, actor: str = "system") -> FiscalYear:
+        """Lock a fiscal year and every period in it that is still open, in
+        one transaction: a period with drafts stops the whole lock
+        (`draft_vouchers_exist`, naming the periods), so a year is never
+        left half locked."""
+        fiscal_year = self.periods.get_fiscal_year(fy_id)
+        if not fiscal_year:
+            raise ValidationError("fiscal_year_not_found", "Fiscal year not found")
+
+        FiscalYearValidator.validate_can_lock(fiscal_year)
+
+        from db.database import db
+
+        open_periods = [p for p in self.periods.list_periods(fy_id) if not p.locked]
+        marked_by_period = {}
+        with db.transaction():
+            self.periods.lock_fiscal_year(fy_id, _commit=False)
+            blocked = []
+            for period in open_periods:
+                try:
+                    marked_by_period[period.id] = self._lock_period_in_transaction(
+                        period, actor
+                    )
+                except ValidationError as exc:
+                    if exc.code != "draft_vouchers_exist":
+                        raise
+                    blocked.append(f"{period.year}-{period.month:02d}")
+            if blocked:
+                raise ValidationError(
+                    "draft_vouchers_exist",
+                    f"Cannot lock fiscal year - draft vouchers exist in {', '.join(blocked)}",
+                    "all vouchers must be posted or deleted before locking",
+                )
+            self.audit.log(
+                entity_type="fiscal_year",
+                entity_id=fy_id,
+                action=AuditAction.LOCKED.value,
+                actor=actor,
+                payload={
+                    "fiscal_year": f"{fiscal_year.start_date} - {fiscal_year.end_date}",
+                    "periods_locked": [p.id for p in open_periods],
+                },
+                _commit=False,
+            )
+
+        self._after_periods_locked(marked_by_period, actor)
+        return self.periods.get_fiscal_year(fy_id)
+
+    def unlock_period(self, period_id: str, actor: str) -> Period:
+        """Open a locked period again. Only a human does this -- the agent
+        has no tool for it and the route refuses the agent's API key."""
+        period = self.periods.get_period(period_id)
+        if not period:
+            raise ValidationError("period_not_found", "Period not found")
+
+        PeriodValidator.validate_can_unlock(
+            period, self.periods.get_fiscal_year(period.fiscal_year_id)
+        )
+
+        from db.database import db
+
+        with db.transaction():
+            self.periods.unlock_period(period_id, _commit=False)
+            self._log_unlock(period, actor)
+
+        return self.periods.get_period(period_id)
+
+    def unlock_fiscal_year(self, fy_id: str, actor: str) -> FiscalYear:
+        """Open a locked fiscal year again, and every period in it."""
+        fiscal_year = self.periods.get_fiscal_year(fy_id)
+        if not fiscal_year:
+            raise ValidationError("fiscal_year_not_found", "Fiscal year not found")
+
+        FiscalYearValidator.validate_can_unlock(fiscal_year)
+
+        from db.database import db
+
+        locked_periods = [p for p in self.periods.list_periods(fy_id) if p.locked]
+        with db.transaction():
+            self.periods.unlock_fiscal_year(fy_id, _commit=False)
+            for period in locked_periods:
+                self.periods.unlock_period(period.id, _commit=False)
+                self._log_unlock(period, actor)
+            self.audit.log(
+                entity_type="fiscal_year",
+                entity_id=fy_id,
+                action=AuditAction.UNLOCKED.value,
+                actor=actor,
+                payload={
+                    "fiscal_year": f"{fiscal_year.start_date} - {fiscal_year.end_date}",
+                    "periods_unlocked": [p.id for p in locked_periods],
+                },
+                _commit=False,
+            )
+
+        return self.periods.get_fiscal_year(fy_id)
+
+    def _log_unlock(self, period: Period, actor: str) -> None:
+        self.audit.log(
+            entity_type="period",
+            entity_id=period.id,
+            action=AuditAction.UNLOCKED.value,
+            actor=actor,
+            payload={
+                "period": f"{period.year}-{period.month:02d}",
+                "was_locked_at": (
+                    period.locked_at.isoformat() if period.locked_at else None
+                ),
+                "was_locked_by": period.locked_by,
+            },
+            _commit=False,
+        )
+
+    def _lock_period_in_transaction(self, period: Period, actor: str) -> list:
+        """Lock one period inside the caller's transaction and return the
+        pending thread drafts it marked `period_locked`."""
+        # Deferred import (AGENTS.md: service-to-service imports wait until
+        # the method runs).
+        from repositories.thread_draft_repo import ThreadDraftRepository
+        from services.draft_service import DraftService
+
+        # Lock first, recording who did it (SPEC-idempotens §5): the
+        # write lock is then held, so the drafts read below are the ones
+        # the lock applies to.
+        self.periods.lock_period(period.id, actor=actor, _commit=False)
+
+        # A pending thread proposal does not stop the lock: it is marked
+        # `period_locked` instead (flode-verifikationer F16, beslut
+        # 2026-09-24). Every other draft still does.
+        proposals = {
+            d.voucher_id for d in ThreadDraftRepository.pending_in_period(period.id)
+        }
+        drafts = [
+            d
+            for d in self.vouchers.list_for_period(period.id, status="draft")
+            if d.id not in proposals
+        ]
         if drafts:
             raise ValidationError(
                 "draft_vouchers_exist",
                 f"Cannot lock period - {len(drafts)} draft vouchers exist",
                 "all vouchers must be posted or deleted before locking",
             )
+        marked = DraftService.mark_period_locked(period.id)
 
-        # Lock period, recording who did it (SPEC-idempotens §5)
-        self.periods.lock_period(period_id, actor=actor)
-
-        # Log
         self.audit.log(
             entity_type="period",
-            entity_id=period_id,
+            entity_id=period.id,
             action=AuditAction.LOCKED.value,
             actor=actor,
             payload={
                 "period": f"{period.year}-{period.month:02d}",
                 "locked_at": datetime.now().isoformat(),
+                "drafts_marked": [d.voucher_id for d in marked],
             },
+            _commit=False,
         )
+        return marked
 
-        return self.periods.get_period(period_id)
+    def _after_periods_locked(
+        self, marked_by_period: Dict[str, list], actor: str
+    ) -> None:
+        """After the commit: the thread's side. It must never undo the lock."""
+        from services.draft_service import DraftService
+
+        drafts_service = DraftService()
+        for period_id, marked in marked_by_period.items():
+            if not marked:
+                continue
+            try:
+                drafts_service.on_period_locked(period_id, marked, actor=actor)
+            except Exception:
+                logger.exception("Thread posts for locked period %s failed", period_id)
 
     def get_trial_balance(self, period_id: str) -> Dict[str, Dict]:
         """Get trial balance (råbalans) for a period."""
@@ -568,12 +827,23 @@ class LedgerService:
             )
         ]
 
-        balances = {}
+        from services.opening_balance import OpeningBalanceService
+
+        # Opening balance first (services/opening_balance.py); a posted
+        # `IB`-series voucher predates migration 033 and is not a movement.
+        balances = {
+            code: {"debit": max(amount, 0), "credit": max(-amount, 0)}
+            for code, amount in OpeningBalanceService()
+            .balances(period.fiscal_year_id)
+            .items()
+        }
 
         for period_id_item in relevant_periods:
             vouchers = self.vouchers.list_for_period(period_id_item, status="posted")
 
             for voucher in vouchers:
+                if voucher.series == VoucherSeries.IB:
+                    continue
                 for row in voucher.rows:
                     if row.account_code not in balances:
                         balances[row.account_code] = {"debit": 0, "credit": 0}
@@ -600,13 +870,32 @@ class LedgerService:
             )
         ]
 
+        from services.opening_balance import OpeningBalanceService
+
         ledger_rows = []
-        running_balance = 0
+        running_balance = (
+            OpeningBalanceService().balances(period.fiscal_year_id).get(account_code, 0)
+        )
+        if running_balance:
+            fiscal_year = self.periods.get_fiscal_year(period.fiscal_year_id)
+            ledger_rows.append(
+                {
+                    "date": fiscal_year.start_date.isoformat(),
+                    "voucher_series": "IB",
+                    "voucher_number": "",
+                    "description": "Ingående balans",
+                    "debit": max(running_balance, 0),
+                    "credit": max(-running_balance, 0),
+                    "balance": running_balance,
+                }
+            )
 
         for period_id_item in relevant_periods:
             vouchers = self.vouchers.list_for_period(period_id_item, status="posted")
 
             for voucher in vouchers:
+                if voucher.series == VoucherSeries.IB:
+                    continue
                 for row in voucher.rows:
                     if row.account_code == account_code:
                         debit = row.debit

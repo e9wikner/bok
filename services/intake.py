@@ -280,34 +280,63 @@ class IntakeService:
             )
 
         def persist_link() -> tuple[IntakeProcessingAttempt, VoucherIntakeSource]:
-            link = self.sources.create_voucher_link(
-                intake_source_id=source_id,
-                voucher_id=voucher_id,
-                linked_by=actor,
-                link_reason=link_reason,
-                _commit=False,
-            )
-            attempt = self.sources.record_attempt(
-                intake_source_id=source_id,
-                status=IntakeStatus.PROCESSED.value,
+            return self.persist_voucher_link(
+                source_id,
+                voucher_id,
+                actor=actor,
                 summary=summary,
                 warnings=warnings,
-                voucher_id=voucher_id,
-                actor=actor,
-                _commit=False,
+                link_reason=link_reason,
             )
-            self.sources.update_status(
-                source_id,
-                IntakeStatus.PROCESSED.value,
-                actor=actor,
-                _commit=False,
-            )
-            return attempt, link
 
         if _commit:
             with db.transaction():
                 return persist_link()
         return persist_link()
+
+    def persist_voucher_link(
+        self,
+        source_id: str,
+        voucher_id: str,
+        *,
+        actor: str,
+        summary: str,
+        warnings: list[str] | None = None,
+        link_reason: str | None = None,
+    ) -> tuple[IntakeProcessingAttempt, VoucherIntakeSource]:
+        """The link's three writes -- `voucher_intake_sources`, a `processed`
+        attempt, the source's status -- with `_commit=False` and **no
+        checks**. The caller owns the transaction and has made its checks.
+
+        `link_existing_voucher` calls this after `_ensure_can_record_outcome`
+        (the posting's check: `pending`/`processing` only). The only other
+        caller is `IntakeLinkService` (SPEC-flode-underlag.md §3.3, D9),
+        which makes its own check that also lets `failed` and
+        `needs_attention` through -- so the posting keeps refusing an
+        abstained source while a link after the fact does not."""
+        link = self.sources.create_voucher_link(
+            intake_source_id=source_id,
+            voucher_id=voucher_id,
+            linked_by=actor,
+            link_reason=link_reason,
+            _commit=False,
+        )
+        attempt = self.sources.record_attempt(
+            intake_source_id=source_id,
+            status=IntakeStatus.PROCESSED.value,
+            summary=summary,
+            warnings=warnings,
+            voucher_id=voucher_id,
+            actor=actor,
+            _commit=False,
+        )
+        self.sources.update_status(
+            source_id,
+            IntakeStatus.PROCESSED.value,
+            actor=actor,
+            _commit=False,
+        )
+        return attempt, link
 
     def list_links_for_voucher(self, voucher_id: str) -> list[VoucherIntakeSource]:
         """List intake sources linked to a voucher."""

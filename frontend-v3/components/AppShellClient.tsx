@@ -3,12 +3,20 @@
 import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
 import { PUBLIC_PATHS_FOR_LAYOUT } from "@/lib/auth-config";
+import { SKAL_RUTT } from "@/lib/skal/rutt";
 
 export default function AppShellClient({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isPublic = PUBLIC_PATHS_FOR_LAYOUT.includes(pathname ?? "");
 
   if (isPublic) {
+    return <>{children}</>;
+  }
+
+  // Det nya skalet (modul `skal`) har sin egen header och ingen sidomeny.
+  // Den här raden är modulens ENDA ändring utanför sin egen katalog —
+  // SPEC-skal.md §3 och testfall 18.
+  if ((pathname ?? "").startsWith(SKAL_RUTT)) {
     return <>{children}</>;
   }
 

@@ -148,6 +148,15 @@ export function usePayrollRuns() {
   });
 }
 
+export function useAgi(year: number, month: number, enabled = true) {
+  return useQuery({
+    queryKey: ["payroll-agi", year, month],
+    queryFn: () => api.getAgi(year, month),
+    enabled,
+    staleTime: 60 * 1000,
+  });
+}
+
 export function useAgentInstructions() {
   return useQuery({
     queryKey: ["agent-instructions", "accounting"],

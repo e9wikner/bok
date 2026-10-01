@@ -28,7 +28,7 @@ import type {
   Voucher,
   VoucherSourceContext,
 } from "@/lib/api";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, formatVerifikationsnummer } from "@/lib/utils";
 import {
   ArrowLeft,
   FileText,
@@ -118,6 +118,38 @@ async function openAuthenticatedBlob(
   }
 }
 
+/** An image attachment, fetched with the bearer: a plain `src` carries none. */
+function AttachmentImage({ voucherId, attachmentId, alt }: { voucherId: string; attachmentId: string; alt: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    let objectUrl: string | null = null;
+    let cancelled = false;
+    api
+      .getAttachmentFile(voucherId, attachmentId)
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setSrc(objectUrl);
+      })
+      .catch(() => setSrc(null));
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [voucherId, attachmentId]);
+  if (!src) return <div className="w-full h-48 bg-muted/30" />;
+  return (
+    <Image
+      src={src}
+      alt={alt}
+      width={640}
+      height={360}
+      unoptimized
+      className="w-full h-48 object-contain bg-muted/30 hover:opacity-90 transition-opacity"
+    />
+  );
+}
+
 export default function VoucherDetailPage() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
@@ -178,6 +210,7 @@ export default function VoucherDetailPage() {
 
   // Upload state
   const [uploading, setUploading] = useState(false);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
 
   const handleFileUpload = useCallback(
@@ -326,7 +359,7 @@ export default function VoucherDetailPage() {
         ok: true,
         msg:
           voucher.status === "posted"
-            ? `Korrigering bokförd som ${saved.series}${saved.number}.`
+            ? `Korrigering bokförd som ${formatVerifikationsnummer(saved.number, saved.series)}.`
             : "Ändring sparad.",
       });
       queryClient.invalidateQueries({ queryKey: ["voucher", id] });
@@ -450,8 +483,11 @@ export default function VoucherDetailPage() {
     }
   };
 
-  const attachmentUrl = (attId: string) =>
-    api.getAttachmentUrl(id, attId);
+  const openAttachment = (attId: string) =>
+    openAuthenticatedBlob(
+      () => api.getAttachmentFile(id, attId),
+      () => setAttachmentError("Kunde inte öppna bilagan.")
+    );
 
   const suggestedDebit = suggestedRows.reduce(
     (sum, row) => sum + parseOreInput(row.debit || ""),
@@ -478,7 +514,7 @@ export default function VoucherDetailPage() {
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl lg:text-3xl font-bold tracking-tight">
-              Verifikation {voucher.number}
+              {voucher.number == null ? "Verifikation" : `Verifikation ${voucher.number}`}
             </h1>
             <Badge
               variant={
@@ -568,7 +604,7 @@ export default function VoucherDetailPage() {
             <div>
               <p className="text-xs text-muted-foreground">Nummer</p>
               <p className="font-medium">
-                {voucher.number}
+                {formatVerifikationsnummer(voucher.number)}
               </p>
             </div>
           </CardContent>
@@ -1158,13 +1194,13 @@ export default function VoucherDetailPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {attachmentError && <p className="mb-2 text-sm text-red-600">{attachmentError}</p>}
           {/* Existing attachments */}
           {attachmentsList.length > 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
               {attachmentsList.map((att: any) => {
                 const isImage = att.mime_type?.startsWith("image/");
                 const isPdf = att.mime_type === "application/pdf";
-                const url = attachmentUrl(att.id);
 
                 return (
                   <div
@@ -1172,29 +1208,21 @@ export default function VoucherDetailPage() {
                     className="border rounded-lg overflow-hidden group"
                   >
                     {isImage && (
-                      <a href={url} target="_blank" rel="noopener noreferrer">
-                        <Image
-                          src={url}
-                          alt={att.filename}
-                          width={640}
-                          height={360}
-                          unoptimized
-                          className="w-full h-48 object-contain bg-muted/30 hover:opacity-90 transition-opacity"
-                        />
-                      </a>
+                      <button type="button" className="block w-full" onClick={() => void openAttachment(att.id)}>
+                        <AttachmentImage voucherId={id} attachmentId={att.id} alt={att.filename} />
+                      </button>
                     )}
                     {isPdf && (
-                      <a
-                        href={url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center justify-center h-48 bg-muted/30 hover:bg-muted/50 transition-colors"
+                      <button
+                        type="button"
+                        onClick={() => void openAttachment(att.id)}
+                        className="flex w-full items-center justify-center h-48 bg-muted/30 hover:bg-muted/50 transition-colors"
                       >
                         <div className="text-center">
                           <File className="h-12 w-12 mx-auto text-red-500 mb-2" />
                           <span className="text-sm text-muted-foreground">Klicka för att öppna PDF</span>
                         </div>
-                      </a>
+                      </button>
                     )}
                     <div className="p-3 flex items-center justify-between">
                       <div className="flex items-center gap-2 min-w-0">

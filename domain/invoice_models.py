@@ -32,6 +32,14 @@ class InvoiceRow:
     amount_inc_vat: int  # amount_ex_vat + vat_amount
     revenue_account: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
+    # SPEC-fakturering.md §4.2 (migration 038). Old rows have quantity * 100
+    # and 'st', and no delivery.
+    quantity_centi: Optional[int] = None
+    unit: str = "st"
+    delivery_from: Optional[date] = None
+    delivery_to: Optional[date] = None
+    delivery_month: Optional[str] = None  # YYYY-MM
+    article_number: Optional[str] = None
 
 
 @dataclass
@@ -56,6 +64,15 @@ class Invoice:
     created_at: datetime = field(default_factory=datetime.now)
     created_by: str = "system"
     sent_at: Optional[datetime] = None
+    # SPEC-fakturering.md §4.3–4.4 (migration 038). Empty on old invoices.
+    customer_address: Optional[str] = None
+    customer_reference: Optional[str] = None  # Er referens
+    payment_terms_days: Optional[int] = None
+    source_draft_id: Optional[str] = None
+    pdf_sha256: Optional[str] = None
+    pdf_path: Optional[str] = None  # relative to settings.intake_dir
+    issued_at: Optional[datetime] = None
+    issued_by: Optional[str] = None
 
     def is_draft(self) -> bool:
         """Check if invoice is still draft."""
@@ -86,6 +103,15 @@ class Invoice:
             and self.status != InvoiceStatus.PAID
             and self.status != InvoiceStatus.CANCELLED
         )
+
+    def counts_as_overdue(self, as_of_date: Optional[date] = None) -> bool:
+        """Whether this invoice counts towards the overdue tally.
+
+        The status is set by a nightly sweep, the date check catches the ones
+        it has not reached yet. One predicate, so the invoice list and the
+        overview counter can never disagree.
+        """
+        return self.status == InvoiceStatus.OVERDUE or self.is_overdue(as_of_date)
 
 
 @dataclass

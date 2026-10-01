@@ -1,6 +1,6 @@
 """The agent's tool surface (docs/redesign/SPEC-agentruntime.md §6.4).
 
-Nine tools, each a specific, typed action -- never a generic bash, SQL,
+The original nine tools, each a specific, typed action -- never a generic bash, SQL,
 filesystem, or HTTP tool (SPEC §10's "Aldrig" list). Every allowed action a
 model can take is its own function with its own Pydantic argument schema, so
 each one can be validated, logged, and rendered independently, and so that
@@ -8,7 +8,99 @@ the append-only guarantee (CLAUDE.md) can be checked *structurally*: test
 case 17 asserts directly against ``AGENT_TOOL_DEFINITIONS`` that no tool
 name or description implies the ability to edit or delete a posted voucher.
 
-``posta_verifikation`` is the only tool that writes to the general ledger,
+A tenth, ``be_om_beslut``, was added by the ``beslut`` module
+(``docs/redesign/SPEC-beslut.md`` §6.4, §8, §11.3) -- the one exception
+SPEC-tradar.md §8.2 asks for a question first about, asked and answered
+there. It is appended last in ``_TOOL_SPECS`` rather than inserted among
+the nine above, since that order is part of the cached system-prompt
+prefix (SPEC-agentruntime §6.6), and it writes only to ``decisions`` /
+``decision_options`` / ``thread_posts`` -- test case 17 above still passes
+unchanged against the extended list (SPEC-beslut.md §8, testfall 26).
+
+An eleventh, ``foresla_verifikation``, was added by ``flode-verifikationer``
+(``docs/redesign/SPEC-flode-verifikationer.md`` §5, §12.1) and appended after
+``be_om_beslut`` for the same reason (§5.7, testfall 22). It writes a draft
+voucher -- no number, never posted -- with its ``thread_drafts`` row and
+``draft`` post; the human posts it. A correction of a posted voucher always
+goes through it with ``correction_of`` (§12.5), never through
+``posta_verifikation`` -- a rule the agent's instructions already state,
+while the branch itself answers ``not_implemented`` until F11 builds it.
+
+A twelfth, ``tolka_underlag``, was added by ``underlagstolkning``
+(``docs/redesign/SPEC-underlagstolkning.md`` §6) and appended after
+``foresla_verifikation`` for the same reason (§6.6, testfall 34): the eleven
+before it are unchanged byte for byte. It hands the server what the model
+read from an underlag for checks and a match against posted vouchers, and
+writes one ``intake_interpretations`` row -- it links nothing and changes
+nothing in the books. It is not terminal.
+
+A thirteenth, ``koppla_underlag``, was added by ``flode-underlag``
+(``docs/redesign/SPEC-flode-underlag.md`` §6) and appended after
+``tolka_underlag`` for the same reason (§6.7, testfall 36): the twelve
+before it are unchanged byte for byte. It links an underlag in the intake
+queue to an already posted voucher, with a basis the server checks (an
+exact match, or an answered decision about the underlag) -- it creates no
+voucher and changes none. It is not terminal.
+
+A fourteenth, ``stang_perioder``, locks a period or a whole fiscal year
+(the same ``LedgerService`` call as ``POST /periods/{id}/lock`` and
+``POST /fiscal-years/{id}/lock``) and is appended after ``koppla_underlag``
+for the same reason. It can only lock: opening a period again is a human's
+call, made in the frontend, and there is no tool for it.
+
+A fifteenth, ``koppla_bort_underlag``, was added by ``underlag-ersatt``
+and appended after ``stang_perioder`` for the same reason. It undoes a
+wrong link on an answered decision about the underlag: a row in
+``voucher_intake_unlinks``, the link row itself left as the trace. It
+creates no voucher and changes none, and it is not terminal.
+
+A sixteenth and seventeenth, ``las_okopplade_banktransaktioner``
+(read-only) and ``koppla_banktransaktion``, are appended after
+``koppla_bort_underlag`` for the same reason. They concern account
+statements as underlag (``services/statement_match.py``): the first lists the statement
+transactions not yet linked to a posted voucher, with their candidates; the
+second links one to the voucher it is underlag for. The server links exact
+matches itself; the tool is for the cases the user decided. It creates no
+voucher and changes none.
+
+An eighteenth to twenty-first, ``las_kunder``, ``las_fakturor``,
+``foresla_faktura`` and ``andra_fakturautkast``, were added by fakturering
+F1 (``docs/redesign/SPEC-fakturering-f1.md`` §5) and appended after
+``koppla_banktransaktion`` for the same reason: the seventeen before them are
+unchanged byte for byte. The first two read. The last two write an invoice
+draft, its ``draft`` card and its ``thread_invoice_drafts`` row in
+Fakturering's thread; a change is a new draft that replaces the old one. None
+of them issues an invoice -- a logged-in human does that (F0 beslut 3).
+
+A twenty-second, ``koppla_bort_banktransaktion``, is appended after
+``andra_fakturautkast`` for the same reason. It undoes a wrong statement
+link the user pointed out: a row in ``voucher_bank_transaction_unlinks``
+(migration 040), the link row left as the trace. It creates no voucher and
+changes none, and it is not terminal.
+
+The twenty-third to twenty-sixth are payroll, appended after
+``koppla_bort_banktransaktion`` for the same reason: ``las_loner``
+(read-only), ``registrera_anstalld``, ``satt_lon`` and
+``skapa_lonekorning``. They call ``PayrollService``, the same code as
+/payroll, and write employees, salary settings, payroll runs and payslips --
+never a voucher. The three that write refuse outside a thread. Booking a
+payslip or an AGI stays on /payroll.
+
+A twenty-seventh, ``foresla_rakenskapsar``, is appended after
+``skapa_lonekorning`` for the same reason. When an underlag is dated outside
+every fiscal year it raises a decision card proposing the year
+(``services/fiscal_year_proposal.py``); the human's press on the card creates
+it. Without a thread (the intake pass) the card goes in the Verifikationer
+thread and the underlag waits for the answer. It creates no voucher.
+
+A twenty-eighth, ``foresla_bolagsinformation``, is appended after
+``foresla_rakenskapsar`` for the same reason. It proposes company details the
+user gave in a thread as a decision card (``services/company_info_proposal.py``,
+migration 042); the human's press writes ``company_info``, filling empty
+fields and overwriting only on the card's overwrite option. It refuses outside
+a thread and creates no voucher.
+
+``posta_verifikation`` is the only tool that posts to the general ledger,
 and it goes through the exact same code as ``POST /api/v1/agent/vouchers``
 (``services/voucher_posting.post_agent_voucher``, A1) -- same
 ``VoucherValidator``, same transaction, same idempotency key.
@@ -27,15 +119,17 @@ session decides what a raise means.
 
 import uuid
 from datetime import date as DateType
-from typing import Any, Callable, Literal, Optional
+from decimal import Decimal
+from typing import Any, Callable, Literal, Mapping, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic import ValidationError as PydanticValidationError
 
 from domain.models import (
     Account,
     BankInput,
     CorrectionHistory,
+    Decision,
     IntakeProcessingAttempt,
     IntakeSource,
     Period,
@@ -45,6 +139,7 @@ from domain.models import (
 from domain.validation import ValidationError
 from repositories.account_repo import AccountRepository
 from repositories.accounting_correction_repo import AccountingCorrectionRepository
+from repositories.correction_note_repo import CorrectionNoteRepository
 from repositories.period_repo import PeriodRepository
 from repositories.voucher_repo import VoucherRepository
 from services.agent_documents import ContentBlock, select_content_for_source
@@ -82,6 +177,63 @@ def derive_posting_idempotency_key(source_id: str) -> str:
     and replays instead of posting a second voucher.
     """
     return str(uuid.uuid5(BOK_NAMESPACE, f"intake:{source_id}"))
+
+
+def derive_thread_posting_idempotency_key(thread_id: str, post_id: str) -> str:
+    """``uuid5(BOK_NAMESPACE, f"thread:{thread_id}:{post_id}")`` --
+    SPEC-tradar.md §6.4.
+
+    The second namespace beside ``intake:{source_id}``, and the same idea:
+    one intent, one key. The key hangs on the **triggering user post**, never
+    on the time -- two presses of the same message derive the same key and
+    therefore get ``409`` with the voucher that already exists, instead of two
+    postings in a book that cannot be tidied up afterwards.
+    """
+    return str(uuid.uuid5(BOK_NAMESPACE, f"thread:{thread_id}:{post_id}"))
+
+
+def derive_thread_proposal_idempotency_key(thread_id: str, post_id: str, n: int) -> str:
+    """``uuid5(BOK_NAMESPACE, f"thread:{thread_id}:{post_id}:{n}")`` --
+    SPEC-flode-verifikationer.md §5.5.
+
+    ``n`` is the proposal's place among the turn's ``foresla_verifikation``
+    calls, so two proposals in one turn get two keys, and a turn run again
+    from the start gets the same ones. The key is reserved under its own
+    endpoint string (``services.draft_service.FORESLA_VERIFIKATION_ENDPOINT``)
+    and never collides with the posting key above, which has no ``:{n}``.
+    """
+    return str(uuid.uuid5(BOK_NAMESPACE, f"thread:{thread_id}:{post_id}:{n}"))
+
+
+class ProposalSequence:
+    """``n`` in ``thread:{thread_id}:{post_id}:{n}`` for one thread turn
+    (SPEC-flode-verifikationer.md §5.5).
+
+    The thread entry point (``services/thread_session.py``) puts a fresh one
+    in ``tool_context["proposals"]`` per turn, for the user post that
+    triggered it; ``run_tool_loop`` forwards it unread like the rest of the
+    mapping, so the runtime still does not know what a thread is. Only
+    ``_run_foresla_verifikation`` opens it.
+
+    ``n`` advances only when a proposal is made or replayed. A call refused
+    by a check claims no slot (its key is released), so a model that gets a
+    proposal wrong and corrects it in the same turn uses one slot, not two
+    -- which is what makes the key the same when the turn is run again,
+    however many corrections it took the first time.
+    """
+
+    def __init__(self, thread_id: str, post_id: str):
+        self.thread_id = thread_id
+        self.post_id = post_id
+        self.n = 1
+
+    def key(self) -> str:
+        return derive_thread_proposal_idempotency_key(
+            self.thread_id, self.post_id, self.n
+        )
+
+    def advance(self) -> None:
+        self.n += 1
 
 
 class PostingConflictError(Exception):
@@ -127,12 +279,27 @@ class LasPerioderArgs(BaseModel):
     include_locked: bool = True
 
 
+class StangPerioderArgs(BaseModel):
+    """Lås en period eller ett helt räkenskapsår -- exakt ett av fälten."""
+
+    period_id: Optional[str] = None
+    fiscal_year_id: Optional[str] = None
+
+
 class LasVerifikationerArgs(BaseModel):
     """Läs verifikationer, filtrerbart på period och status."""
 
     period_id: Optional[str] = None
     status: Optional[Literal["draft", "posted"]] = None
     limit: int = Field(50, ge=1, le=200)
+
+
+class SokVerifikationerArgs(BaseModel):
+    """Sök enstaka verifikationer på verifikationstexten, t.ex. ett
+    fakturanummer."""
+
+    sokord: str = Field(..., min_length=3, max_length=100)
+    limit: int = Field(5, ge=1, le=10)
 
 
 class LasKorrigeringarArgs(BaseModel):
@@ -162,6 +329,195 @@ class LasBankhandelserArgs(BaseModel):
     bank_input_id: Optional[str] = None
     limit: int = Field(20, ge=1, le=100)
     offset: int = Field(0, ge=0)
+
+
+class LasOkoppladeBanktransaktionerArgs(BaseModel):
+    """Läs transaktionerna på kontoutdragskonton som ännu inte är underlag
+    för någon verifikation, med matchning och kandidater."""
+
+    limit: int = Field(50, ge=1, le=200)
+    offset: int = Field(0, ge=0)
+
+
+class KopplaBanktransaktionArgs(BaseModel):
+    """Koppla en transaktion från ett kontoutdrag till en postad
+    verifikation som den är underlag för."""
+
+    bank_transaction_id: str
+    voucher_id: str
+
+
+# --- fakturering F1 (SPEC-fakturering-f1.md §5) -----------------------------
+
+
+class LasKunderArgs(BaseModel):
+    """Läs kundregistret och artiklarna (§5.1)."""
+
+    query: Optional[str] = Field(
+        None, description="Delsträng i namn eller organisationsnummer"
+    )
+    customer_id: Optional[str] = None
+    include_inactive: bool = False
+
+
+class LasFakturorArgs(BaseModel):
+    """Läs kundfakturor eller fakturautkast (§5.2)."""
+
+    invoice_id: Optional[str] = Field(
+        None, description="En faktura med rader, leveranser och betalningar"
+    )
+    customer: Optional[str] = Field(None, description="Delsträng i kundnamnet")
+    status: Literal["unpaid", "overdue", "paid", "all"] = "all"
+    drafts: bool = Field(
+        False, description="Läs utkasten (draft/needs_review) i stället för fakturor"
+    )
+    limit: int = Field(20, ge=1, le=100)
+
+
+class FakturaRad(BaseModel):
+    """En fakturarad. Belopp i öre ex moms."""
+
+    article_id: Optional[str] = None
+    description: Optional[str] = Field(None, description="Krävs utan article_id")
+    quantity: Decimal = Field(..., gt=0, description="Antal, högst två decimaler")
+    unit: Optional[str] = Field(None, description="t.ex. 'h', 'st'; ur artikeln annars")
+    unit_price: Optional[int] = Field(
+        None, ge=0, description="Á-pris i öre ex moms; ur artikeln annars"
+    )
+    vat_code: Optional[Literal["MP1", "MP2", "MP3", "MF"]] = None
+    revenue_account: Optional[str] = None
+    article_number: Optional[str] = None
+    delivery_from: Optional[DateType] = None
+    delivery_to: Optional[DateType] = None
+    delivery_month: Optional[str] = Field(None, description="YYYY-MM")
+
+
+class ForeslaFakturaArgs(BaseModel):
+    """Föreslå en kundfaktura i Fakturerings tråd (§5.3)."""
+
+    invoice_number: str = Field(
+        ..., description="Nästa nummer i serien, ur las_fakturor latest_numbers"
+    )
+    invoice_date: DateType
+    customer_id: Optional[str] = None
+    customer_name: Optional[str] = Field(
+        None, description="Fullständigt namn; krävs utan customer_id"
+    )
+    customer_org_number: Optional[str] = None
+    customer_address: Optional[str] = Field(
+        None, description="Krävs om kunden saknar adress"
+    )
+    customer_email: Optional[str] = None
+    reference: Optional[str] = Field(None, description="Er referens")
+    due_date: Optional[DateType] = Field(
+        None, description="Ur kundens betalningsvillkor annars"
+    )
+    delivery_from: Optional[DateType] = Field(
+        None, description="Leverans för rader utan egen"
+    )
+    delivery_to: Optional[DateType] = None
+    delivery_month: Optional[str] = Field(None, description="YYYY-MM")
+    rows: list[FakturaRad] = Field(..., min_length=1)
+    footnote: Optional[str] = Field(
+        None, description="Visas i kortet: vad du hittade och antog"
+    )
+    decision_id: Optional[str] = None
+
+
+class AndraFakturautkastArgs(BaseModel):
+    """Ändra ett fakturaförslag: ett nytt utkast ersätter det gamla (§5.4).
+    Utelämnat eller null = oförändrat; tom sträng nollställer reference,
+    customer_email, customer_org_number och delivery_*."""
+
+    draft_id: str
+    invoice_number: Optional[str] = None
+    invoice_date: Optional[DateType] = None
+    customer_id: Optional[str] = None
+    customer_name: Optional[str] = None
+    customer_org_number: Optional[str] = None
+    customer_address: Optional[str] = None
+    customer_email: Optional[str] = None
+    reference: Optional[str] = None
+    due_date: Optional[DateType] = None
+    delivery_from: Optional[Union[DateType, Literal[""]]] = None
+    delivery_to: Optional[Union[DateType, Literal[""]]] = None
+    delivery_month: Optional[str] = None
+    rows: Optional[list[FakturaRad]] = Field(
+        None, min_length=1, description="Ersätter alla rader"
+    )
+    footnote: Optional[str] = None
+    decision_id: Optional[str] = None
+    reject_reason: Optional[str] = Field(
+        None,
+        description="Förkastar utkastet, bara när användaren ber om det; "
+        "inget annat fält får anges då",
+    )
+
+
+class KopplaBortBanktransaktionArgs(BaseModel):
+    """Ångra en felaktig koppling mellan en kontoutdragstransaktion och en
+    postad verifikation."""
+
+    bank_transaction_id: str
+    reason: str = Field(
+        ...,
+        min_length=1,
+        max_length=500,
+        description="Varför kopplingen är fel, med användarens ord; sparas i spåret",
+    )
+
+
+class LasLonerArgs(BaseModel):
+    """Läs anställda, löneinställningar och lönekörningar; med år och månad
+    också den månadens AGI-underlag."""
+
+    year: Optional[int] = Field(None, ge=2000, le=2100)
+    month: Optional[int] = Field(None, ge=1, le=12)
+
+
+class RegistreraAnstalldArgs(BaseModel):
+    """Lägg upp en anställd, eller rätta uppgifterna om en (employee_id)."""
+
+    employee_id: Optional[str] = Field(
+        None, description="Ange för att rätta en befintlig anställd"
+    )
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+    personal_number: Optional[str] = Field(
+        None, description="Tolv siffror, ÅÅÅÅMMDD-NNNN"
+    )
+    bank_account: Optional[str] = Field(
+        None, max_length=40, description="Clearingnummer och kontonummer"
+    )
+    email: Optional[str] = Field(None, max_length=200)
+
+
+class SattLonArgs(BaseModel):
+    """Sätt en anställds månadslön, skatteavdrag och arbetsgivaravgift."""
+
+    employee_id: str
+    gross_monthly_salary: int = Field(
+        ..., gt=0, description="Bruttolön per månad i öre"
+    )
+    preliminary_tax: int = Field(
+        ..., ge=0, description="Skatteavdrag per månad i öre, enligt skattetabellen"
+    )
+    employer_fee_rate_bp: int = Field(
+        3142,
+        ge=0,
+        le=10000,
+        description="Arbetsgivaravgift i baspunkter; 3142 = 31,42 %",
+    )
+    payment_day: int = Field(25, ge=1, le=31)
+
+
+class SkapaLonekorningArgs(BaseModel):
+    """Skapa månadens lönekörning och dess lönebesked."""
+
+    year: int = Field(..., ge=2000, le=2100)
+    month: int = Field(..., ge=1, le=12)
+    payment_date: Optional[DateType] = Field(
+        None, description="Utbetalningsdag i månaden; utelämnad blir lönedagen"
+    )
 
 
 class PostaVerifikationRow(BaseModel):
@@ -194,6 +550,32 @@ class PostaVerifikationArgs(BaseModel):
     bank_transaction_ids: list[str] = Field(default_factory=list)
 
 
+class ForeslaVerifikationArgs(BaseModel):
+    """Föreslå en verifikation i tråden, för användaren att posta
+    (SPEC-flode-verifikationer.md §5).
+
+    Skapar ett utkast utan nummer och ett kort i tråden. Postar aldrig:
+    användarens tryck på `Posta` är godkännandet. `description` blir
+    verifikationens text ordagrant; `footnote` visas bara i kortet. Serien
+    väljer servern. Radtypen och spårbarhetsfälten är samma som
+    ``posta_verifikation``s, så ett förslag som postas bär exakt det en
+    direkt postning hade burit.
+    """
+
+    description: str
+    rows: list[PostaVerifikationRow] = Field(..., min_length=2)
+    date: Optional[DateType] = None
+    period_id: Optional[str] = None
+    footnote: Optional[str] = None
+    decision_id: Optional[str] = None
+    replaces_draft_id: Optional[str] = None
+    correction_of: Optional[str] = None
+    correction_note_id: Optional[str] = None
+    intake_source_ids: list[str] = Field(default_factory=list)
+    bank_input_ids: list[str] = Field(default_factory=list)
+    bank_transaction_ids: list[str] = Field(default_factory=list)
+
+
 class RegistreraAvstaendeArgs(BaseModel):
     """Registrera ett dokumenterat avstående för ett underlag i intagskön.
 
@@ -204,6 +586,171 @@ class RegistreraAvstaendeArgs(BaseModel):
     summary: str
     error_detail: str
     warnings: Optional[list[str]] = None
+
+
+class BeOmBeslutSource(BaseModel):
+    """Underlaget ett beslut hänger på, om det har ett -- ett kvitto i kön
+    eller en rättelse. Utelämnas för ett beslut som uppstår mitt i ett
+    samtal utan något underlag bakom sig."""
+
+    kind: str
+    id: str
+    date: Optional[DateType] = None
+
+
+class BeOmBeslutOption(BaseModel):
+    """Ett alternativ i den lista som visas under ett beslut (SPEC-beslut.md
+    §6.3). Servern -- inte klienten -- äger varje fält här: `rationale` och
+    `recommended` skrivs ordagrant/exakt som satta, aldrig omräknade."""
+
+    title: str
+    rationale: str = Field(
+        ...,
+        description=(
+            "En mening: varför alternativet passar. Förklara inte utförligt "
+            "varför ett alternativ inte rekommenderas."
+        ),
+    )
+    account: Optional[str] = None
+    amount_ore: Optional[int] = None
+    recommended: bool = Field(
+        False,
+        description=(
+            "Högst ett alternativ i listan får ha recommended=True -- "
+            "servern avvisar hela listan annars."
+        ),
+    )
+    is_exit: bool = Field(
+        False,
+        description=(
+            "Sista alternativet i listan måste ha is_exit=True -- en väg "
+            "ut som inte ändrar böckerna. Servern avvisar listan annars."
+        ),
+    )
+
+
+class BeOmBeslutArgs(BaseModel):
+    """Lägg fram ett beslut för användaren att ta ställning till, mitt i ett
+    samtal (SPEC-beslut.md §6.4).
+
+    Skriver ett `decision`-inlägg (och ett `options`-inlägg när `options`
+    är ifyllt) i tråden, en rad i `decisions`, och rader i
+    `decision_options`. Postar ingenting, ändrar ingenting och läser
+    ingenting utanför sina egna tabeller -- vägen till huvudboken går bara
+    genom ``posta_verifikation``, aldrig genom det här verktyget.
+
+    Hör till ett samtal i en vy, inte till ett underlag i intagskön --
+    ``registrera_avstaende`` är motsvarigheten där.
+    """
+
+    title: str
+    reason: str = Field(
+        ...,
+        description="Högst två meningar: varför beslutet behövs, med de belopp som skiljer.",
+    )
+    consequence: str = Field(
+        ...,
+        description="En mening: vad beslutet får för följd.",
+    )
+    amount_ore: Optional[int] = None
+    source: Optional[BeOmBeslutSource] = None
+    options: list[BeOmBeslutOption] = Field(
+        default_factory=list,
+        description=(
+            "Sista alternativet ska alltid vara en väg ut (is_exit=True), "
+            "och högst ett får vara recommended=True -- servern avvisar "
+            "listan annars. En tom lista är tillåten för ett beslut utan "
+            "färdiga alternativ."
+        ),
+    )
+    kind: Literal["abstention", "approval"] = "abstention"
+    footnote: Optional[str] = None
+
+
+class TolkaUnderlagLine(BaseModel):
+    """En rad på underlaget, inklusive moms; negativ för en rabatt."""
+
+    # The only tool models with `extra="forbid"` (SPEC-underlagstolkning
+    # §6.2, testfall 15): a `confidence` or `hypothesis` from the model is
+    # refused, not silently dropped. Not added to any other tool's model --
+    # it puts `additionalProperties: false` in the schema, and the schemas
+    # are the cached prefix (SPEC-agentruntime §6.6).
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(..., min_length=1, max_length=200)
+    amount_ore: int
+    vat_rate: Optional[Literal[25, 12, 6, 0]] = None
+
+
+class TolkaUnderlagArgs(BaseModel):
+    """Det modellen läste ur ett underlag, för kontroll och matchning
+    (SPEC-underlagstolkning.md §6.2). Belopp i öre. Det finns inget fält
+    för `confidence` eller `hypothesis`: dem räknar servern (§12.3)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_id: str
+    vendor: Optional[str] = Field(None, max_length=200)
+    document_date: Optional[DateType] = None
+    currency: str = Field("SEK", pattern="^[A-Z]{3}$")
+    total_ore: int = Field(..., ge=0)
+    vat_ore: Optional[int] = Field(None, ge=0)
+    lines: list[TolkaUnderlagLine] = Field(default_factory=list, max_length=100)
+    expected_voucher_id: Optional[str] = None
+
+
+class KopplaUnderlagArgs(BaseModel):
+    """Koppla ett underlag till en redan postad verifikation
+    (SPEC-flode-underlag.md §6.2). Inget fält för belopp, differens eller
+    motivering: differensen finns i tolkningen, och motiveringen är beslutet
+    eller den exakta matchningen."""
+
+    source_id: str
+    voucher_id: str
+    decision_id: Optional[str] = None
+
+
+class KopplaBortUnderlagArgs(BaseModel):
+    """Koppla bort ett felkopplat underlag från en postad verifikation
+    (underlag-ersatt). Beslutet är grunden; `reason` står i spåret."""
+
+    source_id: str
+    voucher_id: str
+    decision_id: str
+    reason: str = Field(..., min_length=1, max_length=500)
+
+
+class ForeslaRakenskapsarArgs(BaseModel):
+    """Föreslå ett nytt räkenskapsår för underlag som är daterade utanför
+    alla räkenskapsår. Datumen räknar servern ut; ange start_date och
+    end_date bara om användaren har sagt ett annat räkenskapsår."""
+
+    document_date: DateType
+    source_ids: list[str] = Field(default_factory=list)
+    start_date: Optional[DateType] = None
+    end_date: Optional[DateType] = None
+
+
+class ForeslaBolagsinformationArgs(BaseModel):
+    """Föreslå bolagsuppgifter som användaren har gett i samtalet (säte,
+    momsnummer, bankgiro, F-skatt ...). Ange bara fält användaren har sagt
+    eller visat; gissa aldrig. Servern lägger ett beslutskort; användaren
+    sparar med ett tryck."""
+
+    name: Optional[str] = None
+    org_number: Optional[str] = None
+    contact_name: Optional[str] = None
+    address: Optional[str] = None
+    postnr: Optional[str] = None
+    postort: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    website: Optional[str] = None
+    seat: Optional[str] = None
+    vat_number: Optional[str] = None
+    bankgiro: Optional[str] = None
+    plusgiro: Optional[str] = None
+    f_skatt: Optional[bool] = None
 
 
 # ---------------------------------------------------------------------------
@@ -260,6 +807,12 @@ def _voucher_dict(voucher: Voucher) -> dict:
         "created_by": voucher.created_by,
         "created_at": voucher.created_at.isoformat(),
         "posted_at": voucher.posted_at.isoformat() if voucher.posted_at else None,
+        # SPEC-flode-underlag.md §11.1: the same derived values as
+        # `VoucherResponse` (SPEC-oversikt.md §3), so the agent can ask for
+        # the underlag a posted voucher lacks. Only the answer grows; the
+        # tool's arguments and description are the cached prefix.
+        "missing_attachment": voucher.missing_attachment,
+        "age_days": voucher.age_days,
     }
 
 
@@ -308,6 +861,32 @@ def _intake_attempt_dict(attempt: IntakeProcessingAttempt) -> dict:
     }
 
 
+def _decision_dict(decision: Decision) -> dict:
+    """`be_om_beslut`'s result -- includes each option's `option_id` so the
+    agent's own text (its reply after the tool call) can refer to one
+    (SPEC-beslut.md §6.4)."""
+    return {
+        "decision_id": decision.id,
+        "status": decision.status,
+        "post_id": decision.post_id,
+        "thread_id": decision.thread_id,
+        "title": decision.title,
+        "amount_ore": decision.amount_ore,
+        "options": [
+            {
+                "option_id": option.id,
+                "title": option.title,
+                "account": option.account,
+                "amount_ore": option.amount_ore,
+                "rationale": option.rationale,
+                "recommended": option.recommended,
+                "is_exit": option.is_exit,
+            }
+            for option in decision.options
+        ],
+    }
+
+
 def _bank_input_dict(bank_input: BankInput) -> dict:
     return {
         "id": bank_input.id,
@@ -335,14 +914,24 @@ def _bank_input_dict(bank_input: BankInput) -> dict:
 
 
 def _run_las_kontoplan(
-    args: LasKontoplanArgs, *, actor: str, capabilities: LLMCapabilities
+    args: LasKontoplanArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> list[dict]:
     accounts = AccountRepository.list_all(active_only=args.active_only)
     return [_account_dict(account) for account in accounts]
 
 
 def _run_las_perioder(
-    args: LasPerioderArgs, *, actor: str, capabilities: LLMCapabilities
+    args: LasPerioderArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> list[dict]:
     if args.fiscal_year_id:
         periods = PeriodRepository.list_periods(args.fiscal_year_id)
@@ -354,7 +943,12 @@ def _run_las_perioder(
 
 
 def _run_las_verifikationer(
-    args: LasVerifikationerArgs, *, actor: str, capabilities: LLMCapabilities
+    args: LasVerifikationerArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> dict:
     if args.period_id:
         all_vouchers = VoucherRepository.list_for_period(
@@ -369,17 +963,69 @@ def _run_las_verifikationer(
     return {"total": total, "items": [_voucher_dict(v) for v in vouchers]}
 
 
+def _run_sok_verifikationer(
+    args: SokVerifikationerArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """A targeted lookup, not a history read: a required search term and at
+    most ten hits. What a document pass needs to find the one voucher a
+    payment settles -- an invoice booked as a voucher, which `las_fakturor`
+    and `tolka_underlag`'s match do not find across months or years."""
+    vouchers, total = VoucherRepository.list_all(search=args.sokord, limit=args.limit)
+    return {"total": total, "items": [_voucher_dict(v) for v in vouchers]}
+
+
 def _run_las_korrigeringar(
-    args: LasKorrigeringarArgs, *, actor: str, capabilities: LLMCapabilities
-) -> list[dict]:
+    args: LasKorrigeringarArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> Union[list[dict], dict]:
+    """The correction history -- a list, as always, without `voucher_id`.
+
+    With `voucher_id` the answer also carries the voucher's open correction
+    notes (`pending`/`suggested`) with id and text, so the agent can bind a
+    correction to one with `foresla_verifikation`'s `correction_note_id`
+    (SPEC-flode-verifikationer §7.3, F12). Only the answer grew: the
+    arguments, and so the cached tool definitions, are unchanged.
+    """
     entries = AccountingCorrectionRepository.list(
         limit=args.limit, voucher_id=args.voucher_id
     )
-    return [_correction_dict(entry) for entry in entries]
+    history = [_correction_dict(entry) for entry in entries]
+    if args.voucher_id is None:
+        return history
+    notes = CorrectionNoteRepository.list_for_voucher(args.voucher_id)
+    return {
+        "voucher_id": args.voucher_id,
+        "open_notes": [
+            {
+                "id": note.id,
+                "status": note.status,
+                "text": note.note_text,
+                "created_by": note.created_by,
+                "created_at": note.created_at.isoformat(),
+            }
+            for note in notes
+            if note.status in ("pending", "suggested")
+        ],
+        "history": history,
+    }
 
 
 def _run_las_underlag(
-    args: LasUnderlagArgs, *, actor: str, capabilities: LLMCapabilities
+    args: LasUnderlagArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> dict:
     intake = IntakeService()
     if args.source_id:
@@ -394,7 +1040,12 @@ def _run_las_underlag(
 
 
 def _run_hamta_underlagsfil(
-    args: HamtaUnderlagsfilArgs, *, actor: str, capabilities: LLMCapabilities
+    args: HamtaUnderlagsfilArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> ContentBlock:
     intake = IntakeService()
     source = intake.get_source(args.source_id)
@@ -408,7 +1059,12 @@ def _run_hamta_underlagsfil(
 
 
 def _run_las_bankhandelser(
-    args: LasBankhandelserArgs, *, actor: str, capabilities: LLMCapabilities
+    args: LasBankhandelserArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> dict:
     bank_inputs = BankInputService()
     if args.bank_input_id:
@@ -416,7 +1072,12 @@ def _run_las_bankhandelser(
     return bank_inputs.agent_queue_items(limit=args.limit, offset=args.offset)
 
 
-def _post_voucher(args: PostaVerifikationArgs, *, actor: str) -> dict:
+def _post_voucher(
+    args: PostaVerifikationArgs,
+    *,
+    actor: str,
+    idempotency_key: Optional[str] = None,
+) -> dict:
     request = VoucherPostingRequest(
         date=args.date,
         period_id=args.period_id,
@@ -429,8 +1090,7 @@ def _post_voucher(args: PostaVerifikationArgs, *, actor: str) -> dict:
         bank_transaction_ids=args.bank_transaction_ids,
     )
 
-    idempotency_key: Optional[str] = None
-    if args.intake_source_ids:
+    if idempotency_key is None and args.intake_source_ids:
         # SPEC §6.4's uuid5 formula assumes exactly one primary intake
         # source per posting ("En post i taget", §6.2): the first id drives
         # the key even when more are listed for traceability (e.g. a
@@ -440,6 +1100,13 @@ def _post_voucher(args: PostaVerifikationArgs, *, actor: str) -> dict:
         # exactly one posting intent per tool call, and the first source is
         # its anchor.
         idempotency_key = derive_posting_idempotency_key(args.intake_source_ids[0])
+    # An explicit key wins over the derived one: a thread posting's key is
+    # `thread:{thread_id}:{post_id}` (SPEC-tradar.md §6.4), hung on the user
+    # post that triggered it, and that is the tighter guarantee -- it holds
+    # whether or not the model happened to list an intake source. The
+    # source-level protection is not lost by it: an intake source can only
+    # ever be linked to one voucher (`IntakeService._ensure_can_record_
+    # outcome`), whichever key the posting travelled under.
 
     idempotency = IdempotencyService()
     reserved = False
@@ -481,14 +1148,51 @@ def _post_voucher(args: PostaVerifikationArgs, *, actor: str) -> dict:
         raise
 
 
+def _check_underlag_dates(
+    source_ids: list[str],
+    voucher_date: Optional[DateType],
+    *,
+    decision_id: Optional[str],
+    tool_context: Optional[Mapping[str, Any]],
+) -> None:
+    """An underlag in a locked period, or outside every fiscal year, is not
+    moved to another date without the user (``FiscalYearService.
+    check_underlag_dates``)."""
+    # Deferred import (AGENTS.md: service-to-service imports wait until the
+    # method runs).
+    from services.fiscal_years import FiscalYearService
+
+    FiscalYearService().check_underlag_dates(
+        source_ids,
+        voucher_date,
+        decision_id=decision_id,
+        in_thread=(tool_context or {}).get("thread") is not None,
+    )
+
+
 def _run_posta_verifikation(
-    args: PostaVerifikationArgs, *, actor: str, capabilities: LLMCapabilities
+    args: PostaVerifikationArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> dict:
-    return _post_voucher(args, actor=actor)
+    # No decision is ever behind a direct posting: a late booking is a
+    # proposal (`foresla_verifikation` with `decision_id`) or an abstention.
+    _check_underlag_dates(
+        args.intake_source_ids, args.date, decision_id=None, tool_context=tool_context
+    )
+    return _post_voucher(args, actor=actor, idempotency_key=idempotency_key)
 
 
 def _run_registrera_avstaende(
-    args: RegistreraAvstaendeArgs, *, actor: str, capabilities: LLMCapabilities
+    args: RegistreraAvstaendeArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> dict:
     attempt = IntakeService().record_failed(
         source_id=args.source_id,
@@ -500,6 +1204,704 @@ def _run_registrera_avstaende(
     return _intake_attempt_dict(attempt)
 
 
+def _run_be_om_beslut(
+    args: BeOmBeslutArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """SPEC-beslut.md §6.4, §7 gräns 6 ("fråga först": a decision without a
+    `thread_id`). `tool_context` is the opaque mapping `run_tool_loop` and
+    `execute_tool` hand to every handler without reading it; this is the
+    one handler that opens it, because a decision literally cannot exist
+    without the thread it was raised in.
+
+    The thread lives in a mapping rather than in an argument of its own
+    precisely so the runtime can carry it without naming it: SPEC-tradar.md
+    §8.1 forbids `services/agent_session.py` from knowing what a thread is,
+    and SPEC-beslut.md §7.6 draws the same line for a decision. The
+    knowledge stops here, in the tool layer, which is where it belongs.
+
+    A missing thread (the document path, or a bare `execute_tool` call) is
+    not silently skipped and not silently defaulted to some thread -- it
+    raises, so that a decision missing its `thread_id` never occurs
+    quietly.
+    """
+    thread = (tool_context or {}).get("thread")
+    if thread is None:
+        raise ValidationError(
+            code="decision_requires_thread",
+            message="be_om_beslut can only be called from a thread turn",
+            details=(
+                "This tool belongs to a thread turn (SPEC-beslut.md §7: a "
+                "decision without a thread_id is exactly the silent "
+                "'fråga först' case the module must not allow). The "
+                "document path's equivalent is registrera_avstaende."
+            ),
+        )
+
+    # Deferred import -- AGENTS.md's rule against import cycles at module
+    # load time: `services.decision_service` imports `repositories.thread_repo`
+    # and this module is imported by `services.agent_session` long before any
+    # tool call happens, so the import has to wait until the handler runs.
+    from services.decision_service import DecisionService
+
+    decision = DecisionService().create(
+        thread,
+        title=args.title,
+        reason=args.reason,
+        consequence=args.consequence,
+        kind=args.kind,
+        amount_ore=args.amount_ore,
+        source=args.source.model_dump() if args.source is not None else None,
+        options=[option.model_dump() for option in args.options],
+        footnote=args.footnote,
+        actor=actor,
+    )
+    return _decision_dict(decision)
+
+
+def _run_foresla_verifikation(
+    args: ForeslaVerifikationArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """SPEC-flode-verifikationer.md §5. Not terminal: like ``be_om_beslut``
+    it writes a card in the thread and the turn goes on to its answer.
+
+    Opens ``tool_context`` for two things: the ``thread`` (a draft card
+    cannot exist outside the thread it was proposed in -- missing, it is
+    ``draft_requires_thread``, never a silent default) and the turn's
+    ``proposals`` sequence, which gives the §5.5 key. Without a sequence (a
+    bare ``execute_tool`` call) the proposal is made without a key.
+    ``idempotency_key`` -- the posting key -- is deliberately not used: a
+    proposal and a posting from the same post must never share one.
+    """
+    context = tool_context or {}
+    thread = context.get("thread")
+    if thread is None:
+        raise ValidationError(
+            code="draft_requires_thread",
+            message="foresla_verifikation can only be called from a thread turn",
+            details=(
+                "A proposal is a card in a thread for a human to post "
+                "(SPEC-flode-verifikationer.md §5.3). The document path's "
+                "equivalents are posta_verifikation and registrera_avstaende."
+            ),
+        )
+    proposals = context.get("proposals")
+    _check_underlag_dates(
+        args.intake_source_ids,
+        args.date,
+        decision_id=args.decision_id,
+        tool_context=tool_context,
+    )
+
+    # Deferred import -- the same import-cycle rule as `_run_be_om_beslut`.
+    from services.draft_service import DraftService
+
+    result = DraftService().propose(
+        thread,
+        description=args.description,
+        rows=[row.model_dump() for row in args.rows],
+        date=args.date,
+        period_id=args.period_id,
+        footnote=args.footnote,
+        decision_id=args.decision_id,
+        replaces_draft_id=args.replaces_draft_id,
+        correction_of=args.correction_of,
+        correction_note_id=args.correction_note_id,
+        intake_source_ids=args.intake_source_ids,
+        bank_input_ids=args.bank_input_ids,
+        bank_transaction_ids=args.bank_transaction_ids,
+        actor=actor,
+        idempotency_key=proposals.key() if proposals is not None else None,
+    )
+    if proposals is not None:
+        proposals.advance()
+    return result
+
+
+def _run_tolka_underlag(
+    args: TolkaUnderlagArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """SPEC-underlagstolkning.md §6. Not terminal, and read-only against
+    the books: it saves one `intake_interpretations` row and answers with
+    the checks and the match (§6.5).
+
+    Opens ``tool_context`` only for traceability (§6.6): the ``thread``
+    gives ``thread_id``, and ``agent_run_id`` is read if the caller put one
+    there. Neither is required -- without them it is a call from the intake
+    pass or a test, and the row says so with ``NULL``.
+
+    Both callers put ``agent_run_id`` in the mapping (§12.6 a): the thread
+    turn's run, created in ``services/thread_stream.py`` before
+    ``run_thread_session``, and the intake pass's, created in
+    ``services/agent_runtime.py`` before each ``run_session``. Both hand
+    their ``run.id`` down; this handler is the only tool that reads it.
+    """
+    context = tool_context or {}
+    thread = context.get("thread")
+
+    # Deferred import -- the same import-cycle rule as `_run_be_om_beslut`.
+    from services.interpretation_service import InterpretationService
+
+    return InterpretationService().interpret(
+        args,
+        actor=actor,
+        thread_id=thread.id if thread is not None else None,
+        agent_run_id=context.get("agent_run_id"),
+    )
+
+
+def _run_koppla_underlag(
+    args: KopplaUnderlagArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """SPEC-flode-underlag.md §6. Not terminal: the turn goes on after the
+    answer (§6.6).
+
+    Opens ``tool_context`` for the ``thread`` (-> ``thread_id``: a decision
+    must be in the same thread) and the turn's ``agent_run_id``. Without a
+    thread it is a call from the intake pass (§6.7): a decision belongs to
+    a thread and the pass has none, so only ``exact_match`` applies there.
+    No idempotency key: the link is idempotent through the schema,
+    ``UNIQUE(intake_source_id)`` (§6.5).
+    """
+    context = tool_context or {}
+    thread = context.get("thread")
+
+    # Deferred import -- the same import-cycle rule as `_run_be_om_beslut`.
+    from services.intake_link import IntakeLinkService
+
+    return (
+        IntakeLinkService()
+        .link(
+            args.source_id,
+            args.voucher_id,
+            decision_id=args.decision_id,
+            actor=actor,
+            thread_id=thread.id if thread is not None else None,
+            agent_run_id=context.get("agent_run_id"),
+            decisions_allowed=thread is not None,
+        )
+        .to_dict()
+    )
+
+
+def _run_koppla_bort_underlag(
+    args: KopplaBortUnderlagArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """underlag-ersatt: undo a link on an answered decision. Not terminal.
+
+    Opens ``tool_context`` for the ``thread`` (the decision must be in it)
+    and the turn's ``agent_run_id``. Without a thread there is no decision
+    to rest on, and the service refuses with ``unlink_requires_decision``
+    -- the intake pass cannot unlink. Idempotent through the schema: a
+    link is undone once, and a second call is a replay.
+    """
+    context = tool_context or {}
+    thread = context.get("thread")
+
+    # Deferred import -- the same import-cycle rule as `_run_be_om_beslut`.
+    from services.intake_link import IntakeLinkService
+
+    return (
+        IntakeLinkService()
+        .unlink(
+            args.source_id,
+            args.voucher_id,
+            reason=args.reason,
+            actor=actor,
+            decision_id=args.decision_id if thread is not None else None,
+            thread_id=thread.id if thread is not None else None,
+            agent_run_id=context.get("agent_run_id"),
+        )
+        .to_dict()
+    )
+
+
+def _run_stang_perioder(
+    args: StangPerioderArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    if (args.period_id is None) == (args.fiscal_year_id is None):
+        raise ValidationError(
+            code="invalid_tool_arguments",
+            message="Ange exakt ett av period_id och fiscal_year_id",
+            details=f"period_id={args.period_id}, fiscal_year_id={args.fiscal_year_id}",
+        )
+    # Deferred import (AGENTS.md: service-to-service imports wait until the
+    # method runs).
+    from services.ledger import LedgerService
+
+    ledger = LedgerService()
+    if args.period_id is not None:
+        return _period_dict(ledger.lock_period(args.period_id, actor=actor))
+    assert args.fiscal_year_id is not None  # exactly one, checked above
+    fiscal_year = ledger.lock_fiscal_year(args.fiscal_year_id, actor=actor)
+    return {
+        "id": fiscal_year.id,
+        "start_date": fiscal_year.start_date.isoformat(),
+        "end_date": fiscal_year.end_date.isoformat(),
+        "locked": fiscal_year.locked,
+        "locked_at": (
+            fiscal_year.locked_at.isoformat() if fiscal_year.locked_at else None
+        ),
+        "periods": [
+            _period_dict(p) for p in PeriodRepository.list_periods(fiscal_year.id)
+        ],
+    }
+
+
+def _run_las_okopplade_banktransaktioner(
+    args: LasOkoppladeBanktransaktionerArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """Read-only: exact matches are linked after each import and posting,
+    not here."""
+    # Deferred import (AGENTS.md: service-to-service imports wait until the
+    # method runs).
+    from services.statement_match import StatementMatchService
+
+    items = [m.to_dict() for m in StatementMatchService().open_transactions()]
+    return {
+        "total": len(items),
+        "limit": args.limit,
+        "offset": args.offset,
+        "items": items[args.offset : args.offset + args.limit],
+    }
+
+
+def _run_koppla_banktransaktion(
+    args: KopplaBanktransaktionArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """Not terminal. Idempotent through the schema: a transaction has at
+    most one current link (migration 040's trigger), and the same link
+    again is a replay."""
+    context = tool_context or {}
+    thread = context.get("thread")
+
+    # Deferred import -- the same import-cycle rule as `_run_be_om_beslut`.
+    from services.statement_match import StatementMatchService
+
+    return StatementMatchService().link(
+        args.bank_transaction_id,
+        args.voucher_id,
+        actor=actor,
+        thread_id=thread.id if thread is not None else None,
+    )
+
+
+# --- fakturering F1 (SPEC-fakturering-f1.md §5) -----------------------------
+
+
+def _invoice_thread(tool: str, tool_context: Optional[Mapping[str, Any]]):
+    thread = (tool_context or {}).get("thread")
+    if thread is None:
+        raise ValidationError(
+            code="draft_requires_thread",
+            message=f"{tool} can only be called from a thread turn",
+            details=(
+                "An invoice proposal is a card in Fakturering's thread for a "
+                "human to issue (SPEC-fakturering-f1.md §5.3)."
+            ),
+        )
+    return thread
+
+
+def _faktura_rows(rows) -> list:
+    out = []
+    for row in rows:
+        data = row.model_dump()
+        data["quantity"] = str(data["quantity"])
+        out.append(data)
+    return out
+
+
+def _run_las_kunder(
+    args: LasKunderArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """§5.1. Read-only."""
+    from services.invoice_proposal import InvoiceProposalService
+
+    return InvoiceProposalService.read_customers(
+        query=args.query,
+        customer_id=args.customer_id,
+        include_inactive=args.include_inactive,
+    )
+
+
+def _run_las_fakturor(
+    args: LasFakturorArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """§5.2. Read-only."""
+    from services.invoice_proposal import InvoiceProposalService
+
+    return InvoiceProposalService.read_invoices(
+        invoice_id=args.invoice_id,
+        customer=args.customer,
+        status=args.status,
+        drafts=args.drafts,
+        limit=args.limit,
+    )
+
+
+def _run_foresla_faktura(
+    args: ForeslaFakturaArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """§5.3. Not terminal. Shares the turn's ``proposals`` sequence with
+    ``foresla_verifikation``, so ``n`` counts every proposal in the turn."""
+    thread = _invoice_thread("foresla_faktura", tool_context)
+    proposals = (tool_context or {}).get("proposals")
+
+    from services.invoice_proposal import InvoiceProposalService
+
+    data = args.model_dump(exclude={"rows", "footnote", "decision_id"})
+    data["rows_data"] = _faktura_rows(args.rows)
+    result = InvoiceProposalService().propose(
+        thread,
+        fields=data,
+        footnote=args.footnote,
+        decision_id=args.decision_id,
+        actor=actor,
+        idempotency_key=proposals.key() if proposals is not None else None,
+    )
+    if proposals is not None:
+        proposals.advance()
+    return result
+
+
+def _run_andra_fakturautkast(
+    args: AndraFakturautkastArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """§5.4. Not terminal."""
+    thread = _invoice_thread("andra_fakturautkast", tool_context)
+    proposals = (tool_context or {}).get("proposals")
+
+    from services.invoice_proposal import InvoiceProposalService
+
+    changes = args.model_dump(
+        exclude={"draft_id", "rows", "footnote", "decision_id", "reject_reason"},
+        exclude_none=True,
+    )
+    result = InvoiceProposalService().change(
+        thread,
+        draft_id=args.draft_id,
+        changes=changes,
+        rows=_faktura_rows(args.rows) if args.rows is not None else None,
+        footnote=args.footnote,
+        decision_id=args.decision_id,
+        reject_reason=args.reject_reason,
+        actor=actor,
+        idempotency_key=proposals.key() if proposals is not None else None,
+    )
+    if proposals is not None:
+        proposals.advance()
+    return result
+
+
+def _run_koppla_bort_banktransaktion(
+    args: KopplaBortBanktransaktionArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """Not terminal. Undoes the transaction's current link; a second call
+    finds no link and is refused (`bank_transaction_not_linked`)."""
+    context = tool_context or {}
+    thread = context.get("thread")
+
+    from services.statement_match import StatementMatchService
+
+    return StatementMatchService().unlink(
+        args.bank_transaction_id,
+        reason=args.reason,
+        actor=actor,
+        thread_id=thread.id if thread is not None else None,
+    )
+
+
+def _require_thread_for_payroll(
+    tool_context: Optional[Mapping[str, Any]], tool_name: str
+) -> None:
+    if (tool_context or {}).get("thread") is None:
+        raise ValidationError(
+            code="payroll_requires_thread",
+            message=f"{tool_name} can only be called from a thread turn",
+            details="Payroll is set up when the user asks in a conversation.",
+        )
+
+
+def _employee_dict(employee: Any, setting: Any) -> dict:
+    from domain.payroll_models import mask_trailing
+
+    return {
+        "id": employee.id,
+        "name": employee.name,
+        "personal_number": mask_trailing(employee.personal_number),
+        "bank_account": mask_trailing(employee.bank_account),
+        "email": employee.email,
+        "active": employee.active,
+        "salary": (
+            {
+                "gross_monthly_salary": setting.gross_monthly_salary,
+                "preliminary_tax": setting.preliminary_tax,
+                "employer_fee_rate_bp": setting.employer_fee_rate_bp,
+                "employer_fee_amount": setting.employer_fee_amount,
+                "employer_fee": setting.calculate_employer_fee(),
+                "payment_day": setting.payment_day,
+                "active": setting.active,
+            }
+            if setting is not None
+            else None
+        ),
+    }
+
+
+def _payslip_dict(payslip: Any) -> dict:
+    return {
+        "id": payslip.id,
+        "employee_id": payslip.employee_id,
+        "employee_name": payslip.employee.name if payslip.employee else None,
+        "payment_date": payslip.payment_date.isoformat(),
+        "gross_salary": payslip.gross_salary,
+        "preliminary_tax": payslip.preliminary_tax,
+        "employer_fee": payslip.employer_fee,
+        "net_salary": payslip.net_salary,
+        "status": payslip.status,
+        "voucher_id": payslip.voucher_id,
+        "pdf_path": f"/api/v1/export/pdf/payslip/{payslip.id}",
+    }
+
+
+def _payroll_run_dict(run: Any, payslips: list) -> dict:
+    return {
+        "id": run.id,
+        "year": run.year,
+        "month": run.month,
+        "payment_date": run.payment_date.isoformat(),
+        "status": run.status,
+        "payslips": [_payslip_dict(p) for p in payslips],
+    }
+
+
+def _run_las_loner(
+    args: LasLonerArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    if (args.year is None) != (args.month is None):
+        raise ValidationError(
+            code="invalid_tool_arguments",
+            message="Ange både year och month, eller inget av dem",
+            details=f"year={args.year}, month={args.month}",
+        )
+    # Deferred import (AGENTS.md: service-to-service imports wait until the
+    # method runs).
+    from services.payroll import PayrollService
+
+    service = PayrollService()
+    result: dict = {
+        "employees": [
+            _employee_dict(e, service.settings.get_for_employee(e.id))
+            for e in service.employees.list_all()
+        ],
+        "payroll_runs": [
+            _payroll_run_dict(run, service.payslips.list_for_run(run.id))
+            for run in service.runs.list_all()
+        ],
+    }
+    if args.year is not None and args.month is not None:
+        agi = service.get_agi(args.year, args.month)
+        result["agi"] = {
+            "year": agi.year,
+            "month": agi.month,
+            "due_date": agi.due_date.isoformat(),
+            "individuals": [
+                {
+                    "employee_id": i.employee_id,
+                    "name": i.name,
+                    "gross_salary": i.gross_salary,
+                    "preliminary_tax": i.preliminary_tax,
+                }
+                for i in agi.individuals
+            ],
+            "total_preliminary_tax": agi.total_preliminary_tax,
+            "total_employer_fee": agi.total_employer_fee,
+            "total_to_pay": agi.total_to_pay,
+            "unbooked_payslips": agi.unbooked_payslips,
+            "booked": agi.booked,
+        }
+    return result
+
+
+def _run_registrera_anstalld(
+    args: RegistreraAnstalldArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """Not terminal. Without `employee_id` it creates an employee (a name is
+    required); with it, the fields given replace the stored ones and the
+    rest are kept."""
+    _require_thread_for_payroll(tool_context, "registrera_anstalld")
+    from domain.payroll_models import normalize_personal_number
+    from services.payroll import PayrollService
+
+    service = PayrollService()
+    personal_number = (
+        normalize_personal_number(args.personal_number)
+        if args.personal_number is not None
+        else None
+    )
+    if args.employee_id is None:
+        if not args.name:
+            raise ValidationError(
+                code="invalid_employee",
+                message="En ny anställd behöver ett namn",
+            )
+        employee = service.create_employee(
+            args.name,
+            personal_number=personal_number,
+            email=args.email,
+            bank_account=args.bank_account,
+            actor=actor,
+        )
+    else:
+        current = service.employees.get(args.employee_id)
+        if current is None:
+            raise ValidationError("employee_not_found", "Employee not found")
+        employee = service.update_employee(
+            current.id,
+            args.name or current.name,
+            personal_number or current.personal_number,
+            args.email if args.email is not None else current.email,
+            (
+                args.bank_account
+                if args.bank_account is not None
+                else current.bank_account
+            ),
+            current.active,
+            actor=actor,
+        )
+    return _employee_dict(employee, service.settings.get_for_employee(employee.id))
+
+
+def _run_satt_lon(
+    args: SattLonArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """Not terminal. Replaces the employee's salary setting; payslips already
+    generated keep their amounts."""
+    _require_thread_for_payroll(tool_context, "satt_lon")
+    from services.payroll import PayrollService
+
+    service = PayrollService()
+    service.set_salary_setting(
+        args.employee_id,
+        gross_monthly_salary=args.gross_monthly_salary,
+        preliminary_tax=args.preliminary_tax,
+        payment_day=args.payment_day,
+        employer_fee_rate_bp=args.employer_fee_rate_bp,
+        actor=actor,
+    )
+    employee = service.employees.get(args.employee_id)
+    return _employee_dict(employee, service.settings.get_for_employee(employee.id))
+
+
+def _run_skapa_lonekorning(
+    args: SkapaLonekorningArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """Not terminal. Creates the month's run and its payslips in one call;
+    a run whose payslips could not be generated is deleted again, so a retry
+    does not meet `payroll_run_already_exists`. Books nothing: a payslip is
+    booked against the bank transaction that paid it, in /payroll."""
+    _require_thread_for_payroll(tool_context, "skapa_lonekorning")
+    from services.payroll import PayrollService
+
+    service = PayrollService()
+    run = service.create_payroll_run(
+        args.year, args.month, payment_date=args.payment_date, actor=actor
+    )
+    try:
+        payslips = service.generate_payslips(run.id, actor=actor)
+    except Exception:
+        service.delete_payroll_run(run.id, actor=actor)
+        raise
+    result = _payroll_run_dict(service.runs.get(run.id), payslips)
+    result["warnings"] = service.validate_payroll_run(run.id)["warnings"]
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Tool definitions and dispatcher (SPEC §6.4, §6.6)
 # ---------------------------------------------------------------------------
@@ -508,6 +1910,59 @@ def _run_registrera_avstaende(
 # built from a set -- so AGENT_TOOL_DEFINITIONS' order is the same in every
 # process run. SPEC §6.6: the tool list is part of the cached system prompt
 # prefix, and an accidental reorder is a silent cache-buster.
+
+
+def _run_foresla_rakenskapsar(
+    args: ForeslaRakenskapsarArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """Not terminal. Opens ``tool_context`` for the ``thread``: the card goes
+    in it. Without one (the intake pass) it goes in the Verifikationer
+    thread, and the underlag waits for the answer -- the pass should then
+    end without abstaining. Idempotent per year: a second call for the same
+    year joins the pending card."""
+    # Deferred import -- the same import-cycle rule as `_run_be_om_beslut`.
+    from services.fiscal_year_proposal import FiscalYearProposalService
+
+    return FiscalYearProposalService().propose(
+        (tool_context or {}).get("thread"),
+        document_date=args.document_date,
+        source_ids=args.source_ids,
+        start_date=args.start_date,
+        end_date=args.end_date,
+        actor=actor,
+    )
+
+
+def _run_foresla_bolagsinformation(
+    args: ForeslaBolagsinformationArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """Not terminal. Needs the ``thread``: the card goes in it. Writes nothing
+    to ``company_info`` itself -- the human's press does."""
+    thread = (tool_context or {}).get("thread")
+    if thread is None:
+        raise ValidationError(
+            code="company_info_requires_thread",
+            message="foresla_bolagsinformation can only be called from a thread turn",
+            details="Company details are proposed when the user gives them in a "
+            "conversation.",
+        )
+    # Deferred import -- the same import-cycle rule as `_run_be_om_beslut`.
+    from services.company_info_proposal import CompanyInfoProposalService
+
+    return CompanyInfoProposalService().propose(
+        thread, fields=args.model_dump(exclude_none=True), actor=actor
+    )
+
 
 _ToolHandler = Callable[..., Any]
 
@@ -522,8 +1977,7 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
     (
         "las_perioder",
         "Läs bokföringsperioder, med låsstatus (`locked_by`/`locked_at`). "
-        "Skrivskyddat -- perioder låses via ett separat, mänskligt flöde, "
-        "aldrig av agenten.",
+        "Skrivskyddat -- lås med stang_perioder.",
         LasPerioderArgs,
         _run_las_perioder,
     ),
@@ -581,6 +2035,228 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
         RegistreraAvstaendeArgs,
         _run_registrera_avstaende,
     ),
+    (
+        "be_om_beslut",
+        "Lägg fram ett beslut för användaren att ta ställning till, mitt i "
+        "ett samtal, med en motivering och en konsekvens -- och valfritt en "
+        "lista med alternativ. Postar ingenting, ändrar ingenting och rör "
+        "bara beslutets egna tabeller: skriver ett kort i tråden och en rad "
+        "i beslutskön, aldrig i bokföringen. Hör till ett samtal i en vy "
+        "-- för ett underlag i intagskön, använd registrera_avstaende "
+        "i stället.",
+        BeOmBeslutArgs,
+        _run_be_om_beslut,
+    ),
+    (
+        "foresla_verifikation",
+        "Lägg fram en verifikation som ett förslag för användaren att posta: "
+        "skapar ett utkast utan nummer och ett kort i tråden. Postar aldrig "
+        "-- användaren postar förslaget med ett tryck, och numret sätts först "
+        "vid postningen. Ange decision_id när förslaget följer på ett "
+        "besvarat beslut, och replaces_draft_id när användaren vill ändra ett "
+        "väntande förslag. Hör till ett samtal i en vy -- "
+        "för ett underlag i intagskön, använd posta_verifikation eller "
+        "registrera_avstaende i stället.",
+        ForeslaVerifikationArgs,
+        _run_foresla_verifikation,
+    ),
+    (
+        "tolka_underlag",
+        "Lämna det du läst ur ett underlag (leverantör, datum, belopp, moms, "
+        "rader) för kontroll och matchning mot postade verifikationer. "
+        "Servern stämmer av momsen och textlagret, letar efter en postad "
+        "verifikation som saknar underlag och räknar differensen. Sparar "
+        "tolkningen men kopplar ingenting och ändrar ingenting i "
+        "bokföringen. Anropa efter hamta_underlagsfil och före "
+        "posta_verifikation eller foresla_verifikation för samma underlag.",
+        TolkaUnderlagArgs,
+        _run_tolka_underlag,
+    ),
+    (
+        "koppla_underlag",
+        "Koppla ett underlag till en redan postad verifikation som det hör "
+        "till. Kräver en tolkning av underlaget (tolka_underlag). Utan "
+        "beslut: bara när tolkningens match är exakt och verifikationen "
+        "fortfarande saknar underlag. Annars: ange decision_id för ett "
+        "besvarat beslut om just det underlaget. Skapar ingen verifikation "
+        "och ändrar ingen.",
+        KopplaUnderlagArgs,
+        _run_koppla_underlag,
+    ),
+    (
+        "stang_perioder",
+        "Lås en period (en månad, period_id) eller ett helt räkenskapsår med "
+        "alla dess perioder (fiscal_year_id) -- ange exakt ett. I en låst "
+        "period kan inget nytt bokföras; postade verifikationer påverkas "
+        "inte. Vägras om perioden har utkast som inte är väntande förslag. "
+        "Kan bara låsa: att låsa upp gör användaren själv i gränssnittet.",
+        StangPerioderArgs,
+        _run_stang_perioder,
+    ),
+    (
+        "koppla_bort_underlag",
+        "Koppla bort ett underlag från en postad verifikation det felaktigt "
+        "kopplats till. Kräver decision_id för ett besvarat beslut om just "
+        "det underlaget, fattat efter kopplingen, och ett kort skäl. "
+        "Kopplingen står kvar som spår; underlaget kan sedan kopplas till "
+        "rätt verifikation med koppla_underlag och samma beslut. Skapar "
+        "ingen verifikation och ändrar ingen.",
+        KopplaBortUnderlagArgs,
+        _run_koppla_bort_underlag,
+    ),
+    (
+        "las_okopplade_banktransaktioner",
+        "Läs transaktionerna från kontoutdrag (1630, 1900-1989) som ännu "
+        "inte är underlag för någon postad verifikation, var och en med "
+        "match (exact/candidates/none) och kandidatverifikationer med "
+        "datumskillnad. Exakta matchningar kopplar servern själv efter varje "
+        "import och postning. Skrivskyddat.",
+        LasOkoppladeBanktransaktionerArgs,
+        _run_las_okopplade_banktransaktioner,
+    ),
+    (
+        "koppla_banktransaktion",
+        "Koppla en transaktion från ett kontoutdrag (1630, 1900-1989) som "
+        "underlag till en redan postad verifikation. Exakta matchningar "
+        "kopplar servern själv; använd detta när användaren har avgjort ett "
+        "tvetydigt fall (las_okopplade_banktransaktioner). Beloppet "
+        "på kontot måste stämma; datumet får skilja. Vägras för en "
+        "verifikation med ingående moms -- ett inköp behöver kvitto. Skapar "
+        "ingen verifikation och ändrar ingen. En felaktig koppling ångras "
+        "med koppla_bort_banktransaktion.",
+        KopplaBanktransaktionArgs,
+        _run_koppla_banktransaktion,
+    ),
+    (
+        "las_kunder",
+        "Läs kundregistret och artiklarna. Skrivskyddat -- ändrar ingenting. "
+        "Ange query för att söka på namn eller organisationsnummer, eller "
+        "customer_id för en kund.",
+        LasKunderArgs,
+        _run_las_kunder,
+    ),
+    (
+        "las_fakturor",
+        "Läs kundfakturor och fakturautkast. Skrivskyddat. Utan invoice_id: "
+        "en lista, nyast först, och latest_numbers, numren på de senast "
+        "skapade fakturorna, för att föreslå nästa nummer i serien. Med "
+        "invoice_id: en faktura med rader, leveranser och betalningar. "
+        "drafts=true läser utkasten i stället.",
+        LasFakturorArgs,
+        _run_las_fakturor,
+    ),
+    (
+        "foresla_faktura",
+        "Lägg fram en kundfaktura som ett förslag för användaren: skapar ett "
+        "fakturautkast och ett kort i Fakturerings tråd. Användaren "
+        "utfärdar förslaget med ett tryck, och först då bokförs fakturan och "
+        "PDF:en skapas -- detta verktyg bokför ingenting. Föreslå numret som "
+        "nästa i serien (las_fakturor, latest_numbers). Ändra ett väntande "
+        "förslag med andra_fakturautkast, inte med ett nytt.",
+        ForeslaFakturaArgs,
+        _run_foresla_faktura,
+    ),
+    (
+        "andra_fakturautkast",
+        "Ändra ett fakturaförslag som inte är utfärdat: ange draft_id och "
+        "bara de fält som ska ändras; rows ersätter alla rader. Skapar ett "
+        "nytt utkast och ett nytt kort som ersätter det gamla; det gamla "
+        "förkastas. reject_reason förkastar utkastet -- bara när användaren "
+        "ber om det. Kan aldrig ändra en utfärdad faktura; en sådan rättas "
+        "med en kreditfaktura.",
+        AndraFakturautkastArgs,
+        _run_andra_fakturautkast,
+    ),
+    (
+        "koppla_bort_banktransaktion",
+        "Ångra en felaktig koppling mellan en kontoutdragstransaktion och en "
+        "postad verifikation, när användaren har sagt att den är fel -- "
+        "oftast en automatisk koppling där två händelser råkade ha samma "
+        "belopp samma dag. Ange varför (reason). Kopplingen står kvar som "
+        "spår; transaktionen blir fri att kopplas rätt med "
+        "koppla_banktransaktion, och servern kopplar den aldrig mer själv. "
+        "Verifikationen ändras inte.",
+        KopplaBortBanktransaktionArgs,
+        _run_koppla_bort_banktransaktion,
+    ),
+    (
+        "las_loner",
+        "Läs de anställda med löneinställning, och lönekörningarna med sina "
+        "lönebesked (belopp i öre, pdf_path till lönebeskedet). Med year och "
+        "month också månadens AGI-underlag: skatteavdrag och "
+        "arbetsgivaravgifter för lönerna som betalades ut den månaden, och "
+        "sista dag att deklarera. Personnummer och bankkonto visas maskerade. "
+        "Skrivskyddat.",
+        LasLonerArgs,
+        _run_las_loner,
+    ),
+    (
+        "registrera_anstalld",
+        "Lägg upp en anställd med namn, när användaren ber om det i "
+        "samtalet. Personnummer (tolv siffror, kontrollsiffran prövas), "
+        "bankkonto och e-post är valfria: fråga aldrig efter dem, skicka "
+        "dem bara om användaren själv ger dem. Med employee_id rättas en befintlig anställds "
+        "uppgifter; fält som utelämnas behålls. Bara i ett samtal. Bokför "
+        "ingenting.",
+        RegistreraAnstalldArgs,
+        _run_registrera_anstalld,
+    ),
+    (
+        "satt_lon",
+        "Sätt en anställds månadslön: bruttolön och skatteavdrag i öre "
+        "(skatteavdraget enligt användarens skattetabell, gissa det aldrig), "
+        "arbetsgivaravgift i baspunkter (3142 = 31,42 %, den fulla avgiften) "
+        "och lönedag. Ersätter den tidigare inställningen; redan skapade "
+        "lönebesked behåller sina belopp. Bara i ett samtal. Bokför ingenting.",
+        SattLonArgs,
+        _run_satt_lon,
+    ),
+    (
+        "skapa_lonekorning",
+        "Skapa lönekörningen för en månad med ett lönebesked per anställd "
+        "med aktiv lön. Utbetalningsdagen ska ligga i månaden. En månad har "
+        "högst en lönekörning. Bokför ingenting: lönen bokförs mot "
+        "banktransaktionen som betalade ut den, och AGI:n mot skattekontot, "
+        "båda på sidan Löner. Bara i ett samtal.",
+        SkapaLonekorningArgs,
+        _run_skapa_lonekorning,
+    ),
+    (
+        "foresla_rakenskapsar",
+        "Föreslå ett nytt räkenskapsår när ett underlag är daterat utanför "
+        "alla räkenskapsår (tolka_underlag: placement.status = "
+        "no_fiscal_year). Lägger ett beslutskort i tråden; användaren skapar "
+        "året med ett tryck. Servern räknar ut datumen: tolv månader direkt "
+        "efter det senaste året. Ange underlagens source_ids. Utan tråd "
+        "(intagskön) hamnar kortet i Verifikationers tråd och underlaget "
+        "väntar på svaret -- avsluta då utan att avstå. Skapar ingen "
+        "verifikation, och datera aldrig om ett underlag till ett annat år.",
+        ForeslaRakenskapsarArgs,
+        _run_foresla_rakenskapsar,
+    ),
+    (
+        "foresla_bolagsinformation",
+        "Föreslå bolagsuppgifter (säte, momsnummer, bankgiro, F-skatt, "
+        "adress ...) som användaren har sagt eller visat i samtalet, till "
+        "exempel från en gammal faktura. Ange bara fält som står i underlaget "
+        "eller som användaren sa; gissa aldrig. Lägger ett beslutskort i "
+        "tråden och användaren sparar med ett tryck. Kortet fyller bara tomma "
+        "fält; ett redan ifyllt fält som skiljer sig ersätts bara om "
+        "användaren väljer det alternativet. Skriver inget själv och bokför "
+        "ingenting. Bara i ett samtal.",
+        ForeslaBolagsinformationArgs,
+        _run_foresla_bolagsinformation,
+    ),
+    (
+        "sok_verifikationer",
+        "Sök en enstaka verifikation på verifikationstexten, till exempel ett "
+        "fakturanummer ('#101274') eller en motpart. Skrivskyddat -- högst tio "
+        "träffar, med rader. Använd det för att hitta verifikationen som en "
+        "betalning reglerar, till exempel en kundfaktura som bokförts som "
+        "verifikation; inte för att läsa historik.",
+        SokVerifikationerArgs,
+        _run_sok_verifikationer,
+    ),
 )
 
 #: Anthropic tool-definition shape: {"name", "description", "input_schema"}.
@@ -592,6 +2268,21 @@ AGENT_TOOL_DEFINITIONS: list[dict] = [
         "input_schema": args_model.model_json_schema(),
     }
     for name, description, args_model, _handler in _TOOL_SPECS
+]
+
+#: Broad reads of the books' history. A document pass books from the
+#: company's bookkeeping instructions, which distil that history, plus the
+#: kontoplan, open periods and latest corrections already in its prompt --
+#: and `tolka_underlag`'s `match` answers "is this already booked?". Reading
+#: history is for revising the instructions, which a thread can still do.
+#: Offered, these cost a document pass 50-70k input tokens per item.
+HISTORY_READ_TOOLS: frozenset[str] = frozenset(
+    {"las_verifikationer", "las_perioder", "las_kontoplan", "las_korrigeringar"}
+)
+
+#: `AGENT_TOOL_DEFINITIONS` without `HISTORY_READ_TOOLS`, same order.
+DOCUMENT_TOOL_DEFINITIONS: list[dict] = [
+    tool for tool in AGENT_TOOL_DEFINITIONS if tool["name"] not in HISTORY_READ_TOOLS
 ]
 
 _TOOL_HANDLERS: dict[str, tuple[type[BaseModel], _ToolHandler]] = {
@@ -606,18 +2297,64 @@ def execute_tool(
     *,
     actor: str,
     capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
 ) -> Any:
-    """Validate and run one model-requested tool call.
+    """Validate and run one model-requested tool call -- one of the
+    twenty-eight tools in ``_TOOL_SPECS``, the last of them
+    ``foresla_bolagsinformation`` (the twenty-seventh ``foresla_rakenskapsar``,
+    the twenty-sixth ``skapa_lonekorning``, the
+    twenty-second is ``koppla_bort_banktransaktion``,
+    the seventeenth ``koppla_banktransaktion``, the fifteenth
+    ``koppla_bort_underlag``, the fourteenth ``stang_perioder``).
+
+    ``idempotency_key`` is the caller's own key for a posting made during
+    this session, and only ``posta_verifikation`` reads it -- the thread
+    path passes ``thread:{thread_id}:{post_id}`` (SPEC-tradar.md §6.4), the
+    document path passes nothing and lets the key be derived from the intake
+    source. It is handed to every handler rather than branched on here, so
+    that the dispatcher stays a table lookup with no special case in it.
+
+    ``tool_context`` is the same idea for everything a tool may need that
+    only its caller can know. The thread path puts its ``Thread`` in it;
+    the document path (``run_session``) passes only its ``agent_run_id``,
+    which both paths set. Only
+    ``be_om_beslut`` and ``foresla_verifikation`` open it -- a decision
+    cannot exist without the thread it was raised in, nor a proposal
+    without the thread it is a card in; ``foresla_verifikation`` also reads
+    the turn's ``proposals`` sequence from it, which the thread path always
+    sets. ``tolka_underlag`` opens it too, but only for traceability
+    (``thread`` and ``agent_run_id``, SPEC-underlagstolkning.md §6.6) and
+    works without it. ``koppla_underlag`` opens the same two: the thread
+    binds a decision to it, and without one only an exact match links
+    (SPEC-flode-underlag.md §6.7). ``koppla_bort_underlag`` opens the
+    same two, and needs the thread for its decision. It is handed to every handler rather than branched on here, for
+    the same reason ``idempotency_key`` is: the dispatcher stays a table
+    lookup with no special case in it.
+
+    It is a mapping rather than a typed argument so that the layer above
+    can forward it without naming what is inside: SPEC-tradar.md §8.1 keeps
+    ``services/agent_session.py`` ignorant of what a thread is, and
+    SPEC-beslut.md §7.6 keeps it ignorant of what a decision is. Both
+    survive because the knowledge stops here.
+
+    **This adds no tool.** ``AGENT_TOOL_DEFINITIONS`` is unchanged, byte for
+    byte, including ``_TOOL_SPECS``' order (SPEC-agentruntime §6.6: the tool
+    list is part of the cached prefix). The key is how the *caller*
+    identifies its posting intent; it is not something a model can ask for,
+    and it is not in any tool's ``input_schema``. Neither is
+    ``tool_context``.
 
     Returns a JSON-serializable result on success. Raises on failure --
     either ``domain.validation.ValidationError`` (unknown tool name, or
     arguments that fail the tool's own Pydantic schema) or whatever domain
     exception the backing repository/service call itself raises
     (``IntakeError``, ``BankInputError``, ``DocumentUnreadableError``,
-    ``PostingConflictError``, ...). None of these are caught and converted
-    here -- wrapping a raised exception into a ``tool_result`` with
-    ``is_error: true`` is the session's (A8) job, since only the session
-    holds the ``ToolCall.id`` needed to build that content block.
+    ``PostingConflictError``, ``services.decision_service.DecisionError``,
+    ...). None of these are caught and converted here -- wrapping a raised
+    exception into a ``tool_result`` with ``is_error: true`` is the
+    session's (A8) job, since only the session holds the ``ToolCall.id``
+    needed to build that content block.
     """
     entry = _TOOL_HANDLERS.get(name)
     if entry is None:
@@ -635,4 +2372,10 @@ def execute_tool(
             message=f"Invalid arguments for tool {name!r}",
             details=str(exc),
         ) from exc
-    return handler(parsed_args, actor=actor, capabilities=capabilities)
+    return handler(
+        parsed_args,
+        actor=actor,
+        capabilities=capabilities,
+        idempotency_key=idempotency_key,
+        tool_context=tool_context,
+    )

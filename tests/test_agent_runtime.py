@@ -39,7 +39,7 @@ import json
 import uuid
 from calendar import monthrange
 from datetime import date
-from typing import Optional
+from typing import Callable, Optional
 
 import httpx
 import pytest
@@ -83,6 +83,8 @@ from services.agent_session import (
 from services.agent_tools import (
     AGENT_TOOL_DEFINITIONS,
     BOK_NAMESPACE,
+    DOCUMENT_TOOL_DEFINITIONS,
+    HISTORY_READ_TOOLS,
     derive_posting_idempotency_key,
     execute_tool,
 )
@@ -507,6 +509,55 @@ class TestModelRegistry:
             <= price.input_ore_per_million_tokens
         )
 
+    def test_zen_model_resolves_to_zen_provider_and_bare_api_model(self):
+        info = get_model_info("opencode/claude-opus-5")
+
+        assert info.provider == "opencode"
+        assert info.api_model == "claude-opus-5"
+
+    @pytest.mark.parametrize(
+        "model, protocol",
+        [
+            ("opencode-go/glm-5.3", "chat"),
+            ("opencode-go/glm-5.3-flash", "chat"),
+            ("opencode-go/kimi-k3", "chat"),
+            ("opencode-go/deepseek-v4-pro", "chat"),
+            ("opencode-go/deepseek-v4.1-flash", "chat"),
+            # Go serves these over Messages although they are not Claude --
+            # the reason the registry is explicit rather than name-inferred.
+            ("opencode-go/qwen3.8-max", "messages"),
+            ("opencode-go/minimax-m3", "messages"),
+        ],
+    )
+    def test_go_models_resolve_to_go_provider_and_their_protocol(self, model, protocol):
+        info = get_model_info(model)
+
+        assert info.provider == "opencode-go"
+        assert info.protocol == protocol
+        assert info.api_model == model.removeprefix("opencode-go/")
+
+    def test_go_id_under_the_zen_prefix_is_unknown(self):
+        with pytest.raises(UnknownModelError):
+            get_model_info("opencode/glm-5.3")
+
+    def test_unknown_prefix_is_unknown(self):
+        with pytest.raises(UnknownModelError):
+            get_model_info("glm-5.3")
+
+    def test_every_registered_model_has_a_known_provider(self):
+        from services.llm import _MODELS
+
+        for model in _MODELS:
+            assert model.partition("/")[0] in ("opencode", "opencode-go"), model
+
+    def test_api_model_id_strips_only_known_prefixes(self):
+        from services.llm import api_model_id
+
+        assert api_model_id("opencode-go/kimi-k3") == "kimi-k3"
+        assert api_model_id("opencode/gpt-5.5") == "gpt-5.5"
+        assert api_model_id("claude-opus-5") == "claude-opus-5"
+        assert api_model_id("other/model") == "other/model"
+
     def test_price_lookup_for_known_chat_model_also_has_expected_shape(self):
         info = get_model_info("opencode/gpt-5.5")
         price = info.price
@@ -531,19 +582,69 @@ class TestAgentRuntimeConfig:
     def test_llm_base_url_has_opencode_zen_default(self):
         assert Settings().llm_base_url == "https://opencode.ai/zen/v1"
 
-    def test_llm_default_model_is_a_priced_claude_model(self):
+    def test_llm_default_model_is_a_priced_go_model(self):
         # The default must itself resolve via get_model_info -- a default
         # that isn't priced would violate SPEC §2 on day one.
         info = get_model_info(Settings().llm_default_model)
-        assert info.protocol == "messages"
+        assert info.model == "opencode-go/glm-5.3"
+        assert info.provider == "opencode-go"
+        assert info.protocol == "chat"
 
-    def test_the_four_caps_have_specs_stated_defaults(self):
-        settings = Settings()
+    def test_llm_go_base_url_has_opencode_go_default(self):
+        assert Settings().llm_go_base_url == "https://opencode.ai/zen/go/v1"
+
+    def test_go_gateway_falls_back_to_the_zen_key(self, monkeypatch):
+        monkeypatch.setenv("LLM_API_KEY", "shared-key")
+        monkeypatch.delenv("LLM_GO_API_KEY", raising=False)
+        s = Settings()
+
+        assert s.gateway_for("opencode-go") == (s.llm_go_base_url, "shared-key")
+        assert s.gateway_for("opencode") == (s.llm_base_url, "shared-key")
+
+    def test_go_gateway_uses_its_own_key_when_set(self, monkeypatch):
+        monkeypatch.setenv("LLM_API_KEY", "zen-key")
+        monkeypatch.setenv("LLM_GO_API_KEY", "go-key")
+        s = Settings()
+
+        assert s.gateway_for("opencode-go")[1] == "go-key"
+        assert s.gateway_for("opencode")[1] == "zen-key"
+
+    def test_the_caps_defaults(self, monkeypatch):
+        for name in (
+            "AGENT_MAX_OUTPUT_TOKENS_PER_ITEM",
+            "AGENT_MAX_TOKENS_PER_TURN",
+            "AGENT_DAILY_BUDGET_ORE",
+        ):
+            monkeypatch.delenv(name, raising=False)
+        settings = Settings(_env_file=None)
 
         assert settings.agent_max_tool_turns_per_item == 25
-        assert settings.agent_max_output_tokens_per_item == 32000
-        assert settings.agent_daily_budget_ore == 5000  # 50 kr, per SPEC §6.5/§8
         assert settings.agent_max_items_per_pass == 20
+        # Token and cost caps are opt-in.
+        assert settings.agent_max_output_tokens_per_item is None
+        assert settings.agent_max_tokens_per_turn is None
+        assert settings.agent_daily_budget_ore is None
+
+    def test_an_empty_cap_variable_means_no_cap(self, monkeypatch):
+        monkeypatch.setenv("AGENT_DAILY_BUDGET_ORE", "")
+        monkeypatch.setenv("AGENT_MAX_OUTPUT_TOKENS_PER_ITEM", " ")
+        monkeypatch.setenv("AGENT_MAX_TOKENS_PER_TURN", "16000")
+
+        settings = Settings(_env_file=None)
+
+        assert settings.agent_daily_budget_ore is None
+        assert settings.agent_max_output_tokens_per_item is None
+        assert settings.agent_max_tokens_per_turn == 16000
+
+    def test_no_daily_budget_never_refuses(self, monkeypatch):
+        monkeypatch.setattr(settings, "agent_daily_budget_ore", None)
+
+        class _Spent:
+            @staticmethod
+            def sum_cost_today_ore() -> int:
+                return 10**9
+
+        ensure_daily_budget_available(_Spent)  # type: ignore[arg-type]
 
     def test_daily_budget_ore_can_be_flipped_via_env_var(self, monkeypatch):
         monkeypatch.setenv("AGENT_DAILY_BUDGET_ORE", "1234")
@@ -972,7 +1073,60 @@ _EXPECTED_TOOL_NAMES = [
     "las_bankhandelser",
     "posta_verifikation",
     "registrera_avstaende",
+    # The tenth, added last on purpose (SPEC-beslut.md §11.3, task B5).
+    # Appended here rather than inserted: the nine above keep their exact
+    # positions, because this list is the cached prompt prefix's order and a
+    # reorder is a silent cache-buster (SPEC §6.6).
+    "be_om_beslut",
+    # The eleventh, appended the same way (SPEC-flode-verifikationer.md
+    # §5.7, §12.1, task F7): the ten above keep their positions.
+    "foresla_verifikation",
+    # The twelfth, appended the same way (SPEC-underlagstolkning.md §6.6,
+    # task U7): the eleven above keep their positions.
+    "tolka_underlag",
+    # The thirteenth, appended the same way (SPEC-flode-underlag.md §6.7,
+    # task FU5): the twelve above keep their positions.
+    "koppla_underlag",
+    # The fourteenth, appended the same way (the period lock): it can only
+    # lock -- opening a period again is a human's, with no tool for it.
+    "stang_perioder",
+    # The fifteenth, appended the same way (underlag-ersatt): it undoes a
+    # wrong link on an answered decision, and never touches a voucher.
+    "koppla_bort_underlag",
+    # The sixteenth and seventeenth, appended the same way: account statements
+    # as underlag -- read the unlinked transactions, link one after a decision.
+    "las_okopplade_banktransaktioner",
+    "koppla_banktransaktion",
+    # The eighteenth to twenty-first, appended the same way (fakturering F1,
+    # SPEC-fakturering-f1.md §5): two read, two write an invoice draft and
+    # its card in Fakturering's thread. None of them issues an invoice.
+    "las_kunder",
+    "las_fakturor",
+    "foresla_faktura",
+    "andra_fakturautkast",
+    # The twenty-second, appended the same way: undo a wrong statement link.
+    "koppla_bort_banktransaktion",
+    # The twenty-third to twenty-sixth, appended the same way: payroll. They
+    # write employees, salary settings and payslips, never a voucher.
+    "las_loner",
+    "registrera_anstalld",
+    "satt_lon",
+    "skapa_lonekorning",
+    "foresla_rakenskapsar",
+    "foresla_bolagsinformation",
+    # Appended the same way: a targeted, read-only voucher search -- at most
+    # ten hits on a required search term -- that the document pass is offered
+    # in place of the broad history reads.
+    "sok_verifikationer",
 ]
+
+#: Names that carry a forbidden fragment by design, and why it is not the
+#: edit the fragment guards against. `andra_fakturautkast` changes an
+#: invoice *draft* -- never an issued invoice or a posted voucher -- and even
+#: then by creating a new draft that replaces the old one
+#: (SPEC-fakturering-f1.md §5.4, beslut 1). The name is the one the spec
+#: and the user chose.
+_NAME_FRAGMENT_EXCEPTIONS = {"andra_fakturautkast": {"andra"}}
 
 
 class TestToolDefinitionsOrder:
@@ -1006,9 +1160,14 @@ class TestAppendOnlyToolSurface:
     adds a "convenient" tool that can edit or delete a posted voucher.
     """
 
-    def test_tool_names_are_exactly_the_nine_allowed_tools(self):
+    def test_tool_names_are_exactly_the_allowed_tools(self):
+        """Fifteen since underlag-ersatt (SPEC §6.6). The count is asserted
+        against the expected list rather than a literal, so adding a tool
+        without adding it there still fails -- which is the point: this is
+        the append-only rule's only automatic check through the agent's
+        surface, and it must break when the surface grows."""
         assert {t["name"] for t in AGENT_TOOL_DEFINITIONS} == set(_EXPECTED_TOOL_NAMES)
-        assert len(AGENT_TOOL_DEFINITIONS) == 9
+        assert len(AGENT_TOOL_DEFINITIONS) == len(_EXPECTED_TOOL_NAMES)
 
     def test_no_tool_name_contains_a_mutate_or_delete_verb(self):
         forbidden_fragments = [
@@ -1026,7 +1185,10 @@ class TestAppendOnlyToolSurface:
         ]
         for tool in AGENT_TOOL_DEFINITIONS:
             lowered = tool["name"].lower()
+            allowed = _NAME_FRAGMENT_EXCEPTIONS.get(tool["name"], set())
             for fragment in forbidden_fragments:
+                if fragment in allowed:
+                    continue
                 assert (
                     fragment not in lowered
                 ), f"tool name {tool['name']!r} contains {fragment!r}"
@@ -1052,8 +1214,78 @@ class TestAppendOnlyToolSurface:
                     phrase not in haystack
                 ), f"tool {tool['name']!r} description contains {phrase!r}"
 
-    def test_only_two_tools_are_documented_as_writing_anything(self):
-        write_tool_names = {"posta_verifikation", "registrera_avstaende"}
+    def test_only_the_writing_tools_are_undocumented_as_read_only(self):
+        """Five write, and each one names what it writes.
+
+        `be_om_beslut` joined them with `beslut` (SPEC-beslut.md §11.3). It
+        writes to `decisions`, `decision_options` and `thread_posts` and to
+        nothing else — never `vouchers`, `voucher_rows`, `periods` or
+        `fiscal_years` (SPEC-beslut.md §8), which is why testfall 26 in
+        `tests/test_beslut.py` counts ledger rows around a call to it.
+        Calling it read-only here would be the lie this test exists to
+        catch.
+
+        `foresla_verifikation` joined them with `flode-verifikationer`
+        (SPEC-flode-verifikationer.md §5.1). It writes a draft voucher --
+        no number, never posted -- a `thread_drafts` row and a `draft` post.
+        It is not read-only, so it is not allowed to say it is; and like
+        `be_om_beslut` it must not name the general ledger, which the next
+        test keeps for `posta_verifikation` alone.
+
+        `tolka_underlag` joined them with `underlagstolkning`
+        (SPEC-underlagstolkning.md §6.1): read-only against the books, but
+        it writes an `intake_interpretations` row, so it does not say
+        "Skrivskyddat" either.
+
+        `koppla_underlag` joined them with `flode-underlag`
+        (SPEC-flode-underlag.md §6.1): it creates and changes no voucher,
+        but it writes the link, an attempt, the source's status and an
+        `intake_link_basis` row -- not read-only, and it does not name the
+        general ledger (§6.2).
+
+        `stang_perioder` joined them with the period lock: it writes
+        `periods` and `fiscal_years` (the lock) and the audit log, never a
+        voucher. It locks only; there is no tool that opens a period again.
+
+        `koppla_bort_underlag` joined them with underlag-ersatt: it writes a
+        `voucher_intake_unlinks` row and the source's status, never a
+        voucher.
+        `koppla_banktransaktion` joined them with account statements as
+        underlag: it writes the link between a statement transaction and a
+        posted voucher and the audit log, never a voucher.
+        `foresla_faktura` and `andra_fakturautkast` joined them with
+        fakturering F1: they write an invoice draft, its `draft` card and its
+        `thread_invoice_drafts` row, and reject a replaced draft -- never an
+        invoice or a voucher.
+        `koppla_bort_banktransaktion` undoes one: a
+        `voucher_bank_transaction_unlinks` row, never a voucher.
+        `registrera_anstalld`, `satt_lon` and `skapa_lonekorning` write
+        payroll: employees, salary settings, runs and payslips, never a
+        voucher.
+        `foresla_rakenskapsar` writes a decision card and a
+        `fiscal_year_proposals` row; the human's press creates the year.
+        `foresla_bolagsinformation` writes a decision card and a
+        `company_info_proposals` row; the human's press writes the details.
+        """
+        write_tool_names = {
+            "posta_verifikation",
+            "registrera_avstaende",
+            "be_om_beslut",
+            "foresla_verifikation",
+            "tolka_underlag",
+            "koppla_underlag",
+            "stang_perioder",
+            "koppla_bort_underlag",
+            "koppla_banktransaktion",
+            "foresla_faktura",
+            "andra_fakturautkast",
+            "koppla_bort_banktransaktion",
+            "registrera_anstalld",
+            "satt_lon",
+            "skapa_lonekorning",
+            "foresla_rakenskapsar",
+            "foresla_bolagsinformation",
+        }
         read_tool_names = set(_EXPECTED_TOOL_NAMES) - write_tool_names
         for tool in AGENT_TOOL_DEFINITIONS:
             if tool["name"] in read_tool_names:
@@ -1438,8 +1670,16 @@ class FakeLLMClient:
         messages: list[dict],
         tools: list[dict],
         model: str,
-        max_tokens: int,
+        max_tokens: Optional[int],
+        on_text: Optional[Callable[[str], None]] = None,
+        on_tool_call: Optional[Callable[[str], None]] = None,
     ) -> LLMTurn:
+        # `on_text`/`on_tool_call` are SPEC-tradar.md T5's streaming hooks.
+        # This double accepts them so it still satisfies `LLMClient`
+        # structurally, and calls `on_tool_call` because `AgentWorker` now
+        # reports the live tool name through it -- but it never streams
+        # text: a document pass has nobody watching it write, and
+        # `AgentWorker` passes no `on_text` at all.
         self.calls.append(
             {
                 "system": system,
@@ -1449,9 +1689,11 @@ class FakeLLMClient:
                 "max_tokens": max_tokens,
             }
         )
-        if len(self._turns) > 1:
-            return self._turns.pop(0)
-        return self._turns[0]
+        turn = self._turns.pop(0) if len(self._turns) > 1 else self._turns[0]
+        if on_tool_call is not None:
+            for tool_call in turn.tool_calls:
+                on_tool_call(tool_call.name)
+        return turn
 
 
 def _run_test_session(
@@ -1607,7 +1849,7 @@ class TestSessionTurnLimit:
     def test_case_7_turn_limit_reached_without_an_outcome(self, tmp_path):
         _ensure_agent_tool_accounts()
         source = _agent_tool_intake_source(tmp_path)
-        harmless_call = ToolCall(id="call-1", name="las_kontoplan", arguments={})
+        harmless_call = ToolCall(id="call-1", name="las_bankhandelser", arguments={})
         client = FakeLLMClient(
             [
                 LLMTurn(
@@ -1629,6 +1871,99 @@ class TestSessionTurnLimit:
         assert outcome.usage == Usage(15, 15, 0)
 
 
+class TestSessionDocumentToolSurface:
+    """A document pass books from the bookkeeping instructions, not by
+    reading the books' history: the broad history reads are not offered, and
+    a call to one anyway is refused rather than run."""
+
+    def test_history_reads_are_not_offered_to_a_document_pass(self, tmp_path):
+        _ensure_agent_tool_accounts()
+        source = _agent_tool_intake_source(tmp_path)
+        client = FakeLLMClient(
+            [LLMTurn(text="", tool_calls=[], stop="end", usage=Usage(1, 1, 0))],
+            capabilities=_capabilities(True),
+        )
+
+        _run_test_session(client, source)
+
+        offered = [t["name"] for t in client.calls[0]["tools"]]
+        assert not HISTORY_READ_TOOLS & set(offered)
+        assert offered == [t["name"] for t in DOCUMENT_TOOL_DEFINITIONS]
+        assert set(offered) | HISTORY_READ_TOOLS == {
+            t["name"] for t in AGENT_TOOL_DEFINITIONS
+        }
+
+    def test_a_call_to_a_tool_not_offered_is_refused_not_run(self, tmp_path):
+        _ensure_agent_tool_accounts()
+        source = _agent_tool_intake_source(tmp_path)
+        history_call = ToolCall(
+            id="call-1",
+            name="las_verifikationer",
+            arguments={"limit": 200, "status": "posted"},
+        )
+        client = FakeLLMClient(
+            [
+                LLMTurn(
+                    text="",
+                    tool_calls=[history_call],
+                    stop="tool_calls",
+                    usage=Usage(1, 1, 0),
+                ),
+                LLMTurn(text="", tool_calls=[], stop="end", usage=Usage(1, 1, 0)),
+            ],
+            capabilities=_capabilities(True),
+        )
+
+        outcome = _run_test_session(client, source)
+
+        executed = outcome.turns[0].executed_tool_calls
+        assert len(executed) == 1
+        assert executed[0].ok is False
+        assert "tool_not_offered" in executed[0].error
+        tool_result = client.calls[1]["messages"][-1]["content"][0]
+        assert tool_result["is_error"] is True
+
+
+class TestSokVerifikationer:
+    """The targeted lookup the document pass has in place of the history
+    reads: finds the one voucher a payment settles, never a dump."""
+
+    def test_is_offered_to_a_document_pass(self):
+        assert "sok_verifikationer" in {t["name"] for t in DOCUMENT_TOOL_DEFINITIONS}
+
+    def test_finds_a_posted_voucher_by_its_text(self, tmp_path):
+        _ensure_agent_tool_accounts()
+        period = _agent_tool_period()
+        source = _agent_tool_intake_source(tmp_path)
+        execute_tool(
+            "posta_verifikation",
+            _posta_verifikation_args(period.id, source.id),
+            actor="agent",
+            capabilities=_capabilities(True),
+        )
+
+        result = execute_tool(
+            "sok_verifikationer",
+            {"sokord": "Fello"},
+            actor="agent",
+            capabilities=_capabilities(True),
+        )
+
+        assert result["total"] == 1
+        assert result["items"][0]["description"] == "Telefonutgift Fello"
+        assert result["items"][0]["rows"]
+
+    def test_needs_a_search_term_and_caps_at_ten(self):
+        for arguments in ({}, {"sokord": "ab"}, {"sokord": "Fello", "limit": 11}):
+            with pytest.raises(ValidationError):
+                execute_tool(
+                    "sok_verifikationer",
+                    arguments,
+                    actor="agent",
+                    capabilities=_capabilities(True),
+                )
+
+
 class TestSessionPostingEndsImmediately:
     """Edge case worth locking down: a successful `posta_verifikation` call
     ends the session immediately, even if the same turn queued other tool
@@ -1646,7 +1981,7 @@ class TestSessionPostingEndsImmediately:
             name="posta_verifikation",
             arguments=_posta_verifikation_args(period.id, source.id),
         )
-        harmless_call = ToolCall(id="call-2", name="las_kontoplan", arguments={})
+        harmless_call = ToolCall(id="call-2", name="las_bankhandelser", arguments={})
         client = FakeLLMClient(
             [
                 LLMTurn(
@@ -1855,7 +2190,7 @@ class TestSessionOutputTokenCap:
     ):
         _ensure_agent_tool_accounts()
         source = _agent_tool_intake_source(tmp_path)
-        harmless_call = ToolCall(id="call-1", name="las_kontoplan", arguments={})
+        harmless_call = ToolCall(id="call-1", name="las_bankhandelser", arguments={})
         client = FakeLLMClient(
             [
                 LLMTurn(
@@ -2147,6 +2482,34 @@ class TestAgentWorkerConnectionError:
         assert refreshed.status == IntakeStatus.PENDING
 
 
+class TestAgentWorkerUnexpectedError:
+    """An error nobody categorized stops the pass with a word of why, on the
+    run and on the source -- not a run left `running` and a traceback only
+    in the log (seen in production: `UnrecognizedFinishReasonError`)."""
+
+    def test_unexpected_error_fails_the_run_and_leaves_the_source_pending(
+        self, agent_intake_dir, tmp_path
+    ):
+        _ensure_agent_tool_accounts()
+        _agent_tool_period()
+        source = _agent_tool_intake_source(tmp_path)
+
+        class _BrokenClient:
+            capabilities = _capabilities(True)
+
+            def run_turn(self, **kwargs):
+                raise RuntimeError("adapter could not read the response")
+
+        run = AgentWorker().run_pass_once(client_factory=lambda model: _BrokenClient())
+
+        assert run is not None
+        assert run.status == "failed"
+        assert run.last_error == "RuntimeError: adapter could not read the response"
+        events = AgentRunRepository.list_events(run.id)
+        assert [(e.kind, e.source_id) for e in events][-1] == ("error", source.id)
+        assert IntakeService().get_source(source.id).status == IntakeStatus.PENDING
+
+
 class TestAgentWorkerRateLimitError:
     """SPEC §9 test case 11."""
 
@@ -2275,6 +2638,21 @@ class TestBuildLlmClient:
         assert client.capabilities.cache_breakpoint is True
         assert client.capabilities.pdf_document_blocks is True
 
+    def test_session_id_and_user_agent_reach_both_adapters(self, monkeypatch):
+        # OpenCode Go answers 400 `MissingSessionID` without
+        # `x-opencode-session`, and wants the client's own user agent
+        # (https://opencode.ai/docs/go/#where-can-i-use-it).
+        monkeypatch.setattr(settings, "llm_api_key", "dummy-test-key")
+
+        for model in ("opencode-go/glm-5.3", "opencode/claude-opus-5"):
+            client = build_llm_client(model, session_id="bok-thread-7")
+            headers = client._client.default_headers  # type: ignore[attr-defined]
+            assert headers["x-opencode-session"] == "bok-thread-7"
+            assert headers["User-Agent"] == "bok-agent/1.0"
+
+        without = build_llm_client("opencode-go/glm-5.3")
+        assert "x-opencode-session" not in without._client.default_headers  # type: ignore[attr-defined]
+
     def test_chat_protocol_resolves_to_a_chat_client(self, monkeypatch):
         from services.llm.chat import ChatClient
 
@@ -2294,6 +2672,41 @@ class TestBuildLlmClient:
         assert client.capabilities.pdf_document_blocks is False
         assert client.capabilities.refusal_stop_reason is False
 
+    @pytest.mark.parametrize(
+        "model, base_url",
+        [
+            # The Anthropic SDK appends /v1/messages itself, so a Messages
+            # model's SDK gets the gateway base without its /v1.
+            ("opencode-go/glm-5.3", "https://go.example/v1"),
+            ("opencode-go/minimax-m3", "https://go.example"),
+            ("opencode/gpt-5.5", "https://zen.example/v1"),
+            ("opencode/claude-opus-5", "https://zen.example"),
+        ],
+    )
+    def test_model_prefix_picks_the_gateway(self, monkeypatch, model, base_url):
+        import services.llm.chat as chat_module
+        import services.llm.messages as messages_module
+
+        monkeypatch.setattr(settings, "llm_base_url", "https://zen.example/v1")
+        monkeypatch.setattr(settings, "llm_go_base_url", "https://go.example/v1")
+        monkeypatch.setattr(settings, "llm_api_key", "zen-key")
+        monkeypatch.setattr(settings, "llm_go_api_key", "go-key")
+        constructed: list[dict] = []
+
+        def fake_sdk(**kwargs):
+            constructed.append(kwargs)
+            return object()
+
+        monkeypatch.setattr(messages_module.anthropic, "Anthropic", fake_sdk)
+        monkeypatch.setattr(chat_module.openai, "OpenAI", fake_sdk)
+
+        build_llm_client(model)
+
+        expected_key = "go-key" if model.startswith("opencode-go/") else "zen-key"
+        assert len(constructed) == 1
+        assert constructed[0]["api_key"] == expected_key
+        assert constructed[0]["base_url"] == base_url
+
     def test_unsupported_protocol_raises_unsupported_protocol_error(self, monkeypatch):
         # Every real model registered in services/llm/__init__.py resolves
         # to "messages" or "chat" (SPEC §2's two built adapters) -- there is
@@ -2308,6 +2721,8 @@ class TestBuildLlmClient:
             model="some/gemini-model",
             protocol="gemini",  # type: ignore[arg-type]
             price=get_model_info("opencode/claude-opus-5").price,
+            provider="opencode",
+            api_model="gemini-model",
         )
         monkeypatch.setattr(
             agent_runtime_module, "get_model_info", lambda model: fake_info

@@ -61,6 +61,9 @@ def _filter_posted_vouchers(
     month: Optional[int] = None,
 ):
     vouchers, _ = VoucherRepository.list_all(status="posted")
+    # A posted `IB`-series voucher predates migration 033: opening state,
+    # not a movement (services/opening_balance.py).
+    vouchers = [v for v in vouchers if v.series.value != "IB"]
     if fiscal_year_id:
         vouchers = [v for v in vouchers if v.fiscal_year_id == fiscal_year_id]
     elif year:
@@ -217,44 +220,48 @@ async def get_balance_sheet(
     if as_of_date and not year:
         target_year = date_type.fromisoformat(as_of_date).year
 
-    # Separate IB vouchers from regular vouchers for the target year
-    ib_vouchers = []
-    regular_vouchers = []
-    prior_vouchers = []
+    from services.opening_balance import (
+        SOURCE_DERIVED,
+        SOURCE_NONE,
+        OpeningBalanceService,
+    )
 
+    # A posted `IB`-series voucher predates migration 033: opening state,
+    # never a movement. The opening balance comes from OpeningBalanceService.
+    opening_service = OpeningBalanceService()
+    regular_vouchers = []
     for voucher in vouchers:
+        if voucher.series.value == "IB":
+            continue
         voucher_date = _parse_voucher_date(voucher)
         if fiscal_year:
             if voucher.fiscal_year_id == fiscal_year.id:
-                if voucher.series.value == "IB":
-                    ib_vouchers.append(voucher)
-                else:
-                    regular_vouchers.append(voucher)
-            elif voucher_date < fiscal_year.start_date:
-                prior_vouchers.append(voucher)
-        elif target_year is None:
-            regular_vouchers.append(voucher)
-        elif voucher_date.year == target_year:
-            if voucher.series.value == "IB":
-                ib_vouchers.append(voucher)
-            else:
                 regular_vouchers.append(voucher)
-        elif voucher_date.year < target_year:
-            prior_vouchers.append(voucher)
+        elif target_year is None or voucher_date.year == target_year:
+            regular_vouchers.append(voucher)
+
+    if fiscal_year:
+        opening = opening_service.get(fiscal_year.id)
+        opening_net = opening.balances
+        opening_source = opening.source
+    elif target_year is not None:
+        opening_net = opening_service.position_at(date_type(target_year, 1, 1))
+        opening_source = SOURCE_DERIVED if opening_net else SOURCE_NONE
+    else:
+        # All posted vouchers: opening is the first fiscal year's stated IB.
+        fiscal_years = PeriodRepository.list_fiscal_years()
+        opening_net, opening_source = {}, SOURCE_NONE
+        if fiscal_years:
+            first = min(fiscal_years, key=lambda fy: fy.start_date)
+            opening = opening_service.get(first.id)
+            opening_net, opening_source = opening.balances, opening.source
 
     all_accounts = AccountRepository.get_all_as_dict()
 
-    # Calculate opening balances from IB vouchers, or from prior year totals
-    opening_balances = {}
-    source_vouchers = ib_vouchers if ib_vouchers else prior_vouchers
-
-    for voucher in source_vouchers:
-        for row in voucher.rows:
-            code = row.account_code
-            if code not in opening_balances:
-                opening_balances[code] = {"debit": 0, "credit": 0}
-            opening_balances[code]["debit"] += row.debit or 0
-            opening_balances[code]["credit"] += row.credit or 0
+    opening_balances = {
+        code: {"debit": max(amount, 0), "credit": max(-amount, 0)}
+        for code, amount in opening_net.items()
+    }
 
     # Calculate changes from regular vouchers
     change_balances = {}
@@ -374,7 +381,11 @@ async def get_balance_sheet(
         "closing_equity_liabilities": closing_liabilities,
         "balanced": abs(closing_assets - closing_liabilities) < 100,
         "period": as_of_date or _period_label(year, None, fiscal_year_id),
-        "has_ib_vouchers": len(ib_vouchers) > 0,
+        # "stated" (the first year's, entered or imported), "derived" (from
+        # the previous year) or "none".
+        "opening_balance_source": opening_source,
+        # Deprecated: read by the old reports page. True when there is any IB.
+        "has_ib_vouchers": opening_source != SOURCE_NONE,
         # Asset categories with 3 columns
         "opening_current_assets": opening_current_assets,
         "opening_receivables": opening_receivables,

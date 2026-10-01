@@ -22,6 +22,10 @@
 #   --force-build  build even if the source did not change
 #   --no-pull      deploy the checkout in $SRC as it stands, without git pull
 #                  (for trying a commit before it is pushed; always rebuilds)
+#   --branch=NAME  switch the checkout to origin's NAME before pulling, e.g.
+#                  --branch=redesign-v4 to preview unmerged work; the checkout
+#                  stays on NAME until another --branch (use --branch=main to
+#                  go back)
 #
 set -euo pipefail
 
@@ -35,17 +39,21 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 BUILD=auto
 PULL=yes
+BRANCH=
 for arg in "$@"; do
   case "$arg" in
     --no-build)    BUILD=no ;;
     --force-build) BUILD=force ;;
     --no-pull)     PULL=no ;;
-    -h|--help)     sed -n '2,24p' "$0"; exit 0 ;;
+    --branch=?*)   BRANCH=${arg#--branch=} ;;
+    -h|--help)     sed -n '2,28p' "$0"; exit 0 ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
 done
 
 fail() { echo "error: $*" >&2; exit 1; }
+
+[ -n "$BRANCH" ] && [ "$PULL" = no ] && fail "--branch and --no-pull do not combine"
 
 [ "$(id -un)" = "e9wikner" ] || fail "run this as e9wikner, not $(id -un)"
 command -v podman >/dev/null || fail "podman not found — run the hubbabubba 'podman' role first"
@@ -71,6 +79,15 @@ if grep -qE '^(BOKFOERING_API_KEY|JWT_SECRET|AUTH_PASSWORD)=("")?$' "$ENV_FILE" 
   fail "$ENV_FILE has unset or placeholder values — fill in all three secrets"
 fi
 chmod 600 "$ENV_FILE"
+
+env_value() { sed -n "s/^$1=//p" "$ENV_FILE" | tail -1; }
+
+# An enabled runtime without a key starts, then fails every pass with an auth
+# error from the gateway. Refuse that here instead of finding it in the journal.
+if [ "$(env_value AGENT_RUNTIME_ENABLED | tr '[:upper:]' '[:lower:]')" = true ] &&
+   [ -z "$(env_value LLM_API_KEY)" ]; then
+  fail "$ENV_FILE sets AGENT_RUNTIME_ENABLED=true but no LLM_API_KEY"
+fi
 
 mkdir -p "$APPDATA/data" "$QUADLET_DIR"
 
@@ -134,15 +151,30 @@ if [ "$PULL" = no ]; then
 elif [ -d "$SRC/.git" ]; then
   echo "==> updating $SRC"
   before=$(git -C "$SRC" rev-parse HEAD)
+  if [ -n "$BRANCH" ] && [ "$(git -C "$SRC" branch --show-current)" != "$BRANCH" ]; then
+    git -C "$SRC" fetch origin "$BRANCH"
+    # `switch` alone creates a tracking branch from origin/NAME the first time.
+    git -C "$SRC" switch "$BRANCH"
+  fi
   git -C "$SRC" pull --ff-only
   after=$(git -C "$SRC" rev-parse HEAD)
   [ "$before" = "$after" ] && changed=0 || true
 else
   echo "==> cloning $REPO -> $SRC"
-  git clone "$REPO" "$SRC"
+  git clone ${BRANCH:+--branch "$BRANCH"} "$REPO" "$SRC"
 fi
+echo "==> source: $(git -C "$SRC" branch --show-current) at $(git -C "$SRC" rev-parse --short HEAD)"
 
 # ── build ───────────────────────────────────────────────────────────────
+# NEXT_PUBLIC_SKAL turns on the new shell at /v4 (SPEC-skal.md §3). Next.js
+# inlines NEXT_PUBLIC_* at build time, so it is a build arg, not a runtime env
+# var, and changing it in bok.env must trigger a frontend rebuild. The image
+# carries the value it was built with as a label to compare against.
+skal=$(env_value NEXT_PUBLIC_SKAL)
+built_skal=$(podman image inspect --format '{{ index .Labels "bok.skal" }}' \
+  bok-frontend:latest 2>/dev/null || true)
+[ "$built_skal" = "<no value>" ] && built_skal=
+
 do_build=0
 if [ "$BUILD" = force ]; then
   do_build=1
@@ -151,6 +183,9 @@ elif [ "$BUILD" = no ]; then
 elif [ "$changed" = 1 ]; then
   do_build=1
 elif ! podman image exists bok-api:latest || ! podman image exists bok-frontend:latest; then
+  do_build=1
+elif [ "$BUILD" = auto ] && [ "$skal" != "$built_skal" ]; then
+  echo "==> NEXT_PUBLIC_SKAL changed ('$built_skal' -> '$skal'), rebuilding"
   do_build=1
 fi
 
@@ -169,6 +204,8 @@ if [ "$do_build" = 1 ]; then
   # origin and Next proxies /api + /health server-side.
   podman build -t bok-frontend:latest \
     --build-arg BACKEND_URL=http://127.0.0.1:8000 \
+    --build-arg NEXT_PUBLIC_SKAL="$skal" \
+    --label bok.skal="$skal" \
     "$SRC/frontend-v3"
 else
   echo "==> source unchanged, skipping build (--force-build to override)"
@@ -179,6 +216,26 @@ echo "==> installing quadlets into $QUADLET_DIR"
 install -m 0644 "$SCRIPT_DIR/bok-api.container"      "$QUADLET_DIR/bok-api.container"
 install -m 0644 "$SCRIPT_DIR/bok-frontend.container" "$QUADLET_DIR/bok-frontend.container"
 systemctl --user daemon-reload
+
+# ── database snapshot ───────────────────────────────────────────────────
+# New code may carry new migrations, and bok-api applies them on start. Take a
+# copy of the database first, with the API stopped so the copy is consistent
+# (it runs in WAL mode). This is the "before the migration" point the nightly
+# Btrfs snapshot cannot promise. Restoring one discards everything booked
+# after it — see README.md "Rollback" before reaching for it.
+db=$APPDATA/data/bokfoering.db
+if [ "$do_build" = 1 ] && [ -f "$db" ]; then
+  snap=$APPDATA/backups/$(date +%Y%m%d-%H%M%S)
+  echo "==> stopping bok-api, snapshotting the database to $snap"
+  systemctl --user stop bok-api.service
+  mkdir -p "$snap"
+  for f in "$db" "$db-wal" "$db-shm"; do
+    [ -f "$f" ] && cp -p "$f" "$snap/"
+  done
+  # Keep the five newest. The names are timestamps, so they sort by age.
+  find "$APPDATA/backups" -mindepth 1 -maxdepth 1 -type d -name '2*-*' |
+    sort | head -n -5 | xargs -r rm -rf
+fi
 
 # ── (re)start ───────────────────────────────────────────────────────────
 echo "==> restarting units"
@@ -197,7 +254,6 @@ printf 'api      '; curl -fsS  http://127.0.0.1:8000/health; echo
 printf 'frontend '; curl -fsS  http://127.0.0.1:3000/health; echo
 printf 'login    '; curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/login
 
-db=$APPDATA/data/bokfoering.db
 [ -f "$db" ] && printf 'db owner %s (want e9wikner:e9wikner)\n' "$(stat -c '%U:%G' "$db")"
 
 # The classic folder-intake failure is a scanner that dies quietly: files pile
@@ -209,6 +265,13 @@ if [ -n "$api_key" ]; then
   curl -fsS -H "Authorization: Bearer $api_key" \
     http://127.0.0.1:8000/api/v1/intake/dropzone/status || echo '(no answer)'
   echo
+  printf 'agent    '
+  curl -fsS -H "Authorization: Bearer $api_key" \
+    http://127.0.0.1:8000/api/v1/agent/status || echo '(no answer)'
+  echo
+fi
+if [ -n "$skal" ]; then
+  printf 'v4       '; curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/v4
 fi
 
 echo

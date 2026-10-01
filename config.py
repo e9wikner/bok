@@ -1,8 +1,9 @@
 """Application configuration."""
 
 import os
+from typing import Optional
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -65,19 +66,62 @@ class Settings(BaseSettings):
     # Never log, print, or otherwise surface this value -- see §12.6.
     llm_api_key: str = os.getenv("LLM_API_KEY", "")
     llm_base_url: str = os.getenv("LLM_BASE_URL", "https://opencode.ai/zen/v1")
-    llm_default_model: str = os.getenv("LLM_DEFAULT_MODEL", "opencode/claude-opus-5")
+    # OpenCode Go, the subscription gateway. Picked per model by the
+    # `opencode-go/` prefix (services/llm/__init__.py), so Zen and Go models
+    # can be used side by side. The key comes from the same OpenCode
+    # account; an empty `LLM_GO_API_KEY` falls back to `LLM_API_KEY`.
+    llm_go_base_url: str = os.getenv("LLM_GO_BASE_URL", "https://opencode.ai/zen/go/v1")
+    # Same rule as `llm_api_key`: never log, print, or surface it.
+    llm_go_api_key: str = os.getenv("LLM_GO_API_KEY", "")
+    llm_default_model: str = os.getenv("LLM_DEFAULT_MODEL", "opencode-go/glm-5.3")
 
-    # The four caps (SPEC §6.5). Checked between source documents and between
+    # The caps (SPEC §6.5). Checked between source documents and between
     # tool turns, never inside a `with db.transaction():`.
     agent_max_tool_turns_per_item: int = int(
         os.getenv("AGENT_MAX_TOOL_TURNS_PER_ITEM", "25")
     )
-    agent_max_output_tokens_per_item: int = int(
-        os.getenv("AGENT_MAX_OUTPUT_TOKENS_PER_ITEM", "32000")
-    )
-    # 50 kr/day, expressed in öre (this codebase's amount convention).
-    agent_daily_budget_ore: int = int(os.getenv("AGENT_DAILY_BUDGET_ORE", "5000"))
+    # The token and cost caps are opt-in: unset or empty means no cap. Read
+    # by pydantic from the environment under the field's own name.
+    #
+    # Cumulative output tokens per source document / thread turn.
+    agent_max_output_tokens_per_item: Optional[int] = None
+    # Output tokens per single model call. With none, a Chat model runs to
+    # its own limit; the Messages protocol requires a value, see
+    # `services/llm/messages.py`.
+    agent_max_tokens_per_turn: Optional[int] = None
+    # Daily spend in öre (this codebase's amount convention), e.g. 5000 for
+    # 50 kr.
+    agent_daily_budget_ore: Optional[int] = None
     agent_max_items_per_pass: int = int(os.getenv("AGENT_MAX_ITEMS_PER_PASS", "20"))
+
+    # The thread window (SPEC-tradar.md §6.3, open question 1). A token
+    # budget, not a number of posts: a `draft` post and an `agent_text`
+    # differ by an order of magnitude in size, so counting posts would give
+    # two very different context sizes the same name. What does not fit is
+    # left out -- never summarized (§6.3: an LLM summary of earlier
+    # bookkeeping conversation, used as the basis for a posting, is exactly
+    # the second-hand text ANALYS.md §7 warns about).
+    agent_thread_window_tokens: int = int(
+        os.getenv("AGENT_THREAD_WINDOW_TOKENS", "12000")
+    )
+
+    @field_validator(
+        "agent_max_output_tokens_per_item",
+        "agent_max_tokens_per_turn",
+        "agent_daily_budget_ore",
+        mode="before",
+    )
+    @classmethod
+    def _empty_means_no_cap(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    def gateway_for(self, provider: str) -> tuple[str, str]:
+        """(base_url, api_key) for a model's gateway -- `ModelInfo.provider`."""
+        if provider == "opencode-go":
+            return self.llm_go_base_url, self.llm_go_api_key or self.llm_api_key
+        return self.llm_base_url, self.llm_api_key
 
     @property
     def cors_origins_list(self) -> list[str]:

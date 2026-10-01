@@ -1,13 +1,22 @@
 """API routes for voucher source intake."""
 
-from typing import Annotated
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+)
 from fastapi import status as http_status
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, create_model
 
-from api.deps import get_current_actor
+from api.deps import Caller, get_caller, get_current_actor
 from domain.models import (
     BankInput,
     IntakeProcessingAttempt,
@@ -15,9 +24,12 @@ from domain.models import (
     VoucherIntakeSource,
 )
 from domain.types import BankInputStatus, IntakeStatus
+from domain.validation import ValidationError
 from repositories.bank_input_repo import BankInputRepository
 from repositories.intake_repo import IntakeRepository
+from services.agent_tools import TolkaUnderlagArgs
 from services.dropzone import dropzone_status
+from services.fiscal_year_proposal import FiscalYearProposalService
 from services.intake import (
     DuplicateIntakeSourceError,
     IntakeConflictError,
@@ -26,6 +38,16 @@ from services.intake import (
     IntakeNotFoundError,
     IntakeService,
     IntakeValidationError,
+)
+from services.intake_link import (
+    IntakeLinkService,
+    LinkConflictError,
+    LinkNotFoundError,
+    LinkRejectedError,
+)
+from services.interpretation_service import (
+    InterpretationNotFoundError,
+    InterpretationService,
 )
 
 router = APIRouter(prefix="/api/v1/intake", tags=["intake"])
@@ -37,6 +59,47 @@ class UpdateAgentGuidanceRequest(BaseModel):
     """Request to update agent guidance for an intake source."""
 
     agent_guidance: str | None = None
+
+
+class LinkRequest(BaseModel):
+    """`koppla_underlag`'s arguments without `source_id`, which the path
+    carries (SPEC-flode-underlag.md §7). Nothing else: the basis is the
+    interpretation or the decision, never something the caller states."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    voucher_id: str
+    decision_id: str | None = None
+
+
+class UnlinkRequest(BaseModel):
+    """`koppla_bort_underlag`'s arguments without `source_id`. With the API
+    key `decision_id` is required; a logged-in user needs none."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    voucher_id: str
+    reason: str
+    decision_id: str | None = None
+
+
+# `tolka_underlag`'s arguments without `source_id`, which the path carries
+# (SPEC-underlagstolkning.md §8, §12.6 f). Built from the tool's own fields
+# so the two cannot drift, and without touching the tool's model: its
+# schema is the cached prefix. `extra="forbid"` as the tool's, so a
+# `confidence`, `hypothesis` or `source_id` in the body is a 422. A model
+# made at runtime is no type to mypy, hence the two ignores in the route.
+_INTERPRETATION_FIELDS: dict[str, Any] = {
+    name: (field.annotation, field)
+    for name, field in TolkaUnderlagArgs.model_fields.items()
+    if name != "source_id"
+}
+InterpretationRequest = create_model(
+    "InterpretationRequest",
+    __config__=ConfigDict(extra="forbid"),
+    __doc__=TolkaUnderlagArgs.__doc__,
+    **_INTERPRETATION_FIELDS,
+)
 
 
 @router.post("", response_model=dict, status_code=http_status.HTTP_201_CREATED)
@@ -162,9 +225,12 @@ async def get_intake_workspace_detail(
                 _attempt_to_dict(attempt)
                 for attempt in service.list_attempts_for_source(source.id)
             ],
+            # The whole history: an undone link stays, marked `unlinked_at`.
             "voucher_links": [
                 _voucher_source_link_to_dict(link)
-                for link in service.sources.list_links_for_source(source.id)
+                for link in service.sources.list_links_for_source(
+                    source.id, include_unlinked=True
+                )
             ],
             "deleted_at": source.deleted_at.isoformat() if source.deleted_at else None,
             "deleted_by": source.deleted_by,
@@ -188,6 +254,116 @@ async def get_intake_workspace_detail(
         ],
         "transactions": bank_repo.list_transaction_signals_for_input(bank_input.id),
     }
+
+
+@router.get("/{source_id}/interpretation", response_model=dict)
+async def get_intake_interpretation(
+    source_id: str,
+    actor: str = Depends(get_current_actor),
+):
+    """The latest interpretation of a source (SPEC-underlagstolkning.md §8).
+
+    Read-only: the interpretation is made by the agent's `tolka_underlag`
+    or the `POST` below, and `match.still_open` is derived at read time.
+    """
+    try:
+        return InterpretationService().latest(source_id)
+    except IntakeError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post(
+    "/{source_id}/interpretation",
+    response_model=dict,
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def create_intake_interpretation(
+    source_id: str,
+    request: InterpretationRequest,  # type: ignore[valid-type]
+    actor: str = Depends(get_current_actor),
+):
+    """Interpret a source as `tolka_underlag` does, for a session without
+    the tool (SPEC-underlagstolkning.md §8, §12.6 f).
+
+    Adds one interpretation row and answers in §6.5's form; nothing in the
+    books changes and no model is called -- the read is the caller's. No
+    thread and no agent run: both are `NULL` on the row.
+    """
+    args = TolkaUnderlagArgs.model_validate(
+        {**request.model_dump(), "source_id": source_id}  # type: ignore[attr-defined]
+    )
+    try:
+        return InterpretationService().interpret(
+            args, actor=actor, thread_id=None, agent_run_id=None
+        )
+    except IntakeError as exc:
+        raise _http_error(exc) from exc
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail={"error": exc.message, "code": exc.code, "details": exc.details},
+        ) from exc
+
+
+@router.post(
+    "/{source_id}/link",
+    response_model=dict,
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def link_intake_source(
+    source_id: str,
+    request: LinkRequest,
+    response: Response,
+    actor: str = Depends(get_current_actor),
+):
+    """Link a source to an already posted voucher, as `koppla_underlag`
+    does, for a session without the tool (SPEC-flode-underlag.md §7).
+
+    The same service and the same rules: an exact, still open match, or an
+    answered decision about the source from a thread. `201` when linked,
+    `200` with `replayed: true` when the source already is. No `PUT`,
+    `PATCH` or `DELETE`: a link is not changed or removed.
+    """
+    try:
+        result = IntakeLinkService().link(
+            source_id,
+            request.voucher_id,
+            decision_id=request.decision_id,
+            actor=actor,
+            thread_id=None,
+            agent_run_id=None,
+        )
+    except IntakeError as exc:
+        raise _http_error(exc) from exc
+    if result.replayed:
+        response.status_code = http_status.HTTP_200_OK
+    return result.to_dict()
+
+
+@router.post("/{source_id}/unlink", response_model=dict)
+async def unlink_intake_source(
+    source_id: str,
+    request: UnlinkRequest,
+    caller: Caller = Depends(get_caller),
+):
+    """Undo a wrong link (underlag-ersatt): the link row stays as the
+    trace, a `voucher_intake_unlinks` row says it no longer holds, and the
+    source can be linked again. A logged-in user may do it on their own
+    say; the agent's API key needs an answered decision about the
+    underlag. `200` both when undone and on a replay (`replayed: true`).
+    No voucher is created, changed or removed."""
+    try:
+        result = IntakeLinkService().unlink(
+            source_id,
+            request.voucher_id,
+            reason=request.reason,
+            actor=caller.actor,
+            human=caller.human,
+            decision_id=request.decision_id,
+        )
+    except IntakeError as exc:
+        raise _http_error(exc) from exc
+    return result.to_dict()
 
 
 @router.get("/{source_id}", response_model=dict)
@@ -318,6 +494,10 @@ def _workspace_source_item(source: IntakeSource, repo: IntakeRepository) -> dict
         "latest_processing_summary": latest_attempt.summary if latest_attempt else None,
         "latest_error_detail": latest_attempt.error_detail if latest_attempt else None,
         "linked_voucher_ids": [link.voucher_id for link in links],
+        # Dated outside every fiscal year, or waiting on a proposed one.
+        "date_warning": (
+            None if links else FiscalYearProposalService.source_date_warning(source.id)
+        ),
     }
 
 
@@ -344,6 +524,10 @@ def _workspace_bank_item(bank_input: BankInput, repo: BankInputRepository) -> di
         "transaction_count": len(transaction_ids),
         "match_signals": repo.list_transaction_signals_for_input(bank_input.id),
         "linked_voucher_ids": [link.voucher_id for link in links],
+        # Transactions no fiscal year holds: not bookable, shown in no year.
+        "transactions_outside_fiscal_years": (
+            repo.count_transactions_outside_fiscal_years(bank_input.id)
+        ),
     }
 
 
@@ -390,6 +574,9 @@ def _voucher_source_link_to_dict(link: VoucherIntakeSource) -> dict:
         "linked_by": link.linked_by,
         "linked_at": link.linked_at.isoformat(),
         "link_reason": link.link_reason,
+        "unlinked_at": link.unlinked_at.isoformat() if link.unlinked_at else None,
+        "unlinked_by": link.unlinked_by,
+        "unlink_reason": link.unlink_reason,
     }
 
 
@@ -405,9 +592,16 @@ def _bank_input_link_to_dict(link) -> dict:
 
 def _http_error(exc: IntakeError) -> HTTPException:
     status_code = http_status.HTTP_400_BAD_REQUEST
-    if isinstance(exc, DuplicateIntakeSourceError):
+    # The link's three groups (SPEC-flode-underlag.md §7), on type.
+    if isinstance(exc, LinkNotFoundError):
+        status_code = http_status.HTTP_404_NOT_FOUND
+    elif isinstance(exc, LinkConflictError):
         status_code = http_status.HTTP_409_CONFLICT
-    elif isinstance(exc, IntakeNotFoundError):
+    elif isinstance(exc, LinkRejectedError):
+        status_code = http_status.HTTP_400_BAD_REQUEST
+    elif isinstance(exc, DuplicateIntakeSourceError):
+        status_code = http_status.HTTP_409_CONFLICT
+    elif isinstance(exc, (IntakeNotFoundError, InterpretationNotFoundError)):
         status_code = http_status.HTTP_404_NOT_FOUND
     elif isinstance(exc, IntakeConflictError):
         status_code = http_status.HTTP_409_CONFLICT
@@ -420,7 +614,10 @@ def _http_error(exc: IntakeError) -> HTTPException:
     elif isinstance(exc, IntakeValidationError):
         status_code = http_status.HTTP_400_BAD_REQUEST
 
-    return HTTPException(
-        status_code=status_code,
-        detail={"error": exc.message, "code": exc.code, "details": exc.details},
-    )
+    detail = {"error": exc.message, "code": exc.code, "details": exc.details}
+    if isinstance(exc, DuplicateIntakeSourceError) and exc.existing_id:
+        # SPEC-flode-underlag.md §7, §10.2: the client drops the same
+        # receipt again by using the existing source -- as a field, not
+        # parsed out of `details`.
+        detail["existing_id"] = exc.existing_id
+    return HTTPException(status_code=status_code, detail=detail)

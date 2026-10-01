@@ -1,6 +1,6 @@
 """Business rule validation."""
 
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from domain.models import FiscalYear, Period, Voucher
 
@@ -8,11 +8,29 @@ from domain.models import FiscalYear, Period, Voucher
 class ValidationError(Exception):
     """Business validation error."""
 
-    def __init__(self, code: str, message: str, details: Optional[str] = None):
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        details: Optional[str] = None,
+        payload: Optional[Dict[str, Any]] = None,
+    ):
         self.code = code
         self.message = message
         self.details = details
+        # Data the caller needs to act on the error (e.g. `missing`).
+        self.payload: Dict[str, Any] = payload or {}
         super().__init__(f"{code}: {message}")
+
+
+def period_lock_payload(period: Period) -> Dict[str, Any]:
+    """Who locked *period* and when, for a `period_locked` error
+    (SPEC-fakturering.md §5)."""
+    return {
+        "period_id": period.id,
+        "locked_by": period.locked_by,
+        "locked_at": period.locked_at.isoformat() if period.locked_at else None,
+    }
 
 
 class VoucherValidator:
@@ -71,6 +89,7 @@ class VoucherValidator:
                 code="period_locked",
                 message=f"Period {period.id} is locked - cannot post vouchers",
                 details="period is immutable after locking",
+                payload=period_lock_payload(period),
             )
 
         if not (period.start_date <= voucher.date <= period.end_date):
@@ -116,12 +135,30 @@ class PeriodValidator:
 
     @staticmethod
     def validate_can_lock(period: Period) -> None:
-        """Check if period can be locked (irreversible)."""
+        """Check if period can be locked."""
         if period.locked:
             raise ValidationError(
                 code="already_locked",
                 message="Period is already locked",
                 details="period cannot be locked twice",
+            )
+
+    @staticmethod
+    def validate_can_unlock(period: Period, fiscal_year: Optional[FiscalYear]) -> None:
+        """Check if period can be opened again. A month in a locked fiscal
+        year stays locked until the year is opened: the year's lock means
+        every month in it is locked."""
+        if not period.locked:
+            raise ValidationError(
+                code="not_locked",
+                message="Period is not locked",
+                details="only a locked period can be unlocked",
+            )
+        if fiscal_year is not None and fiscal_year.locked:
+            raise ValidationError(
+                code="fiscal_year_locked",
+                message="Fiscal year is locked - unlock the fiscal year instead",
+                details=f"fiscal_year_id={fiscal_year.id}",
             )
 
     @staticmethod
@@ -132,6 +169,7 @@ class PeriodValidator:
                 code="period_locked",
                 message="Period is locked - cannot add vouchers",
                 details="period is immutable after locking",
+                payload=period_lock_payload(period),
             )
 
 
@@ -146,6 +184,16 @@ class FiscalYearValidator:
                 code="already_locked",
                 message="Fiscal year is already locked",
                 details="fiscal_year cannot be locked twice",
+            )
+
+    @staticmethod
+    def validate_can_unlock(fiscal_year: FiscalYear) -> None:
+        """Check if fiscal year can be opened again."""
+        if not fiscal_year.locked:
+            raise ValidationError(
+                code="not_locked",
+                message="Fiscal year is not locked",
+                details="only a locked fiscal year can be unlocked",
             )
 
 
