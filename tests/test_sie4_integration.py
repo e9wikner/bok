@@ -40,7 +40,8 @@ def client(test_db):
 
     from api.main import app
 
-    return TestClient(app)
+    # Every route needs the bearer, reads too (api/main.py).
+    return TestClient(app, headers={"Authorization": f"Bearer {settings.api_key}"})
 
 
 @pytest.fixture

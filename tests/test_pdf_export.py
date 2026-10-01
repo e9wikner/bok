@@ -6,12 +6,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api.main import app
+from config import settings
 
 
 @pytest.fixture
 def client(test_db):
     # Without company query parameters the route reads `company_info`.
-    return TestClient(app)
+    # Every route needs the bearer, reads too (api/main.py).
+    return TestClient(app, headers={"Authorization": f"Bearer {settings.api_key}"})
 
 
 def test_pdf_export_invoice_endpoint_exists(client):

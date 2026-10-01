@@ -1,7 +1,6 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Banknote, FileText, Landmark, Plus, ReceiptText, Search, Send, Trash2, WalletCards } from "lucide-react";
 
@@ -10,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAgi, usePayrollEmployees, usePayrollRuns } from "@/hooks/useData";
 import { api, PayrollEmployee, PayrollRun } from "@/lib/api";
+import { oppnaFil } from "@/lib/chattyta/api";
 
 const inputClass =
   "w-full rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring";
@@ -520,11 +520,9 @@ export default function PayrollPage() {
                               </td>
                               <td className="p-4">
                                 <div className="flex justify-end gap-2">
-                                  <Link href={api.getPayslipPdfUrl(payslip.id)} target="_blank">
-                                    <Button variant="outline" size="sm">
-                                      <FileText className="h-4 w-4" />
-                                    </Button>
-                                  </Link>
+                                  <Button variant="outline" size="sm" onClick={() => void oppnaFil(`/api/v1/export/pdf/payslip/${payslip.id}`)}>
+                                    <FileText className="h-4 w-4" />
+                                  </Button>
                                   <Button variant="outline" size="sm" onClick={() => markSent(payslip.id)} disabled={payslip.status !== "generated"}>
                                     <Send className="h-4 w-4" />
                                   </Button>

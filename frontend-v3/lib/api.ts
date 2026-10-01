@@ -1086,14 +1086,14 @@ export const api = {
     return data as Blob;
   },
 
-  // Attachment URL helper (for <img> src and links)
-  getAttachmentUrl: (voucherId: string, attachmentId: string) =>
-    `${API_URL}/api/v1/vouchers/${voucherId}/attachments/${attachmentId}`,
-  getIntakeFileUrl: (id: string) => `${API_URL}/api/v1/intake/${id}/file`,
-  getBankInputFileUrl: (id: string) =>
-    `${API_URL}/api/v1/bank-inputs/${id}/file`,
-  getPayslipPdfUrl: (payslipId: string) =>
-    `${API_URL}/api/v1/export/pdf/payslip/${payslipId}`,
+  // Every API route needs the bearer, files too, so a file is fetched as a
+  // Blob -- never a plain <img src> or href, which would carry no token.
+  getAttachmentFile: async (voucherId: string, attachmentId: string): Promise<Blob> => {
+    const { data } = await apiClient.get(`/api/v1/vouchers/${voucherId}/attachments/${attachmentId}`, {
+      responseType: "blob",
+    });
+    return data as Blob;
+  },
 
   // Audit Log
   getAuditLog: async (limit = 100, entityType?: string, action?: string) => {

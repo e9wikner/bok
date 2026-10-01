@@ -129,6 +129,11 @@ All settings come from environment variables via `config.py`. Notable:
 `DATABASE_URL`, `BOKFOERING_API_KEY`, `AUTH_USERNAME` / `AUTH_PASSWORD`,
 `JWT_SECRET`, `DEBUG`.
 
+Every route needs the bearer (the API key or a logged-in user's JWT), reads
+and files too; only `/`, `/health`, login and the agent entrypoint are public
+(`api/main.py`, guarded by `tests/test_api.py`). The frontend fetches files as
+blobs through `apiClient`, never as a plain `href` or `src`.
+
 To call the API as an agent, use `scripts/bok-curl` — it resolves the host from
 `BOK_API_URL` and sets the bearer header without the key entering the transcript.
 
