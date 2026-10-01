@@ -2,7 +2,7 @@
 
 Redesignen (`/v4`, bakom `NEXT_PUBLIC_SKAL`) är byggd: idempotens, översikt,
 agentruntime, trådar, beslut, skal, chattyta, flöde 1 (verifikationer), underlagstolkning,
-flöde 4 (underlag), läsbarhet och underlag-ersatt. Modulspecarna och uppgiftslistorna är
+flöde 4 (underlag), läsbarhet, underlag-ersatt och fakturering F0–F1. Modulspecarna och uppgiftslistorna är
 borttagna ur trädet. De finns i git-historiken, se `AGENTS.md`.
 
 Här står bara det som fortfarande väntar på ett beslut eller en kontroll. Stryk en punkt när
@@ -25,6 +25,9 @@ Det här är kontroller, inte beslut. De kräver en människa, och den första e
      `/send` och `/book` finns inte längre, så inget bokför dem.
    - Utfärda en riktig faktura. Kontrollera PDF:en mot förlagan och verifikationen
      (1510 mot 30xx/26xx).
+3. **Fakturering F1 med riktig LLM:** en faktura genom Fakturerings tråd, från meddelandet via
+   `foresla_faktura` och en ändring till `Utfärda` och kvittot. Kontrollera PDF:en mot
+   förlagan.
 
 ## Produktbeslut
 
@@ -75,16 +78,26 @@ Det här är kontroller, inte beslut. De kräver en människa, och den första e
    människa kan också använda routen direkt. Frånkopplade underlag visas i
    `source-context.unlinked_source_material`, men `/v4` ritar dem inte ännu.
 
-## Fakturering: senare faser
+## Fakturering
 
-F0 är byggd. F1–F4 är ramar och specas en i taget innan de byggs. Källan är
-`SPEC-fakturering.md` §10 i git-historiken (se `AGENTS.md`).
+F0 och F1 är byggda. Specarna står i git-historiken (se `AGENTS.md`).
 
-- **F1 Agenten och tråden.** Verktygen `las_kunder`, `las_fakturor`, `foresla_faktura`
-  (utkast som `FakturaForslag` i `betala.fakturering`, med föreslaget nummer synligt) och
-  `andra_fakturautkast`. Knappen "Utfärda" i kortet. Kvittot länkar PDF:en och
-  verifikationen. Läsvyn blir en skrivvy. Leveransdatum per rad går i dag bara att sätta via
-  API:t, inte i de gamla sidorna. F1:s formulär bör ta det.
+### F1: frågor som står öppna
+
+1. **Nya kunder.** Verktygen skapar ingen kund, så en ny kunds uppgifter står bara på fakturan.
+   Ska utfärdandet lägga till kunden i registret, eller behövs ett eget verktyg? Det kan vänta
+   tills det blir ett problem i praktiken.
+2. **Årsskiftet.** Ett förslag i förra årets tråd som utfärdas efter årsskiftet får sitt kvitto
+   i förslagets tråd. Hör ihop med produktbeslut 2.
+3. **Headerns tal räknas utan `view_key`** och tar därför med fakturaförslagen även på Böcker.
+   Det är konsekvent med verifikationsförslagen, men kanske inte önskvärt när fler sidor väntar.
+4. **Leveransdatum per rad** sätts av agenten (`foresla_faktura`) eller via API:t. De gamla
+   sidorna redigerar bara leveransen för hela utkastet.
+
+### Senare faser
+
+F2–F4 är ramar och specas en i taget innan de byggs.
+
 - **F2 Utskickad.** Människan markerar fakturan som skickad, med datum, för påminnelser. Ingen
   e-post från Bok. Triggern i migration 038 låser `sent_at` på en utfärdad faktura, och
   `sent_at` lämnas `NULL` vid utfärdandet. F2 lägger därför markeringen i en egen
@@ -120,10 +133,8 @@ Beteendet är inte ändrat. Det här är iakttagelser.
 - **De 24 gamla sidorna** i `frontend-v3` står kvar och ska tas bort en vy i taget när `/v4`
   används. `audit` (revisionsspåret, ett BFL-krav) får inte försvinna innan det finns en
   ersättare.
-- **Fakturering och Löner** ska byggas som läsvyer med tråd men utan skrivflöde. En faktura
-  skrivs genom att en inloggad människa utfärdar ett utkast (`POST /invoice-drafts/{id}/issue`,
-  i de gamla sidorna `/invoices`); `/v4`-vyn förblir läsvy till F1. Löner skrivs tills vidare
-  via `/payroll`.
+- **Löner** är läsvy med tråd men utan skrivflöde i `/v4`. Löner skrivs tills vidare via
+  `/payroll`. Fakturering är skrivvy sedan F1.
 - **`mypy .`** ger 58 fel i 22 filer. Alla fanns före redesignen.
 - **CI** har `continue-on-error: true` på backendens steg (pytest, black, isort, flake8, mypy)
   och Docker-bygget, liksom på frontendens lint. Bara `npm test` fäller bygget. En grön bock
