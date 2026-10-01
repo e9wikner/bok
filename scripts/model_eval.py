@@ -353,7 +353,16 @@ def _score(expected: dict, booked: Optional[dict]) -> str:
     if booked is None:
         return "no_booking"
     want, got = _net_by_account(expected["rows"]), _net_by_account(booked["rows"])
-    if want == got:
+    # A receipt in foreign currency fixes no SEK amount: the conversion
+    # differs between the card statement and any rate a model uses. Such a
+    # case sets "amount_tolerance" (a fraction, e.g. 0.05) and each account's
+    # amount may differ by that much; the accounts must still match.
+    tolerance = float(expected.get("amount_tolerance") or 0)
+    same_amounts = set(want) == set(got) and all(
+        abs(got[account] - amount) <= abs(amount) * tolerance
+        for account, amount in want.items()
+    )
+    if same_amounts:
         if expected.get("date") and expected["date"] != booked["date"]:
             return "right_rows_wrong_date"
         return "correct"

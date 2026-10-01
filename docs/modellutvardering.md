@@ -58,6 +58,9 @@ och instruktionsversion för varje ögonblicksbild.
 - **≈date / ≈amounts**: rätt rader men annat datum, eller rätt konton men
   andra belopp.
 - **wrong**: bokfört på andra konton. Den skadliga sorten.
+- Ett kvitto i utländsk valuta bestämmer inget kronbelopp. Ett sådant fall
+  kan ange `"amount_tolerance": 0.05` i facit, och beloppet per konto får då
+  avvika så mycket.
 - **none**: avstod eller föreslog inget. Ofarligt, men lämnar arbete åt en
   människa.
 - Kostnad i öre per fall. *bok* är det Boks dagsbudget räknar; chat-adaptern

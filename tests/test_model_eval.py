@@ -63,3 +63,18 @@ def test_group_key_keeps_the_kind_and_drops_months_and_amounts():
     assert (
         model_eval._group_key("Telefonutgift Fello 275SEK.pdf") == "telefonutgift fello"
     )
+
+
+def test_amount_tolerance_for_a_receipt_in_foreign_currency():
+    expected = {
+        "date": "2026-09-04",
+        "rows": _rows(("6500", 19800, 0), ("1920", 0, 19800)),
+        "amount_tolerance": 0.05,
+    }
+    near = {"date": "2026-09-04", "rows": _rows(("6500", 20000, 0), ("1920", 0, 20000))}
+    far = {"date": "2026-09-04", "rows": _rows(("6500", 22000, 0), ("1920", 0, 22000))}
+    assert model_eval._score(expected, near) == "correct"
+    assert model_eval._score(expected, far) == "right_accounts_wrong_amounts"
+    assert model_eval._score({**expected, "amount_tolerance": 0}, near) == (
+        "right_accounts_wrong_amounts"
+    )
