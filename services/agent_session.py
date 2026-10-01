@@ -50,13 +50,14 @@ from typing import Any, Callable, Literal, Mapping, Optional
 
 from config import settings
 from domain.models import Account, CorrectionHistory, IntakeSource, Period
+from domain.validation import ValidationError
 from repositories.account_repo import AccountRepository
 from repositories.accounting_correction_repo import AccountingCorrectionRepository
 from repositories.agent_instruction_repo import AgentInstructionRepository
 from repositories.system_instructions import get_system_instructions
 from services.agent_documents import ContentBlock, DocumentUnreadableError
 from services.agent_documents import select_content_for_source as _select_content
-from services.agent_tools import AGENT_TOOL_DEFINITIONS, execute_tool
+from services.agent_tools import DOCUMENT_TOOL_DEFINITIONS, execute_tool
 from services.llm import (
     LLMClient,
     LLMTurn,
@@ -509,6 +510,7 @@ def run_tool_loop(
         if max_tokens_per_turn is not None
         else settings.agent_max_tokens_per_turn
     )
+    offered_tools = {tool["name"] for tool in tools}
     stream_hooks: dict[str, Any] = {}
     if getattr(client.capabilities, "streaming", False):
         if on_text is not None:
@@ -568,6 +570,16 @@ def run_tool_loop(
 
             for tool_call in turn.tool_calls:
                 try:
+                    if tool_call.name not in offered_tools:
+                        # A tool this session was not offered is refused like
+                        # an unknown one, not run: otherwise a name the model
+                        # saw elsewhere (the instructions, a thread) would
+                        # bypass the narrower document tool list.
+                        raise ValidationError(
+                            code="tool_not_offered",
+                            message=f"Tool {tool_call.name!r} is not offered here",
+                            details=f"offered tools: {sorted(offered_tools)}",
+                        )
                     result = execute_tool(
                         tool_call.name,
                         tool_call.arguments,
@@ -745,7 +757,7 @@ def run_session(
         client,
         system_prompt=build_system_prompt(),
         messages=build_user_turn(source, content_block, today, open_periods),
-        tools=AGENT_TOOL_DEFINITIONS,
+        tools=DOCUMENT_TOOL_DEFINITIONS,
         model=model,
         actor=actor,
         policy=DOCUMENT_POLICY,

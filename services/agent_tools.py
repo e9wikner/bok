@@ -2236,6 +2236,21 @@ AGENT_TOOL_DEFINITIONS: list[dict] = [
     for name, description, args_model, _handler in _TOOL_SPECS
 ]
 
+#: Broad reads of the books' history. A document pass books from the
+#: company's bookkeeping instructions, which distil that history, plus the
+#: kontoplan, open periods and latest corrections already in its prompt --
+#: and `tolka_underlag`'s `match` answers "is this already booked?". Reading
+#: history is for revising the instructions, which a thread can still do.
+#: Offered, these cost a document pass 50-70k input tokens per item.
+HISTORY_READ_TOOLS: frozenset[str] = frozenset(
+    {"las_verifikationer", "las_perioder", "las_kontoplan", "las_korrigeringar"}
+)
+
+#: `AGENT_TOOL_DEFINITIONS` without `HISTORY_READ_TOOLS`, same order.
+DOCUMENT_TOOL_DEFINITIONS: list[dict] = [
+    tool for tool in AGENT_TOOL_DEFINITIONS if tool["name"] not in HISTORY_READ_TOOLS
+]
+
 _TOOL_HANDLERS: dict[str, tuple[type[BaseModel], _ToolHandler]] = {
     name: (args_model, handler)
     for name, _description, args_model, handler in _TOOL_SPECS

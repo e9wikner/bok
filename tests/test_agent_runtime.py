@@ -83,6 +83,8 @@ from services.agent_session import (
 from services.agent_tools import (
     AGENT_TOOL_DEFINITIONS,
     BOK_NAMESPACE,
+    DOCUMENT_TOOL_DEFINITIONS,
+    HISTORY_READ_TOOLS,
     derive_posting_idempotency_key,
     execute_tool,
 )
@@ -1843,7 +1845,7 @@ class TestSessionTurnLimit:
     def test_case_7_turn_limit_reached_without_an_outcome(self, tmp_path):
         _ensure_agent_tool_accounts()
         source = _agent_tool_intake_source(tmp_path)
-        harmless_call = ToolCall(id="call-1", name="las_kontoplan", arguments={})
+        harmless_call = ToolCall(id="call-1", name="las_bankhandelser", arguments={})
         client = FakeLLMClient(
             [
                 LLMTurn(
@@ -1865,6 +1867,59 @@ class TestSessionTurnLimit:
         assert outcome.usage == Usage(15, 15, 0)
 
 
+class TestSessionDocumentToolSurface:
+    """A document pass books from the bookkeeping instructions, not by
+    reading the books' history: the broad history reads are not offered, and
+    a call to one anyway is refused rather than run."""
+
+    def test_history_reads_are_not_offered_to_a_document_pass(self, tmp_path):
+        _ensure_agent_tool_accounts()
+        source = _agent_tool_intake_source(tmp_path)
+        client = FakeLLMClient(
+            [LLMTurn(text="", tool_calls=[], stop="end", usage=Usage(1, 1, 0))],
+            capabilities=_capabilities(True),
+        )
+
+        _run_test_session(client, source)
+
+        offered = [t["name"] for t in client.calls[0]["tools"]]
+        assert not HISTORY_READ_TOOLS & set(offered)
+        assert offered == [t["name"] for t in DOCUMENT_TOOL_DEFINITIONS]
+        assert set(offered) | HISTORY_READ_TOOLS == {
+            t["name"] for t in AGENT_TOOL_DEFINITIONS
+        }
+
+    def test_a_call_to_a_tool_not_offered_is_refused_not_run(self, tmp_path):
+        _ensure_agent_tool_accounts()
+        source = _agent_tool_intake_source(tmp_path)
+        history_call = ToolCall(
+            id="call-1",
+            name="las_verifikationer",
+            arguments={"limit": 200, "status": "posted"},
+        )
+        client = FakeLLMClient(
+            [
+                LLMTurn(
+                    text="",
+                    tool_calls=[history_call],
+                    stop="tool_calls",
+                    usage=Usage(1, 1, 0),
+                ),
+                LLMTurn(text="", tool_calls=[], stop="end", usage=Usage(1, 1, 0)),
+            ],
+            capabilities=_capabilities(True),
+        )
+
+        outcome = _run_test_session(client, source)
+
+        executed = outcome.turns[0].executed_tool_calls
+        assert len(executed) == 1
+        assert executed[0].ok is False
+        assert "tool_not_offered" in executed[0].error
+        tool_result = client.calls[1]["messages"][-1]["content"][0]
+        assert tool_result["is_error"] is True
+
+
 class TestSessionPostingEndsImmediately:
     """Edge case worth locking down: a successful `posta_verifikation` call
     ends the session immediately, even if the same turn queued other tool
@@ -1882,7 +1937,7 @@ class TestSessionPostingEndsImmediately:
             name="posta_verifikation",
             arguments=_posta_verifikation_args(period.id, source.id),
         )
-        harmless_call = ToolCall(id="call-2", name="las_kontoplan", arguments={})
+        harmless_call = ToolCall(id="call-2", name="las_bankhandelser", arguments={})
         client = FakeLLMClient(
             [
                 LLMTurn(
@@ -2091,7 +2146,7 @@ class TestSessionOutputTokenCap:
     ):
         _ensure_agent_tool_accounts()
         source = _agent_tool_intake_source(tmp_path)
-        harmless_call = ToolCall(id="call-1", name="las_kontoplan", arguments={})
+        harmless_call = ToolCall(id="call-1", name="las_bankhandelser", arguments={})
         client = FakeLLMClient(
             [
                 LLMTurn(
