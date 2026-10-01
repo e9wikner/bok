@@ -84,6 +84,7 @@ from services.llm import (
     Usage,
     api_model_id,
     gateway_headers,
+    reasoning_effort_for,
 )
 
 logger = logging.getLogger(__name__)
@@ -317,6 +318,9 @@ class ChatClient:
             # deprecated parameter is the wrong default to reach for here
             # even though both still exist on the installed SDK.
             kwargs["max_completion_tokens"] = max_tokens
+        reasoning_effort = reasoning_effort_for(model)
+        if reasoning_effort is not None:
+            kwargs["reasoning_effort"] = reasoning_effort
         # A response cut off without a finish_reason is retried once -- but
         # only when no text hook is listening: a thread has already shown the
         # first attempt's words, and a second attempt would print them again.

@@ -579,6 +579,35 @@ class TestNormalizeResponse:
 
 
 class TestRunTurnWiring:
+    @staticmethod
+    def _kwargs_sent_for(model: str) -> dict[str, Any]:
+        client = ChatClient(api_key="dummy-test-key", base_url="http://127.0.0.1:0")
+        received_kwargs: dict[str, Any] = {}
+
+        def fake_create(**kwargs: Any) -> ChatCompletion:
+            received_kwargs.update(kwargs)
+            return _load_completion("tool_calls_stop.json")
+
+        client._client.chat.completions.create = fake_create  # type: ignore[method-assign]
+        client.run_turn(
+            system="systemprompt",
+            messages=[{"role": "user", "content": [{"type": "text", "text": "hej"}]}],
+            tools=[],
+            model=model,
+            max_tokens=None,
+        )
+        return received_kwargs
+
+    def test_glm_is_sent_its_reasoning_effort(self):
+        """Without one, glm-5.3 reasons as if "high": ~10x the tokens."""
+        assert self._kwargs_sent_for("opencode-go/glm-5.3")["reasoning_effort"] == (
+            "medium"
+        )
+
+    def test_a_model_without_a_reasoning_row_is_sent_none(self):
+        assert "reasoning_effort" not in self._kwargs_sent_for("opencode/gpt-5.5")
+        assert "reasoning_effort" not in self._kwargs_sent_for("opencode/unknown-x")
+
     def test_run_turn_wires_translate_call_and_normalize_without_network(self):
         client = ChatClient(api_key="dummy-test-key", base_url="http://127.0.0.1:0")
         fake_response = _load_completion("tool_calls_stop.json")

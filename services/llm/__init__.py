@@ -403,6 +403,31 @@ _MODELS: dict[str, tuple[ProtocolName, ModelPrice]] = {
 }
 
 
+ReasoningEffort = Literal["low", "medium", "high"]
+
+#: Chat-protocol models that take OpenAI's `reasoning_effort`, and the level
+#: to send. Only models measured to accept it are listed: Chat Completions
+#: has no common reasoning knob, and an unknown field can be a 400. A model
+#: without a row gets no `reasoning_effort` at all.
+#:
+#: glm-5.3 is thinking-only (`thinking: disabled` is refused upstream), and
+#: without an effort it reasons as if "high". Measured through OpenCode Go
+#: on one short underlag prompt, same correct entry each time: none 3.5-4.7k
+#: reasoning tokens / 66-87 s, "medium" ~400 / 11 s, "low" ~120 / 9 s.
+_REASONING_EFFORT: dict[str, ReasoningEffort] = {
+    "opencode-go/glm-5.3": "medium",
+}
+
+
+def reasoning_effort_for(model: str) -> Optional[ReasoningEffort]:
+    """The `reasoning_effort` to send for `model`, or `None` to send none.
+
+    A plain lookup that never raises, so an adapter can ask for any id --
+    including one with no `_MODELS` row -- and simply get `None`.
+    """
+    return _REASONING_EFFORT.get(model)
+
+
 def get_model_info(model: str) -> ModelInfo:
     """Resolve a model id to its gateway, protocol and price row.
 
