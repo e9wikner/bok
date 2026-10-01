@@ -1114,6 +1114,10 @@ _EXPECTED_TOOL_NAMES = [
     "skapa_lonekorning",
     "foresla_rakenskapsar",
     "foresla_bolagsinformation",
+    # Appended the same way: a targeted, read-only voucher search -- at most
+    # ten hits on a required search term -- that the document pass is offered
+    # in place of the broad history reads.
+    "sok_verifikationer",
 ]
 
 #: Names that carry a forbidden fragment by design, and why it is not the
@@ -1918,6 +1922,46 @@ class TestSessionDocumentToolSurface:
         assert "tool_not_offered" in executed[0].error
         tool_result = client.calls[1]["messages"][-1]["content"][0]
         assert tool_result["is_error"] is True
+
+
+class TestSokVerifikationer:
+    """The targeted lookup the document pass has in place of the history
+    reads: finds the one voucher a payment settles, never a dump."""
+
+    def test_is_offered_to_a_document_pass(self):
+        assert "sok_verifikationer" in {t["name"] for t in DOCUMENT_TOOL_DEFINITIONS}
+
+    def test_finds_a_posted_voucher_by_its_text(self, tmp_path):
+        _ensure_agent_tool_accounts()
+        period = _agent_tool_period()
+        source = _agent_tool_intake_source(tmp_path)
+        execute_tool(
+            "posta_verifikation",
+            _posta_verifikation_args(period.id, source.id),
+            actor="agent",
+            capabilities=_capabilities(True),
+        )
+
+        result = execute_tool(
+            "sok_verifikationer",
+            {"sokord": "Fello"},
+            actor="agent",
+            capabilities=_capabilities(True),
+        )
+
+        assert result["total"] == 1
+        assert result["items"][0]["description"] == "Telefonutgift Fello"
+        assert result["items"][0]["rows"]
+
+    def test_needs_a_search_term_and_caps_at_ten(self):
+        for arguments in ({}, {"sokord": "ab"}, {"sokord": "Fello", "limit": 11}):
+            with pytest.raises(ValidationError):
+                execute_tool(
+                    "sok_verifikationer",
+                    arguments,
+                    actor="agent",
+                    capabilities=_capabilities(True),
+                )
 
 
 class TestSessionPostingEndsImmediately:

@@ -128,6 +128,7 @@ _TRACE_LABELS = {
     "skapa_lonekorning": "lönekörning skapad",
     "foresla_rakenskapsar": "räkenskapsår föreslaget",
     "foresla_bolagsinformation": "bolagsuppgifter föreslagna",
+    "sok_verifikationer": "verifikationer sökta",
 }
 
 

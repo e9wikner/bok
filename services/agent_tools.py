@@ -294,6 +294,14 @@ class LasVerifikationerArgs(BaseModel):
     limit: int = Field(50, ge=1, le=200)
 
 
+class SokVerifikationerArgs(BaseModel):
+    """Sök enstaka verifikationer på verifikationstexten, t.ex. ett
+    fakturanummer."""
+
+    sokord: str = Field(..., min_length=3, max_length=100)
+    limit: int = Field(5, ge=1, le=10)
+
+
 class LasKorrigeringarArgs(BaseModel):
     """Läs rättelsehistorik, valfritt avgränsad till en verifikation."""
 
@@ -952,6 +960,22 @@ def _run_las_verifikationer(
         vouchers, total = VoucherRepository.list_all(
             status=args.status, limit=args.limit
         )
+    return {"total": total, "items": [_voucher_dict(v) for v in vouchers]}
+
+
+def _run_sok_verifikationer(
+    args: SokVerifikationerArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """A targeted lookup, not a history read: a required search term and at
+    most ten hits. What a document pass needs to find the one voucher a
+    payment settles -- an invoice booked as a voucher, which `las_fakturor`
+    and `tolka_underlag`'s match do not find across months or years."""
+    vouchers, total = VoucherRepository.list_all(search=args.sokord, limit=args.limit)
     return {"total": total, "items": [_voucher_dict(v) for v in vouchers]}
 
 
@@ -2222,6 +2246,16 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
         "ingenting. Bara i ett samtal.",
         ForeslaBolagsinformationArgs,
         _run_foresla_bolagsinformation,
+    ),
+    (
+        "sok_verifikationer",
+        "Sök en enstaka verifikation på verifikationstexten, till exempel ett "
+        "fakturanummer ('#101274') eller en motpart. Skrivskyddat -- högst tio "
+        "träffar, med rader. Använd det för att hitta verifikationen som en "
+        "betalning reglerar, till exempel en kundfaktura som bokförts som "
+        "verifikation; inte för att läsa historik.",
+        SokVerifikationerArgs,
+        _run_sok_verifikationer,
     ),
 )
 

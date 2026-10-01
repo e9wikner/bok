@@ -44,6 +44,7 @@ export const SKRIVER_ETIKETTER: Readonly<Record<string, string>> = {
   las_fakturor: "Läser fakturorna…",
   foresla_faktura: "Föreslår en faktura…",
   andra_fakturautkast: "Ändrar fakturaförslaget…",
+  sok_verifikationer: "Söker verifikationer…",
 };
 
 /**
