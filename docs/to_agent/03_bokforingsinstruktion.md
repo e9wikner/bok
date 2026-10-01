@@ -313,6 +313,11 @@ användaren ladda upp ett utdrag igen för att perioderna överlappar.
   beslut med `be_om_beslut` och kopplar efter svaret med
   `koppla_banktransaktion`. I ett intagspass kopplar du ingenting utan beslut.
 - En verifikation med ingående moms kopplas aldrig till ett kontoutdrag.
+- Säger användaren att en koppling är fel (två händelser med samma belopp samma
+  dag), ångra den med `koppla_bort_banktransaktion` och skriv varför med
+  användarens ord. Koppla sedan transaktionen rätt med `koppla_banktransaktion`
+  om användaren vet vilken verifikation den hör till. Servern kopplar aldrig
+  om en bortkopplad transaktion på egen hand.
 - När ett meddelande säger att ett kontoutdrag lästs in, svara med vad det gav:
   hur många verifikationer som fick underlag och vilka transaktioner som behöver
   ett beslut. Räkna inte upp resten av listan.

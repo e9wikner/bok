@@ -117,6 +117,7 @@ _TRACE_LABELS = {
     "koppla_bort_underlag": "underlaget bortkopplat",
     "las_okopplade_banktransaktioner": "okopplade banktransaktioner lästa",
     "koppla_banktransaktion": "kontoutdrag kopplat",
+    "koppla_bort_banktransaktion": "kontoutdrag bortkopplat",
 }
 
 

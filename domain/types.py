@@ -48,6 +48,7 @@ class AuditAction(str, Enum):
     REJECTED = "rejected"
     CONTEXT_RESET = "context_reset"
     STATEMENT_LINKED = "statement_linked"
+    STATEMENT_UNLINKED = "statement_unlinked"
     ISSUED = "issued"
 
 

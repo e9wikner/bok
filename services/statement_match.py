@@ -13,8 +13,15 @@ voucher and links the two:
   `link`): when several vouchers fit, or the dates differ by a few days.
 
 A link is written to the existing traceability tables
-(`voucher_bank_transactions`, `voucher_bank_inputs`), which migration 035
+(`voucher_bank_transactions`, `voucher_bank_inputs`), which migration 036
 made append-only. It never creates or changes a voucher.
+
+A wrong link is undone by `unlink` (`koppla_bort_banktransaktion`,
+`POST /api/v1/bank-inputs/transactions/{id}/unlink`): a row in
+`voucher_bank_transaction_unlinks` (migration 039) says the link no longer
+holds, and the link row stays. The transaction is then free for another
+link, but never again linked automatically to a voucher it was unlinked
+from -- and, since a human has looked at it, never automatically at all.
 
 No SQL here (AGENTS.md): it lives in `repositories/bank_input_repo.py`.
 """
@@ -34,7 +41,11 @@ from domain.types import AuditAction, VoucherStatus
 from repositories.audit_repo import AuditRepository
 from repositories.bank_input_repo import BankInputRepository
 from repositories.voucher_repo import VoucherRepository
-from services.bank_inputs import BankInputConflictError, BankTransactionNotFoundError
+from services.bank_inputs import (
+    BankInputConflictError,
+    BankInputValidationError,
+    BankTransactionNotFoundError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +118,7 @@ class StatementMatchService:
         `list_unlinked_transactions_with_account`)."""
         tx_date = date.fromisoformat(str(tx["transaction_date"])[:10])
         window = timedelta(days=CANDIDATE_WINDOW_DAYS)
+        undone = set(self.inputs.unlinked_voucher_ids(tx["id"]))
         rows = self.inputs.list_statement_match_vouchers(
             account_code=tx["account_code"],
             amount_ore=tx["amount"],
@@ -126,11 +138,12 @@ class StatementMatchService:
                     ),
                 )
                 for row in rows
+                if row["id"] not in undone
             ),
             key=lambda c: (c.date_diff_days, c.voucher_date, c.voucher_number),
         )
         same_day = [c for c in candidates if c.date_diff_days == 0]
-        if len(candidates) == 1 and len(same_day) == 1:
+        if not undone and len(candidates) == 1 and len(same_day) == 1:
             kind = "exact"
         elif candidates:
             kind = "candidates"
@@ -300,6 +313,73 @@ class StatementMatchService:
             thread_id=thread_id,
         )
         return self._result(tx, VoucherRepository.get(voucher_id), replayed=False)
+
+    def unlink(
+        self,
+        bank_transaction_id: str,
+        *,
+        reason: str,
+        actor: str,
+        thread_id: Optional[str] = None,
+    ) -> dict:
+        """Undo the current link of *bank_transaction_id*: a row in
+        `voucher_bank_transaction_unlinks`, the transaction released
+        (`pending`, no matched voucher). The link row and the voucher stay
+        as they are; the voucher is again missing that account's underlag.
+
+        Raises `BankTransactionNotFoundError`, `BankInputValidationError`
+        (`unlink_reason_required`) or `BankInputConflictError`
+        (`bank_transaction_not_linked`) and writes nothing when a check
+        fails."""
+        reason = (reason or "").strip()
+        if not reason:
+            raise BankInputValidationError(
+                "unlink_reason_required",
+                "Say why the link is wrong; the reason stays in the trace",
+            )
+        tx = self.inputs.get_transaction_with_account(bank_transaction_id)
+        if tx is None:
+            raise BankTransactionNotFoundError(bank_transaction_id)
+        link = self.inputs.current_transaction_link(bank_transaction_id)
+        if link is None:
+            raise BankInputConflictError(
+                "bank_transaction_not_linked",
+                "Bank transaction has no link to undo",
+                f"bank_transaction_id={bank_transaction_id}",
+            )
+
+        with db.transaction():
+            self.inputs.create_transaction_unlink(
+                link_id=link.id,
+                bank_transaction_id=bank_transaction_id,
+                voucher_id=link.voucher_id,
+                reason=reason,
+                actor=actor,
+                thread_id=thread_id,
+                _commit=False,
+            )
+            self.inputs.release_transaction(bank_transaction_id, _commit=False)
+            AuditRepository.log(
+                entity_type="voucher",
+                entity_id=link.voucher_id,
+                action=AuditAction.STATEMENT_UNLINKED.value,
+                actor=actor,
+                payload={
+                    "bank_transaction_id": bank_transaction_id,
+                    "link_id": link.id,
+                    "account_code": tx["account_code"],
+                    "reason": reason,
+                    "thread_id": thread_id,
+                },
+                _commit=False,
+            )
+
+        voucher = VoucherRepository.get(link.voucher_id)
+        return {
+            **self._result(tx, voucher, replayed=False),
+            "unlinked": True,
+            "reason": reason,
+        }
 
     def _write_link(
         self,

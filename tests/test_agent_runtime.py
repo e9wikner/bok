@@ -1095,6 +1095,8 @@ _EXPECTED_TOOL_NAMES = [
     # as underlag -- read the unlinked transactions, link one after a decision.
     "las_okopplade_banktransaktioner",
     "koppla_banktransaktion",
+    # The eighteenth, appended the same way: undo a wrong statement link.
+    "koppla_bort_banktransaktion",
 ]
 
 
@@ -1219,6 +1221,8 @@ class TestAppendOnlyToolSurface:
         `koppla_banktransaktion` joined them with account statements as
         underlag: it writes the link between a statement transaction and a
         posted voucher and the audit log, never a voucher.
+        `koppla_bort_banktransaktion` undoes one: a
+        `voucher_bank_transaction_unlinks` row, never a voucher.
         """
         write_tool_names = {
             "posta_verifikation",
@@ -1230,6 +1234,7 @@ class TestAppendOnlyToolSurface:
             "stang_perioder",
             "koppla_bort_underlag",
             "koppla_banktransaktion",
+            "koppla_bort_banktransaktion",
         }
         read_tool_names = set(_EXPECTED_TOOL_NAMES) - write_tool_names
         for tool in AGENT_TOOL_DEFINITIONS:

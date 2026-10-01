@@ -396,8 +396,11 @@ def test_auto_account_unknown_is_refused(books):
 # --- agent tools ------------------------------------------------------------
 
 
-def test_koppla_banktransaktion_is_the_last_tool():
-    assert AGENT_TOOL_DEFINITIONS[-1]["name"] == "koppla_banktransaktion"
+def test_the_statement_tools_are_the_last_two():
+    assert [t["name"] for t in AGENT_TOOL_DEFINITIONS[-2:]] == [
+        "koppla_banktransaktion",
+        "koppla_bort_banktransaktion",
+    ]
 
 
 def test_agent_reads_open_transactions_and_links(books):
@@ -423,3 +426,134 @@ def test_agent_reads_open_transactions_and_links(books):
         capabilities=capabilities,
     )
     assert linked["missing_statement_accounts"] == ["1630"]
+
+
+# --- undoing a link (migration 039) -----------------------------------------
+
+
+def _tool(name: str, arguments: dict):
+    capabilities = LLMCapabilities(
+        cache_breakpoint=False, pdf_document_blocks=False, refusal_stop_reason=False
+    )
+    return execute_tool(name, arguments, actor="agent", capabilities=capabilities)
+
+
+def _only_transaction_id() -> str:
+    [row] = db.execute("SELECT id FROM bank_transactions").fetchall()
+    return row["id"]
+
+
+def test_a_wrong_automatic_link_is_undone_and_linked_right(books):
+    """Two transfers of 1 000 kr: the statement arrives when only the wrong
+    one is posted, same day, so the server links it. The user says it is
+    wrong; the link is undone, stays as a trace, and the server does not
+    link it back. The right voucher is linked by decision."""
+    wrong = _transfer(books, date(2026, 3, 10), 100_000)
+    _import("1930", BANK_HEADER + "2026-03-10;-1000,00;Till skattekonto\n")
+    tx_id = _only_transaction_id()
+    assert _voucher(wrong.id).missing_statement_accounts == ["1630"]
+    right = _transfer(books, date(2026, 3, 12), 100_000)
+
+    result = _tool(
+        "koppla_bort_banktransaktion",
+        {"bank_transaction_id": tx_id, "reason": "Betalningen gällde den 12:e"},
+    )
+
+    assert result["unlinked"] is True
+    assert result["voucher_id"] == wrong.id
+    assert _voucher(wrong.id).missing_statement_accounts == ["1630", "1930"]
+    assert BankInputRepository.current_transaction_link(tx_id) is None
+    released = db.execute(
+        "SELECT status, matched_voucher_id FROM bank_transactions WHERE id = ?",
+        (tx_id,),
+    ).fetchone()
+    assert (released["status"], released["matched_voucher_id"]) == ("pending", None)
+
+    # Never linked back on its own -- not to the wrong voucher, and since a
+    # human has looked at it, not to the right one either.
+    assert StatementMatchService().run()["linked"] == []
+    [match] = StatementMatchService().open_transactions()
+    assert match.kind == "candidates"
+    assert [c.voucher_id for c in match.candidates] == [right.id]
+
+    _tool(
+        "koppla_banktransaktion",
+        {"bank_transaction_id": tx_id, "voucher_id": right.id},
+    )
+    assert _voucher(right.id).missing_statement_accounts == ["1630"]
+    assert _voucher(wrong.id).missing_statement_accounts == ["1630", "1930"]
+    history = db.execute(
+        "SELECT voucher_id FROM voucher_bank_transactions"
+        " WHERE bank_transaction_id = ? ORDER BY linked_at",
+        (tx_id,),
+    ).fetchall()
+    assert [r["voucher_id"] for r in history] == [wrong.id, right.id]
+    wrong_context = asyncio.run(
+        get_voucher_source_context(wrong.id, ledger=books[0], actor="test")
+    )
+    assert wrong_context["statement_links"] == []
+    assert BankInputRepository.list_inputs_for_voucher(wrong.id) == []
+    assert len(BankInputRepository.list_inputs_for_voucher(right.id)) == 1
+
+
+def test_unlink_needs_a_reason_and_a_link(books):
+    from services.bank_inputs import BankInputValidationError
+
+    _transfer(books, date(2026, 3, 10), 100_000)
+    _import("1930", BANK_HEADER + "2026-03-10;-1000,00;Till skattekonto\n")
+    tx_id = _only_transaction_id()
+    service = StatementMatchService()
+
+    with pytest.raises(BankInputValidationError) as reason:
+        service.unlink(tx_id, reason="  ", actor="test")
+    assert reason.value.code == "unlink_reason_required"
+
+    service.unlink(tx_id, reason="Fel verifikation", actor="test")
+    with pytest.raises(BankInputConflictError) as again:
+        service.unlink(tx_id, reason="Fel verifikation", actor="test")
+    assert again.value.code == "bank_transaction_not_linked"
+
+
+def test_unlink_route(books, auth_headers):
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+
+    _transfer(books, date(2026, 3, 10), 100_000)
+    _import("1930", BANK_HEADER + "2026-03-10;-1000,00;Till skattekonto\n")
+    tx_id = _only_transaction_id()
+    client = TestClient(app)
+    url = f"/api/v1/bank-inputs/transactions/{tx_id}/unlink"
+
+    response = client.post(url, json={"reason": "Fel dag"}, headers=auth_headers)
+    assert response.status_code == 200
+    assert response.json()["unlinked"] is True
+
+    response = client.post(url, json={"reason": "Fel dag"}, headers=auth_headers)
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "bank_transaction_not_linked"
+
+    response = client.post(
+        "/api/v1/bank-inputs/transactions/nope/unlink",
+        json={"reason": "Fel dag"},
+        headers=auth_headers,
+    )
+    assert response.status_code == 404
+
+
+def test_one_current_link_per_transaction_and_unlinks_are_append_only(books):
+    voucher = _transfer(books, date(2026, 3, 10), 100_000)
+    _import("1930", BANK_HEADER + "2026-03-10;-1000,00;Till skattekonto\n")
+    tx_id = _only_transaction_id()
+
+    with pytest.raises(sqlite3.IntegrityError, match="already linked"):
+        BankInputRepository.create_voucher_bank_transaction_link(
+            voucher_id=voucher.id, bank_transaction_id=tx_id, linked_by="test"
+        )
+    db.rollback()
+
+    StatementMatchService().unlink(tx_id, reason="Fel", actor="test")
+    with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+        db.execute("DELETE FROM voucher_bank_transaction_unlinks")
+    with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+        db.execute("DELETE FROM voucher_bank_transactions")

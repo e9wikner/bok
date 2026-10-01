@@ -63,6 +63,14 @@ unlink row (`IntakeLinkService.unlink`, the tool `koppla_bort_underlag`,
 one *current* link per source, and "current" means the link has no unlink row.
 Anything that asks "is this linked?" must read current links only.
 
+A statement transaction's link to a voucher works the same way (migration
+039). `voucher_bank_transactions` and `voucher_bank_transaction_unlinks` refuse
+UPDATE/DELETE; a wrong link is undone by an unlink row
+(`StatementMatchService.unlink`, the tool `koppla_bort_banktransaktion`,
+`POST /api/v1/bank-inputs/transactions/{id}/unlink`). Read links through the
+view `current_voucher_bank_transactions`. The server never automatically re-links
+a transaction that has been unlinked.
+
 An issued invoice is append-only too. An invoice comes into being only when a
 logged-in human issues a draft (`POST /api/v1/invoice-drafts/{id}/issue`; the
 API key gets `403 human_only`). Issuing creates the invoice, its posted voucher

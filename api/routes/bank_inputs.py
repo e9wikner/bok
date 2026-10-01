@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi import status as http_status
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 
 from api.deps import get_current_actor
 from domain.models import BankInput
@@ -16,6 +17,7 @@ from services.bank_inputs import (
     BankInputNotFoundError,
     BankInputService,
     BankInputValidationError,
+    BankTransactionNotFoundError,
     DuplicateBankInputError,
 )
 from services.bank_integration import BankConnection, BankIntegrationService
@@ -136,6 +138,36 @@ async def delete_bank_input(
         raise _http_error(exc) from exc
 
 
+class UnlinkBankTransactionRequest(BaseModel):
+    reason: str = Field(..., description="Why the link is wrong; kept in the trace")
+
+
+@router.post("/transactions/{bank_transaction_id}/unlink", response_model=dict)
+async def unlink_bank_transaction(
+    bank_transaction_id: str,
+    request: UnlinkBankTransactionRequest,
+    actor: str = Depends(get_current_actor),
+):
+    """Undo a statement transaction's link to a posted voucher
+    (`services/statement_match.py`, migration 039). The link row stays and a
+    `voucher_bank_transaction_unlinks` row says it no longer holds; the
+    voucher is not touched. The transaction is never again linked
+    automatically -- only by `koppla_banktransaktion`.
+
+    - `400 unlink_reason_required`
+    - `404 bank_transaction_not_found`
+    - `409 bank_transaction_not_linked`
+    """
+    from services.statement_match import StatementMatchService
+
+    try:
+        return StatementMatchService().unlink(
+            bank_transaction_id, reason=request.reason, actor=actor
+        )
+    except BankInputError as exc:
+        raise _http_error(exc) from exc
+
+
 def _bank_input_to_dict(bank_input: BankInput) -> dict:
     return {
         "id": bank_input.id,
@@ -171,7 +203,14 @@ def _http_error(exc: BankInputError) -> HTTPException:
     status_code = http_status.HTTP_400_BAD_REQUEST
     if isinstance(exc, DuplicateBankInputError):
         status_code = http_status.HTTP_409_CONFLICT
-    elif isinstance(exc, (BankInputNotFoundError, BankConnectionNotFoundError)):
+    elif isinstance(
+        exc,
+        (
+            BankInputNotFoundError,
+            BankConnectionNotFoundError,
+            BankTransactionNotFoundError,
+        ),
+    ):
         status_code = http_status.HTTP_404_NOT_FOUND
     elif isinstance(exc, BankInputConflictError):
         status_code = http_status.HTTP_409_CONFLICT

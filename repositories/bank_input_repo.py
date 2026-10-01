@@ -253,12 +253,7 @@ class BankInputRepository:
         if _commit:
             db.commit()
         row = db.execute(
-            """
-            SELECT * FROM voucher_bank_transactions
-            WHERE voucher_id = ? AND bank_transaction_id = ?
-            LIMIT 1
-            """,
-            (voucher_id, bank_transaction_id),
+            "SELECT * FROM voucher_bank_transactions WHERE id = ?", (link_id,)
         ).fetchone()
         return BankInputRepository._row_to_voucher_bank_transaction(row)
 
@@ -333,13 +328,33 @@ class BankInputRepository:
         if _commit:
             db.commit()
 
+    #: A file link holds while one of the file's transactions has a current
+    #: link to the voucher, or none of them ever had one -- a file linked on
+    #: its own, without transactions (migration 039).
+    _INPUT_LINK_HOLDS_SQL = """
+        (EXISTS (
+            SELECT 1 FROM current_voucher_bank_transactions c
+            JOIN bank_input_transactions bit
+              ON bit.bank_transaction_id = c.bank_transaction_id
+            WHERE c.voucher_id = vbi.voucher_id
+              AND bit.bank_input_id = vbi.bank_input_id
+        ) OR NOT EXISTS (
+            SELECT 1 FROM voucher_bank_transactions vbt
+            JOIN bank_input_transactions bit
+              ON bit.bank_transaction_id = vbt.bank_transaction_id
+            WHERE vbt.voucher_id = vbi.voucher_id
+              AND bit.bank_input_id = vbi.bank_input_id
+        ))
+    """
+
     @staticmethod
     def list_inputs_for_voucher(voucher_id: str) -> list[VoucherBankInput]:
         rows = db.execute(
-            """
-            SELECT * FROM voucher_bank_inputs
-            WHERE voucher_id = ?
-            ORDER BY linked_at ASC
+            f"""
+            SELECT vbi.* FROM voucher_bank_inputs vbi
+            WHERE vbi.voucher_id = ?
+              AND {BankInputRepository._INPUT_LINK_HOLDS_SQL}
+            ORDER BY vbi.linked_at ASC
             """,
             (voucher_id,),
         ).fetchall()
@@ -348,10 +363,11 @@ class BankInputRepository:
     @staticmethod
     def list_voucher_links_for_input(bank_input_id: str) -> list[VoucherBankInput]:
         rows = db.execute(
-            """
-            SELECT * FROM voucher_bank_inputs
-            WHERE bank_input_id = ?
-            ORDER BY linked_at ASC
+            f"""
+            SELECT vbi.* FROM voucher_bank_inputs vbi
+            WHERE vbi.bank_input_id = ?
+              AND {BankInputRepository._INPUT_LINK_HOLDS_SQL}
+            ORDER BY vbi.linked_at ASC
             """,
             (bank_input_id,),
         ).fetchall()
@@ -361,7 +377,7 @@ class BankInputRepository:
     def list_transactions_for_voucher(voucher_id: str) -> list[VoucherBankTransaction]:
         rows = db.execute(
             """
-            SELECT * FROM voucher_bank_transactions
+            SELECT * FROM current_voucher_bank_transactions
             WHERE voucher_id = ?
             ORDER BY linked_at ASC
             """,
@@ -370,6 +386,80 @@ class BankInputRepository:
         return [
             BankInputRepository._row_to_voucher_bank_transaction(row) for row in rows
         ]
+
+    # --- undoing a statement link (migration 039) -------------------------
+
+    @staticmethod
+    def current_transaction_link(
+        bank_transaction_id: str,
+    ) -> Optional[VoucherBankTransaction]:
+        row = db.execute(
+            """
+            SELECT * FROM current_voucher_bank_transactions
+            WHERE bank_transaction_id = ?
+            """,
+            (bank_transaction_id,),
+        ).fetchone()
+        return (
+            BankInputRepository._row_to_voucher_bank_transaction(row) if row else None
+        )
+
+    @staticmethod
+    def create_transaction_unlink(
+        link_id: str,
+        bank_transaction_id: str,
+        voucher_id: str,
+        reason: str,
+        actor: str,
+        thread_id: Optional[str] = None,
+        _commit: bool = True,
+    ) -> None:
+        db.execute(
+            """
+            INSERT INTO voucher_bank_transaction_unlinks
+            (link_id, bank_transaction_id, voucher_id, reason, actor, thread_id,
+             created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                link_id,
+                bank_transaction_id,
+                voucher_id,
+                reason,
+                actor,
+                thread_id,
+                datetime.now(),
+            ),
+        )
+        if _commit:
+            db.commit()
+
+    @staticmethod
+    def unlinked_voucher_ids(bank_transaction_id: str) -> list[str]:
+        """The vouchers *bank_transaction_id* was linked to and unlinked
+        from."""
+        rows = db.execute(
+            """
+            SELECT DISTINCT voucher_id FROM voucher_bank_transaction_unlinks
+            WHERE bank_transaction_id = ?
+            """,
+            (bank_transaction_id,),
+        ).fetchall()
+        return [row["voucher_id"] for row in rows]
+
+    @staticmethod
+    def release_transaction(bank_transaction_id: str, _commit: bool = True) -> None:
+        """Undo `mark_transactions_booked` for one transaction."""
+        db.execute(
+            """
+            UPDATE bank_transactions
+            SET status = 'pending', matched_voucher_id = NULL, booked_at = NULL
+            WHERE id = ?
+            """,
+            (bank_transaction_id,),
+        )
+        if _commit:
+            db.commit()
 
     # --- statement matching (services/statement_match.py) ----------------
 
@@ -386,7 +476,7 @@ class BankInputRepository:
               AND bt.status != 'ignored'
               AND bc.account_number IS NOT NULL
               AND NOT EXISTS (
-                  SELECT 1 FROM voucher_bank_transactions vbt
+                  SELECT 1 FROM current_voucher_bank_transactions vbt
                   WHERE vbt.bank_transaction_id = bt.id
               )
             ORDER BY bt.transaction_date ASC, bt.created_at ASC
@@ -401,7 +491,7 @@ class BankInputRepository:
             SELECT bt.id, bt.transaction_date, bt.amount, bt.description,
                    bt.counterpart_name, bt.status, bt.matched_voucher_id,
                    bc.account_number AS account_code,
-                   (SELECT vbt.voucher_id FROM voucher_bank_transactions vbt
+                   (SELECT vbt.voucher_id FROM current_voucher_bank_transactions vbt
                     WHERE vbt.bank_transaction_id = bt.id) AS linked_voucher_id
             FROM bank_transactions bt
             JOIN bank_connections bc ON bc.id = bt.bank_connection_id
@@ -448,7 +538,7 @@ class BankInputRepository:
                     AND vat.account_code BETWEEN ? AND ?
               )
               AND NOT EXISTS (
-                  SELECT 1 FROM voucher_bank_transactions vbt
+                  SELECT 1 FROM current_voucher_bank_transactions vbt
                   JOIN bank_transactions bt ON bt.id = vbt.bank_transaction_id
                   JOIN bank_connections bc ON bc.id = bt.bank_connection_id
                   WHERE vbt.voucher_id = v.id AND bc.account_number = ?
@@ -475,7 +565,7 @@ class BankInputRepository:
         row = db.execute(
             """
             SELECT vbt.bank_transaction_id
-            FROM voucher_bank_transactions vbt
+            FROM current_voucher_bank_transactions vbt
             JOIN bank_transactions bt ON bt.id = vbt.bank_transaction_id
             JOIN bank_connections bc ON bc.id = bt.bank_connection_id
             WHERE vbt.voucher_id = ? AND bc.account_number = ?
@@ -503,7 +593,7 @@ class BankInputRepository:
                     JOIN bank_inputs bi ON bi.id = bit.bank_input_id
                     WHERE bit.bank_transaction_id = bt.id
                     ORDER BY bit.linked_at ASC LIMIT 1) AS original_filename
-            FROM voucher_bank_transactions vbt
+            FROM current_voucher_bank_transactions vbt
             JOIN bank_transactions bt ON bt.id = vbt.bank_transaction_id
             JOIN bank_connections bc ON bc.id = bt.bank_connection_id
             WHERE vbt.voucher_id = ?

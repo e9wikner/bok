@@ -63,6 +63,12 @@ second links one to the voucher it is underlag for. The server links exact
 matches itself; the tool is for the cases the user decided. It creates no
 voucher and changes none.
 
+An eighteenth, ``koppla_bort_banktransaktion``, is appended after
+``koppla_banktransaktion`` for the same reason. It undoes a wrong statement
+link the user pointed out: a row in ``voucher_bank_transaction_unlinks``
+(migration 039), the link row left as the trace. It creates no voucher and
+changes none, and it is not terminal.
+
 ``posta_verifikation`` is the only tool that posts to the general ledger,
 and it goes through the exact same code as ``POST /api/v1/agent/vouchers``
 (``services/voucher_posting.post_agent_voucher``, A1) -- same
@@ -299,6 +305,19 @@ class KopplaBanktransaktionArgs(BaseModel):
 
     bank_transaction_id: str
     voucher_id: str
+
+
+class KopplaBortBanktransaktionArgs(BaseModel):
+    """Ångra en felaktig koppling mellan en kontoutdragstransaktion och en
+    postad verifikation."""
+
+    bank_transaction_id: str
+    reason: str = Field(
+        ...,
+        min_length=1,
+        max_length=500,
+        description="Varför kopplingen är fel, med användarens ord; sparas i spåret",
+    )
 
 
 class PostaVerifikationRow(BaseModel):
@@ -1207,9 +1226,9 @@ def _run_koppla_banktransaktion(
     idempotency_key: Optional[str] = None,
     tool_context: Optional[Mapping[str, Any]] = None,
 ) -> dict:
-    """Not terminal. Idempotent through the schema: a transaction is linked
-    to at most one voucher (`UNIQUE(bank_transaction_id)`), and the same
-    link again is a replay."""
+    """Not terminal. Idempotent through the schema: a transaction has at
+    most one current link (migration 039's trigger), and the same link
+    again is a replay."""
     context = tool_context or {}
     thread = context.get("thread")
 
@@ -1222,6 +1241,36 @@ def _run_koppla_banktransaktion(
         actor=actor,
         thread_id=thread.id if thread is not None else None,
     )
+
+
+def _run_koppla_bort_banktransaktion(
+    args: KopplaBortBanktransaktionArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """Not terminal. Undoes the transaction's current link; a second call
+    finds no link and is refused (`bank_transaction_not_linked`)."""
+    context = tool_context or {}
+    thread = context.get("thread")
+
+    from services.statement_match import StatementMatchService
+
+    return StatementMatchService().unlink(
+        args.bank_transaction_id,
+        reason=args.reason,
+        actor=actor,
+        thread_id=thread.id if thread is not None else None,
+    )
+
+
+# The payroll tools call the same `PayrollService` as /payroll. The three that
+# write refuse outside a thread: payroll is set up when the user asks for it
+# in a conversation, never because an underlag in the intake queue said so.
+# What they return masks the personnummer and bank account -- the agent needs
+# to recognise them, not repeat them into the thread.
 
 
 # ---------------------------------------------------------------------------
@@ -1391,9 +1440,22 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
         "tvetydigt fall (las_okopplade_banktransaktioner). Beloppet "
         "på kontot måste stämma; datumet får skilja. Vägras för en "
         "verifikation med ingående moms -- ett inköp behöver kvitto. Skapar "
-        "ingen verifikation och ändrar ingen, och går inte att ångra.",
+        "ingen verifikation och ändrar ingen. En felaktig koppling ångras "
+        "med koppla_bort_banktransaktion.",
         KopplaBanktransaktionArgs,
         _run_koppla_banktransaktion,
+    ),
+    (
+        "koppla_bort_banktransaktion",
+        "Ångra en felaktig koppling mellan en kontoutdragstransaktion och en "
+        "postad verifikation, när användaren har sagt att den är fel -- "
+        "oftast en automatisk koppling där två händelser råkade ha samma "
+        "belopp samma dag. Ange varför (reason). Kopplingen står kvar som "
+        "spår; transaktionen blir fri att kopplas rätt med "
+        "koppla_banktransaktion, och servern kopplar den aldrig mer själv. "
+        "Verifikationen ändras inte.",
+        KopplaBortBanktransaktionArgs,
+        _run_koppla_bort_banktransaktion,
     ),
 )
 
@@ -1423,8 +1485,8 @@ def execute_tool(
     idempotency_key: Optional[str] = None,
     tool_context: Optional[Mapping[str, Any]] = None,
 ) -> Any:
-    """Validate and run one model-requested tool call -- one of the seventeen
-    tools in ``_TOOL_SPECS``, the last of them ``koppla_banktransaktion``
+    """Validate and run one model-requested tool call -- one of the eighteen
+    tools in ``_TOOL_SPECS``, the last of them ``koppla_bort_banktransaktion``
     (the fifteenth is ``koppla_bort_underlag``, the fourteenth
     ``stang_perioder``).
 

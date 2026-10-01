@@ -64,14 +64,14 @@ _UNCOVERED_STATEMENT_ROWS_SQL = (
     "FROM voucher_rows st_r WHERE st_r.voucher_id = vouchers.id"
     " AND (st_r.debit > 0 OR st_r.credit > 0)"
     f" AND {_statement_account_sql('st_r.account_code')}"
-    " AND NOT EXISTS (SELECT 1 FROM voucher_bank_transactions st_vbt"
+    " AND NOT EXISTS (SELECT 1 FROM current_voucher_bank_transactions st_vbt"
     " JOIN bank_transactions st_bt ON st_bt.id = st_vbt.bank_transaction_id"
     " JOIN bank_connections st_bc ON st_bc.id = st_bt.bank_connection_id"
     " WHERE st_vbt.voucher_id = vouchers.id"
     " AND st_bc.account_number = st_r.account_code)"
 )
 STATEMENT_COVERED_SQL = (
-    "(EXISTS (SELECT 1 FROM voucher_bank_transactions cov_vbt"
+    "(EXISTS (SELECT 1 FROM current_voucher_bank_transactions cov_vbt"
     " WHERE cov_vbt.voucher_id = vouchers.id)"
     f" AND NOT EXISTS (SELECT 1 {_UNCOVERED_STATEMENT_ROWS_SQL})"
     f" AND NOT {_HAS_INPUT_VAT_SQL})"
@@ -613,7 +613,7 @@ class VoucherRepository:
                            PARTITION BY vbt.voucher_id
                            ORDER BY bt.transaction_date, bt.id
                        ) AS rank_in_voucher
-                FROM voucher_bank_transactions vbt
+                FROM current_voucher_bank_transactions vbt
                 JOIN bank_transactions bt ON bt.id = vbt.bank_transaction_id
                 WHERE vbt.voucher_id IN (SELECT id FROM totals)
             )
