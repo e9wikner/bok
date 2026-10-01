@@ -935,8 +935,20 @@ def get_runner() -> AgentRunner:
 
 def start_agent_runtime() -> bool:
     """Start the agent runtime's background thread if enabled. Safe to call
-    when it is not (mirrors `dropzone.start_background_scanner`)."""
-    return _runner.start()
+    when it is not (mirrors `dropzone.start_background_scanner`).
+
+    Underlag already pending at start -- read in by the dropzone before a
+    restart or a deploy, when nothing started a pass for them -- get one
+    pass now. After that the dropzone starts a pass each time it has read
+    in new underlag (`DropzoneScanner._start_pass_when_done`)."""
+    started = _runner.start()
+    if started:
+        try:
+            if IntakeService().get_pending_queue(limit=1)["total"] > 0:
+                _runner.trigger_pass_now()
+        except Exception:
+            logger.exception("Could not check the intake queue at start")
+    return started
 
 
 def stop_agent_runtime() -> None:
