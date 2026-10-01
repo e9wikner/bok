@@ -2383,6 +2383,34 @@ class TestAgentWorkerConnectionError:
         assert refreshed.status == IntakeStatus.PENDING
 
 
+class TestAgentWorkerUnexpectedError:
+    """An error nobody categorized stops the pass with a word of why, on the
+    run and on the source -- not a run left `running` and a traceback only
+    in the log (seen in production: `UnrecognizedFinishReasonError`)."""
+
+    def test_unexpected_error_fails_the_run_and_leaves_the_source_pending(
+        self, agent_intake_dir, tmp_path
+    ):
+        _ensure_agent_tool_accounts()
+        _agent_tool_period()
+        source = _agent_tool_intake_source(tmp_path)
+
+        class _BrokenClient:
+            capabilities = _capabilities(True)
+
+            def run_turn(self, **kwargs):
+                raise RuntimeError("adapter could not read the response")
+
+        run = AgentWorker().run_pass_once(client_factory=lambda model: _BrokenClient())
+
+        assert run is not None
+        assert run.status == "failed"
+        assert run.last_error == "RuntimeError: adapter could not read the response"
+        events = AgentRunRepository.list_events(run.id)
+        assert [(e.kind, e.source_id) for e in events][-1] == ("error", source.id)
+        assert IntakeService().get_source(source.id).status == IntakeStatus.PENDING
+
+
 class TestAgentWorkerRateLimitError:
     """SPEC §9 test case 11."""
 

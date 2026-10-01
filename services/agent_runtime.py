@@ -528,6 +528,30 @@ class AgentWorker:
                         ),
                     )
                     return AgentRunRepository.get(run.id)
+                except Exception as exc:  # noqa: BLE001 -- anything else
+                    # An error nobody categorized (an adapter that cannot
+                    # read the response, a bug): the pass stops like on a
+                    # connection error, but says so -- on the run, and as an
+                    # `error` event on the source it happened on -- instead
+                    # of dying in the runner's thread and leaving the run
+                    # `running` with no word of what went wrong. The source
+                    # stays pending; nothing was posted.
+                    logger.exception(
+                        "Agent run %s: unexpected error on source %s",
+                        run.id,
+                        source.id,
+                    )
+                    reason = f"{type(exc).__name__}: {exc}"
+                    AgentRunRepository.add_event(
+                        run.id,
+                        "error",
+                        _event_payload(error=reason),
+                        source_id=source.id,
+                    )
+                    AgentRunRepository.update_status(
+                        run.id, "failed", last_error=reason
+                    )
+                    return AgentRunRepository.get(run.id)
 
                 self._record_outcome(run.id, resolved_model, source, outcome)
             finally:

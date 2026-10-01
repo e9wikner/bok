@@ -63,6 +63,7 @@ network, and the one thing the tests stub out.
 """
 
 import json
+import logging
 from typing import Any, Optional
 
 import openai
@@ -84,6 +85,8 @@ from services.llm import (
     api_model_id,
     gateway_headers,
 )
+
+logger = logging.getLogger(__name__)
 
 # Normalizes OpenAI's Chat Completions `finish_reason` -> services.llm.StopReason.
 #
@@ -125,6 +128,25 @@ class UnrecognizedFinishReasonError(Exception):
             f"Unrecognized Chat Completions finish_reason: {finish_reason!r}"
         )
         self.finish_reason = finish_reason
+
+
+class IncompleteResponseError(LLMConnectionError):
+    """The response came back with no `finish_reason` at all.
+
+    Not an unknown outcome (`UnrecognizedFinishReasonError`) but no outcome:
+    the gateway ended the response -- in practice a stream cut off after
+    minutes -- without the model's closing word. Nothing in it is acted on.
+    A `LLMConnectionError`, because that is what it is to its callers: the
+    intake pass marks the run failed and stops, a thread turn writes an
+    error post. `run_turn` first retries once when no one is watching the
+    stream's text.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "The Chat Completions response ended without a finish_reason "
+            "(cut off by the gateway?)"
+        )
 
 
 class UnsupportedContentBlockError(Exception):
@@ -295,11 +317,36 @@ class ChatClient:
             # deprecated parameter is the wrong default to reach for here
             # even though both still exist on the installed SDK.
             kwargs["max_completion_tokens"] = max_tokens
+        # A response cut off without a finish_reason is retried once -- but
+        # only when no text hook is listening: a thread has already shown the
+        # first attempt's words, and a second attempt would print them again.
+        attempts = 2 if on_text is None else 1
+        for attempt in range(1, attempts + 1):
+            response = self._request(kwargs, on_text, on_tool_call)
+            try:
+                return self.normalize_response(response)
+            except IncompleteResponseError:
+                if attempt == attempts:
+                    raise
+                logger.warning(
+                    "Chat Completions response without finish_reason "
+                    "(model %s); retrying once",
+                    kwargs["model"],
+                )
+        raise AssertionError("unreachable")  # pragma: no cover
+
+    def _request(
+        self,
+        kwargs: dict[str, Any],
+        on_text: Optional[StreamTextHook],
+        on_tool_call: Optional[StreamToolCallHook],
+    ) -> ChatCompletion:
+        """One request, streamed when a hook listens; the SDK's errors
+        mapped to `LLMRateLimitError` / `LLMConnectionError`."""
         try:
             if on_text is not None or on_tool_call is not None:
-                response = self._stream_completion(kwargs, on_text, on_tool_call)
-            else:
-                response = self._client.chat.completions.create(**kwargs)
+                return self._stream_completion(kwargs, on_text, on_tool_call)
+            return self._client.chat.completions.create(**kwargs)
         except openai.RateLimitError as exc:
             # Checked before APIConnectionError, mirroring
             # `MessagesClient.run_turn`: RateLimitError is an
@@ -317,7 +364,6 @@ class ChatClient:
             raise LLMConnectionError(
                 f"Connection error talking to the Chat Completions API: {exc.message}"
             ) from exc
-        return self.normalize_response(response)
 
     def _stream_completion(
         self,
@@ -467,6 +513,8 @@ class ChatClient:
                 )
             )
 
+        if choice.finish_reason is None:
+            raise IncompleteResponseError()
         if choice.finish_reason not in _FINISH_REASON_MAP:
             raise UnrecognizedFinishReasonError(choice.finish_reason)
         stop = _FINISH_REASON_MAP[choice.finish_reason]

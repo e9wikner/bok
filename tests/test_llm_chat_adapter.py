@@ -36,6 +36,7 @@ from services.llm import (
 )
 from services.llm.chat import (
     ChatClient,
+    IncompleteResponseError,
     MalformedToolArgumentsError,
     UnrecognizedFinishReasonError,
     UnsupportedContentBlockError,
@@ -940,6 +941,87 @@ class TestStreamedLengthFinish:
 
         assert turn.stop == "max_tokens"
         assert turn.usage.output_tokens == truncated.usage.completion_tokens
+
+
+class TestMissingFinishReason:
+    """A response with no `finish_reason` at all -- a stream the gateway cut
+    off -- is an incomplete response (a connection error), never an outcome.
+    Seen in production: `opencode-go/glm-5.3`, a document pass, after four
+    minutes of streaming."""
+
+    @staticmethod
+    def _cut_off() -> ChatCompletion:
+        response = _load_completion("tool_calls_stop.json")
+        response.choices[0].finish_reason = None  # type: ignore[assignment]
+        return response
+
+    def _client_streaming(self, completions: list) -> tuple:
+        client = ChatClient(api_key="dummy-test-key", base_url="http://127.0.0.1:0")
+        calls: list = []
+
+        class _Stream:
+            def __init__(self, completion):
+                self.completion = completion
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc: Any) -> None:
+                return None
+
+            def __iter__(self):
+                return iter(())
+
+            def get_final_completion(self) -> ChatCompletion:
+                return self.completion
+
+        def fake_stream(**kwargs: Any):
+            calls.append(kwargs)
+            return _Stream(completions[len(calls) - 1])
+
+        client._client.chat.completions.stream = fake_stream  # type: ignore[method-assign]
+        return client, calls
+
+    def _turn(self, client, **hooks):
+        return client.run_turn(
+            system="s",
+            messages=[{"role": "user", "content": [{"type": "text", "text": "hej"}]}],
+            tools=[],
+            model="opencode-go/glm-5.3",
+            max_tokens=None,
+            **hooks,
+        )
+
+    def test_normalize_raises_incomplete_response_a_connection_error(self):
+        with pytest.raises(IncompleteResponseError) as exc_info:
+            ChatClient.normalize_response(self._cut_off())
+        assert isinstance(exc_info.value, LLMConnectionError)
+
+    def test_the_intake_pass_gets_one_retry(self):
+        client, calls = self._client_streaming(
+            [self._cut_off(), _load_completion("stop_finish.json")]
+        )
+
+        turn = self._turn(client, on_tool_call=lambda _name: None)
+
+        assert turn.stop == "end"
+        assert len(calls) == 2
+
+    def test_cut_off_twice_is_a_connection_error(self):
+        client, calls = self._client_streaming([self._cut_off(), self._cut_off()])
+
+        with pytest.raises(IncompleteResponseError):
+            self._turn(client, on_tool_call=lambda _name: None)
+        assert len(calls) == 2
+
+    def test_a_thread_watching_the_text_is_not_retried(self):
+        client, calls = self._client_streaming(
+            [self._cut_off(), _load_completion("stop_finish.json")]
+        )
+
+        with pytest.raises(IncompleteResponseError):
+            self._turn(client, on_text=lambda _text: None)
+        assert len(calls) == 1
 
 
 class TestNoPerTurnCap:
