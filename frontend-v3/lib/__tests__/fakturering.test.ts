@@ -32,6 +32,12 @@ describe("fakturering F0 i de gamla sidorna", () => {
     expect(describeInvoiceError(fel({ code: "human_only" }), "x")).toContain("inloggad");
   });
 
+  it("draft_in_thread pekar till chatten (fakturering F1 §4.3)", () => {
+    expect(describeInvoiceError(fel({ code: "draft_in_thread", post_id: "p1", thread_id: "t1" }), "x")).toBe(
+      "Förslaget väntar i Fakturerings chatt. Be agenten ändra det där.",
+    );
+  });
+
   it("okänd kod ger serverns text, inget svar ger reservtexten", () => {
     expect(describeInvoiceError(fel({ code: "okand", error: "Något" }), "x")).toBe("Något");
     expect(describeInvoiceError(new Error("nät"), "Reserv")).toBe("Reserv");

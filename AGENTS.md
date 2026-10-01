@@ -80,6 +80,12 @@ set. The PDF is räkenskapsinformation: it is linked to the voucher as underlag
 and served byte for byte (`GET /api/v1/invoices/{id}/pdf`), never re-rendered.
 A wrong invoice is corrected with a credit note.
 
+In a thread, an invoice draft is proposed as a card (`foresla_faktura`,
+`services/invoice_proposal.py`, migration 039). The draft behind a pending card
+is never edited in place: `andra_fakturautkast` creates a new draft that
+replaces it and rejects the old one, and `PUT`/`reject` on the old draft get
+`409 draft_in_thread`.
+
 ## Layering
 
 - `api/routes/` — HTTP only: parse, authenticate, map domain errors to status codes.
@@ -119,6 +125,7 @@ comments still cite them as `SPEC-<module>.md §n`; read them in git history:
 git show 1a7a7b7:docs/redesign/SPEC-flode-underlag.md
 git show 1a7a7b7:tasks/flode-underlag/todo.md
 git show e313c5f:docs/redesign/SPEC-fakturering.md   # fakturering F0
+git show 392250d:docs/redesign/SPEC-fakturering-f1.md   # fakturering F1
 ```
 
 What still needs deciding is in `docs/oppna-beslut.md`. The design source (v10 and
