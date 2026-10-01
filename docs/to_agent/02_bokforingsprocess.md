@@ -281,7 +281,13 @@ Innehåll:
 - Antal med enhet (`h`, `st`).
 - Betalningsvillkor enligt kunden.
 
-Vid `company_info_incomplete`: be användaren om fälten i `missing`, i en fråga.
+Vid `company_info_incomplete`: fråga användaren efter fälten i `missing`, i en
+fråga, eller be om en gammal faktura att läsa dem från. Skriv aldrig själv i
+bolagsuppgifterna: lägg uppgifterna användaren gav, eller som står på fakturan,
+i ett beslutskort med `foresla_bolagsinformation`. Ange bara fält som står i
+underlaget eller som användaren sa, och gissa aldrig. Kortet fyller bara tomma
+fält; ett redan ifyllt fält som skiljer sig ersätts bara om användaren väljer
+det alternativet. Utfärda fakturan först när användaren har sparat.
 
 ## När agenten ska avstå
 

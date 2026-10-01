@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from domain.types import (
     AccountType,
@@ -632,3 +632,25 @@ class FiscalYearProposal:
     resolved_at: Optional[datetime] = None
     resolved_by: Optional[str] = None
     source_ids: List[str] = field(default_factory=list)
+
+
+@dataclass
+class CompanyInfoProposal:
+    """Company details proposed as a decision card in a thread
+    (`foresla_bolagsinformation`, migration 042). `fill_values` go into fields
+    still empty at the press; `overwrite_values` replace a stored value and are
+    written only on the overwrite option. `status` moves only out of
+    `pending`: `applied`, `declined` or `superseded` (a new proposal)."""
+
+    id: str
+    decision_id: str
+    thread_id: str
+    status: str
+    created_by: str
+    created_at: datetime
+    fill_option_id: Optional[str] = None
+    overwrite_option_id: Optional[str] = None
+    fill_values: Dict[str, str] = field(default_factory=dict)
+    overwrite_values: Dict[str, str] = field(default_factory=dict)
+    resolved_at: Optional[datetime] = None
+    resolved_by: Optional[str] = None

@@ -31,6 +31,7 @@ from domain.models import DecisionOption
 from domain.types import ThreadViewKey
 from domain.validation import ValidationError
 from repositories.thread_repo import ThreadRepository
+from services.company_info_proposal import CompanyInfoProposalService
 from services.decision_service import (
     DecisionAlreadyAnswered,
     DecisionNotAnswerable,
@@ -264,6 +265,9 @@ async def answer_decision(
     # option creates the year before the turn starts, so the agent's turn
     # already sees the year's open periods. Any other decision: nothing.
     FiscalYearProposalService().on_decision_answered(decision, actor=actor)
+    # A company-info card (`foresla_bolagsinformation`): the press on a fill
+    # or overwrite option writes the details. Any other decision: nothing.
+    CompanyInfoProposalService().on_decision_answered(decision, actor=actor)
 
     if settings.agent_runtime_enabled:
         ThreadTurnRunner().start(thread, answer_post, answer_post.body["text"])

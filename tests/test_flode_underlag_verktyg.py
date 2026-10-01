@@ -87,7 +87,7 @@ def test_36_koppla_underlag_is_last_and_the_first_twelve_are_unchanged():
     # `koppla_bort_underlag` after that, the fifteenth, and the two
     # statement tools after that, then fakturering F1's four, the
     # statement-unlink tool, the payroll tools and foresla_rakenskapsar last.
-    assert len(names) == 27
+    assert len(names) == 28
     assert names[11:] == [
         "tolka_underlag",
         "koppla_underlag",
@@ -105,6 +105,7 @@ def test_36_koppla_underlag_is_last_and_the_first_twelve_are_unchanged():
         "satt_lon",
         "skapa_lonekorning",
         "foresla_rakenskapsar",
+        "foresla_bolagsinformation",
     ]
     first_twelve = json.dumps(AGENT_TOOL_DEFINITIONS[:12])
     assert hashlib.sha256(first_twelve.encode()).hexdigest() == _FIRST_TWELVE_SHA256

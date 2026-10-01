@@ -93,6 +93,13 @@ every fiscal year it raises a decision card proposing the year
 it. Without a thread (the intake pass) the card goes in the Verifikationer
 thread and the underlag waits for the answer. It creates no voucher.
 
+A twenty-eighth, ``foresla_bolagsinformation``, is appended after
+``foresla_rakenskapsar`` for the same reason. It proposes company details the
+user gave in a thread as a decision card (``services/company_info_proposal.py``,
+migration 042); the human's press writes ``company_info``, filling empty
+fields and overwriting only on the card's overwrite option. It refuses outside
+a thread and creates no voucher.
+
 ``posta_verifikation`` is the only tool that posts to the general ledger,
 and it goes through the exact same code as ``POST /api/v1/agent/vouchers``
 (``services/voucher_posting.post_agent_voucher``, A1) -- same
@@ -714,6 +721,28 @@ class ForeslaRakenskapsarArgs(BaseModel):
     source_ids: list[str] = Field(default_factory=list)
     start_date: Optional[DateType] = None
     end_date: Optional[DateType] = None
+
+
+class ForeslaBolagsinformationArgs(BaseModel):
+    """Föreslå bolagsuppgifter som användaren har gett i samtalet (säte,
+    momsnummer, bankgiro, F-skatt ...). Ange bara fält användaren har sagt
+    eller visat; gissa aldrig. Servern lägger ett beslutskort; användaren
+    sparar med ett tryck."""
+
+    name: Optional[str] = None
+    org_number: Optional[str] = None
+    contact_name: Optional[str] = None
+    address: Optional[str] = None
+    postnr: Optional[str] = None
+    postort: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    website: Optional[str] = None
+    seat: Optional[str] = None
+    vat_number: Optional[str] = None
+    bankgiro: Optional[str] = None
+    plusgiro: Optional[str] = None
+    f_skatt: Optional[bool] = None
 
 
 # ---------------------------------------------------------------------------
@@ -1885,6 +1914,32 @@ def _run_foresla_rakenskapsar(
     )
 
 
+def _run_foresla_bolagsinformation(
+    args: ForeslaBolagsinformationArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """Not terminal. Needs the ``thread``: the card goes in it. Writes nothing
+    to ``company_info`` itself -- the human's press does."""
+    thread = (tool_context or {}).get("thread")
+    if thread is None:
+        raise ValidationError(
+            code="company_info_requires_thread",
+            message="foresla_bolagsinformation can only be called from a thread turn",
+            details="Company details are proposed when the user gives them in a "
+            "conversation.",
+        )
+    # Deferred import -- the same import-cycle rule as `_run_be_om_beslut`.
+    from services.company_info_proposal import CompanyInfoProposalService
+
+    return CompanyInfoProposalService().propose(
+        thread, fields=args.model_dump(exclude_none=True), actor=actor
+    )
+
+
 _ToolHandler = Callable[..., Any]
 
 _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
@@ -2155,6 +2210,19 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
         ForeslaRakenskapsarArgs,
         _run_foresla_rakenskapsar,
     ),
+    (
+        "foresla_bolagsinformation",
+        "Föreslå bolagsuppgifter (säte, momsnummer, bankgiro, F-skatt, "
+        "adress ...) som användaren har sagt eller visat i samtalet, till "
+        "exempel från en gammal faktura. Ange bara fält som står i underlaget "
+        "eller som användaren sa; gissa aldrig. Lägger ett beslutskort i "
+        "tråden och användaren sparar med ett tryck. Kortet fyller bara tomma "
+        "fält; ett redan ifyllt fält som skiljer sig ersätts bara om "
+        "användaren väljer det alternativet. Skriver inget själv och bokför "
+        "ingenting. Bara i ett samtal.",
+        ForeslaBolagsinformationArgs,
+        _run_foresla_bolagsinformation,
+    ),
 )
 
 #: Anthropic tool-definition shape: {"name", "description", "input_schema"}.
@@ -2184,8 +2252,9 @@ def execute_tool(
     tool_context: Optional[Mapping[str, Any]] = None,
 ) -> Any:
     """Validate and run one model-requested tool call -- one of the
-    twenty-seven tools in ``_TOOL_SPECS``, the last of them
-    ``foresla_rakenskapsar`` (the twenty-sixth ``skapa_lonekorning``, the
+    twenty-eight tools in ``_TOOL_SPECS``, the last of them
+    ``foresla_bolagsinformation`` (the twenty-seventh ``foresla_rakenskapsar``,
+    the twenty-sixth ``skapa_lonekorning``, the
     twenty-second is ``koppla_bort_banktransaktion``,
     the seventeenth ``koppla_banktransaktion``, the fifteenth
     ``koppla_bort_underlag``, the fourteenth ``stang_perioder``).

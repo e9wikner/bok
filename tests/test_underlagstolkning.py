@@ -2244,7 +2244,7 @@ def test_34_tolka_underlag_is_twelfth_and_the_first_eleven_are_unchanged():
     it."""
     from services.agent_tools import AGENT_TOOL_DEFINITIONS, TolkaUnderlagArgs
 
-    assert len(AGENT_TOOL_DEFINITIONS) == 27
+    assert len(AGENT_TOOL_DEFINITIONS) == 28
     assert [t["name"] for t in AGENT_TOOL_DEFINITIONS][10:12] == [
         "foresla_verifikation",
         "tolka_underlag",
@@ -2269,7 +2269,7 @@ def test_u7_the_docstrings_say_twelve_tools():
     assert "tolka_underlag" in (agent_tools.__doc__ or "")
     # Twenty-seven since fakturering F1, the payroll tools and
     # foresla_rakenskapsar were appended after the statement tools.
-    assert "twenty-seven" in (agent_tools.execute_tool.__doc__ or "")
+    assert "twenty-eight" in (agent_tools.execute_tool.__doc__ or "")
 
 
 # ---------------------------------------------------------------------------
