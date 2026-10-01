@@ -2035,9 +2035,10 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
     ),
     (
         "registrera_anstalld",
-        "Lägg upp en anställd med namn, personnummer (tolv siffror, "
-        "kontrollsiffran prövas), bankkonto och e-post, när användaren ber "
-        "om det i samtalet. Med employee_id rättas en befintlig anställds "
+        "Lägg upp en anställd med namn, när användaren ber om det i "
+        "samtalet. Personnummer (tolv siffror, kontrollsiffran prövas), "
+        "bankkonto och e-post är valfria: fråga aldrig efter dem, skicka "
+        "dem bara om användaren själv ger dem. Med employee_id rättas en befintlig anställds "
         "uppgifter; fält som utelämnas behålls. Bara i ett samtal. Bokför "
         "ingenting.",
         RegistreraAnstalldArgs,

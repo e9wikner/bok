@@ -333,8 +333,12 @@ personalskatt kräver att rätt skuld- eller fordranskonto används.
 
 Löner sätts upp i samtalet när användaren ber om det:
 
-- `registrera_anstalld` lägger upp en anställd. Personnumret ska ha tolv
-  siffror. Rätta en anställds uppgifter med samma verktyg och `employee_id`.
+- `registrera_anstalld` lägger upp en anställd med bara namn. Be aldrig om
+  personnummer eller bankkonto: ingen av dem krävs för att sätta upp lön, och
+  kontonumret behövs inte alls. Skicka dem bara om användaren själv ger dem
+  utan att du frågat; personnumret ska då ha tolv siffror. Behövs personnumret
+  för AGI, säg att användaren kan lägga in det själv i stället för att ge det
+  i samtalet. Rätta en anställds uppgifter med samma verktyg och `employee_id`.
 - `satt_lon` sätter bruttolön och skatteavdrag i öre och arbetsgivaravgiften i
   baspunkter. Skatteavdraget ska komma från användaren, från skattetabellen
   eller ett tidigare lönebesked. Gissa det aldrig. Arbetsgivaravgiften är 3142
