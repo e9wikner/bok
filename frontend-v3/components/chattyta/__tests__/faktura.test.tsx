@@ -99,7 +99,8 @@ describe("parseInlagg för kind=invoice (testfall 33)", () => {
   it("en rad utan belopp blir okant_kontrakt", () => {
     const body = kropp(FIXTUR_FAKTURA_DRAFT);
     const rows = (body.rows as Record<string, unknown>[]).map((r) => {
-      const { amount_ore: _bort, ...rest } = r;
+      const rest = { ...r };
+      delete rest.amount_ore;
       return rest;
     });
     expect(parseInlagg(medKropp(FIXTUR_FAKTURA_DRAFT, { ...body, rows }))?.type).toBe("okant_kontrakt");

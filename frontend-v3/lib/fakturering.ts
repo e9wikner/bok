@@ -53,6 +53,10 @@ export function describeInvoiceError(err: unknown, fallback: string): string {
       return "Utkastet är avvisat och kan inte utfärdas.";
     case "draft_not_found":
       return "Fakturautkastet hittades inte.";
+    case "draft_in_thread":
+      // SPEC-fakturering-f1.md §4.3: the draft behind a pending card changes
+      // only through the thread.
+      return "Förslaget väntar i Fakturerings chatt. Be agenten ändra det där.";
     case "invoice_number_missing":
       return "Ange ett fakturanummer.";
     case "number_is_date":
