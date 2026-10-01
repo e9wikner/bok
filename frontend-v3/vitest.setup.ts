@@ -5,6 +5,8 @@ import { afterEach, vi } from "vitest";
 afterEach(() => {
   cleanup();
   satteBredd(URSPRUNGLIG_BREDD);
+  // Chattfältets utkast (`lib/chattyta/utkast.ts`) ska inte följa med till nästa test.
+  window.sessionStorage.clear();
 });
 
 // jsdom saknar scrollTo på element; svepraden (VySvep) anropar den.

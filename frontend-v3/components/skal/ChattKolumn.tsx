@@ -197,7 +197,7 @@ function KolumnLayout({
       {onNollstall && kanNollstallas(trad) && (
         <NollstallKnapp onNollstall={onNollstall} arbetar={trad.strommande !== null} />
       )}
-      <ChattFalt ref={falt} vyTitel={vyTitel} onSkicka={onSkicka} slappYta={kolumn} />
+      <ChattFalt ref={falt} vyTitel={vyTitel} viewKey={viewKey} onSkicka={onSkicka} slappYta={kolumn} />
     </div>
   );
 }

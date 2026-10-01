@@ -15,6 +15,7 @@ import {
   TILLATNA_TYPER,
   type FilChip,
 } from "@/lib/chattyta/uppladdning";
+import { lasUtkast, sparaUtkast } from "@/lib/chattyta/utkast";
 
 /**
  * `ChattFalt` (komponenter.md): radius 12, streckad kant #c7c7cc,
@@ -77,12 +78,22 @@ export const ChattFalt = forwardRef<
      * filer emot: en fil som inte kan skickas vore en källa utan samtal.
      */
     slappYta?: RefObject<HTMLElement | null>;
+    /**
+     * Vyns nyckel. Med den står osänd text kvar när fältet monteras om —
+     * vid byte av vy eller sida (`lib/chattyta/utkast.ts`). Utan den sparas
+     * inget utkast.
+     */
+    viewKey?: string;
   }
->(function ChattFalt({ vyTitel, variant = "desktop", onSkicka, slappYta }, ref) {
+>(function ChattFalt({ vyTitel, variant = "desktop", onSkicka, slappYta, viewKey }, ref) {
   // Ett id per fält: svepraden har flera kolumner på skärmen samtidigt, och
   // ett delat id gjorde att etiketten pekade på första kolumnens fält.
   const faltId = useId();
-  const [text, setText] = useState("");
+  const [text, setText] = useState(() => (viewKey ? lasUtkast(viewKey) : ""));
+  // Både skrivning och tömningen efter ett lagrat meddelande går hit.
+  useEffect(() => {
+    if (viewKey) sparaUtkast(viewKey, text);
+  }, [viewKey, text]);
   // Ett andra Enter medan det första är i flykt skickar inte igen: texten
   // står ju kvar i fältet tills servern svarat, och samma fråga två gånger
   // är två turer för agenten.

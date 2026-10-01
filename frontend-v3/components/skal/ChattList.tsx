@@ -131,7 +131,14 @@ function ListLayout({
           {onNollstall && kanNollstallas(trad) && (
             <NollstallKnapp onNollstall={onNollstall} arbetar={trad.strommande !== null} variant="mobil" />
           )}
-          <ChattFalt ref={falt} vyTitel={vyTitel} variant="mobil" onSkicka={onSkicka} slappYta={list} />
+          <ChattFalt
+            ref={falt}
+            vyTitel={vyTitel}
+            viewKey={viewKey}
+            variant="mobil"
+            onSkicka={onSkicka}
+            slappYta={list}
+          />
         </div>
       )}
     </div>
