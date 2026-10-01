@@ -40,6 +40,7 @@ export const SKRIVER_ETIKETTER: Readonly<Record<string, string>> = {
   satt_lon: "Sätter lönen…",
   skapa_lonekorning: "Skapar lönekörningen…",
   foresla_rakenskapsar: "Föreslår ett räkenskapsår…",
+  foresla_bolagsinformation: "Föreslår bolagsuppgifter…",
   las_kunder: "Läser kunderna…",
   las_fakturor: "Läser fakturorna…",
   foresla_faktura: "Föreslår en faktura…",
