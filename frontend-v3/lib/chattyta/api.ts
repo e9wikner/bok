@@ -524,6 +524,54 @@ export async function postaUtkast(draftId: string): Promise<PostaUtfall> {
   }
 }
 
+// ─── Utfärda ett fakturaförslag (SPEC-fakturering-f1.md §7.1) ────────────
+
+/** `201` ur `POST /invoice-drafts/{id}/issue`. */
+export interface UtfardadFaktura {
+  invoice_id: string;
+  invoice_number: string;
+  voucher_id: string;
+  pdf_url: string;
+}
+
+/**
+ * Utfallen i §7.1:s tabell. Ingen nyckel (beslut 5): det unika indexet på
+ * `source_draft_id` gör ett andra tryck till `draft_already_issued`, som
+ * klienten läser som klart.
+ */
+export type UtfardaUtfall =
+  | { utfall: "utfardad"; faktura: UtfardadFaktura | null; invoice_id: string | null }
+  | { utfall: "ersatt" }
+  | { utfall: "fel"; kod: string; kvar: boolean }
+  | { utfall: "natverk"; status: number | null };
+
+/**
+ * Fel där `Utfärda` står kvar (beslut 8): människan löser dem utan att
+ * utkastet ändras och trycker igen.
+ */
+export const UTFARDA_KVAR = new Set(["period_locked", "company_info_incomplete"]);
+
+export async function utfardaFaktura(draftId: string): Promise<UtfardaUtfall> {
+  try {
+    const svar = await apiClient.post<UtfardadFaktura>(
+      `/api/v1/invoice-drafts/${encodeURIComponent(draftId)}/issue`
+    );
+    return { utfall: "utfardad", faktura: svar.data, invoice_id: svar.data.invoice_id };
+  } catch (fel) {
+    if (!axios.isAxiosError(fel)) throw fel;
+    const status = fel.response?.status;
+    if (status === undefined || status >= 500) return { utfall: "natverk", status: status ?? null };
+    const detalj = feldetalj(fel);
+    const kod = typeof detalj?.code === "string" ? detalj.code : `status ${status}`;
+    if (kod === "draft_already_issued") {
+      return { utfall: "utfardad", faktura: null, invoice_id: strangEllerNull(detalj?.invoice_id) };
+    }
+    // Förslaget hann ersättas (§5.4): det gamla utkastet är förkastat.
+    if (kod === "draft_rejected") return { utfall: "ersatt" };
+    return { utfall: "fel", kod, kvar: UTFARDA_KVAR.has(kod) };
+  }
+}
+
 // ─── Frågenycklar ─────────────────────────────────────────────────────────
 
 /**
@@ -557,17 +605,41 @@ export const VOUCHERS_NYCKEL = ["vouchers"] as const;
  */
 export const DRAFTS_NYCKEL = ["drafts"] as const;
 
+/**
+ * Fakturorna och fakturautkasten i vyn Fakturering (SPEC-fakturering-f1.md
+ * §10.2). Invalideras av ett utfärdande och av `view.changed`.
+ */
+export const FAKTUROR_NYCKEL = ["invoices"] as const;
+
 // ─── Förslagens status (flode-verifikationer §10, F13) ───────────────────
 
-/** `thread_drafts.status`. */
-export type ForslagStatus = "pending" | "posted" | "superseded";
+/**
+ * `thread_drafts.status`, och för fakturaförslag `thread_invoice_drafts.status`
+ * (SPEC-fakturering-f1.md §10.1): `issued` och `rejected` finns bara där.
+ */
+export type ForslagStatus = "pending" | "posted" | "superseded" | "issued" | "rejected";
 
 /** Frågans filter; `all` är inget läge ett förslag kan ha. */
 export type ForslagFilter = ForslagStatus | "all";
 
+/** Vad ett utfärdat fakturaförslag blev (SPEC-fakturering-f1.md §10.1). */
+export interface ForslagFaktura {
+  invoice_id: string;
+  invoice_number: string;
+  voucher_id: string | null;
+  /** `A-120`, eller `null`. */
+  voucher: string | null;
+  pdf_url: string | null;
+}
+
 /** En rad ur `GET /drafts`, fält för fält (`api/routes/drafts.py`). */
 export interface ForslagStatusSvar {
-  /** `vouchers.id` — samma som `draft`-inläggets `body.draft_id`. */
+  /**
+   * `voucher` eller `invoice` (SPEC-fakturering-f1.md §10.1). Valfri: en
+   * server från före F1 skickar den inte, och då är raden en verifikation.
+   */
+  kind?: "voucher" | "invoice";
+  /** `vouchers.id` eller `invoice_drafts.id` — samma som `draft`-inläggets `body.draft_id`. */
   draft_id: string;
   /** `draft`-inläggets `id`. */
   post_id: string;
@@ -589,6 +661,8 @@ export interface ForslagStatusSvar {
   /** Senaste postningsfelets kod (§9), eller `null`. */
   last_error_code: string | null;
   created_at: string;
+  /** Bara när ett fakturaförslag är `issued`. */
+  invoice?: ForslagFaktura | null;
 }
 
 export interface ForslagListSvar {

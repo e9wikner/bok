@@ -18,7 +18,7 @@ made append-only. It never creates or changes a voucher.
 
 A wrong link is undone by `unlink` (`koppla_bort_banktransaktion`,
 `POST /api/v1/bank-inputs/transactions/{id}/unlink`): a row in
-`voucher_bank_transaction_unlinks` (migration 039) says the link no longer
+`voucher_bank_transaction_unlinks` (migration 040) says the link no longer
 holds, and the link row stays. The transaction is then free for another
 link, but never again linked automatically to a voucher it was unlinked
 from -- and, since a human has looked at it, never automatically at all.

@@ -65,6 +65,7 @@ class InvoiceIssueService:
         number = self._check_draft(draft)
         company = self._company()
         period = self._open_period(draft.invoice_date)
+        self._refuse_taken_number(number)
 
         pdf_file: Optional[Path] = None
         try:
@@ -94,6 +95,11 @@ class InvoiceIssueService:
                     issued_by=actor,
                 )
                 self.drafts.mark_issued(draft_id, invoice_id, voucher_id)
+                # F1 §7.3: a card waiting on this draft is issued with it, so
+                # it never offers a second press.
+                from services.invoice_proposal import InvoiceProposalService
+
+                InvoiceProposalService.on_issuing(draft_id, invoice_id, issued_at)
                 self._log(draft_id, invoice_id, number, voucher_id, sha256, actor)
         except Exception as exc:
             self._remove(pdf_file)
@@ -141,6 +147,19 @@ class InvoiceIssueService:
                 payload={"pdf_path": invoice.pdf_path},
             )
         return f"faktura_{invoice.invoice_number}.pdf", path.read_bytes()
+
+    def check(self, draft) -> str:
+        """Every check `issue` runs before it writes, without writing
+        (SPEC-fakturering-f1.md §5.3): the draft's own, `company_info`, the
+        period of the invoice date and the number's uniqueness. A proposal
+        runs it so that a card with `Utfärda` can be issued when it is shown;
+        `issue` runs the same checks again. Returns the invoice number."""
+        self._refuse_already_issued(draft)
+        number = self._check_draft(draft)
+        self._company()
+        self._open_period(draft.invoice_date)
+        self._refuse_taken_number(number)
+        return number
 
     # --- checks (§5 step 2: each has its code, and nothing is written) ------
 

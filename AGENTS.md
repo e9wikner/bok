@@ -64,7 +64,7 @@ one *current* link per source, and "current" means the link has no unlink row.
 Anything that asks "is this linked?" must read current links only.
 
 A statement transaction's link to a voucher works the same way (migration
-039). `voucher_bank_transactions` and `voucher_bank_transaction_unlinks` refuse
+040). `voucher_bank_transactions` and `voucher_bank_transaction_unlinks` refuse
 UPDATE/DELETE; a wrong link is undone by an unlink row
 (`StatementMatchService.unlink`, the tool `koppla_bort_banktransaktion`,
 `POST /api/v1/bank-inputs/transactions/{id}/unlink`). Read links through the
@@ -118,6 +118,7 @@ comments still cite them as `SPEC-<module>.md §n`; read them in git history:
 ```bash
 git show 1a7a7b7:docs/redesign/SPEC-flode-underlag.md
 git show 1a7a7b7:tasks/flode-underlag/todo.md
+git show e313c5f:docs/redesign/SPEC-fakturering.md   # fakturering F0
 ```
 
 What still needs deciding is in `docs/oppna-beslut.md`. The design source (v10 and

@@ -183,6 +183,56 @@ export const FIXTUR_RECEIPT: RaInlagg = {
   run_id: "r-3",
 };
 
+/** SPEC-fakturering-f1.md §6.1, ordagrant. */
+export const FIXTUR_FAKTURA_DRAFT: RaInlagg = {
+  id: "p-9",
+  seq: 9,
+  type: "draft",
+  actor: "agent",
+  created_at: SKAPAD,
+  body: {
+    draft_id: "<invoice_drafts.id>",
+    kind: "invoice",
+    title: "Faktura 1045 · Ateljé Vind AB",
+    meta: "förslag · fakturadatum 2026-06-12",
+    recipient: { name: "Ateljé Vind AB", address: "Storgatan 1\n123 45 Staden", reference: "Anna Berg" },
+    rows: [
+      { text: "Konsultation juni", article_number: "KONS", delivery: "juni 2026", quantity_centi: 2400, unit: "h", unit_price_ore: 115000, amount_ore: 2760000 },
+    ],
+    totals: [
+      { key: "net", text: "Netto", amount_ore: 2760000 },
+      { key: "vat", text: "Moms 25 %", amount_ore: 690000 },
+      { key: "total", text: "Att betala senast 2026-07-12", amount_ore: 3450000 },
+    ],
+    terms: "30 dagar",
+    footnote: "Timmarna ur ditt meddelande · villkor som faktura 1044",
+    consequence:
+      "Utfärdas och bokförs i ett steg · 1510 mot 3011 och 2610 · period juni 2026 öppen\nPDF:en laddar du ner och skickar själv",
+    decision_id: null,
+  },
+  traces: null,
+  run_id: "r-4",
+};
+
+/** SPEC-fakturering-f1.md §8.1: kvittot efter ett utfärdande. */
+export const FIXTUR_FAKTURA_RECEIPT: RaInlagg = {
+  id: "p-10",
+  seq: 10,
+  type: "receipt",
+  actor: "stefan",
+  created_at: SKAPAD,
+  body: {
+    title: "Faktura 1045 utfärdad · A-120",
+    labels: ["var", "blir"],
+    rows: [{ key: "1510", text: "Kundfordringar", left_ore: 14850000, right_ore: 18300000 }],
+    voucher_id: "<vouchers.id>",
+    invoice_id: "<invoices.id>",
+    pdf_url: "/api/v1/invoices/<id>/pdf",
+  },
+  traces: null,
+  run_id: null,
+};
+
 export const FIXTURER: readonly RaInlagg[] = [
   FIXTUR_AGENT_TEXT,
   FIXTUR_USER_TEXT,

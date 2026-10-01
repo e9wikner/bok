@@ -15,6 +15,7 @@ from fastapi import status as http_status
 
 from api.deps import get_current_actor
 from api.schemas import (
+    DraftInvoice,
     DraftVoucherNumber,
     ThreadDraftListResponse,
     ThreadDraftResponse,
@@ -65,22 +66,38 @@ def _draft_response(item: DraftListItem) -> ThreadDraftResponse:
     )
 
 
+def _invoice_response(item) -> ThreadDraftResponse:
+    proposal, block = item
+    return ThreadDraftResponse(
+        kind="invoice",
+        draft_id=proposal.draft_id,
+        post_id=proposal.post_id,
+        decision_id=proposal.decision_id,
+        status=proposal.status,
+        replaced_by=proposal.replaced_by,
+        last_error_code=proposal.last_error_code,
+        created_at=proposal.created_at,
+        invoice=DraftInvoice(**block) if block else None,
+    )
+
+
 @router.get("", response_model=ThreadDraftListResponse)
 async def list_drafts(
     view_key: str = Query(..., description="One of the seven views; unknown is 404."),
     status: str = Query(
         "all",
-        description="`pending`, `posted`, `superseded` or `all` (default) -- "
-        "unknown value is 400.",
+        description="`pending`, `posted` (vouchers), `superseded`, `issued` "
+        "and `rejected` (invoices) or `all` (default) -- unknown value is 400.",
     ),
     limit: int = Query(200, ge=1, le=200),
     actor: str = Depends(get_current_actor),
 ):
-    """`GET /drafts` -- one view's thread drafts, oldest first. `voucher`
-    is set only when the draft is posted."""
+    """`GET /drafts` -- one view's thread drafts, vouchers and invoices
+    (`kind`), oldest first. `voucher` is set only when a voucher draft is
+    posted, `invoice` only when an invoice proposal is issued."""
     validated_view_key = _validate_view_key(view_key)
     try:
-        items, total = DraftService().list_drafts(
+        items, total = DraftService().list_view_drafts(
             view_key=validated_view_key, status=status, limit=limit
         )
     except ValidationError as exc:
@@ -89,5 +106,9 @@ async def list_drafts(
             detail={"error": exc.message, "code": exc.code, "details": exc.details},
         )
     return ThreadDraftListResponse(
-        drafts=[_draft_response(item) for item in items], total=total
+        drafts=[
+            _draft_response(item) if kind == "voucher" else _invoice_response(item)
+            for kind, item in items
+        ],
+        total=total,
     )

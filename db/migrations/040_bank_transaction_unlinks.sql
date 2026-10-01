@@ -1,4 +1,4 @@
--- Migration 039: a statement link can be undone, and the undoing stays
+-- Migration 040: a statement link can be undone, and the undoing stays
 --
 -- The server links a statement transaction to a posted voucher on its own
 -- when exactly one voucher has the same amount on the account the same day

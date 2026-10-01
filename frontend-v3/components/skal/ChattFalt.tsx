@@ -48,6 +48,14 @@ let chipnummer = 0;
 const harFiler = (dt: DataTransfer | null): boolean =>
   !!dt && Array.from(dt.types ?? []).includes("Files");
 
+/**
+ * Vyer där fältet börjar något annat än en fråga. Fakturering börjar med en
+ * mening om vad som ska faktureras (SPEC-fakturering-f1.md §10.2).
+ */
+const FALTETIKETTER: Readonly<Record<string, string>> = {
+  Fakturering: "Beskriv vad som ska faktureras",
+};
+
 export const ChattFalt = forwardRef<
   HTMLInputElement,
   {
@@ -82,7 +90,7 @@ export const ChattFalt = forwardRef<
   const [chips, setChips] = useState<FilChip[]>([]);
   const [drarOver, setDrarOver] = useState(false);
   const filvaljare = useRef<HTMLInputElement>(null);
-  const etikett = `Fråga om en post i ${vyTitel.toLowerCase()}`;
+  const etikett = FALTETIKETTER[vyTitel] ?? `Fråga om en post i ${vyTitel.toLowerCase()}`;
   const tarEmot = !!onSkicka;
 
   /** En väg för alla tre ingångarna: chip direkt, uppladdning direkt. */

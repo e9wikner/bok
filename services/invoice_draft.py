@@ -32,6 +32,22 @@ def _refuse_issued(draft) -> None:
         )
 
 
+def _refuse_in_thread(draft) -> None:
+    """SPEC-fakturering-f1.md §4.3 (beslut 2): a draft behind a pending card
+    in a thread changes only by being replaced there, never in place -- or
+    the card would no longer show what `Utfärda` issues."""
+    from repositories.invoice_proposal_repo import InvoiceProposalRepository
+
+    proposal = InvoiceProposalRepository.get(draft.id)
+    if proposal is not None and proposal.status == "pending":
+        raise ValidationError(
+            "draft_in_thread",
+            "The draft is a pending proposal in a thread and changes only there",
+            "ask the agent in Fakturering's chat to change it",
+            payload={"post_id": proposal.post_id, "thread_id": proposal.thread_id},
+        )
+
+
 class InvoiceDraftService:
     def __init__(self):
         self.drafts = InvoiceDraftRepository()
@@ -141,6 +157,7 @@ class InvoiceDraftService:
         with unit_of_work(_commit):
             draft = self.get_draft(draft_id)
             _refuse_issued(draft)
+            _refuse_in_thread(draft)
             if draft.status == "sent":
                 raise ValidationError(
                     "draft_already_sent", "Sent invoice draft cannot be updated"
@@ -197,6 +214,7 @@ class InvoiceDraftService:
         with unit_of_work(_commit):
             draft = self.get_draft(draft_id)
             _refuse_issued(draft)
+            _refuse_in_thread(draft)
             if draft.status == "sent":
                 raise ValidationError(
                     "draft_already_sent", "Sent invoice draft cannot be rejected"

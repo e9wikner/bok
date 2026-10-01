@@ -149,7 +149,7 @@ async def unlink_bank_transaction(
     actor: str = Depends(get_current_actor),
 ):
     """Undo a statement transaction's link to a posted voucher
-    (`services/statement_match.py`, migration 039). The link row stays and a
+    (`services/statement_match.py`, migration 040). The link row stays and a
     `voucher_bank_transaction_unlinks` row says it no longer holds; the
     voucher is not touched. The transaction is never again linked
     automatically -- only by `koppla_banktransaktion`.

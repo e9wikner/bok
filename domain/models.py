@@ -583,3 +583,28 @@ class ThreadDraft:
     intake_source_ids: List[str] = field(default_factory=list)
     bank_input_ids: List[str] = field(default_factory=list)
     bank_transaction_ids: List[str] = field(default_factory=list)
+
+
+@dataclass
+class InvoiceProposal:
+    """An invoice draft proposed in a thread, tracked until it is issued,
+    replaced or rejected (docs/redesign/SPEC-fakturering-f1.md §4).
+
+    One row per `invoice_drafts.id`: a change is a new draft that replaces
+    this one (`replaced_by`), never an edit in place. `status` moves only out
+    of `pending`, which `InvoiceProposalRepository` enforces.
+    """
+
+    draft_id: str
+    thread_id: str
+    post_id: str
+    view_key: str
+    status: str = "pending"  # 'pending' | 'issued' | 'superseded' | 'rejected'
+    decision_id: Optional[str] = None
+    replaced_by: Optional[str] = None
+    invoice_id: Optional[str] = None
+    issued_at: Optional[datetime] = None
+    receipt_post_id: Optional[str] = None
+    last_error_code: Optional[str] = None
+    last_error_post_id: Optional[str] = None
+    created_at: datetime = field(default_factory=datetime.now)

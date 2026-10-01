@@ -874,6 +874,10 @@ def test_case_22_foresla_verifikation_is_last_and_the_first_ten_are_unchanged():
         "koppla_bort_underlag",
         "las_okopplade_banktransaktioner",
         "koppla_banktransaktion",
+        "las_kunder",
+        "las_fakturor",
+        "foresla_faktura",
+        "andra_fakturautkast",
         "koppla_bort_banktransaktion",
         "las_loner",
         "registrera_anstalld",
@@ -1729,7 +1733,12 @@ def test_case_30_get_drafts_gives_status_and_voucher_only_when_posted(auth_heade
         waiting["draft_id"],
     ]
     for draft in payload["drafts"]:
+        # `kind` and `invoice` since fakturering F1 (SPEC-fakturering-f1.md
+        # §10.1): a voucher row is `kind="voucher"` with `invoice` null.
+        assert draft["kind"] == "voucher" and draft["invoice"] is None
         assert set(draft) == {
+            "kind",
+            "invoice",
             "draft_id",
             "post_id",
             "decision_id",

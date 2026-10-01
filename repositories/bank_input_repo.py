@@ -330,7 +330,7 @@ class BankInputRepository:
 
     #: A file link holds while one of the file's transactions has a current
     #: link to the voucher, or none of them ever had one -- a file linked on
-    #: its own, without transactions (migration 039).
+    #: its own, without transactions (migration 040).
     _INPUT_LINK_HOLDS_SQL = """
         (EXISTS (
             SELECT 1 FROM current_voucher_bank_transactions c
@@ -387,7 +387,7 @@ class BankInputRepository:
             BankInputRepository._row_to_voucher_bank_transaction(row) for row in rows
         ]
 
-    # --- undoing a statement link (migration 039) -------------------------
+    # --- undoing a statement link (migration 040) -------------------------
 
     @staticmethod
     def current_transaction_link(

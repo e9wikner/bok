@@ -396,11 +396,14 @@ def test_auto_account_unknown_is_refused(books):
 # --- agent tools ------------------------------------------------------------
 
 
-def test_the_statement_tools_come_before_the_payroll_tools():
-    assert [t["name"] for t in AGENT_TOOL_DEFINITIONS[16:18]] == [
-        "koppla_banktransaktion",
-        "koppla_bort_banktransaktion",
-    ]
+def test_koppla_banktransaktion_is_the_seventeenth_tool():
+    # Fakturering F1 appended four after it (SPEC-fakturering-f1.md §5).
+    assert AGENT_TOOL_DEFINITIONS[16]["name"] == "koppla_banktransaktion"
+
+
+def test_the_statement_unlink_tool_comes_before_the_payroll_tools():
+    names = [t["name"] for t in AGENT_TOOL_DEFINITIONS]
+    assert names[21:23] == ["koppla_bort_banktransaktion", "las_loner"]
 
 
 def test_agent_reads_open_transactions_and_links(books):
@@ -428,7 +431,7 @@ def test_agent_reads_open_transactions_and_links(books):
     assert linked["missing_statement_accounts"] == ["1630"]
 
 
-# --- undoing a link (migration 039) -----------------------------------------
+# --- undoing a link (migration 040) -----------------------------------------
 
 
 def _tool(name: str, arguments: dict):
