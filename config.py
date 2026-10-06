@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     llm_go_base_url: str = os.getenv("LLM_GO_BASE_URL", "https://opencode.ai/zen/go/v1")
     # Same rule as `llm_api_key`: never log, print, or surface it.
     llm_go_api_key: str = os.getenv("LLM_GO_API_KEY", "")
-    llm_default_model: str = os.getenv("LLM_DEFAULT_MODEL", "opencode-go/glm-5.3")
+    llm_default_model: str = os.getenv("LLM_DEFAULT_MODEL", "opencode-go/deepseek-v4.1-flash")
 
     # The caps (SPEC §6.5). Checked between source documents and between
     # tool turns, never inside a `with db.transaction():`.

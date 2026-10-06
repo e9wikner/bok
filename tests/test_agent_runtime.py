@@ -586,7 +586,7 @@ class TestAgentRuntimeConfig:
         # The default must itself resolve via get_model_info -- a default
         # that isn't priced would violate SPEC §2 on day one.
         info = get_model_info(Settings().llm_default_model)
-        assert info.model == "opencode-go/glm-5.3"
+        assert info.model == "opencode-go/deepseek-v4.1-flash"
         assert info.provider == "opencode-go"
         assert info.protocol == "chat"
 
