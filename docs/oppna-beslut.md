@@ -49,13 +49,19 @@ Det här är kontroller, inte beslut. De kräver en människa, och den första e
    i fritext kopplas om agenten läser det fel. Alternativet är att ett kopplingsbeslut bara kan
    besvaras med ett alternativ.
 7. **Ett kvitto med flera köp** stöds inte.
-8. **`thinking`-block över flera turer.** Frågan är om `LLMTurn` ska bära dem, så att långa
+8. **Kronbelopp för kvitton i utländsk valuta.** I dag (instruktionerna v5) tar agenten
+   kronbeloppet från kvittot, annars från filnamnet eller förklaringen, och avstår annars.
+   Bättre vore att räkna om med Riksbankens kurs på betalningsdagen och bokföra skillnaden
+   mot kortdragningen som kursdifferens när banktransaktionen matchas: 3960 vid vinst och
+   7960 vid förlust, eftersom det är en rörelseskuld (7960 finns inte i kontoplanen ännu).
+   Det kräver ett verktyg för valutakurser.
+9. **`thinking`-block över flera turer.** Frågan är om `LLMTurn` ska bära dem, så att långa
    trådar går fram och tillbaka korrekt. Det ändrar agentruntimens gränsyta.
-9. **Små designfrågor:**
-   - Varaktigheten på `ny` är gissad (6 s).
-   - Headern visar `BokAi` i stället för bolagsnamnet.
-   - Bokslut-sidan säger alltid `Inget väntar`.
-   - `AgentStatus` syns bara som `pausad` på mobilen.
+10. **Små designfrågor:**
+    - Varaktigheten på `ny` är gissad (6 s).
+    - Headern visar `BokAi` i stället för bolagsnamnet.
+    - Bokslut-sidan säger alltid `Inget väntar`.
+    - `AgentStatus` syns bara som `pausad` på mobilen.
 
 ## underlag-ersatt: val som gjordes i bygget, att bekräfta
 
