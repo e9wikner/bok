@@ -17,11 +17,13 @@ from api.routes.agent import (
     record_intake_failed,
 )
 from api.routes.intake import (
+    RetryRequest,
     UpdateAgentGuidanceRequest,
     delete_intake_source,
     get_intake_source_file,
     get_intake_workspace_detail,
     list_intake_workspace,
+    retry_intake_source,
     update_intake_agent_guidance,
     upload_intake_source,
 )
@@ -819,3 +821,81 @@ async def test_update_agent_guidance_rejected_for_processed_source(
         )
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail["code"] == "intake_guidance_locked"
+
+
+def _failed_source(service: IntakeService, content: bytes):
+    source = service.create_source_from_upload_content(
+        filename="receipt.pdf",
+        content_type="application/pdf",
+        content=content,
+        explanation=None,
+        source_type="receipt",
+        actor="api",
+        agent_guidance="Original guidance",
+    )
+    service.record_processing(source.id, summary="Processing", actor="api")
+    service.record_failed(
+        source.id, summary="Abstained", error_detail="Unclear VAT", actor="api"
+    )
+    return source
+
+
+@pytest.mark.asyncio
+async def test_retry_puts_failed_source_back_in_pending_queue(test_db, intake_dir):
+    service = IntakeService()
+    source = _failed_source(service, b"%PDF-1.4 retry")
+
+    result = await retry_intake_source(
+        source.id, RetryRequest(agent_guidance="Omvänd skattskyldighet"), actor="api"
+    )
+
+    assert result["status"] == "pending"
+    assert result["agent_guidance"] == "Omvänd skattskyldighet"
+    assert result["pass_started"] is False  # runtime off in tests
+    pending = await list_pending_intake_sources(actor="api")
+    assert [item["id"] for item in pending["items"]] == [source.id]
+    # The failed attempt stays: history is append-only.
+    attempts = IntakeRepository.list_attempts_for_source(source.id)
+    assert [a.status for a in attempts][-1] == IntakeStatus.FAILED
+
+
+@pytest.mark.asyncio
+async def test_retry_without_guidance_keeps_existing_guidance(test_db, intake_dir):
+    service = IntakeService()
+    source = _failed_source(service, b"%PDF-1.4 retry keep")
+
+    result = await retry_intake_source(source.id, None, actor="api")
+
+    assert result["status"] == "pending"
+    assert result["agent_guidance"] == "Original guidance"
+
+
+@pytest.mark.asyncio
+async def test_retry_rejected_for_pending_source(test_db, intake_dir):
+    service = IntakeService()
+    source = service.create_source_from_upload_content(
+        filename="receipt.pdf",
+        content_type="application/pdf",
+        content=b"%PDF-1.4 retry pending",
+        explanation=None,
+        source_type="receipt",
+        actor="api",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await retry_intake_source(source.id, None, actor="api")
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "intake_not_retryable"
+
+
+def test_retry_rejected_for_source_owned_by_a_thread(test_db, intake_dir, monkeypatch):
+    service = IntakeService()
+    source = _failed_source(service, b"%PDF-1.4 retry thread")
+    monkeypatch.setattr(
+        IntakeRepository, "is_in_a_thread", staticmethod(lambda _id: True)
+    )
+
+    with pytest.raises(IntakeConflictError) as exc_info:
+        service.retry(source.id, actor="api")
+    assert exc_info.value.code == "intake_in_thread"
+    assert IntakeRepository.get_source(source.id).status == IntakeStatus.FAILED

@@ -20,10 +20,34 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
+/**
+ * Vad ett `401` gör. Ett objekt, inte fria funktioner, så att testerna kan
+ * byta ut navigeringen — jsdom kan inte navigera.
+ */
+export const obehorig = {
+  sokvag: (): string => (typeof window !== "undefined" ? window.location.pathname : ""),
+  ga: (url: string): void => {
+    if (typeof window !== "undefined") window.location.href = url;
+  },
+};
+
+// En utgången eller återkallad token loggar ut — samma sak som
+// `useAuth().logout` gör: token bort, till /login. Utan det gav en utgången
+// session tysta fel på varje sida. Inte på /login självt: där vore det en
+// loop. Felet kastas vidare, så anroparens egen felhantering körs ändå.
+apiClient.interceptors.response.use(undefined, (error) => {
+  if (error?.response?.status === 401 && typeof window !== "undefined") {
+    localStorage.removeItem("auth_token");
+    if (obehorig.sokvag() !== "/login") obehorig.ga("/login");
+  }
+  return Promise.reject(error);
+});
+
 // Types
 export interface Voucher {
   id: string;
-  number: number;
+  /** `null` för ett utkast; numret sätts vid postning. */
+  number: number | null;
   series: string;
   date: string;
   period_id: string;
@@ -104,15 +128,92 @@ export interface Invoice {
   vat_amount: number;
   rows: InvoiceRow[];
   created_at: string;
+  voucher_id?: string | null;
+  // SPEC-fakturering.md §4.3–4.4. Empty on invoices from before F0.
+  issued_at?: string | null;
+  issued_by?: string | null;
+  /** The stored PDF; null for an invoice not issued in Bok. */
+  pdf_url?: string | null;
+  customer_address?: string | null;
+  customer_reference?: string | null;
+  payment_terms_days?: number | null;
+  source_draft_id?: string | null;
 }
 
 export interface InvoiceRow {
   description: string;
+  /** Decimal, at most two decimals (7.5 h). */
   quantity: number;
+  quantity_centi?: number;
+  unit?: string | null;
   unit_price: number;
   vat_code: string;
-  vat_rate: number;
-  total: number;
+  revenue_account?: string | null;
+  article_number?: string | null;
+  delivery_from?: string | null;
+  delivery_to?: string | null;
+  delivery_month?: string | null;
+  amount_ex_vat?: number;
+  vat_amount?: number;
+  amount_inc_vat?: number;
+}
+
+/** A row as `POST/PUT /invoice-drafts` takes it. */
+export interface InvoiceDraftRowPayload {
+  article_id?: string | null;
+  description?: string | null;
+  /** Positive, at most two decimals; 7.5 or "7,5". */
+  quantity: number | string;
+  unit?: string | null;
+  unit_price?: number | null;
+  vat_code?: string | null;
+  revenue_account?: string | null;
+  source_note?: string | null;
+  article_number?: string | null;
+  delivery_from?: string | null;
+  delivery_to?: string | null;
+  delivery_month?: string | null;
+}
+
+/**
+ * The whole draft as `POST/PUT /invoice-drafts` takes it. PUT replaces the
+ * draft: a field left out is cleared.
+ */
+export interface InvoiceDraftPayload {
+  customer_id?: string | null;
+  customer_name?: string | null;
+  customer_org_number?: string | null;
+  customer_email?: string | null;
+  invoice_date: string;
+  due_date?: string | null;
+  /** Er referens. */
+  reference?: string | null;
+  description?: string | null;
+  invoice_number?: string | null;
+  customer_address?: string | null;
+  delivery_from?: string | null;
+  delivery_to?: string | null;
+  /** YYYY-MM, when the exact date is not known. */
+  delivery_month?: string | null;
+  status?: "draft" | "needs_review";
+  rows: InvoiceDraftRowPayload[];
+  agent_notes?: {
+    summary?: string | null;
+    confidence?: number | null;
+    warnings?: string[];
+  };
+}
+
+export interface IssuedInvoice {
+  invoice_id: string;
+  invoice_number: string;
+  voucher_id: string;
+  pdf_url: string;
+}
+
+export interface InvoicePdf {
+  blob: Blob;
+  filename: string | null;
 }
 
 export interface Customer {
@@ -224,6 +325,29 @@ export interface PayrollRun {
   validation?: PayrollRunValidation | null;
 }
 
+export interface AgiIndividual {
+  employee_id: string;
+  name: string;
+  personal_number?: string | null;
+  gross_salary: number;
+  preliminary_tax: number;
+  employer_fee: number;
+}
+
+export interface AgiDeclaration {
+  year: number;
+  month: number;
+  due_date: string;
+  individuals: AgiIndividual[];
+  total_gross_salary: number;
+  total_preliminary_tax: number;
+  total_employer_fee: number;
+  total_to_pay: number;
+  unbooked_payslips: number;
+  voucher_ids: Partial<Record<"tax" | "employer_fee", string>>;
+  booked: boolean;
+}
+
 export type IntakeStatus =
   | "pending"
   | "processing"
@@ -268,6 +392,16 @@ export interface VoucherSourceWorkspaceItem extends IntakeWorkspaceBaseItem {
   agent_guidance?: string | null;
   latest_processing_summary?: string | null;
   latest_error_detail?: string | null;
+  /** Dated outside every fiscal year, or waiting on a proposed one. */
+  date_warning?: IntakeDateWarning | null;
+}
+
+export interface IntakeDateWarning {
+  code: "waiting_for_fiscal_year" | "outside_fiscal_years";
+  message: string;
+  decision_id?: string;
+  document_date?: string;
+  fiscal_year?: { start_date: string; end_date: string };
 }
 
 export interface BankInputWorkspaceItem extends IntakeWorkspaceBaseItem {
@@ -284,6 +418,8 @@ export interface BankInputWorkspaceItem extends IntakeWorkspaceBaseItem {
     status: string;
     matched_voucher_id?: string | null;
   }[];
+  /** Transactions no fiscal year holds: not bookable, shown in no year. */
+  transactions_outside_fiscal_years?: number;
 }
 
 export type IntakeWorkspaceItem =
@@ -329,6 +465,15 @@ export interface DropzoneStatus {
   ingested_total: number;
   problem_file_count: number;
   unknown_account_folders: string[];
+  /** Underlag and statement transactions dated outside every fiscal year. */
+  date_warnings?: {
+    underlag: (IntakeDateWarning & {
+      source_id: string;
+      original_filename: string;
+      status: string;
+    })[];
+    bank_transactions_outside_fiscal_years: number | null;
+  };
   last_error: string | null;
 }
 
@@ -513,28 +658,11 @@ export const api = {
     const { data } = await apiClient.get(`/api/v1/invoices/${id}`);
     return data;
   },
-  createInvoice: async (payload: {
-    customer_name: string;
-    customer_org_number?: string;
-    customer_email?: string;
-    invoice_date: string;
-    due_date: string;
-    description?: string;
-    rows: {
-      description: string;
-      quantity: number;
-      unit_price: number;
-      vat_code: string;
-      revenue_account?: string;
-    }[];
-  }) => {
-    const { data } = await apiClient.post("/api/v1/invoices", payload);
-    return data;
-  },
   previewInvoice: async (payload: {
     rows: {
       description: string;
-      quantity: number;
+      quantity: number | string;
+      unit?: string | null;
       unit_price: number;
       vat_code: string;
       revenue_account?: string;
@@ -543,13 +671,18 @@ export const api = {
     const { data } = await apiClient.post("/api/v1/invoices/preview", payload);
     return data;
   },
-  sendInvoice: async (id: string) => {
-    const { data } = await apiClient.post(`/api/v1/invoices/${id}/send`);
-    return data;
-  },
-  bookInvoice: async (id: string, periodId: string) => {
-    const { data } = await apiClient.post(`/api/v1/invoices/${id}/book`, { period_id: periodId });
-    return data;
+  /**
+   * The PDF stored when the invoice was issued, byte for byte. An invoice
+   * from before F0 has none (404 `pdf_not_stored`); `getPdfExport` renders
+   * one from `/api/v1/export/pdf/invoice/{id}` instead.
+   */
+  getInvoicePdf: async (id: string): Promise<InvoicePdf> => {
+    const response = await apiClient.get(`/api/v1/invoices/${id}/pdf`, {
+      responseType: "blob",
+    });
+    const disposition: string | undefined = response.headers?.["content-disposition"];
+    const match = disposition?.match(/filename="?([^";]+)"?/);
+    return { blob: response.data as Blob, filename: match ? match[1] : null };
   },
   registerPayment: async (id: string, payload: { amount: number; payment_date: string; payment_method: string; reference?: string }) => {
     const { data } = await apiClient.post(`/api/v1/invoices/${id}/payment`, payload);
@@ -565,66 +698,22 @@ export const api = {
     const { data } = await apiClient.get(`/api/v1/invoice-drafts/${id}`);
     return data;
   },
-  createInvoiceDraft: async (payload: {
-    customer_id?: string | null;
-    customer_name?: string | null;
-    customer_org_number?: string | null;
-    customer_email?: string | null;
-    invoice_date: string;
-    due_date?: string | null;
-    reference?: string | null;
-    description?: string | null;
-    status?: "draft" | "needs_review";
-    rows: {
-      article_id?: string | null;
-      description?: string | null;
-      quantity: number;
-      unit_price?: number | null;
-      vat_code?: string | null;
-      revenue_account?: string | null;
-      source_note?: string | null;
-    }[];
-    agent_notes?: {
-      summary?: string | null;
-      confidence?: number | null;
-      warnings?: string[];
-    };
-  }) => {
+  createInvoiceDraft: async (payload: InvoiceDraftPayload) => {
     const { data } = await apiClient.post("/api/v1/invoice-drafts", payload);
     return data;
   },
-  updateInvoiceDraft: async (id: string, payload: {
-    customer_id?: string | null;
-    customer_name?: string | null;
-    customer_org_number?: string | null;
-    customer_email?: string | null;
-    invoice_date: string;
-    due_date?: string | null;
-    reference?: string | null;
-    description?: string | null;
-    status?: "draft" | "needs_review";
-    rows: {
-      article_id?: string | null;
-      description?: string | null;
-      quantity: number;
-      unit_price?: number | null;
-      vat_code?: string | null;
-      revenue_account?: string | null;
-      source_note?: string | null;
-    }[];
-    agent_notes?: {
-      summary?: string | null;
-      confidence?: number | null;
-      warnings?: string[];
-    };
-  }) => {
+  updateInvoiceDraft: async (id: string, payload: InvoiceDraftPayload) => {
     const { data } = await apiClient.put(`/api/v1/invoice-drafts/${id}`, payload);
     return data;
   },
-  sendInvoiceDraft: async (id: string, periodId?: string) => {
-    const { data } = await apiClient.post(`/api/v1/invoice-drafts/${id}/send`, {
-      period_id: periodId || undefined,
-    });
+  /**
+   * Issue the draft (SPEC-fakturering.md §5): the invoice, its posted voucher
+   * and the stored PDF, all or nothing. Logged-in users only; errors come as
+   * `detail.code` (`number_taken`, `period_locked`, `company_info_incomplete`,
+   * `human_only`, ...) with their payload.
+   */
+  issueInvoiceDraft: async (id: string): Promise<IssuedInvoice> => {
+    const { data } = await apiClient.post(`/api/v1/invoice-drafts/${id}/issue`);
     return data;
   },
   rejectInvoiceDraft: async (id: string) => {
@@ -715,6 +804,16 @@ export const api = {
   bookPayslip: async (id: string, bankTransactionId: string) => {
     const { data } = await apiClient.post(`/api/v1/payroll/payslips/${id}/book`, {
       bank_transaction_id: bankTransactionId,
+    });
+    return data;
+  },
+  getAgi: async (year: number, month: number): Promise<AgiDeclaration> => {
+    const { data } = await apiClient.get(`/api/v1/payroll/agi/${year}/${month}`);
+    return data;
+  },
+  bookAgi: async (year: number, month: number, voucherDate?: string): Promise<AgiDeclaration> => {
+    const { data } = await apiClient.post(`/api/v1/payroll/agi/${year}/${month}/book`, {
+      voucher_date: voucherDate || null,
     });
     return data;
   },
@@ -1008,14 +1107,14 @@ export const api = {
     return data as Blob;
   },
 
-  // Attachment URL helper (for <img> src and links)
-  getAttachmentUrl: (voucherId: string, attachmentId: string) =>
-    `${API_URL}/api/v1/vouchers/${voucherId}/attachments/${attachmentId}`,
-  getIntakeFileUrl: (id: string) => `${API_URL}/api/v1/intake/${id}/file`,
-  getBankInputFileUrl: (id: string) =>
-    `${API_URL}/api/v1/bank-inputs/${id}/file`,
-  getPayslipPdfUrl: (payslipId: string) =>
-    `${API_URL}/api/v1/export/pdf/payslip/${payslipId}`,
+  // Every API route needs the bearer, files too, so a file is fetched as a
+  // Blob -- never a plain <img src> or href, which would carry no token.
+  getAttachmentFile: async (voucherId: string, attachmentId: string): Promise<Blob> => {
+    const { data } = await apiClient.get(`/api/v1/vouchers/${voucherId}/attachments/${attachmentId}`, {
+      responseType: "blob",
+    });
+    return data as Blob;
+  },
 
   // Audit Log
   getAuditLog: async (limit = 100, entityType?: string, action?: string) => {

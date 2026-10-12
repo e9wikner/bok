@@ -353,6 +353,7 @@ class VatReportService:
             JOIN vouchers v ON v.id = vr.voucher_id
             LEFT JOIN accounts a ON a.code = vr.account_code
             WHERE v.status = 'posted'
+              AND v.series != 'IB'
               AND v.date >= ?
               AND v.date <= ?
               AND NOT EXISTS (

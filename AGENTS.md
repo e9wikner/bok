@@ -44,11 +44,47 @@ purpose, so that no single layer's bug can violate BFL:
 2. `VoucherValidator` (service layer) checks before posting.
 3. No PATCH/PUT endpoints exist for posted resources.
 
-Corrections go through B-series reversal vouchers only. Period locking is
-irreversible. `draft` is editable; `posted` is not.
+Corrections go through B-series reversal vouchers only. `draft` is editable;
+`posted` is not.
+
+A period (a month) or a fiscal year can be locked so nothing new is posted in
+it. The agent may lock (`stang_perioder`, or the API key); only a logged-in
+human may unlock (JWT — the API key gets `403 human_only`). Unlocking never
+touches posted vouchers, and both lock and unlock are audit-logged.
 
 Do not add an "edit posted voucher" path, relax a trigger, or delete rows to fix
 test data — reverse and re-post instead.
+
+The link between an underlag (intake source) and a voucher follows the same
+rule (migration 035). `voucher_intake_sources`, `intake_link_basis` and
+`voucher_intake_unlinks` refuse UPDATE/DELETE. A wrong link is undone by an
+unlink row (`IntakeLinkService.unlink`, the tool `koppla_bort_underlag`,
+`POST /api/v1/intake/{id}/unlink`). The link row stays. A trigger allows at most
+one *current* link per source, and "current" means the link has no unlink row.
+Anything that asks "is this linked?" must read current links only.
+
+A statement transaction's link to a voucher works the same way (migration
+040). `voucher_bank_transactions` and `voucher_bank_transaction_unlinks` refuse
+UPDATE/DELETE; a wrong link is undone by an unlink row
+(`StatementMatchService.unlink`, the tool `koppla_bort_banktransaktion`,
+`POST /api/v1/bank-inputs/transactions/{id}/unlink`). Read links through the
+view `current_voucher_bank_transactions`. The server never automatically re-links
+a transaction that has been unlinked.
+
+An issued invoice is append-only too. An invoice comes into being only when a
+logged-in human issues a draft (`POST /api/v1/invoice-drafts/{id}/issue`; the
+API key gets `403 human_only`). Issuing creates the invoice, its posted voucher
+and the stored PDF in one transaction (`services/invoice_issue.py`). Migration
+038's triggers let only `status` and `paid_amount` change once `issued_at` is
+set. The PDF is räkenskapsinformation: it is linked to the voucher as underlag
+and served byte for byte (`GET /api/v1/invoices/{id}/pdf`), never re-rendered.
+A wrong invoice is corrected with a credit note.
+
+In a thread, an invoice draft is proposed as a card (`foresla_faktura`,
+`services/invoice_proposal.py`, migration 039). The draft behind a pending card
+is never edited in place: `andra_fakturautkast` creates a new draft that
+replaces it and rejects the old one, and `PUT`/`reject` on the old draft get
+`409 draft_in_thread`.
 
 ## Layering
 
@@ -65,18 +101,54 @@ Service-to-service imports are deferred inside methods to avoid import cycles.
   threads or share one between requests.
 - **Migrations are plain numbered SQL files** in `db/migrations/`, applied in
   order at startup. Add a new file; never edit an applied one.
-- **Invoice auto-booking** produces a balanced voucher: debit 1510 (kundfordringar)
-  incl. VAT, credit 3011 (försäljning) excl. VAT, credit 2610 (utgående moms).
-  Payment registration creates a second voucher: debit 1010 (bank), credit 1510.
+- **Opening balance (IB) is not a voucher** (`services/opening_balance.py`).
+  The first fiscal year's is stated in `opening_balances`; every later year's
+  is derived on read from the previous year (unclosed result on 2099). No
+  `IB`-series voucher can be created; a posted one from before migration 033 is
+  ignored as movement everywhere. Anything that sums balances must start from
+  `OpeningBalanceService`, not from vouchers.
+- **Issuing an invoice books it** in the same transaction: debit 1510
+  (kundfordringar) incl. VAT, credit revenue excl. VAT and output VAT per VAT
+  code (25 %: 3011/2610). Payment registration creates a second voucher:
+  debit 1010 (bank), credit 1510.
+- **A fiscal year is created by a human's press, not by the agent.** An
+  underlag dated outside every year gets a `foresla_rakenskapsar` decision card
+  (`services/fiscal_year_proposal.py`, migration 041); the create option, answered
+  through `POST /decisions/{id}/answer`, creates the year with the card's dates.
+  A dropzone underlag waiting on a card is out of the intake pass's queue until
+  then. The posting tools refuse to date an underlag out of a locked period
+  without a decision, or into another fiscal year
+  (`FiscalYearService.check_underlag_dates`).
 - **`docs/to_agent/*.md` is runtime content, not documentation.** It is read and
   served to agents by `repositories/system_instructions.py` and asserted on by
   `tests/test_agent_entrypoint.py`. Editing it changes system behaviour.
+
+## Design history
+
+The `/v4` redesign was built module by module from specs (`docs/redesign/SPEC-*.md`)
+and task lists (`tasks/*/`). Both were removed from the tree after the build. Code
+comments still cite them as `SPEC-<module>.md §n`; read them in git history:
+
+```bash
+git show 1a7a7b7:docs/redesign/SPEC-flode-underlag.md
+git show 1a7a7b7:tasks/flode-underlag/todo.md
+git show e313c5f:docs/redesign/SPEC-fakturering.md   # fakturering F0
+git show 392250d:docs/redesign/SPEC-fakturering-f1.md   # fakturering F1
+```
+
+What still needs deciding is in `docs/oppna-beslut.md`. The design source (v10 and
+the flow panels) is `BokAI App Redesign.zip`.
 
 ## Configuration
 
 All settings come from environment variables via `config.py`. Notable:
 `DATABASE_URL`, `BOKFOERING_API_KEY`, `AUTH_USERNAME` / `AUTH_PASSWORD`,
 `JWT_SECRET`, `DEBUG`.
+
+Every route needs the bearer (the API key or a logged-in user's JWT), reads
+and files too; only `/`, `/health`, login and the agent entrypoint are public
+(`api/main.py`, guarded by `tests/test_api.py`). The frontend fetches files as
+blobs through `apiClient`, never as a plain `href` or `src`.
 
 To call the API as an agent, use `scripts/bok-curl` — it resolves the host from
 `BOK_API_URL` and sets the bearer header without the key entering the transcript.

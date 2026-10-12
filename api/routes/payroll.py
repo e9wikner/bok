@@ -7,7 +7,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from api.deps import get_current_actor
-from domain.payroll_models import Employee, EmployeeSalarySetting, PayrollRun, Payslip
+from domain.payroll_models import (
+    AgiDeclaration,
+    Employee,
+    EmployeeSalarySetting,
+    PayrollRun,
+    Payslip,
+)
 from domain.validation import ValidationError
 from services.payroll import PayrollService
 
@@ -39,6 +45,10 @@ class PayrollRunRequest(BaseModel):
 
 class BookPayslipRequest(BaseModel):
     bank_transaction_id: str
+
+
+class BookAgiRequest(BaseModel):
+    voucher_date: Optional[date] = None
 
 
 @router.get("/employees", response_model=dict)
@@ -244,6 +254,58 @@ async def book_payslip(
         return _payslip_to_dict(payslip)
     except ValidationError as exc:
         raise _validation_http(exc)
+
+
+@router.get("/agi/{year}/{month}", response_model=dict)
+async def get_agi(year: int, month: int):
+    try:
+        return _agi_to_dict(PayrollService().get_agi(year, month))
+    except ValidationError as exc:
+        raise _validation_http(exc)
+
+
+@router.post("/agi/{year}/{month}/book", response_model=dict)
+async def book_agi(
+    year: int,
+    month: int,
+    request: BookAgiRequest,
+    actor: str = Depends(get_current_actor),
+):
+    try:
+        service = PayrollService()
+        return _agi_to_dict(
+            service.book_agi(
+                year, month, voucher_date=request.voucher_date, actor=actor
+            )
+        )
+    except ValidationError as exc:
+        raise _validation_http(exc)
+
+
+def _agi_to_dict(agi: AgiDeclaration) -> dict:
+    return {
+        "year": agi.year,
+        "month": agi.month,
+        "due_date": agi.due_date,
+        "individuals": [
+            {
+                "employee_id": i.employee_id,
+                "name": i.name,
+                "personal_number": i.personal_number,
+                "gross_salary": i.gross_salary,
+                "preliminary_tax": i.preliminary_tax,
+                "employer_fee": i.employer_fee,
+            }
+            for i in agi.individuals
+        ],
+        "total_gross_salary": agi.total_gross_salary,
+        "total_preliminary_tax": agi.total_preliminary_tax,
+        "total_employer_fee": agi.total_employer_fee,
+        "total_to_pay": agi.total_to_pay,
+        "unbooked_payslips": agi.unbooked_payslips,
+        "voucher_ids": agi.voucher_ids,
+        "booked": agi.booked,
+    }
 
 
 def _employee_to_dict(

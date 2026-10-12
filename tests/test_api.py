@@ -110,6 +110,37 @@ def test_company_info_can_be_updated(client, auth_headers):
     assert resp.json()["postort"] == "Stockholm"
 
 
+def test_company_info_invoice_fields_survive_an_older_client(client, auth_headers):
+    """seat, vat_number, bankgiro and f_skatt can be set, and a PUT that
+    does not send them (the older settings page) leaves them as they are."""
+    from services.pdf_export import CompanyInfo
+
+    full = {
+        "name": "Demo AB",
+        "org_number": "559123-4567",
+        "address": "Testgatan 1",
+        "seat": "Stockholm",
+        "vat_number": "SE559123456701",
+        "bankgiro": "123-4567",
+        "f_skatt": True,
+    }
+    resp = client.put("/api/v1/company-info", headers=auth_headers, json=full)
+    assert resp.status_code == 200
+    assert resp.json()["seat"] == "Stockholm"
+    assert resp.json()["f_skatt"] is True
+
+    older = {"name": "Demo AB", "org_number": "559123-4567", "phone": "08-1"}
+    resp = client.put("/api/v1/company-info", headers=auth_headers, json=older)
+    assert resp.status_code == 200
+    assert resp.json()["seat"] == "Stockholm"
+    assert resp.json()["vat_number"] == "SE559123456701"
+    assert resp.json()["f_skatt"] is True
+
+    company = CompanyInfo.load()
+    assert company.f_skatt is True
+    company.check_complete_for_invoice()
+
+
 def test_sru_mappings_use_account_codes(client, auth_headers, test_db):
     """Test SRU mappings are saved and returned by account code."""
     fy = PeriodRepository.create_fiscal_year(
@@ -212,10 +243,33 @@ def test_create_voucher_unbalanced(client, auth_headers, period_id):
 def test_unauthorized_request(client):
     """Test that missing auth returns 401."""
     resp = client.get("/api/v1/accounts")
-    # accounts endpoint doesn't require auth currently
-    # but voucher creation does
+    assert resp.status_code == 401
     resp = client.post("/api/v1/vouchers", json={})
     assert resp.status_code == 401
+
+
+#: The only routes a request without a bearer gets past (api/main.py).
+PUBLIC_ROUTES = {
+    ("GET", "/"),
+    ("GET", "/health"),
+    ("GET", "/api/v1/health"),
+    ("POST", "/api/v1/auth/login"),
+    ("POST", "/api/v1/auth/logout"),
+    ("GET", "/api/v1/agent-instructions/entrypoint"),
+}
+
+
+def test_every_route_but_the_public_ones_needs_the_bearer(client):
+    """Reads too: salaries, personal numbers and invoices are behind the
+    bearer. A new router that forgets it fails here."""
+    let_through = set()
+    for path, operations in client.app.openapi()["paths"].items():
+        url = path.replace("{", "").replace("}", "")
+        for method in operations:
+            response = client.request(method.upper(), url)
+            if response.status_code != 401:
+                let_through.add((method.upper(), path))
+    assert let_through == PUBLIC_ROUTES
 
 
 def test_post_voucher(client, auth_headers, period_id):

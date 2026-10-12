@@ -13,7 +13,8 @@ def test_yearly_vat_declaration_matches_eskd_and_excludes_settlement_voucher():
         CREATE TABLE vouchers (
             id TEXT PRIMARY KEY,
             date DATE,
-            status TEXT
+            status TEXT,
+            series TEXT NOT NULL DEFAULT 'A'
         );
         CREATE TABLE voucher_rows (
             voucher_id TEXT,
@@ -29,12 +30,12 @@ def test_yearly_vat_declaration_matches_eskd_and_excludes_settlement_voucher():
         INSERT INTO accounts VALUES ('2640', 'Ingående moms');
         INSERT INTO accounts VALUES ('2650', 'Redovisningskonto moms');
 
-        INSERT INTO vouchers VALUES ('sales', '2025-12-30', 'posted');
+        INSERT INTO vouchers (id, date, status) VALUES ('sales', '2025-12-30', 'posted');
         INSERT INTO voucher_rows VALUES ('sales', '3010', 0, 113932000);
         INSERT INTO voucher_rows VALUES ('sales', '2610', 0, 28483000);
         INSERT INTO voucher_rows VALUES ('sales', '2640', 1508480, 0);
 
-        INSERT INTO vouchers VALUES ('settlement', '2025-12-31', 'posted');
+        INSERT INTO vouchers (id, date, status) VALUES ('settlement', '2025-12-31', 'posted');
         INSERT INTO voucher_rows VALUES ('settlement', '2610', 28483000, 0);
         INSERT INTO voucher_rows VALUES ('settlement', '2640', 0, 1508480);
         INSERT INTO voucher_rows VALUES ('settlement', '2650', 0, 26974520);

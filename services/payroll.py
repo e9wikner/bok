@@ -4,27 +4,56 @@ from calendar import monthrange
 from datetime import date
 from typing import Dict, List, Optional
 
-from domain.payroll_models import Employee, EmployeeSalarySetting, PayrollRun, Payslip
+from db.database import db
+from domain.payroll_models import (
+    AGI_PARTS,
+    AgiDeclaration,
+    AgiIndividual,
+    Employee,
+    EmployeeSalarySetting,
+    PayrollRun,
+    Payslip,
+    agi_due_date,
+    declared_employer_fee,
+    whole_kronor,
+)
+from domain.statement_coverage import is_bank_account
 from domain.types import AuditAction
 from domain.validation import ValidationError
 from repositories.account_repo import AccountRepository
 from repositories.audit_repo import AuditRepository
 from repositories.payroll_repo import (
+    AgiBookingRepository,
     EmployeeRepository,
     PayrollRunRepository,
     PayslipRepository,
     SalarySettingRepository,
 )
 from repositories.period_repo import PeriodRepository
-from services.bank_integration import BankIntegrationService
-from services.ledger import LedgerService
+from services.bank_integration import BankIntegrationService, BankTransaction
+from services.ledger import LedgerService, run_statement_match_after_posting
+
+#: Gross salary: the account the company has booked salaries on by hand.
+SALARY_ACCOUNT = "7000"
+
+#: The AGI moves withheld tax and employer fees to the tax account.
+TAX_ACCOUNT = "1630"
+
+#: What the AGI's whole kronor leave of the öre the payslips booked.
+ROUNDING_ACCOUNT = "3740"
+
+#: Net salary leaves this account when the bank transaction's connection
+#: names no bank account (1900-1989).
+DEFAULT_BANK_ACCOUNT = "1930"
 
 PAYROLL_ACCOUNTS = {
-    "1930": ("Företagskonto", "asset"),
+    TAX_ACCOUNT: ("Skattekonto", "asset"),
+    DEFAULT_BANK_ACCOUNT: ("Företagskonto", "asset"),
     "2710": ("Personalskatt", "liability"),
     "2730": ("Avräkning arbetsgivaravgifter", "liability"),
-    "7010": ("Löner", "expense"),
+    SALARY_ACCOUNT: ("Löner", "expense"),
     "7510": ("Arbetsgivaravgifter", "expense"),
+    ROUNDING_ACCOUNT: ("Öres- och kronutjämning", "revenue"),
 }
 
 
@@ -39,6 +68,7 @@ class PayrollService:
         self.audit = AuditRepository()
         self.bank = BankIntegrationService()
         self.periods = PeriodRepository()
+        self.agi_bookings = AgiBookingRepository()
 
     def create_employee(
         self,
@@ -315,7 +345,7 @@ class PayrollService:
             )
 
         ledger = LedgerService()
-        rows = self._voucher_rows_for_payslip(payslip)
+        rows = self._voucher_rows_for_payslip(payslip, self._bank_account_for(tx))
         description = self._voucher_description(payslip)
         voucher = ledger.create_voucher(
             series="A",
@@ -331,7 +361,7 @@ class PayrollService:
             tx.id,
             status="booked",
             voucher_id=voucher.id,
-            account_code="7010",
+            account_code=SALARY_ACCOUNT,
             confidence=1.0,
         )
         updated = self.payslips.link_booking(payslip.id, tx.id, voucher.id)
@@ -345,6 +375,158 @@ class PayrollService:
         )
         return updated
 
+    def get_agi(self, year: int, month: int) -> AgiDeclaration:
+        """The month's AGI underlag, from the payslips paid that month."""
+        if month < 1 or month > 12:
+            raise ValidationError("invalid_period", "Month must be 1-12")
+        payslips = self.payslips.list_paid_in(year, month)
+        sums: Dict[str, List[int]] = {}
+        for payslip in payslips:
+            employee_sums = sums.setdefault(payslip.employee_id, [0, 0, 0])
+            employee_sums[0] += payslip.gross_salary
+            employee_sums[1] += payslip.preliminary_tax
+            employee_sums[2] += payslip.employer_fee
+        employees = {p.employee_id: p.employee for p in payslips}
+        individuals = []
+        for employee_id, (gross, tax, fee) in sums.items():
+            employee = employees[employee_id]
+            individuals.append(
+                AgiIndividual(
+                    employee_id=employee_id,
+                    name=employee.name if employee else employee_id,
+                    personal_number=employee.personal_number if employee else None,
+                    gross_salary=whole_kronor(gross),
+                    preliminary_tax=whole_kronor(tax),
+                    employer_fee=fee,
+                )
+            )
+        return AgiDeclaration(
+            year=year,
+            month=month,
+            due_date=agi_due_date(year, month),
+            individuals=individuals,
+            employer_fee=declared_employer_fee(payslips),
+            liabilities={
+                "tax": sum(p.preliminary_tax for p in payslips),
+                "employer_fee": sum(p.employer_fee for p in payslips),
+            },
+            unbooked_payslips=sum(1 for p in payslips if not p.voucher_id),
+            voucher_ids=self.agi_bookings.current_voucher_ids(year, month),
+        )
+
+    def book_agi(
+        self,
+        year: int,
+        month: int,
+        voucher_date: Optional[date] = None,
+        actor: str = "system",
+    ) -> AgiDeclaration:
+        """Book the month's AGI as two vouchers, one per transaction on the
+        tax account: debit 2710 and credit 1630 for the withheld tax, debit
+        2730 and credit 1630 for the employer fees. Books only the parts not
+        already booked. Dated on the due date unless the tax account was
+        debited another day.
+
+        The liability is cleared as the payslips booked it, in öre; the tax
+        account is credited the declared whole kronor; the difference goes to
+        öresutjämning (3740). Both parts and their booking rows are written
+        in one transaction, so a part is never posted without the row that
+        stops it from being booked again."""
+        agi = self.get_agi(year, month)
+        if not agi.individuals:
+            raise ValidationError(
+                "agi_no_payslips",
+                "Det finns inga lönespecifikationer utbetalda den här månaden",
+                f"period={year}-{month:02d}",
+            )
+        if agi.unbooked_payslips:
+            raise ValidationError(
+                "agi_payslips_not_booked",
+                "Alla löner i månaden måste vara bokförda innan arbetsgivardeklarationen",
+                f"unbooked={agi.unbooked_payslips}",
+            )
+        if not agi.unbooked_parts:
+            raise ValidationError(
+                "agi_already_booked",
+                "Arbetsgivardeklarationen för månaden är redan bokförd",
+                f"voucher_ids={agi.voucher_ids}",
+            )
+
+        voucher_date = voucher_date or agi.due_date
+        period = self._find_period_for_date(voucher_date)
+        if not period:
+            raise ValidationError(
+                "period_not_found",
+                "No accounting period found for the AGI date",
+                voucher_date.isoformat(),
+            )
+
+        self._ensure_payroll_accounts()
+        ledger = LedgerService()
+        with db.transaction():
+            for kind in agi.unbooked_parts:
+                self._book_agi_part(ledger, agi, kind, voucher_date, period.id, actor)
+        run_statement_match_after_posting()
+        return self.get_agi(year, month)
+
+    def _book_agi_part(
+        self,
+        ledger: LedgerService,
+        agi: AgiDeclaration,
+        kind: str,
+        voucher_date: date,
+        period_id: str,
+        actor: str,
+    ) -> None:
+        """One part's voucher and booking row, inside the caller's
+        transaction."""
+        year, month = agi.year, agi.month
+        liability_account, label = AGI_PARTS[kind]
+        declared = agi.amount(kind)
+        liability = agi.liability(kind)
+        rounding = liability - declared
+        lines = [
+            (liability_account, liability, 0, label.capitalize()),
+            (TAX_ACCOUNT, 0, declared, label.capitalize()),
+            (ROUNDING_ACCOUNT, max(-rounding, 0), max(rounding, 0), "Öresutjämning"),
+        ]
+        voucher = ledger.create_voucher(
+            series="A",
+            date=voucher_date,
+            period_id=period_id,
+            description=f"Arbetsgivardeklaration {year}-{month:02d}, {label}",
+            rows_data=[
+                {
+                    "account": account,
+                    "debit": debit,
+                    "credit": credit,
+                    "description": description,
+                }
+                for account, debit, credit, description in lines
+                if debit or credit
+            ],
+            created_by=actor,
+            _commit=False,
+        )
+        voucher = ledger.post_voucher(voucher.id, actor=actor, _commit=False)
+        booking_id = self.agi_bookings.create(
+            year, month, kind, voucher.id, actor, _commit=False
+        )
+        self.audit.log(
+            "payroll_agi_booking",
+            booking_id,
+            AuditAction.POSTED.value,
+            actor,
+            {
+                "period": f"{year}-{month:02d}",
+                "kind": kind,
+                "voucher_id": voucher.id,
+                "amount": declared,
+                "rounding": rounding,
+            },
+            _commit=False,
+        )
+
     def get_payslip_context(self, payslip_id: str) -> Dict:
         payslip = self.payslips.get(payslip_id)
         if not payslip:
@@ -352,10 +534,25 @@ class PayrollService:
         run = self.runs.get(payslip.payroll_run_id)
         return {"payslip": payslip, "employee": payslip.employee, "payroll_run": run}
 
-    def _voucher_rows_for_payslip(self, payslip: Payslip) -> List[Dict]:
+    def _bank_account_for(self, tx: BankTransaction) -> str:
+        """The account the net salary left: the statement's bank account."""
+        connection = self.bank.get_connection(tx.bank_connection_id)
+        code = (connection.account_number or "") if connection else ""
+        if is_bank_account(code):
+            if not AccountRepository.exists(code):
+                raise ValidationError(
+                    "account_not_found",
+                    f"Bankkontot {code} finns inte i kontoplanen",
+                )
+            return code
+        return DEFAULT_BANK_ACCOUNT
+
+    def _voucher_rows_for_payslip(
+        self, payslip: Payslip, bank_account: str
+    ) -> List[Dict]:
         return [
             {
-                "account": "7010",
+                "account": SALARY_ACCOUNT,
                 "debit": payslip.gross_salary,
                 "credit": 0,
                 "description": "Bruttolön",
@@ -379,7 +576,7 @@ class PayrollService:
                 "description": "Skuld arbetsgivaravgifter",
             },
             {
-                "account": "1930",
+                "account": bank_account,
                 "debit": 0,
                 "credit": payslip.net_salary,
                 "description": "Nettolön",

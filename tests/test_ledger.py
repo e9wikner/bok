@@ -24,7 +24,7 @@ def test_create_voucher_and_post(ledger_service, test_period):
 
     assert voucher.id is not None
     assert voucher.series.value == "A"
-    assert voucher.number == 1
+    assert voucher.number is None  # a draft is numbered at posting
     assert len(voucher.rows) == 2
     assert voucher.status.value == "draft"
     assert voucher.is_balanced()
@@ -33,6 +33,7 @@ def test_create_voucher_and_post(ledger_service, test_period):
     posted = ledger_service.post_voucher(voucher.id, actor="test")
 
     assert posted.status.value == "posted"
+    assert posted.number == 1
     assert posted.posted_at is not None
 
 
@@ -136,9 +137,10 @@ def test_correction_voucher(ledger_service, test_period):
     )
 
     assert correction.series.value == "B"
-    assert correction.number == 1
+    assert correction.number is None  # a draft is numbered at posting
     assert correction.correction_of == original.id
     assert correction.is_balanced()
+    assert ledger_service.post_voucher(correction.id, actor="test").number == 1
 
 
 def test_account_ledger(ledger_service, test_period):

@@ -15,6 +15,10 @@ ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ARG BACKEND_URL=http://bokfoering-api:8000
 ENV BACKEND_URL=$BACKEND_URL
+# The new shell at /v4 (SPEC-skal.md §3). Inlined by `next build`, so it only
+# takes effect here; "1" or "true" turns it on, anything else leaves /v4 a 404.
+ARG NEXT_PUBLIC_SKAL=
+ENV NEXT_PUBLIC_SKAL=$NEXT_PUBLIC_SKAL
 RUN npm run build
 
 # Stage 3: Run

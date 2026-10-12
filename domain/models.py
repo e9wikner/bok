@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from domain.types import (
     AccountType,
@@ -106,13 +106,23 @@ class VoucherRow:
         return self.debit if self.is_debit() else self.credit
 
 
+@dataclass(frozen=True)
+class VoucherRef:
+    """Another voucher as the list names it: `B-7` (SPEC-flode-verifikationer
+    §7.5). Derived by the repository, never stored."""
+
+    id: str
+    series: str
+    number: Optional[int]
+
+
 @dataclass
 class Voucher:
     """Verifikation (accounting voucher - BFL §5 kap 6)."""
 
     id: str
     series: VoucherSeries  # A or B (B for corrections)
-    number: int
+    number: Optional[int]  # None until posted (SPEC flode-verifikationer §4.3)
     date: date
     period_id: str
     description: str
@@ -125,6 +135,22 @@ class Voucher:
     created_at: datetime = field(default_factory=datetime.now)
     created_by: str = "system"
     posted_at: Optional[datetime] = None
+    # Derived by the repository, never stored (SPEC-oversikt.md §3). None on a
+    # voucher that was built in memory rather than read back.
+    missing_attachment: Optional[bool] = None
+    age_days: Optional[int] = None
+    # Derived (domain/statement_coverage.py): the statement accounts -- 1630,
+    # 1900-1989 -- whose rows still lack a linked bank transaction, while the
+    # voucher lacks underlag. Empty for a purchase: its underlag is a receipt.
+    missing_statement_accounts: List[str] = field(default_factory=list)
+    # Derived from vouchers.correction_of (SPEC-flode-verifikationer §7.5):
+    # the posted correction of this voucher, and the voucher this one corrects.
+    corrected_by: Optional[VoucherRef] = None
+    corrects: Optional[VoucherRef] = None
+    # Derived from voucher_source_references (SPEC-flode-underlag.md §10.4):
+    # the posted voucher that has its underlag through this one's link --
+    # A-121 on A-118.
+    referenced_by: Optional[VoucherRef] = None
 
     def is_posted(self) -> bool:
         """Check if voucher is posted (varaktighet - immutable)."""
@@ -225,6 +251,15 @@ class VoucherIntakeSource:
     linked_by: str
     linked_at: datetime = field(default_factory=datetime.now)
     link_reason: Optional[str] = None
+    # Set when the link has been undone (`voucher_intake_unlinks`, migration
+    # 034); `None` for a current link.
+    unlinked_at: Optional[datetime] = None
+    unlinked_by: Optional[str] = None
+    unlink_reason: Optional[str] = None
+
+    @property
+    def is_current(self) -> bool:
+        return self.unlinked_at is None
 
 
 @dataclass
@@ -378,3 +413,244 @@ class AgentRunEvent:
     created_at: datetime
     source_id: Optional[str] = None
     voucher_id: Optional[str] = None
+
+
+@dataclass
+class Thread:
+    """One conversation, bound to a view and a fiscal year (SPEC-tradar.md §4).
+
+    `README.md`: "Chatten hör till vyn, inte till appen." `view_key` is the
+    view and nothing else — no company prefix (decision §12.2, single-tenant).
+    One thread per `(view_key, fiscal_year_id)` (decision §12.3), pinned by a
+    unique constraint in migration 025 rather than by convention here.
+
+    `model` is where the human's model choice is stored; a run takes it as an
+    argument and `agent_runs.model`/`.protocol` per run is what makes a change
+    mid-thread visible afterwards (§12.4).
+    """
+
+    id: str
+    view_key: str
+    fiscal_year_id: str
+    model: str
+    created_at: datetime = field(default_factory=datetime.now)
+    #: The conversation's reset boundary (migration 034): the highest `seq`
+    #: in the thread when the human last reset it. Only posts after it go
+    #: into the thread window; the older ones stay in the thread, unchanged.
+    #: 0 = never reset.
+    context_from_seq: int = 0
+    context_reset_at: Optional[datetime] = None
+
+
+@dataclass
+class ThreadPost:
+    """One post in a thread — what the human saw, in the order she saw it.
+
+    Not the audit trail: `audit_log` is (SPEC-tradar.md antagande 5). Nothing
+    here is ever modified or deleted; a correction is a new post. A streaming
+    `agent_text` is written once, when the turn is done — the deltas along the
+    way only travel over SSE and are never stored per character (§4).
+
+    `body` carries the type's payload (the shape per type is §6.2), `traces`
+    the `SparChip` row, and `run_id` binds an agent post to the run that
+    produced it.
+    """
+
+    id: str
+    thread_id: str
+    seq: int
+    type: str  # one of THREAD_POST_TYPES
+    actor: str  # 'agent' or the user's name
+    body: dict
+    created_at: datetime = field(default_factory=datetime.now)
+    traces: Optional[List[dict]] = None
+    run_id: Optional[str] = None
+
+
+@dataclass
+class DecisionOption:
+    """One row an agent laid out under a decision (SPEC-beslut.md §4).
+
+    `decision_options` is its own table, not JSON packed onto `decisions`:
+    the `option_id` an answer names must check against what was actually
+    laid out, and `position` carries the order the options were shown in —
+    part of the contract, since the last option is always a way out (§6.3).
+    """
+
+    id: str
+    decision_id: str
+    position: int
+    title: str
+    rationale: str
+    account: Optional[str] = None
+    amount_ore: Optional[int] = None
+    recommended: bool = False
+    is_exit: bool = False
+
+    @property
+    def changes_the_books(self) -> bool:
+        """SPEC §6.3: whether choosing this option would write a ledger row.
+
+        `account` set **and** `amount_ore` non-zero. This is derived from
+        the option's own fields, not a second flag the agent has to
+        remember to set — which is exactly what makes the escalation
+        invariant testable in code instead of dependent on the prompt
+        having been followed.
+        """
+        return (
+            self.account is not None
+            and self.amount_ore is not None
+            and bool(self.amount_ore)
+        )
+
+
+@dataclass
+class Decision:
+    """A question the agent stopped to ask, tracked from open to closed
+    (SPEC-beslut.md §4).
+
+    `thread_posts` are never modified (SPEC-tradar.md §8.4), so "answered"
+    cannot live as a column on the post that showed the question — that's
+    the entire reason this table, and this class, exist. `options` is filled
+    in by `DecisionRepository.get`/`.list_decisions`, sorted by `position`;
+    nothing outside `repositories/decision_repo.py` writes SQL against
+    `decision_options`.
+    """
+
+    id: str
+    thread_id: str
+    post_id: str
+    view_key: str
+    kind: str  # 'abstention' | 'approval'
+    status: str  # 'open' | 'answered' | 'superseded'
+    title: str
+    reason: str
+    consequence: str
+    amount_ore: Optional[int] = None
+    source_kind: Optional[str] = None
+    source_id: Optional[str] = None
+    source_date: Optional[date] = None
+    created_at: datetime = field(default_factory=datetime.now)
+    answered_at: Optional[datetime] = None
+    answered_by: Optional[str] = None
+    answer_option_id: Optional[str] = None
+    answer_text: Optional[str] = None
+    answer_post_id: Optional[str] = None
+    reminded_at: Optional[datetime] = None
+    options: list[DecisionOption] = field(default_factory=list)
+
+    def age_days(self, today: Optional[date] = None) -> int:
+        """Days since `created_at`, never negative.
+
+        Counted in the domain, never in SQL — the same stance as
+        `Invoice.counts_as_overdue` in `domain/invoice_models.py`, so the
+        rule (and the reminder at seven days, §6.5) is testable without a
+        database. `today` defaults to `date.today()`; a caller passes it
+        explicitly to keep a test deterministic.
+        """
+        as_of = today if today is not None else date.today()
+        return max((as_of - self.created_at.date()).days, 0)
+
+
+@dataclass
+class ThreadDraft:
+    """A draft voucher proposed in a thread, tracked until it is posted or
+    replaced (SPEC-flode-verifikationer.md §6).
+
+    `voucher_id` is the draft's `vouchers.id`, but not a foreign key: a
+    superseded draft is deleted while this row stays (§6.2). `status` moves
+    only `pending -> posted` or `pending -> superseded`, which
+    `ThreadDraftRepository` enforces; nothing outside
+    `repositories/thread_draft_repo.py` writes SQL against `thread_drafts`.
+    """
+
+    voucher_id: str
+    thread_id: str
+    post_id: str
+    view_key: str
+    status: str = "pending"  # 'pending' | 'posted' | 'superseded'
+    decision_id: Optional[str] = None
+    correction_of: Optional[str] = None
+    correction_note_id: Optional[str] = None
+    replaced_by: Optional[str] = None
+    posted_at: Optional[datetime] = None
+    receipt_post_id: Optional[str] = None
+    last_error_code: Optional[str] = None
+    last_error_post_id: Optional[str] = None
+    created_at: datetime = field(default_factory=datetime.now)
+    # Migration 029: what a posting of this draft must link (§5.2). Links
+    # are only ever written against a posted voucher, so the ids wait here.
+    intake_source_ids: List[str] = field(default_factory=list)
+    bank_input_ids: List[str] = field(default_factory=list)
+    bank_transaction_ids: List[str] = field(default_factory=list)
+
+
+@dataclass
+class InvoiceProposal:
+    """An invoice draft proposed in a thread, tracked until it is issued,
+    replaced or rejected (docs/redesign/SPEC-fakturering-f1.md §4).
+
+    One row per `invoice_drafts.id`: a change is a new draft that replaces
+    this one (`replaced_by`), never an edit in place. `status` moves only out
+    of `pending`, which `InvoiceProposalRepository` enforces.
+    """
+
+    draft_id: str
+    thread_id: str
+    post_id: str
+    view_key: str
+    status: str = "pending"  # 'pending' | 'issued' | 'superseded' | 'rejected'
+    decision_id: Optional[str] = None
+    replaced_by: Optional[str] = None
+    invoice_id: Optional[str] = None
+    issued_at: Optional[datetime] = None
+    receipt_post_id: Optional[str] = None
+    last_error_code: Optional[str] = None
+    last_error_post_id: Optional[str] = None
+    created_at: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class FiscalYearProposal:
+    """A new fiscal year proposed as a decision card in a thread
+    (`foresla_rakenskapsar`, migration 041), and the underlag waiting on it.
+    `status` moves only out of `pending`: to `created` when the human picks
+    the card's create option, `declined` on any other option, `superseded`
+    when a new card replaces one answered in free text."""
+
+    id: str
+    decision_id: str
+    create_option_id: str
+    thread_id: str
+    start_date: date
+    end_date: date
+    document_date: date
+    status: str
+    created_by: str
+    created_at: datetime
+    fiscal_year_id: Optional[str] = None
+    resolved_at: Optional[datetime] = None
+    resolved_by: Optional[str] = None
+    source_ids: List[str] = field(default_factory=list)
+
+
+@dataclass
+class CompanyInfoProposal:
+    """Company details proposed as a decision card in a thread
+    (`foresla_bolagsinformation`, migration 042). `fill_values` go into fields
+    still empty at the press; `overwrite_values` replace a stored value and are
+    written only on the overwrite option. `status` moves only out of
+    `pending`: `applied`, `declined` or `superseded` (a new proposal)."""
+
+    id: str
+    decision_id: str
+    thread_id: str
+    status: str
+    created_by: str
+    created_at: datetime
+    fill_option_id: Optional[str] = None
+    overwrite_option_id: Optional[str] = None
+    fill_values: Dict[str, str] = field(default_factory=dict)
+    overwrite_values: Dict[str, str] = field(default_factory=dict)
+    resolved_at: Optional[datetime] = None
+    resolved_by: Optional[str] = None

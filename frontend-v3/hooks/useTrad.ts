@@ -1,0 +1,250 @@
+"use client";
+
+/**
+ * En vys tråd: läs, prenumerera, skicka (SPEC-chattyta.md §6.2–6.3).
+ *
+ * Tillståndet är reducerns (`lib/chattyta/trad.ts`); här bor bara
+ * livscykeln — när strömmen öppnas, när den stängs, och vilka frågor en
+ * händelse gör inaktuella.
+ *
+ * Strömmen öppnas på exakt två ställen, båda med serverns `cursor`:
+ * GET-svaret när det bär ett `thread_id` (§6.2 punkt 2), och det första
+ * POST-svaret i en tom tråd (punkt 3). Aldrig innan: servern svarar `404`
+ * på en ström mot en tråd som inte finns (§2 rad 3), och `oppnaStrom`
+ * återansluter på `404` — en för tidig ström vore en evig backoff-slinga.
+ */
+
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/useAuth";
+import {
+  BESLUT_NYCKEL,
+  DRAFTS_NYCKEL,
+  FAKTUROR_NYCKEL,
+  hamtaTrad,
+  nollstallTrad,
+  OVERVIEW_NYCKEL,
+  skickaMeddelande,
+  VOUCHERS_NYCKEL,
+} from "@/lib/chattyta/api";
+import { kopplingBorttagen, kopplingKlar, lasFrankoppling, lasKoppling } from "@/lib/chattyta/kopplingar";
+import { oppnaStrom, type SseHandelse } from "@/lib/chattyta/strom";
+import {
+  listaInlagg,
+  LOKALT_PREFIX,
+  tomTrad,
+  tradReducer,
+  type Strommande,
+} from "@/lib/chattyta/trad";
+import type { Inlagg } from "@/lib/chattyta/typer";
+
+/**
+ * Inlägg vars ankomst kan ändra ett besluts status (§7): ett nytt beslut,
+ * nya alternativ, eller människans fritext som agenten kan ha tolkat som svar.
+ */
+const BESLUTSTYPER = new Set(["decision", "options", "user_text"]);
+
+/**
+ * Inlägg vars ankomst kan ändra ett förslags status (flode-verifikationer
+ * §10): ett nytt förslag (det förra blir `superseded`), ett kvitto (postat)
+ * och ett felinlägg (`last_error_code`).
+ */
+const FORSLAGSTYPER = new Set(["draft", "receipt", "error"]);
+
+/** Allt som hör till EN vy. Byts ut hel vid vybyte (§6.2 punkt 5). */
+interface Vy {
+  viewKey: string;
+  avbryt: AbortController;
+  stromOppen: boolean;
+}
+
+export interface UseTrad {
+  inlagg: Inlagg[];
+  strommande: Strommande | null;
+  /**
+   * `true` när servern lagrat meddelandet, `false` när POST misslyckades.
+   * Vid `false` är det optimistiska inlägget borttaget och `fel` satt —
+   * anroparen (C5:s `ChattFalt`) behåller då texten i fältet.
+   */
+  skicka: (text: string, attachments?: readonly string[]) => Promise<boolean>;
+  laddar: boolean;
+  /** Senaste felet från GET eller POST; nollställs av nästa lyckade. */
+  fel: unknown;
+  /**
+   * Nollställningsgränsen: inlägg med `seq` ≤ den går inte längre till
+   * agenten och fälls ihop ovanför avdelaren. 0 = aldrig nollställd.
+   */
+  kontextFran: number;
+  nollstalldVid: string | null;
+  /**
+   * Nollställ konversationen. `false` när servern sa nej (t.ex. `409` medan
+   * agenten svarar). Rör inte `fel`: den raden säger att tråden inte kunde
+   * nås, och knappen säger själv att nollställningen misslyckades.
+   * Ingenting försvinner ur tråden.
+   */
+  nollstall: () => Promise<boolean>;
+}
+
+let lopnummer = 0;
+
+export function useTrad(viewKey: string): UseTrad {
+  const [tillstand, dispatch] = useReducer(tradReducer, undefined, tomTrad);
+  const [laddar, setLaddar] = useState(true);
+  const [fel, setFel] = useState<unknown>(null);
+  const qc = useQueryClient();
+  // Samma utloggning som resten av appen. Det finns ingen 401-hantering i
+  // axios-instansen att återanvända (C2), så strömmen får den härifrån.
+  const { logout } = useAuth();
+  const vyRef = useRef<Vy | null>(null);
+
+  const paHandelse = useCallback(
+    (h: SseHandelse) => {
+      dispatch({ typ: "handelse", handelse: h });
+      if (h.event === "view.changed") {
+        // En koppling (flode-underlag §9.3) blir `Nyss kopplad` i vyn. Före
+        // invalideringen: raden tas ur listorna som de ser ut nu.
+        const koppling = lasKoppling(h.data);
+        if (koppling) kopplingKlar(qc, koppling.voucherId, koppling.sourceId);
+        // En frånkoppling (underlag-ersatt): raden är inte längre kopplad.
+        const frankoppling = lasFrankoppling(h.data);
+        if (frankoppling) kopplingBorttagen(qc, frankoppling.voucherId);
+        // Headern, besluten, förslagen och verifikationslistan kan alla ha
+        // följt med (§6.3; flode-verifikationer §14.4 testfall 47).
+        void qc.invalidateQueries({ queryKey: OVERVIEW_NYCKEL });
+        void qc.invalidateQueries({ queryKey: BESLUT_NYCKEL });
+        void qc.invalidateQueries({ queryKey: DRAFTS_NYCKEL });
+        void qc.invalidateQueries({ queryKey: VOUCHERS_NYCKEL });
+        // Ett utfärdande (SPEC-fakturering-f1.md §7.4): Fakturerings listor.
+        void qc.invalidateQueries({ queryKey: FAKTUROR_NYCKEL });
+      } else if (h.event === "message.completed") {
+        const typ = (h.data as { type?: unknown } | null)?.type;
+        if (typeof typ === "string" && BESLUTSTYPER.has(typ)) {
+          void qc.invalidateQueries({ queryKey: BESLUT_NYCKEL });
+        }
+        if (typeof typ === "string" && FORSLAGSTYPER.has(typ)) {
+          void qc.invalidateQueries({ queryKey: DRAFTS_NYCKEL });
+        }
+      }
+    },
+    [qc]
+  );
+
+  /** En ström per vy; ett andra anrop är en no-op (§6.2 punkt 5). */
+  const oppna = useCallback(
+    (vy: Vy, since: number) => {
+      if (vy.stromOppen || vy.avbryt.signal.aborted) return;
+      vy.stromOppen = true;
+      void oppnaStrom({
+        viewKey: vy.viewKey,
+        since,
+        signal: vy.avbryt.signal,
+        onHandelse: paHandelse,
+        onObehorig: logout,
+      });
+    },
+    [paHandelse, logout]
+  );
+
+  useEffect(() => {
+    const vy: Vy = { viewKey, avbryt: new AbortController(), stromOppen: false };
+    vyRef.current = vy;
+    dispatch({ typ: "nollstall" });
+    setLaddar(true);
+    setFel(null);
+
+    hamtaTrad(viewKey)
+      .then((svar) => {
+        if (vy.avbryt.signal.aborted) return;
+        dispatch({
+          typ: "hamtad",
+          posts: svar.posts,
+          cursor: svar.cursor,
+          kontextFran: svar.context_from_seq,
+          nollstalldVid: svar.context_reset_at,
+        });
+        // `thread_id: null` = ingen har sagt något här i år; ingen ström
+        // förrän första POST skapat tråden (§6.2 punkt 1, testfall 8).
+        if (svar.thread_id !== null) oppna(vy, svar.cursor);
+      })
+      .catch((e: unknown) => {
+        if (!vy.avbryt.signal.aborted) setFel(e);
+      })
+      .finally(() => {
+        if (!vy.avbryt.signal.aborted) setLaddar(false);
+      });
+
+    // Vybyte och avmontering stänger strömmen och gör varje svar som
+    // fortfarande är i flykt för den här vyn verkningslöst.
+    return () => vy.avbryt.abort();
+  }, [viewKey, oppna]);
+
+  const skicka = useCallback(
+    async (text: string, attachments: readonly string[] = []): Promise<boolean> => {
+      const vy = vyRef.current;
+      if (!vy || vy.avbryt.signal.aborted) return false;
+      const lokaltId = `${LOKALT_PREFIX}${++lopnummer}`;
+      // Utan text finns inget att visa i förväg: servern skriver då bara
+      // `user_file`-inläggen (SPEC-flode-underlag.md D8), och klienten hittar
+      // inte på en text åt människan. Filkorten kommer med POST-svaret.
+      if (text !== "") {
+        dispatch({ typ: "optimistisk", id: lokaltId, text, skapad: new Date().toISOString() });
+      }
+
+      try {
+        // Utan bilagor: samma anrop som före `flode-underlag`.
+        const svar =
+          attachments.length > 0
+            ? await skickaMeddelande(vy.viewKey, text, attachments)
+            : await skickaMeddelande(vy.viewKey, text);
+        // Svaret hör till vyn som var aktiv när människan tryckte. Har hon
+        // bytt vy sedan dess är den nya vyns tråd en annan tråd.
+        if (vy.avbryt.signal.aborted) return true;
+        dispatch({ typ: "skickad", lokaltId, posts: svar.posts, cursor: svar.cursor });
+        setFel(null);
+        oppna(vy, svar.cursor);
+        return true;
+      } catch (e) {
+        if (vy.avbryt.signal.aborted) return false;
+        // Det optimistiska tas BORT, det markeras inte. Ett inlägg som står
+        // kvar i tråden påstår att servern har det — och tråden är
+        // append-only-bokens samtal, där ett påstående om vad som sagts ska
+        // vara sant (antagande 2). Texten går inte förlorad: `false` säger
+        // till fältet att behålla den, och `fel` bär orsaken.
+        dispatch({ typ: "misslyckad", lokaltId });
+        setFel(e);
+        return false;
+      }
+    },
+    [oppna]
+  );
+
+  const nollstall = useCallback(async (): Promise<boolean> => {
+    const vy = vyRef.current;
+    if (!vy || vy.avbryt.signal.aborted) return false;
+    try {
+      const svar = await nollstallTrad(vy.viewKey);
+      if (vy.avbryt.signal.aborted) return true;
+      dispatch({
+        typ: "kontextNollstalld",
+        kontextFran: svar.context_from_seq,
+        nollstalldVid: svar.context_reset_at,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const inlagg = useMemo(() => listaInlagg(tillstand), [tillstand]);
+
+  return {
+    inlagg,
+    strommande: tillstand.strommande,
+    skicka,
+    laddar,
+    fel,
+    kontextFran: tillstand.kontextFran,
+    nollstalldVid: tillstand.nollstalldVid,
+    nollstall,
+  };
+}
