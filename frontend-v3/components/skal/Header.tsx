@@ -23,6 +23,7 @@ export function Header({
   aktivIndex,
   metaPerSida,
   arsrad,
+  arsval,
   vyStatus,
   agent,
   onValjSida,
@@ -35,6 +36,8 @@ export function Header({
   metaPerSida: Partial<Record<Sidnyckel, SidMeta>>;
   /** T.ex. "Räkenskapsår 2026 · juni öppen". Serverns fält, klientens skiljetecken. */
   arsrad: string;
+  /** Åren att välja mellan. Saknas listan visas `arsrad` som text. */
+  arsval?: { alternativ: { id: string; text: string }[]; valt: string; onValj: (id: string) => void };
   vyStatus: { text: string; fg: string };
   agent?: AgentStatusData;
   onValjSida: (s: Sidnyckel) => void;
@@ -87,7 +90,27 @@ export function Header({
         <span className="bok-mono text-[13px]" style={{ color: vyStatus.fg }}>
           {aktivVy.titel} · {vyStatus.text}
         </span>
-        <span className="bok-mono text-[13px] text-bok-text-dampad">{arsrad}</span>
+        {arsval && arsval.alternativ.length > 0 ? (
+          <label className="relative flex items-center">
+            <span className="sr-only">Välj räkenskapsår</span>
+            <select
+              value={arsval.valt}
+              onChange={(e) => arsval.onValj(e.target.value)}
+              className="bok-mono cursor-pointer appearance-none bg-transparent pr-4 text-[13px] text-bok-text-dampad hover:text-bok-text focus:outline-none focus-visible:underline"
+            >
+              {arsval.alternativ.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.text}
+                </option>
+              ))}
+            </select>
+            <span aria-hidden className="pointer-events-none absolute right-0 text-[10px] text-bok-text-dampad">
+              ▾
+            </span>
+          </label>
+        ) : (
+          <span className="bok-mono text-[13px] text-bok-text-dampad">{arsrad}</span>
+        )}
         <AgentStatus state={agent?.state} pausadOrsak={agent?.paused_reason} />
       </div>
     </header>

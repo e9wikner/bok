@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { BeslutFokusProvider } from "@/components/skal/BeslutFokus";
 import { ChattKolumn } from "@/components/skal/ChattKolumn";
 import { ChattList } from "@/components/skal/ChattList";
@@ -14,7 +15,8 @@ import { useAgentStatus, useOverview } from "@/hooks/useSkal";
 import { useVyer } from "@/hooks/useVyer";
 import { useVantandeBeslut } from "@/hooks/useVantandeBeslut";
 import { useBredSkarm } from "@/hooks/useBredSkarm";
-import { arsrad } from "@/lib/skal/header";
+import { bokslutApi } from "@/lib/skal/bokslut";
+import { arsalternativ, arsrad, somOverviewAr } from "@/lib/skal/header";
 import { lageFarg } from "@/lib/skal/lage";
 import { SKAL_RUTT, lasPosition } from "@/lib/skal/rutt";
 import { type Sidnyckel, type Vy, forstaVyn, sidan, vyAt } from "@/lib/skal/vyer";
@@ -74,7 +76,18 @@ export function Skal() {
     setVyIndex(0); // Byte av sida landar alltid på sidans första vy.
   }, []);
 
-  const vyer = useVyer(overview === undefined ? undefined : overview.fiscal_year, sidnyckel);
+  // Årsväljaren. Utan val gäller översiktens år (det aktuella); ett valt år
+  // som inte längre finns i listan faller tillbaka dit.
+  const { data: arslista } = useQuery({
+    queryKey: ["skal", "rakenskapsar"],
+    queryFn: bokslutApi.getRakenskapsar,
+    staleTime: 60 * 1000,
+  });
+  const [valtArId, setValtArId] = useState<string | null>(null);
+  const valtAr = arslista?.fiscal_years.find((a) => a.id === valtArId);
+  const ar = valtAr ? somOverviewAr(valtAr) : overview === undefined ? undefined : overview.fiscal_year;
+
+  const vyer = useVyer(ar, sidnyckel);
 
   const { data } = vyer[aktivVy.key];
   const vyStatus = { text: data.status, fg: lageFarg(data.lage) };
@@ -93,6 +106,15 @@ export function Skal() {
         aktivIndex={vyIndex}
         metaPerSida={metaPerSida}
         arsrad={arsrad(overview)}
+        arsval={
+          arslista && ar
+            ? {
+                alternativ: arsalternativ(arslista.fiscal_years, overview),
+                valt: ar.id,
+                onValj: setValtArId,
+              }
+            : undefined
+        }
         vyStatus={vyStatus}
         agent={agent}
         onValjSida={valjSida}

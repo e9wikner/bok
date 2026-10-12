@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Header } from "@/components/skal/Header";
 import { AgentStatus } from "@/components/skal/AgentStatus";
-import { arsrad } from "@/lib/skal/header";
+import { arsalternativ, arsrad } from "@/lib/skal/header";
 import { sidan } from "@/lib/skal/vyer";
 
 const sida = sidan("bocker");
@@ -66,6 +66,46 @@ describe("headern räknar ingenting (testfall 8)", () => {
         pages: [],
       })
     ).toBe("Räkenskapsår 2026 · mars låst");
+  });
+});
+
+describe("årsväljaren", () => {
+  const alternativ = [
+    { id: "2026", text: "Räkenskapsår 2026 · juni öppen" },
+    { id: "2025", text: "Räkenskapsår 2025" },
+  ];
+
+  it("ersätter årsraden med en dropdown och anropar onValj med årets id", async () => {
+    const onValj = vi.fn();
+    renderaHeader({ arsval: { alternativ, valt: "2026", onValj } });
+    const valjare = screen.getByRole("combobox", { name: "Välj räkenskapsår" });
+    expect(valjare).toHaveValue("2026");
+    await userEvent.setup().selectOptions(valjare, "2025");
+    expect(onValj).toHaveBeenCalledWith("2025");
+  });
+
+  it("visar årsraden som text när listan saknas", () => {
+    renderaHeader();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+  });
+
+  it("ger översiktens år periodläget och de andra bara året", () => {
+    expect(
+      arsalternativ(
+        [
+          { id: "b", start_date: "2026-01-01", end_date: "2026-12-31", locked: false, locked_at: null },
+          { id: "a", start_date: "2024-07-01", end_date: "2025-06-30", locked: true, locked_at: null },
+        ],
+        {
+          fiscal_year: { id: "b", label: "2026", start: "2026-01-01", end: "2026-12-31" },
+          period_state: { current_period_id: "p", label: "2026-06", locked: false },
+          pages: [],
+        }
+      )
+    ).toEqual([
+      { id: "b", text: "Räkenskapsår 2026 · juni öppen" },
+      { id: "a", text: "Räkenskapsår 2024/2025" },
+    ]);
   });
 });
 
