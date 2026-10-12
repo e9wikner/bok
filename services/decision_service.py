@@ -289,8 +289,10 @@ def _decode_synthetic_id(decision_id: str) -> Optional[Tuple[str, str]]:
 
 def _existing_path_for_synthetic_source(source_kind: str, raw_id: str) -> str:
     """SPEC §5: where a synthetic-id answer is pointed instead of
-    `POST /decisions/{id}/answer` -- `PUT /intake/{id}/agent-guidance` for
-    an `intake:` id. For a `correction:` id it is no path but the chat
+    `POST /decisions/{id}/answer` -- `POST /intake/{id}/retry` for an
+    `intake:` id, which takes optional guidance and puts the source back in
+    the intake pass's queue (`PUT .../agent-guidance` refuses a `failed`
+    source, so it was a dead end here). For a `correction:` id it is no path but the chat
     (SPEC-flode-verifikationer §7.3, F12): the answer to a note is a posted
     correction, proposed in Verifikationer's thread with `correction_of`
     and `correction_note_id`, not a click.
@@ -305,7 +307,7 @@ def _existing_path_for_synthetic_source(source_kind: str, raw_id: str) -> str:
     row happens to still exist (SPEC §5 draws no such distinction).
     """
     if source_kind == "intake":
-        return f"PUT /intake/{raw_id}/agent-guidance"
+        return f"POST /intake/{raw_id}/retry"
     note = CorrectionNoteRepository.get(raw_id)
     voucher_id = note.voucher_id if note is not None else raw_id
     return (
@@ -356,7 +358,7 @@ class DecisionNotFound(DecisionError):
 class DecisionNotAnswerable(DecisionError):
     """A synthetic id (`intake:...` / `correction:...`, SPEC §5) that has no
     row in `decisions` -- B8's `409 decision_not_answerable`, pointing at
-    the source's own existing path (`PUT /intake/{id}/agent-guidance`) or,
+    the source's own existing path (`POST /intake/{id}/retry`) or,
     for a correction note, at Verifikationer's chat (F12).
 
     Defined here per the brief; B3 never raised it -- `answer()` as B3 left

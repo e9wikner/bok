@@ -1,8 +1,11 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { LasKnapp } from "@/components/skal/LasKnapp";
+import { useBeslutFokus } from "@/components/skal/BeslutFokus";
 import { aldersTon } from "@/lib/chattyta/alder";
+import { BESLUT_NYCKEL, forsokIgenMedUnderlag, type BeslutSvar } from "@/lib/chattyta/api";
 import { oppnaKvitto } from "@/lib/skal/bocker";
 import type { LasData } from "@/lib/skal/las";
 import type { RadVariant } from "@/lib/skal/vydata";
@@ -58,6 +61,8 @@ export function VyRad({
   storlek = "desktop",
   ageDays,
   kvitto,
+  forsokIgen,
+  beslut,
   las,
 }: {
   titel: string;
@@ -73,6 +78,10 @@ export function VyRad({
    * `/v4` har ingen raddetalj; det här är det minsta som bär länken.
    */
   kvitto?: { voucherId: string; nummer: string };
+  /** Ett underlag agenten avstod från: länken `försök igen` i metaraden. */
+  forsokIgen?: { sourceId: string };
+  /** Ett öppet beslut: titeln tar upp det i chatten. */
+  beslut?: BeslutSvar;
   /** Ett lås sist på raden, efter högerkolumnen. */
   las?: LasData;
 }) {
@@ -85,6 +94,7 @@ export function VyRad({
     return () => clearTimeout(t);
   }, [variant]);
 
+  const { valt, valj } = useBeslutFokus();
   const pagaende = variant === "pagaende";
   const yta = nyAktiv ? "var(--bok-klart-yta)" : pagaende ? "var(--bok-yta-svag)" : undefined;
   const textFarg = pagaende ? "var(--bok-meta)" : undefined;
@@ -99,19 +109,35 @@ export function VyRad({
       style={{ background: yta }}
     >
       <span className="flex min-w-0 flex-col gap-[2px]">
-        <span
-          className={storlek === "desktop" ? "text-[14px]" : "text-[15px]"}
-          style={{ color: textFarg, fontWeight: summa ? 500 : undefined }}
-        >
-          {titel}
-        </span>
-        {(meta || kvitto) && (
+        {beslut ? (
+          <button
+            type="button"
+            data-testid="vyrad-beslut"
+            aria-pressed={valt?.id === beslut.id}
+            onClick={() => valj(beslut)}
+            title="Ta upp i chatten"
+            className={`min-w-0 cursor-pointer break-words text-left underline-offset-[3px] hover:underline ${
+              storlek === "desktop" ? "text-[14px]" : "text-[15px]"
+            } ${valt?.id === beslut.id ? "underline" : ""}`}
+          >
+            {titel}
+          </button>
+        ) : (
+          <span
+            className={storlek === "desktop" ? "text-[14px]" : "text-[15px]"}
+            style={{ color: textFarg, fontWeight: summa ? 500 : undefined }}
+          >
+            {titel}
+          </span>
+        )}
+        {(meta || kvitto || forsokIgen) && (
           <span
             className={`bok-mono ${storlek === "desktop" ? "text-[11px]" : "text-[12px]"}`}
             style={{ color: metaFarg(variant, ageDays) }}
           >
             {meta}
             {kvitto && <KvittoLank {...kvitto} forsta={!meta} />}
+            {forsokIgen && <ForsokIgenLank {...forsokIgen} forsta={!meta && !kvitto} />}
           </span>
         )}
       </span>
@@ -154,6 +180,45 @@ function KvittoLank({ voucherId, nummer, forsta }: { voucherId: string; nummer: 
         className="text-bok-lank underline-offset-2 hover:text-bok-lank-hover hover:underline"
       >
         {lage === "saknas" ? "inget kvitto" : lage === "fel" ? "kunde inte öppnas" : "kvitto"}
+      </button>
+    </>
+  );
+}
+
+/**
+ * `försök igen`: underlaget läggs tillbaka i intagskön (`POST /intake/{id}/retry`)
+ * och agenten läser om det med instruktionerna som de är nu. Beslutslistan
+ * hämtas om, så raden försvinner när servern inte längre har den öppen.
+ * Länken säger vad som hände i stället för att låtsas att något bokförts.
+ */
+function ForsokIgenLank({ sourceId, forsta }: { sourceId: string; forsta: boolean }) {
+  const queryClient = useQueryClient();
+  const [lage, setLage] = useState<"redo" | "skickar" | "skickat" | "vantar" | "fel">("redo");
+  const text = {
+    redo: "försök igen",
+    skickar: "skickar…",
+    skickat: "agenten läser om",
+    vantar: "i kön till nästa pass",
+    fel: "gick inte, försök igen",
+  }[lage];
+  return (
+    <>
+      {!forsta && " · "}
+      <button
+        type="button"
+        disabled={lage === "skickar" || lage === "skickat" || lage === "vantar"}
+        onClick={() => {
+          setLage("skickar");
+          forsokIgenMedUnderlag(sourceId)
+            .then((svar) => {
+              setLage(svar.pass_started ? "skickat" : "vantar");
+              return queryClient.invalidateQueries({ queryKey: BESLUT_NYCKEL });
+            })
+            .catch(() => setLage("fel"));
+        }}
+        className="text-bok-lank underline-offset-2 hover:text-bok-lank-hover hover:underline disabled:no-underline disabled:opacity-70"
+      >
+        {text}
       </button>
     </>
   );

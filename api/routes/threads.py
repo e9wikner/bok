@@ -310,6 +310,9 @@ def _attachment_posts(
                     ),
                 },
             )
+        # A source the intake pass abstained on, answered here: the thread's
+        # agent has to be able to post from it.
+        IntakeService().reopen_for_thread(source.id)
         posts.append(
             ThreadService.record_user_file(
                 thread,

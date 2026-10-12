@@ -16,6 +16,7 @@ import {
   type FilChip,
 } from "@/lib/chattyta/uppladdning";
 import { lasUtkast, sparaUtkast } from "@/lib/chattyta/utkast";
+import type { Forifyllning } from "@/components/skal/BeslutFokus";
 
 /**
  * `ChattFalt` (komponenter.md): radius 12, streckad kant #c7c7cc,
@@ -45,6 +46,13 @@ import { lasUtkast, sparaUtkast } from "@/lib/chattyta/utkast";
 const ACCEPT_DESKTOP = [...TILLATNA_TYPER, ".csv", "text/csv"].join(",");
 
 let chipnummer = 0;
+
+/**
+ * Fyllningar som redan gjorts. Mobilens fält monteras om när chatten fälls
+ * ihop och upp; samma fyllning ska då inte lägga tillbaka ett chip som
+ * människan tagit bort eller redan skickat.
+ */
+const gjordaFyllningar = new Set<number>();
 
 const harFiler = (dt: DataTransfer | null): boolean =>
   !!dt && Array.from(dt.types ?? []).includes("Files");
@@ -84,8 +92,14 @@ export const ChattFalt = forwardRef<
      * inget utkast.
      */
     viewKey?: string;
+    /**
+     * `Svara agenten` på ett beslut (`BeslutFokus`): en inledning i ett tomt
+     * fält och underlaget som ett klart chip. Text som människan redan
+     * skrivit står kvar. Ny `nyckel` = ny fyllning.
+     */
+    forifyllning?: Forifyllning | null;
   }
->(function ChattFalt({ vyTitel, variant = "desktop", onSkicka, slappYta, viewKey }, ref) {
+>(function ChattFalt({ vyTitel, variant = "desktop", onSkicka, slappYta, viewKey, forifyllning }, ref) {
   // Ett id per fält: svepraden har flera kolumner på skärmen samtidigt, och
   // ett delat id gjorde att etiketten pekade på första kolumnens fält.
   const faltId = useId();
@@ -101,6 +115,41 @@ export const ChattFalt = forwardRef<
   const [chips, setChips] = useState<FilChip[]>([]);
   const [drarOver, setDrarOver] = useState(false);
   const filvaljare = useRef<HTMLInputElement>(null);
+  const faltRef = useRef<HTMLInputElement | null>(null);
+  const satRef = useCallback(
+    (el: HTMLInputElement | null) => {
+      faltRef.current = el;
+      if (typeof ref === "function") ref(el);
+      else if (ref) ref.current = el;
+    },
+    [ref]
+  );
+
+  const fyllNyckel = forifyllning?.nyckel;
+  useEffect(() => {
+    if (!forifyllning || gjordaFyllningar.has(forifyllning.nyckel)) return;
+    gjordaFyllningar.add(forifyllning.nyckel);
+    const { text: inledning, bilaga } = forifyllning;
+    setText((nu) => (nu.trim() === "" ? inledning : nu));
+    if (bilaga) {
+      setChips((cs) =>
+        cs.some((c) => c.id === bilaga.id)
+          ? cs
+          : [
+              ...cs,
+              { nyckel: `beslut-${bilaga.id}`, namn: bilaga.namn, storlek: 0, lage: "klar", id: bilaga.id, dubblett: false, orsak: null },
+            ]
+      );
+    }
+    const el = faltRef.current;
+    if (el) {
+      el.focus();
+      requestAnimationFrame(() => el.setSelectionRange(el.value.length, el.value.length));
+    }
+    // Bara en ny fyllning fyller; samma objekt vid omrendering gör inget.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fyllNyckel]);
+
   const etikett = FALTETIKETTER[vyTitel] ?? `Fråga om en post i ${vyTitel.toLowerCase()}`;
   const tarEmot = !!onSkicka;
 
@@ -209,7 +258,9 @@ export const ChattFalt = forwardRef<
                   }`}
                 >
                   <span className="min-w-0 truncate">
-                    {c.namn} · {filMeta(c.storlek, null)} · {chipStatus(c)}
+                    {c.namn}
+                    {/* Ett befintligt underlag (`Svara agenten`) har ingen storlek här. */}
+                    {c.storlek > 0 && ` · ${filMeta(c.storlek, null)}`} · {chipStatus(c)}
                   </span>
                   <button
                     type="button"
@@ -228,7 +279,7 @@ export const ChattFalt = forwardRef<
               {etikett}
             </label>
             <input
-              ref={ref}
+              ref={satRef}
               id={faltId}
               name="skal-chattfalt"
               type="text"

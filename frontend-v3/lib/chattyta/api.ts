@@ -167,6 +167,22 @@ export async function oppnaUnderlag(kalla: string | (() => Promise<string | null
   });
 }
 
+/**
+ * `POST /intake/{id}/retry`: ett underlag agenten avstod från läggs tillbaka
+ * i intagskön och läses om med instruktionerna som de är nu. `pass_started`
+ * är `false` när agenten är avstängd; då väntar underlaget på nästa pass.
+ */
+export async function forsokIgenMedUnderlag(
+  sourceId: string,
+  agentGuidance?: string
+): Promise<{ pass_started: boolean }> {
+  const { data } = await apiClient.post<{ pass_started: boolean }>(
+    `/api/v1/intake/${encodeURIComponent(sourceId)}/retry`,
+    agentGuidance ? { agent_guidance: agentGuidance } : {}
+  );
+  return data;
+}
+
 /** `GET /intake/{id}/file` för en källa i intagskön. */
 export function underlagsfilSokvag(sourceId: string): string {
   return `/api/v1/intake/${encodeURIComponent(sourceId)}/file`;

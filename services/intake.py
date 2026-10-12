@@ -12,6 +12,10 @@ from domain.types import IntakeSourceType, IntakeStatus, VoucherStatus
 from repositories.intake_repo import IntakeRepository
 from repositories.voucher_repo import VoucherRepository
 
+#: The statuses `IntakeService.retry` takes back to `pending`: the two the
+#: decision queue shows as `intake:` decisions (`_INTAKE_OPEN_STATUSES`).
+RETRYABLE_STATUSES = (IntakeStatus.FAILED, IntakeStatus.NEEDS_ATTENTION)
+
 
 class IntakeError(Exception):
     """Base error for intake workflow failures."""
@@ -149,6 +153,66 @@ class IntakeService:
         self.sources.update_agent_guidance(source_id, normalized)
         db.commit()
         return self.get_source(source_id)
+
+    def retry(
+        self,
+        source_id: str,
+        actor: str,
+        agent_guidance: str | None = None,
+    ) -> IntakeSource:
+        """Put a source the agent abstained on back in the intake pass's queue.
+
+        The next pass reads it with the instructions as they are then, plus
+        `agent_guidance` when given (blank keeps the current guidance). The
+        earlier attempts stay as they are: the history is append-only.
+
+        Refused for a source that is not `failed`/`needs_attention`, that has
+        a current link (it is bokfört already, a new pass could book it
+        twice), or that a thread owns (the pass never reads those, so it
+        would sit `pending` forever -- the answer is in that thread).
+        """
+        source = self.get_source(source_id)
+        if source.status not in RETRYABLE_STATUSES:
+            raise IntakeConflictError(
+                "intake_not_retryable",
+                "Only sources the agent abstained on can be retried",
+                f"source_id={source_id}, status={source.status.value}",
+            )
+        if self.sources.get_link_by_source_id(source_id) is not None:
+            raise IntakeConflictError(
+                "intake_already_linked",
+                "The source is linked to a voucher; unlink it before retrying",
+                f"source_id={source_id}",
+            )
+        if self.sources.is_in_a_thread(source_id):
+            raise IntakeConflictError(
+                "intake_in_thread",
+                "The source belongs to a thread; answer it in that thread",
+                f"source_id={source_id}",
+            )
+        normalized = agent_guidance.strip() if agent_guidance else None
+        with db.transaction():
+            if normalized:
+                self.sources.update_agent_guidance(source_id, normalized, _commit=False)
+            self.sources.update_status(
+                source_id, IntakeStatus.PENDING.value, actor=actor, _commit=False
+            )
+        return self.get_source(source_id)
+
+    def reopen_for_thread(self, source_id: str) -> None:
+        """A source the agent abstained on, attached to a thread message, is
+        `pending` again so the thread's agent may post from it -- posting
+        takes only `pending`/`processing` (`_ensure_can_record_outcome`).
+        The `user_file` post makes the thread own it, so the intake pass
+        still never reads it. Any other status, or a current link, is left
+        as it is: the thread then sees the source as it stands.
+        """
+        source = self.get_source(source_id)
+        if source.status not in RETRYABLE_STATUSES:
+            return
+        if self.sources.get_link_by_source_id(source_id) is not None:
+            return
+        self.sources.update_status(source_id, IntakeStatus.PENDING.value)
 
     def resolve_source_file(self, source: IntakeSource) -> Path:
         """Return a stored file path only if it remains inside the intake root."""

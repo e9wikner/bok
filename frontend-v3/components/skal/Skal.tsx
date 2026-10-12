@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { BeslutFokusProvider } from "@/components/skal/BeslutFokus";
 import { ChattKolumn } from "@/components/skal/ChattKolumn";
 import { ChattList } from "@/components/skal/ChattList";
 import { Header } from "@/components/skal/Header";
@@ -83,6 +84,7 @@ export function Skal() {
     // indragen, så chattlisten längst ner hamnade bakom den.
     // `overflow-hidden`: skalet är exakt en skärm. Allt som skrollar gör det
     // i sin egen yta, aldrig dokumentet.
+    <BeslutFokusProvider>
     <div className="flex h-screen h-dvh min-h-0 flex-col overflow-hidden bg-bok-app">
       <Header
         variant={bred ? "desktop" : "mobil"}
@@ -146,5 +148,6 @@ export function Skal() {
         </div>
       )}
     </div>
+    </BeslutFokusProvider>
   );
 }

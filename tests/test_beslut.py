@@ -1279,13 +1279,13 @@ class TestDecisionNotAnswerableIsDefined:
 
     def test_shape_matches_the_other_typed_errors(self):
         error = DecisionNotAnswerable(
-            "intake:abc123", existing_path="PUT /intake/abc123/agent-guidance"
+            "intake:abc123", existing_path="POST /intake/abc123/retry"
         )
 
         assert isinstance(error, DecisionError)
         assert error.code == "decision_not_answerable"
         assert error.decision_id == "intake:abc123"
-        assert error.details == "PUT /intake/abc123/agent-guidance"
+        assert error.details == "POST /intake/abc123/retry"
 
 
 # --- B4: eskaleringsinvarianten och alternativens kontraktsregler (SPEC §6.3, §11.1, testfall 19-23) ---
@@ -3464,7 +3464,7 @@ class TestCaseSixteenSyntheticIdsAreNotAnswerableHere:
     pointer is the difference between a dead end and a redirection.
     """
 
-    def test_an_intake_id_is_409_pointing_at_agent_guidance(self, client, auth_headers):
+    def test_an_intake_id_is_409_pointing_at_retry(self, client, auth_headers):
         source_id = _insert_intake_source(status="failed")
 
         with _RuntimeOff():
@@ -3477,7 +3477,7 @@ class TestCaseSixteenSyntheticIdsAreNotAnswerableHere:
         assert response.status_code == 409
         detail = response.json()["detail"]
         assert detail["code"] == "decision_not_answerable"
-        assert f"/intake/{source_id}/agent-guidance" in detail["details"]
+        assert f"/intake/{source_id}/retry" in detail["details"]
 
     def test_a_correction_id_is_409_pointing_at_the_chat(self, client, auth_headers):
         """SPEC-flode-verifikationer §7.3 (F12): the pointer is Verifikationer's

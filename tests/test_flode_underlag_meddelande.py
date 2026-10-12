@@ -198,3 +198,45 @@ def test_fu17_count_pdf_pages_is_pure():
 
     assert count_pdf_pages(_pdf(3)) == 3
     assert count_pdf_pages(b"not a pdf") is None
+
+
+# ---------------------------------------------------------------------------
+# An underlag the intake pass abstained on, answered in the thread
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("status", ["failed", "needs_attention"])
+def test_an_abstained_source_attached_is_pending_again(
+    client, auth_headers, period_id, started, status
+):
+    """`Svara agenten` on a decision row attaches the source: the thread's
+    agent may then post from it, which only `pending` allows."""
+    from domain.types import IntakeStatus
+    from repositories.intake_repo import IntakeRepository
+
+    source_id = make_source(status)
+
+    resp = client.post(
+        URL,
+        headers=auth_headers,
+        json={"text": "Bokför betalningen mot 1500", "attachments": [source_id]},
+    )
+
+    assert resp.status_code == 201, resp.text
+    assert IntakeRepository.get_source(source_id).status == IntakeStatus.PENDING
+    # The thread owns it now, so the intake pass does not read it too.
+    assert IntakeRepository.is_in_a_thread(source_id)
+
+
+def test_a_processed_source_attached_keeps_its_status(
+    client, auth_headers, period_id, started
+):
+    from domain.types import IntakeStatus
+    from repositories.intake_repo import IntakeRepository
+
+    source_id = make_source("processed")
+
+    resp = client.post(URL, headers=auth_headers, json={"attachments": [source_id]})
+
+    assert resp.status_code == 201, resp.text
+    assert IntakeRepository.get_source(source_id).status == IntakeStatus.PROCESSED

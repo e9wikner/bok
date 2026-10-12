@@ -5,6 +5,7 @@
  * `bocker.ts`, `betala.ts` och `bokslut.ts`; skalet har ingen påhittad data.
  */
 
+import type { BeslutSvar } from "@/lib/chattyta/api";
 import type { LasData } from "@/lib/skal/las";
 
 /** De sex lägena i README.md §Tillstånd. En vy ska kunna visa alla sex. */
@@ -30,6 +31,10 @@ export interface VyRadData {
    * slås upp först när länken används, inte per rad.
    */
   kvitto?: { voucherId: string; nummer: string };
+  /** Ett underlag agenten avstod från: länken `försök igen` (`POST /intake/{id}/retry`). */
+  forsokIgen?: { sourceId: string };
+  /** Ett öppet beslut: titeln är en knapp som tar upp det i chatten (`BeslutFokus`). */
+  beslut?: BeslutSvar;
   /** Räkenskapsårets lås, sist på raden (Rapporter). */
   las?: LasData;
 }

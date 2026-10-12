@@ -1,5 +1,6 @@
 """API routes for voucher source intake."""
 
+import logging
 from typing import Annotated, Any
 
 from fastapi import (
@@ -17,6 +18,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, create_model
 
 from api.deps import Caller, get_caller, get_current_actor
+from config import settings
 from domain.models import (
     BankInput,
     IntakeProcessingAttempt,
@@ -49,6 +51,8 @@ from services.interpretation_service import (
     InterpretationNotFoundError,
     InterpretationService,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/intake", tags=["intake"])
 VALID_WORKSPACE_KINDS = {"voucher_source", "bank_input"}
@@ -394,6 +398,54 @@ async def update_intake_agent_guidance(
         return _source_to_dict(source)
     except IntakeError as exc:
         raise _http_error(exc) from exc
+
+
+class RetryRequest(BaseModel):
+    """`POST /intake/{id}/retry`: optional guidance for the new attempt."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    agent_guidance: str | None = None
+
+
+@router.post("/{source_id}/retry", response_model=dict)
+async def retry_intake_source(
+    source_id: str,
+    request: RetryRequest | None = None,
+    actor: str = Depends(get_current_actor),
+):
+    """Back in the queue a source the agent abstained on, and start a pass.
+
+    `pass_started` says whether a pass was asked for now; `false` when the
+    agent runtime is off or not running, and the source then waits for the
+    next pass.
+    """
+    try:
+        source = IntakeService().retry(
+            source_id=source_id,
+            actor=actor,
+            agent_guidance=request.agent_guidance if request else None,
+        )
+    except IntakeError as exc:
+        raise _http_error(exc) from exc
+    return {**_source_to_dict(source), "pass_started": _start_intake_pass()}
+
+
+def _start_intake_pass() -> bool:
+    """Same gate as the dropzone's `_start_pass_when_done`. Never raises."""
+    if not settings.agent_runtime_enabled:
+        return False
+    try:
+        from services.agent_runtime import get_runner
+
+        runner = get_runner()
+        if not runner.running:
+            return False
+        runner.trigger_pass_now()
+        return True
+    except Exception:
+        logger.exception("Could not start the agent's intake pass after a retry")
+        return False
 
 
 @router.get("/{source_id}/file")

@@ -232,3 +232,10 @@
     scroll-behavior: auto;
   }
 }
+
+/* Ett beslutsinlägg som tagits upp från vyn (`BeslutFokus`): kort markering. */
+[data-inlagg-id][data-fokus="true"] {
+  outline: 2px solid var(--bok-vantar-kant);
+  outline-offset: 4px;
+  transition: outline-color 0.4s;
+}

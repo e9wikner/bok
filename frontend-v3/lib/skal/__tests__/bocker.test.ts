@@ -251,6 +251,27 @@ describe("verifikationerVy: Väntar på beslut, Postade, Utkast (testfall 45)", 
     expect(alla.filter((id) => id === "trad")).toHaveLength(1);
   });
 
+  it("ett underlag agenten avstod från får länken försök igen", () => {
+    const vy = verifikationerVy(AR, TOM, TOM, {
+      beslut: [
+        beslut({
+          id: "intake:s1",
+          kind: "intake",
+          title: "OpenCode Go maj 97kr.pdf",
+          amount_ore: null,
+          source: { kind: "intake_source", id: "s1", date: "2026-10-01" },
+        }),
+      ],
+      forslag: [],
+    });
+    expect(sektion(vy, "Väntar på beslut")[0]).toMatchObject({
+      id: "intake:s1",
+      meta: "agenten avstod · 2026-10-01",
+      hoger: "",
+      forsokIgen: { sourceId: "s1" },
+    });
+  });
+
   it("radlägena: beslut, förslag, rättelse och fel", () => {
     const vy = verifikationerVy(AR, TOM, {
       total: 3,

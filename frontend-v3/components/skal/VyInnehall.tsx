@@ -81,6 +81,8 @@ export function VyInnehall({
                   summa={rad.summa}
                   ageDays={rad.ageDays}
                   kvitto={rad.kvitto}
+                  forsokIgen={rad.forsokIgen}
+                  beslut={rad.beslut}
                   las={rad.las}
                   storlek={variant}
                 />

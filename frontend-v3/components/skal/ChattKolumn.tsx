@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useLayoutEffect, useRef } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { delaVidGrans, NollstallKnapp, TidigareKonversation } from "@/components/chattyta/Nollstallning";
 import { ChattFaltFokus, TradRenderare } from "@/components/chattyta/TradRenderare";
+import { BeslutFokusKort, useBeslutFokus } from "@/components/skal/BeslutFokus";
 import { ChattFalt } from "@/components/skal/ChattFalt";
 import { useTrad, type UseTrad } from "@/hooks/useTrad";
 
@@ -77,6 +78,18 @@ export function TradYta({
   const langstNer = useRef(true);
   const kontextFran = trad.kontextFran ?? 0;
   const { fore, efter } = delaVidGrans(trad.inlagg, kontextFran);
+  const { valt } = useBeslutFokus();
+  const visaFokus = valt !== null && valt.view_key === viewKey;
+  const inlaggIds = useMemo(() => new Set(trad.inlagg.map((i) => i.id)), [trad.inlagg]);
+
+  // Ett beslut som tas upp ska synas, även om människan skrollat upp.
+  useLayoutEffect(() => {
+    const el = yta.current;
+    if (el && visaFokus) {
+      langstNer.current = true;
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [visaFokus, valt]);
 
   // Följ med nedåt när något nytt kommer — men bara om människan redan var
   // längst ner. Den som skrollat upp för att läsa ett gammalt beslut ska inte
@@ -123,6 +136,7 @@ export function TradYta({
           <TidigareKonversation inlagg={fore} nollstalldVid={trad.nollstalldVid ?? null} viewKey={viewKey} />
         )}
         <TradRenderare inlagg={efter} strommande={trad.strommande} viewKey={viewKey} />
+        {visaFokus && <BeslutFokusKort viewKey={viewKey} inlaggIds={inlaggIds} />}
         {trad.fel != null && (
           <p data-testid="trad-fel" className="bok-mono m-0 text-[12px] text-bok-text-svag">
             {felText(trad.fel)}
@@ -189,6 +203,7 @@ function KolumnLayout({
   // Hela kolumnen tar emot en släppt fil, inte bara fältet
   // (SPEC-flode-underlag.md §10.1).
   const kolumn = useRef<HTMLDivElement>(null);
+  const { forifyllning } = useBeslutFokus();
   return (
     <div ref={kolumn} className="flex min-h-0 min-w-0 flex-col border-r border-bok-linje">
       <ChattFaltFokus.Provider value={fokuseraFalt}>
@@ -197,7 +212,14 @@ function KolumnLayout({
       {onNollstall && kanNollstallas(trad) && (
         <NollstallKnapp onNollstall={onNollstall} arbetar={trad.strommande !== null} />
       )}
-      <ChattFalt ref={falt} vyTitel={vyTitel} viewKey={viewKey} onSkicka={onSkicka} slappYta={kolumn} />
+      <ChattFalt
+        ref={falt}
+        vyTitel={vyTitel}
+        viewKey={viewKey}
+        onSkicka={onSkicka}
+        slappYta={kolumn}
+        forifyllning={forifyllning?.viewKey === viewKey ? forifyllning : null}
+      />
     </div>
   );
 }

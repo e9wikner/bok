@@ -587,6 +587,18 @@ function vantarPa(f: ForslagStatusSvar): string {
 
 function beslutsrad(b: BeslutSvar): VyRadData {
   const datum = b.source?.date;
+  if (b.kind === "intake" && b.source) {
+    return {
+      id: b.id,
+      titel: b.title,
+      meta: datum ? `agenten avstod · ${datum}` : "agenten avstod",
+      hoger: "",
+      variant: "vantar",
+      ageDays: b.age_days,
+      forsokIgen: { sourceId: b.source.id },
+      beslut: b,
+    };
+  }
   return {
     id: b.id,
     titel: b.title,
@@ -594,6 +606,7 @@ function beslutsrad(b: BeslutSvar): VyRadData {
     hoger: b.amount_ore === null ? "" : formatBeloppHela(b.amount_ore),
     variant: "vantar",
     ageDays: b.age_days,
+    beslut: b,
   };
 }
 

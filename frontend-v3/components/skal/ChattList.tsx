@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChattFaltFokus } from "@/components/chattyta/TradRenderare";
+import { useBeslutFokus } from "@/components/skal/BeslutFokus";
 import { ChattFalt } from "@/components/skal/ChattFalt";
 import { NollstallKnapp } from "@/components/chattyta/Nollstallning";
 import { kanNollstallas, OLAST_TRAD, TradYta, type TradData } from "@/components/skal/ChattKolumn";
@@ -75,6 +76,12 @@ function ListLayout({
   onNollstall?: UseTrad["nollstall"];
 }) {
   const [oppen, setOppen] = useState(true);
+  const { valt, forifyllning } = useBeslutFokus();
+  const fyll = forifyllning?.viewKey === viewKey ? forifyllning : null;
+  // Ett beslut som tas upp i den här vyn fäller upp chatten: kortet står där.
+  useEffect(() => {
+    if (valt && valt.view_key === viewKey) setOppen(true);
+  }, [valt, viewKey]);
   // Förslagskortets `Ändra` ska till listens eget fält (chattyta C12).
   const falt = useRef<HTMLInputElement>(null);
   const fokuseraFalt = useCallback(() => falt.current?.focus(), []);
@@ -138,6 +145,7 @@ function ListLayout({
             variant="mobil"
             onSkicka={onSkicka}
             slappYta={list}
+            forifyllning={fyll}
           />
         </div>
       )}
