@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { BOK_KLIENT_NS, nyckelForUtkast, uuidV5 } from "@/lib/chattyta/idempotens";
 
 // Kanonisk UUIDv5: gemener, version 5 i tredje gruppen, variant 10xx (8, 9, a, b)
@@ -72,5 +72,21 @@ describe("BOK_KLIENT_NS", () => {
 
   it("är skild från serverns BOK_NAMESPACE, så nycklarna aldrig kan kollidera (§8)", () => {
     expect(BOK_KLIENT_NS).not.toBe(SERVERNS_BOK_NAMESPACE);
+  });
+});
+
+describe("nyckelForUtkast — utan säker kontext", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  // `http://hubbabubba:3000` är ingen säker kontext: där saknas `crypto.subtle`,
+  // och `Posta` föll tidigare på det med `okänt fel`.
+  it("ger samma nyckel när crypto.subtle saknas", async () => {
+    vi.stubGlobal("crypto", {});
+    expect(await nyckelForUtkast("d-1")).toBe("6b8fce5b-d4b0-5eac-8283-ba8fb25e1c87");
+  });
+
+  it("klarar namn över ett SHA-1-block (64 byte)", async () => {
+    // python3 -c "import uuid; print(uuid.uuid5(uuid.UUID('67d43419-c305-4b32-9247-305e346b0398'), 'draft:' + 'x'*100))"
+    expect(await nyckelForUtkast("x".repeat(100))).toBe("dc0029e5-6109-5c37-8c44-0a3c8e5a38f3");
   });
 });

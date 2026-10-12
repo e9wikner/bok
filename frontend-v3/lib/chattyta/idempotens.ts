@@ -13,7 +13,10 @@
  * minne; en härledd nyckel överlever omladdningen. Servern kräver bara att
  * nyckeln är en UUID (`api/deps.py`), så v5 duger lika bra som v4.
  *
- * SHA-1 räknas med `crypto.subtle` — inga beroenden (SPEC-chattyta.md §3).
+ * SHA-1 räknas här i filen, inte med `crypto.subtle` — inga beroenden
+ * (SPEC-chattyta.md §3). `crypto.subtle` finns bara i en säker kontext (https
+ * eller localhost); på `http://hubbabubba:3000` är det `undefined`, och då föll
+ * varje `Posta` på ett TypeError innan något anrop gick iväg (`okänt fel`).
  * SHA-1 är här ingen säkerhetsfunktion utan det RFC 4122 föreskriver för v5.
  */
 
@@ -28,6 +31,49 @@
  * servernyckel, inte ens om namnen en dag skulle råka bli lika (§8 steg 1).
  */
 export const BOK_KLIENT_NS = "67d43419-c305-4b32-9247-305e346b0398";
+
+/** SHA-1 (FIPS 180-4) över `data`. Liten och långsam nog; nyckeln är ett par hundra byte. */
+function sha1(data: Uint8Array): Uint8Array {
+  const bitar = data.length * 8;
+  const block = Math.ceil((data.length + 9) / 64) * 64;
+  const buf = new Uint8Array(block);
+  buf.set(data);
+  buf[data.length] = 0x80;
+  const vy = new DataView(buf.buffer);
+  vy.setUint32(block - 8, Math.floor(bitar / 0x100000000));
+  vy.setUint32(block - 4, bitar >>> 0);
+
+  let h0 = 0x67452301, h1 = 0xefcdab89, h2 = 0x98badcfe, h3 = 0x10325476, h4 = 0xc3d2e1f0;
+  const w = new Uint32Array(80);
+  const rotl = (x: number, n: number) => (x << n) | (x >>> (32 - n));
+  for (let off = 0; off < block; off += 64) {
+    for (let i = 0; i < 16; i++) w[i] = vy.getUint32(off + i * 4);
+    for (let i = 16; i < 80; i++) w[i] = rotl(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
+    let a = h0, b = h1, c = h2, d = h3, e = h4;
+    for (let i = 0; i < 80; i++) {
+      const [f, k] =
+        i < 20 ? [(b & c) | (~b & d), 0x5a827999]
+        : i < 40 ? [b ^ c ^ d, 0x6ed9eba1]
+        : i < 60 ? [(b & c) | (b & d) | (c & d), 0x8f1bbcdc]
+        : [b ^ c ^ d, 0xca62c1d6];
+      const t = (rotl(a, 5) + f + e + k + w[i]) >>> 0;
+      e = d;
+      d = c;
+      c = rotl(b, 30) >>> 0;
+      b = a;
+      a = t;
+    }
+    h0 = (h0 + a) >>> 0;
+    h1 = (h1 + b) >>> 0;
+    h2 = (h2 + c) >>> 0;
+    h3 = (h3 + d) >>> 0;
+    h4 = (h4 + e) >>> 0;
+  }
+  const ut = new Uint8Array(20);
+  const utVy = new DataView(ut.buffer);
+  [h0, h1, h2, h3, h4].forEach((h, i) => utVy.setUint32(i * 4, h));
+  return ut;
+}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -64,7 +110,7 @@ export async function uuidV5(namnrymd: string, namn: string): Promise<string> {
   indata.set(ns);
   indata.set(namnByte, ns.length);
 
-  const summa = new Uint8Array(await crypto.subtle.digest("SHA-1", indata));
+  const summa = sha1(indata);
   const byte = summa.slice(0, 16);
   byte[6] = (byte[6] & 0x0f) | 0x50; // version 5
   byte[8] = (byte[8] & 0x3f) | 0x80; // variant 10xx (RFC 4122)

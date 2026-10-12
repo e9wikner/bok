@@ -377,8 +377,8 @@ describe("testfall 27: 409 period_locked", () => {
 
 describe("testfall 34: 409 request_in_flight", () => {
   /**
-   * Låter riktiga turer i händelseloopen gå (nyckeln räknas med
-   * `crypto.subtle`, som svarar utanför mikrouppgifterna) utan att röra den
+   * Låter riktiga turer i händelseloopen gå (nyckeln, frågan och anropen
+   * landar över flera turer) utan att röra den
    * falska klockan. `vi.waitFor` duger inte här: med falska timers flyttar
    * den själv klockan framåt, och det är just klockan testet mäter.
    */
