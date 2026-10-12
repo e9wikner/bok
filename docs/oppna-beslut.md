@@ -62,6 +62,19 @@ Det här är kontroller, inte beslut. De kräver en människa, och den första e
     - Headern visar `BokAi` i stället för bolagsnamnet.
     - Bokslut-sidan säger alltid `Inget väntar`.
     - `AgentStatus` syns bara som `pausad` på mobilen.
+11. **Avstående i intagspasset som riktiga beslut med alternativ.** I dag blir ett avstående
+    `failed` och syns som ett syntetiskt `intake:`-beslut utan alternativ. Raden tas upp i
+    chatten (`BeslutFokus`) med `Försök igen` och `Svara agenten`, men människan formulerar
+    själv svaret. Nästa steg är att passet skapar ett `decisions`-kort med 2–3 alternativ i
+    Verifikationers tråd, så att svaret blir ett klick (`POST /decisions/{id}/answer`), och att
+    likartade avstånden kan grupperas. Formuleringen av alternativen ska först stå i
+    instruktionen.
+12. **Moms på tjänster köpta utanför EU.** Instruktionerna v5 säger "utan moms", men för ett
+    svenskt aktiebolag gäller omvänd skattskyldighet: kostnad mot 1920 och 25 % beräknad moms
+    på 2614 (utgående) och 2645 (ingående), redovisad i ruta 22, 30 och 48. 2614 och 2645 finns
+    inte i kontoplanen och `services/vat_report.py` läser bara 2610–2640, så regeln kan inte
+    ändras förrän båda finns. Bokfört 2026 är inkonsekvent (A5, A6 utan moms; A8 bara ingående
+    moms; A20 mot 2650; övriga 2610/2640) och rättas med B-verifikationer när regeln står.
 
 ## underlag-ersatt: val som gjordes i bygget, att bekräfta
 
