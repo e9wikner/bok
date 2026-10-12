@@ -71,8 +71,8 @@ describe("headern räknar ingenting (testfall 8)", () => {
 
 describe("årsväljaren", () => {
   const alternativ = [
-    { id: "2026", text: "Räkenskapsår 2026 · juni öppen" },
-    { id: "2025", text: "Räkenskapsår 2025" },
+    { id: "2026", text: "Räkenskapsår 2026 · juni öppen", etikett: "2026" },
+    { id: "2025", text: "Räkenskapsår 2025", etikett: "2025" },
   ];
 
   it("ersätter årsraden med en dropdown och anropar onValj med årets id", async () => {
@@ -80,6 +80,15 @@ describe("årsväljaren", () => {
     renderaHeader({ arsval: { alternativ, valt: "2026", onValj } });
     const valjare = screen.getByRole("combobox", { name: "Välj räkenskapsår" });
     expect(valjare).toHaveValue("2026");
+    await userEvent.setup().selectOptions(valjare, "2025");
+    expect(onValj).toHaveBeenCalledWith("2025");
+  });
+
+  it("finns i mobilheadern och visar där bara året", async () => {
+    const onValj = vi.fn();
+    renderaHeader({ variant: "mobil", arsval: { alternativ, valt: "2026", onValj } });
+    expect(screen.getByText("2026")).toBeInTheDocument();
+    const valjare = screen.getByRole("combobox", { name: "Välj räkenskapsår" });
     await userEvent.setup().selectOptions(valjare, "2025");
     expect(onValj).toHaveBeenCalledWith("2025");
   });
@@ -103,8 +112,8 @@ describe("årsväljaren", () => {
         }
       )
     ).toEqual([
-      { id: "b", text: "Räkenskapsår 2026 · juni öppen" },
-      { id: "a", text: "Räkenskapsår 2024/2025" },
+      { id: "b", text: "Räkenskapsår 2026 · juni öppen", etikett: "2026" },
+      { id: "a", text: "Räkenskapsår 2024/2025", etikett: "2024/2025" },
     ]);
   });
 });

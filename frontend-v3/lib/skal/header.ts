@@ -49,9 +49,10 @@ export function somOverviewAr(ar: Rakenskapsar): OverviewFiscalYear {
 export function arsalternativ(
   lista: Rakenskapsar[],
   overview?: Overview
-): { id: string; text: string }[] {
+): { id: string; text: string; etikett: string }[] {
   return lista.map((ar) => ({
     id: ar.id,
+    etikett: arsetikett(ar),
     text:
       ar.id === overview?.fiscal_year?.id
         ? arsrad(overview)
