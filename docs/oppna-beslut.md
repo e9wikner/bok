@@ -154,9 +154,12 @@ Beteendet är inte ändrat. Det här är iakttagelser.
   används. `audit` (revisionsspåret, ett BFL-krav) får inte försvinna innan det finns en
   ersättare.
 - **Fakturering** är skrivvy sedan F1. En faktura skrivs genom att en inloggad människa utfärdar
-  ett utkast (`POST /invoice-drafts/{id}/issue`). **Löner** är läsvy med tråd i `/v4`. De sätts
-  upp på `/payroll` eller i samtalet med agenten, som har `registrera_anstalld`, `satt_lon` och
-  `skapa_lonekorning` (bara i en tråd). En lön eller en AGI bokförs bara på `/payroll`.
+  ett utkast (`POST /invoice-drafts/{id}/issue`). **Löner** skriver i `/v4` på samma sätt. De
+  sätts upp på `/payroll` eller i samtalet med agenten, som har `registrera_anstalld`, `satt_lon`
+  och `skapa_lonekorning` (bara i en tråd). Agenten lägger fram bokföringen av ett lönebesked
+  eller en AGI som ett beslutskort (`foresla_lonebokforing`, `foresla_agi_bokforing`), och en
+  inloggad människa bokför med ett tryck. Att skicka lönebesked och ta bort en lönekörning görs
+  fortfarande på `/payroll`.
 - **`mypy .`** ger 58 fel i 22 filer. Alla fanns före redesignen.
 - **CI** har `continue-on-error: true` på backendens steg (pytest, black, isort, flake8, mypy)
   och Docker-bygget, liksom på frontendens lint. Bara `npm test` fäller bygget. En grön bock

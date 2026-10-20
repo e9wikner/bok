@@ -1118,6 +1118,10 @@ _EXPECTED_TOOL_NAMES = [
     # ten hits on a required search term -- that the document pass is offered
     # in place of the broad history reads.
     "sok_verifikationer",
+    # The thirtieth and thirty-first, appended the same way: booking a
+    # payslip or an AGI is proposed as a card; a human's press books it.
+    "foresla_lonebokforing",
+    "foresla_agi_bokforing",
 ]
 
 #: Names that carry a forbidden fragment by design, and why it is not the
@@ -1266,6 +1270,9 @@ class TestAppendOnlyToolSurface:
         `fiscal_year_proposals` row; the human's press creates the year.
         `foresla_bolagsinformation` writes a decision card and a
         `company_info_proposals` row; the human's press writes the details.
+        `foresla_lonebokforing` and `foresla_agi_bokforing` write a decision
+        card and a `payroll_booking_proposals` row; a logged-in human's press
+        books the payslip or the AGI.
         """
         write_tool_names = {
             "posta_verifikation",
@@ -1285,6 +1292,8 @@ class TestAppendOnlyToolSurface:
             "skapa_lonekorning",
             "foresla_rakenskapsar",
             "foresla_bolagsinformation",
+            "foresla_lonebokforing",
+            "foresla_agi_bokforing",
         }
         read_tool_names = set(_EXPECTED_TOOL_NAMES) - write_tool_names
         for tool in AGENT_TOOL_DEFINITIONS:

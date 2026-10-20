@@ -654,3 +654,30 @@ class CompanyInfoProposal:
     overwrite_values: Dict[str, str] = field(default_factory=dict)
     resolved_at: Optional[datetime] = None
     resolved_by: Optional[str] = None
+
+
+@dataclass
+class PayrollBookingProposal:
+    """A payslip's or an AGI month's booking proposed as a decision card in a
+    thread (`foresla_lonebokforing`, `foresla_agi_bokforing`, migration 043).
+    A `payslip` proposal carries the payslip and the bank transaction that
+    paid it; an `agi` one the month and the vouchers' date (`None`: the due
+    date). `status` moves only out of `pending`: `booked` on the book option,
+    `declined` on any other, `superseded` by a new card for the same thing,
+    `failed` when the books changed under the card before the press."""
+
+    id: str
+    decision_id: str
+    thread_id: str
+    kind: str
+    book_option_id: str
+    status: str
+    created_by: str
+    created_at: datetime
+    payslip_id: Optional[str] = None
+    bank_transaction_id: Optional[str] = None
+    agi_year: Optional[int] = None
+    agi_month: Optional[int] = None
+    voucher_date: Optional[date] = None
+    resolved_at: Optional[datetime] = None
+    resolved_by: Optional[str] = None

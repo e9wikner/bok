@@ -17,7 +17,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status as http_status
 
-from api.deps import get_current_actor, get_human_actor
+from api.deps import Caller, get_caller, get_current_actor, get_human_actor
 from api.schemas import (
     DecisionAnswerRequest,
     DecisionAnswerResponse,
@@ -41,6 +41,7 @@ from services.decision_service import (
     DecisionView,
 )
 from services.fiscal_year_proposal import FiscalYearProposalService
+from services.payroll_proposal import PayrollProposalService
 from services.thread_stream import ThreadTurnRunner
 
 logger = logging.getLogger(__name__)
@@ -214,7 +215,7 @@ async def dismiss_decision(
 async def answer_decision(
     decision_id: str,
     request: DecisionAnswerRequest,
-    actor: str = Depends(get_current_actor),
+    caller: Caller = Depends(get_caller),
 ):
     """`POST /decisions/{id}/answer` -- SPEC §6.2's seven steps.
 
@@ -242,6 +243,19 @@ async def answer_decision(
     just a code, so a client can render the already-answered state instead
     of a bare error (SPEC §6.2 step 2, testfall 15).
     """
+    # A payroll card's press books a salary or an AGI: logged-in users only
+    # (JWT), refused before the answer is written. Every other decision can
+    # still be answered with the API key.
+    actor = caller.actor
+    if not caller.human and PayrollProposalService.requires_human(decision_id):
+        raise HTTPException(
+            status_code=http_status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "Only a logged-in user can do this",
+                "code": "human_only",
+                "details": "a payroll booking is pressed by a logged-in user",
+            },
+        )
     try:
         decision, answer_post = DecisionService().answer(
             decision_id,
@@ -302,6 +316,10 @@ async def answer_decision(
     # A company-info card (`foresla_bolagsinformation`): the press on a fill
     # or overwrite option writes the details. Any other decision: nothing.
     CompanyInfoProposalService().on_decision_answered(decision, actor=actor)
+    # A payroll card (`foresla_lonebokforing`, `foresla_agi_bokforing`): the
+    # press on its book option books the payslip or the AGI before the turn
+    # starts, so the agent's turn sees it booked. Any other decision: nothing.
+    PayrollProposalService().on_decision_answered(decision, actor=actor)
 
     if settings.agent_runtime_enabled:
         ThreadTurnRunner().start(thread, answer_post, answer_post.body["text"])

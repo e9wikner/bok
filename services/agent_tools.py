@@ -84,7 +84,8 @@ The twenty-third to twenty-sixth are payroll, appended after
 ``skapa_lonekorning``. They call ``PayrollService``, the same code as
 /payroll, and write employees, salary settings, payroll runs and payslips --
 never a voucher. The three that write refuse outside a thread. Booking a
-payslip or an AGI stays on /payroll.
+payslip or an AGI is proposed, never done (the thirtieth and thirty-first,
+below).
 
 A twenty-seventh, ``foresla_rakenskapsar``, is appended after
 ``skapa_lonekorning`` for the same reason. When an underlag is dated outside
@@ -99,6 +100,13 @@ user gave in a thread as a decision card (``services/company_info_proposal.py``,
 migration 042); the human's press writes ``company_info``, filling empty
 fields and overwriting only on the card's overwrite option. It refuses outside
 a thread and creates no voucher.
+
+A thirtieth and thirty-first, ``foresla_lonebokforing`` and
+``foresla_agi_bokforing``, are appended after ``sok_verifikationer`` for the
+same reason. They propose booking a payslip against the bank transaction
+that paid it, and a month's AGI against the tax account, as decision cards
+(``services/payroll_proposal.py``, migration 043); a logged-in human's press
+books it. They refuse outside a thread and post nothing themselves.
 
 ``posta_verifikation`` is the only tool that posts to the general ledger,
 and it goes through the exact same code as ``POST /api/v1/agent/vouchers``
@@ -751,6 +759,31 @@ class ForeslaBolagsinformationArgs(BaseModel):
     bankgiro: Optional[str] = None
     plusgiro: Optional[str] = None
     f_skatt: Optional[bool] = None
+
+
+class ForeslaLonebokforingArgs(BaseModel):
+    """Föreslå att ett lönebesked bokförs mot utbetalningen på kontoutdraget.
+    Servern lägger ett beslutskort; användaren bokför med ett tryck."""
+
+    payslip_id: str = Field(..., description="Lönebeskedets id ur las_loner")
+    bank_transaction_id: Optional[str] = Field(
+        None,
+        description="Utbetalningen; utelämnad letar servern upp den enda "
+        "obokade utbetalningen på nettolönen nära utbetalningsdagen",
+    )
+
+
+class ForeslaAgiBokforingArgs(BaseModel):
+    """Föreslå att månadens arbetsgivardeklaration bokförs mot skattekontot.
+    Servern lägger ett beslutskort; användaren bokför med ett tryck."""
+
+    year: int = Field(..., ge=2000, le=2100)
+    month: int = Field(..., ge=1, le=12, description="Månaden lönerna betalades ut")
+    voucher_date: Optional[DateType] = Field(
+        None,
+        description="Bara om skattekontot drogs en annan dag; utelämnad blir "
+        "sista dag att deklarera",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1884,7 +1917,8 @@ def _run_skapa_lonekorning(
     """Not terminal. Creates the month's run and its payslips in one call;
     a run whose payslips could not be generated is deleted again, so a retry
     does not meet `payroll_run_already_exists`. Books nothing: a payslip is
-    booked against the bank transaction that paid it, in /payroll."""
+    booked against the bank transaction that paid it, on a human's press
+    of a `foresla_lonebokforing` card."""
     _require_thread_for_payroll(tool_context, "skapa_lonekorning")
     from services.payroll import PayrollService
 
@@ -1961,6 +1995,51 @@ def _run_foresla_bolagsinformation(
 
     return CompanyInfoProposalService().propose(
         thread, fields=args.model_dump(exclude_none=True), actor=actor
+    )
+
+
+def _run_foresla_lonebokforing(
+    args: ForeslaLonebokforingArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """Not terminal. Needs the ``thread``: the card goes in it. Books
+    nothing itself -- a logged-in human's press does. Idempotent per payslip
+    and transaction: a second call joins the pending card."""
+    _require_thread_for_payroll(tool_context, "foresla_lonebokforing")
+    # Deferred import -- the same import-cycle rule as `_run_be_om_beslut`.
+    from services.payroll_proposal import PayrollProposalService
+
+    return PayrollProposalService().propose_payslip(
+        (tool_context or {})["thread"],
+        payslip_id=args.payslip_id,
+        bank_transaction_id=args.bank_transaction_id,
+        actor=actor,
+    )
+
+
+def _run_foresla_agi_bokforing(
+    args: ForeslaAgiBokforingArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """Not terminal. Needs the ``thread``: the card goes in it. Books
+    nothing itself -- a logged-in human's press does."""
+    _require_thread_for_payroll(tool_context, "foresla_agi_bokforing")
+    from services.payroll_proposal import PayrollProposalService
+
+    return PayrollProposalService().propose_agi(
+        (tool_context or {})["thread"],
+        year=args.year,
+        month=args.month,
+        voucher_date=args.voucher_date,
+        actor=actor,
     )
 
 
@@ -2216,8 +2295,8 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
         "Skapa lönekörningen för en månad med ett lönebesked per anställd "
         "med aktiv lön. Utbetalningsdagen ska ligga i månaden. En månad har "
         "högst en lönekörning. Bokför ingenting: lönen bokförs mot "
-        "banktransaktionen som betalade ut den, och AGI:n mot skattekontot, "
-        "båda på sidan Löner. Bara i ett samtal.",
+        "banktransaktionen som betalade ut den (foresla_lonebokforing), och "
+        "AGI:n mot skattekontot (foresla_agi_bokforing). Bara i ett samtal.",
         SkapaLonekorningArgs,
         _run_skapa_lonekorning,
     ),
@@ -2256,6 +2335,30 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
         "verifikation; inte för att läsa historik.",
         SokVerifikationerArgs,
         _run_sok_verifikationer,
+    ),
+    (
+        "foresla_lonebokforing",
+        "Föreslå att ett lönebesked bokförs mot utbetalningen på "
+        "kontoutdraget (nettolönen ut från banken). Servern kontrollerar "
+        "beloppet och perioden och lägger ett beslutskort i tråden med "
+        "verifikationen; användaren bokför med ett tryck. Utan "
+        "bank_transaction_id letar servern upp utbetalningen; hittas ingen "
+        "eller flera svarar den med kandidaterna, och då frågar du "
+        "användaren. Ett lönebesked per anrop. Bokför ingenting själv. Bara i "
+        "ett samtal.",
+        ForeslaLonebokforingArgs,
+        _run_foresla_lonebokforing,
+    ),
+    (
+        "foresla_agi_bokforing",
+        "Föreslå att månadens arbetsgivardeklaration bokförs: skatteavdraget "
+        "och arbetsgivaravgifterna flyttas från 2710 och 2730 till "
+        "skattekontot (1630), en verifikation per del. Månaden är den då "
+        "lönerna betalades ut, och alla dess lönebesked måste vara bokförda. "
+        "Lägger ett beslutskort i tråden; användaren bokför med ett tryck. "
+        "Bokför ingenting själv. Bara i ett samtal.",
+        ForeslaAgiBokforingArgs,
+        _run_foresla_agi_bokforing,
     ),
 )
 
@@ -2301,8 +2404,10 @@ def execute_tool(
     tool_context: Optional[Mapping[str, Any]] = None,
 ) -> Any:
     """Validate and run one model-requested tool call -- one of the
-    twenty-eight tools in ``_TOOL_SPECS``, the last of them
-    ``foresla_bolagsinformation`` (the twenty-seventh ``foresla_rakenskapsar``,
+    thirty-one tools in ``_TOOL_SPECS``, the last of them
+    ``foresla_agi_bokforing`` (the thirtieth ``foresla_lonebokforing``, the
+    twenty-eighth ``foresla_bolagsinformation``, the twenty-seventh
+    ``foresla_rakenskapsar``,
     the twenty-sixth ``skapa_lonekorning``, the
     twenty-second is ``koppla_bort_banktransaktion``,
     the seventeenth ``koppla_banktransaktion``, the fifteenth

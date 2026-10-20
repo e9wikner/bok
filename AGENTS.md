@@ -111,6 +111,11 @@ Service-to-service imports are deferred inside methods to avoid import cycles.
   (kundfordringar) incl. VAT, credit revenue excl. VAT and output VAT per VAT
   code (25 %: 3011/2610). Payment registration creates a second voucher:
   debit 1010 (bank), credit 1510.
+- **A salary or an AGI is booked by a human's press, not by the agent.** The
+  agent proposes it as a decision card (`foresla_lonebokforing`,
+  `foresla_agi_bokforing`, `services/payroll_proposal.py`, migration 043);
+  answering such a card, and `POST /payroll/payslips/{id}/book` and
+  `/payroll/agi/{y}/{m}/book`, get `403 human_only` with the API key.
 - **A fiscal year is created by a human's press, not by the agent.** An
   underlag dated outside every year gets a `foresla_rakenskapsar` decision card
   (`services/fiscal_year_proposal.py`, migration 041); the create option, answered

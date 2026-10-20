@@ -129,6 +129,8 @@ _TRACE_LABELS = {
     "foresla_rakenskapsar": "räkenskapsår föreslaget",
     "foresla_bolagsinformation": "bolagsuppgifter föreslagna",
     "sok_verifikationer": "verifikationer sökta",
+    "foresla_lonebokforing": "lönebokföring föreslagen",
+    "foresla_agi_bokforing": "AGI-bokföring föreslagen",
 }
 
 

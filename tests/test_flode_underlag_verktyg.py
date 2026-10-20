@@ -86,8 +86,9 @@ def test_36_koppla_underlag_is_last_and_the_first_twelve_are_unchanged():
     # `stang_perioder` has since been appended after it, the fourteenth,
     # `koppla_bort_underlag` after that, the fifteenth, and the two
     # statement tools after that, then fakturering F1's four, the
-    # statement-unlink tool, the payroll tools and foresla_rakenskapsar last.
-    assert len(names) == 29
+    # statement-unlink tool, the payroll tools, foresla_rakenskapsar and the
+    # payroll booking proposals last.
+    assert len(names) == 31
     assert names[11:] == [
         "tolka_underlag",
         "koppla_underlag",
@@ -107,6 +108,8 @@ def test_36_koppla_underlag_is_last_and_the_first_twelve_are_unchanged():
         "foresla_rakenskapsar",
         "foresla_bolagsinformation",
         "sok_verifikationer",
+        "foresla_lonebokforing",
+        "foresla_agi_bokforing",
     ]
     first_twelve = json.dumps(AGENT_TOOL_DEFINITIONS[:12])
     assert hashlib.sha256(first_twelve.encode()).hexdigest() == _FIRST_TWELVE_SHA256

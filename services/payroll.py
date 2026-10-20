@@ -1,10 +1,11 @@
 """Simple payroll service with payslip-backed voucher booking."""
 
 from calendar import monthrange
-from datetime import date
-from typing import Dict, List, Optional
+from datetime import date, timedelta
+from typing import Dict, List, Optional, Tuple
 
 from db.database import db
+from domain.models import Period
 from domain.payroll_models import (
     AGI_PARTS,
     AgiDeclaration,
@@ -19,9 +20,10 @@ from domain.payroll_models import (
 )
 from domain.statement_coverage import is_bank_account
 from domain.types import AuditAction
-from domain.validation import ValidationError
+from domain.validation import ValidationError, period_lock_payload
 from repositories.account_repo import AccountRepository
 from repositories.audit_repo import AuditRepository
+from repositories.bank_input_repo import BankInputRepository
 from repositories.payroll_repo import (
     AgiBookingRepository,
     EmployeeRepository,
@@ -45,6 +47,9 @@ ROUNDING_ACCOUNT = "3740"
 #: Net salary leaves this account when the bank transaction's connection
 #: names no bank account (1900-1989).
 DEFAULT_BANK_ACCOUNT = "1930"
+
+#: How far from a payslip's payment date its bank payment is looked for.
+PAYMENT_WINDOW_DAYS = 10
 
 PAYROLL_ACCOUNTS = {
     TAX_ACCOUNT: ("Skattekonto", "asset"),
@@ -301,14 +306,12 @@ class PayrollService:
         )
         return updated
 
-    def match_bank_transaction_and_book(
-        self,
-        payslip_id: str,
-        bank_transaction_id: str,
-        actor: str = "system",
-    ) -> Payslip:
-        self._ensure_payroll_accounts()
-
+    def check_payslip_booking(self, payslip_id: str, bank_transaction_id: str) -> Dict:
+        """Everything booking *payslip_id* against *bank_transaction_id*
+        needs, checked: the payslip, the transaction, the open period on the
+        transaction's date and the voucher's rows and text. Raises the
+        `ValidationError` the booking would, and writes nothing -- the same
+        checks run when the card is raised and when it is pressed."""
         payslip = self.payslips.get(payslip_id)
         if not payslip:
             raise ValidationError("payslip_not_found", "Payslip not found")
@@ -323,6 +326,13 @@ class PayrollService:
         if tx.status == "booked" or tx.matched_voucher_id:
             raise ValidationError(
                 "bank_transaction_already_booked", "Bank transaction is already booked"
+            )
+        linked = BankInputRepository.get_transaction_with_account(tx.id)
+        if linked and linked["linked_voucher_id"]:
+            raise ValidationError(
+                "bank_transaction_already_linked",
+                "Bank transaction is already the underlag of another voucher",
+                f"voucher_id={linked['linked_voucher_id']}",
             )
         if tx.amount >= 0:
             raise ValidationError(
@@ -343,16 +353,62 @@ class PayrollService:
                 "No accounting period found for payroll payment date",
                 tx.transaction_date.isoformat(),
             )
+        if period.locked:
+            raise ValidationError(
+                "period_locked",
+                f"Perioden {period.year}-{period.month:02d} är låst",
+                tx.transaction_date.isoformat(),
+                payload=period_lock_payload(period),
+            )
+
+        return {
+            "payslip": payslip,
+            "transaction": tx,
+            "period": period,
+            "rows": self._voucher_rows_for_payslip(payslip, self._bank_account_for(tx)),
+            "description": self._voucher_description(payslip),
+        }
+
+    def payment_candidates(self, payslip_id: str) -> List[BankTransaction]:
+        """Bank transactions that can be the payment of *payslip_id*: money
+        out equal to its net salary, not booked or linked yet, dated within
+        `PAYMENT_WINDOW_DAYS` of its payment date. Closest date first."""
+        payslip = self.payslips.get(payslip_id)
+        if not payslip:
+            raise ValidationError("payslip_not_found", "Payslip not found")
+        window = timedelta(days=PAYMENT_WINDOW_DAYS)
+        ids = BankInputRepository.list_unlinked_payments(
+            payslip.net_salary,
+            (payslip.payment_date - window).isoformat(),
+            (payslip.payment_date + window).isoformat(),
+        )
+        candidates = [tx for tx in map(self.bank.get_transaction, ids) if tx]
+        return sorted(
+            candidates,
+            key=lambda tx: abs((tx.transaction_date - payslip.payment_date).days),
+        )
+
+    def match_bank_transaction_and_book(
+        self,
+        payslip_id: str,
+        bank_transaction_id: str,
+        actor: str = "system",
+    ) -> Payslip:
+        self._ensure_payroll_accounts()
+        checked = self.check_payslip_booking(payslip_id, bank_transaction_id)
+        payslip, tx, period = (
+            checked["payslip"],
+            checked["transaction"],
+            checked["period"],
+        )
 
         ledger = LedgerService()
-        rows = self._voucher_rows_for_payslip(payslip, self._bank_account_for(tx))
-        description = self._voucher_description(payslip)
         voucher = ledger.create_voucher(
             series="A",
             date=tx.transaction_date,
             period_id=period.id,
-            description=description,
-            rows_data=rows,
+            description=checked["description"],
+            rows_data=checked["rows"],
             created_by=actor,
         )
         voucher = ledger.post_voucher(voucher.id, actor=actor)
@@ -414,24 +470,12 @@ class PayrollService:
             voucher_ids=self.agi_bookings.current_voucher_ids(year, month),
         )
 
-    def book_agi(
-        self,
-        year: int,
-        month: int,
-        voucher_date: Optional[date] = None,
-        actor: str = "system",
-    ) -> AgiDeclaration:
-        """Book the month's AGI as two vouchers, one per transaction on the
-        tax account: debit 2710 and credit 1630 for the withheld tax, debit
-        2730 and credit 1630 for the employer fees. Books only the parts not
-        already booked. Dated on the due date unless the tax account was
-        debited another day.
-
-        The liability is cleared as the payslips booked it, in öre; the tax
-        account is credited the declared whole kronor; the difference goes to
-        öresutjämning (3740). Both parts and their booking rows are written
-        in one transaction, so a part is never posted without the row that
-        stops it from being booked again."""
+    def check_agi_booking(
+        self, year: int, month: int, voucher_date: Optional[date] = None
+    ) -> Tuple[AgiDeclaration, date, Period]:
+        """The month's AGI, the vouchers' date and their open period,
+        checked. Raises the `ValidationError` `book_agi` would, and writes
+        nothing. The date is the due date unless *voucher_date* is given."""
         agi = self.get_agi(year, month)
         if not agi.individuals:
             raise ValidationError(
@@ -460,7 +504,34 @@ class PayrollService:
                 "No accounting period found for the AGI date",
                 voucher_date.isoformat(),
             )
+        if period.locked:
+            raise ValidationError(
+                "period_locked",
+                f"Perioden {period.year}-{period.month:02d} är låst",
+                voucher_date.isoformat(),
+                payload=period_lock_payload(period),
+            )
+        return agi, voucher_date, period
 
+    def book_agi(
+        self,
+        year: int,
+        month: int,
+        voucher_date: Optional[date] = None,
+        actor: str = "system",
+    ) -> AgiDeclaration:
+        """Book the month's AGI as two vouchers, one per transaction on the
+        tax account: debit 2710 and credit 1630 for the withheld tax, debit
+        2730 and credit 1630 for the employer fees. Books only the parts not
+        already booked. Dated on the due date unless the tax account was
+        debited another day.
+
+        The liability is cleared as the payslips booked it, in öre; the tax
+        account is credited the declared whole kronor; the difference goes to
+        öresutjämning (3740). Both parts and their booking rows are written
+        in one transaction, so a part is never posted without the row that
+        stops it from being booked again."""
+        agi, voucher_date, period = self.check_agi_booking(year, month, voucher_date)
         self._ensure_payroll_accounts()
         ledger = LedgerService()
         with db.transaction():

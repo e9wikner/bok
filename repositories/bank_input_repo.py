@@ -507,6 +507,31 @@ class BankInputRepository:
         return [dict(row) for row in rows]
 
     @staticmethod
+    def list_unlinked_payments(
+        amount_ore: int, date_from: str, date_to: str
+    ) -> list[str]:
+        """Ids of money-out transactions of exactly *amount_ore* dated within
+        the window, not booked, matched or linked to any voucher -- the
+        payments a payslip's net salary can be booked against."""
+        rows = db.execute(
+            """
+            SELECT bt.id
+            FROM bank_transactions bt
+            WHERE bt.amount = ?
+              AND bt.transaction_date BETWEEN ? AND ?
+              AND bt.matched_voucher_id IS NULL
+              AND bt.status NOT IN ('booked', 'ignored')
+              AND NOT EXISTS (
+                  SELECT 1 FROM current_voucher_bank_transactions vbt
+                  WHERE vbt.bank_transaction_id = bt.id
+              )
+            ORDER BY bt.transaction_date ASC, bt.created_at ASC
+            """,
+            (-amount_ore, date_from, date_to),
+        ).fetchall()
+        return [row["id"] for row in rows]
+
+    @staticmethod
     def get_transaction_with_account(bank_transaction_id: str) -> Optional[dict]:
         """One transaction, its account, and the voucher it is linked to."""
         row = db.execute(

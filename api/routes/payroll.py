@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from api.deps import get_current_actor
+from api.deps import get_current_actor, get_human_actor
 from domain.payroll_models import (
     AgiDeclaration,
     Employee,
@@ -136,17 +136,22 @@ async def set_salary_setting(
 @router.get("/runs", response_model=dict)
 async def list_payroll_runs():
     service = PayrollService()
-    runs = service.runs.list_all()
-    return {
-        "payroll_runs": [
-            _run_to_dict(
-                run,
-                service.payslips.list_for_run(run.id),
-                service.validate_payroll_run(run.id) if run.status == "draft" else None,
-            )
-            for run in runs
-        ]
-    }
+    result = []
+    for run in service.runs.list_all():
+        payslips = service.payslips.list_for_run(run.id)
+        payload = _run_to_dict(
+            run,
+            payslips,
+            service.validate_payroll_run(run.id) if run.status == "draft" else None,
+        )
+        # The AGI of the month the salaries were paid (`/v4` Löner).
+        payload["agi"] = (
+            _agi_summary(service.get_agi(run.payment_date.year, run.payment_date.month))
+            if payslips
+            else None
+        )
+        result.append(payload)
+    return {"payroll_runs": result}
 
 
 @router.post("/runs", response_model=dict, status_code=status.HTTP_201_CREATED)
@@ -242,8 +247,11 @@ async def mark_payslip_sent(
 async def book_payslip(
     payslip_id: str,
     request: BookPayslipRequest,
-    actor: str = Depends(get_current_actor),
+    actor: str = Depends(get_human_actor),
 ):
+    """Book a payslip against the bank transaction that paid it. Logged-in
+    users only (JWT): the agent proposes it with `foresla_lonebokforing`
+    instead, and its API key gets `403 human_only` here."""
     try:
         service = PayrollService()
         payslip = service.match_bank_transaction_and_book(
@@ -269,8 +277,10 @@ async def book_agi(
     year: int,
     month: int,
     request: BookAgiRequest,
-    actor: str = Depends(get_current_actor),
+    actor: str = Depends(get_human_actor),
 ):
+    """Book the month's AGI against the tax account. Logged-in users only
+    (JWT): the agent proposes it with `foresla_agi_bokforing` instead."""
     try:
         service = PayrollService()
         return _agi_to_dict(
@@ -301,6 +311,18 @@ def _agi_to_dict(agi: AgiDeclaration) -> dict:
         "total_gross_salary": agi.total_gross_salary,
         "total_preliminary_tax": agi.total_preliminary_tax,
         "total_employer_fee": agi.total_employer_fee,
+        "total_to_pay": agi.total_to_pay,
+        "unbooked_payslips": agi.unbooked_payslips,
+        "voucher_ids": agi.voucher_ids,
+        "booked": agi.booked,
+    }
+
+
+def _agi_summary(agi: AgiDeclaration) -> dict:
+    return {
+        "year": agi.year,
+        "month": agi.month,
+        "due_date": agi.due_date,
         "total_to_pay": agi.total_to_pay,
         "unbooked_payslips": agi.unbooked_payslips,
         "voucher_ids": agi.voucher_ids,

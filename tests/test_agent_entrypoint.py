@@ -763,3 +763,13 @@ def test_be_om_beslut_fields_state_their_length():
     assert "en mening" in props["consequence"]["description"].lower()
     option = schema["$defs"]["BeOmBeslutOption"]["properties"]
     assert "en mening" in option["rationale"]["description"].lower()
+
+
+def test_accounting_instruction_says_a_salary_is_proposed_not_posted():
+    """A payslip and an AGI are booked by a human's press on a card
+    (`services/payroll_proposal.py`); the agent proposes, never posts."""
+    text = _flat(ACCOUNTING_DOC_PATH.read_text(encoding="utf-8"))
+    assert "Lönen bokförs inte med `posta_verifikation`" in text
+    assert "`foresla_lonebokforing` bokför ett lönebesked mot utbetalningen" in text
+    assert "`foresla_agi_bokforing` bokför månadens AGI mot skattekontot" in text
+    assert "fråga användaren vilken det är" in text
