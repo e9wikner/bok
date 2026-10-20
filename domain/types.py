@@ -50,6 +50,7 @@ class AuditAction(str, Enum):
     STATEMENT_LINKED = "statement_linked"
     STATEMENT_UNLINKED = "statement_unlinked"
     ISSUED = "issued"
+    DISMISSED = "dismissed"
 
 
 class PeriodLockStatus(str, Enum):

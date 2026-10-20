@@ -392,6 +392,21 @@ export async function svaraBeslut(decisionId: string, optionId: string): Promise
   }
 }
 
+/**
+ * `POST /decisions/{id}/dismiss` — `Avfärda`: beslutet lämnar kön utan svar,
+ * inget skrivs i tråden och ingen tur startar. Ett underlag beslutet gäller
+ * blir `skipped`. `409 decision_not_open` betyder att beslutet redan lämnat
+ * kön; det är samma sak för kortet. Allt annat kastas vidare.
+ */
+export async function avfardaBeslut(decisionId: string): Promise<void> {
+  try {
+    await apiClient.post(`/api/v1/decisions/${encodeURIComponent(decisionId)}/dismiss`);
+  } catch (fel) {
+    if (axios.isAxiosError(fel) && fel.response?.status === 409) return;
+    throw fel;
+  }
+}
+
 // ─── Postning (SPEC-chattyta.md §8, SPEC-idempotens.md §6) ───────────────
 
 /**

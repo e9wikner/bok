@@ -38,9 +38,10 @@ Det här är kontroller, inte beslut. De kräver en människa, och den första e
    inlägget i den gamla tråden, som säger vart samtalet tog vägen, är inte byggt. Det är inte
    heller bestämt vad som händer med ett öppet beslut eller ett väntande förslag i förra årets
    tråd. I dag ligger de kvar där och syns ändå i `GET /decisions`.
-3. **`superseded` sätts aldrig automatiskt.** Kolumnen och `DecisionService.supersede()` finns,
-   men inget anropar dem. Möjliga utlösare är ett raderat underlag, en låst period eller en rättad
-   verifikation.
+3. **`superseded` sätts aldrig automatiskt.** En inloggad människa sätter det med `Avfärda` på
+   beslutskortet (`POST /decisions/{id}/dismiss`). Ett underlag som beslutet gäller blir då
+   `skipped`. Agenten kan inte avfärda. Automatiska utlösare saknas fortfarande. Möjliga sådana är
+   ett raderat underlag, en låst period eller en rättad verifikation.
 4. **Intagspasset körs bara manuellt.** Schemaläggning (t.ex. var femtonde minut med
    tomkö-kontroll) ska läggas på när ett pass kostnad och träffsäkerhet är mätta.
    `agent_runs.trigger` har redan `'schedule'`.

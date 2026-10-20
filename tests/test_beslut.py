@@ -4171,3 +4171,154 @@ class TestOneFailingDecisionDoesNotStopTheOthers:
         assert stored_broken.reminded_at is None
         assert stored_ok is not None
         assert stored_ok.reminded_at is not None
+
+
+# --- Avfärda: POST /decisions/{id}/dismiss -----------------------------------
+
+
+@pytest.fixture
+def human_headers():
+    from services.auth import AuthService
+
+    return {"Authorization": f"Bearer {AuthService().create_jwt('stefan')}"}
+
+
+def _dismiss_url(decision_id: str) -> str:
+    return f"/api/v1/decisions/{decision_id}/dismiss"
+
+
+def _intake_status(source_id: str) -> str:
+    row = db.execute(
+        "SELECT status FROM intake_sources WHERE id = ?", (source_id,)
+    ).fetchone()
+    return row["status"]
+
+
+def _open_ids(client, headers) -> set:
+    response = client.get("/api/v1/decisions?status=open&limit=200", headers=headers)
+    assert response.status_code == 200
+    return {d["id"] for d in response.json()["decisions"]}
+
+
+class TestDismissDecision:
+    def test_a_real_decision_is_superseded_and_audit_logged(
+        self, client, human_headers
+    ):
+        thread, post = _new_thread_and_post()
+        decision = _create_decision(thread, post)
+        before = ThreadRepository.get_post(post.id)
+
+        response = client.post(_dismiss_url(decision.id), headers=human_headers)
+
+        assert response.status_code == 204
+        stored = DecisionRepository.get(decision.id)
+        assert stored is not None and stored.status == "superseded"
+        assert DecisionService().count_open() == 0
+        assert ThreadRepository.get_post(post.id) == before
+        audit = db.execute(
+            "SELECT actor, action FROM audit_log WHERE entity_type = 'decision' "
+            "AND entity_id = ?",
+            (decision.id,),
+        ).fetchall()
+        assert [(r["actor"], r["action"]) for r in audit] == [("stefan", "dismissed")]
+
+    def test_no_post_is_written_to_the_thread(self, client, human_headers):
+        thread, post = _new_thread_and_post()
+        decision = _create_decision(thread, post)
+        posts_before = len(ThreadRepository.list_posts(thread.id))
+
+        client.post(_dismiss_url(decision.id), headers=human_headers)
+
+        assert len(ThreadRepository.list_posts(thread.id)) == posts_before
+
+    def test_an_intake_id_skips_the_underlag_and_its_decisions(
+        self, client, human_headers
+    ):
+        source_id = _insert_intake_source(status="failed")
+        thread, post = _new_thread_and_post()
+        sibling = _create_decision(
+            thread, post, source_kind="intake", source_id=source_id
+        )
+
+        response = client.post(
+            _dismiss_url(f"intake:{source_id}"), headers=human_headers
+        )
+
+        assert response.status_code == 204
+        assert _intake_status(source_id) == "skipped"
+        stored = DecisionRepository.get(sibling.id)
+        assert stored is not None and stored.status == "superseded"
+        assert _open_ids(client, human_headers) == set()
+
+    def test_a_real_decision_about_a_waiting_underlag_skips_it_too(
+        self, client, human_headers
+    ):
+        source_id = _insert_intake_source(status="needs_attention")
+        thread, post = _new_thread_and_post()
+        decision = _create_decision(
+            thread, post, source_kind="intake", source_id=source_id
+        )
+
+        client.post(_dismiss_url(decision.id), headers=human_headers)
+
+        assert _intake_status(source_id) == "skipped"
+        assert _open_ids(client, human_headers) == set()
+
+    def test_a_processed_underlag_is_left_alone(self, client, human_headers):
+        source_id = _insert_intake_source(status="processed")
+        thread, post = _new_thread_and_post()
+        decision = _create_decision(
+            thread, post, source_kind="intake", source_id=source_id
+        )
+
+        client.post(_dismiss_url(decision.id), headers=human_headers)
+
+        assert _intake_status(source_id) == "processed"
+
+    def test_a_correction_note_is_dismissed(self, client, human_headers):
+        note_id = _insert_correction_note(_voucher_for_correction())
+
+        response = client.post(
+            _dismiss_url(f"correction:{note_id}"), headers=human_headers
+        )
+
+        assert response.status_code == 204
+        row = db.execute(
+            "SELECT status FROM correction_notes WHERE id = ?", (note_id,)
+        ).fetchone()
+        assert row["status"] == "dismissed"
+
+    def test_an_answered_decision_is_a_409(self, client, human_headers):
+        thread, post = _new_thread_and_post()
+        decision = _create_decision(thread, post)
+        DecisionService().answer(decision.id, free_text="Ja.", actor="stefan")
+
+        response = client.post(_dismiss_url(decision.id), headers=human_headers)
+
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "decision_not_open"
+
+    def test_an_intake_source_no_longer_waiting_is_a_409(self, client, human_headers):
+        source_id = _insert_intake_source(status="skipped")
+
+        response = client.post(
+            _dismiss_url(f"intake:{source_id}"), headers=human_headers
+        )
+
+        assert response.status_code == 409
+
+    def test_an_unknown_id_is_a_404(self, client, human_headers):
+        for decision_id in (str(uuid.uuid4()), f"intake:{uuid.uuid4()}"):
+            response = client.post(_dismiss_url(decision_id), headers=human_headers)
+            assert response.status_code == 404
+
+    def test_the_api_key_is_refused(self, client, auth_headers):
+        thread, post = _new_thread_and_post()
+        decision = _create_decision(thread, post)
+
+        response = client.post(_dismiss_url(decision.id), headers=auth_headers)
+
+        assert response.status_code == 403
+        assert response.json()["detail"]["code"] == "human_only"
+        stored = DecisionRepository.get(decision.id)
+        assert stored is not None and stored.status == "open"

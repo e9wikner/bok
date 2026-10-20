@@ -2,6 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { AvfardaKnapp } from "@/components/chattyta/AvfardaKnapp";
 import { useBeslut } from "@/hooks/useBeslut";
 import { aldersTon } from "@/lib/chattyta/alder";
 import {
@@ -222,10 +223,13 @@ function Kort({ beslut, onStang, onSvara }: { beslut: BeslutSvar; onStang: () =>
             {fil === "saknas" ? "filen saknas" : fil === "fel" ? "kunde inte öppnas" : "Öppna underlaget"}
           </button>
         )}
+        <span className="ml-auto">
+          <AvfardaKnapp decisionId={beslut.id} onKlar={onStang} />
+        </span>
         <button
           type="button"
           onClick={onStang}
-          className="ml-auto text-[13px] text-bok-text-svag hover:text-bok-text"
+          className="text-[13px] text-bok-text-svag hover:text-bok-text"
         >
           Stäng
         </button>

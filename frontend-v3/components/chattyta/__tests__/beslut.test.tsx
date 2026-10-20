@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BeslutKort } from "@/components/chattyta/BeslutKort";
 import { TradRenderare } from "@/components/chattyta/TradRenderare";
@@ -19,7 +19,10 @@ import { formatBelopp } from "@/lib/skal/format";
 // `hamtaBeslut` och TanStack Query som gör (eller inte gör) dem.
 
 const get = vi.fn();
-vi.mock("@/lib/api", () => ({ default: { get: (...a: unknown[]) => get(...a) } }));
+const post = vi.fn();
+vi.mock("@/lib/api", () => ({
+  default: { get: (...a: unknown[]) => get(...a), post: (...a: unknown[]) => post(...a) },
+}));
 
 // Skalets ytor läser tråden via `useTrad`; här prövas bara att vyns nyckel
 // når korten, så tråden är ett fast svar.
@@ -83,17 +86,18 @@ const kort = (container: HTMLElement, postId: string) =>
 /** Kortet direkt, utan fråga: för lägena och kroppen. */
 const DECISION = typad(FIXTUR_DECISION) as DecisionInlagg;
 const renderaKort = (b?: BeslutSvar, inlagg: DecisionInlagg = DECISION) =>
-  render(<BeslutKort inlagg={inlagg} beslut={b} />);
+  render(medKlient(<BeslutKort inlagg={inlagg} beslut={b} />));
 
 beforeEach(() => {
   get.mockReset();
+  post.mockReset();
   qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 });
 
 // ─── Testfall 17: tre lägen ───────────────────────────────────────────────
 
 describe("BeslutKort i tre lägen, knappar bara i öppet (testfall 17)", () => {
-  it("öppen: väntar-ytan, rubriken, inga knappar av egen del (testfall 17)", () => {
+  it("öppen: väntar-ytan, rubriken, bara Avfärda (testfall 17)", () => {
     const { container } = renderaKort(beslut({ status: "open" }));
     const k = kort(container, DECISION.id);
     expect(k.dataset.beslutLage).toBe("oppen");
@@ -102,8 +106,34 @@ describe("BeslutKort i tre lägen, knappar bara i öppet (testfall 17)", () => {
     expect(screen.getByText("Agenten avstod · behöver ditt beslut")).toBeInTheDocument();
     // Kroppen säger inte vad en primär- eller sekundärknapp skulle göra
     // (todo.md C6, obs). Svaret går via `options`-inlägget (C7) eller
-    // fritexten (§7) — kortet självt har ingen knapp än.
-    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    // fritexten (§7). Kortets enda knapp tar beslutet ur kön.
+    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Avfärda"]);
+  });
+
+  it("Avfärda frågar först, sedan POST .../dismiss och listan hämtas om", async () => {
+    post.mockResolvedValue({ data: null });
+    get.mockResolvedValue(svar([]));
+    renderaKort(beslut({ status: "open" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Avfärda" }));
+    expect(post).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Avbryt" }));
+    expect(screen.getByRole("button", { name: "Avfärda" })).toBeInTheDocument();
+
+    const invalidera = vi.spyOn(qc, "invalidateQueries");
+    fireEvent.click(screen.getByRole("button", { name: "Avfärda" }));
+    fireEvent.click(screen.getByTestId("avfarda-ja"));
+
+    await waitFor(() => expect(invalidera).toHaveBeenCalledWith({ queryKey: BESLUT_NYCKEL }));
+    expect(post).toHaveBeenCalledWith("/api/v1/decisions/d-1/dismiss");
+  });
+
+  it("Avfärda som inte går fram säger det", async () => {
+    post.mockRejectedValue(new Error("nät"));
+    renderaKort(beslut({ status: "open" }));
+    fireEvent.click(screen.getByRole("button", { name: "Avfärda" }));
+    fireEvent.click(screen.getByTestId("avfarda-ja"));
+    expect(await screen.findByRole("button", { name: "Gick inte, försök igen" })).toBeInTheDocument();
   });
 
   it("besvarad: `Besvarat`, ingen väntar-ton, inga knappar (testfall 17)", () => {

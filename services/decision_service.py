@@ -48,7 +48,7 @@ from domain.models import (
     Thread,
     ThreadPost,
 )
-from domain.types import ThreadViewKey
+from domain.types import AuditAction, ThreadViewKey
 from domain.validation import ValidationError
 from repositories.correction_note_repo import CorrectionNoteRepository
 from repositories.decision_repo import DecisionRepository
@@ -395,6 +395,20 @@ class DecisionAlreadyAnswered(DecisionError):
             details=f"answer_post_id={decision.answer_post_id}",
         )
         self.decision = decision
+
+
+class DecisionNotDismissable(DecisionError):
+    """A dismissal of a decision that is no longer open -- answered,
+    superseded, or a synthetic source that has moved on. `409
+    decision_not_open`; the client treats it as already done."""
+
+    def __init__(self, decision_id: str, status: Optional[str] = None):
+        super().__init__(
+            "decision_not_open",
+            f"Decision {decision_id} is not open",
+            details=f"status={status}" if status else None,
+        )
+        self.decision_id = decision_id
 
 
 # ---------------------------------------------------------------------------
@@ -918,6 +932,85 @@ class DecisionService:
         updated = DecisionRepository.set_status(decision_id, "superseded")
         assert updated is not None  # the row was just read above; it exists
         return updated
+
+    def dismiss(self, decision_id: str, actor: str) -> None:
+        """A human's `Avfärda`: the decision leaves the queue, nothing is
+        posted to the thread and no turn starts.
+
+        - A real decision becomes `superseded`. When it is about an
+          underlag that is itself waiting (`failed`/`needs_attention`), the
+          underlag goes to `skipped` too -- otherwise the same question
+          would stay in the queue under its `intake:` id.
+        - `intake:{id}` sets the underlag to `skipped` (file and row kept)
+          and supersedes every open decision raised about it.
+        - `correction:{id}` is `CorrectionNoteService.dismiss`.
+
+        Unknown id -> `DecisionNotFound`; anything not open ->
+        `DecisionNotDismissable`.
+        """
+        from repositories.audit_repo import AuditRepository
+        from services.correction_notes import CorrectionNoteService
+
+        decoded = _decode_synthetic_id(decision_id)
+        if decoded is not None and decoded[0] == "correction":
+            note = CorrectionNoteRepository.get(decoded[1])
+            if note is None:
+                raise DecisionNotFound(decision_id)
+            if note.status not in _CORRECTION_OPEN_STATUSES:
+                raise DecisionNotDismissable(decision_id, note.status)
+            CorrectionNoteService().dismiss(
+                voucher_id=note.voucher_id, note_id=note.id, actor=actor
+            )
+            return
+
+        source: Optional[IntakeSource]
+        decisions: List[Decision]
+        if decoded is not None:
+            source_id = decoded[1]
+            source = IntakeRepository.get_source(source_id)
+            if source is None:
+                raise DecisionNotFound(decision_id)
+            if source.status.value not in _INTAKE_OPEN_STATUSES:
+                raise DecisionNotDismissable(decision_id, source.status.value)
+            skip_source = True
+            decisions = DecisionRepository.list_open_for_source(source_id)
+        else:
+            decision = DecisionRepository.get(decision_id)
+            if decision is None:
+                raise DecisionNotFound(decision_id)
+            if decision.status != "open":
+                raise DecisionNotDismissable(decision_id, decision.status)
+            decisions = [decision]
+            source = None
+            if decision.source_id and decision.source_kind in (
+                "intake",
+                "intake_source",
+            ):
+                source = IntakeRepository.get_source(decision.source_id)
+            skip_source = (
+                source is not None and source.status.value in _INTAKE_OPEN_STATUSES
+            )
+
+        with db.transaction():
+            for decision in decisions:
+                DecisionRepository.set_status(decision.id, "superseded", _commit=False)
+            if skip_source and source is not None:
+                IntakeRepository.update_status(
+                    source.id, "skipped", actor=actor, _commit=False
+                )
+            AuditRepository.log(
+                entity_type="decision",
+                entity_id=decision_id,
+                action=AuditAction.DISMISSED.value,
+                actor=actor,
+                payload={
+                    "superseded_decisions": [d.id for d in decisions],
+                    "skipped_intake_source": (
+                        source.id if skip_source and source is not None else None
+                    ),
+                },
+                _commit=False,
+            )
 
     # -- B4: the rules -------------------------------------------------
 

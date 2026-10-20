@@ -110,6 +110,20 @@ describe("ett beslut tas upp i chatten", () => {
     expect(post).toHaveBeenCalledWith("/api/v1/intake/s1/retry", {});
   });
 
+  it("Avfärda anropar dismiss och stänger kortet", async () => {
+    const b = underlag();
+    get.mockResolvedValue({ data: { decisions: [b], total: 1 } });
+    post.mockResolvedValue({ data: null });
+    rendera(b);
+    fireEvent.click(screen.getByTestId("vyrad-beslut"));
+    fireEvent.click(await screen.findByRole("button", { name: "Avfärda" }));
+    get.mockResolvedValue({ data: { decisions: [], total: 0 } });
+    fireEvent.click(screen.getByTestId("avfarda-ja"));
+
+    await waitFor(() => expect(screen.queryByTestId("beslut-fokus")).toBeNull());
+    expect(post).toHaveBeenCalledWith("/api/v1/decisions/intake%3As1/dismiss");
+  });
+
   it("ett beslut som inte längre är öppet visas inte", async () => {
     const b = underlag();
     get.mockResolvedValue({ data: { decisions: [{ ...b, status: "answered" }], total: 1 } });

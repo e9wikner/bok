@@ -1,3 +1,4 @@
+import { AvfardaKnapp } from "@/components/chattyta/AvfardaKnapp";
 import { klockslag } from "@/components/chattyta/TradInlagg";
 import { aldersTon } from "@/lib/chattyta/alder";
 import type { BeslutSvar } from "@/lib/chattyta/api";
@@ -23,10 +24,11 @@ import { formatBelopp } from "@/lib/skal/format";
  * `Behöver ditt beslut`: sorten (avstod/godkännande) står inte i inlägget,
  * och kortet påstår inte något servern inte sagt.
  *
- * Inga knappar i något läge. Kroppen säger inte vad en primär- eller
+ * Inga svarsknappar. Kroppen säger inte vad en primär- eller
  * sekundärknapp skulle göra (tasks/chattyta/todo.md C6, obs); alternativen
  * är ett eget `options`-inlägg (C7), och fritexten i `ChattFalt` är alltid
- * en väg (§7, README.md: primärknappen är aldrig den enda vägen).
+ * en väg (§7, README.md: primärknappen är aldrig den enda vägen). Den enda
+ * knappen är `Avfärda`, och bara när servern sagt att beslutet är öppet.
  */
 
 type Lage = "oppen" | "besvarad" | "ersatt";
@@ -178,6 +180,12 @@ export function BeslutKort({
         <p data-testid="beslut-svar" className="m-0 text-[14px] leading-[1.55] text-bok-klart-text">
           {svar}
         </p>
+      )}
+
+      {lage === "oppen" && beslut && (
+        <div className="flex justify-end">
+          <AvfardaKnapp decisionId={beslut.id} />
+        </div>
       )}
     </div>
   );

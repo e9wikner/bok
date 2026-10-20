@@ -17,7 +17,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status as http_status
 
-from api.deps import get_current_actor
+from api.deps import get_current_actor, get_human_actor
 from api.schemas import (
     DecisionAnswerRequest,
     DecisionAnswerResponse,
@@ -35,6 +35,7 @@ from services.company_info_proposal import CompanyInfoProposalService
 from services.decision_service import (
     DecisionAlreadyAnswered,
     DecisionNotAnswerable,
+    DecisionNotDismissable,
     DecisionNotFound,
     DecisionService,
     DecisionView,
@@ -170,6 +171,39 @@ async def get_decision(
             },
         )
     return _decision_response(view)
+
+
+@router.post(
+    "/{decision_id}/dismiss",
+    status_code=http_status.HTTP_204_NO_CONTENT,
+)
+async def dismiss_decision(
+    decision_id: str,
+    actor: str = Depends(get_human_actor),
+):
+    """`Avfärda`: the decision leaves the queue without an answer. Nothing
+    is posted to the thread and no turn starts; an underlag it is about is
+    set to `skipped` (`DecisionService.dismiss`).
+
+    Logged-in users only (JWT): the agent's API key gets `403 human_only`.
+    `409 decision_not_open` when the decision has already left the queue.
+    """
+    try:
+        DecisionService().dismiss(decision_id, actor=actor)
+    except DecisionNotFound:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": f"Unknown decision: {decision_id!r}",
+                "code": "decision_not_found",
+                "details": f"decision_id={decision_id}",
+            },
+        )
+    except DecisionNotDismissable as exc:
+        raise HTTPException(
+            status_code=http_status.HTTP_409_CONFLICT,
+            detail={"error": exc.message, "code": exc.code, "details": exc.details},
+        )
 
 
 @router.post(

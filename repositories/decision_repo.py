@@ -313,6 +313,20 @@ class DecisionRepository:
         return DecisionRepository.get(decision_id)
 
     @staticmethod
+    def list_open_for_source(source_id: str) -> List[Decision]:
+        """Open decisions an agent raised about one underlag -- the ones a
+        dismissal of that underlag takes out of the queue with it."""
+        rows = db.execute(
+            "SELECT * FROM decisions WHERE status = 'open' AND source_id = ? "
+            "AND source_kind IN ('intake', 'intake_source') "
+            "ORDER BY created_at ASC, id ASC",
+            (source_id,),
+        ).fetchall()
+        decisions = [DecisionRepository._row_to_decision(row) for row in rows]
+        DecisionRepository._attach_options(decisions)
+        return decisions
+
+    @staticmethod
     def set_reminded(
         decision_id: str, reminded_at: datetime, _commit: bool = True
     ) -> None:
