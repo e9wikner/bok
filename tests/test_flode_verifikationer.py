@@ -1256,8 +1256,11 @@ def test_case_26_receipt_rows_are_balances_before_and_after(auth_headers):
             for t in report["transactions"]
             if t["voucher_id"] == draft_id
         )
-        assert report["closing_balance"] == receipt_row["right_ore"]
-        assert report["closing_balance"] - own == receipt_row["left_ore"]
+        # The receipt counts the year's movements; the ledger starts at the
+        # IB (the 2025 voucher carries 2640 into 2026's).
+        moved = report["closing_balance"] - report["opening_balance"]
+        assert moved == receipt_row["right_ore"]
+        assert moved - own == receipt_row["left_ore"]
 
 
 def test_case_27_a_draft_outside_any_thread_is_posted_as_before(

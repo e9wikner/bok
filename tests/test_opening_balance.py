@@ -265,6 +265,43 @@ def test_reports_start_from_the_ib(client):
     assert sheet["closing_bank_and_cash"] == 70000
 
 
+def test_general_ledger_starts_from_the_ib(client):
+    """The huvudbok /v4 opens from a balance sheet row ends where the row
+    does: the account's IB plus the year's movements."""
+    fy, period = _year(2025)
+    OpeningBalanceService().state(
+        fy.id, {"1930": 100000, "2081": -100000}, actor="test"
+    )
+    _post(
+        period,
+        [
+            {"account": "5010", "debit": 30000, "credit": 0},
+            {"account": "1930", "debit": 0, "credit": 30000},
+        ],
+    )
+
+    bank = client.get(
+        "/api/v1/reports/general-ledger/1930", params={"fiscal_year_id": fy.id}
+    ).json()
+    assert bank["opening_balance"] == 100000
+    assert bank["transactions"][0]["balance"] == 70000
+    assert bank["transactions"][0]["series"] == "A"
+    assert isinstance(bank["transactions"][0]["number"], int)
+    assert bank["closing_balance"] == 70000
+
+    sheet = client.get(
+        "/api/v1/reports/balance-sheet", params={"fiscal_year_id": fy.id}
+    ).json()
+    (row,) = [k for k in sheet["bank_and_cash_details"] if k["code"] == "1930"]
+    assert row["closing_balance"] == bank["closing_balance"]
+
+    rent = client.get(
+        "/api/v1/reports/general-ledger/5010", params={"fiscal_year_id": fy.id}
+    ).json()
+    assert rent["opening_balance"] == 0
+    assert rent["closing_balance"] == 30000
+
+
 def test_migration_033_moves_ib_drafts_out_of_the_voucher_table():
     """The SIE4 import used to leave the IB as a draft voucher, which blocked
     locking the year. 033 moves it to `opening_balances` and deletes the

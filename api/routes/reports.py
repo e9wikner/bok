@@ -434,6 +434,53 @@ async def get_balance_sheet(
     }
 
 
+def _ledger_opening(
+    account_code: str,
+    fiscal_year_id: Optional[str],
+    year: Optional[int],
+    month: Optional[int],
+) -> int:
+    """The account's position (öre, debit positive) when the ledger's period
+    starts. IB is not a voucher, so it comes from OpeningBalanceService.
+
+    A fiscal year starts at its IB (0 for a result account); a month in it
+    adds the year's movements before the month. A calendar year starts at
+    the position on 1 January. Without a period, the first fiscal year's IB.
+    """
+    from services.opening_balance import OpeningBalanceService, is_balance_account
+
+    service = OpeningBalanceService()
+    if fiscal_year_id:
+        fiscal_year = PeriodRepository.get_fiscal_year(fiscal_year_id)
+        if fiscal_year is None:
+            return 0
+        opening = service.balances(fiscal_year.id).get(account_code, 0)
+        if month:
+            starts = [
+                date_type(y, month, 1)
+                for y in range(
+                    fiscal_year.start_date.year, fiscal_year.end_date.year + 1
+                )
+                if fiscal_year.start_date
+                <= date_type(y, month, 1)
+                <= fiscal_year.end_date
+            ]
+            if starts:
+                opening += service.repo.movements(fiscal_year.id, before=starts[0]).get(
+                    account_code, 0
+                )
+        return opening
+    if not is_balance_account(account_code):
+        return 0
+    if year:
+        return service.position_at(date_type(year, month or 1, 1)).get(account_code, 0)
+    fiscal_years = PeriodRepository.list_fiscal_years()
+    if not fiscal_years:
+        return 0
+    first = min(fiscal_years, key=lambda fy: fy.start_date)
+    return service.balances(first.id).get(account_code, 0)
+
+
 @router.get("/general-ledger/{account_code}")
 async def get_general_ledger(
     account_code: str,
@@ -443,7 +490,10 @@ async def get_general_ledger(
 ):
     """Get general ledger (huvudbok) for a specific account.
 
-    Returns all transactions for the account with running balance.
+    Returns all transactions for the account with running balance. The
+    balance starts at `opening_balance`, the account's position when the
+    period starts (debit positive), so `closing_balance` of a balance
+    account is the balance sheet's.
     """
     vouchers = _filter_posted_vouchers(
         fiscal_year_id=fiscal_year_id, year=year, month=month
@@ -457,9 +507,11 @@ async def get_general_ledger(
     account = all_accounts.get(account_code)
     account_name = account.name if account else account_code
 
+    opening_balance = _ledger_opening(account_code, fiscal_year_id, year, month)
+
     # Collect transactions for this account
     transactions = []
-    running_balance = 0
+    running_balance = opening_balance
 
     for voucher in vouchers:
         for row in voucher.rows:
@@ -473,6 +525,8 @@ async def get_general_ledger(
                         "date": _parse_voucher_date(voucher).isoformat(),
                         "voucher_id": voucher.id,
                         "voucher_number": f"{voucher.series.value}{voucher.number}",
+                        "series": voucher.series.value,
+                        "number": voucher.number,
                         "description": row.description or voucher.description,
                         "debit": debit,
                         "credit": credit,
@@ -487,6 +541,7 @@ async def get_general_ledger(
         "account_code": account_code,
         "account_name": account_name,
         "transactions": transactions,
+        "opening_balance": opening_balance,
         "total_debit": total_debit,
         "total_credit": total_credit,
         "closing_balance": running_balance,

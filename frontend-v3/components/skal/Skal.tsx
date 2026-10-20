@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { BeslutFokusProvider } from "@/components/skal/BeslutFokus";
 import { ChattKolumn } from "@/components/skal/ChattKolumn";
 import { ChattList } from "@/components/skal/ChattList";
+import { DetaljLager } from "@/components/skal/Detalj";
+import { DetaljProvider, useDetaljHistorik } from "@/components/skal/DetaljKontext";
 import { Header } from "@/components/skal/Header";
 import { PrickNav } from "@/components/skal/PrickNav";
 import type { SidMeta } from "@/components/skal/SidVaeljare";
@@ -18,8 +20,17 @@ import { useBredSkarm } from "@/hooks/useBredSkarm";
 import { bokslutApi } from "@/lib/skal/bokslut";
 import { arsalternativ, arsrad, somOverviewAr } from "@/lib/skal/header";
 import { lageFarg } from "@/lib/skal/lage";
-import { SKAL_RUTT, lasPosition } from "@/lib/skal/rutt";
-import { type Sidnyckel, type Vy, forstaVyn, sidan, vyAt } from "@/lib/skal/vyer";
+import type { Detalj } from "@/lib/skal/detalj";
+import { lasDetalj, lasPosition, positionsUrl } from "@/lib/skal/rutt";
+import {
+  type Sidnyckel,
+  type ViewKey,
+  type Vy,
+  forstaVyn,
+  sidan,
+  vyAt,
+  vyIndex as indexForVy,
+} from "@/lib/skal/vyer";
 
 /**
  * Skalet: tre sidor, sju vyer, en rutt.
@@ -32,7 +43,10 @@ import { type Sidnyckel, type Vy, forstaVyn, sidan, vyAt } from "@/lib/skal/vyer
 export function Skal() {
   const params = useSearchParams();
   const start = useMemo(
-    () => lasPosition(params?.get("sida"), params?.get("vy")),
+    () => ({
+      ...lasPosition(params?.get("sida"), params?.get("vy")),
+      detalj: lasDetalj(params?.get("konto"), params?.get("ver")),
+    }),
     // Bara startvärdet; därefter äger komponenten positionen.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
@@ -46,12 +60,36 @@ export function Skal() {
   const sida = sidan(sidnyckel);
   const aktivVy: Vy = vyAt(sidnyckel, vyIndex) ?? forstaVyn(sidnyckel);
 
+  // Detaljlagret (huvudbok, verifikation) står ovanpå den aktiva vyn.
+  const detaljUrl = useCallback(
+    (stack: readonly Detalj[]) => positionsUrl(sidnyckel, aktivVy, stack[stack.length - 1]),
+    [sidnyckel, aktivVy]
+  );
+  const gaTillVy = useCallback(
+    (key: ViewKey) => {
+      const i = indexForVy(sidnyckel, key);
+      if (i !== -1) setVyIndex(i);
+    },
+    [sidnyckel]
+  );
+  const detalj = useDetaljHistorik({ start: start.detalj, url: detaljUrl, gaTillVy });
+  const { stack: detaljer, stang: stangDetalj } = detalj;
+
+  // Ett vybyte eller sidbyte stänger lagret: det hör till vyn det öppnades i.
+  const forraVyn = useRef(aktivVy.key);
+  useEffect(() => {
+    if (forraVyn.current === aktivVy.key) return;
+    forraVyn.current = aktivVy.key;
+    stangDetalj();
+  }, [aktivVy.key, stangDetalj]);
+
   // Positionen speglas i URL:en utan att gå genom routern.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const url = `${SKAL_RUTT}?sida=${sidnyckel}&vy=${aktivVy.slug}`;
-    window.history.replaceState(window.history.state, "", url);
-  }, [sidnyckel, aktivVy.slug]);
+    const url = positionsUrl(sidnyckel, aktivVy, detaljer[detaljer.length - 1]);
+    window.history.replaceState({ ...window.history.state, bokDetalj: detaljer }, "", url);
+  }, [sidnyckel, aktivVy, detaljer]);
+  const lagerOppet = detaljer.length > 0;
 
   const bred = useBredSkarm();
   const { data: overview } = useOverview();
@@ -98,6 +136,7 @@ export function Skal() {
     // `overflow-hidden`: skalet är exakt en skärm. Allt som skrollar gör det
     // i sin egen yta, aldrig dokumentet.
     <BeslutFokusProvider>
+    <DetaljProvider value={detalj}>
     <div className="flex h-screen h-dvh min-h-0 flex-col overflow-hidden bg-bok-app">
       <Header
         variant={bred ? "desktop" : "mobil"}
@@ -144,13 +183,21 @@ export function Skal() {
                 style={{ gridTemplateColumns: "minmax(0, 1fr) var(--bok-vykolumn)" }}
               >
                 <ChattKolumn vyTitel={vy.titel} viewKey={vy.key} aktiv={aktiv} />
-                <VyInnehall vy={vy} data={innehall} laddar={laddar} />
+                {aktiv && lagerOppet ? (
+                  <DetaljLager vyTitel={vy.titel} ar={ar} />
+                ) : (
+                  <VyInnehall vy={vy} data={innehall} laddar={laddar} />
+                )}
               </div>
             );
           }
           return (
             <div className="flex min-h-0 flex-1 flex-col">
-              <VyInnehall vy={vy} data={innehall} laddar={laddar} variant="mobil" />
+              {aktiv && lagerOppet ? (
+                <DetaljLager vyTitel={vy.titel} ar={ar} variant="mobil" />
+              ) : (
+                <VyInnehall vy={vy} data={innehall} laddar={laddar} variant="mobil" />
+              )}
               <ChattList
                 vyTitel={vy.titel}
                 viewKey={vy.key}
@@ -170,6 +217,7 @@ export function Skal() {
         </div>
       )}
     </div>
+    </DetaljProvider>
     </BeslutFokusProvider>
   );
 }

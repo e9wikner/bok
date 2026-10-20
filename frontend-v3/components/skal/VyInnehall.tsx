@@ -7,7 +7,6 @@ import { VyRad, VyRadSkelett } from "@/components/skal/VyRad";
 import { VySektion } from "@/components/skal/VySektion";
 import { lageFarg } from "@/lib/skal/lage";
 import type { VyData } from "@/lib/skal/vydata";
-import type { Vy } from "@/lib/skal/vyer";
 
 /**
  * Läskolumnen: rubrikrad, period, eventuell banner, sektioner med rader och
@@ -24,11 +23,15 @@ export function VyInnehall({
   data,
   laddar = false,
   variant = "desktop",
+  tillbaka,
 }: {
-  vy: Vy;
+  /** En vy, eller detaljlagret (`Detalj.tsx`) som bara har en titel. */
+  vy: { titel: string };
   data: VyData;
   laddar?: boolean;
   variant?: "desktop" | "mobil";
+  /** Detaljlagrets länk tillbaka till det under, ovanför rubriken. */
+  tillbaka?: { text: string; onClick: () => void };
 }) {
   const fg = lageFarg(data.lage);
 
@@ -40,6 +43,17 @@ export function VyInnehall({
           : "bok-dold-skroll flex min-h-0 flex-1 flex-col overflow-auto"
       }
     >
+      {tillbaka && (
+        <button
+          type="button"
+          onClick={tillbaka.onClick}
+          className={`bok-mono self-start pt-3 text-left text-[12px] text-bok-lank underline-offset-2 hover:text-bok-lank-hover hover:underline ${
+            variant === "desktop" ? "px-6" : "px-[18px]"
+          }`}
+        >
+          ← {tillbaka.text}
+        </button>
+      )}
       <VyHeaderStatus titel={vy.titel} status={data.status} fg={fg} variant={variant} />
 
       <div
@@ -84,6 +98,7 @@ export function VyInnehall({
                   forsokIgen={rad.forsokIgen}
                   beslut={rad.beslut}
                   las={rad.las}
+                  mal={rad.mal}
                   storlek={variant}
                 />
               ))}

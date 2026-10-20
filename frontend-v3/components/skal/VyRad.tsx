@@ -4,9 +4,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { LasKnapp } from "@/components/skal/LasKnapp";
 import { useBeslutFokus } from "@/components/skal/BeslutFokus";
+import { useDetalj } from "@/components/skal/DetaljKontext";
 import { aldersTon } from "@/lib/chattyta/alder";
 import { BESLUT_NYCKEL, forsokIgenMedUnderlag, type BeslutSvar } from "@/lib/chattyta/api";
 import { oppnaKvitto } from "@/lib/skal/bocker";
+import type { RadMal } from "@/lib/skal/detalj";
 import type { LasData } from "@/lib/skal/las";
 import type { RadVariant } from "@/lib/skal/vydata";
 
@@ -28,6 +30,12 @@ import type { RadVariant } from "@/lib/skal/vydata";
  * (SPEC-skal.md öppen fråga 3).
  */
 export const NY_MARKERING_MS = 6000;
+
+const MAL_TITEL: Record<RadMal["typ"], string> = {
+  konto: "Öppna huvudboken",
+  ver: "Öppna verifikationen",
+  vy: "Gå till vyn",
+};
 
 const META_FARG: Record<RadVariant, string> = {
   normal: "var(--bok-meta)",
@@ -64,6 +72,7 @@ export function VyRad({
   forsokIgen,
   beslut,
   las,
+  mal,
 }: {
   titel: string;
   meta?: string;
@@ -73,10 +82,7 @@ export function VyRad({
   storlek?: "desktop" | "mobil";
   /** Serverns `age_days`; färgar metaraden för `saknar`/`vantar` (§10). */
   ageDays?: number;
-  /**
-   * Länken till verifikationens kvitto (SPEC-flode-underlag.md §10.4, FU23).
-   * `/v4` har ingen raddetalj; det här är det minsta som bär länken.
-   */
+  /** Länken till verifikationens kvitto (SPEC-flode-underlag.md §10.4, FU23). */
   kvitto?: { voucherId: string; nummer: string };
   /** Ett underlag agenten avstod från: länken `försök igen` i metaraden. */
   forsokIgen?: { sourceId: string };
@@ -84,6 +90,12 @@ export function VyRad({
   beslut?: BeslutSvar;
   /** Ett lås sist på raden, efter högerkolumnen. */
   las?: LasData;
+  /**
+   * Vart titeln leder: huvudboken, verifikationen eller en annan vy. Bara
+   * titeln är knappen, så att `kvitto` och `försök igen` i metaraden förblir
+   * egna tryck.
+   */
+  mal?: RadMal;
 }) {
   // Markeringen tas bort av sig själv; raden ligger kvar.
   const [nyAktiv, setNyAktiv] = useState(variant === "ny");
@@ -95,6 +107,7 @@ export function VyRad({
   }, [variant]);
 
   const { valt, valj } = useBeslutFokus();
+  const detalj = useDetalj();
   const pagaende = variant === "pagaende";
   const yta = nyAktiv ? "var(--bok-klart-yta)" : pagaende ? "var(--bok-yta-svag)" : undefined;
   const textFarg = pagaende ? "var(--bok-meta)" : undefined;
@@ -119,6 +132,19 @@ export function VyRad({
             className={`min-w-0 cursor-pointer break-words text-left underline-offset-[3px] hover:underline ${
               storlek === "desktop" ? "text-[14px]" : "text-[15px]"
             } ${valt?.id === beslut.id ? "underline" : ""}`}
+          >
+            {titel}
+          </button>
+        ) : mal && detalj ? (
+          <button
+            type="button"
+            data-testid="vyrad-oppna"
+            onClick={() => detalj.oppna(mal)}
+            title={MAL_TITEL[mal.typ]}
+            className={`min-w-0 cursor-pointer break-words text-left underline-offset-[3px] hover:underline ${
+              storlek === "desktop" ? "text-[14px]" : "text-[15px]"
+            }`}
+            style={{ color: textFarg, fontWeight: summa ? 500 : undefined }}
           >
             {titel}
           </button>

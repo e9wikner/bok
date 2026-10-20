@@ -6,6 +6,7 @@
  */
 
 import type { BeslutSvar } from "@/lib/chattyta/api";
+import type { RadMal } from "@/lib/skal/detalj";
 import type { LasData } from "@/lib/skal/las";
 
 /** De sex lägena i README.md §Tillstånd. En vy ska kunna visa alla sex. */
@@ -37,6 +38,11 @@ export interface VyRadData {
   beslut?: BeslutSvar;
   /** Räkenskapsårets lås, sist på raden (Rapporter). */
   las?: LasData;
+  /**
+   * Vart raden leder: ett konto till sin huvudbok, en verifikation till sin
+   * detalj (`lib/skal/detalj.ts`). Titeln blir då en knapp.
+   */
+  mal?: RadMal;
 }
 
 export interface VySektionData {

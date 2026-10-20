@@ -260,7 +260,13 @@ function arsrubrik(ar: OverviewFiscalYear): string {
 }
 
 export function kontorad(k: { code: string; name: string }, belopp: number): VyRadData {
-  return { id: k.code, titel: k.name, meta: k.code, hoger: formatBeloppHela(belopp) };
+  return {
+    id: k.code,
+    titel: k.name,
+    meta: k.code,
+    hoger: formatBeloppHela(belopp),
+    mal: { typ: "konto", kod: k.code },
+  };
 }
 
 export function summarad(id: string, titel: string, belopp: number): VyRadData {
@@ -318,6 +324,7 @@ export function balansVy(
       titel: "Årets resultat, ej bokfört",
       meta: "resultaträkningen",
       hoger: formatBeloppHela(r.profit),
+      mal: { typ: "vy", key: "bocker.resultat" },
     };
     skuldrader.splice(index === -1 ? skuldrader.length : index, 0, rad);
   }
@@ -435,6 +442,7 @@ function verifikationsrad(v: Verifikation): VyRadData {
     meta: `${nummer} · ${v.date}${saknar ? " · saknar underlag" : ""}${rattadAv}${rattar}${korr}`,
     hoger: formatBeloppHela(v.total_debit),
     variant: v.status === "draft" ? "vantar" : saknar ? "saknar" : undefined,
+    mal: { typ: "ver", id: v.id },
   };
   if (harUnderlag(v)) rad.kvitto = { voucherId: v.id, nummer };
   return rad;
@@ -445,7 +453,7 @@ function verifikationsrad(v: Verifikation): VyRadData {
  * En rättelse får den inte: dess underlag är originalet (D3). Om underlaget
  * är ett kvitto vet klienten först när länken används.
  */
-function harUnderlag(v: Pick<Verifikation, "status" | "missing_attachment" | "corrects">): boolean {
+export function harUnderlag(v: Pick<Verifikation, "status" | "missing_attachment" | "corrects">): boolean {
   return v.status === "posted" && v.missing_attachment === false && !v.corrects;
 }
 
@@ -467,6 +475,7 @@ function saknarrad(v: Verifikation): VyRadData {
     hoger: formatBeloppHela(v.total_debit),
     variant: "saknar",
     ageDays: v.age_days,
+    mal: { typ: "ver", id: v.id },
   };
 }
 
@@ -484,6 +493,7 @@ function nyssKoppladRad(v: KoppladVerifikation, k: Koppling): VyRadData {
     hoger: formatBeloppHela(v.total_debit),
     variant: "ny",
     kvitto: { voucherId: v.id, nummer: nummerAv(v) },
+    mal: { typ: "ver", id: v.id },
   };
 }
 
@@ -637,7 +647,15 @@ function postningsrad(p: Postning): VyRadData {
   }
   const v = p.verifikation;
   const nummer = v ? nummerAv(v) : (p.utkast?.serie ?? "");
-  return { id: p.draftId, titel, meta: nyMeta(nummer, klockslag(v?.posted_at)), hoger, variant: "ny" };
+  // Postningen byter bara utkastets status: verifikationen har utkastets id.
+  return {
+    id: p.draftId,
+    titel,
+    meta: nyMeta(nummer, klockslag(v?.posted_at)),
+    hoger,
+    variant: "ny",
+    mal: { typ: "ver", id: v?.id ?? p.draftId },
+  };
 }
 
 /**
