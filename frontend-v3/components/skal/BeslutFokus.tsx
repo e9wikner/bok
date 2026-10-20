@@ -117,7 +117,7 @@ export function BeslutFokusKort({ viewKey, inlaggIds }: { viewKey: string; inlag
       (e) => e.dataset.inlaggId === postId
     );
     if (!el) return;
-    el.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    centreraITraden(el);
     el.dataset.fokus = "true";
     const t = setTimeout(() => delete el.dataset.fokus, 2400);
     return () => clearTimeout(t);
@@ -125,6 +125,21 @@ export function BeslutFokusKort({ viewKey, inlaggIds }: { viewKey: string; inlag
 
   if (!aktuell || !oppet || iTraden) return null;
   return <Kort beslut={aktuell} onStang={stang} onSvara={() => svara(aktuell)} />;
+}
+
+/**
+ * Skrollar trådens egen yta så att inlägget hamnar mitt i den. Inte
+ * `scrollIntoView`: den skrollar varje förfader, också skalets
+ * `overflow-hidden`-ruta, som då flyttades upp en bit med ett vitt fält
+ * under och inte gick att skrolla tillbaka.
+ */
+function centreraITraden(el: HTMLElement) {
+  let yta = el.parentElement;
+  while (yta && !/(auto|scroll)/.test(getComputedStyle(yta).overflowY)) yta = yta.parentElement;
+  if (!yta) return;
+  const forskjutning = el.getBoundingClientRect().top - yta.getBoundingClientRect().top;
+  const top = yta.scrollTop + forskjutning - (yta.clientHeight - el.offsetHeight) / 2;
+  yta.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
 }
 
 function Kort({ beslut, onStang, onSvara }: { beslut: BeslutSvar; onStang: () => void; onSvara: () => void }) {
