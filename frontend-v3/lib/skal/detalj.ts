@@ -46,7 +46,11 @@ export interface Huvudbok {
     voucher_id: string;
     series: string;
     number: number | null;
+    /** Radens text, annars verifikationens (den gamla huvudbokens fält). */
     description: string;
+    /** Valfria: en server från före fälten skickar bara `description`. */
+    voucher_description?: string;
+    row_description?: string | null;
     debit: number;
     credit: number;
     balance: number;
@@ -113,10 +117,14 @@ export function huvudbokVy(ar: OverviewFiscalYear, h: Huvudbok): VyData {
     rader.push({ id: "ib", titel: "Ingående balans", meta: ar.start, hoger: formatBeloppHela(h.opening_balance) });
   }
   h.transactions.forEach((t, i) => {
+    // Titeln säger vad affären var (verifikationens text). Radens egen text
+    // — på ett bankkonto ofta bankens, "Kortbetalning Visa" — står i metan.
+    const titel = t.voucher_description ?? t.description;
+    const radtext = t.row_description && t.row_description !== titel ? ` · ${t.row_description}` : "";
     rader.push({
       id: `${t.voucher_id}:${i}`,
-      titel: t.description,
-      meta: `${nummerAv(t)} · ${t.date} · saldo ${formatBeloppHela(t.balance)}`,
+      titel,
+      meta: `${nummerAv(t)} · ${t.date}${radtext} · saldo ${formatBeloppHela(t.balance)}`,
       hoger: formatBeloppHela(t.debit - t.credit),
       mal: { typ: "ver", id: t.voucher_id },
     });

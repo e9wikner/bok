@@ -68,6 +68,26 @@ describe("huvudboken", () => {
     expect(vy.status).toBe("saldo 700");
   });
 
+  it("titeln är verifikationens text, radens egen text står i metan", () => {
+    const vy = huvudbokVy(
+      AR,
+      huvudbok({
+        transactions: [
+          {
+            ...huvudbok().transactions[0],
+            description: "Kortbetalning Visa - 7984",
+            voucher_description: "Anthropic Claude Pro, prenumeration",
+            row_description: "Kortbetalning Visa - 7984",
+          },
+        ],
+      })
+    );
+    expect(rader(vy)[1]).toMatchObject({
+      titel: "Anthropic Claude Pro, prenumeration",
+      meta: "A-12 · 2026-03-04 · Kortbetalning Visa - 7984 · saldo 700",
+    });
+  });
+
   it("IB-raden och summan leder ingenstans — IB är ingen verifikation", () => {
     const vy = huvudbokVy(AR, huvudbok());
     const [ib, , ub] = rader(vy);

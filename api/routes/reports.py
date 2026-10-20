@@ -528,6 +528,10 @@ async def get_general_ledger(
                         "series": voucher.series.value,
                         "number": voucher.number,
                         "description": row.description or voucher.description,
+                        # The row's own text is often the bank's ("Kortbetalning
+                        # Visa"); what the transaction was is the voucher's.
+                        "voucher_description": voucher.description,
+                        "row_description": row.description,
                         "debit": debit,
                         "credit": credit,
                         "balance": running_balance,

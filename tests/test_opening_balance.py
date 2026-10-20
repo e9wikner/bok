@@ -286,6 +286,7 @@ def test_general_ledger_starts_from_the_ib(client):
     assert bank["opening_balance"] == 100000
     assert bank["transactions"][0]["balance"] == 70000
     assert bank["transactions"][0]["series"] == "A"
+    assert bank["transactions"][0]["voucher_description"] == "Test"
     assert isinstance(bank["transactions"][0]["number"], int)
     assert bank["closing_balance"] == 70000
 
