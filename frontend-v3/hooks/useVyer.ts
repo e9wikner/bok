@@ -7,7 +7,7 @@ import { FORSLAG_GRANS, forslagNyckel } from "@/hooks/useForslag";
 import { useLasning } from "@/hooks/useLasning";
 import { usePostningar } from "@/hooks/usePostningar";
 import { useUtfardanden } from "@/hooks/useUtfardanden";
-import { FAKTUROR_NYCKEL, VOUCHERS_NYCKEL, hamtaBeslut, hamtaForslag } from "@/lib/chattyta/api";
+import { FAKTUROR_NYCKEL, LONER_NYCKEL, VOUCHERS_NYCKEL, hamtaBeslut, hamtaForslag } from "@/lib/chattyta/api";
 import { KOPPLINGAR_NYCKEL, type Koppling } from "@/lib/chattyta/kopplingar";
 import type { OverviewFiscalYear } from "@/lib/skal/api";
 import { betalaApi, faktureringVy, lonerVy } from "@/lib/skal/betala";
@@ -182,9 +182,17 @@ export function useVyer(
     staleTime,
   });
   const utfardanden = useUtfardanden();
+  // Under `LONER_NYCKEL`, så att `view.changed` efter en bokföring når dem.
   const loner = useQuery({
-    queryKey: ["skal", "lonekorningar"],
+    queryKey: [...LONER_NYCKEL, "skal"],
     queryFn: betalaApi.getLonekorningar,
+    enabled: betala,
+    staleTime,
+  });
+  const lonerVyKey = "betala.loner";
+  const lonerBeslut = useQuery({
+    queryKey: beslutStatusNyckel(lonerVyKey),
+    queryFn: () => hamtaBeslut({ viewKey: lonerVyKey, status: "all", limit: BESLUT_GRANS }),
     enabled: betala,
     staleTime,
   });
@@ -236,7 +244,7 @@ export function useVyer(
       (f, u, b, fs) =>
         faktureringVy(f, { utkast: u.drafts, beslut: b.decisions, forslag: fs.drafts, utfardanden })
     ),
-    "betala.loner": vy([loner], lonerVy),
+    "betala.loner": vy([loner, lonerBeslut], (l, b) => lonerVy(l, { beslut: b.decisions })),
     "bokslut.rapporter": vy([rakenskapsar], (r) => rapporterVy(r, lasning.ar)),
     "bokslut.atgarder": vy([avvikelser], atgarderVy),
   };

@@ -46,6 +46,8 @@ export const SKRIVER_ETIKETTER: Readonly<Record<string, string>> = {
   foresla_faktura: "Föreslår en faktura…",
   andra_fakturautkast: "Ändrar fakturaförslaget…",
   sok_verifikationer: "Söker verifikationer…",
+  foresla_lonebokforing: "Föreslår en lönebokföring…",
+  foresla_agi_bokforing: "Föreslår bokföring av arbetsgivardeklarationen…",
 };
 
 /**

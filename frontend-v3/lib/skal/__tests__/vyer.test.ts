@@ -97,8 +97,8 @@ describe("uppslag och validering", () => {
 });
 
 describe("läsvyerna är märkta i kartan (testfall 17, halva)", () => {
-  it("Löner är läsvy, de andra sex är det inte (Fakturering skriver sedan fakturering F1)", () => {
+  it("ingen vy är läsvy (Fakturering skriver sedan fakturering F1, Löner sedan lönebokföringen)", () => {
     const lasvyer = allaVyer().filter((v) => v.lasvy).map((v) => v.key);
-    expect(lasvyer).toEqual(["betala.loner"]);
+    expect(lasvyer).toEqual([]);
   });
 });

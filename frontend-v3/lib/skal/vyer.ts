@@ -30,9 +30,11 @@ export interface Vy {
   readonly titel: string;
   readonly sida: Sidnyckel;
   /**
-   * Läsvy utan skrivflöde. Flöde 2 och 3 är ur scope (ANALYS.md §8), så
-   * Fakturering och Löner visar rader och tråd men har ingen primärknapp,
-   * inget godkännandekort och ingen avstängd knapp. SPEC-skal.md §11.
+   * Läsvy utan skrivflöde (SPEC-skal.md §11): rader och tråd, ingen
+   * primärknapp, inget godkännandekort och ingen avstängd knapp. Ingen vy är
+   * det längre: Fakturering skriver sedan fakturering F1 och Löner sedan
+   * lönebokföringen i tråden. Fältet står kvar för en vy som kommer utan
+   * skrivflöde.
    */
   readonly lasvy: boolean;
 }
@@ -71,7 +73,7 @@ export const SIDOR: readonly Sida[] = Object.freeze([
         // Skrivvy sedan fakturering F1 (SPEC-fakturering-f1.md §10.2).
         lasvy: false,
       },
-      { key: "betala.loner", slug: "loner", titel: "Löner", sida: "betala", lasvy: true },
+      { key: "betala.loner", slug: "loner", titel: "Löner", sida: "betala", lasvy: false },
     ] as const),
   }),
   Object.freeze({

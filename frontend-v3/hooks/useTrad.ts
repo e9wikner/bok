@@ -22,6 +22,7 @@ import {
   DRAFTS_NYCKEL,
   FAKTUROR_NYCKEL,
   hamtaTrad,
+  LONER_NYCKEL,
   nollstallTrad,
   OVERVIEW_NYCKEL,
   skickaMeddelande,
@@ -116,6 +117,8 @@ export function useTrad(viewKey: string): UseTrad {
         void qc.invalidateQueries({ queryKey: VOUCHERS_NYCKEL });
         // Ett utfärdande (SPEC-fakturering-f1.md §7.4): Fakturerings listor.
         void qc.invalidateQueries({ queryKey: FAKTUROR_NYCKEL });
+        // En bokförd lön eller AGI: Löners körningar.
+        void qc.invalidateQueries({ queryKey: LONER_NYCKEL });
       } else if (h.event === "message.completed") {
         const typ = (h.data as { type?: unknown } | null)?.type;
         if (typeof typ === "string" && BESLUTSTYPER.has(typ)) {

@@ -642,6 +642,12 @@ export const DRAFTS_NYCKEL = ["drafts"] as const;
  */
 export const FAKTUROR_NYCKEL = ["invoices"] as const;
 
+/**
+ * Lönekörningarna i vyn Löner. Invalideras av `view.changed`: en bokförd
+ * lön eller AGI (`services/payroll_proposal.py`).
+ */
+export const LONER_NYCKEL = ["payroll"] as const;
+
 // ─── Förslagens status (flode-verifikationer §10, F13) ───────────────────
 
 /**

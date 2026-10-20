@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { VyInnehall } from "@/components/skal/VyInnehall";
+import type { BeslutSvar } from "@/lib/chattyta/api";
 import { faktureringVy, lonerVy } from "@/lib/skal/betala";
 import { allaVyer, sidan } from "@/lib/skal/vyer";
 
@@ -39,7 +40,7 @@ const LONER = lonerVy({
   ],
 });
 
-describe("Fakturering och Löner är läsvyer utan skrivflöde (testfall 17)", () => {
+describe("Fakturering och Löner har ingen knapp i vyn (testfall 17)", () => {
   it("Fakturering har ingen knapp alls i vyn", () => {
     render(<VyInnehall vy={fakturering} data={FAKTUROR} />);
     expect(screen.queryAllByRole("button")).toHaveLength(0);
@@ -58,14 +59,39 @@ describe("Fakturering och Löner är läsvyer utan skrivflöde (testfall 17)", (
     expect(document.querySelector("button[disabled]")).toBeNull();
   });
 
-  it("säger i stället vad agenten gör och var skrivning sker i dag", () => {
+  it("säger i stället hur en lön bokförs: i kortet agenten lägger fram", () => {
     render(<VyInnehall vy={loner} data={LONER} />);
-    expect(screen.getByText(/Godkännande görs tills vidare i den gamla lönevyn/)).toBeInTheDocument();
+    expect(screen.getByText(/Du bokför med ett tryck i kortet/)).toBeInTheDocument();
   });
 
-  it("Löner är den enda vyn som är märkt som läsvy (SPEC-fakturering-f1.md testfall 38)", () => {
-    // Fakturering skriver sedan F1 — i tråden, genom kortets `Utfärda`, inte
-    // med knappar i vyn. Vyn själv har fortfarande ingen knapp (ovan).
-    expect(allaVyer().filter((v) => v.lasvy).map((v) => v.titel)).toEqual(["Löner"]);
+  it("ingen vy är längre märkt som läsvy (SPEC-fakturering-f1.md testfall 38)", () => {
+    // Fakturering skriver sedan F1 och Löner sedan lönebokföringen — i
+    // tråden, genom kortet, inte med knappar i vyn. Vyn själv har
+    // fortfarande ingen knapp (ovan).
+    expect(allaVyer().filter((v) => v.lasvy).map((v) => v.titel)).toEqual([]);
+  });
+
+  it("ett lönekort som väntar är raden att klicka på, som ett beslut i Verifikationer", () => {
+    const kort = {
+      id: "d1",
+      view_key: "betala.loner",
+      kind: "approval",
+      status: "open",
+      title: "Bokför lön juni 2026 · Anna Andersson",
+      amount_ore: 5000000,
+      reason: "",
+      consequence: "",
+      source: null,
+      age_days: 0,
+      thread_id: null,
+      post_id: null,
+      options: [],
+    } as unknown as BeslutSvar;
+    render(<VyInnehall vy={loner} data={lonerVy({ payroll_runs: [] }, { beslut: [kort] })} />);
+    const knapp = screen.getByTestId("vyrad-beslut");
+    expect(knapp).toHaveTextContent("Bokför lön juni 2026 · Anna Andersson");
+    expect(knapp).toHaveAttribute("title", "Ta upp i chatten");
+    // Bokföringen sker i kortet i chatten, inte i vyn: raden är den enda knappen.
+    expect(screen.getAllByRole("button")).toHaveLength(1);
   });
 });

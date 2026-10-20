@@ -3,8 +3,10 @@
  *
  * Fakturering är en skrivvy sedan fakturering F1 (SPEC-fakturering-f1.md
  * §10): agenten lägger fram fakturan i tråden och människan utfärdar den i
- * kortet. Löner är fortfarande en läsvy (SPEC-skal.md §11): skrivning sker
- * tills vidare i den gamla vyn, och det säger fottexten.
+ * kortet. Löner skriver på samma sätt: agenten lägger fram bokföringen av ett
+ * lönebesked eller en AGI som ett beslutskort (`foresla_lonebokforing`,
+ * `foresla_agi_bokforing`), och människan bokför med ett tryck i kortet.
+ * Vyn själv har ingen knapp.
  */
 
 import apiClient from "@/lib/api";
@@ -47,6 +49,29 @@ export interface Fakturautkastlista {
   drafts: Fakturautkast[];
 }
 
+/** Ett lönebesked i `GET /payroll/runs` (`_payslip_to_dict`). */
+export interface Lonebesked {
+  id: string;
+  employee_name: string | null;
+  payment_date: string;
+  gross_salary: number;
+  net_salary: number;
+  status: string;
+  voucher_id: string | null;
+}
+
+/** Månadens AGI, för månaden lönen betalades ut (`_agi_summary`). */
+export interface LoneAgi {
+  year: number;
+  month: number;
+  due_date: string;
+  total_to_pay: number;
+  unbooked_payslips: number;
+  /** Delarnas verifikationer: `tax` och `employer_fee`. */
+  voucher_ids: Record<string, string>;
+  booked: boolean;
+}
+
 export interface Lonekorning {
   id: string;
   year: number;
@@ -56,6 +81,9 @@ export interface Lonekorning {
   payslip_count: number;
   total_gross_salary: number;
   total_net_salary: number;
+  /** Valfria: en server från före `/v4`-lönerna skickar dem inte. */
+  payslips?: Lonebesked[];
+  agi?: LoneAgi | null;
 }
 
 export interface Lonekorningar {
@@ -254,15 +282,45 @@ const MANAD = [
   "juli", "augusti", "september", "oktober", "november", "december",
 ];
 
-export function lonerVy(lista: Lonekorningar): VyData {
-  const korningar = [...lista.payroll_runs]
-    .sort((a, b) => b.year - a.year || b.month - a.month)
-    .slice(0, LONEKORNINGAR_ANTAL);
-  const oklara = korningar.filter((k) => k.status !== "booked").length;
+/** Det vyn läser utöver körningarna: besluten i Löners tråd. */
+export interface LonerExtra {
+  /** `GET /decisions?view_key=betala.loner`. */
+  beslut: BeslutSvar[];
+}
 
-  const rader: VyRadData[] = korningar.map((k) => ({
+function lonebeskedRad(p: Lonebesked): VyRadData {
+  const bokford = p.voucher_id !== null;
+  return {
+    id: p.id,
+    titel: p.employee_name ?? "Lönebesked",
+    meta: bokford ? `bokförd · utbetald ${p.payment_date}` : `ej bokförd · utbetalning ${p.payment_date}`,
+    hoger: formatBeloppHela(p.net_salary),
+    variant: bokford ? undefined : "vantar",
+    mal: bokford ? { typ: "ver", id: p.voucher_id! } : undefined,
+  };
+}
+
+function agiRad(k: Lonekorning, agi: LoneAgi): VyRadData {
+  const ver = agi.voucher_ids.tax ?? agi.voucher_ids.employer_fee;
+  return {
+    id: `agi:${k.id}`,
+    titel: "Arbetsgivardeklaration",
+    meta: agi.booked
+      ? `bokförd · ${MANAD[agi.month - 1]} ${agi.year}`
+      : agi.unbooked_payslips > 0
+        ? `väntar på lönerna · senast ${agi.due_date}`
+        : `att bokföra · senast ${agi.due_date}`,
+    hoger: formatBeloppHela(agi.total_to_pay),
+    variant: agi.booked ? undefined : "vantar",
+    mal: ver ? { typ: "ver", id: ver } : undefined,
+  };
+}
+
+/** En körning utan lönebesked (eller från en äldre server): en rad om körningen. */
+function korningRad(k: Lonekorning): VyRadData {
+  return {
     id: k.id,
-    titel: `${MANAD[k.month - 1] ?? k.month} ${k.year}`,
+    titel: "Lönekörning",
     meta: [
       LONESTATUS[k.status] ?? k.status,
       `${k.payslip_count} lönebesked`,
@@ -270,16 +328,58 @@ export function lonerVy(lista: Lonekorningar): VyData {
     ]
       .filter(Boolean)
       .join(" · "),
-    hoger: formatBeloppHela(k.total_gross_salary),
+    hoger: formatBeloppHela(k.total_net_salary),
     variant: k.status === "booked" ? undefined : "vantar",
+  };
+}
+
+/** Bokförd hel: alla lönebesked och AGI:n. Utan AGI-uppgift räknas körningens status. */
+function helBokford(k: Lonekorning): boolean {
+  if (k.status !== "booked") return false;
+  return k.agi ? k.agi.booked : true;
+}
+
+export function lonerVy(lista: Lonekorningar, extra?: LonerExtra): VyData {
+  const korningar = [...lista.payroll_runs]
+    .sort((a, b) => b.year - a.year || b.month - a.month)
+    .slice(0, LONEKORNINGAR_ANTAL);
+  const oklara = korningar.filter((k) => !helBokford(k)).length;
+
+  // Väntar på beslut: korten agenten lagt fram. Titeln tar upp kortet i
+  // chatten (`BeslutFokus`), som en väntande verifikation i Verifikationer.
+  const oppna = (extra?.beslut ?? []).filter((b) => b.status === "open");
+  const vantarRader: VyRadData[] = oppna.map((b) => ({
+    id: `beslut:${b.id}`,
+    titel: b.title,
+    meta: "väntar på dig",
+    hoger: b.amount_ore !== null ? formatBeloppHela(b.amount_ore) : "",
+    variant: "vantar",
+    ageDays: b.age_days,
+    beslut: b,
   }));
 
-  const tomt = rader.length === 0;
+  const sektioner: VySektionData[] = [];
+  if (vantarRader.length > 0) sektioner.push({ titel: "Väntar på beslut", rader: vantarRader });
+  for (const k of korningar) {
+    const besked = k.payslips ?? [];
+    const rader = besked.length > 0 ? besked.map(lonebeskedRad) : [korningRad(k)];
+    if (k.agi) rader.push(agiRad(k, k.agi));
+    sektioner.push({ titel: `${MANAD[k.month - 1] ?? k.month} ${k.year}`, rader });
+  }
+
+  const vantar = vantarRader.length;
+  const tomt = korningar.length === 0 && vantar === 0;
   return {
-    lage: tomt ? "tomt" : oklara > 0 ? "vantar" : "normal",
-    status: tomt ? "inga lönekörningar" : oklara > 0 ? `${oklara} ej bokförd${oklara > 1 ? "a" : ""}` : "alla bokförda",
-    period: tomt ? "Bruttolön per körning" : `${lista.payroll_runs.length} lönekörningar · bruttolön`,
-    sektioner: tomt ? [] : [{ titel: "Lönekörningar", rader }],
-    fot: "Agenten svarar på frågor om lönerna. Godkännande görs tills vidare i den gamla lönevyn.",
+    lage: tomt ? "tomt" : vantar > 0 || oklara > 0 ? "vantar" : "normal",
+    status: tomt
+      ? "inga lönekörningar"
+      : vantar > 0
+        ? `${vantar} väntar på dig`
+        : oklara > 0
+          ? `${oklara} ej bokförd${oklara > 1 ? "a" : ""}`
+          : "alla bokförda",
+    period: tomt ? "Nettolön per lönebesked" : `${lista.payroll_runs.length} lönekörningar · nettolön`,
+    sektioner,
+    fot: "Be agenten bokföra lönen eller arbetsgivardeklarationen, så lägger den fram ett kort. Du bokför med ett tryck i kortet.",
   };
 }
