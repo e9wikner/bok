@@ -11,6 +11,7 @@ const config: Config = {
     extend: {
       fontFamily: {
         sans: ["var(--font-geist-sans)", "system-ui", "sans-serif"],
+        mono: ["var(--font-geist-mono)", "ui-monospace", "monospace"],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -46,6 +47,60 @@ const config: Config = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+
+        // Skalets tokens (modul `skal`). Ligger BREDVID shadcn-paletten
+        // ovan — ingen av dess variabler omdefinieras. SPEC-skal.md §7.
+        bok: {
+          app: "var(--bok-app)",
+          yta: "var(--bok-yta)",
+          "yta-svag": "var(--bok-yta-svag)",
+          "yta-falt": "var(--bok-yta-falt)",
+          black: "var(--bok-black)",
+          "black-hover": "var(--bok-black-hover)",
+          text: "var(--bok-text)",
+          "text-2": "var(--bok-text-2)",
+          "text-dampad": "var(--bok-text-dampad)",
+          "text-svag": "var(--bok-text-svag)",
+          meta: "var(--bok-meta)",
+          linje: "var(--bok-linje)",
+          "linje-svag": "var(--bok-linje-svag)",
+          "linje-svagast": "var(--bok-linje-svagast)",
+          kant: "var(--bok-kant)",
+          "kant-streckad": "var(--bok-kant-streckad)",
+          lank: "var(--bok-lank)",
+          "lank-hover": "var(--bok-lank-hover)",
+          // Gult bär betydelse: väntar på människan.
+          "vantar-yta": "var(--bok-vantar-yta)",
+          "vantar-kant": "var(--bok-vantar-kant)",
+          "vantar-text": "var(--bok-vantar-text)",
+          "vantar-meta": "var(--bok-vantar-meta)",
+          "vantar-prick": "var(--bok-vantar-prick)",
+          "fel-yta": "var(--bok-fel-yta)",
+          "fel-kant": "var(--bok-fel-kant)",
+          "fel-rubrik": "var(--bok-fel-rubrik)",
+          "fel-text": "var(--bok-fel-text)",
+          "fel-meta": "var(--bok-fel-meta)",
+          // Grönt bär betydelse: postat och låst.
+          "klart-yta": "var(--bok-klart-yta)",
+          "klart-kant": "var(--bok-klart-kant)",
+          "klart-text": "var(--bok-klart-text)",
+          "klart-meta": "var(--bok-klart-meta)",
+          "klart-prick": "var(--bok-klart-prick)",
+          bubbla: "var(--bok-bubbla)",
+        },
+      },
+      boxShadow: {
+        "bok-kort": "var(--bok-skugga-kort)",
+        "bok-meny": "var(--bok-skugga-meny)",
+        "bok-chattlist": "var(--bok-skugga-chattlist)",
+      },
+      spacing: {
+        "bok-header": "var(--bok-header-desktop)",
+        "bok-header-mobil": "var(--bok-header-mobil)",
+        "bok-fot": "var(--bok-fot-desktop)",
+        "bok-vykolumn": "var(--bok-vykolumn)",
+        "bok-chattrad": "var(--bok-chattrad-mobil)",
+        "bok-traffyta": "var(--bok-traffyta)",
       },
       borderRadius: {
         lg: "var(--radius)",

@@ -1138,3 +1138,164 @@ def test_agent_failure_on_a_non_dropzone_upload_is_left_alone(
 
     assert result.problems == 0
     assert _problem_files(dropzone_dir) == []
+
+
+# --- the agent's intake pass is started when the folder has been read in --------
+
+
+class _FakeRunner:
+    def __init__(self, running: bool = True):
+        self.running = running
+        self.triggered = 0
+
+    def trigger_pass_now(self, model=None):
+        self.triggered += 1
+
+
+@pytest.fixture
+def runner(monkeypatch):
+    from services import agent_runtime
+
+    fake = _FakeRunner()
+    monkeypatch.setattr(agent_runtime, "get_runner", lambda: fake)
+    monkeypatch.setattr(settings, "agent_runtime_enabled", True)
+    return fake
+
+
+def test_a_new_underlag_starts_one_pass(test_db, scanner, dropzone_dir, runner):
+    _drop(dropzone_dir, "Leverantörsfakturor/faktura.pdf")
+
+    scanner.scan_once()
+
+    assert runner.triggered == 1
+    status = scanner.status()
+    assert status["sources_awaiting_pass"] == 0
+    assert status["last_pass_triggered_at"] is not None
+    # Nothing new: no second pass.
+    scanner.scan_once()
+    assert runner.triggered == 1
+
+
+def test_the_pass_waits_until_the_whole_batch_is_read_in(
+    test_db, dropzone_dir, storage_dirs, runner
+):
+    one_at_a_time = DropzoneScanner(quiet_seconds=0, max_files_per_scan=1)
+    _drop(dropzone_dir, "Kvitton/a.pdf", PDF_BYTES + b"a")
+    _drop(dropzone_dir, "Kvitton/b.pdf", PDF_BYTES + b"b")
+
+    one_at_a_time.scan_once()
+    assert runner.triggered == 0
+    assert one_at_a_time.status()["sources_awaiting_pass"] == 1
+
+    one_at_a_time.scan_once()
+    assert runner.triggered == 1
+    assert len(_sources()) == 2
+
+
+def test_a_file_still_being_written_holds_the_pass(
+    test_db, dropzone_dir, storage_dirs, runner
+):
+    gated = DropzoneScanner(quiet_seconds=60)
+    ready = _drop(dropzone_dir, "Kvitton/klar.pdf", PDF_BYTES + b"klar")
+    old = os.stat(ready).st_mtime - 3600
+    os.utime(ready, (old, old))
+    halv = _drop(dropzone_dir, "Kvitton/halv.pdf", PDF_BYTES + b"halv")
+
+    gated.scan_once()
+
+    assert len(_sources()) == 1
+    assert runner.triggered == 0
+
+    # The file settles and is read in: now the pass starts, for both.
+    os.utime(halv, (old, old))
+    gated.scan_once()  # mtime changed since the last look: not yet
+    gated.scan_once()
+    assert len(_sources()) == 2
+    assert runner.triggered == 1
+
+
+def test_a_file_that_fails_does_not_hold_the_pass(
+    test_db, scanner, dropzone_dir, runner, monkeypatch
+):
+    _drop(dropzone_dir, "Kvitton/bra.pdf", PDF_BYTES + b"bra")
+    _drop(dropzone_dir, "Kvitton/trasig.pdf", PDF_BYTES + b"trasig")
+    original = DropzoneScanner._process_file
+
+    def flaky(self, path, result):
+        if path.name == "trasig.pdf":
+            raise OSError("unreadable")
+        return original(self, path, result)
+
+    monkeypatch.setattr(DropzoneScanner, "_process_file", flaky)
+
+    scanner.scan_once()
+
+    assert (dropzone_dir / "Kvitton/trasig.pdf").exists()
+    assert runner.triggered == 1
+
+
+def test_statements_duplicates_and_problems_start_no_pass(
+    test_db, scanner, dropzone_dir, runner
+):
+    _statement_account()
+    _drop(dropzone_dir, "Kontoutdrag/1930 Företagskonto/sept.csv", CSV_BYTES)
+    _drop(dropzone_dir, "Kvitton/bild.heic", b"heic")
+
+    scanner.scan_once()
+
+    assert runner.triggered == 0
+
+
+def test_with_the_agent_off_nothing_is_started_or_owed(
+    test_db, scanner, dropzone_dir, runner, monkeypatch
+):
+    monkeypatch.setattr(settings, "agent_runtime_enabled", False)
+    _drop(dropzone_dir, "Kvitton/kvitto.pdf")
+
+    scanner.scan_once()
+
+    assert runner.triggered == 0
+    assert scanner.status()["sources_awaiting_pass"] == 0
+
+
+def test_a_runner_not_yet_running_gets_the_pass_on_a_later_tick(
+    test_db, scanner, dropzone_dir, runner
+):
+    runner.running = False
+    _drop(dropzone_dir, "Kvitton/kvitto.pdf")
+    scanner.scan_once()
+    assert runner.triggered == 0
+
+    runner.running = True
+    scanner.scan_once()
+
+    assert runner.triggered == 1
+
+
+def test_underlag_pending_when_the_agent_starts_get_a_pass(
+    test_db, scanner, dropzone_dir, monkeypatch
+):
+    """Read in before a restart or deploy, when nothing started a pass."""
+    from services import agent_runtime
+
+    _drop(dropzone_dir, "Leverantörsfakturor/faktura.pdf")
+    scanner.scan_once()  # the agent is off: nothing started
+
+    fake = _FakeRunner()
+    fake.start = lambda: True
+    monkeypatch.setattr(agent_runtime, "_runner", fake)
+
+    assert agent_runtime.start_agent_runtime() is True
+    assert fake.triggered == 1
+
+
+def test_an_empty_queue_at_start_starts_no_pass(test_db, monkeypatch):
+    from services import agent_runtime
+
+    fake = _FakeRunner()
+    fake.start = lambda: True
+    monkeypatch.setattr(agent_runtime, "_runner", fake)
+
+    agent_runtime.start_agent_runtime()
+
+    assert fake.triggered == 0

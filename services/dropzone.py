@@ -165,6 +165,9 @@ class ScanState:
     last_error: str | None = None
     last_ingested_count: int = 0
     last_problem_count: int = 0
+    #: New underlag read in since the agent's intake pass was last started.
+    sources_awaiting_pass: int = 0
+    last_pass_triggered_at: datetime | None = None
 
 
 @dataclass
@@ -172,6 +175,14 @@ class ScanResult:
     """Outcome counts for a single tick."""
 
     ingested: int = 0
+    #: Of `ingested`, the files that became a new intake source -- the ones
+    #: the agent's pass has to read. A duplicate, a statement or an SIE4
+    #: import is not one.
+    new_sources: int = 0
+    #: Files left for a later tick: still being written, or over this
+    #: tick's budget. A file that failed stays put but is not counted --
+    #: it is not about to be read in, and must not hold the pass back.
+    more_to_read: bool = False
     problems: int = 0
     skipped: int = 0
     errors: list[str] = field(default_factory=list)
@@ -237,7 +248,42 @@ class DropzoneScanner:
         self._state.last_error = error
         self._state.last_ingested_count = result.ingested
         self._state.last_problem_count = result.problems
+        self._state.sources_awaiting_pass += result.new_sources
+        self._start_pass_when_done(result)
         return result
+
+    def _start_pass_when_done(self, result: ScanResult) -> None:
+        """Start the agent's intake pass once new underlag have been read in
+        and nothing more is waiting to be read in (`ScanResult.more_to_read`).
+
+        Waiting means a batch of files dropped together is booked in one
+        pass, not one pass per tick; a file still being written keeps the
+        pass waiting until it has been read too.
+        Gated on `AGENT_RUNTIME_ENABLED`: with the agent off nothing is
+        started, and nothing is owed. A runner that is enabled but not yet
+        running (startup) keeps the count for the next tick. Never raises.
+        """
+        if self._state.sources_awaiting_pass == 0 or result.more_to_read:
+            return
+        if not settings.agent_runtime_enabled:
+            self._state.sources_awaiting_pass = 0
+            return
+        try:
+            from services.agent_runtime import get_runner
+
+            runner = get_runner()
+            if not runner.running:
+                return
+            runner.trigger_pass_now()
+        except Exception:
+            logger.exception("Dropzone could not start the agent's intake pass")
+            return
+        logger.info(
+            "Dropzone read in %d new underlag; agent intake pass started",
+            self._state.sources_awaiting_pass,
+        )
+        self._state.sources_awaiting_pass = 0
+        self._state.last_pass_triggered_at = datetime.now(timezone.utc)
 
     def _scan(self, result: ScanResult) -> None:
         root = self.root
@@ -252,12 +298,14 @@ class DropzoneScanner:
         candidates = self.candidate_files()
         self._forget_gone_files(candidates)
         for path in candidates:
-            if attempted >= budget:
-                break
             if _is_sidecar(path):
                 continue
+            if attempted >= budget:
+                result.more_to_read = True
+                break
             if not self._is_stable(path):
                 result.skipped += 1
+                result.more_to_read = True
                 continue
             attempted += 1
             try:
@@ -411,6 +459,7 @@ class DropzoneScanner:
                 self._ingest_sie4(filename, content)
             else:
                 self._ingest_source(path, filename, mime_type, content, route)
+                result.new_sources += 1
         except (DuplicateIntakeSourceError, DuplicateBankInputError):
             # A duplicate is a success: the file *is* in the system. Tidying it
             # away anyway is what makes re-dropping a half-processed folder safe.
@@ -542,6 +591,8 @@ class DropzoneScanner:
             importer.imported["accounts"],
             fiscal_year_id,
         )
+        for warning in importer.warnings:
+            logger.warning("Dropzone SIE4 %s: %s", filename, warning)
 
     def _ingest_bank_input(
         self,
@@ -810,6 +861,13 @@ class DropzoneScanner:
                 exclude_suffix=PROBLEM_NOTE_SUFFIX,
             ),
             "unknown_account_folders": self.unknown_account_folders(),
+            "sources_awaiting_pass": state.sources_awaiting_pass,
+            "last_pass_triggered_at": (
+                state.last_pass_triggered_at.isoformat()
+                if state.last_pass_triggered_at
+                else None
+            ),
+            "date_warnings": _date_warnings(),
             "last_error": state.last_error,
         }
 
@@ -898,6 +956,20 @@ def dropzone_status() -> dict:
 
 
 # --- helpers -----------------------------------------------------------
+
+
+def _date_warnings() -> dict:
+    """Underlag and statement transactions dated outside every fiscal year
+    (`FiscalYearProposalService.date_warnings`). A file that went in fine can
+    still be impossible to book: say so here instead of letting it go quiet.
+    Never fatal for the status."""
+    try:
+        from services.fiscal_year_proposal import FiscalYearProposalService
+
+        return FiscalYearProposalService().date_warnings()
+    except Exception:
+        logger.exception("Could not read the date warnings")
+        return {"underlag": [], "bank_transactions_outside_fiscal_years": None}
 
 
 def account_code_from_folder(name: str) -> str | None:

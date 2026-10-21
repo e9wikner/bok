@@ -15,8 +15,11 @@ class PeriodRepository:
     def create_fiscal_year(
         start_date: date,
         end_date: date,
+        _commit: bool = True,
     ) -> FiscalYear:
-        """Create new fiscal year (typically Jan 1 - Dec 31)."""
+        """Create new fiscal year (typically Jan 1 - Dec 31). `_commit=False`
+        lets `FiscalYearService` create the year and its periods in one
+        transaction."""
         fy_id = str(uuid.uuid4())
         sql = """
         INSERT INTO fiscal_years (id, start_date, end_date, locked, created_at)
@@ -24,7 +27,8 @@ class PeriodRepository:
         """
         now = datetime.now()
         db.execute(sql, (fy_id, start_date, end_date, now))
-        db.commit()
+        if _commit:
+            db.commit()
 
         return FiscalYear(
             id=fy_id, start_date=start_date, end_date=end_date, created_at=now
@@ -37,6 +41,7 @@ class PeriodRepository:
         month: int,
         start_date: date,
         end_date: date,
+        _commit: bool = True,
     ) -> Period:
         """Create new period (typically monthly)."""
         period_id = str(uuid.uuid4())
@@ -48,7 +53,8 @@ class PeriodRepository:
         db.execute(
             sql, (period_id, fiscal_year_id, year, month, start_date, end_date, now)
         )
-        db.commit()
+        if _commit:
+            db.commit()
 
         return Period(
             id=period_id,
@@ -226,21 +232,50 @@ class PeriodRepository:
         return periods
 
     @staticmethod
-    def lock_period(period_id: str, actor: Optional[str] = None) -> bool:
-        """Lock period (irreversible - BFL varaktighet requirement).
+    def lock_period(
+        period_id: str, actor: Optional[str] = None, _commit: bool = True
+    ) -> bool:
+        """Lock period: no new vouchers can be posted in it.
 
         Records who locked it, so a later conflict can name them instead of
-        leaving the caller to dig through the audit log.
+        leaving the caller to dig through the audit log. `_commit=False`
+        lets `LedgerService` mark the period's pending thread drafts -- and
+        lock a whole fiscal year -- in the same transaction (F16).
         """
         sql = "UPDATE periods SET locked = 1, locked_at = ?, locked_by = ? WHERE id = ?"
         db.execute(sql, (datetime.now(), actor, period_id))
-        db.commit()
+        if _commit:
+            db.commit()
         return True
 
     @staticmethod
-    def lock_fiscal_year(fy_id: str) -> bool:
-        """Lock fiscal year."""
+    def unlock_period(period_id: str, _commit: bool = True) -> bool:
+        """Open a locked period again. Who locked it, and who opened it, stays
+        in the audit log; posted vouchers are untouched either way."""
+        sql = (
+            "UPDATE periods SET locked = 0, locked_at = NULL, locked_by = NULL "
+            "WHERE id = ?"
+        )
+        db.execute(sql, (period_id,))
+        if _commit:
+            db.commit()
+        return True
+
+    @staticmethod
+    def lock_fiscal_year(fy_id: str, _commit: bool = True) -> bool:
+        """Lock fiscal year. Its periods are locked by `LedgerService`."""
         sql = "UPDATE fiscal_years SET locked = 1, locked_at = ? WHERE id = ?"
         db.execute(sql, (datetime.now(), fy_id))
-        db.commit()
+        if _commit:
+            db.commit()
+        return True
+
+    @staticmethod
+    def unlock_fiscal_year(fy_id: str, _commit: bool = True) -> bool:
+        """Open a locked fiscal year again. Its periods are opened by
+        `LedgerService`."""
+        sql = "UPDATE fiscal_years SET locked = 0, locked_at = NULL WHERE id = ?"
+        db.execute(sql, (fy_id,))
+        if _commit:
+            db.commit()
         return True

@@ -190,7 +190,9 @@ class BankIntegrationService:
                 # Convert amount: if float/int SEK → öre
                 amount = tx_data.get("amount", 0)
                 if isinstance(amount, float):
-                    amount = int(amount * 100)
+                    # round, not int: 1.15 * 100 is 114.999..., and a
+                    # statement's amount must equal the voucher's to the öre.
+                    amount = int(round(amount * 100))
                 elif isinstance(amount, int) and abs(amount) < 100000:
                     # Assume SEK if small number, convert to öre
                     amount = amount * 100
@@ -336,6 +338,13 @@ class BankIntegrationService:
             delimiter=detected["delimiter"],
         )
         transactions = []
+        # How many times each (date, amount, text) has occurred so far in this
+        # file. Two identical transactions on one day -- two transfers of the
+        # same amount -- are two transactions, not a duplicate: the second
+        # gets `#2` in its key. The first keeps the bare key, which is also
+        # what files imported before this rule stored, so an overlapping
+        # export (Jan-Mar, then Jan-Apr) finds the same transactions again.
+        occurrences: Dict[str, int] = {}
 
         for row_number, row in enumerate(reader, start=2):
             # Parse amount (Swedish format: "1 234,56" or "-1234.56")
@@ -374,9 +383,12 @@ class BankIntegrationService:
             ]
             description = " - ".join(description_parts)
 
+            base_id = f"csv-{date_str}-{amount_str}-{description}"
+            occurrences[base_id] = occurrences.get(base_id, 0) + 1
+            n = occurrences[base_id]
             transactions.append(
                 {
-                    "external_id": f"csv-{date_str}-{amount_str}-{description}",
+                    "external_id": base_id if n == 1 else f"{base_id}#{n}",
                     "date": date_str,
                     "booking_date": booking_date,
                     "amount": amount,
@@ -413,6 +425,13 @@ class BankIntegrationService:
             skipped_external_ids=skipped_external_ids,
             detected_format=detected["format"],
         )
+
+    def detect_format_name(self, csv_content: str) -> Optional[str]:
+        """The recognised format's name, or None when it is not supported."""
+        try:
+            return self._detect_csv_format(csv_content)["format"]
+        except ValidationError:
+            return None
 
     def _detect_csv_format(
         self,
