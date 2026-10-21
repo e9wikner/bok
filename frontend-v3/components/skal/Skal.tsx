@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { BeslutFokusProvider } from "@/components/skal/BeslutFokus";
@@ -125,7 +125,12 @@ export function Skal() {
   const valtAr = arslista?.fiscal_years.find((a) => a.id === valtArId);
   const ar = valtAr ? somOverviewAr(valtAr) : overview === undefined ? undefined : overview.fiscal_year;
 
-  const vyer = useVyer(ar, sidnyckel);
+  // Sökrutan i Verifikationer. Den uppskjutna termen filtrerar, så att
+  // rutan svarar på varje tangent också när året är stort. Termen står kvar
+  // medan en verifikation är öppen, så "tillbaka" landar i samma träffar.
+  const [sokterm, setSokterm] = useState("");
+  const vyer = useVyer(ar, sidnyckel, useDeferredValue(sokterm));
+  const sok = { varde: sokterm, onAndra: setSokterm };
 
   const { data } = vyer[aktivVy.key];
   const vyStatus = { text: data.status, fg: lageFarg(data.lage) };
@@ -186,7 +191,12 @@ export function Skal() {
                 {aktiv && lagerOppet ? (
                   <DetaljLager vyTitel={vy.titel} ar={ar} />
                 ) : (
-                  <VyInnehall vy={vy} data={innehall} laddar={laddar} />
+                  <VyInnehall
+                    vy={vy}
+                    data={innehall}
+                    laddar={laddar}
+                    sok={vy.key === "bocker.verifikationer" ? sok : undefined}
+                  />
                 )}
               </div>
             );
@@ -196,7 +206,13 @@ export function Skal() {
               {aktiv && lagerOppet ? (
                 <DetaljLager vyTitel={vy.titel} ar={ar} variant="mobil" />
               ) : (
-                <VyInnehall vy={vy} data={innehall} laddar={laddar} variant="mobil" />
+                <VyInnehall
+                  vy={vy}
+                  data={innehall}
+                  laddar={laddar}
+                  variant="mobil"
+                  sok={vy.key === "bocker.verifikationer" ? sok : undefined}
+                />
               )}
               <ChattList
                 vyTitel={vy.titel}

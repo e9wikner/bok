@@ -43,6 +43,8 @@ export interface VyRadData {
    * detalj (`lib/skal/detalj.ts`). Titeln blir då en knapp.
    */
   mal?: RadMal;
+  /** Sökrutans träff (`lib/skal/sok.ts`): de matchade tecknens positioner per fält. */
+  traff?: { titel?: number[]; meta?: number[]; hoger?: number[] };
 }
 
 export interface VySektionData {

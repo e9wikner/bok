@@ -10,7 +10,7 @@ import { BESLUT_NYCKEL, forsokIgenMedUnderlag, type BeslutSvar } from "@/lib/cha
 import { oppnaKvitto } from "@/lib/skal/bocker";
 import type { RadMal } from "@/lib/skal/detalj";
 import type { LasData } from "@/lib/skal/las";
-import type { RadVariant } from "@/lib/skal/vydata";
+import type { RadVariant, VyRadData } from "@/lib/skal/vydata";
 
 /**
  * `VyRad` (komponenter.md): padding 9/8, margin 0 -8, radius 6,
@@ -73,6 +73,7 @@ export function VyRad({
   beslut,
   las,
   mal,
+  traff,
 }: {
   titel: string;
   meta?: string;
@@ -96,6 +97,8 @@ export function VyRad({
    * egna tryck.
    */
   mal?: RadMal;
+  /** Sökrutans träff: de matchade tecknen markeras. */
+  traff?: VyRadData["traff"];
 }) {
   // Markeringen tas bort av sig själv; raden ligger kvar.
   const [nyAktiv, setNyAktiv] = useState(variant === "ny");
@@ -133,7 +136,7 @@ export function VyRad({
               storlek === "desktop" ? "text-[14px]" : "text-[15px]"
             } ${valt?.id === beslut.id ? "underline" : ""}`}
           >
-            {titel}
+            <Markerad text={titel} index={traff?.titel} />
           </button>
         ) : mal && detalj ? (
           <button
@@ -146,14 +149,14 @@ export function VyRad({
             }`}
             style={{ color: textFarg, fontWeight: summa ? 500 : undefined }}
           >
-            {titel}
+            <Markerad text={titel} index={traff?.titel} />
           </button>
         ) : (
           <span
             className={storlek === "desktop" ? "text-[14px]" : "text-[15px]"}
             style={{ color: textFarg, fontWeight: summa ? 500 : undefined }}
           >
-            {titel}
+            <Markerad text={titel} index={traff?.titel} />
           </span>
         )}
         {(meta || kvitto || forsokIgen) && (
@@ -161,7 +164,7 @@ export function VyRad({
             className={`bok-mono ${storlek === "desktop" ? "text-[11px]" : "text-[12px]"}`}
             style={{ color: metaFarg(variant, ageDays) }}
           >
-            {meta}
+            {meta && <Markerad text={meta} index={traff?.meta} />}
             {kvitto && <KvittoLank {...kvitto} forsta={!meta} />}
             {forsokIgen && <ForsokIgenLank {...forsokIgen} forsta={!meta && !kvitto} />}
           </span>
@@ -173,7 +176,7 @@ export function VyRad({
         }`}
         style={{ color: textFarg, fontWeight: summa ? 500 : undefined }}
       >
-        {hoger}
+        <Markerad text={hoger} index={traff?.hoger} />
         {las && (
           <span className={hoger ? "ml-[10px]" : undefined}>
             <LasKnapp {...las} />
@@ -181,6 +184,35 @@ export function VyRad({
         )}
       </span>
     </div>
+  );
+}
+
+/**
+ * Texten med sökträffens tecken markerade, som telescope gör. Utan index
+ * är det bara texten.
+ */
+function Markerad({ text, index }: { text: string; index?: number[] }) {
+  if (!index || index.length === 0) return <>{text}</>;
+  const traff = new Set(index);
+  const delar: { text: string; traff: boolean }[] = [];
+  for (let i = 0; i < text.length; i++) {
+    const t = traff.has(i);
+    const sista = delar[delar.length - 1];
+    if (sista && sista.traff === t) sista.text += text[i];
+    else delar.push({ text: text[i], traff: t });
+  }
+  return (
+    <>
+      {delar.map((d, i) =>
+        d.traff ? (
+          <mark key={i} className="bg-transparent font-semibold text-bok-lank">
+            {d.text}
+          </mark>
+        ) : (
+          <span key={i}>{d.text}</span>
+        )
+      )}
+    </>
   );
 }
 

@@ -24,6 +24,7 @@ export function VyInnehall({
   laddar = false,
   variant = "desktop",
   tillbaka,
+  sok,
 }: {
   /** En vy, eller detaljlagret (`Detalj.tsx`) som bara har en titel. */
   vy: { titel: string };
@@ -32,6 +33,8 @@ export function VyInnehall({
   variant?: "desktop" | "mobil";
   /** Detaljlagrets länk tillbaka till det under, ovanför rubriken. */
   tillbaka?: { text: string; onClick: () => void };
+  /** Sökrutan under perioden (Verifikationer). Filtreringen sker i `useVyer`. */
+  sok?: { varde: string; onAndra: (s: string) => void };
 }) {
   const fg = lageFarg(data.lage);
 
@@ -64,6 +67,22 @@ export function VyInnehall({
         }
       >
         <div className="bok-mono pt-[14px] text-[12px] text-bok-meta">{data.period}</div>
+
+        {sok && (
+          <input
+            type="search"
+            value={sok.varde}
+            onChange={(e) => sok.onAndra(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") sok.onAndra("");
+            }}
+            placeholder="Sök verifikation…"
+            aria-label="Sök bland verifikationerna"
+            autoComplete="off"
+            spellCheck={false}
+            className="bok-mono mt-[14px] w-full rounded-md border border-bok-linje bg-bok-yta px-3 py-[7px] text-[13px] text-bok-text placeholder:text-bok-meta focus:border-bok-lank focus:outline-none"
+          />
+        )}
 
         {data.banner && (
           <div className="mt-[14px]">
@@ -99,6 +118,7 @@ export function VyInnehall({
                   beslut={rad.beslut}
                   las={rad.las}
                   mal={rad.mal}
+                  traff={rad.traff}
                   storlek={variant}
                 />
               ))}
