@@ -21,6 +21,7 @@ from api.schemas import (
     RejectCorrectionNoteRequest,
     SuggestCorrectionNoteRequest,
     UpdateVoucherRequest,
+    VoucherOriginResponse,
     VoucherRefResponse,
     VoucherResponse,
     VoucherRowResponse,
@@ -37,6 +38,7 @@ from services.correction_notes import CorrectionNoteError, CorrectionNoteService
 from services.draft_service import DraftService, SourceAlreadyBookedError
 from services.idempotency import IdempotencyOutcome, IdempotencyService
 from services.ledger import LedgerService, run_statement_match_after_posting
+from services.voucher_origin import voucher_origin
 
 logger = logging.getLogger(__name__)
 
@@ -490,7 +492,11 @@ async def get_voucher(
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND, detail="Voucher not found"
             )
-        return _voucher_to_response(voucher)
+        response = _voucher_to_response(voucher)
+        origin = voucher_origin(voucher_id)
+        if origin is not None:
+            response.origin = VoucherOriginResponse(**origin)
+        return response
     except HTTPException:
         raise
     except Exception as e:

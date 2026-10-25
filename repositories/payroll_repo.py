@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import date, datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from db.database import db
 from domain.payroll_models import Employee, EmployeeSalarySetting, PayrollRun, Payslip
@@ -310,6 +310,14 @@ class PayslipRepository:
         return PayslipRepository._row_to_payslip(row) if row else None
 
     @staticmethod
+    def get_by_voucher(voucher_id: str) -> Optional[Payslip]:
+        """The payslip *voucher_id* booked, if it booked one."""
+        row = db.execute(
+            "SELECT * FROM payslips WHERE voucher_id = ? LIMIT 1", (voucher_id,)
+        ).fetchone()
+        return PayslipRepository._row_to_payslip(row) if row else None
+
+    @staticmethod
     def list_for_run(payroll_run_id: str) -> List[Payslip]:
         rows = db.execute(
             "SELECT * FROM payslips WHERE payroll_run_id = ? ORDER BY created_at",
@@ -405,6 +413,20 @@ class AgiBookingRepository:
         if _commit:
             db.commit()
         return booking_id
+
+    @staticmethod
+    def get_by_voucher(voucher_id: str) -> Optional[Dict[str, Any]]:
+        """`{year, month, kind}` of the AGI part *voucher_id* booked, if any."""
+        row = db.execute(
+            "SELECT year, month, kind FROM payroll_agi_bookings WHERE voucher_id = ? "
+            "LIMIT 1",
+            (voucher_id,),
+        ).fetchone()
+        return (
+            {"year": row["year"], "month": row["month"], "kind": row["kind"]}
+            if row
+            else None
+        )
 
     @staticmethod
     def current_voucher_ids(year: int, month: int) -> Dict[str, str]:

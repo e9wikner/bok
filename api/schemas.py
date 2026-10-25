@@ -135,6 +135,15 @@ class VoucherRefResponse(BaseModel):
     number: Optional[int]
 
 
+class VoucherOriginResponse(BaseModel):
+    """What a voucher is a booking of, when a flow posted it
+    (`services/voucher_origin.py`)."""
+
+    kind: str = Field(..., description="payslip, agi, invoice or invoice_payment")
+    title: str
+    view_key: str = Field(..., description="The /v4 view the thing lives in")
+
+
 class VoucherResponse(BaseModel):
     """Response model for voucher."""
 
@@ -176,6 +185,13 @@ class VoucherResponse(BaseModel):
         description=(
             "The posted voucher whose underlag is this one's linked receipt "
             "(voucher_source_references), e.g. a difference booked on its own"
+        ),
+    )
+    origin: Optional[VoucherOriginResponse] = Field(
+        None,
+        description=(
+            "What the voucher books, when an invoice, a payment, a payslip or "
+            "an AGI posted it. Only on GET /vouchers/{id}"
         ),
     )
 

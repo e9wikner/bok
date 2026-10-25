@@ -387,3 +387,28 @@ def test_the_runs_list_points_each_row_at_its_open_card(
 
     agi = _tool("foresla_agi_bokforing", thread, year=2026, month=3)
     assert first_run()["agi"]["pending_decision_id"] == agi["decision_id"]
+
+
+def test_the_booked_voucher_says_what_it_books(client, human_headers, thread, payslip):
+    _payment(payslip.net_salary)
+    result = _tool("foresla_lonebokforing", thread, payslip_id=payslip.id)
+    _answer(client, human_headers, result["decision_id"], 0)
+    voucher_id = PayrollService().payslips.get(payslip.id).voucher_id
+
+    voucher = client.get(f"/api/v1/vouchers/{voucher_id}", headers=human_headers)
+
+    assert voucher.json()["origin"] == {
+        "kind": "payslip",
+        "title": "Lön Anna Andersson · mars 2026",
+        "view_key": "betala.loner",
+    }
+
+    agi = _tool("foresla_agi_bokforing", thread, year=2026, month=3)
+    _answer(client, human_headers, agi["decision_id"], 0)
+    tax_voucher = PayrollService().get_agi(2026, 3).voucher_ids["tax"]
+    origin = client.get(f"/api/v1/vouchers/{tax_voucher}", headers=human_headers)
+    assert origin.json()["origin"] == {
+        "kind": "agi",
+        "title": "Arbetsgivardeklaration mars 2026 · avdragen skatt",
+        "view_key": "betala.loner",
+    }

@@ -368,3 +368,53 @@ def test_the_list_carries_the_booking_and_payment_vouchers(
     payment_voucher = invoice_service.payments.get(payment.id).voucher_id
     assert payment_voucher is not None
     assert item["payment_voucher_ids"] == [payment_voucher]
+
+
+def test_a_voucher_says_which_invoice_or_payment_it_books(
+    invoice_service, invoice_period
+):
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+    from config import settings
+
+    invoice = invoice_service.create_invoice(
+        customer_name="Ursprung AB",
+        invoice_date=date(2026, 3, 1),
+        due_date=date(2026, 3, 31),
+        rows_data=[
+            {
+                "description": "Tjänst",
+                "quantity": 1,
+                "unit_price": 100000,
+                "vat_code": "MP1",
+            }
+        ],
+    )
+    booked = invoice_service.create_booking_for_invoice(
+        invoice_id=invoice.id, period_id=invoice_period.id
+    )
+    payment = invoice_service.register_payment(
+        invoice_id=invoice.id,
+        amount=125000,
+        payment_date=date(2026, 3, 15),
+        payment_method="bank_transfer",
+        period_id=invoice_period.id,
+    )
+    paid = invoice_service.payments.get(payment.id).voucher_id
+    number = invoice_service.invoices.get(invoice.id).invoice_number
+    client = TestClient(app)
+    headers = {"Authorization": f"Bearer {settings.api_key}"}
+
+    def origin(voucher_id):
+        return client.get(f"/api/v1/vouchers/{voucher_id}", headers=headers).json()[
+            "origin"
+        ]
+
+    assert origin(booked) == {
+        "kind": "invoice",
+        "title": f"Faktura {number} · Ursprung AB",
+        "view_key": "betala.fakturering",
+    }
+    assert origin(paid)["kind"] == "invoice_payment"
+    assert origin(paid)["title"] == f"Betalning av faktura {number} · Ursprung AB"

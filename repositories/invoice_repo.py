@@ -469,6 +469,15 @@ class InvoiceRepository:
         return row["id"] if row else None
 
     @staticmethod
+    def find_id_by_voucher(voucher_id: str) -> Optional[str]:
+        """The invoice *voucher_id* booked, if it booked one."""
+        row = db.execute(
+            "SELECT id FROM invoices WHERE voucher_id = ? LIMIT 1",
+            (voucher_id,),
+        ).fetchone()
+        return row["id"] if row else None
+
+    @staticmethod
     def find_id_by_source_draft(draft_id: str) -> Optional[str]:
         row = db.execute(
             "SELECT id FROM invoices WHERE source_draft_id = ? LIMIT 1",
@@ -555,6 +564,14 @@ class PaymentRepository:
             created_by=row["created_by"],
             created_at=datetime.fromisoformat(row["created_at"]),
         )
+
+    @staticmethod
+    def find_by_voucher(voucher_id: str) -> Optional[Payment]:
+        """The payment *voucher_id* booked, if it booked one."""
+        row = db.execute(
+            "SELECT id FROM payments WHERE voucher_id = ? LIMIT 1", (voucher_id,)
+        ).fetchone()
+        return PaymentRepository.get(row["id"]) if row else None
 
     @staticmethod
     def list_for_invoice(invoice_id: str) -> List[Payment]:

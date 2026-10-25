@@ -16,7 +16,7 @@ import type { OverviewFiscalYear } from "@/lib/skal/api";
 import { harUnderlag, type Verifikation, type VerifikationRef } from "@/lib/skal/bocker";
 import { formatBeloppHela } from "@/lib/skal/format";
 import type { VyData, VyRadData, VySektionData } from "@/lib/skal/vydata";
-import type { ViewKey } from "@/lib/skal/vyer";
+import { allaVyer, type ViewKey } from "@/lib/skal/vyer";
 import { formatVerifikationsnummer } from "@/lib/utils";
 
 /** Det lagret visar. Bara det översta i stacken syns. */
@@ -69,6 +69,13 @@ export interface VerifikationDetalj extends Verifikation {
   }>;
   total_credit: number;
   created_by: string;
+  /**
+   * Vad verifikationen bokför, när en faktura, en betalning, ett lönebesked
+   * eller en AGI postade den (`services/voucher_origin.py`). Valfri: en
+   * äldre server skickar den inte, och en verifikation ur ett underlag har
+   * ingen.
+   */
+  origin?: { kind: string; title: string; view_key: string } | null;
 }
 
 export const detaljApi = {
@@ -167,6 +174,24 @@ export function verifikationVy(v: VerifikationDetalj): VyData {
   konteringar.push({ id: "omslutning", titel: "Omslutning", hoger: formatBeloppHela(v.total_debit), summa: true });
 
   const sektioner: VySektionData[] = [{ titel: "Konteringar", rader: konteringar }];
+
+  // Var den kommer ifrån: lönebeskedet, AGI:n, fakturan eller betalningen.
+  // Raden leder tillbaka till vyn där den bor, som vyns rad leder hit.
+  if (v.origin) {
+    const vy = allaVyer().find((x) => x.key === v.origin!.view_key);
+    sektioner.push({
+      titel: "Uppstod ur",
+      rader: [
+        {
+          id: "ursprung",
+          titel: v.origin.title,
+          meta: vy ? `i ${vy.titel}` : undefined,
+          hoger: "",
+          mal: vy ? { typ: "vy", key: vy.key } : undefined,
+        },
+      ],
+    });
+  }
 
   if (!utkast) {
     const underlag: VyRadData = harUnderlag(v)

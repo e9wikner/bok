@@ -119,6 +119,26 @@ describe("verifikationen", () => {
     expect(vy.status).toBe("postad · låst");
   });
 
+  it("en verifikation som en lön bokför säger det och leder tillbaka till Löner", () => {
+    const vy = verifikationVy(
+      verifikation({
+        origin: { kind: "payslip", title: "Lön Anna Andersson · oktober 2026", view_key: "betala.loner" },
+      })
+    );
+    const ursprung = vy.sektioner.find((s) => s.titel === "Uppstod ur");
+    expect(ursprung?.rader[0]).toMatchObject({
+      titel: "Lön Anna Andersson · oktober 2026",
+      meta: "i Löner",
+      mal: { typ: "vy", key: "betala.loner" },
+    });
+    // Direkt efter konteringarna.
+    expect(vy.sektioner[1].titel).toBe("Uppstod ur");
+  });
+
+  it("utan ursprung ingen sektion", () => {
+    expect(verifikationVy(verifikation()).sektioner.map((s) => s.titel)).not.toContain("Uppstod ur");
+  });
+
   it("med underlag: kvittolänken; utan: hur länge det saknats", () => {
     expect(verifikationVy(verifikation()).sektioner[1].rader[0].kvitto).toEqual({ voucherId: "v1", nummer: "A-12" });
     const saknar = verifikationVy(verifikation({ missing_attachment: true }));
