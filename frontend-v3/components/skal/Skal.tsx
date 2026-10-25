@@ -26,6 +26,7 @@ import {
   type Sidnyckel,
   type ViewKey,
   type Vy,
+  allaVyer,
   forstaVyn,
   sidan,
   vyAt,
@@ -65,10 +66,21 @@ export function Skal() {
     (stack: readonly Detalj[]) => positionsUrl(sidnyckel, aktivVy, stack[stack.length - 1]),
     [sidnyckel, aktivVy]
   );
+  // En rad kan leda till en vy på en annan sida: ett lönekort i
+  // Verifikationers Väntar på beslut leder till Löner. Det är en länk till
+  // just den vyn, som en inklistrad adress, inte ett sidbyte i väljaren —
+  // därför landar den inte på sidans första vy.
   const gaTillVy = useCallback(
     (key: ViewKey) => {
       const i = indexForVy(sidnyckel, key);
-      if (i !== -1) setVyIndex(i);
+      if (i !== -1) {
+        setVyIndex(i);
+        return;
+      }
+      const annan = allaVyer().find((v) => v.key === key);
+      if (!annan) return;
+      setSidnyckel(annan.sida);
+      setVyIndex(indexForVy(annan.sida, key));
     },
     [sidnyckel]
   );

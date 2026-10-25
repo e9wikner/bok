@@ -10,7 +10,7 @@ import { useUtfardanden } from "@/hooks/useUtfardanden";
 import { FAKTUROR_NYCKEL, LONER_NYCKEL, VOUCHERS_NYCKEL, hamtaBeslut, hamtaForslag } from "@/lib/chattyta/api";
 import { KOPPLINGAR_NYCKEL, type Koppling } from "@/lib/chattyta/kopplingar";
 import type { OverviewFiscalYear } from "@/lib/skal/api";
-import { betalaApi, faktureringVy, lonerVy } from "@/lib/skal/betala";
+import { betalaApi, betalaVantar, faktureringVy, lonerVy } from "@/lib/skal/betala";
 import {
   VERIFIKATIONER_ANTAL,
   balansVy,
@@ -179,10 +179,13 @@ export function useVyer(
     enabled: betala,
     staleTime,
   });
+  // Verifikationer läser också Betalas väntande kort (`betalaVantar`): samma
+  // frågor, så att ett svar i Löner eller ett utfärdande når båda vyerna.
+  const betalaVantarFragor = betala || bocker;
   const fakturautkast = useQuery({
     queryKey: [...FAKTUROR_NYCKEL, "skal", "utkast"],
     queryFn: betalaApi.getFakturautkast,
-    enabled: betala,
+    enabled: betalaVantarFragor,
     staleTime,
   });
   // Samma nycklar som trådens `useBeslut`/`useForslag`, en fråga per vy.
@@ -196,7 +199,7 @@ export function useVyer(
   const faktureringForslag = useQuery({
     queryKey: forslagNyckel(fakturering),
     queryFn: () => hamtaForslag({ viewKey: fakturering, status: "all", limit: FORSLAG_GRANS }),
-    enabled: betala,
+    enabled: betalaVantarFragor,
     staleTime,
   });
   const utfardanden = useUtfardanden();
@@ -211,7 +214,7 @@ export function useVyer(
   const lonerBeslut = useQuery({
     queryKey: beslutStatusNyckel(lonerVyKey),
     queryFn: () => hamtaBeslut({ viewKey: lonerVyKey, status: "all", limit: BESLUT_GRANS }),
-    enabled: betala,
+    enabled: betalaVantarFragor,
     staleTime,
   });
   const rakenskapsar = useQuery({
@@ -247,6 +250,13 @@ export function useVyer(
             postningar,
             saknar: s,
             kopplingar: kopplingar ?? [],
+            // Ett fel eller en fråga i flykt fäller inte Verifikationer: då
+            // står bara vyns egna rader där.
+            andraVyer: betalaVantar({
+              lonerBeslut: lonerBeslut.data?.decisions ?? [],
+              faktureringForslag: faktureringForslag.data?.drafts ?? [],
+              fakturautkast: fakturautkast.data?.drafts ?? [],
+            }),
           },
           {
             perioder: per.periods,

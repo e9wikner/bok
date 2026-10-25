@@ -73,6 +73,7 @@ export function VyRad({
   beslut,
   fraga,
   lankar,
+  inlagg,
   las,
   mal,
   traff,
@@ -95,6 +96,8 @@ export function VyRad({
   fraga?: VyRadData["fraga"];
   /** Kedjans andra steg, som länkar i metaraden. */
   lankar?: VyRadData["lankar"];
+  /** Inlägget i målvyns tråd som visas när titeln följer `mal`. */
+  inlagg?: VyRadData["inlagg"];
   /** Ett lås sist på raden, efter högerkolumnen. */
   las?: LasData;
   /**
@@ -115,7 +118,7 @@ export function VyRad({
     return () => clearTimeout(t);
   }, [variant]);
 
-  const { valt, valj, fyll } = useBeslutFokus();
+  const { valt, valj, fyll, visaInlagg } = useBeslutFokus();
   const detalj = useDetalj();
   const pagaende = variant === "pagaende";
   const yta = nyAktiv ? "var(--bok-klart-yta)" : pagaende ? "var(--bok-yta-svag)" : undefined;
@@ -136,7 +139,11 @@ export function VyRad({
             type="button"
             data-testid="vyrad-beslut"
             aria-pressed={valt?.id === beslut.id}
-            onClick={() => valj(beslut)}
+            onClick={() => {
+              valj(beslut);
+              // Ett beslut i en annan vy: dit, där kortet står i tråden.
+              if (mal?.typ === "vy") detalj?.oppna(mal);
+            }}
             title="Ta upp i chatten"
             className={`min-w-0 cursor-pointer break-words text-left underline-offset-[3px] hover:underline ${
               storlek === "desktop" ? "text-[14px]" : "text-[15px]"
@@ -148,7 +155,10 @@ export function VyRad({
           <button
             type="button"
             data-testid="vyrad-oppna"
-            onClick={() => detalj.oppna(mal)}
+            onClick={() => {
+              detalj.oppna(mal);
+              if (inlagg) visaInlagg(inlagg.viewKey, inlagg.postId);
+            }}
             title={MAL_TITEL[mal.typ]}
             className={`min-w-0 cursor-pointer break-words text-left underline-offset-[3px] hover:underline ${
               storlek === "desktop" ? "text-[14px]" : "text-[15px]"

@@ -443,3 +443,32 @@ describe("verifikationerVy: den optimistiska raden (testfall 46)", () => {
     expect(vy.sektioner[0].rader[0]).toMatchObject({ variant: "ny", meta: "A-2 · postad 06:45 · du · låst" });
   });
 });
+
+describe("Verifikationer samlar det som väntar i andra vyer", () => {
+  const tom = { total: 0, vouchers: [] };
+  const annan = {
+    id: "betala.loner:d1",
+    titel: "Bokför lön oktober 2026 · Anna Andersson",
+    meta: "lön · väntar i Löner",
+    hoger: "39 000",
+    variant: "vantar" as const,
+  };
+
+  it("ställer dem sist i Väntar på beslut och räknar dem", () => {
+    const egen = { id: "d0", kind: "approval", status: "open", title: "Eget beslut", amount_ore: null, age_days: 0 };
+    const vy = verifikationerVy(AR, tom, tom, {
+      beslut: [egen as BeslutSvar],
+      forslag: [],
+      andraVyer: [annan],
+    });
+    expect(vy.sektioner[0].titel).toBe("Väntar på beslut");
+    expect(vy.sektioner[0].rader.map((r) => r.id)).toEqual(["d0", "betala.loner:d1"]);
+    expect(vy.status).toBe("2 väntar på dig");
+    expect(vy.lage).toBe("vantar");
+  });
+
+  it("utan dem är vyn som förut", () => {
+    const vy = verifikationerVy(AR, tom, tom, { beslut: [], forslag: [] });
+    expect(vy.sektioner.find((s) => s.titel === "Väntar på beslut")).toBeUndefined();
+  });
+});

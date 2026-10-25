@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { delaVidGrans, NollstallKnapp, TidigareKonversation } from "@/components/chattyta/Nollstallning";
 import { ChattFaltFokus, TradRenderare } from "@/components/chattyta/TradRenderare";
-import { BeslutFokusKort, useBeslutFokus } from "@/components/skal/BeslutFokus";
+import { BeslutFokusKort, markeraInlagg, useBeslutFokus } from "@/components/skal/BeslutFokus";
 import { ChattFalt } from "@/components/skal/ChattFalt";
 import { useTrad, type UseTrad } from "@/hooks/useTrad";
 
@@ -78,9 +78,19 @@ export function TradYta({
   const langstNer = useRef(true);
   const kontextFran = trad.kontextFran ?? 0;
   const { fore, efter } = delaVidGrans(trad.inlagg, kontextFran);
-  const { valt } = useBeslutFokus();
+  const { valt, inlagg: inlaggFokus } = useBeslutFokus();
   const visaFokus = valt !== null && valt.view_key === viewKey;
   const inlaggIds = useMemo(() => new Set(trad.inlagg.map((i) => i.id)), [trad.inlagg]);
+
+  // Ett inlägg som visas från en annan vy (ett fakturaförslag i
+  // Verifikationers Väntar på beslut): dit, när tråden har det.
+  const fokusPost = inlaggFokus?.viewKey === viewKey ? inlaggFokus.postId : null;
+  const fokusFinns = fokusPost !== null && inlaggIds.has(fokusPost);
+  useEffect(() => {
+    if (!fokusFinns || !fokusPost) return;
+    langstNer.current = false;
+    return markeraInlagg(fokusPost);
+  }, [fokusFinns, fokusPost, inlaggFokus?.nyckel]);
 
   // Ett beslut som tas upp ska synas, även om människan skrollat upp.
   useLayoutEffect(() => {

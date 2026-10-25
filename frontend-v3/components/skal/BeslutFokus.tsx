@@ -52,6 +52,19 @@ interface BeslutFokusVarde {
    * har något kort (ett obokat lönebesked). Fältet fylls, inget skickas.
    */
   fyll: (viewKey: string, text: string) => void;
+  /**
+   * Ett inlägg att visa i en vys tråd: ett fakturaförslag som väntar, taget
+   * från en annan vy. `nyckel` är ny för varje tryck, så samma inlägg två
+   * gånger skrollar dit igen.
+   */
+  inlagg: InlaggFokus | null;
+  visaInlagg: (viewKey: string, postId: string) => void;
+}
+
+export interface InlaggFokus {
+  nyckel: number;
+  viewKey: string;
+  postId: string;
 }
 
 const INGET: BeslutFokusVarde = {
@@ -61,6 +74,8 @@ const INGET: BeslutFokusVarde = {
   forifyllning: null,
   svara: () => {},
   fyll: () => {},
+  inlagg: null,
+  visaInlagg: () => {},
 };
 
 const BeslutFokusKontext = createContext<BeslutFokusVarde>(INGET);
@@ -91,9 +106,13 @@ export function BeslutFokusProvider({ children }: { children: React.ReactNode })
   const fyll = useCallback((viewKey: string, text: string) => {
     setForifyllning({ nyckel: ++fyllnummer, viewKey, text });
   }, []);
+  const [inlagg, setInlagg] = useState<InlaggFokus | null>(null);
+  const visaInlagg = useCallback((viewKey: string, postId: string) => {
+    setInlagg({ nyckel: ++fyllnummer, viewKey, postId });
+  }, []);
   const varde = useMemo(
-    () => ({ valt, valj: setValt, stang, forifyllning, svara, fyll }),
-    [valt, stang, forifyllning, svara, fyll]
+    () => ({ valt, valj: setValt, stang, forifyllning, svara, fyll, inlagg, visaInlagg }),
+    [valt, stang, forifyllning, svara, fyll, inlagg, visaInlagg]
   );
   return <BeslutFokusKontext.Provider value={varde}>{children}</BeslutFokusKontext.Provider>;
 }
@@ -125,18 +144,26 @@ export function BeslutFokusKort({ viewKey, inlaggIds }: { viewKey: string; inlag
   const iTraden = postId !== null && inlaggIds.has(postId);
   useEffect(() => {
     if (!iTraden || !postId) return;
-    const el = Array.from(document.querySelectorAll<HTMLElement>("[data-inlagg-id]")).find(
-      (e) => e.dataset.inlaggId === postId
-    );
-    if (!el) return;
-    centreraITraden(el);
-    el.dataset.fokus = "true";
-    const t = setTimeout(() => delete el.dataset.fokus, 2400);
-    return () => clearTimeout(t);
+    return markeraInlagg(postId);
   }, [iTraden, postId, valt]);
 
   if (!aktuell || !oppet || iTraden) return null;
   return <Kort beslut={aktuell} onStang={stang} onSvara={() => svara(aktuell)} />;
+}
+
+/**
+ * Skrollar till inlägget i tråden och markerar det en stund. Ger städningen,
+ * för en effekt; `undefined` när inlägget inte är ritat.
+ */
+export function markeraInlagg(postId: string): (() => void) | undefined {
+  const el = Array.from(document.querySelectorAll<HTMLElement>("[data-inlagg-id]")).find(
+    (e) => e.dataset.inlaggId === postId
+  );
+  if (!el) return undefined;
+  centreraITraden(el);
+  el.dataset.fokus = "true";
+  const t = setTimeout(() => delete el.dataset.fokus, 2400);
+  return () => clearTimeout(t);
 }
 
 /**

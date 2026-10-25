@@ -47,6 +47,11 @@ export interface VyRadData {
    * `betalning` till den som bokförde betalningen.
    */
   lankar?: { text: string; mal: RadMal }[];
+  /**
+   * Ett inlägg i en annan vys tråd, som raden visar när den följer `mal`
+   * dit: ett fakturaförslag i Verifikationers Väntar på beslut.
+   */
+  inlagg?: { viewKey: string; postId: string };
   /** Räkenskapsårets lås, sist på raden (Rapporter). */
   las?: LasData;
   /**

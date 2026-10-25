@@ -220,3 +220,34 @@ describe("en rad utan kort ber agenten", () => {
     expect(skicka).not.toHaveBeenCalled();
   });
 });
+
+describe("en rad som leder till en annan vy", () => {
+  it("ett beslut där tas upp och vyn byts dit", async () => {
+    const { DetaljProvider } = await import("@/components/skal/DetaljKontext");
+    const oppna = vi.fn();
+    const b = underlag({ id: "d1", view_key: "betala.loner", kind: "approval", source: null });
+    get.mockResolvedValue({ data: { decisions: [b], total: 1 } });
+    render(
+      <QueryClientProvider client={qc}>
+        <BeslutFokusProvider>
+          <DetaljProvider value={{ stack: [], oppna, bakat: vi.fn(), stang: vi.fn() }}>
+            <VyRad
+              titel="Bokför lön oktober 2026"
+              meta="lön · väntar i Löner"
+              hoger=""
+              variant="vantar"
+              beslut={b}
+              mal={{ typ: "vy", key: "betala.loner" }}
+            />
+            <ChattKolumn vyTitel="Löner" viewKey="betala.loner" />
+          </DetaljProvider>
+        </BeslutFokusProvider>
+      </QueryClientProvider>
+    );
+
+    fireEvent.click(screen.getByTestId("vyrad-beslut"));
+
+    expect(oppna).toHaveBeenCalledWith({ typ: "vy", key: "betala.loner" });
+    expect(await screen.findByTestId("beslut-fokus")).toBeTruthy();
+  });
+});

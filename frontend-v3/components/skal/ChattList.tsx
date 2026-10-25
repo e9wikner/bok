@@ -76,12 +76,16 @@ function ListLayout({
   onNollstall?: UseTrad["nollstall"];
 }) {
   const [oppen, setOppen] = useState(true);
-  const { valt, forifyllning } = useBeslutFokus();
+  const { valt, forifyllning, inlagg } = useBeslutFokus();
   const fyll = forifyllning?.viewKey === viewKey ? forifyllning : null;
-  // Ett beslut som tas upp i den här vyn fäller upp chatten: kortet står där.
+  // Ett beslut eller ett inlägg som tas upp i den här vyn fäller upp
+  // chatten: kortet står där.
   useEffect(() => {
     if (valt && valt.view_key === viewKey) setOppen(true);
   }, [valt, viewKey]);
+  useEffect(() => {
+    if (inlagg && inlagg.viewKey === viewKey) setOppen(true);
+  }, [inlagg, viewKey]);
   // Förslagskortets `Ändra` ska till listens eget fält (chattyta C12).
   const falt = useRef<HTMLInputElement>(null);
   const fokuseraFalt = useCallback(() => falt.current?.focus(), []);

@@ -520,6 +520,12 @@ export interface VantarUnderlag {
   saknar?: Verifikationslista;
   /** `Nyss kopplad`, ur `KOPPLINGAR_NYCKEL` (§10.4). */
   kopplingar?: readonly Koppling[];
+  /**
+   * Det som väntar i andra vyer och blir en verifikation där: lönekort och
+   * fakturaförslag (`betalaVantar`). Raderna är färdiga; vyn ställer dem
+   * sist i Väntar på beslut och räknar dem.
+   */
+  andraVyer?: readonly VyRadData[];
 }
 
 /**
@@ -691,17 +697,20 @@ export function verifikationerVy(
   // annars dyker beslutet upp i Väntar under postningen.
   const ersatta = new Set(vantande.map(vantarPa).filter((k) => oppnaIds.has(k)));
   const synligaForslag = vantande.filter((f) => !postas.has(f.draft_id));
+  // Det som väntar i andra vyer och blir verifikationer där (lön, faktura):
+  // sist, märkt med varifrån det kommer. En sak var, som de egna besluten.
+  const andraVyer = underlag.andraVyer ?? [];
   const vantarRader: VyRadData[] = [
     ...oppna.filter((b) => !ersatta.has(b.id)).map(beslutsrad),
     ...synligaForslag.flatMap((f) => {
       const u = utkastPerId.get(f.draft_id);
       return u ? [forslagsrad(f, u)] : [];
     }),
+    ...andraVyer,
   ];
-  const antalVantar = new Set([
-    ...oppna.filter((b) => !ersatta.has(b.id)).map((b) => b.id),
-    ...synligaForslag.map(vantarPa),
-  ]).size;
+  const antalVantar =
+    new Set([...oppna.filter((b) => !ersatta.has(b.id)).map((b) => b.id), ...synligaForslag.map(vantarPa)]).size +
+    andraVyer.length;
 
   // Saknar underlag: utan dem som nyss kopplats (listan kan vara gammal
   // tills omhämtningen svarat) och utan dem som postas.

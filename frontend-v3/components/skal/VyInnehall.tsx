@@ -118,6 +118,7 @@ export function VyInnehall({
                   beslut={rad.beslut}
                   fraga={rad.fraga}
                   lankar={rad.lankar}
+                  inlagg={rad.inlagg}
                   las={rad.las}
                   mal={rad.mal}
                   traff={rad.traff}

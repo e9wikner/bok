@@ -310,6 +310,7 @@ export interface LonerExtra {
 }
 
 const LONER_VY = "betala.loner";
+const FAKTURERING_VY = "betala.fakturering";
 
 /**
  * Ett obokat lönebesked leder alltid någonstans: till sitt kort när agenten
@@ -432,4 +433,57 @@ export function lonerVy(lista: Lonekorningar, extra?: LonerExtra): VyData {
     sektioner,
     fot: "Be agenten bokföra lönen eller arbetsgivardeklarationen, så lägger den fram ett kort. Du bokför med ett tryck i kortet.",
   };
+}
+
+// ─── Det som väntar i Betala, sett från Verifikationer ────────────────────
+
+/** Det Verifikationer läser ur Betala-sidans vyer. Samma frågor som vyerna själva. */
+export interface BetalaVantarKallor {
+  /** `GET /decisions?view_key=betala.loner`. */
+  lonerBeslut: BeslutSvar[];
+  /** `GET /drafts?view_key=betala.fakturering`. */
+  faktureringForslag: ForslagStatusSvar[];
+  /** `GET /invoice-drafts`: namn, nummer och belopp till förslagen. */
+  fakturautkast: Fakturautkast[];
+}
+
+/**
+ * Det som håller på att bli en verifikation i Betala: ett lönekort som
+ * väntar och ett fakturaförslag som väntar. Verifikationer visar dem under
+ * Väntar på beslut, märkta med varifrån de kommer; raden leder till vyn
+ * och tar upp kortet i dess tråd, där det besvaras.
+ *
+ * Faktureringens andra beslut (bolagsuppgifterna) bokför ingenting och står
+ * inte här.
+ */
+export function betalaVantar(k: BetalaVantarKallor): VyRadData[] {
+  const loner: VyRadData[] = k.lonerBeslut
+    .filter((b) => b.status === "open")
+    .map((b) => ({
+      id: `betala.loner:${b.id}`,
+      titel: b.title,
+      meta: "lön · väntar i Löner",
+      hoger: b.amount_ore !== null ? formatBeloppHela(b.amount_ore) : "",
+      variant: "vantar",
+      ageDays: b.age_days,
+      beslut: b,
+      mal: { typ: "vy", key: LONER_VY },
+    }));
+  const utkast = new Map(k.fakturautkast.map((u) => [u.id, u]));
+  const fakturor: VyRadData[] = k.faktureringForslag
+    .filter((f) => (f.kind ?? "voucher") === "invoice" && f.status === "pending")
+    .map((f) => {
+      const u = utkast.get(f.draft_id);
+      const titel = u ? `Faktura ${u.invoice_number ?? "utan nummer"} · ${u.customer_name}` : "Fakturaförslag";
+      return {
+        id: `betala.fakturering:${f.draft_id}`,
+        titel,
+        meta: f.last_error_code ? "faktura · utfärdandet misslyckades" : "faktura · väntar i Fakturering",
+        hoger: u ? formatBeloppHela(u.amount_inc_vat) : "",
+        variant: f.last_error_code ? "fel" : "vantar",
+        mal: { typ: "vy", key: FAKTURERING_VY },
+        inlagg: { viewKey: FAKTURERING_VY, postId: f.post_id },
+      };
+    });
+  return [...loner, ...fakturor];
 }

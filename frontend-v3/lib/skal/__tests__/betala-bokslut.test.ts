@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { BeslutSvar } from "@/lib/chattyta/api";
+import type { BeslutSvar, ForslagStatusSvar } from "@/lib/chattyta/api";
 import {
+  betalaVantar,
   type Faktura,
   faktureringVy,
   type LoneAgi,
@@ -272,5 +273,72 @@ describe("atgarderVy", () => {
     });
     expect(vy.sektioner[0].rader.map((r) => r.id)).toEqual(["c", "w"]);
     expect(vy.lage).toBe("fel");
+  });
+});
+
+describe("betalaVantar", () => {
+  const lonekort = {
+    id: "d1",
+    kind: "approval",
+    status: "open",
+    view_key: "betala.loner",
+    title: "Bokför lön oktober 2026 · Anna Andersson",
+    amount_ore: 3900000,
+    age_days: 1,
+  } as BeslutSvar;
+  const forslag = (over: Partial<ForslagStatusSvar>): ForslagStatusSvar =>
+    ({
+      kind: "invoice",
+      draft_id: "u1",
+      post_id: "p-9",
+      decision_id: null,
+      correction_of: null,
+      status: "pending",
+      replaced_by: null,
+      posted_at: null,
+      voucher: null,
+      last_error_code: null,
+      created_at: "2026-10-25T08:00:00",
+      ...over,
+    }) as ForslagStatusSvar;
+  const utkast = {
+    id: "u1",
+    invoice_number: "1046",
+    customer_name: "Ateljé Vind AB",
+    invoice_date: "2026-10-25",
+    due_date: "2026-11-24",
+    status: "needs_review",
+    amount_inc_vat: 3450000,
+  };
+
+  it("ett lönekort leder till Löner och tas upp där", () => {
+    const [rad] = betalaVantar({ lonerBeslut: [lonekort], faktureringForslag: [], fakturautkast: [] });
+    expect(rad).toMatchObject({
+      titel: "Bokför lön oktober 2026 · Anna Andersson",
+      meta: "lön · väntar i Löner",
+      variant: "vantar",
+      beslut: lonekort,
+      mal: { typ: "vy", key: "betala.loner" },
+    });
+  });
+
+  it("ett fakturaförslag leder till Fakturering och visar sitt inlägg", () => {
+    const [rad] = betalaVantar({ lonerBeslut: [], faktureringForslag: [forslag({})], fakturautkast: [utkast] });
+    expect(rad).toMatchObject({
+      titel: "Faktura 1046 · Ateljé Vind AB",
+      meta: "faktura · väntar i Fakturering",
+      mal: { typ: "vy", key: "betala.fakturering" },
+      inlagg: { viewKey: "betala.fakturering", postId: "p-9" },
+    });
+    expect(rad.beslut).toBeUndefined();
+  });
+
+  it("bara det som väntar: besvarade kort, utfärdade förslag och verifikationsförslag står inte där", () => {
+    const rader = betalaVantar({
+      lonerBeslut: [{ ...lonekort, status: "answered" }],
+      faktureringForslag: [forslag({ status: "issued" }), forslag({ kind: "voucher", draft_id: "v" })],
+      fakturautkast: [utkast],
+    });
+    expect(rader).toEqual([]);
   });
 });
