@@ -262,6 +262,24 @@ describe("kroppen (komponenter.md §BeslutKort, SPEC §10)", () => {
     expect(belopp.className).toContain("bok-tal");
   });
 
+  it("ett beslut som bokför visar verifikationen som ett verifikationsförslag", () => {
+    const rows = [
+      { account: "7000", name: "Löner", debit_ore: 5200000, credit_ore: null },
+      { account: "1920", name: "Bankkonto", debit_ore: null, credit_ore: 5200000 },
+    ];
+    const lonekort = typad(medKropp(FIXTUR_DECISION, { ...kropp(FIXTUR_DECISION), rows }));
+    renderaKort(beslut({ kind: "approval" }), lonekort as DecisionInlagg);
+    const rader = screen.getAllByTestId("konteringsrad");
+    expect(rader).toHaveLength(2);
+    expect(rader[0].querySelector('[data-kolumn="debet"]')?.textContent).toBe(formatBelopp(5200000));
+    expect(rader[1].querySelector('[data-kolumn="kredit"]')?.textContent).toBe(formatBelopp(5200000));
+  });
+
+  it("ett beslut som inte bokför har ingen kontering", () => {
+    renderaKort(beslut());
+    expect(screen.queryByTestId("kontering")).toBeNull();
+  });
+
   it("amount: null → inget belopp, ingen nolla", () => {
     const utanBelopp = typad(medKropp(FIXTUR_DECISION, { ...kropp(FIXTUR_DECISION), amount: null }));
     renderaKort(beslut(), utanBelopp as DecisionInlagg);

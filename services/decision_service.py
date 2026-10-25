@@ -423,6 +423,7 @@ def _decision_post_body(
     reason: str,
     source: Optional[Mapping[str, Any]],
     consequence: str,
+    rows: Optional[Sequence[Mapping[str, Any]]] = None,
 ) -> dict:
     """`BeslutKort`'s body -- the same key set `_decision_body`
     (`services/thread_service.py`) already produces for a registered
@@ -438,8 +439,11 @@ def _decision_post_body(
     `reason` and `consequence` are stored exactly as given -- no
     rewording, no truncation (SPEC §7.4, testfall 34; `_decision_body`'s
     own comment makes the same promise for the abstention path).
+
+    `rows` is there only for a decision that posts: the card then shows the
+    voucher it books, as a voucher proposal does.
     """
-    return {
+    body: Dict[str, Any] = {
         "decision_id": decision_id,
         "title": title,
         "amount": amount_ore,
@@ -449,6 +453,9 @@ def _decision_post_body(
         ),
         "consequence": consequence,
     }
+    if rows:
+        body["rows"] = [dict(r) for r in rows]
+    return body
 
 
 def _options_post_body(
@@ -608,6 +615,7 @@ class DecisionService:
         actor: str = "agent",
         post: Optional[ThreadPost] = None,
         decision_id: Optional[str] = None,
+        rows: Optional[Sequence[Mapping[str, Any]]] = None,
     ) -> Decision:
         """Write a decision, and the post(s) that show it, in one transaction.
 
@@ -651,6 +659,10 @@ class DecisionService:
         so a rejected list leaves no partial trace (testfall 19, 23). An
         empty list skips the check entirely: there is nothing to have a
         `recommended` mark or an exit row in.
+
+        `rows` is for a decision that posts when answered (a payroll card):
+        the voucher rows as `draft_service.card_rows` gives them, shown on
+        the card the way a voucher proposal shows its own.
         """
         # Minted before the transaction opens, so the `decision` post can
         # carry it and the row can be created with it -- see the docstring.
@@ -665,7 +677,7 @@ class DecisionService:
                     post_type="decision",
                     actor=actor,
                     body=_decision_post_body(
-                        new_id, title, amount_ore, reason, source, consequence
+                        new_id, title, amount_ore, reason, source, consequence, rows
                     ),
                     _commit=False,
                 )

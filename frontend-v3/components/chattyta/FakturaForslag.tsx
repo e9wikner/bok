@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { Kontering } from "@/components/chattyta/Kontering";
 import { useUtfardaFaktura, utfardaFelText, type UtfardaLage } from "@/hooks/useUtfardaFaktura";
 import { UTFARDA_KVAR, type ForslagStatusSvar } from "@/lib/chattyta/api";
 import { oppnaPdf } from "@/lib/chattyta/pdf";
@@ -35,7 +36,7 @@ export function FakturaForslag({
   knappar?: ReactNode;
   forslag?: ForslagStatusSvar;
 }) {
-  const { title, meta, recipient, rows, totals, terms, footnote, consequence } = inlagg.body;
+  const { title, meta, recipient, rows, totals, terms, booking_rows, footnote, consequence } = inlagg.body;
   const status = forslag?.status;
 
   return (
@@ -89,6 +90,9 @@ export function FakturaForslag({
           </div>
         ))}
       </div>
+
+      {/* Verifikationen utfärdandet bokför, som varje kort som bokför visar den. */}
+      {booking_rows && booking_rows.length > 0 && <Kontering rader={booking_rows} rubrik="Bokförs" />}
 
       {footnote && (
         <p data-testid="forslag-fot" className="px-[18px] pt-[10px] text-[13px] leading-[1.55] text-[#78716c]">

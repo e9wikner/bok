@@ -3,11 +3,8 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { felText, usePostaUtkast, type PostaLage } from "@/hooks/usePostaUtkast";
 import type { ForslagStatusSvar } from "@/lib/chattyta/api";
-import type {
-  KonteringsRad as KonteringsRadData,
-  VerifikationDraftInlagg,
-} from "@/lib/chattyta/typer";
-import { formatBelopp } from "@/lib/skal/format";
+import { Kontering } from "@/components/chattyta/Kontering";
+import type { VerifikationDraftInlagg } from "@/lib/chattyta/typer";
 
 /**
  * `VerifikationsForslag` (komponenter.md §Kort i tråden, SPEC-chattyta.md
@@ -56,25 +53,7 @@ export function VerifikationsForslag({
         <span className="bok-mono whitespace-nowrap text-[12px] text-bok-meta">{meta}</span>
       </div>
 
-      {/* Kolumnrubriker mono 10 versalt; de två högra 92 px högerställda. */}
-      <div className="flex items-baseline gap-[8px] px-[18px] pb-[2px] pt-[10px]">
-        <span className="bok-mono flex-1 text-[10px] uppercase tracking-wide text-bok-meta">
-          Konto
-        </span>
-        <span className="bok-mono w-[92px] text-right text-[10px] uppercase tracking-wide text-bok-meta">
-          Debet
-        </span>
-        <span className="bok-mono w-[92px] text-right text-[10px] uppercase tracking-wide text-bok-meta">
-          Kredit
-        </span>
-      </div>
-
-      <div>
-        {rows.map((rad, i) => (
-          // Samma konto kan förekomma två gånger i en verifikation; index ingår.
-          <KonteringsRad key={`${rad.account}-${i}`} rad={rad} />
-        ))}
-      </div>
+      <Kontering rader={rows} />
 
       {/* Fot 13/1.55 #78716c: underlag och flaggor. Utgår när servern inte skickar någon. */}
       {footnote && (
@@ -118,37 +97,6 @@ export function VerifikationsForslag({
           {consequence}
         </span>
       </div>
-    </div>
-  );
-}
-
-/**
- * `KonteringsRad` (komponenter.md): padding 9/18, konto mono 13 #6b7280 +
- * namn 14, belopp mono 14 tabular. Exakt ett av debet/kredit är satt
- * (typer.ts); den tomma cellen står kvar så att kolumnerna håller linjen.
- */
-function KonteringsRad({ rad }: { rad: KonteringsRadData }) {
-  return (
-    <div
-      data-testid="konteringsrad"
-      className="flex items-baseline gap-[8px] border-b border-bok-linje-svagast px-[18px] py-[9px]"
-    >
-      <span className="flex min-w-0 flex-1 items-baseline gap-[10px]">
-        <span className="bok-mono text-[13px] text-bok-text-svag">{rad.account}</span>
-        <span className="min-w-0 text-[14px] text-bok-text">{rad.name}</span>
-      </span>
-      <span
-        data-kolumn="debet"
-        className="bok-mono bok-tal w-[92px] whitespace-nowrap text-right text-[14px] text-bok-text"
-      >
-        {rad.debit_ore !== null ? formatBelopp(rad.debit_ore) : ""}
-      </span>
-      <span
-        data-kolumn="kredit"
-        className="bok-mono bok-tal w-[92px] whitespace-nowrap text-right text-[14px] text-bok-text"
-      >
-        {rad.credit_ore !== null ? formatBelopp(rad.credit_ore) : ""}
-      </span>
     </div>
   );
 }

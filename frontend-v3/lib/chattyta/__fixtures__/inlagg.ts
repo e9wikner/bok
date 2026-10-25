@@ -205,6 +205,11 @@ export const FIXTUR_FAKTURA_DRAFT: RaInlagg = {
       { key: "total", text: "Att betala senast 2026-07-12", amount_ore: 3450000 },
     ],
     terms: "30 dagar",
+    booking_rows: [
+      { account: "1510", name: "Kundfordringar", debit_ore: 3450000, credit_ore: null },
+      { account: "3011", name: "Försäljning tjänster 25 %", debit_ore: null, credit_ore: 2760000 },
+      { account: "2610", name: "Utgående moms 25 %", debit_ore: null, credit_ore: 690000 },
+    ],
     footnote: "Timmarna ur ditt meddelande · villkor som faktura 1044",
     consequence:
       "Utfärdas och bokförs i ett steg · 1510 mot 3011 och 2610 · period juni 2026 öppen\nPDF:en laddar du ner och skickar själv",

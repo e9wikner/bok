@@ -1,4 +1,5 @@
 import { AvfardaKnapp } from "@/components/chattyta/AvfardaKnapp";
+import { Kontering } from "@/components/chattyta/Kontering";
 import { klockslag } from "@/components/chattyta/TradInlagg";
 import { aldersTon } from "@/lib/chattyta/alder";
 import type { BeslutSvar } from "@/lib/chattyta/api";
@@ -107,7 +108,7 @@ export function BeslutKort({
   /** Beslutet ur `GET /decisions`; `undefined` = okänt (se ovan). */
   beslut?: BeslutSvar;
 }) {
-  const { title, amount, reason, consequence } = inlagg.body;
+  const { title, amount, reason, consequence, rows } = inlagg.body;
   const lage = lageAv(beslut);
   const kalla = kallText(inlagg, beslut);
   const svar = svarText(beslut);
@@ -167,6 +168,16 @@ export function BeslutKort({
         {/* Förklaring 14/1.55 #78716c (ingen token; samma som förslagets fot). */}
         <p className="m-0 text-[14px] leading-[1.55] text-[#78716c]">{reason}</p>
       </div>
+
+      {/*
+       * Ett beslut som bokför visar verifikationen som ett
+       * verifikationsförslag gör: samma tabell, på vit yta i kortet.
+       */}
+      {rows && rows.length > 0 && (
+        <div className="overflow-hidden rounded-[8px] border border-bok-linje bg-bok-yta pb-[4px]">
+          <Kontering rader={rows} />
+        </div>
+      )}
 
       {/*
        * Konsekvensen bär varningen och är inte metatext (§11, komponenter.md

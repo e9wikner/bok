@@ -122,7 +122,7 @@ def invoice_draft_body(
 ) -> dict:
     """The `draft` card's body for an invoice (§6.1). Everything but
     `footnote` is the server's, built from the draft as stored."""
-    from services.draft_service import period_name
+    from services.draft_service import card_rows, period_name
     from services.invoice import invoice_booking_rows
     from services.invoice_issue import InvoiceIssueService
     from services.pdf_export import delivery_text
@@ -173,12 +173,8 @@ def invoice_draft_body(
         }
     )
 
-    codes = list(
-        dict.fromkeys(
-            r["account"]
-            for r in invoice_booking_rows(draft.invoice_number, total, draft.rows)
-        )
-    )
+    booking = invoice_booking_rows(draft.invoice_number, total, draft.rows)
+    codes = list(dict.fromkeys(r["account"] for r in booking))
     period = InvoiceIssueService._open_period(draft.invoice_date)
     consequence = (
         f"Utfärdas och bokförs i ett steg · {_accounts_phrase(codes)} · "
@@ -202,6 +198,8 @@ def invoice_draft_body(
         "rows": rows,
         "totals": totals,
         "terms": f"{(draft.due_date - draft.invoice_date).days} dagar",
+        # The voucher issuing posts, as every card that posts shows it.
+        "booking_rows": card_rows(booking, AccountRepository.get_all_as_dict()),
         "footnote": footnote,
         "consequence": consequence,
         "decision_id": decision_id,

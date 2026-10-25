@@ -540,6 +540,32 @@ class PayrollService:
         run_statement_match_after_posting()
         return self.get_agi(year, month)
 
+    @staticmethod
+    def agi_part_rows(agi: AgiDeclaration, kind: str) -> List[Dict]:
+        """One AGI part's voucher rows: the liability as the payslips booked
+        it, in öre, against the declared whole kronor on the tax account,
+        the difference to öresutjämning. The card shows these rows and the
+        press books them."""
+        liability_account, label = AGI_PARTS[kind]
+        declared = agi.amount(kind)
+        liability = agi.liability(kind)
+        rounding = liability - declared
+        lines = [
+            (liability_account, liability, 0, label.capitalize()),
+            (TAX_ACCOUNT, 0, declared, label.capitalize()),
+            (ROUNDING_ACCOUNT, max(-rounding, 0), max(rounding, 0), "Öresutjämning"),
+        ]
+        return [
+            {
+                "account": account,
+                "debit": debit,
+                "credit": credit,
+                "description": description,
+            }
+            for account, debit, credit, description in lines
+            if debit or credit
+        ]
+
     def _book_agi_part(
         self,
         ledger: LedgerService,
@@ -552,30 +578,15 @@ class PayrollService:
         """One part's voucher and booking row, inside the caller's
         transaction."""
         year, month = agi.year, agi.month
-        liability_account, label = AGI_PARTS[kind]
+        _liability_account, label = AGI_PARTS[kind]
         declared = agi.amount(kind)
-        liability = agi.liability(kind)
-        rounding = liability - declared
-        lines = [
-            (liability_account, liability, 0, label.capitalize()),
-            (TAX_ACCOUNT, 0, declared, label.capitalize()),
-            (ROUNDING_ACCOUNT, max(-rounding, 0), max(rounding, 0), "Öresutjämning"),
-        ]
+        rounding = agi.liability(kind) - declared
         voucher = ledger.create_voucher(
             series="A",
             date=voucher_date,
             period_id=period_id,
             description=f"Arbetsgivardeklaration {year}-{month:02d}, {label}",
-            rows_data=[
-                {
-                    "account": account,
-                    "debit": debit,
-                    "credit": credit,
-                    "description": description,
-                }
-                for account, debit, credit, description in lines
-                if debit or credit
-            ],
+            rows_data=self.agi_part_rows(agi, kind),
             created_by=actor,
             _commit=False,
         )

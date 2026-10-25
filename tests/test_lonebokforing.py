@@ -126,7 +126,25 @@ def test_proposing_finds_the_payment_and_books_nothing(thread, payslip):
     assert decision.title == "Bokför lön mars 2026 · Anna Andersson"
     assert [o.title for o in decision.options] == ["Bokför lönen", "Inte nu"]
     assert "35 000 kr" in decision.reason
-    assert "7000 Löner debet 50 000 kr" in decision.reason
+    # The voucher is shown as rows on the card, as a voucher proposal shows it.
+    [card] = [
+        p
+        for p in ThreadRepository.list_posts(thread.id)
+        if p.type == "decision" and p.body["decision_id"] == decision.id
+    ]
+    assert card.body["rows"][0] == {
+        "account": "7000",
+        "name": "Löner",
+        "debit_ore": 5000000,
+        "credit_ore": None,
+    }
+    assert {r["account"] for r in card.body["rows"]} == {
+        "7000",
+        "7510",
+        "2710",
+        "2730",
+        "1930",
+    }
 
 
 def test_no_payment_or_several_is_refused_with_the_candidates(thread, payslip):
@@ -316,6 +334,16 @@ def test_the_human_press_books_the_agi_in_two_vouchers(
     ]
     assert decision.amount_ore == 3071000
     assert "2026-04-13" in decision.consequence
+    [card] = [
+        p
+        for p in ThreadRepository.list_posts(thread.id)
+        if p.type == "decision" and p.body["decision_id"] == decision.id
+    ]
+    debit = {r["account"]: r["debit_ore"] for r in card.body["rows"] if r["debit_ore"]}
+    assert set(debit) == {"2710", "2730"}
+    assert all(
+        r["account"] in {"2710", "2730", "1630", "3740"} for r in card.body["rows"]
+    )
 
     before = _voucher_count()
     response = _answer(client, human_headers, result["decision_id"], 0)

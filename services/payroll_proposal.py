@@ -336,17 +336,6 @@ class PayrollProposalService:
 
         payslip, tx = checked["payslip"], checked["transaction"]
         name = payslip.employee.name if payslip.employee else payslip.employee_id
-        accounts = AccountRepository.get_all_as_dict()
-
-        def line(row: Dict) -> str:
-            code = row["account"]
-            account = accounts.get(code)
-            label = account.name if account else PAYROLL_ACCOUNTS.get(code, ("",))[0]
-            name = f"{code} {label}".strip()
-            side = "debet" if row["debit"] else "kredit"
-            return f"{name} {side} {_kr(row['debit'] or row['credit'])}"
-
-        rows = "; ".join(line(r) for r in checked["rows"] if r["debit"] or r["credit"])
         text = " · ".join(t for t in (tx.description, tx.counterpart_name) if t)
         return DecisionService().create(
             thread,
@@ -357,7 +346,7 @@ class PayrollProposalService:
                 + (f" ({text})" if text else "")
                 + f". Bruttolön {_kr(payslip.gross_salary)}, skatteavdrag "
                 f"{_kr(payslip.preliminary_tax)}, arbetsgivaravgift "
-                f"{_kr(payslip.employer_fee)}. Verifikationen: {rows}."
+                f"{_kr(payslip.employer_fee)}."
             ),
             consequence=(
                 f"Bokförs som en A-verifikation daterad "
@@ -367,6 +356,7 @@ class PayrollProposalService:
             ),
             kind="approval",
             amount_ore=payslip.net_salary,
+            rows=_card_rows(checked["rows"]),
             options=[
                 {
                     "title": BOOK_PAYSLIP_OPTION_TITLE,
@@ -411,6 +401,13 @@ class PayrollProposalService:
             ),
             kind="approval",
             amount_ore=agi.total_to_pay,
+            rows=_card_rows(
+                [
+                    row
+                    for kind in agi.unbooked_parts
+                    for row in PayrollService.agi_part_rows(agi, kind)
+                ]
+            ),
             options=[
                 {
                     "title": BOOK_AGI_OPTION_TITLE,
@@ -439,6 +436,15 @@ class PayrollProposalService:
             "month": proposal.agi_month,
             "existing_card": existing_card,
         }
+
+
+def _card_rows(rows: List[Dict]) -> List[Dict]:
+    """The rows the press books, as the card shows them. A payroll account
+    not yet in the chart is named as booking will create it."""
+    from services.draft_service import card_rows
+
+    names = {code: name for code, (name, _type) in PAYROLL_ACCOUNTS.items()}
+    return card_rows(rows, AccountRepository.get_all_as_dict(), names)
 
 
 def _is_open(proposal: PayrollBookingProposal) -> bool:

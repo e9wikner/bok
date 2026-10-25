@@ -88,6 +88,12 @@ export interface DecisionKropp {
   reason: string;
   source: BeslutKalla | null;
   consequence: string;
+  /**
+   * Verifikationen ett svar bokför, för ett beslut som bokför (ett
+   * lönekort). Samma rader som ett verifikationsförslag. Valfri: ett beslut
+   * som inte bokför har ingen.
+   */
+  rows?: KonteringsRad[];
 }
 
 export interface Alternativ {
@@ -162,6 +168,8 @@ export interface FakturaKropp {
   rows: FakturaRadData[];
   totals: FakturaSumma[];
   terms: string;
+  /** Verifikationen utfärdandet bokför. Valfri: en server från före fältet skickar den inte. */
+  booking_rows?: KonteringsRad[];
   footnote: string | null;
   consequence: string;
   decision_id: string | null;

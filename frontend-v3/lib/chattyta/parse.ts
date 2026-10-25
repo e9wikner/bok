@@ -43,6 +43,25 @@ const valfriStrang = (v: unknown) => v === undefined || arStrang(v);
 
 const SUMMANYCKLAR = new Set(["net", "vat", "vat_free", "total"]);
 
+/**
+ * Konteringsraderna, samma kontroll på varje kort som bokför: konto, namn
+ * och exakt ett av debet och kredit.
+ */
+function konteringFel(rows: unknown, falt: string): string | null {
+  if (!Array.isArray(rows) || rows.length === 0) return `${falt} saknas`;
+  for (const r of rows) {
+    if (!arObjekt(r) || saknar(r, { account: arStrang, name: arStrang })) {
+      return "en konteringsrad saknar konto eller namn";
+    }
+    const debet = arHeltal(r.debit_ore);
+    const kredit = arHeltal(r.credit_ore);
+    if (debet === kredit || !heltalEllerNull(r.debit_ore) || !heltalEllerNull(r.credit_ore)) {
+      return "en konteringsrad har inte exakt ett av debet och kredit";
+    }
+  }
+  return null;
+}
+
 /** `draft` med `kind: "invoice"` (SPEC-fakturering-f1.md §6.1). */
 function fakturaFel(b: Rad): string | null {
   const fel = saknar(b, { terms: arStrang });
@@ -74,6 +93,7 @@ function fakturaFel(b: Rad): string | null {
       return "en summa saknar nyckel, text eller belopp";
     }
   }
+  if (b.booking_rows !== undefined) return konteringFel(b.booking_rows, "booking_rows");
   return null;
 }
 
@@ -114,6 +134,7 @@ const KONTROLLER: Record<InlaggsTyp, Kontroll> = {
     if (k !== null && !(arObjekt(k) && arStrang(k.kind) && arStrang(k.id))) {
       return "source är varken null eller {kind, id}";
     }
+    if (b.rows !== undefined) return konteringFel(b.rows, "rows");
     return null;
   },
 
@@ -164,18 +185,7 @@ const KONTROLLER: Record<InlaggsTyp, Kontroll> = {
     // fortfarande ur scope (ANALYS.md §2, SPEC §4.3).
     if (b.kind === "invoice") return fakturaFel(b);
     if (b.kind !== "voucher") return `kind ${String(b.kind)} renderas inte`;
-    if (!Array.isArray(b.rows) || b.rows.length === 0) return "rows saknas";
-    for (const r of b.rows) {
-      if (!arObjekt(r) || saknar(r, { account: arStrang, name: arStrang })) {
-        return "en konteringsrad saknar konto eller namn";
-      }
-      const debet = arHeltal(r.debit_ore);
-      const kredit = arHeltal(r.credit_ore);
-      if (debet === kredit || !heltalEllerNull(r.debit_ore) || !heltalEllerNull(r.credit_ore)) {
-        return "en konteringsrad har inte exakt ett av debet och kredit";
-      }
-    }
-    return null;
+    return konteringFel(b.rows, "rows");
   },
 
   error: (b) =>

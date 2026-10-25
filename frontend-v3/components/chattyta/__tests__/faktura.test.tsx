@@ -106,6 +106,12 @@ describe("parseInlagg för kind=invoice (testfall 33)", () => {
     expect(parseInlagg(medKropp(FIXTUR_FAKTURA_DRAFT, { ...body, rows }))?.type).toBe("okant_kontrakt");
   });
 
+  it("en konteringsrad med både debet och kredit blir okant_kontrakt", () => {
+    const body = kropp(FIXTUR_FAKTURA_DRAFT);
+    const booking_rows = [{ account: "1510", name: "Kundfordringar", debit_ore: 1, credit_ore: 1 }];
+    expect(parseInlagg(medKropp(FIXTUR_FAKTURA_DRAFT, { ...body, booking_rows }))?.type).toBe("okant_kontrakt");
+  });
+
   it("kind=payroll är fortfarande okant_kontrakt", () => {
     const inlagg = parseInlagg(medKropp(FIXTUR_DRAFT, { ...kropp(FIXTUR_DRAFT), kind: "payroll" }));
     expect(inlagg?.type).toBe("okant_kontrakt");
@@ -129,6 +135,23 @@ describe("FakturaForslag (testfall 34)", () => {
     expect(screen.getByText("Att betala senast 2026-07-12")).toBeInTheDocument();
     expect(screen.getByText(/PDF:en laddar du ner och skickar själv/)).toBeInTheDocument();
     expect(screen.getAllByTestId("faktura-summa")).toHaveLength(3);
+  });
+
+  it("visar konteringen som utfärdandet bokför, som ett verifikationsförslag", () => {
+    render(<FakturaForslag inlagg={faktura()} />);
+    expect(screen.getByText("Bokförs")).toBeInTheDocument();
+    const rader = screen.getAllByTestId("konteringsrad");
+    expect(rader.map((r) => r.textContent)).toEqual([
+      expect.stringContaining("1510Kundfordringar"),
+      expect.stringContaining("3011"),
+      expect.stringContaining("2610"),
+    ]);
+  });
+
+  it("utan booking_rows (en äldre server) ingen kontering", () => {
+    const inlagg = parseInlagg(medKropp(FIXTUR_FAKTURA_DRAFT, kroppUtan(FIXTUR_FAKTURA_DRAFT, "booking_rows")));
+    render(<FakturaForslag inlagg={inlagg as FakturaDraftInlagg} />);
+    expect(screen.queryByTestId("kontering")).toBeNull();
   });
 
   it("skriver decimalt antal med komma", () => {

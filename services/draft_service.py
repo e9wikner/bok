@@ -184,6 +184,34 @@ def correction_line(original: Voucher, original_period: Period, target: Period) 
     )
 
 
+def card_rows(
+    rows: Sequence[Mapping[str, Any]],
+    accounts: Mapping[str, Account],
+    names: Optional[Mapping[str, str]] = None,
+) -> List[dict]:
+    """A voucher's rows as a card shows them (`KonteringsRad`): account,
+    name, and exactly one of debit and credit in öre. The same table on every
+    card that posts -- a voucher proposal, a payroll card, an invoice
+    proposal -- so what will be booked always looks the same. A row with
+    neither side is left out; *names* is the fallback for an account not yet
+    in the chart (a payroll account created when it is booked)."""
+    out = []
+    for row in rows:
+        if not (row.get("debit") or row.get("credit")):
+            continue
+        code = row["account"]
+        account = accounts.get(code)
+        out.append(
+            {
+                "account": code,
+                "name": account.name if account else (names or {}).get(code, ""),
+                "debit_ore": row.get("debit") or None,
+                "credit_ore": row.get("credit") or None,
+            }
+        )
+    return out
+
+
 def draft_body(
     *,
     draft_id: str,
@@ -205,15 +233,7 @@ def draft_body(
         "kind": "voucher",
         "title": title,
         "meta": draft_meta(series, voucher_date),
-        "rows": [
-            {
-                "account": row["account"],
-                "name": accounts[row["account"]].name,
-                "debit_ore": row.get("debit") or None,
-                "credit_ore": row.get("credit") or None,
-            }
-            for row in rows
-        ],
+        "rows": card_rows(rows, accounts),
         "footnote": footnote,
         "consequence": draft_consequence(series, period, correction),
         "decision_id": decision_id,
