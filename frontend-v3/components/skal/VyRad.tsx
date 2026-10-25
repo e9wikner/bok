@@ -71,6 +71,8 @@ export function VyRad({
   kvitto,
   forsokIgen,
   beslut,
+  fraga,
+  lankar,
   las,
   mal,
   traff,
@@ -89,6 +91,10 @@ export function VyRad({
   forsokIgen?: { sourceId: string };
   /** Ett öppet beslut: titeln tar upp det i chatten. */
   beslut?: BeslutSvar;
+  /** Ingen kort ännu: `be agenten` i metaraden fyller vyns chattfält. */
+  fraga?: VyRadData["fraga"];
+  /** Kedjans andra steg, som länkar i metaraden. */
+  lankar?: VyRadData["lankar"];
   /** Ett lås sist på raden, efter högerkolumnen. */
   las?: LasData;
   /**
@@ -109,7 +115,7 @@ export function VyRad({
     return () => clearTimeout(t);
   }, [variant]);
 
-  const { valt, valj } = useBeslutFokus();
+  const { valt, valj, fyll } = useBeslutFokus();
   const detalj = useDetalj();
   const pagaende = variant === "pagaende";
   const yta = nyAktiv ? "var(--bok-klart-yta)" : pagaende ? "var(--bok-yta-svag)" : undefined;
@@ -159,7 +165,7 @@ export function VyRad({
             <Markerad text={titel} index={traff?.titel} />
           </span>
         )}
-        {(meta || kvitto || forsokIgen) && (
+        {(meta || kvitto || forsokIgen || fraga || (lankar && detalj)) && (
           <span
             className={`bok-mono ${storlek === "desktop" ? "text-[11px]" : "text-[12px]"}`}
             style={{ color: metaFarg(variant, ageDays) }}
@@ -167,6 +173,24 @@ export function VyRad({
             {meta && <Markerad text={meta} index={traff?.meta} />}
             {kvitto && <KvittoLank {...kvitto} forsta={!meta} />}
             {forsokIgen && <ForsokIgenLank {...forsokIgen} forsta={!meta && !kvitto} />}
+            {fraga && (
+              <MetaLank
+                text="be agenten"
+                titel="Fyll i chattfältet"
+                forsta={!meta && !kvitto && !forsokIgen}
+                onTryck={() => fyll(fraga.viewKey, fraga.text)}
+              />
+            )}
+            {detalj &&
+              lankar?.map((l, i) => (
+                <MetaLank
+                  key={`${l.text}-${i}`}
+                  text={l.text}
+                  titel={MAL_TITEL[l.mal.typ]}
+                  forsta={!meta && !kvitto && !forsokIgen && !fraga && i === 0}
+                  onTryck={() => detalj.oppna(l.mal)}
+                />
+              ))}
           </span>
         )}
       </span>
@@ -212,6 +236,33 @@ function Markerad({ text, index }: { text: string; index?: number[] }) {
           <span key={i}>{d.text}</span>
         )
       )}
+    </>
+  );
+}
+
+/** En länk i metaraden, som `kvitto`: `be agenten`, `betalning`. */
+function MetaLank({
+  text,
+  titel,
+  forsta,
+  onTryck,
+}: {
+  text: string;
+  titel: string;
+  forsta: boolean;
+  onTryck: () => void;
+}) {
+  return (
+    <>
+      {!forsta && " · "}
+      <button
+        type="button"
+        title={titel}
+        onClick={onTryck}
+        className="text-bok-lank underline-offset-2 hover:text-bok-lank-hover hover:underline"
+      >
+        {text}
+      </button>
     </>
   );
 }

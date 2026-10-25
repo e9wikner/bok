@@ -98,7 +98,10 @@ async def list_invoices(
             "offset": offset,
             "summary": summary,
             "page_total": page_total,
-            "invoices": [_invoice_to_list_item(inv) for inv in page_invoices],
+            "invoices": [
+                _invoice_to_list_item(inv, service.payments.list_for_invoice(inv.id))
+                for inv in page_invoices
+            ],
         }
     except Exception as e:
         raise HTTPException(
@@ -119,7 +122,7 @@ def _invoice_summary(invoices) -> dict:
     }
 
 
-def _invoice_to_list_item(inv) -> dict:
+def _invoice_to_list_item(inv, payments: list) -> dict:
     return {
         "id": inv.id,
         "invoice_number": inv.invoice_number,
@@ -143,6 +146,10 @@ def _invoice_to_list_item(inv) -> dict:
         "customer_reference": inv.customer_reference,
         "payment_terms_days": inv.payment_terms_days,
         "source_draft_id": inv.source_draft_id,
+        # `/v4` Fakturering: the row opens the voucher that booked the
+        # invoice, and the paid row the one that booked the payment.
+        "voucher_id": inv.voucher_id,
+        "payment_voucher_ids": [p.voucher_id for p in payments if p.voucher_id],
     }
 
 

@@ -27,6 +27,10 @@ export interface Faktura {
   remaining_amount: number;
   status: string;
   is_overdue: boolean;
+  /** Verifikationen som bokförde fakturan. Valfri: en äldre server skickar den inte. */
+  voucher_id?: string | null;
+  /** Betalningarnas verifikationer, nyast först. */
+  payment_voucher_ids?: string[];
 }
 
 export interface Fakturalista {
@@ -58,6 +62,8 @@ export interface Lonebesked {
   net_salary: number;
   status: string;
   voucher_id: string | null;
+  /** Det öppna kortet som bokför lönebeskedet. Valfritt: en äldre server skickar det inte. */
+  pending_decision_id?: string | null;
 }
 
 /** Månadens AGI, för månaden lönen betalades ut (`_agi_summary`). */
@@ -70,6 +76,8 @@ export interface LoneAgi {
   /** Delarnas verifikationer: `tax` och `employer_fee`. */
   voucher_ids: Record<string, string>;
   booked: boolean;
+  /** Det öppna kortet som bokför AGI:n. */
+  pending_decision_id?: string | null;
 }
 
 export interface Lonekorning {
@@ -128,7 +136,20 @@ function fakturarad(f: Faktura): VyRadData {
     meta,
     hoger: formatBeloppHela(f.status === "paid" ? f.amount_inc_vat : f.remaining_amount),
     variant: forfallen ? "fel" : f.status === "draft" ? "vantar" : undefined,
+    // Kedjan: titeln öppnar verifikationen som bokförde fakturan, och
+    // `betalning` den som bokförde betalningen.
+    mal: f.voucher_id ? { typ: "ver", id: f.voucher_id } : undefined,
+    lankar: betalningslankar(f.payment_voucher_ids ?? []),
   };
+}
+
+function betalningslankar(ids: string[]): VyRadData["lankar"] {
+  if (ids.length === 0) return undefined;
+  // Äldst först i metaraden, så att numren följer betalningarna.
+  return [...ids].reverse().map((id, i) => ({
+    text: ids.length === 1 ? "betalning" : `betalning ${i + 1}`,
+    mal: { typ: "ver", id },
+  }));
 }
 
 /**
@@ -288,31 +309,57 @@ export interface LonerExtra {
   beslut: BeslutSvar[];
 }
 
-function lonebeskedRad(p: Lonebesked): VyRadData {
-  const bokford = p.voucher_id !== null;
+const LONER_VY = "betala.loner";
+
+/**
+ * Ett obokat lönebesked leder alltid någonstans: till sitt kort när agenten
+ * lagt fram ett, annars till chattfältet (`be agenten`). En rad i väntar-ton
+ * som inte går att trycka på är det som ska bort här.
+ */
+function lonebeskedRad(p: Lonebesked, manad: string, kort: BeslutSvar | undefined): VyRadData {
+  const titel = p.employee_name ?? "Lönebesked";
+  const rad = { id: p.id, titel, hoger: formatBeloppHela(p.net_salary) };
+  if (p.voucher_id !== null) {
+    return { ...rad, meta: `bokförd · utbetald ${p.payment_date}`, mal: { typ: "ver", id: p.voucher_id } };
+  }
+  if (kort) {
+    return {
+      ...rad,
+      meta: `förslag väntar · utbetalning ${p.payment_date}`,
+      variant: "vantar",
+      ageDays: kort.age_days,
+      beslut: kort,
+    };
+  }
   return {
-    id: p.id,
-    titel: p.employee_name ?? "Lönebesked",
-    meta: bokford ? `bokförd · utbetald ${p.payment_date}` : `ej bokförd · utbetalning ${p.payment_date}`,
-    hoger: formatBeloppHela(p.net_salary),
-    variant: bokford ? undefined : "vantar",
-    mal: bokford ? { typ: "ver", id: p.voucher_id! } : undefined,
+    ...rad,
+    meta: `ej bokförd · utbetalning ${p.payment_date}`,
+    variant: "vantar",
+    fraga: { viewKey: LONER_VY, text: `Om lönen för ${titel}, ${manad}: ` },
   };
 }
 
-function agiRad(k: Lonekorning, agi: LoneAgi): VyRadData {
+function agiRad(k: Lonekorning, agi: LoneAgi, kort: BeslutSvar | undefined): VyRadData {
   const ver = agi.voucher_ids.tax ?? agi.voucher_ids.employer_fee;
+  const manad = `${MANAD[agi.month - 1]} ${agi.year}`;
+  const rad = { id: `agi:${k.id}`, titel: "Arbetsgivardeklaration", hoger: formatBeloppHela(agi.total_to_pay) };
+  if (agi.booked) return { ...rad, meta: `bokförd · ${manad}`, mal: ver ? { typ: "ver", id: ver } : undefined };
+  // Väntar på lönerna, inte på människan: raden är neutral tills de är bokförda.
+  if (agi.unbooked_payslips > 0) return { ...rad, meta: `väntar på lönerna · senast ${agi.due_date}` };
+  if (kort) {
+    return {
+      ...rad,
+      meta: `förslag väntar · senast ${agi.due_date}`,
+      variant: "vantar",
+      ageDays: kort.age_days,
+      beslut: kort,
+    };
+  }
   return {
-    id: `agi:${k.id}`,
-    titel: "Arbetsgivardeklaration",
-    meta: agi.booked
-      ? `bokförd · ${MANAD[agi.month - 1]} ${agi.year}`
-      : agi.unbooked_payslips > 0
-        ? `väntar på lönerna · senast ${agi.due_date}`
-        : `att bokföra · senast ${agi.due_date}`,
-    hoger: formatBeloppHela(agi.total_to_pay),
-    variant: agi.booked ? undefined : "vantar",
-    mal: ver ? { typ: "ver", id: ver } : undefined,
+    ...rad,
+    meta: `att bokföra · senast ${agi.due_date}`,
+    variant: "vantar",
+    fraga: { viewKey: LONER_VY, text: `Om arbetsgivardeklarationen för ${manad}: ` },
   };
 }
 
@@ -360,10 +407,13 @@ export function lonerVy(lista: Lonekorningar, extra?: LonerExtra): VyData {
 
   const sektioner: VySektionData[] = [];
   if (vantarRader.length > 0) sektioner.push({ titel: "Väntar på beslut", rader: vantarRader });
+  const kort = (id: string | null | undefined) => (id ? oppna.find((b) => b.id === id) : undefined);
   for (const k of korningar) {
     const besked = k.payslips ?? [];
-    const rader = besked.length > 0 ? besked.map(lonebeskedRad) : [korningRad(k)];
-    if (k.agi) rader.push(agiRad(k, k.agi));
+    const manad = `${MANAD[k.month - 1] ?? k.month} ${k.year}`;
+    const rader =
+      besked.length > 0 ? besked.map((p) => lonebeskedRad(p, manad, kort(p.pending_decision_id))) : [korningRad(k)];
+    if (k.agi) rader.push(agiRad(k, k.agi, kort(k.agi.pending_decision_id)));
     sektioner.push({ titel: `${MANAD[k.month - 1] ?? k.month} ${k.year}`, rader });
   }
 

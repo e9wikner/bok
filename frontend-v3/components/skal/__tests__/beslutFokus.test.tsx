@@ -142,3 +142,81 @@ describe("ett beslut tas upp i chatten", () => {
     expect(screen.queryByTestId("beslut-fokus")).toBeNull();
   });
 });
+
+describe("ett kort utanför tråden går att svara", () => {
+  const lonekort = (): BeslutSvar =>
+    underlag({
+      id: "d1",
+      view_key: VY,
+      kind: "approval",
+      title: "Bokför lön oktober 2026 · Anna Andersson",
+      amount_ore: 3900000,
+      source: null,
+      thread_id: "t1",
+      // Inlägget står inte i den laddade tråden (`tradSvar.inlagg` är tom).
+      post_id: "p-utanfor",
+      options: [
+        {
+          id: "o-bok",
+          position: 1,
+          title: "Bokför lönen",
+          rationale: "Bokför lönen mot utbetalningen.",
+          account: null,
+          amount_ore: null,
+          recommended: true,
+          is_exit: false,
+        },
+        {
+          id: "o-nej",
+          position: 2,
+          title: "Inte nu",
+          rationale: "Ingenting bokförs.",
+          account: null,
+          amount_ore: null,
+          recommended: false,
+          is_exit: true,
+        },
+      ],
+    });
+
+  it("reservkortet bär beslutets alternativ, och ett tryck svarar", async () => {
+    const b = lonekort();
+    get.mockResolvedValue({ data: { decisions: [b], total: 1 } });
+    post.mockResolvedValue({ data: { decision: { ...b, status: "answered" }, post: {} } });
+    rendera(b);
+    fireEvent.click(screen.getByTestId("vyrad-beslut"));
+
+    const kort = await screen.findByTestId("beslut-fokus");
+    fireEvent.click(within(kort).getByText("Bokför lönen"));
+
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/v1/decisions/d1/answer", { option_id: "o-bok" })
+    );
+  });
+});
+
+describe("en rad utan kort ber agenten", () => {
+  it("be agenten fyller vyns fält och skickar ingenting", async () => {
+    get.mockResolvedValue({ data: { decisions: [], total: 0 } });
+    render(
+      <QueryClientProvider client={qc}>
+        <BeslutFokusProvider>
+          <VyRad
+            titel="Anna Andersson"
+            meta="ej bokförd · utbetalning 2026-10-25"
+            hoger="39 000"
+            variant="vantar"
+            fraga={{ viewKey: VY, text: "Om lönen för Anna Andersson, oktober 2026: " }}
+          />
+          <ChattKolumn vyTitel="Verifikationer" viewKey={VY} />
+        </BeslutFokusProvider>
+      </QueryClientProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "be agenten" }));
+
+    const falt = screen.getByRole("textbox") as HTMLInputElement;
+    await waitFor(() => expect(falt.value).toBe("Om lönen för Anna Andersson, oktober 2026: "));
+    expect(skicka).not.toHaveBeenCalled();
+  });
+});

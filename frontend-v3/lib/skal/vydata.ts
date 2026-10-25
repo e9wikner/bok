@@ -36,6 +36,17 @@ export interface VyRadData {
   forsokIgen?: { sourceId: string };
   /** Ett öppet beslut: titeln är en knapp som tar upp det i chatten (`BeslutFokus`). */
   beslut?: BeslutSvar;
+  /**
+   * En rad som väntar men inte har något kort: länken `be agenten` fyller
+   * vyns chattfält med `text`. Ingenting skickas förrän människan skickar.
+   */
+  fraga?: { viewKey: string; text: string };
+  /**
+   * Fler steg i radens kedja, som länkar i metaraden: en betald faktura
+   * leder med titeln till verifikationen som bokförde den och med
+   * `betalning` till den som bokförde betalningen.
+   */
+  lankar?: { text: string; mal: RadMal }[];
   /** Räkenskapsårets lås, sist på raden (Rapporter). */
   las?: LasData;
   /**

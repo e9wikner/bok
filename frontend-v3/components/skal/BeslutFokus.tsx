@@ -2,6 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { AlternativLista } from "@/components/chattyta/AlternativLista";
 import { AvfardaKnapp } from "@/components/chattyta/AvfardaKnapp";
 import { useBeslut } from "@/hooks/useBeslut";
 import { aldersTon } from "@/lib/chattyta/alder";
@@ -12,6 +13,7 @@ import {
   underlagsfilSokvag,
   type BeslutSvar,
 } from "@/lib/chattyta/api";
+import type { OptionsInlagg } from "@/lib/chattyta/typer";
 import { formatBelopp } from "@/lib/skal/format";
 
 /**
@@ -45,6 +47,11 @@ interface BeslutFokusVarde {
   stang: () => void;
   forifyllning: Forifyllning | null;
   svara: (b: BeslutSvar) => void;
+  /**
+   * En inledning i vyns fält utan något beslut: en rad som väntar men inte
+   * har något kort (ett obokat lönebesked). Fältet fylls, inget skickas.
+   */
+  fyll: (viewKey: string, text: string) => void;
 }
 
 const INGET: BeslutFokusVarde = {
@@ -53,6 +60,7 @@ const INGET: BeslutFokusVarde = {
   stang: () => {},
   forifyllning: null,
   svara: () => {},
+  fyll: () => {},
 };
 
 const BeslutFokusKontext = createContext<BeslutFokusVarde>(INGET);
@@ -80,9 +88,12 @@ export function BeslutFokusProvider({ children }: { children: React.ReactNode })
       bilaga: b.kind === "intake" && b.source ? { id: b.source.id, namn: b.title } : undefined,
     });
   }, []);
+  const fyll = useCallback((viewKey: string, text: string) => {
+    setForifyllning({ nyckel: ++fyllnummer, viewKey, text });
+  }, []);
   const varde = useMemo(
-    () => ({ valt, valj: setValt, stang, forifyllning, svara }),
-    [valt, stang, forifyllning, svara]
+    () => ({ valt, valj: setValt, stang, forifyllning, svara, fyll }),
+    [valt, stang, forifyllning, svara, fyll]
   );
   return <BeslutFokusKontext.Provider value={varde}>{children}</BeslutFokusKontext.Provider>;
 }
@@ -143,6 +154,32 @@ function centreraITraden(el: HTMLElement) {
   yta.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
 }
 
+/** Beslutets alternativ som ett `options`-inlägg, så att `AlternativLista` svarar som i tråden. */
+function somAlternativ(b: BeslutSvar): OptionsInlagg {
+  return {
+    id: `fokus:${b.id}`,
+    seq: -1,
+    type: "options",
+    actor: "agent",
+    created_at: "",
+    traces: null,
+    run_id: null,
+    body: {
+      decision_id: b.id,
+      footnote: null,
+      options: b.options.map((o) => ({
+        option_id: o.id,
+        title: o.title,
+        account: o.account,
+        amount_ore: o.amount_ore,
+        rationale: o.rationale,
+        recommended: o.recommended,
+        is_exit: o.is_exit,
+      })),
+    },
+  };
+}
+
 function Kort({ beslut, onStang, onSvara }: { beslut: BeslutSvar; onStang: () => void; onSvara: () => void }) {
   const queryClient = useQueryClient();
   const [forsok, setForsok] = useState<"redo" | "skickar" | "fel">("redo");
@@ -184,6 +221,13 @@ function Kort({ beslut, onStang, onSvara }: { beslut: BeslutSvar; onStang: () =>
       </div>
 
       <p className="bok-mono m-0 text-[12px] text-bok-text-dampad">{beslut.consequence}</p>
+
+      {/*
+       * Alternativen, när beslutet har några: kortet står här för att
+       * inlägget inte syns i tråden, och då får det inte bli ett kort som
+       * bara går att stänga. Ett lönekort bokförs med ett av dem.
+       */}
+      {beslut.options.length > 0 && <AlternativLista inlagg={somAlternativ(beslut)} beslut={beslut} />}
 
       <div className="flex flex-wrap items-center gap-[10px]">
         <button

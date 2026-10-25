@@ -16,6 +16,7 @@ from domain.payroll_models import (
 )
 from domain.validation import ValidationError
 from services.payroll import PayrollService
+from services.payroll_proposal import PayrollProposalService
 
 router = APIRouter(prefix="/api/v1/payroll", tags=["payroll"])
 
@@ -136,6 +137,7 @@ async def set_salary_setting(
 @router.get("/runs", response_model=dict)
 async def list_payroll_runs():
     service = PayrollService()
+    proposals = PayrollProposalService()
     result = []
     for run in service.runs.list_all():
         payslips = service.payslips.list_for_run(run.id)
@@ -150,6 +152,18 @@ async def list_payroll_runs():
             if payslips
             else None
         )
+        # The open card behind each row, so the row can open it.
+        for p in payload["payslips"]:
+            p["pending_decision_id"] = (
+                None if p["voucher_id"] else proposals.open_card_for_payslip(p["id"])
+            )
+        if payload["agi"] is not None:
+            agi = payload["agi"]
+            agi["pending_decision_id"] = (
+                None
+                if agi["booked"]
+                else proposals.open_card_for_agi(agi["year"], agi["month"])
+            )
         result.append(payload)
     return {"payroll_runs": result}
 

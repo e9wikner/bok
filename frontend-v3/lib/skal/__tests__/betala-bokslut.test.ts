@@ -44,6 +44,33 @@ describe("faktureringVy", () => {
     expect(vy.status).toBe("1 förfallen");
     expect(vy.lage).toBe("vantar");
   });
+
+  it("en faktura leder till sin verifikation, och en betald också till betalningen", () => {
+    const vy = faktureringVy({
+      total: 3,
+      invoices: [
+        faktura({ id: "a", voucher_id: "v-a" }),
+        faktura({ id: "b", status: "paid", voucher_id: "v-b", payment_voucher_ids: ["v-b-bet"] }),
+        faktura({
+          id: "c",
+          status: "partially_paid",
+          voucher_id: "v-c",
+          payment_voucher_ids: ["v-c-2", "v-c-1"],
+        }),
+        faktura({ id: "d" }),
+      ],
+    });
+    const rad = (id: string) => vy.sektioner.flatMap((s) => s.rader).find((r) => r.id === id)!;
+    expect(rad("a").mal).toEqual({ typ: "ver", id: "v-a" });
+    expect(rad("a").lankar).toBeUndefined();
+    expect(rad("b").lankar).toEqual([{ text: "betalning", mal: { typ: "ver", id: "v-b-bet" } }]);
+    expect(rad("c").lankar?.map((l) => [l.text, l.mal])).toEqual([
+      ["betalning 1", { typ: "ver", id: "v-c-1" }],
+      ["betalning 2", { typ: "ver", id: "v-c-2" }],
+    ]);
+    // En faktura från en äldre server, utan verifikation, är text.
+    expect(rad("d").mal).toBeUndefined();
+  });
 });
 
 describe("lonerVy", () => {
@@ -146,15 +173,47 @@ describe("lonerVy", () => {
     expect(vy.lage).toBe("normal");
   });
 
-  it("en obokad lön och en AGI som väntar på lönerna är inte klickbara", () => {
+  it("en obokad lön utan kort ber agenten, och en AGI som väntar på lönerna är neutral", () => {
     const vy = lonerVy({
       payroll_runs: [korning({ payslips: [besked({})], agi: agi({ unbooked_payslips: 1 }) })],
     });
     const [lon, deklaration] = vy.sektioner[0].rader;
     expect(lon).toMatchObject({ meta: "ej bokförd · utbetalning 2026-03-25", variant: "vantar" });
+    expect(lon.fraga).toEqual({ viewKey: "betala.loner", text: "Om lönen för Anna Andersson, mars 2026: " });
     expect(lon.mal).toBeUndefined();
-    expect(deklaration).toMatchObject({ meta: "väntar på lönerna · senast 2026-04-13", variant: "vantar" });
-    expect(deklaration.mal).toBeUndefined();
+    expect(deklaration).toMatchObject({ meta: "väntar på lönerna · senast 2026-04-13" });
+    expect(deklaration.variant).toBeUndefined();
+    expect(deklaration.fraga).toBeUndefined();
+  });
+
+  it("en lön och en AGI med ett öppet kort tar upp kortet", () => {
+    const lonekort = beslut({});
+    const agikort = beslut({ id: "d2", title: "Bokför arbetsgivardeklaration mars 2026" });
+    const vy = lonerVy(
+      {
+        payroll_runs: [
+          korning({
+            payslips: [besked({ pending_decision_id: "d1" })],
+            agi: agi({ pending_decision_id: "d2" }),
+          }),
+        ],
+      },
+      { beslut: [lonekort, agikort] }
+    );
+    const [lon, deklaration] = vy.sektioner[1].rader;
+    expect(lon).toMatchObject({ meta: "förslag väntar · utbetalning 2026-03-25", beslut: lonekort, ageDays: 2 });
+    expect(lon.fraga).toBeUndefined();
+    expect(deklaration).toMatchObject({ meta: "förslag väntar · senast 2026-04-13", beslut: agikort });
+  });
+
+  it("ett kort som inte längre är öppet leder inte dit", () => {
+    const vy = lonerVy(
+      { payroll_runs: [korning({ payslips: [besked({ pending_decision_id: "d1" })] })] },
+      { beslut: [beslut({ status: "answered" })] }
+    );
+    const [lon] = vy.sektioner[0].rader;
+    expect(lon.beslut).toBeUndefined();
+    expect(lon.fraga).toBeDefined();
   });
 
   it("en körning vars löner är bokförda men inte AGI:n är inte klar", () => {
@@ -168,6 +227,7 @@ describe("lonerVy", () => {
       ],
     });
     expect(vy.sektioner[0].rader[1].meta).toBe("att bokföra · senast 2026-04-13");
+    expect(vy.sektioner[0].rader[1].fraga?.text).toBe("Om arbetsgivardeklarationen för mars 2026: ");
     expect(vy.status).toBe("1 ej bokförd");
   });
 });

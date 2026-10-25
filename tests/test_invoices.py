@@ -325,3 +325,46 @@ def test_an_old_invoice_has_no_stored_pdf(invoice_service):
     missing = client.get("/api/v1/invoices/no-such-id/pdf", headers=headers)
     assert missing.status_code == 404
     assert missing.json()["detail"]["code"] == "invoice_not_found"
+
+
+def test_the_list_carries_the_booking_and_payment_vouchers(
+    invoice_service, invoice_period
+):
+    """`/v4` Fakturering: a listed invoice leads to the voucher that booked
+    it and to the ones that booked its payments."""
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+    from config import settings
+
+    invoice = invoice_service.create_invoice(
+        customer_name="Kedjan AB",
+        invoice_date=date(2026, 3, 1),
+        due_date=date(2026, 3, 31),
+        rows_data=[
+            {
+                "description": "Tjänst",
+                "quantity": 1,
+                "unit_price": 100000,
+                "vat_code": "MP1",
+            }
+        ],
+    )
+    booked = invoice_service.create_booking_for_invoice(
+        invoice_id=invoice.id, period_id=invoice_period.id
+    )
+    payment = invoice_service.register_payment(
+        invoice_id=invoice.id,
+        amount=125000,
+        payment_date=date(2026, 3, 15),
+        payment_method="bank_transfer",
+        period_id=invoice_period.id,
+    )
+    headers = {"Authorization": f"Bearer {settings.api_key}"}
+
+    listed = TestClient(app).get("/api/v1/invoices", headers=headers).json()
+    item = listed["invoices"][0]
+    assert item["voucher_id"] == booked
+    payment_voucher = invoice_service.payments.get(payment.id).voucher_id
+    assert payment_voucher is not None
+    assert item["payment_voucher_ids"] == [payment_voucher]

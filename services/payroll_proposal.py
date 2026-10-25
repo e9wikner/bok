@@ -145,6 +145,25 @@ class PayrollProposalService:
         )
         return self._result(proposal, existing_card=False)
 
+    # -- what the view reads -----------------------------------------------
+
+    @staticmethod
+    def open_card_for_payslip(payslip_id: str) -> Optional[str]:
+        """The decision id of the payslip's open card, if it has one. The
+        `/v4` row opens that card, so a row that waits always leads somewhere."""
+        for pending in PayrollBookingProposalRepository.pending_for_payslip(payslip_id):
+            if _is_open(pending):
+                return pending.decision_id
+        return None
+
+    @staticmethod
+    def open_card_for_agi(year: int, month: int) -> Optional[str]:
+        """The decision id of the month's open AGI card, if it has one."""
+        for pending in PayrollBookingProposalRepository.pending_for_agi(year, month):
+            if _is_open(pending):
+                return pending.decision_id
+        return None
+
     # -- the press ---------------------------------------------------------
 
     @staticmethod

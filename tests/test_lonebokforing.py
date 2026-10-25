@@ -338,3 +338,24 @@ def test_the_runs_list_carries_the_month_s_agi(client, human_headers, payslip):
     assert run["agi"]["month"] == 3
     assert run["agi"]["booked"] is False
     assert run["agi"]["unbooked_payslips"] == 1
+
+
+def test_the_runs_list_points_each_row_at_its_open_card(
+    client, human_headers, thread, payslip
+):
+    def first_run():
+        response = client.get("/api/v1/payroll/runs", headers=human_headers)
+        return response.json()["payroll_runs"][0]
+
+    assert first_run()["payslips"][0]["pending_decision_id"] is None
+
+    _payment(payslip.net_salary)
+    result = _tool("foresla_lonebokforing", thread, payslip_id=payslip.id)
+    assert first_run()["payslips"][0]["pending_decision_id"] == result["decision_id"]
+    assert first_run()["agi"]["pending_decision_id"] is None
+
+    _answer(client, human_headers, result["decision_id"], 0)
+    assert first_run()["payslips"][0]["pending_decision_id"] is None
+
+    agi = _tool("foresla_agi_bokforing", thread, year=2026, month=3)
+    assert first_run()["agi"]["pending_decision_id"] == agi["decision_id"]
