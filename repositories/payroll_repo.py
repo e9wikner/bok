@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import date, datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from db.database import db
 from domain.payroll_models import Employee, EmployeeSalarySetting, PayrollRun, Payslip
@@ -310,10 +310,29 @@ class PayslipRepository:
         return PayslipRepository._row_to_payslip(row) if row else None
 
     @staticmethod
+    def get_by_voucher(voucher_id: str) -> Optional[Payslip]:
+        """The payslip *voucher_id* booked, if it booked one."""
+        row = db.execute(
+            "SELECT * FROM payslips WHERE voucher_id = ? LIMIT 1", (voucher_id,)
+        ).fetchone()
+        return PayslipRepository._row_to_payslip(row) if row else None
+
+    @staticmethod
     def list_for_run(payroll_run_id: str) -> List[Payslip]:
         rows = db.execute(
             "SELECT * FROM payslips WHERE payroll_run_id = ? ORDER BY created_at",
             (payroll_run_id,),
+        ).fetchall()
+        return [PayslipRepository._row_to_payslip(row) for row in rows]
+
+    @staticmethod
+    def list_paid_in(year: int, month: int) -> List[Payslip]:
+        """Payslips with a payment date in *year*-*month*: the AGI's
+        redovisningsperiod is the month the salary is paid."""
+        prefix = f"{year:04d}-{month:02d}-"
+        rows = db.execute(
+            "SELECT * FROM payslips WHERE payment_date LIKE ? ORDER BY payment_date, created_at",
+            (prefix + "%",),
         ).fetchall()
         return [PayslipRepository._row_to_payslip(row) for row in rows]
 
@@ -370,3 +389,61 @@ class PayslipRepository:
             created_at=_dt(row["created_at"]),
             employee=employee,
         )
+
+
+class AgiBookingRepository:
+    """`payroll_agi_bookings`: append-only (migration 037)."""
+
+    @staticmethod
+    def create(
+        year: int,
+        month: int,
+        kind: str,
+        voucher_id: str,
+        created_by: str,
+        _commit: bool = True,
+    ) -> str:
+        booking_id = str(uuid.uuid4())
+        db.execute(
+            """INSERT INTO payroll_agi_bookings
+               (id, year, month, kind, voucher_id, created_at, created_by)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (booking_id, year, month, kind, voucher_id, datetime.now(), created_by),
+        )
+        if _commit:
+            db.commit()
+        return booking_id
+
+    @staticmethod
+    def get_by_voucher(voucher_id: str) -> Optional[Dict[str, Any]]:
+        """`{year, month, kind}` of the AGI part *voucher_id* booked, if any."""
+        row = db.execute(
+            "SELECT year, month, kind FROM payroll_agi_bookings WHERE voucher_id = ? "
+            "LIMIT 1",
+            (voucher_id,),
+        ).fetchone()
+        return (
+            {"year": row["year"], "month": row["month"], "kind": row["kind"]}
+            if row
+            else None
+        )
+
+    @staticmethod
+    def current_voucher_ids(year: int, month: int) -> Dict[str, str]:
+        """kind -> the voucher booking that part of *year*-*month*'s AGI,
+        for each part whose booking has not been reversed by a posted
+        correction."""
+        rows = db.execute(
+            """
+            SELECT b.kind, b.voucher_id
+            FROM payroll_agi_bookings b
+            WHERE b.year = ? AND b.month = ?
+              AND NOT EXISTS (
+                  SELECT 1 FROM vouchers c
+                  WHERE c.correction_of = b.voucher_id AND c.status = 'posted'
+              )
+            ORDER BY b.created_at ASC
+            """,
+            (year, month),
+        ).fetchall()
+        return {row["kind"]: row["voucher_id"] for row in rows}

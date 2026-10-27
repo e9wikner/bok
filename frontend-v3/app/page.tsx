@@ -28,7 +28,7 @@ import {
   useInvoices,
   useVouchers,
 } from "@/hooks/useData";
-import { formatCurrency, formatDate, formatFiscalYearLabel } from "@/lib/utils";
+import { formatCurrency, formatDate, formatFiscalYearLabel, formatVerifikationsnummer } from "@/lib/utils";
 
 export default function DashboardPage() {
   const { data: healthData } = useHealth();
@@ -219,7 +219,7 @@ export default function DashboardPage() {
                   <RowLink
                     key={voucher.id}
                     href={`/vouchers/${voucher.id}`}
-                    title={`${voucher.series || "A"}${voucher.number} · ${voucher.description}`}
+                    title={`${formatVerifikationsnummer(voucher.number, voucher.series || "A")} · ${voucher.description}`}
                     meta={`${formatDate(voucher.date)} · ${voucher.status === "posted" ? "Bokförd" : "Utkast"}`}
                     value={formatCurrency(voucher.total_debit || 0)}
                   />

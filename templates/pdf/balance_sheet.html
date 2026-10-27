@@ -188,9 +188,13 @@
   </tbody>
 </table>
 
-{% if not has_ib_vouchers %}
+{% if opening_balance_source == "derived" %}
 <div class="note" style="margin-top: 20px; font-style: italic; font-size: 9pt; color: #666;">
-  * IB (ingående balans) beräknad från föregående års transaktioner (inga IB-verifikat funna).
+  * IB (ingående balans) framräknad ur föregående räkenskapsårs utgående balans.
+</div>
+{% elif opening_balance_source == "none" %}
+<div class="note" style="margin-top: 20px; font-style: italic; font-size: 9pt; color: #666;">
+  * Räkenskapsåret saknar angiven ingående balans.
 </div>
 {% endif %}
 

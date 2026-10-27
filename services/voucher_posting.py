@@ -72,14 +72,18 @@ def post_agent_voucher(
 
     for source_id in intake_source_ids:
         intake.ensure_source_ready_for_voucher_link(source_id)
+    # SPEC-flode-underlag.md §8: an underlag that matches a posted voucher
+    # exactly is linked, not posted again. Before anything is written; the
+    # caller releases its idempotency key when this raises.
+    from services.intake_link import IntakeLinkService
+
+    IntakeLinkService.ensure_not_matching_posted(intake_source_ids)
     _ensure_agent_voucher_has_traceability(intake_source_ids, bank_input_ids)
     bank_inputs.ensure_transactions_available(
         bank_input_ids,
         bank_transaction_ids,
     )
 
-    fiscal_year_id = None
-    voucher_series = None
     with db.transaction():
         ledger = LedgerService()
         voucher = ledger.create_voucher(
@@ -95,7 +99,6 @@ def post_agent_voucher(
             voucher.id,
             actor=actor,
             _commit=False,
-            update_opening_balance=False,
         )
         processing_attempt_ids = []
         summary = request.reasoning_summary or request.description
@@ -116,8 +119,6 @@ def post_agent_voucher(
             actor=actor,
             _commit=False,
         )
-        fiscal_year_id = voucher.fiscal_year_id
-        voucher_series = voucher.series.value
 
         from api.routes.vouchers import _voucher_to_response
 
@@ -148,16 +149,12 @@ def post_agent_voucher(
                 entity_id=voucher.id,
                 _commit=False,
             )
-    if fiscal_year_id and voucher_series != "IB":
-        try:
-            from services.opening_balance import OpeningBalanceService
 
-            OpeningBalanceService().update_opening_balances_for_next_year(
-                fiscal_year_id,
-                actor,
-            )
-        except Exception:
-            pass
+    # Deferred import (AGENTS.md: service-to-service imports wait until the
+    # method runs).
+    from services.ledger import run_statement_match_after_posting
+
+    run_statement_match_after_posting()
     return response
 
 

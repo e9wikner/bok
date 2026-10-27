@@ -7,12 +7,14 @@ Falls back gracefully if WeasyPrint is not available (requires system libraries)
 import base64
 import io
 import os
+import re
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Any, Dict, Optional
+from datetime import date, datetime
+from typing import Any, Dict, List, Optional, Tuple
 
 import qrcode
 from jinja2 import Environment, FileSystemLoader
+from markupsafe import Markup, escape
 
 # WeasyPrint is optional - requires system libraries (pango, etc.)
 try:
@@ -23,6 +25,8 @@ except (ImportError, OSError):
     WEASYPRINT_AVAILABLE = False
     HTML = None  # type: ignore
 
+from domain.validation import ValidationError
+from repositories.company_info_repo import CompanyInfoRepository
 from repositories.period_repo import PeriodRepository
 from services.invoice import InvoiceService
 from services.k2_report import K2ReportService
@@ -51,12 +55,69 @@ class CompanyInfo:
     bic: str = ""
     f_skatt: bool = True
     contact_person: str = ""
+    seat: str = ""
+    postnr: str = ""
+    postort: str = ""
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "CompanyInfo":
         """Create from dictionary, ignoring unknown keys."""
         known = {f.name for f in cls.__dataclass_fields__.values()}
         return cls(**{k: v for k, v in data.items() if k in known})
+
+    @classmethod
+    def load(cls) -> "CompanyInfo":
+        """Read the seller's details from `company_info` (SPEC-fakturering.md §6).
+
+        The keys are the field names. `f_skatt` is stored as the string
+        `"true"`; anything else, or no key, is False. Older rows name the
+        contact person `contact_name` (the company-info route and the SIE
+        import write that key); it is used when `contact_person` is absent.
+        """
+        values = CompanyInfoRepository.get_all()
+        data: Dict[str, Any] = {
+            name: (values.get(name) or "").strip()
+            for name in cls.__dataclass_fields__
+            if name not in ("f_skatt", "logo_url")
+        }
+        if not data["contact_person"]:
+            data["contact_person"] = (values.get("contact_name") or "").strip()
+        data["logo_url"] = values.get("logo_url") or None
+        data["f_skatt"] = _parse_bool(values.get("f_skatt"))
+        return cls(**data)
+
+    def missing_for_invoice(self) -> List[str]:
+        """The keys an invoice requires that are absent or malformed (§6)."""
+        missing = [
+            key
+            for key in ("name", "address", "org_number", "seat")
+            if not (getattr(self, key) or "").strip()
+        ]
+        if not VAT_NUMBER_RE.fullmatch(self.vat_number or ""):
+            missing.append("vat_number")
+        if not (self.bankgiro or "").strip() and not (self.plusgiro or "").strip():
+            missing.append("bankgiro_or_plusgiro")
+        return missing
+
+    def check_complete_for_invoice(self) -> None:
+        """Raise `company_info_incomplete` listing every missing key (§6)."""
+        missing = self.missing_for_invoice()
+        if missing:
+            raise ValidationError(
+                code="company_info_incomplete",
+                message="Company info is incomplete for issuing an invoice",
+                details=f"missing: {', '.join(missing)}",
+                payload={"missing": missing},
+            )
+
+
+# Momsregistreringsnummer: SE + organisationsnumrets 10 siffror + 01, utan
+# bindestreck eller mellanslag (SPEC-fakturering.md §6).
+VAT_NUMBER_RE = re.compile(r"SE\d{10}01")
+
+
+def _parse_bool(value: Optional[str]) -> bool:
+    return (value or "").strip().lower() in ("true", "1", "yes", "ja")
 
 
 # --- Template filters ---
@@ -88,6 +149,93 @@ def format_sek(value_ore: int) -> str:
 def vat_label(code: str) -> str:
     """Convert VAT code to human label."""
     return VAT_LABELS.get(code, code)
+
+
+# --- Invoice template (SPEC-fakturering.md §6.1) ---
+
+# A no-break space, so "22 400,00 kr" never wraps. Courier Prime has U+00A0
+# but no narrow no-break space.
+NBSP = "\u00a0"
+
+VAT_RATES = {"MP1": 25, "MP2": 12, "MP3": 6, "MF": 0}
+
+MONTHS_SV = [
+    "januari",
+    "februari",
+    "mars",
+    "april",
+    "maj",
+    "juni",
+    "juli",
+    "augusti",
+    "september",
+    "oktober",
+    "november",
+    "december",
+]
+
+
+def format_kr(value_ore: Optional[int]) -> str:
+    """Öre as an invoice amount: 2240000 → '22 400,00 kr', unbreakable."""
+    return format_sek(value_ore or 0).replace(" ", NBSP) + NBSP + "kr"
+
+
+def format_quantity(quantity_centi: Optional[int], unit: Optional[str]) -> str:
+    """Quantity times 100 with its unit: (750, 'h') → '7,5 h', (2800, 'h') → '28 h'."""
+    if quantity_centi is None:
+        return ""
+    whole, fraction = divmod(abs(quantity_centi), 100)
+    text = f"{whole:,}".replace(",", NBSP)
+    if fraction:
+        text += f",{fraction:02d}".rstrip("0")
+    if quantity_centi < 0:
+        text = "-" + text
+    return f"{text}{NBSP}{unit}" if unit else text
+
+
+def format_delivery(
+    delivery_from: Optional[date],
+    delivery_to: Optional[date],
+    delivery_month: Optional[str],
+) -> Markup:
+    """The KOMMENTAR column: a period over three lines, one date, or a month
+    ('2026-07' → 'juli 2026'). Empty when there is no delivery."""
+    if delivery_from or delivery_to:
+        start, end = delivery_from or delivery_to, delivery_to or delivery_from
+        if start == end:
+            return Markup(escape(_iso_date(start)))
+        return Markup("{}<br>--&gt;<br>{}").format(_iso_date(start), _iso_date(end))
+    if delivery_month:
+        match = re.fullmatch(r"(\d{4})-(\d{2})", delivery_month.strip())
+        if match and 1 <= int(match.group(2)) <= 12:
+            return Markup(
+                escape(f"{MONTHS_SV[int(match.group(2)) - 1]} {match.group(1)}")
+            )
+        return Markup(escape(delivery_month))
+    return Markup("")
+
+
+def delivery_text(
+    delivery_from: Optional[date],
+    delivery_to: Optional[date],
+    delivery_month: Optional[str],
+) -> str:
+    """`format_delivery` as plain text on one line (`2026-06-29 --> 2026-07-02`,
+    `2026-07-01`, `juli 2026`), for the invoice proposal card
+    (SPEC-fakturering-f1.md §6.1): the same words the PDF will print."""
+    return str(format_delivery(delivery_from, delivery_to, delivery_month)).replace(
+        "<br>--&gt;<br>", " --> "
+    )
+
+
+def _iso_date(value: Any) -> str:
+    if isinstance(value, (date, datetime)):
+        return value.strftime("%Y-%m-%d")
+    return str(value)[:10]
+
+
+def _lines(text: Optional[str]) -> List[str]:
+    return [line.strip() for line in (text or "").splitlines() if line.strip()]
 
 
 # --- QR code generation ---
@@ -138,6 +286,11 @@ class PDFEngine:
         # Register custom filters
         self.env.filters["format_sek"] = format_sek
         self.env.filters["vat_label"] = vat_label
+        self.env.filters["kr"] = format_kr
+        self.env.filters["iso_date"] = _iso_date
+        # Relative URLs in templates (the invoice's embedded fonts in
+        # templates/pdf/fonts/) resolve against the template directory.
+        self.base_url = template_dir
 
     def render_pdf(self, template_name: str, context: Dict[str, Any]) -> bytes:
         """Render a template to PDF bytes."""
@@ -149,7 +302,7 @@ class PDFEngine:
             )
         template = self.env.get_template(template_name)
         html_str = template.render(**context)
-        pdf_bytes = HTML(string=html_str).write_pdf()
+        pdf_bytes = HTML(string=html_str, base_url=self.base_url).write_pdf()
         return pdf_bytes
 
     def render_html(self, template_name: str, context: Dict[str, Any]) -> str:
@@ -176,32 +329,73 @@ class PDFExportService:
 
     def export_invoice(self, invoice_id: str) -> bytes:
         """Generate PDF for a single invoice."""
+        return self.engine.render_pdf("invoice.html", self._invoice_context(invoice_id))
+
+    def _invoice_context(self, invoice_id: str) -> Dict[str, Any]:
+        """What `invoice.html` shows (SPEC-fakturering.md §6.1).
+
+        A row without its own delivery takes the draft's (§4.2). Old invoices
+        have neither, and their KOMMENTAR is empty.
+        """
         invoice = self.invoice_service.invoices.get(invoice_id)
         if not invoice:
             raise ValueError(f"Faktura {invoice_id} hittades inte")
 
-        # Calculate VAT summary by code
-        vat_summary: Dict[str, int] = {}
+        default_delivery: Tuple[Optional[date], Optional[date], Optional[str]] = (
+            None,
+            None,
+            None,
+        )
+        if invoice.source_draft_id:
+            from repositories.invoice_draft_repo import InvoiceDraftRepository
+
+            draft = InvoiceDraftRepository.get(invoice.source_draft_id)
+            if draft:
+                default_delivery = (
+                    draft.delivery_from,
+                    draft.delivery_to,
+                    draft.delivery_month,
+                )
+
+        rows = []
+        vat_base: Dict[str, int] = {}
         for row in invoice.rows:
-            code = row.vat_code
-            vat_summary[code] = vat_summary.get(code, 0) + row.vat_amount
-
-        # Generate QR code for Swish payment if available
-        qr_code_data = None
-        if self.company.swish:
-            qr_code_data = generate_swish_qr(
-                payee=self.company.swish,
-                amount_ore=invoice.amount_inc_vat,
-                message=invoice.invoice_number,
+            own = (row.delivery_from, row.delivery_to, row.delivery_month)
+            delivery = own if any(own) else default_delivery
+            quantity_centi = row.quantity_centi
+            if quantity_centi is None:
+                quantity_centi = row.quantity * 100
+            rows.append(
+                {
+                    "article_number": row.article_number or "",
+                    "description": row.description,
+                    "delivery": format_delivery(*delivery),
+                    "quantity": format_quantity(quantity_centi, row.unit),
+                    "unit_price": row.unit_price,
+                    "amount_ex_vat": row.amount_ex_vat,
+                }
             )
+            vat_base[row.vat_code] = vat_base.get(row.vat_code, 0) + row.amount_ex_vat
 
-        context = {
-            "company": self.company,
+        vat_exempt = vat_base.pop("MF", None)
+        vat_bases = [
+            (f"{VAT_RATES[code]} %" if code in VAT_RATES else code, amount)
+            for code, amount in sorted(
+                vat_base.items(), key=lambda item: -VAT_RATES.get(item[0], 0)
+            )
+        ]
+
+        company = self.company
+        postal = " ".join(p for p in (company.postnr, company.postort) if p)
+        return {
+            "company": company,
+            "company_address": _lines(company.address) + ([postal] if postal else []),
             "invoice": invoice,
-            "vat_summary": vat_summary,
-            "qr_code_data": qr_code_data,
+            "customer_address": _lines(invoice.customer_address),
+            "rows": rows,
+            "vat_bases": vat_bases,
+            "vat_exempt": vat_exempt,
         }
-        return self.engine.render_pdf("invoice.html", context)
 
     def export_payslip(self, payslip_id: str) -> bytes:
         """Generate PDF for a payslip."""
@@ -367,42 +561,23 @@ class PDFExportService:
 
         target_year = period.year
 
-        # Get all vouchers
-        vouchers, _ = VoucherRepository.list_all(status="posted")
+        from services.opening_balance import OpeningBalanceService
 
-        # Separate IB vouchers from regular vouchers for the target year
-        ib_vouchers = []
-        regular_vouchers = []
-        prior_vouchers = []
-
-        for voucher in vouchers:
-            voucher_date = voucher.date
-            if isinstance(voucher_date, str):
-                from datetime import date as date_type
-
-                voucher_date = date_type.fromisoformat(voucher_date)
-
-            if voucher_date.year == target_year:
-                if voucher.series.value == "IB":
-                    ib_vouchers.append(voucher)
-                else:
-                    regular_vouchers.append(voucher)
-            elif voucher_date.year < target_year:
-                prior_vouchers.append(voucher)
+        # The period's fiscal year: its IB (services/opening_balance.py) and
+        # its posted vouchers. A posted `IB`-series voucher predates
+        # migration 033 -- opening state, never a movement.
+        vouchers, _ = VoucherRepository.list_all(
+            fiscal_year_id=period.fiscal_year_id, status="posted"
+        )
+        regular_vouchers = [v for v in vouchers if v.series.value != "IB"]
 
         all_accounts = AccountRepository.get_all_as_dict()
 
-        # Calculate opening balances from IB vouchers, or from prior year totals
-        opening_balances = {}
-        source_vouchers = ib_vouchers if ib_vouchers else prior_vouchers
-
-        for voucher in source_vouchers:
-            for row in voucher.rows:
-                code = row.account_code
-                if code not in opening_balances:
-                    opening_balances[code] = {"debit": 0, "credit": 0}
-                opening_balances[code]["debit"] += row.debit or 0
-                opening_balances[code]["credit"] += row.credit or 0
+        opening = OpeningBalanceService().get(period.fiscal_year_id)
+        opening_balances = {
+            code: {"debit": max(amount, 0), "credit": max(-amount, 0)}
+            for code, amount in opening.balances.items()
+        }
 
         # Calculate changes from regular vouchers
         change_balances = {}
@@ -552,7 +727,7 @@ class PDFExportService:
             "total_equity_and_liabilities_change": total_eq_liab_change,
             "total_equity_and_liabilities_closing": total_eq_liab_closing,
             "balanced": abs(total_assets_closing - total_eq_liab_closing) < 100,
-            "has_ib_vouchers": len(ib_vouchers) > 0,
+            "opening_balance_source": opening.source,
             "compare_period": None,
             "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         }
@@ -664,30 +839,9 @@ class PDFExportService:
 
     def export_invoice_html(self, invoice_id: str) -> str:
         """Generate HTML for an invoice (fallback for PDF)."""
-        invoice = self.invoice_service.invoices.get(invoice_id)
-        if not invoice:
-            raise ValueError(f"Faktura {invoice_id} hittades inte")
-
-        vat_summary: Dict[str, int] = {}
-        for row in invoice.rows:
-            code = row.vat_code
-            vat_summary[code] = vat_summary.get(code, 0) + row.vat_amount
-
-        qr_code_data = None
-        if self.company.swish:
-            qr_code_data = generate_swish_qr(
-                payee=self.company.swish,
-                amount_ore=invoice.amount_inc_vat,
-                message=invoice.invoice_number,
-            )
-
-        context = {
-            "company": self.company,
-            "invoice": invoice,
-            "vat_summary": vat_summary,
-            "qr_code_data": qr_code_data,
-        }
-        return self.engine.render_html("invoice.html", context)
+        return self.engine.render_html(
+            "invoice.html", self._invoice_context(invoice_id)
+        )
 
     def export_trial_balance_html(self, period_id: str) -> str:
         """Generate HTML for trial balance (fallback for PDF)."""
