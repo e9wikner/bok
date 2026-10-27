@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Skal } from "@/components/skal/Skal";
 import { satteBredd } from "../../../vitest.setup";
@@ -63,6 +63,25 @@ describe("mobilmönstret under 1000 px", () => {
     const listar = container.querySelectorAll('[aria-label="Visa eller minimera chatten"]');
     expect(listar).toHaveLength(3);
     expect(container.querySelectorAll("[data-view-key]")).toHaveLength(3);
+  });
+
+  it("minimerar chatten när man går till en ny vy", () => {
+    const { container } = renderaSkal();
+    const aktivList = () =>
+      container.querySelector(
+        '[data-view-key]:not([aria-hidden]) [aria-label="Visa eller minimera chatten"]'
+      ) as HTMLButtonElement;
+    expect(aktivList()).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(aktivList());
+    expect(aktivList()).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Balansräkning" }));
+    expect(aktivList().closest("[data-view-key]")).toHaveAttribute("data-view-key", "bocker.balans");
+    expect(aktivList()).toHaveAttribute("aria-expanded", "false");
+
+    // Tillbaka till vyn där den var uppfälld: också minimerad.
+    fireEvent.click(screen.getByRole("button", { name: "Verifikationer" }));
+    expect(aktivList()).toHaveAttribute("aria-expanded", "false");
   });
 
   it("har ingen desktopfot med prickar — prickarna ligger i headern", () => {

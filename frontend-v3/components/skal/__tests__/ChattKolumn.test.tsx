@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import { ChattKolumn, TradYta } from "@/components/skal/ChattKolumn";
 import { ChattList } from "@/components/skal/ChattList";
 import type { UseTrad } from "@/hooks/useTrad";
@@ -219,11 +219,22 @@ describe("ChattList på mobilen (testfall 16)", () => {
       <ChattList vyTitel="Verifikationer" viewKey="bocker.verifikationer" vantandeBeslut={1} />
     );
     const knapp = getByRole("button", { name: "Visa eller minimera chatten" });
-    expect(getByTestId("chattlist-marke")).toHaveTextContent("1 väntar");
-
-    knapp.click();
     // Minimerad: tråden är borta, märket är kvar.
+    expect(knapp).toHaveAttribute("aria-expanded", "false");
     expect(getByTestId("chattlist-marke")).toHaveTextContent("1 väntar");
+  });
+
+  it("börjar minimerad och fälls upp med knappen", async () => {
+    const { getByRole, queryByLabelText } = render(
+      <ChattList vyTitel="Balansräkning" viewKey="bocker.balans" vantandeBeslut={0} />
+    );
+    const knapp = getByRole("button", { name: "Visa eller minimera chatten" });
+    expect(knapp).toHaveAttribute("aria-expanded", "false");
+    expect(queryByLabelText("Tråd för Balansräkning")).toBeNull();
+
+    await act(async () => knapp.click());
+    expect(knapp).toHaveAttribute("aria-expanded", "true");
+    expect(queryByLabelText("Tråd för Balansräkning")).not.toBeNull();
   });
 
   it("märket bär väntar-färgen bara när något faktiskt väntar", () => {
