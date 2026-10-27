@@ -235,6 +235,7 @@ describe("urklipp och dra och släpp går samma väg (testfall 49)", () => {
   it("samma sak i mobilens chattlist", async () => {
     post.mockResolvedValueOnce(kalla("src-4"));
     render(<ChattList vyTitel="Verifikationer" viewKey="bocker.verifikationer" vantandeBeslut={0} />);
+    fireEvent.click(screen.getByRole("button", { name: "Visa eller minimera chatten" }));
     const trad = screen.getByLabelText("Tråd för Verifikationer");
     fireEvent.drop(trad, { dataTransfer: { files: [fil("foto.jpg", "image/jpeg", 900_000)], types: ["Files"] } });
     await waitFor(() => expect(screen.getByTestId("filchip")).toHaveTextContent("klar"));

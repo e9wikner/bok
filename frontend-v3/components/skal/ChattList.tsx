@@ -19,6 +19,10 @@ import { useTrad, type UseTrad } from "@/hooks/useTrad";
  * MINIMERAD." Det är hela poängen med märket — kön ligger i tråden och det
  * finns inga notiser.
  *
+ * Listen börjar minimerad. Ett vybyte monterar om den aktiva vyns list, så
+ * den som går till en ny vy möter vyn, inte förra vyns uppfällda chatt.
+ * Ett beslut eller inlägg som tas upp i vyn fäller ändå upp den.
+ *
  * Tråden läses HÄR, en gång, och ges till både märket och `TradYta`. Läste
  * ytan den själv vore det två strömmar mot samma vy. Som i `ChattKolumn`
  * läses den bara för den aktiva vyn (SPEC-chattyta.md §6.2 punkt 5).
@@ -75,7 +79,7 @@ function ListLayout({
   onSkicka?: UseTrad["skicka"];
   onNollstall?: UseTrad["nollstall"];
 }) {
-  const [oppen, setOppen] = useState(true);
+  const [oppen, setOppen] = useState(false);
   const { valt, forifyllning, inlagg } = useBeslutFokus();
   const fyll = forifyllning?.viewKey === viewKey ? forifyllning : null;
   // Ett beslut eller ett inlägg som tas upp i den här vyn fäller upp

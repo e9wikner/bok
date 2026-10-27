@@ -421,6 +421,7 @@ describe("skalets ytor ger korten vyns nyckel (testfall 20)", () => {
     const { container } = render(
       medKlient(<ChattList vyTitel="Verifikationer" viewKey={VY} vantandeBeslut={0} />)
     );
+    fireEvent.click(screen.getByRole("button", { name: "Visa eller minimera chatten" }));
     await waitFor(() => expect(kort(container, "p-1").dataset.beslutLage).toBe("besvarad"));
     expect(get).toHaveBeenCalledTimes(1);
     expect(get.mock.calls[0][1].params).toMatchObject({ view_key: VY, status: "all" });

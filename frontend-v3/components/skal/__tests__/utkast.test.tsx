@@ -37,9 +37,11 @@ describe("chattfältets utkast", () => {
 
   it("står kvar när fältet monteras om helt (sidbyte), också på mobil", () => {
     const { unmount } = render(<ChattList vyTitel="Resultat" viewKey="bocker.resultat" vantandeBeslut={0} />);
+    fireEvent.click(screen.getByRole("button", { name: "Visa eller minimera chatten" }));
     fireEvent.change(falt(), { target: { value: "halvskriven" } });
     unmount();
     render(<ChattList vyTitel="Resultat" viewKey="bocker.resultat" vantandeBeslut={0} />);
+    fireEvent.click(screen.getByRole("button", { name: "Visa eller minimera chatten" }));
     expect(falt().value).toBe("halvskriven");
   });
 

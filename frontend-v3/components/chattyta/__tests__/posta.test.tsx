@@ -510,6 +510,7 @@ describe("testfall 36: Ändra", () => {
 
   it("testfall 36: på mobilen (ChattList) går fokus till listens fält", async () => {
     render(medKlient(<ChattList vyTitel="Verifikationer" viewKey={VY} vantandeBeslut={0} />));
+    await userEvent.click(screen.getByRole("button", { name: "Visa eller minimera chatten" }));
     await userEvent.click(screen.getByRole("button", { name: "Ändra" }));
     const falt = screen.getByLabelText(/Fråga om en post i verifikationer/i);
     expect(falt).toHaveFocus();
