@@ -116,3 +116,52 @@ class LinkResult:
     def to_dict(self) -> Dict[str, Any]:
         """In §6.6's key order."""
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class IntakeLinkProposal:
+    """One `intake_link_proposals` row (migration 044): a
+    `foresla_delat_underlag` card and the source and voucher it shows."""
+
+    id: str
+    decision_id: str
+    thread_id: str
+    intake_source_id: str
+    voucher_id: str
+    fiscal_year_id: str
+    once_option_id: str
+    standing_option_id: str
+    status: str
+    created_by: str
+    created_at: datetime
+    resolved_at: Optional[datetime] = None
+    resolved_by: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class ReuseApproval:
+    """One `intake_reuse_approvals` row (migration 044), with its
+    revocation when there is one: the underlag may support further vouchers
+    in *fiscal_year_id* without asking again, until revoked."""
+
+    id: str
+    intake_source_id: str
+    fiscal_year_id: str
+    decision_id: str
+    approved_by: str
+    created_at: datetime
+    revoked_at: Optional[datetime] = None
+    revoked_by: Optional[str] = None
+    revoke_reason: Optional[str] = None
+
+    @property
+    def is_active(self) -> bool:
+        return self.revoked_at is None
+
+    def to_dict(self) -> Dict[str, Any]:
+        data = asdict(self)
+        for key in ("created_at", "revoked_at"):
+            if data[key] is not None:
+                data[key] = data[key].isoformat()
+        data["active"] = self.is_active
+        return data

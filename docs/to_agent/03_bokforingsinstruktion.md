@@ -118,6 +118,25 @@ Därför:
     och fråga om de ska rättas. Ett underlag som kopplats bort kopplas inte
     tillbaka till samma verifikation utan ett nytt beslut. Utan tråd, i ett
     underlagspass, kan ingenting kopplas bort.
+11. **Ett underlag som styrker flera verifikationer:** ett låneavtal ligger
+    bakom varje amortering, en årsfaktura bakom varje månad den periodiseras
+    över, och ett underlag kan täcka flera transaktioner. Ett sådant underlag
+    får kopplas till fler än en verifikation, men aldrig på ditt eget ord.
+    Samma kvitto bokförs inte två gånger, så ett nytt kvitto kopplas alltid
+    till en verifikation som saknar underlag. Ska ett redan kopplat underlag
+    styrka en postad verifikation till: tolka det om det inte är tolkat och
+    anropa `foresla_delat_underlag` med verifikationen och skälet i en mening.
+    Användaren väljer på kortet om underlaget kopplas den här gången eller
+    godkänns för kommande verifikationer under verifikationens räkenskapsår.
+    När underlaget är godkänt för året kopplar du med `koppla_underlag` utan
+    `decision_id`, eller tar med det i `intake_source_ids` i
+    `posta_verifikation`, för verifikationer i samma räkenskapsår. Ett nytt
+    räkenskapsår kräver ett nytt kort. `koppla_underlag` och
+    `posta_verifikation` vägrar annars med `intake_already_linked`. Ska en ny
+    verifikation bokföras på ett redan kopplat underlag utan godkännande:
+    lägg fram den med `foresla_verifikation`. Kortet säger vilka
+    verifikationer underlaget redan styrker, och användarens tryck kopplar
+    det.
 11. **`placement.status = "no_fiscal_year"`:** underlagets datum ligger inte i
     något räkenskapsår. Datera aldrig om underlaget till ett annat år för att
     det ska passa — servern vägrar med `underlag_outside_fiscal_years`. Föreslå

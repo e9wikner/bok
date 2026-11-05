@@ -70,14 +70,22 @@ def post_agent_voucher(
     bank_input_ids = _unique_preserve_order(request.bank_input_ids)
     bank_transaction_ids = _unique_preserve_order(request.bank_transaction_ids)
 
+    # Migration 044: an underlag that already supports vouchers may be
+    # posted on again only under a standing approval for the voucher's
+    # fiscal year (`foresla_delat_underlag`); otherwise it is refused as
+    # already linked.
+    shared = _approved_shared_sources(intake, intake_source_ids, request.period_id)
     for source_id in intake_source_ids:
-        intake.ensure_source_ready_for_voucher_link(source_id)
+        if source_id not in shared:
+            intake.ensure_source_ready_for_voucher_link(source_id)
     # SPEC-flode-underlag.md §8: an underlag that matches a posted voucher
     # exactly is linked, not posted again. Before anything is written; the
     # caller releases its idempotency key when this raises.
     from services.intake_link import IntakeLinkService
 
-    IntakeLinkService.ensure_not_matching_posted(intake_source_ids)
+    IntakeLinkService.ensure_not_matching_posted(
+        [s for s in intake_source_ids if s not in shared]
+    )
     _ensure_agent_voucher_has_traceability(intake_source_ids, bank_input_ids)
     bank_inputs.ensure_transactions_available(
         bank_input_ids,
@@ -103,6 +111,17 @@ def post_agent_voucher(
         processing_attempt_ids = []
         summary = request.reasoning_summary or request.description
         for source_id in intake_source_ids:
+            if source_id in shared:
+                intake.link_shared_source(
+                    source_id,
+                    voucher.id,
+                    known_voucher_ids=shared[source_id][0],
+                    actor=actor,
+                    summary=summary,
+                    link_reason=f"reuse_approval={shared[source_id][1]}",
+                    _commit=False,
+                )
+                continue
             attempt, _link = intake.link_existing_voucher(
                 source_id=source_id,
                 voucher_id=voucher.id,
@@ -183,3 +202,26 @@ def _ensure_agent_voucher_has_traceability(
             "for bank inputs"
         ),
     )
+
+
+def _approved_shared_sources(
+    intake: IntakeService, source_ids: list, period_id: Optional[str]
+) -> dict:
+    """``{source_id: (voucher_ids it supports now, approval_id)}`` for the
+    underlag that already support vouchers and are approved for further
+    ones in the fiscal year of *period_id* (migration 044)."""
+    from repositories.period_repo import PeriodRepository
+    from services.intake_reuse import IntakeReuseService
+
+    period = PeriodRepository.get_period(period_id) if period_id else None
+    if period is None:
+        return {}
+    shared = {}
+    for source_id in source_ids:
+        supported = intake.supported_vouchers(source_id)
+        if not supported:
+            continue
+        approval = IntakeReuseService.approval_for(source_id, period.fiscal_year_id)
+        if approval is not None:
+            shared[source_id] = (supported, approval.id)
+    return shared

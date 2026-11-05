@@ -101,6 +101,12 @@ migration 042); the human's press writes ``company_info``, filling empty
 fields and overwriting only on the card's overwrite option. It refuses outside
 a thread and creates no voucher.
 
+A thirty-second, ``foresla_delat_underlag``, is appended last for the same
+reason. It proposes linking an underlag that already supports a voucher to one
+more (``services/intake_reuse.py``, migration 044); a logged-in human's press
+links it once, or links it and approves the underlag for further vouchers in
+the fiscal year. It refuses outside a thread.
+
 A thirtieth and thirty-first, ``foresla_lonebokforing`` and
 ``foresla_agi_bokforing``, are appended after ``sok_verifikationer`` for the
 same reason. They propose booking a payslip against the bank transaction
@@ -770,6 +776,23 @@ class ForeslaLonebokforingArgs(BaseModel):
         None,
         description="Utbetalningen; utelämnad letar servern upp den enda "
         "obokade utbetalningen på nettolönen nära utbetalningsdagen",
+    )
+
+
+class ForeslaDelatUnderlagArgs(BaseModel):
+    """Föreslå att ett underlag som redan styrker en verifikation också ska
+    styrka en till, postad verifikation. Servern lägger ett beslutskort;
+    användaren kopplar en gång, eller godkänner underlaget för kommande
+    verifikationer under räkenskapsåret."""
+
+    source_id: str
+    voucher_id: str
+    reason: str = Field(
+        ...,
+        min_length=1,
+        max_length=500,
+        description="Varför underlaget styrker även den här verifikationen, "
+        "t.ex. 'amortering enligt låneavtalet'",
     )
 
 
@@ -2043,6 +2066,27 @@ def _run_foresla_agi_bokforing(
     )
 
 
+def _run_foresla_delat_underlag(
+    args: ForeslaDelatUnderlagArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """Not terminal. Needs the ``thread``: the card goes in it, and a
+    logged-in human's press links (migration 044)."""
+    from services.intake_reuse import IntakeReuseService
+
+    return IntakeReuseService().propose(
+        (tool_context or {}).get("thread"),
+        source_id=args.source_id,
+        voucher_id=args.voucher_id,
+        reason=args.reason,
+        actor=actor,
+    )
+
+
 _ToolHandler = Callable[..., Any]
 
 _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
@@ -2360,6 +2404,20 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
         ForeslaAgiBokforingArgs,
         _run_foresla_agi_bokforing,
     ),
+    (
+        "foresla_delat_underlag",
+        "Föreslå att ett underlag som redan styrker en verifikation också "
+        "ska styrka en annan, redan postad verifikation -- ett låneavtal "
+        "bakom varje amortering, en årsfaktura som periodiseras. Lägger ett "
+        "beslutskort i tråden; användaren kopplar en gång, eller godkänner "
+        "underlaget för kommande verifikationer under verifikationens "
+        "räkenskapsår. Med ett sådant godkännande kopplar du med "
+        "koppla_underlag eller bokför med posta_verifikation utan att fråga "
+        "igen. Använd aldrig för ett nytt kvitto: samma kvitto bokförs inte "
+        "två gånger. Kräver en tolkning av underlaget. Bara i ett samtal.",
+        ForeslaDelatUnderlagArgs,
+        _run_foresla_delat_underlag,
+    ),
 )
 
 #: Anthropic tool-definition shape: {"name", "description", "input_schema"}.
@@ -2404,8 +2462,9 @@ def execute_tool(
     tool_context: Optional[Mapping[str, Any]] = None,
 ) -> Any:
     """Validate and run one model-requested tool call -- one of the
-    thirty-one tools in ``_TOOL_SPECS``, the last of them
-    ``foresla_agi_bokforing`` (the thirtieth ``foresla_lonebokforing``, the
+    thirty-two tools in ``_TOOL_SPECS``, the last of them
+    ``foresla_delat_underlag`` (the thirty-first ``foresla_agi_bokforing``,
+    the thirtieth ``foresla_lonebokforing``, the
     twenty-eighth ``foresla_bolagsinformation``, the twenty-seventh
     ``foresla_rakenskapsar``,
     the twenty-sixth ``skapa_lonekorning``, the

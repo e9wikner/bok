@@ -131,6 +131,7 @@ _TRACE_LABELS = {
     "sok_verifikationer": "verifikationer sökta",
     "foresla_lonebokforing": "lönebokföring föreslagen",
     "foresla_agi_bokforing": "AGI-bokföring föreslagen",
+    "foresla_delat_underlag": "delat underlag föreslaget",
 }
 
 

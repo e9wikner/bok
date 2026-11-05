@@ -390,11 +390,28 @@ class IntakeRepository:
 
     @staticmethod
     def get_link_by_source_id(source_id: str) -> Optional[VoucherIntakeSource]:
-        """The source's current link, or `None` -- never an undone one."""
+        """The source's first current link, or `None` -- never an undone
+        one. Enough to ask "is this underlag linked at all?"; a source may
+        support several vouchers (migration 044), and
+        `list_links_for_source` gives them all."""
         row = db.execute(
             IntakeRepository._LINK_SELECT
-            + " WHERE vis.intake_source_id = ? AND u.link_id IS NULL LIMIT 1",
+            + " WHERE vis.intake_source_id = ? AND u.link_id IS NULL"
+            " ORDER BY vis.linked_at ASC, vis.rowid ASC LIMIT 1",
             (source_id,),
+        ).fetchone()
+        return IntakeRepository._row_to_link(row) if row else None
+
+    @staticmethod
+    def current_link(source_id: str, voucher_id: str) -> Optional[VoucherIntakeSource]:
+        """The current link between the two, or `None`. A source may have
+        current links to several vouchers (migration 044), but at most one
+        to each."""
+        row = db.execute(
+            IntakeRepository._LINK_SELECT
+            + " WHERE vis.intake_source_id = ? AND vis.voucher_id = ?"
+            " AND u.link_id IS NULL LIMIT 1",
+            (source_id, voucher_id),
         ).fetchone()
         return IntakeRepository._row_to_link(row) if row else None
 
@@ -425,8 +442,8 @@ class IntakeRepository:
     def list_links_for_source(
         source_id: str, *, include_unlinked: bool = False
     ) -> List[VoucherIntakeSource]:
-        """The source's current link as a list (at most one), or its whole
-        history with *include_unlinked*, oldest first."""
+        """The source's current links -- one per voucher it supports -- or
+        its whole history with *include_unlinked*, oldest first."""
         where = " WHERE vis.intake_source_id = ?"
         if not include_unlinked:
             where += " AND u.link_id IS NULL"

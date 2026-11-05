@@ -59,9 +59,20 @@ The link between an underlag (intake source) and a voucher follows the same
 rule (migration 035). `voucher_intake_sources`, `intake_link_basis` and
 `voucher_intake_unlinks` refuse UPDATE/DELETE. A wrong link is undone by an
 unlink row (`IntakeLinkService.unlink`, the tool `koppla_bort_underlag`,
-`POST /api/v1/intake/{id}/unlink`). The link row stays. A trigger allows at most
-one *current* link per source, and "current" means the link has no unlink row.
-Anything that asks "is this linked?" must read current links only.
+`POST /api/v1/intake/{id}/unlink`). The link row stays. "Current" means the link
+has no unlink row, and anything that asks "is this linked?" must read current
+links only.
+
+One underlag may support several vouchers (migration 044): a loan agreement
+behind every amortisation, an annual invoice accrued month by month. The
+trigger allows one current link per source *and voucher*. The guard against
+booking one receipt twice is in the services. The server links an underlag on
+its own only while it supports no voucher. A further link needs a human's
+press: a `foresla_delat_underlag` card (`services/intake_reuse.py`) linking
+once or approving the underlag for the rest of that voucher's fiscal year
+(`intake_reuse_approvals`, append-only, revocable by a human), or a
+`foresla_verifikation` card that names the vouchers the underlag already
+supports.
 
 A statement transaction's link to a voucher works the same way (migration
 040). `voucher_bank_transactions` and `voucher_bank_transaction_unlinks` refuse

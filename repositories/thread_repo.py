@@ -236,17 +236,24 @@ class ThreadRepository:
         return ThreadRepository._row_to_post(row) if row else None
 
     @staticmethod
-    def receipt_for_source(thread_id: str, source_id: str) -> Optional[ThreadPost]:
+    def receipt_for_source(
+        thread_id: str, source_id: str, voucher_id: Optional[str] = None
+    ) -> Optional[ThreadPost]:
         """The `receipt` post in *thread_id* that acknowledges the link of
-        *source_id* (SPEC-flode-underlag.md §9.3), or `None`. One query, on
-        the body's `source_id`: the receipt is written after the link's
-        commit, and a replay writes it only when this finds none."""
-        row = db.execute(
+        *source_id* (SPEC-flode-underlag.md §9.3) -- to *voucher_id* when
+        given, since an underlag may support several vouchers (migration
+        044) -- or `None`. One query, on the body's ids: the receipt is
+        written after the link's commit, and a replay writes it only when
+        this finds none."""
+        sql = (
             "SELECT * FROM thread_posts WHERE thread_id = ? AND type = 'receipt' "
             "AND json_extract(body_json, '$.source_id') = ? "
-            "ORDER BY seq LIMIT 1",
-            (thread_id, source_id),
-        ).fetchone()
+        )
+        params: list = [thread_id, source_id]
+        if voucher_id is not None:
+            sql += "AND json_extract(body_json, '$.voucher_id') = ? "
+            params.append(voucher_id)
+        row = db.execute(sql + "ORDER BY seq LIMIT 1", params).fetchone()
         return ThreadRepository._row_to_post(row) if row else None
 
     @staticmethod

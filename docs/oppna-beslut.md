@@ -98,6 +98,29 @@ Det här är kontroller, inte beslut. De kräver en människa, och den första e
    människa kan också använda routen direkt. Frånkopplade underlag visas i
    `source-context.unlinked_source_material`, men `/v4` ritar dem inte ännu.
 
+## Delat underlag (migration 044): val som gjordes i bygget, att bekräfta
+
+1. **Ett nytt underlag kopplas fortfarande automatiskt till högst en verifikation.** En exakt
+   matchning gäller bara ett underlag som inte styrker någon verifikation än. Ett redan kopplat
+   underlag kopplas till en till bara efter en människas tryck.
+2. **Människans tryck finns på två ställen.** Det ena är `foresla_delat_underlag`-kortet, som
+   kopplar till en redan postad verifikation. Det andra är ett `foresla_verifikation`-kort med ett
+   redan kopplat underlag: fotnoten säger vilka verifikationer underlaget redan styrker, och
+   trycket på Posta kopplar det. Ett vanligt beslut från `be_om_beslut` räcker inte, eftersom det
+   inte visar för människan att underlaget redan är bokfört.
+3. **"Godkänn för kommande verifikationer" finns bara på `foresla_delat_underlag`-kortet.**
+   Verifikationskortet har en knapp, Posta, och den kopplar en gång. Ska valet finnas där också
+   behövs en andra knapp i `/v4`.
+4. **Ett godkännande gäller verifikationens räkenskapsår**, alltså året för verifikationen på
+   kortet, inte året då kortet besvarades. Ett nytt år kräver ett nytt kort.
+5. **Ett godkännande kan återkallas** av en inloggad människa:
+   `POST /api/v1/intake/{id}/reuse-approvals/{approval_id}/revoke`. Kopplingar som redan gjorts
+   står kvar. Det finns ingen knapp i `/v4` än. Godkännandena syns i
+   `GET /intake/workspace/voucher_source/{id}` som `reuse_approvals`.
+6. **En koppling i efterhand till en ytterligare verifikation kräver en tolkning av underlaget**,
+   eftersom kopplingens grund pekar ut en tolkning. Verifikationen behöver däremot inte finnas
+   i tolkningen: kortet pekar ut den, och ett låneavtals belopp matchar ingen enskild amortering.
+
 ## Fakturering
 
 F0 och F1 är byggda. Specarna står i git-historiken (se `AGENTS.md`).

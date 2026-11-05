@@ -53,8 +53,9 @@ class IntakeLinkRepository:
 
     @staticmethod
     def get_for_source(source_id: str) -> Optional[IntakeLinkBasis]:
-        """The basis of *source_id*'s current link, or `None` when it has
-        none or it was not linked after the fact (by a posting)."""
+        """The basis of *source_id*'s first current link made after the fact,
+        or `None`. A source may support several vouchers (migration 044);
+        `get_for_link` names one link."""
         row = db.execute(
             """
             SELECT b.* FROM intake_link_basis b
@@ -62,6 +63,7 @@ class IntakeLinkRepository:
               AND NOT EXISTS (
                   SELECT 1 FROM voucher_intake_unlinks u WHERE u.link_id = b.link_id
               )
+            ORDER BY b.created_at, b.rowid LIMIT 1
             """,
             (source_id,),
         ).fetchone()

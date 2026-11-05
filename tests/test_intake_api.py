@@ -563,7 +563,9 @@ async def test_agent_voucher_rejects_duplicate_intake_link(
         )
 
     assert exc_info.value.status_code == 409
-    assert exc_info.value.detail["code"] == "intake_not_processable"
+    # Migration 044: refused as already linked, not for its status -- the
+    # agent alone never books one receipt twice.
+    assert exc_info.value.detail["code"] == "intake_already_linked"
     assert len(IntakeRepository.list_links_for_voucher(first["id"])) == 1
     assert len(IntakeRepository.list_attempts_for_source(source.id)) == 1
 

@@ -583,6 +583,11 @@ class ThreadDraft:
     intake_source_ids: List[str] = field(default_factory=list)
     bank_input_ids: List[str] = field(default_factory=list)
     bank_transaction_ids: List[str] = field(default_factory=list)
+    # Migration 044: an underlag in `intake_source_ids` that already
+    # supported vouchers when the card was proposed, and which. The card
+    # says so, and the human's press is the basis for the further link; a
+    # link made after the proposal is not covered by it.
+    shared_intake_sources: Dict[str, List[str]] = field(default_factory=dict)
 
 
 @dataclass

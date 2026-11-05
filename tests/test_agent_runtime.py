@@ -1122,6 +1122,9 @@ _EXPECTED_TOOL_NAMES = [
     # payslip or an AGI is proposed as a card; a human's press books it.
     "foresla_lonebokforing",
     "foresla_agi_bokforing",
+    # The thirty-second (migration 044): an underlag that already supports a
+    # voucher is proposed for one more as a card; a human's press links it.
+    "foresla_delat_underlag",
 ]
 
 #: Names that carry a forbidden fragment by design, and why it is not the
@@ -1294,6 +1297,7 @@ class TestAppendOnlyToolSurface:
             "foresla_bolagsinformation",
             "foresla_lonebokforing",
             "foresla_agi_bokforing",
+            "foresla_delat_underlag",
         }
         read_tool_names = set(_EXPECTED_TOOL_NAMES) - write_tool_names
         for tool in AGENT_TOOL_DEFINITIONS:

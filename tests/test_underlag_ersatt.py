@@ -164,8 +164,11 @@ def test_migration_035_is_applied_with_its_triggers(test_db):
         r["name"]
         for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'trigger'")
     }
+    # Migration 044 replaced `one_current_link_per_source` with
+    # `one_current_link_per_source_and_voucher`.
+    assert "one_current_link_per_source" not in triggers
     assert {
-        "one_current_link_per_source",
+        "one_current_link_per_source_and_voucher",
         "unlink_matches_link",
         "prevent_update_voucher_intake_sources",
         "prevent_delete_voucher_intake_sources",
@@ -246,11 +249,19 @@ def test_migration_035_carries_links_and_bases_over():
         os.remove(path)
 
 
-def test_one_current_link_per_source_is_kept_by_the_schema(period_id):
-    """The old `UNIQUE(intake_source_id)`, for current links: a second link
-    is refused until the first is undone."""
+def test_one_current_link_per_source_and_voucher_is_kept_by_the_schema(period_id):
+    """Migration 044: a source may support several vouchers, but carries at
+    most one current link to each. The guard against booking one receipt
+    twice is the service's (`tests/test_delat_underlag.py`)."""
     voucher_id, source_id = _linked(period_id)
     other = posted_purchase(period_id, day=16)
+
+    IntakeRepository.create_voucher_link(
+        intake_source_id=source_id, voucher_id=other, linked_by="agent"
+    )
+    assert {
+        link.voucher_id for link in IntakeRepository.list_links_for_source(source_id)
+    } == {voucher_id, other}
 
     with pytest.raises(sqlite3.IntegrityError, match="already linked"):
         IntakeRepository.create_voucher_link(
@@ -258,11 +269,12 @@ def test_one_current_link_per_source_is_kept_by_the_schema(period_id):
         )
     db.rollback()
 
-    _unlink(source_id, voucher_id, human=True)
+    # Undone, the pair can be linked again.
+    _unlink(source_id, other, human=True)
     IntakeRepository.create_voucher_link(
         intake_source_id=source_id, voucher_id=other, linked_by="agent"
     )
-    assert IntakeRepository.get_link_by_source_id(source_id).voucher_id == other
+    assert IntakeRepository.current_link(source_id, other) is not None
 
 
 def test_links_and_unlinks_are_append_only(period_id):

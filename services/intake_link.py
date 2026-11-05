@@ -15,6 +15,10 @@ basis, as a posting does -- the latest interpretation's exact match
 `IntakeLinkService.unlink` (underlag-ersatt, D10) is the way back: it
 writes a row in `voucher_intake_unlinks` saying the link no longer holds,
 and leaves the link row where it is. The source can then carry a new link.
+
+An underlag may support several vouchers (migration 044). The server links
+one on its own only while it supports none -- so one receipt is not booked
+twice -- and a further link needs an answered decision about the underlag.
 An unlink needs a basis too -- a logged-in human, or an answered decision
 about the underlag made after the link. Behind `koppla_bort_underlag` and
 `POST /api/v1/intake/{id}/unlink`.
@@ -160,13 +164,14 @@ class IntakeLinkService:
         nothing written, whatever *decision_id* says."""
         source = self._source(source_id)
 
-        # Checks 3 and 4: an existing link is a replay or a conflict.
-        existing = IntakeRepository.get_link_by_source_id(source_id)
+        # Checks 3 and 4: an existing link to this voucher is a replay or a
+        # conflict.
+        existing = IntakeRepository.current_link(source_id, voucher_id)
         if existing is not None:
-            basis = IntakeLinkRepository.get_for_source(source_id)
-            linked = VoucherRepository.get(existing.voucher_id)
-            if existing.voucher_id == voucher_id and basis is not None:
-                assert linked is not None  # a link points at a voucher
+            basis = IntakeLinkRepository.get_for_link(existing.id)
+            linked = VoucherRepository.get(voucher_id)
+            assert linked is not None  # a link points at a voucher
+            if basis is not None:
                 result = self._result(basis, linked, replayed=True)
                 if thread_id is not None:
                     # §6.5, §9.3: the receipt again, only if it is missing.
@@ -179,37 +184,52 @@ class IntakeLinkService:
                         thread_id=thread_id,
                     )
                 return result
-            number = _number(linked) if linked is not None else None
             raise LinkConflictError(
                 "intake_already_linked",
                 "Intake source is already linked to a voucher",
-                f"source_id={source_id}, voucher={number or existing.voucher_id}",
+                f"source_id={source_id}, voucher={_number(linked) or voucher_id}",
             )
 
-        # Check 5.
-        if source.status not in LINKABLE_STATUSES:
-            raise LinkConflictError(
-                "intake_not_linkable",
-                "Intake source cannot be linked in its current status",
-                f"source_id={source_id}, status={source.status.value}",
+        # Migration 044: an underlag may support several vouchers -- a loan
+        # agreement behind every amortisation, an annual invoice accrued
+        # month by month. The server never adds such a link on its own; it
+        # keeps one receipt from being booked twice. A further link needs a
+        # human's word (`_shared_basis`).
+        elsewhere = IntakeRepository.list_links_for_source(source_id)
+        if elsewhere:
+            voucher = self._voucher(voucher_id)
+            decision_id = self._shared_basis(
+                source_id,
+                voucher,
+                decision_id if decisions_allowed else None,
+                elsewhere,
             )
-
-        voucher = self._voucher(voucher_id)
-        interpretation = self._interpretation(source_id, voucher)
-        if decision_id is not None and decisions_allowed:
-            self._decision(decision_id, source_id, thread_id)
-            # A decision bases one link. Without this, the decision behind
-            # a link that was undone could put it back without anyone
-            # having said so again.
-            if IntakeLinkRepository.get_by_decision(decision_id) is not None:
-                raise LinkConflictError(
-                    "decision_already_used",
-                    "The decision is already the basis of a link",
-                    f"decision_id={decision_id}",
-                )
+            interpretation = self._latest_interpretation(source_id)
             basis_kind: LinkBasis = "decision"
         else:
-            basis_kind = self._exact_match(source_id, voucher, interpretation)
+            # Check 5.
+            if source.status not in LINKABLE_STATUSES:
+                raise LinkConflictError(
+                    "intake_not_linkable",
+                    "Intake source cannot be linked in its current status",
+                    f"source_id={source_id}, status={source.status.value}",
+                )
+            voucher = self._voucher(voucher_id)
+            interpretation = self._interpretation(source_id, voucher)
+            if decision_id is not None and decisions_allowed:
+                self._decision(decision_id, source_id, thread_id)
+                # A decision bases one link. Without this, the decision
+                # behind a link that was undone could put it back without
+                # anyone having said so again.
+                if IntakeLinkRepository.get_by_decision(decision_id) is not None:
+                    raise LinkConflictError(
+                        "decision_already_used",
+                        "The decision is already the basis of a link",
+                        f"decision_id={decision_id}",
+                    )
+                basis_kind = "decision"
+            else:
+                basis_kind = self._exact_match(source_id, voucher, interpretation)
 
         number = _number(voucher)
         basis = IntakeLinkBasis(
@@ -267,9 +287,10 @@ class IntakeLinkService:
         way out, used for no other unlink, and in *thread_id* when given.
 
         One transaction writes the `voucher_intake_unlinks` row, an attempt
-        saying so, and sets the source to `needs_attention`: it has no voucher now, it is not
-        picked up by the intake pass, and a link after the fact takes it
-        (D9). No voucher is created, changed or removed. A second call for
+        saying so, and -- unless the source still supports another voucher
+        (migration 044) -- sets it to `needs_attention`: it has no voucher
+        now, it is not picked up by the intake pass, and a link after the
+        fact takes it (D9). No voucher is created, changed or removed. A second call for
         a link already undone is a replay: the same answer with
         `replayed: true`, nothing written."""
         source = IntakeRepository.get_source(source_id)
@@ -283,20 +304,21 @@ class IntakeLinkService:
                 "voucher_not_found", "Voucher not found", f"voucher_id={voucher_id}"
             )
 
-        current = IntakeRepository.get_link_by_source_id(source_id)
-        if current is None or current.voucher_id != voucher_id:
+        current = IntakeRepository.current_link(source_id, voucher_id)
+        if current is None:
             latest = IntakeRepository.latest_link(source_id, voucher_id)
             if latest is not None and not latest.is_current:
                 done = IntakeUnlinkRepository.get_for_link(latest.id)
                 assert done is not None  # not current means it was undone
                 return self._unlink_result(done, voucher, replayed=True)
-            if current is not None:
-                elsewhere = VoucherRepository.get(current.voucher_id)
+            other = IntakeRepository.get_link_by_source_id(source_id)
+            if other is not None:
+                elsewhere = VoucherRepository.get(other.voucher_id)
                 raise LinkConflictError(
                     "source_linked_elsewhere",
                     "The underlag is linked to another voucher",
                     f"source_id={source_id}, voucher="
-                    f"{(_number(elsewhere) if elsewhere else None) or current.voucher_id}",
+                    f"{(_number(elsewhere) if elsewhere else None) or other.voucher_id}",
                 )
             raise LinkConflictError(
                 "source_not_linked",
@@ -356,12 +378,16 @@ class IntakeLinkService:
                 actor=actor,
                 _commit=False,
             )
-            IntakeRepository.update_status(
-                source_id,
-                IntakeStatus.NEEDS_ATTENTION.value,
-                actor=actor,
-                _commit=False,
-            )
+            # Still supporting another voucher (migration 044), it stays
+            # `processed`: it is bokfört, and the intake pass must not book
+            # it again.
+            if IntakeRepository.get_link_by_source_id(source_id) is None:
+                IntakeRepository.update_status(
+                    source_id,
+                    IntakeStatus.NEEDS_ATTENTION.value,
+                    actor=actor,
+                    _commit=False,
+                )
 
         result = self._unlink_result(unlink, voucher, replayed=False)
         self._after_unlink(unlink, voucher, result, thread_id=thread_id)
@@ -553,6 +579,86 @@ class IntakeLinkService:
                 "postad verifikation. Koppla det med koppla_underlag i stället.",
             )
 
+    # -- one underlag, several vouchers (migration 044) ----------------------
+
+    @staticmethod
+    def _shared_basis(
+        source_id: str,
+        voucher: Voucher,
+        decision_id: Optional[str],
+        elsewhere: Sequence,
+    ) -> str:
+        """The decision a further link of an underlag that already supports
+        vouchers rests on, or `intake_already_linked`.
+
+        Either *decision_id* is a `foresla_delat_underlag` card for exactly
+        this underlag and voucher, answered with one of its two yes options
+        and not used for a link before; or the underlag has a standing
+        approval, unrevoked, for the voucher's fiscal year -- then the
+        approval's decision is the basis, for every link it covers. An
+        ordinary decision does not do: the card is the one that showed the
+        human that the underlag is booked already."""
+        from repositories.intake_reuse_repo import (
+            IntakeLinkProposalRepository,
+            ReuseApprovalRepository,
+        )
+
+        if decision_id is not None:
+            proposal = IntakeLinkProposalRepository.get_by_decision(decision_id)
+            decision = DecisionRepository.get(decision_id)
+            if (
+                proposal is not None
+                and decision is not None
+                and proposal.intake_source_id == source_id
+                and proposal.voucher_id == voucher.id
+                and decision.status == "answered"
+                and decision.answer_option_id
+                in (proposal.once_option_id, proposal.standing_option_id)
+            ):
+                if IntakeLinkRepository.get_by_decision(decision_id) is not None:
+                    raise LinkConflictError(
+                        "decision_already_used",
+                        "The decision is already the basis of a link",
+                        f"decision_id={decision_id}",
+                    )
+                return decision_id
+        if voucher.fiscal_year_id:
+            approval = ReuseApprovalRepository.active_for(
+                source_id, voucher.fiscal_year_id
+            )
+            if approval is not None:
+                return approval.decision_id
+        numbers = VoucherRepository.numbers_for([lk.voucher_id for lk in elsewhere])
+        named = ", ".join(
+            (
+                f"{numbers[lk.voucher_id][0]}-{numbers[lk.voucher_id][1]}"
+                if lk.voucher_id in numbers
+                else lk.voucher_id
+            )
+            for lk in elsewhere
+        )
+        raise LinkConflictError(
+            "intake_already_linked",
+            "Intake source is already linked to a voucher",
+            f"source_id={source_id}, voucher={named} -- underlaget styrker redan "
+            "en verifikation. Ska det styrka en till, lägg fram det med "
+            "foresla_delat_underlag så att användaren godkänner.",
+        )
+
+    @staticmethod
+    def _latest_interpretation(source_id: str) -> Interpretation:
+        """Check 7 alone: a further link names the interpretation it was
+        made under, but the voucher need not be in it -- the card named the
+        voucher, and an agreement's amount matches no single voucher."""
+        interpretation = InterpretationRepository.latest_for_source(source_id)
+        if interpretation is None:
+            raise LinkRejectedError(
+                "interpretation_required",
+                "tolka underlaget med tolka_underlag först",
+                f"source_id={source_id}",
+            )
+        return interpretation
+
     # -- the checks, in §6.3's order ---------------------------------------
 
     @staticmethod
@@ -722,7 +828,7 @@ class IntakeLinkService:
             post = None
             if thread_id is not None:
                 if ThreadRepository.receipt_for_source(
-                    thread_id, basis.intake_source_id
+                    thread_id, basis.intake_source_id, basis.voucher_id
                 ):
                     return
                 post = ThreadRepository.add_post(
