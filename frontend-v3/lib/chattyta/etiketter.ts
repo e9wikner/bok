@@ -48,6 +48,10 @@ export const SKRIVER_ETIKETTER: Readonly<Record<string, string>> = {
   sok_verifikationer: "Söker verifikationer…",
   foresla_lonebokforing: "Föreslår en lönebokföring…",
   foresla_agi_bokforing: "Föreslår bokföring av arbetsgivardeklarationen…",
+  foresla_delat_underlag: "Föreslår att underlaget styrker en till verifikation…",
+  hamta_valutakurs: "Hämtar Riksbankens kurs…",
+  kontrollera_utlagg: "Letar efter utlägget i kontoutdragen…",
+  foresla_utlaggskontroll: "Frågar om utlägget…",
 };
 
 /**

@@ -43,6 +43,7 @@ from services.decision_service import (
 from services.fiscal_year_proposal import FiscalYearProposalService
 from services.intake_reuse import IntakeReuseService
 from services.payroll_proposal import PayrollProposalService
+from services.reimbursement_check import ReimbursementCheckService
 from services.thread_stream import ThreadTurnRunner
 
 logger = logging.getLogger(__name__)
@@ -334,6 +335,9 @@ async def answer_decision(
     # option links the underlag, and on the standing one also approves it
     # for the fiscal year. Any other decision: nothing.
     IntakeReuseService().on_decision_answered(decision, actor=actor)
+    # An utläggs card (`foresla_utlaggskontroll`): either answer puts the
+    # underlag back in the pass's queue, the exit records it as failed.
+    ReimbursementCheckService().on_decision_answered(decision, actor=actor)
 
     if settings.agent_runtime_enabled:
         ThreadTurnRunner().start(thread, answer_post, answer_post.body["text"])

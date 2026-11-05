@@ -135,6 +135,10 @@ class Voucher:
     created_at: datetime = field(default_factory=datetime.now)
     created_by: str = "system"
     posted_at: Optional[datetime] = None
+    # Free text beside `description` (migration 045): what the agent wants a
+    # reader to know, e.g. the exchange rate a foreign amount was converted
+    # at. Written at creation; a posted voucher's never changes.
+    comment: Optional[str] = None
     # Derived by the repository, never stored (SPEC-oversikt.md §3). None on a
     # voucher that was built in memory rather than read back.
     missing_attachment: Optional[bool] = None

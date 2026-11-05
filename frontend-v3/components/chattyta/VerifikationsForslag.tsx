@@ -38,7 +38,7 @@ export function VerifikationsForslag({
   /** Förslagets rad ur `GET /drafts`, eller `undefined` när den inte är känd. */
   forslag?: ForslagStatusSvar;
 }) {
-  const { title, meta, rows, footnote, consequence } = inlagg.body;
+  const { title, meta, rows, footnote, comment, consequence } = inlagg.body;
   const status = forslag?.status;
 
   return (
@@ -62,6 +62,17 @@ export function VerifikationsForslag({
           className="px-[18px] pt-[10px] text-[13px] leading-[1.55] text-[#78716c]"
         >
           {footnote}
+        </p>
+      )}
+
+      {/* Kommentaren följer med verifikationen när den postas, t.ex. växlingskursen. */}
+      {comment && (
+        <p
+          data-testid="forslag-kommentar"
+          className="whitespace-pre-line px-[18px] pt-[10px] text-[13px] leading-[1.55] text-bok-text-dampad"
+        >
+          <span className="font-medium">Kommentar: </span>
+          {comment}
         </p>
       )}
 

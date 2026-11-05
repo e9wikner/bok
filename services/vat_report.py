@@ -48,7 +48,13 @@ class VatDeclaration:
     vat_out_12: int = 0  # Ruta 11
     vat_out_6: int = 0  # Ruta 12
 
-    # Input VAT (ingående moms)
+    # Purchases with reverse charge (omvänd skattskyldighet), migration 045:
+    # the base on 4535/4531 (against 4598) and the calculated VAT on 2614.
+    purchases_services_eu: int = 0  # Ruta 21
+    purchases_services_non_eu: int = 0  # Ruta 22
+    vat_out_reverse_25: int = 0  # Ruta 30
+
+    # Input VAT (ingående moms), 2640 and 2645
     vat_in: int = 0  # Ruta 48
 
     # Calculated
@@ -71,6 +77,13 @@ VAT_BOXES = [
     ("10", "Utgående moms 25 %", "vat_out_25"),
     ("11", "Utgående moms 12 %", "vat_out_12"),
     ("12", "Utgående moms 6 %", "vat_out_6"),
+    (
+        "21",
+        "Inköp av tjänster från ett annat EU-land enligt huvudregeln",
+        "purchases_services_eu",
+    ),
+    ("22", "Inköp av tjänster från ett land utanför EU", "purchases_services_non_eu"),
+    ("30", "Utgående moms 25 % på inköp i rutorna 20-24", "vat_out_reverse_25"),
     ("48", "Ingående moms att dra av", "vat_in"),
     ("49", "Moms att betala eller få tillbaka", "vat_to_pay"),
 ]
@@ -82,6 +95,13 @@ def _to_sek(value_ore: int) -> int:
     if value_ore >= 0:
         return int((value_ore + 50) // 100)
     return -int((abs(value_ore) + 50) // 100)
+
+
+def _total_output_vat(decl: "VatDeclaration") -> int:
+    """Boxes 10-12 and 30: the output VAT on sales and on reverse-charge
+    purchases. Box 30 is offset by the same amount in box 48 (2645) when the
+    purchase is fully deductible."""
+    return decl.vat_out_25 + decl.vat_out_12 + decl.vat_out_6 + decl.vat_out_reverse_25
 
 
 def _format_sek(value_ore: int) -> str:
@@ -204,7 +224,7 @@ class VatReportService:
     def format_skv_summary(self, decl: VatDeclaration) -> Dict:
         """Format declaration as API JSON."""
 
-        total_out = decl.vat_out_25 + decl.vat_out_12 + decl.vat_out_6
+        total_out = _total_output_vat(decl)
 
         return {
             "id": decl.id,
@@ -245,6 +265,11 @@ class VatReportService:
                 "ruta_10_utgaende_moms_25": _to_sek(decl.vat_out_25),
                 "ruta_11_utgaende_moms_12": _to_sek(decl.vat_out_12),
                 "ruta_12_utgaende_moms_6": _to_sek(decl.vat_out_6),
+                "ruta_21_inkop_tjanster_eu": _to_sek(decl.purchases_services_eu),
+                "ruta_22_inkop_tjanster_utanfor_eu": _to_sek(
+                    decl.purchases_services_non_eu
+                ),
+                "ruta_30_utgaende_moms_inkop_25": _to_sek(decl.vat_out_reverse_25),
                 "ruta_48_ingaende_moms": _to_sek(decl.vat_in),
                 "ruta_49_moms_att_betala": _to_sek(decl.vat_to_pay),
             },
@@ -288,6 +313,12 @@ class VatReportService:
             tag_values.append(("MomsUtgMedel", decl.vat_out_12))
         if decl.vat_out_6:
             tag_values.append(("MomsUtgLag", decl.vat_out_6))
+        if decl.purchases_services_eu:
+            tag_values.append(("InkopTjanstAnnatEg", decl.purchases_services_eu))
+        if decl.purchases_services_non_eu:
+            tag_values.append(("InkopTjanstUtomEg", decl.purchases_services_non_eu))
+        if decl.vat_out_reverse_25:
+            tag_values.append(("MomsInkopUtgHog", decl.vat_out_reverse_25))
 
         for tag, value in tag_values:
             amount = _to_sek(value)
@@ -364,7 +395,10 @@ class VatReportService:
               )
               AND (
                   CAST(vr.account_code AS INTEGER) BETWEEN 3000 AND 3799
-                  OR vr.account_code IN ('2610', '2620', '2630', '2640')
+                  OR vr.account_code IN (
+                      '2610', '2620', '2630', '2640',
+                      '2614', '2645', '4531', '4535'
+                  )
               )
             GROUP BY vr.account_code, a.name
             ORDER BY vr.account_code
@@ -389,9 +423,18 @@ class VatReportService:
             elif code == "2630":
                 self._add_source(decl, "12", code, name, max(net_credit, 0))
                 decl.vat_out_6 += max(net_credit, 0)
-            elif code == "2640":
+            elif code in ("2640", "2645"):
                 self._add_source(decl, "48", code, name, max(net_debit, 0))
                 decl.vat_in += max(net_debit, 0)
+            elif code == "2614":
+                self._add_source(decl, "30", code, name, max(net_credit, 0))
+                decl.vat_out_reverse_25 += max(net_credit, 0)
+            elif code == "4535":
+                self._add_source(decl, "21", code, name, max(net_debit, 0))
+                decl.purchases_services_eu += max(net_debit, 0)
+            elif code == "4531":
+                self._add_source(decl, "22", code, name, max(net_debit, 0))
+                decl.purchases_services_non_eu += max(net_debit, 0)
             elif self._is_sales_25_account(code):
                 self._add_source(decl, "05", code, name, max(net_credit, 0))
                 decl.sales_25 += max(net_credit, 0)
@@ -404,10 +447,10 @@ class VatReportService:
         if decl.sales_6 == 0 and decl.vat_out_6:
             decl.sales_6 = int(round(decl.vat_out_6 / 0.06))
 
-        total_out = decl.vat_out_25 + decl.vat_out_12 + decl.vat_out_6
+        total_out = _total_output_vat(decl)
         decl.vat_to_pay = total_out - decl.vat_in
         decl.sources["49"] = [
-            VatSourceAccount("10-12", "Summa utgående moms", total_out),
+            VatSourceAccount("10-12, 30", "Summa utgående moms", total_out),
             VatSourceAccount("48", "Ingående moms att dra av", -decl.vat_in),
         ]
         return decl
@@ -431,14 +474,19 @@ class VatReportService:
                 vat_in INTEGER DEFAULT 0,
                 vat_to_pay INTEGER DEFAULT 0,
                 status TEXT DEFAULT 'draft',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                purchases_services_eu INTEGER DEFAULT 0,
+                purchases_services_non_eu INTEGER DEFAULT 0,
+                vat_out_reverse_25 INTEGER DEFAULT 0
             )""")
         db.execute(
             """INSERT OR REPLACE INTO vat_declarations
                (id, period_year, period_month, period_quarter,
                 sales_25, sales_12, sales_6, sales_exempt,
-                vat_out_25, vat_out_12, vat_out_6, vat_in, vat_to_pay, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                vat_out_25, vat_out_12, vat_out_6, vat_in, vat_to_pay, status,
+                purchases_services_eu, purchases_services_non_eu,
+                vat_out_reverse_25)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 decl.id,
                 decl.period_year,
@@ -454,6 +502,9 @@ class VatReportService:
                 decl.vat_in,
                 decl.vat_to_pay,
                 decl.status,
+                decl.purchases_services_eu,
+                decl.purchases_services_non_eu,
+                decl.vat_out_reverse_25,
             ),
         )
         db.commit()
@@ -473,6 +524,9 @@ class VatReportService:
             vat_out_6=row["vat_out_6"] or 0,
             vat_in=row["vat_in"] or 0,
             vat_to_pay=row["vat_to_pay"] or 0,
+            purchases_services_eu=row["purchases_services_eu"] or 0,
+            purchases_services_non_eu=row["purchases_services_non_eu"] or 0,
+            vat_out_reverse_25=row["vat_out_reverse_25"] or 0,
             status=row["status"],
             created_at=(
                 datetime.fromisoformat(row["created_at"])

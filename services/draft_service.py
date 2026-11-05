@@ -225,6 +225,7 @@ def draft_body(
     period: Period,
     decision_id: Optional[str],
     correction: Optional[str] = None,
+    comment: Optional[str] = None,
 ) -> dict:
     """The `draft` post's body -- exactly SPEC-chattyta.md §4.3's keys, which
     `tests/test_flode_verifikationer.py` reads out of the client's fixture.
@@ -236,6 +237,7 @@ def draft_body(
         "meta": draft_meta(series, voucher_date),
         "rows": card_rows(rows, accounts),
         "footnote": footnote,
+        "comment": comment,
         "consequence": draft_consequence(series, period, correction),
         "decision_id": decision_id,
     }
@@ -959,6 +961,8 @@ class DraftService:
         bank_transaction_ids: Sequence[str] = (),
         actor: str = "agent",
         idempotency_key: Optional[str] = None,
+        comment: Optional[str] = None,
+        valuta: Optional[Mapping[str, Any]] = None,
     ) -> dict:
         """Check (§5.3), then write draft, post and row in one transaction.
 
@@ -987,6 +991,8 @@ class DraftService:
             "intake_source_ids": list(intake_source_ids),
             "bank_input_ids": list(bank_input_ids),
             "bank_transaction_ids": list(bank_transaction_ids),
+            "comment": comment,
+            "valuta": dict(valuta) if valuta else None,
         }
 
         idempotency = IdempotencyService()
@@ -1066,6 +1072,14 @@ class DraftService:
         shared = self._check_traceability(request)
         footnote = _with_shared_note(request["footnote"], shared)
         agent_rows: List[Dict[str, Any]] = request["rows"]
+        # Migration 045: a foreign amount is converted at Riksbank's rate,
+        # the settlement row must carry it, and the rate line leads the
+        # comment the voucher keeps when it is posted.
+        from services.exchange_rates import ExchangeRateService
+
+        comment, _conversion = ExchangeRateService().apply(
+            request.get("valuta"), agent_rows, request.get("comment")
+        )
 
         # Deferred import (AGENTS.md: service-to-service imports wait until
         # the method runs).
@@ -1088,6 +1102,7 @@ class DraftService:
                     voucher_date=date,
                     description=request["description"],
                     _commit=False,
+                    comment=comment,
                 )
             else:
                 rows = agent_rows
@@ -1099,6 +1114,7 @@ class DraftService:
                     rows_data=rows,
                     created_by="agent",
                     _commit=False,
+                    comment=comment,
                 )
             post = ThreadRepository.add_post(
                 thread_id=thread.id,
@@ -1115,6 +1131,7 @@ class DraftService:
                     period=period,
                     decision_id=request["decision_id"],
                     correction=correction.line if correction is not None else None,
+                    comment=comment,
                 ),
                 _commit=False,
             )

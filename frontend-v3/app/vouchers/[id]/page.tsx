@@ -533,6 +533,12 @@ export default function VoucherDetailPage() {
             </Badge>
           </div>
           <p className="text-muted-foreground mt-1">{voucher.description}</p>
+          {voucher.comment && (
+            <p className="text-sm text-muted-foreground mt-2 whitespace-pre-line" data-testid="voucher-comment">
+              <span className="font-medium">Kommentar: </span>
+              {voucher.comment}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {["agent", "ai"].includes(voucher.created_by) && (

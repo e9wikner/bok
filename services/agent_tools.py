@@ -114,6 +114,16 @@ that paid it, and a month's AGI against the tax account, as decision cards
 (``services/payroll_proposal.py``, migration 043); a logged-in human's press
 books it. They refuse outside a thread and post nothing themselves.
 
+The thirty-third to thirty-fifth, ``hamta_valutakurs``,
+``kontrollera_utlagg`` and ``foresla_utlaggskontroll``, are appended last for
+the same reason (migration 045). The first reads Riksbank's daily rate for a
+purchase in a foreign currency; ``posta_verifikation`` and
+``foresla_verifikation`` take the purchase as ``valuta`` and the server
+converts it and writes the rate line in the voucher's ``comment``. The second
+looks in the company's statements for a purchase like an utlägg (an underlag
+in ``Utlägg/``); the third asks the human, as a decision card, whether the
+company paid it (``services/reimbursement_check.py``). None of them posts.
+
 ``posta_verifikation`` is the only tool that posts to the general ledger,
 and it goes through the exact same code as ``POST /api/v1/agent/vouchers``
 (``services/voucher_posting.post_agent_voucher``, A1) -- same
@@ -158,6 +168,7 @@ from repositories.period_repo import PeriodRepository
 from repositories.voucher_repo import VoucherRepository
 from services.agent_documents import ContentBlock, select_content_for_source
 from services.bank_inputs import BankInputService
+from services.exchange_rates import Valuta
 from services.idempotency import IdempotencyOutcome, IdempotencyService
 from services.intake import IntakeService
 from services.llm import LLMCapabilities
@@ -562,6 +573,22 @@ class PostaVerifikationArgs(BaseModel):
     intake_source_ids: list[str] = Field(default_factory=list)
     bank_input_ids: list[str] = Field(default_factory=list)
     bank_transaction_ids: list[str] = Field(default_factory=list)
+    comment: Optional[str] = Field(
+        None,
+        max_length=1000,
+        description=(
+            "Verifikationens kommentar, synlig för den som läser den. Med "
+            "valuta skriver servern själv kursraden först."
+        ),
+    )
+    valuta: Optional[Valuta] = Field(
+        None,
+        description=(
+            "Köpet i utländsk valuta. Servern räknar om med Riksbankens kurs "
+            "och kreditraden på 2820/2440/1630/19xx ska vara exakt det "
+            "omräknade beloppet (hamta_valutakurs ger det i förväg)."
+        ),
+    )
 
 
 class ForeslaVerifikationArgs(BaseModel):
@@ -588,6 +615,22 @@ class ForeslaVerifikationArgs(BaseModel):
     intake_source_ids: list[str] = Field(default_factory=list)
     bank_input_ids: list[str] = Field(default_factory=list)
     bank_transaction_ids: list[str] = Field(default_factory=list)
+    comment: Optional[str] = Field(
+        None,
+        max_length=1000,
+        description=(
+            "Verifikationens kommentar, synlig för den som läser den. Med "
+            "valuta skriver servern själv kursraden först."
+        ),
+    )
+    valuta: Optional[Valuta] = Field(
+        None,
+        description=(
+            "Köpet i utländsk valuta. Servern räknar om med Riksbankens kurs "
+            "och kreditraden på 2820/2440/1630/19xx ska vara exakt det "
+            "omräknade beloppet (hamta_valutakurs ger det i förväg)."
+        ),
+    )
 
 
 class RegistreraAvstaendeArgs(BaseModel):
@@ -856,6 +899,7 @@ def _voucher_dict(voucher: Voucher) -> dict:
         "date": voucher.date.isoformat(),
         "period_id": voucher.period_id,
         "description": voucher.description,
+        "comment": voucher.comment,
         "status": voucher.status.value,
         "fiscal_year_id": voucher.fiscal_year_id,
         "rows": [_voucher_row_dict(row) for row in voucher.rows],
@@ -1144,6 +1188,8 @@ def _post_voucher(
         intake_source_ids=args.intake_source_ids,
         bank_input_ids=args.bank_input_ids,
         bank_transaction_ids=args.bank_transaction_ids,
+        comment=args.comment,
+        valuta=args.valuta.model_dump(mode="json") if args.valuta else None,
     )
 
     if idempotency_key is None and args.intake_source_ids:
@@ -1377,6 +1423,8 @@ def _run_foresla_verifikation(
         bank_transaction_ids=args.bank_transaction_ids,
         actor=actor,
         idempotency_key=proposals.key() if proposals is not None else None,
+        comment=args.comment,
+        valuta=args.valuta.model_dump(mode="json") if args.valuta else None,
     )
     if proposals is not None:
         proposals.advance()
@@ -2087,6 +2135,98 @@ def _run_foresla_delat_underlag(
     )
 
 
+class HamtaValutakursArgs(BaseModel):
+    """Riksbankens dagliga mittkurs för en valuta och ett datum (SEK per 1
+    enhet). En helgdag ger senaste bankdagen före."""
+
+    currency: str = Field(..., pattern="^[A-Z]{3}$", description="ISO 4217, t.ex. EUR")
+    date: DateType = Field(..., description="Köpdatum eller fakturadatum")
+    amount: Optional[Decimal] = Field(
+        None, gt=0, description="Valfritt: beloppet i valutan, för att få sek_ore"
+    )
+
+
+class KontrolleraUtlaggArgs(BaseModel):
+    """Leta i företagets kontoutdrag efter ett köp som liknar ett utlägg."""
+
+    source_id: str
+    amount_ore: int = Field(..., gt=0, description="Utläggets belopp i kronor, i öre")
+    date: DateType = Field(..., description="Köpdatum")
+    foreign_currency: bool = Field(
+        False,
+        description="Sant när köpet var i utländsk valuta och beloppet är omräknat",
+    )
+
+
+class ForeslaUtlaggskontrollArgs(BaseModel):
+    """Fråga användaren om ett underlag i Utlägg/ är ett privat utlägg eller
+    ett köp som företaget betalade (transaktionen i kontoutdraget)."""
+
+    source_id: str
+    bank_transaction_id: str
+
+
+def _run_hamta_valutakurs(
+    args: HamtaValutakursArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """Read-only (it stores the rate it fetched, append-only)."""
+    from services.exchange_rates import ExchangeRateService, rate_dict
+
+    service = ExchangeRateService()
+    result = rate_dict(service.rate(args.currency, args.date))
+    if args.amount is not None:
+        conversion = service.convert(args.currency, args.amount, args.date)
+        result["amount"] = str(args.amount)
+        result["sek_ore"] = conversion.sek_ore
+        result["comment_line"] = conversion.comment_line()
+    return result
+
+
+def _run_kontrollera_utlagg(
+    args: KontrolleraUtlaggArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """Read-only."""
+    from services.reimbursement_check import ReimbursementCheckService
+
+    return ReimbursementCheckService().check_source(
+        args.source_id,
+        sek_ore=args.amount_ore,
+        purchase_date=args.date,
+        foreign=args.foreign_currency,
+    )
+
+
+def _run_foresla_utlaggskontroll(
+    args: ForeslaUtlaggskontrollArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """Not terminal. In a thread the card goes in it; in the intake pass in
+    the Verifikationer thread, and the underlag waits for the answer -- the
+    pass should then end without abstaining."""
+    from services.reimbursement_check import ReimbursementCheckService
+
+    return ReimbursementCheckService().propose(
+        (tool_context or {}).get("thread"),
+        source_id=args.source_id,
+        bank_transaction_id=args.bank_transaction_id,
+        actor=actor,
+    )
+
+
 _ToolHandler = Callable[..., Any]
 
 _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
@@ -2418,6 +2558,37 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
         ForeslaDelatUnderlagArgs,
         _run_foresla_delat_underlag,
     ),
+    (
+        "hamta_valutakurs",
+        "Hämta Riksbankens dagliga mittkurs (SEK per 1 enhet) för en valuta "
+        "och ett köpdatum; en helgdag ger senaste bankdagen före. Med amount "
+        "får du beloppet i öre (sek_ore) och kursraden som hamnar i "
+        "verifikationens kommentar. Gissa aldrig en kurs, och använd inte "
+        "kortets eller bankens kurs. Skrivskyddat -- bokför ingenting.",
+        HamtaValutakursArgs,
+        _run_hamta_valutakurs,
+    ),
+    (
+        "kontrollera_utlagg",
+        "Leta i företagets alla kontoutdrag efter ett köp som liknar ett "
+        "utlägg (underlag i Utlägg/): samma belopp, ±5 % om det är omräknat "
+        "från utländsk valuta, från tre dagar före till tio dagar efter "
+        "köpet. En träff betyder att företaget kanske betalade själv: bokför "
+        "då inte, utan kör foresla_utlaggskontroll. Skrivskyddat.",
+        KontrolleraUtlaggArgs,
+        _run_kontrollera_utlagg,
+    ),
+    (
+        "foresla_utlaggskontroll",
+        "Fråga användaren om ett underlag i Utlägg/ är ett privat utlägg "
+        "eller ett köp som företaget betalade, när kontrollera_utlagg (eller "
+        "posta_verifikation: reimbursement_matches_statement) hittade en "
+        "transaktion i kontoutdraget. Lägger ett beslutskort; utan tråd "
+        "(intagskön) i Verifikationers tråd, och underlaget väntar på svaret "
+        "-- avsluta då utan att avstå. Bokför ingenting.",
+        ForeslaUtlaggskontrollArgs,
+        _run_foresla_utlaggskontroll,
+    ),
 )
 
 #: Anthropic tool-definition shape: {"name", "description", "input_schema"}.
@@ -2462,8 +2633,10 @@ def execute_tool(
     tool_context: Optional[Mapping[str, Any]] = None,
 ) -> Any:
     """Validate and run one model-requested tool call -- one of the
-    thirty-two tools in ``_TOOL_SPECS``, the last of them
-    ``foresla_delat_underlag`` (the thirty-first ``foresla_agi_bokforing``,
+    thirty-five tools in ``_TOOL_SPECS``, the last of them
+    ``foresla_utlaggskontroll`` (the thirty-third and thirty-fourth
+    ``hamta_valutakurs`` and ``kontrollera_utlagg``, the thirty-second
+    ``foresla_delat_underlag``, the thirty-first ``foresla_agi_bokforing``,
     the thirtieth ``foresla_lonebokforing``, the
     twenty-eighth ``foresla_bolagsinformation``, the twenty-seventh
     ``foresla_rakenskapsar``,

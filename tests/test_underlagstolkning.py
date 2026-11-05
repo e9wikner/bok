@@ -2219,9 +2219,10 @@ def test_u6_voucher_candidate_row_is_one_posted_voucher_any_window(
 # definition is part of the bytes the model is sent, and so of the cached
 # prefix (SPEC-agentruntime §6.6). Re-taken for SPEC-lasbarhet L6, which
 # deliberately rewords `be_om_beslut` and `foresla_verifikation`. Re-taken
-# again for the period lock, which rewords `las_perioder`.
+# again for the period lock, which rewords `las_perioder`, and for migration
+# 045, which adds `comment` and `valuta` to `posta_verifikation`.
 _FIRST_ELEVEN_SHA256 = (
-    "a820eb76949af28c78d96f8eef29ba4a459edfe3bdcd74db93751b8072b1c6be"
+    "23703392426c577bc096dcfdd9a2dcafb65de68967409dc1f37d1ba83cdf995a"
 )
 
 
@@ -2244,7 +2245,7 @@ def test_34_tolka_underlag_is_twelfth_and_the_first_eleven_are_unchanged():
     it."""
     from services.agent_tools import AGENT_TOOL_DEFINITIONS, TolkaUnderlagArgs
 
-    assert len(AGENT_TOOL_DEFINITIONS) == 32
+    assert len(AGENT_TOOL_DEFINITIONS) == 35
     assert [t["name"] for t in AGENT_TOOL_DEFINITIONS][10:12] == [
         "foresla_verifikation",
         "tolka_underlag",

@@ -54,6 +54,11 @@ class VoucherPostingRequest:
     intake_source_ids: list[str] = field(default_factory=list)
     bank_input_ids: list[str] = field(default_factory=list)
     bank_transaction_ids: list[str] = field(default_factory=list)
+    # Migration 045: free text on the voucher, and a purchase in a foreign
+    # currency ({currency, amount, rate_date}). With `valuta` the server
+    # converts at Riksbank's rate and writes the rate line into the comment.
+    comment: Optional[str] = None
+    valuta: Optional[dict] = None
 
 
 def post_agent_voucher(
@@ -91,6 +96,21 @@ def post_agent_voucher(
         bank_input_ids,
         bank_transaction_ids,
     )
+    # Migration 045: the rate is the server's, and the settlement row must
+    # carry exactly the converted amount. An utlägg credits 2820 and is not
+    # booked while a statement transaction looks like the same purchase.
+    from services.exchange_rates import ExchangeRateService
+    from services.reimbursement_check import ReimbursementCheckService
+
+    comment, conversion = ExchangeRateService().apply(
+        request.valuta, request.rows, request.comment
+    )
+    ReimbursementCheckService().guard_posting(
+        intake_source_ids,
+        request.rows,
+        request.date,
+        foreign=conversion is not None,
+    )
 
     with db.transaction():
         ledger = LedgerService()
@@ -102,6 +122,7 @@ def post_agent_voucher(
             rows_data=request.rows,
             created_by="agent",
             _commit=False,
+            comment=comment,
         )
         voucher = ledger.post_voucher(
             voucher.id,
@@ -154,6 +175,14 @@ def post_agent_voucher(
             "bank_transaction_ids": bank_transaction_ids,
             "traceability": traceability,
         }
+        if conversion is not None:
+            response["agent"]["conversion"] = {
+                "currency": conversion.currency,
+                "amount": str(conversion.amount),
+                "rate": str(conversion.rate.rate),
+                "observation_date": conversion.rate.observation_date.isoformat(),
+                "sek_ore": conversion.sek_ore,
+            }
 
         # The key row must commit with the voucher. Written in its own
         # transaction it leaves a window where the voucher is posted but

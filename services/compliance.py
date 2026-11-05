@@ -342,7 +342,9 @@ class ComplianceService:
                 JOIN periods p ON p.id = v.period_id
                 WHERE v.status = 'posted'
                 AND p.year = ? AND p.month = ?
-                AND vr.account_code IN ('2610', '2620', '2630', '2640')
+                AND vr.account_code IN (
+                    '2610', '2620', '2630', '2640', '2614', '2645'
+                )
             """,
                 (prev_year, prev_month),
             ).fetchone()

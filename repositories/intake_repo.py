@@ -9,6 +9,7 @@ from db.database import db
 from domain.models import IntakeProcessingAttempt, IntakeSource, VoucherIntakeSource
 from domain.types import IntakeSourceType, IntakeStatus
 from repositories.fiscal_year_proposal_repo import NOT_WAITING_FOR_FISCAL_YEAR_SQL
+from repositories.reimbursement_check_repo import NOT_WAITING_FOR_REIMBURSEMENT_SQL
 
 # SPEC-flode-underlag.md §11.3 (D4): a file dropped in a thread is the
 # thread's -- the turn reads and interprets it, and the human decides there.
@@ -24,7 +25,12 @@ _NOT_IN_A_THREAD_SQL = (
 # Migration 041: a source waiting on a pending fiscal-year proposal is out of
 # the pass's queue until the human has answered the card -- otherwise the pass
 # would read it again, and pay for it, every pass. Created, it is back in.
-_PASS_QUEUE_SQL = f"{_NOT_IN_A_THREAD_SQL} AND {NOT_WAITING_FOR_FISCAL_YEAR_SQL}"
+# Migration 045: the same for an utlägg waiting on the card that asks whether
+# the company paid it (a matching statement transaction).
+_PASS_QUEUE_SQL = (
+    f"{_NOT_IN_A_THREAD_SQL} AND {NOT_WAITING_FOR_FISCAL_YEAR_SQL}"
+    f" AND {NOT_WAITING_FOR_REIMBURSEMENT_SQL}"
+)
 
 
 class IntakeRepository:

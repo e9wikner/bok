@@ -55,6 +55,7 @@ class LedgerService:
         rows_data: List[Dict],
         created_by: str = "system",
         _commit: bool = True,
+        comment: Optional[str] = None,
     ) -> Voucher:
         """Create new draft voucher with rows.
 
@@ -123,6 +124,7 @@ class LedgerService:
                 fiscal_year_id=period.fiscal_year_id,
                 created_by=created_by,
                 _commit=False,
+                comment=comment,
             )
             for row_data in rows_data:
                 row = self.vouchers.add_row(
@@ -228,6 +230,7 @@ class LedgerService:
         _commit: bool = True,
         voucher_date: Optional[date] = None,
         description: Optional[str] = None,
+        comment: Optional[str] = None,
     ) -> Voucher:
         """Create correction voucher (B-series) for an original voucher.
 
@@ -272,6 +275,7 @@ class LedgerService:
             _commit=_commit,
             voucher_date=voucher_date,
             description=description,
+            comment=comment,
         )
 
         # Get period and accounts for validation

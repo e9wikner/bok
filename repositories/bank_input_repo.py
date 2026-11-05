@@ -546,6 +546,40 @@ class BankInputRepository:
         return [row["id"] for row in rows]
 
     @staticmethod
+    def find_outgoing_near(
+        min_ore: int, max_ore: int, date_from: str, date_to: str
+    ) -> list[dict]:
+        """Money-out transactions on any of the company's statements whose
+        amount is between *min_ore* and *max_ore* (positive öre) and whose
+        date is in the window -- linked or not, since a purchase already
+        booked from the company's card is exactly what an utlägg must not
+        repeat (services/reimbursement_check.py). Ignored transactions and
+        the ones booked as the payout of an utlägg (their voucher debits
+        2820) are left out."""
+        rows = db.execute(
+            """
+            SELECT bt.id, bt.transaction_date, bt.amount, bt.description,
+                   bt.counterpart_name, bc.account_number AS account_code,
+                   (SELECT vbt.voucher_id FROM current_voucher_bank_transactions vbt
+                    WHERE vbt.bank_transaction_id = bt.id) AS linked_voucher_id
+            FROM bank_transactions bt
+            JOIN bank_connections bc ON bc.id = bt.bank_connection_id
+            WHERE bt.amount BETWEEN ? AND ?
+              AND bt.transaction_date BETWEEN ? AND ?
+              AND bt.status != 'ignored'
+              AND NOT EXISTS (
+                  SELECT 1 FROM current_voucher_bank_transactions vbt
+                  JOIN voucher_rows vr ON vr.voucher_id = vbt.voucher_id
+                  WHERE vbt.bank_transaction_id = bt.id
+                    AND vr.account_code = '2820' AND vr.debit > 0
+              )
+            ORDER BY bt.transaction_date ASC, bt.created_at ASC
+            """,
+            (-max_ore, -min_ore, date_from, date_to),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    @staticmethod
     def get_transaction_with_account(bank_transaction_id: str) -> Optional[dict]:
         """One transaction, its account, and the voucher it is linked to."""
         row = db.execute(

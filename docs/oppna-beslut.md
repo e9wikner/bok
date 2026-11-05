@@ -50,12 +50,13 @@ Det här är kontroller, inte beslut. De kräver en människa, och den första e
    i fritext kopplas om agenten läser det fel. Alternativet är att ett kopplingsbeslut bara kan
    besvaras med ett alternativ.
 7. **Ett kvitto med flera köp** stöds inte.
-8. **Kronbelopp för kvitton i utländsk valuta.** I dag (instruktionerna v5) tar agenten
-   kronbeloppet från kvittot, annars från filnamnet eller förklaringen, och avstår annars.
-   Bättre vore att räkna om med Riksbankens kurs på betalningsdagen och bokföra skillnaden
-   mot kortdragningen som kursdifferens när banktransaktionen matchas: 3960 vid vinst och
-   7960 vid förlust, eftersom det är en rörelseskuld (7960 finns inte i kontoplanen ännu).
-   Det kräver ett verktyg för valutakurser.
+8. **Kursdifferens mot företagets eget kort.** Ett belopp i utländsk valuta räknas nu om med
+   Riksbankens dagliga mittkurs för köpdatumet (`hamta_valutakurs`, `valuta` på
+   `posta_verifikation`/`foresla_verifikation`, migration 045). Servern skriver kursen, datumet
+   och källan i verifikationens kommentar. Kvar är fallet där företagets eget kort drogs med
+   bankens kurs: skillnaden mot kortdragningen ska bokföras som kursdifferens när
+   banktransaktionen matchas, 3960 vid vinst och 7960 vid förlust (7960 finns inte i
+   kontoplanen ännu). Ett utlägg berörs inte, eftersom skulden på 2820 är det omräknade beloppet.
 9. **`thinking`-block över flera turer.** Frågan är om `LLMTurn` ska bära dem, så att långa
    trådar går fram och tillbaka korrekt. Det ändrar agentruntimens gränsyta.
 10. **Små designfrågor:**
@@ -70,12 +71,17 @@ Det här är kontroller, inte beslut. De kräver en människa, och den första e
     Verifikationers tråd, så att svaret blir ett klick (`POST /decisions/{id}/answer`), och att
     likartade avstånden kan grupperas. Formuleringen av alternativen ska först stå i
     instruktionen.
-12. **Moms på tjänster köpta utanför EU.** Instruktionerna v5 säger "utan moms", men för ett
-    svenskt aktiebolag gäller omvänd skattskyldighet: kostnad mot 1920 och 25 % beräknad moms
-    på 2614 (utgående) och 2645 (ingående), redovisad i ruta 22, 30 och 48. 2614 och 2645 finns
-    inte i kontoplanen och `services/vat_report.py` läser bara 2610–2640, så regeln kan inte
-    ändras förrän båda finns. Bokfört 2026 är inkonsekvent (A5, A6 utan moms; A8 bara ingående
-    moms; A20 mot 2650; övriga 2610/2640) och rättas med B-verifikationer när regeln står.
+12. **Moms på tjänster köpta utanför EU** är löst framåt (migration 045). Instruktionen har
+    ett beslutsträd för köp från säljare utanför Sverige. En tjänst enligt huvudregeln bokförs
+    med omvänd skattskyldighet: 2645/2614 för momsen och 4535 (EU) eller 4531 (utanför EU) mot
+    4598 för underlaget. `services/vat_report.py` fyller ruta 21, 22, 30 och 48. Kvar är:
+    - Bokfört 2026 är inkonsekvent (A5, A6 utan moms; A8 bara ingående moms; A20 mot 2650;
+      övriga 2610/2640) och rättas med B-verifikationer.
+    - Företagets egna agentinstruktioner kan fortfarande säga "utan moms" (v5, regel D2/D3)
+      och måste i så fall skrivas om.
+    - eSKD-taggarna för ruta 21, 22 och 30 (`InkopTjanstAnnatEg`, `InkopTjanstUtomEg`,
+      `MomsInkopUtgHog`) är inte kontrollerade mot Skatteverkets DTD.
+    - Import av varor (ruta 50/60) och varor från EU (ruta 20) stöds inte.
 
 ## underlag-ersatt: val som gjordes i bygget, att bekräfta
 

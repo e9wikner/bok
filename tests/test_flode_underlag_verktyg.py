@@ -31,9 +31,10 @@ period_id = fu.period_id
 #: the cached prefix (SPEC-agentruntime §6.6). Re-taken for SPEC-lasbarhet
 #: L6, which deliberately rewords `be_om_beslut` and `foresla_verifikation`. Re-taken again for the period lock, which rewords
 #: `las_perioder` (it said locking was never the agent's) and appends
-#: `stang_perioder`.
+#: `stang_perioder`. Re-taken for migration 045, which adds `comment` and
+#: `valuta` to `posta_verifikation` and `foresla_verifikation`.
 _FIRST_TWELVE_SHA256 = (
-    "7a250f41c8f64fcfb80eb6c7f5e52aa0f8a04d919eb4c8208ca2e7d888a38d97"
+    "c7f35e6619cda3719052537e8d30855cb086d30eb3c4bc07d5a7803b641b93d8"
 )
 
 
@@ -87,8 +88,9 @@ def test_36_koppla_underlag_is_last_and_the_first_twelve_are_unchanged():
     # `koppla_bort_underlag` after that, the fifteenth, and the two
     # statement tools after that, then fakturering F1's four, the
     # statement-unlink tool, the payroll tools, foresla_rakenskapsar and the
-    # payroll booking proposals, and foresla_delat_underlag last.
-    assert len(names) == 32
+    # payroll booking proposals, foresla_delat_underlag, and the three
+    # utläggs tools last (migration 045).
+    assert len(names) == 35
     assert names[11:] == [
         "tolka_underlag",
         "koppla_underlag",
@@ -111,6 +113,9 @@ def test_36_koppla_underlag_is_last_and_the_first_twelve_are_unchanged():
         "foresla_lonebokforing",
         "foresla_agi_bokforing",
         "foresla_delat_underlag",
+        "hamta_valutakurs",
+        "kontrollera_utlagg",
+        "foresla_utlaggskontroll",
     ]
     first_twelve = json.dumps(AGENT_TOOL_DEFINITIONS[:12])
     assert hashlib.sha256(first_twelve.encode()).hexdigest() == _FIRST_TWELVE_SHA256
