@@ -1,0 +1,28 @@
+{#- Fastställelseintyg (ÅRL 8 kap. 3 §). Bolagsverket vill ha det på eller
+    i anslutning till kopian av årsredovisningen; den här sidan läggs först. -#}
+{%- macro saknas(text) -%}<span class="saknas">[{{ text }}]</span>{%- endmacro -%}
+{% set f = r.faststallelseintyg %}
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<title>Fastställelseintyg {{ r.company.name }} {{ r.period.end[:4] }}</title>
+<style>
+  @page { size: A4; margin: 30mm 25mm; }
+  body { font-family: "Georgia", "Times New Roman", serif; font-size: 11pt; color: #111; line-height: 1.5; }
+  h1 { font-size: 18pt; font-weight: normal; margin: 0 0 10mm; }
+  .saknas { color: #b00; font-style: italic; }
+  .underskrift { margin-top: 25mm; width: 75mm; border-top: 0.5pt solid #111; padding-top: 1.5mm; }
+</style>
+</head>
+<body>
+  <h1>Fastställelseintyg</h1>
+  <p>Undertecknad styrelseledamot i {{ r.company.name }}, {{ r.company.org_number }}, intygar
+  dels att denna kopia av årsredovisningen för räkenskapsåret {{ r.period.start }} – {{ r.period.end }}
+  överensstämmer med originalet, dels att resultaträkningen och balansräkningen har fastställts
+  på årsstämma den {{ f.stamma_datum or saknas("datum för årsstämman") }}.</p>
+  <p>{{ f.beslut }}</p>
+  <p style="margin-top:8mm">{{ r.underskrifter.ort or saknas("ort") }} {{ f.stamma_datum or saknas("datum") }}</p>
+  <div class="underskrift">{{ f.intygare or saknas("namn") }}</div>
+</body>
+</html>

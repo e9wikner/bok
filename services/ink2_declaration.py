@@ -154,12 +154,7 @@ INK2S_SECTIONS = (
         "Årets resultat",
         (
             DeclarationRowDefinition("4.1", "Årets resultat, vinst", ("7650",), "+"),
-            DeclarationRowDefinition(
-                "4.2",
-                "Årets resultat, förlust",
-                sign="-",
-                value_key="accounting_result_negative",
-            ),
+            DeclarationRowDefinition("4.2", "Årets resultat, förlust", ("7750",), "-"),
         ),
     ),
     DeclarationSectionDefinition(
@@ -224,8 +219,9 @@ INK2S_SECTIONS = (
             ),
             DeclarationRowDefinition(
                 "4.6d",
-                "Intäkter som ska tas upp men som inte ingår i det redovisade resultatet: intäkt negativ justerad anskaffningsutgift",
-                sign="+",
+                "Intäkter som ska tas upp men som inte ingår i det redovisade resultatet: uppräknat belopp vid återföring av periodiseringsfond",
+                ("7667",),
+                "+",
             ),
             DeclarationRowDefinition(
                 "4.6e",
@@ -312,10 +308,7 @@ INK2S_SECTIONS = (
                 "4.15", "Överskott (flyttas till p. 1.1)", ("7670",), "(+) ="
             ),
             DeclarationRowDefinition(
-                "4.16",
-                "Underskott (flyttas till p. 1.2)",
-                sign="(-) =",
-                value_key="taxable_result_negative",
+                "4.16", "Underskott (flyttas till p. 1.2)", ("7770",), "(-) ="
             ),
         ),
     ),
@@ -373,7 +366,9 @@ class INK2DeclarationService:
         sru_service = SRUExportService()
         declaration = sru_service.calculate_sru_fields(fiscal_year_id)
         accounting_result = self._accounting_result(declaration)
-        taxable_result = declaration.get_field_value("7670") or accounting_result
+        taxable_result = declaration.get_field_value(
+            "7670"
+        ) - declaration.get_field_value("7770")
 
         return {
             "fiscal_year_id": declaration.fiscal_year_id,
@@ -461,7 +456,7 @@ class INK2DeclarationService:
         if row.value_key == "taxable_result_positive":
             return max(taxable_result, 0)
         if row.value_key == "taxable_result_negative":
-            return min(taxable_result, 0)
+            return max(-taxable_result, 0)
         if row.value_key == "accounting_result_negative":
             return min(accounting_result, 0)
         if row.sru_fields:

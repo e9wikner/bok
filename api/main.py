@@ -22,6 +22,7 @@ from api.routes import (
     audit,
     auth,
     bank_inputs,
+    bokslut,
     company_info,
     compliance,
     customers,
@@ -156,6 +157,7 @@ app.include_router(company_info.router, dependencies=AUTHENTICATED)
 
 # Tax declaration presentation data
 app.include_router(tax_ink2.router, dependencies=AUTHENTICATED)
+app.include_router(bokslut.router, dependencies=AUTHENTICATED)
 
 # Payroll
 app.include_router(payroll.router, dependencies=AUTHENTICATED)

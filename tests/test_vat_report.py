@@ -50,10 +50,11 @@ def test_yearly_vat_declaration_matches_eskd_and_excludes_settlement_voucher():
         eskd = service.export_eskd(declaration).decode("iso-8859-1")
 
     assert summary == {
-        "ruta_05_forsaljning_25": 1139320,
-        "ruta_06_forsaljning_12": 0,
-        "ruta_07_forsaljning_6": 0,
-        "ruta_08_momsfri_forsaljning": 0,
+        "ruta_05_momspliktig_forsaljning": 1139320,
+        "ruta_06_momspliktiga_uttag": 0,
+        "ruta_07_vinstmarginal": 0,
+        "ruta_08_hyresinkomster": 0,
+        "ruta_42_ovrig_forsaljning": 0,
         "ruta_10_utgaende_moms_25": 284830,
         "ruta_11_utgaende_moms_12": 0,
         "ruta_12_utgaende_moms_6": 0,

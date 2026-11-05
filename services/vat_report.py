@@ -37,11 +37,16 @@ class VatDeclaration:
     period_quarter: Optional[int] = None
     period_code: str = ""
 
-    # Sales (försäljning), amounts in öre
+    # Sales (försäljning), amounts in öre. The attribute names predate the
+    # box mapping and are kept because they are the `vat_declarations`
+    # columns: `sales_25` is ruta 05 -- all taxable sales whatever the rate,
+    # the rate shows in 10-12 -- and 06/07/08 are uttag, vinstmarginal and
+    # hyresinkomster, not 12 % and 6 % sales.
     sales_25: int = 0  # Ruta 05
-    sales_12: int = 0  # Ruta 06
-    sales_6: int = 0  # Ruta 07
-    sales_exempt: int = 0  # Ruta 08
+    sales_12: int = 0  # Ruta 06 Momspliktiga uttag
+    sales_6: int = 0  # Ruta 07 Vinstmarginalbeskattning
+    sales_exempt: int = 0  # Ruta 08 Hyresinkomster, frivillig skattskyldighet
+    sales_other: int = 0  # Ruta 42 Övrig försäljning m.m.
 
     # Output VAT (utgående moms), amounts in öre
     vat_out_25: int = 0  # Ruta 10
@@ -61,6 +66,7 @@ class VatDeclaration:
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     sources: Dict[str, List[VatSourceAccount]] = field(default_factory=dict)
+    warnings: List[str] = field(default_factory=list)
 
 
 VAT_BOXES = [
@@ -68,6 +74,7 @@ VAT_BOXES = [
     ("06", "Momspliktiga uttag", "sales_12"),
     ("07", "Beskattningsunderlag vid vinstmarginalbeskattning", "sales_6"),
     ("08", "Hyresinkomster vid frivillig skattskyldighet", "sales_exempt"),
+    ("42", "Övrig försäljning m.m.", "sales_other"),
     ("10", "Utgående moms 25 %", "vat_out_25"),
     ("11", "Utgående moms 12 %", "vat_out_12"),
     ("12", "Utgående moms 6 %", "vat_out_6"),
@@ -178,6 +185,16 @@ class VatReportService:
             period_code=f"{year}12",
         )
 
+    def preview_for_dates(self, start: date, end: date) -> VatDeclaration:
+        """Calculate the declaration for a fiscal year's dates, unsaved.
+
+        The period code is the last month (YYYYMM), as for an annual
+        declaration on eSKD.
+        """
+        return self._calculate_for_dates(
+            start, end, period_month=12, period_code=f"{end.year}{end.month:02d}"
+        )
+
     def get_declaration(self, decl_id: str) -> Optional[VatDeclaration]:
         """Get a specific VAT declaration."""
 
@@ -237,11 +254,13 @@ class VatReportService:
                 }
                 for box, label, attr in VAT_BOXES
             ],
+            "warnings": list(decl.warnings),
             "skv_4700": {
-                "ruta_05_forsaljning_25": _to_sek(decl.sales_25),
-                "ruta_06_forsaljning_12": _to_sek(decl.sales_12),
-                "ruta_07_forsaljning_6": _to_sek(decl.sales_6),
-                "ruta_08_momsfri_forsaljning": _to_sek(decl.sales_exempt),
+                "ruta_05_momspliktig_forsaljning": _to_sek(decl.sales_25),
+                "ruta_06_momspliktiga_uttag": _to_sek(decl.sales_12),
+                "ruta_07_vinstmarginal": _to_sek(decl.sales_6),
+                "ruta_08_hyresinkomster": _to_sek(decl.sales_exempt),
+                "ruta_42_ovrig_forsaljning": _to_sek(decl.sales_other),
                 "ruta_10_utgaende_moms_25": _to_sek(decl.vat_out_25),
                 "ruta_11_utgaende_moms_12": _to_sek(decl.vat_out_12),
                 "ruta_12_utgaende_moms_6": _to_sek(decl.vat_out_6),
@@ -250,7 +269,11 @@ class VatReportService:
             },
             "summary": {
                 "total_sales_sek": _to_sek(
-                    decl.sales_25 + decl.sales_12 + decl.sales_6 + decl.sales_exempt
+                    decl.sales_25
+                    + decl.sales_12
+                    + decl.sales_6
+                    + decl.sales_exempt
+                    + decl.sales_other
                 ),
                 "total_output_vat_sek": _to_sek(total_out),
                 "total_input_vat_sek": _to_sek(decl.vat_in),
@@ -279,11 +302,13 @@ class VatReportService:
             ("MomsIngAvdr", decl.vat_in),
         ]
         if decl.sales_12:
-            tag_values.append(("ForsMomsUttag", decl.sales_12))
+            tag_values.append(("UttagMoms", decl.sales_12))
         if decl.sales_6:
-            tag_values.append(("BeskattnVMB", decl.sales_6))
+            tag_values.append(("UlagMargbesk", decl.sales_6))
         if decl.sales_exempt:
-            tag_values.append(("HyresinkFriv", decl.sales_exempt))
+            tag_values.append(("HyrinkomstFriv", decl.sales_exempt))
+        if decl.sales_other:
+            tag_values.append(("ForsOvrigt", decl.sales_other))
         if decl.vat_out_12:
             tag_values.append(("MomsUtgMedel", decl.vat_out_12))
         if decl.vat_out_6:
@@ -342,9 +367,14 @@ class VatReportService:
             end_date=end,
         )
 
+        # Per voucher, so that a sale lands in ruta 05 only when the same
+        # voucher carries output VAT, and in ruta 42 otherwise. The year-end
+        # settlement (the voucher that books 2650) is left out, and so is
+        # öres- och kronutjämning (3740-3799): it is not a sale.
         rows = db.execute(
             """
             SELECT
+                vr.voucher_id,
                 vr.account_code,
                 COALESCE(a.name, '') AS account_name,
                 SUM(vr.debit) AS debit,
@@ -363,46 +393,64 @@ class VatReportService:
                     AND settlement.account_code = '2650'
               )
               AND (
-                  CAST(vr.account_code AS INTEGER) BETWEEN 3000 AND 3799
-                  OR vr.account_code IN ('2610', '2620', '2630', '2640')
+                  CAST(vr.account_code AS INTEGER) BETWEEN 3000 AND 3739
+                  OR CAST(vr.account_code AS INTEGER) BETWEEN 2610 AND 2649
               )
-            GROUP BY vr.account_code, a.name
+            GROUP BY vr.voucher_id, vr.account_code, a.name
             ORDER BY vr.account_code
             """,
             (start.isoformat(), end.isoformat()),
         ).fetchall()
 
+        with_output_vat = {
+            row["voucher_id"]
+            for row in rows
+            if self._output_vat_box(row["account_code"])
+            and (row["credit"] or 0) != (row["debit"] or 0)
+        }
+        per_box: Dict[tuple, int] = {}
         for row in rows:
             code = row["account_code"]
-            debit = row["debit"] or 0
-            credit = row["credit"] or 0
-            net_credit = credit - debit
-            net_debit = debit - credit
+            net_credit = (row["credit"] or 0) - (row["debit"] or 0)
             name = row["account_name"] or code
+            out_box = self._output_vat_box(code)
+            if out_box:
+                box, amount = out_box, net_credit
+            elif self._is_input_vat_account(code):
+                box, amount = "48", -net_credit
+            elif self._is_sales_account(code):
+                box = "05" if row["voucher_id"] in with_output_vat else "42"
+                amount = net_credit
+            else:
+                continue
+            per_box[(box, code, name)] = per_box.get((box, code, name), 0) + amount
 
-            if code == "2610":
-                self._add_source(decl, "10", code, name, max(net_credit, 0))
-                decl.vat_out_25 += max(net_credit, 0)
-            elif code == "2620":
-                self._add_source(decl, "11", code, name, max(net_credit, 0))
-                decl.vat_out_12 += max(net_credit, 0)
-            elif code == "2630":
-                self._add_source(decl, "12", code, name, max(net_credit, 0))
-                decl.vat_out_6 += max(net_credit, 0)
-            elif code == "2640":
-                self._add_source(decl, "48", code, name, max(net_debit, 0))
-                decl.vat_in += max(net_debit, 0)
-            elif self._is_sales_25_account(code):
-                self._add_source(decl, "05", code, name, max(net_credit, 0))
-                decl.sales_25 += max(net_credit, 0)
+        attr = {
+            "05": "sales_25",
+            "42": "sales_other",
+            "10": "vat_out_25",
+            "11": "vat_out_12",
+            "12": "vat_out_6",
+            "48": "vat_in",
+        }
+        for (box, code, name), amount in sorted(per_box.items()):
+            if amount == 0:
+                continue
+            self._add_source(decl, box, code, name, amount)
+            setattr(decl, attr[box], getattr(decl, attr[box]) + amount)
+
+        for box, label in (("05", "ruta 05"), ("42", "ruta 42"), ("48", "ruta 48")):
+            value = getattr(decl, attr[box])
+            if value < 0:
+                decl.warnings.append(
+                    f"{label} blir negativ ({_to_sek(value)} kr) och redovisas som 0. "
+                    "Kontrollera verifikationerna bakom raden."
+                )
+                setattr(decl, attr[box], 0)
 
         # Fallback for systems that only booked VAT accounts.
         if decl.sales_25 == 0 and decl.vat_out_25:
             decl.sales_25 = decl.vat_out_25 * 4
-        if decl.sales_12 == 0 and decl.vat_out_12:
-            decl.sales_12 = int(round(decl.vat_out_12 / 0.12))
-        if decl.sales_6 == 0 and decl.vat_out_6:
-            decl.sales_6 = int(round(decl.vat_out_6 / 0.06))
 
         total_out = decl.vat_out_25 + decl.vat_out_12 + decl.vat_out_6
         decl.vat_to_pay = total_out - decl.vat_in
@@ -504,11 +552,28 @@ class VatReportService:
             VatSourceAccount(account_code, account_name, amount)
         )
 
-    def _is_sales_25_account(self, account_code: str) -> bool:
+    @staticmethod
+    def _output_vat_box(account_code: str) -> Optional[str]:
+        """Ruta for an output-VAT account: 2610-2612 25 %, 2620-2622 12 %,
+        2630-2632 6 % (BAS; 2614-2619 etc. are reverse charge and import)."""
         if not account_code.isdigit():
-            return False
-        account = int(account_code)
-        return 3000 <= account <= 3799
+            return None
+        n = int(account_code)
+        if 2610 <= n <= 2612:
+            return "10"
+        if 2620 <= n <= 2622:
+            return "11"
+        if 2630 <= n <= 2632:
+            return "12"
+        return None
+
+    @staticmethod
+    def _is_input_vat_account(account_code: str) -> bool:
+        return account_code.isdigit() and 2640 <= int(account_code) <= 2649
+
+    @staticmethod
+    def _is_sales_account(account_code: str) -> bool:
+        return account_code.isdigit() and 3000 <= int(account_code) <= 3739
 
     def _period_code(
         self,
