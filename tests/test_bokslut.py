@@ -1,0 +1,249 @@
+"""Bokslutet per räkenskapsår (services/bokslut.py och dess delar).
+
+Ett litet påhittat aktiebolag med samma slags poster som referensåren
+2024–2025 från iOrdning: kapitalförsäkring (skattefri), ränta på
+skattekontot (skattefri intäkt och ej avdragsgill kostnad), en
+förseningsavgift, återförda periodiseringsfonder och en bokförd
+momsavstämning med öresutjämning.
+"""
+
+import pytest
+from fastapi.testclient import TestClient
+
+from config import settings
+
+SIE = """#FLAGGA 0
+#FORMAT PC8
+#SIETYP 4
+#FNAMN "Testbolaget AB"
+#ORGNR 556677-8899
+#RAR 0 20250101 20251231
+#KONTO 1385 "Värde av kapitalförsäkring"
+#KONTO 1630 Skattekonto
+#KONTO 1920 Bankkonto
+#KONTO 2081 Aktiekapital
+#KONTO 2091 "Balanserad vinst eller förlust"
+#KONTO 2099 "Årets resultat"
+#KONTO 2128 "Periodiseringsfond 2018"
+#KONTO 2129 "Periodiseringsfond 2019"
+#KONTO 2122 "Periodiseringsfond 2022"
+#KONTO 2512 "Beräknad inkomstskatt"
+#KONTO 2610 "Utgående moms, oreducerad"
+#KONTO 2640 "Ingående moms"
+#KONTO 2650 Momsskuld
+#KONTO 3010 Försäljning
+#KONTO 3100 "Momsfria intäkter"
+#KONTO 3740 Öresutjämning
+#KONTO 5400 Förbrukningsinventarier
+#KONTO 6992 "Övriga externa kostnader, ej avdragsgill"
+#KONTO 8226 "Värdeförändring kapitalförsäkring, ej skattepliktig"
+#KONTO 8314 "Ränteintäkt Skattemyndigheten"
+#KONTO 8423 "Räntekostnad Skattemyndigheten"
+#KONTO 8819 "Återföring från periodiseringsfond"
+#KONTO 8910 Skatt
+#KONTO 8999 "Årets resultat"
+#IB 0 1385 100000
+#IB 0 1920 500000
+#IB 0 2081 -50000
+#IB 0 2091 -150000
+#IB 0 2128 -100000
+#IB 0 2129 -100000
+#IB 0 2122 -200000
+#VER A 1 20250131 Faktura
+{
+#TRANS 3010 {} -100000.00
+#TRANS 2610 {} -25000.00
+#TRANS 1920 {} 125000.00
+}
+#VER A 2 20250201 Momsfri intakt
+{
+#TRANS 3100 {} -5000.00
+#TRANS 1920 {} 5000.00
+}
+#VER A 3 20250301 Inventarier
+{
+#TRANS 5400 {} 8000.00
+#TRANS 2640 {} 2000.00
+#TRANS 1920 {} -10000.00
+}
+#VER A 4 20250401 Forseningsavgift
+{
+#TRANS 6992 {} 625.00
+#TRANS 1630 {} -625.00
+}
+#VER A 5 20250501 Skattekonto
+{
+#TRANS 8314 {} -40.00
+#TRANS 8423 {} 60.00
+#TRANS 1630 {} -20.00
+}
+#VER A 6 20250601 Uttag kapitalforsakring
+{
+#TRANS 1385 {} -100000.00
+#TRANS 1920 {} 130000.00
+#TRANS 8226 {} -30000.00
+}
+#VER A 7 20251231 Aterforing periodiseringsfond
+{
+#TRANS 2128 {} 100000.00
+#TRANS 2129 {} 100000.00
+#TRANS 8819 {} -200000.00
+}
+#VER A 8 20251231 Momsavstamning
+{
+#TRANS 2610 {} 25000.00
+#TRANS 2640 {} -2000.00
+#TRANS 2650 {} -23000.00
+}
+"""
+
+
+@pytest.fixture
+def ar(test_db):
+    from services.sie4_import import SIE4Importer
+
+    importer = SIE4Importer("", "")
+    assert importer.import_content(SIE), importer.errors
+    return importer.fiscal_year_resolution["id"]
+
+
+@pytest.fixture
+def client(test_db):
+    from api.main import app
+
+    return TestClient(app, headers={"Authorization": f"Bearer {settings.api_key}"})
+
+
+def _falt(fy):
+    from services.sru_export import SRUExportService
+
+    d = SRUExportService().calculate_sru_fields(fy)
+    return {k: v.value for k, v in d.fields.items()}
+
+
+class TestInk2s:
+    def test_justeringarna_raknas_ur_bokforingen(self, ar):
+        f = _falt(ar)
+        # Resultat: 100 000 + 5 000 - 8 000 - 625 + 40 - 60 + 30 000 + 200 000
+        assert f["7450"] == 326355
+        # 4.3c: förseningsavgiften och räntekostnaden på skattekontot.
+        assert f["7653"] == 625 + 60
+        # 4.5c: kapitalförsäkringen och den skattefria räntan, inget mer.
+        assert f["7754"] == 30000 + 40
+        # 4.6a: fonderna vid årets ingång (400 000) × 1,96 % (nov 2024).
+        assert f["7654"] == 7840
+        # 4.6d: 6 % av fonden från 2018 och 4 % av den från 2019.
+        assert f["7667"] == 6000 + 4000
+        assert f["7670"] == 326355 + 685 - 30040 + 7840 + 10000
+
+    def test_ett_angivet_belopp_ersatter_beraknat(self, ar):
+        from services.bokslut_inputs import BokslutInputsService
+
+        BokslutInputsService().set_values(
+            ar,
+            {"ink2s.belopp.7667": 0, "ink2s.skattefria_konton": ["8226"]},
+            "test",
+        )
+        f = _falt(ar)
+        assert "7667" not in f
+        assert f["7754"] == 30000
+        assert f["7670"] == 326355 + 685 - 30000 + 7840
+
+    def test_sru_filen_ar_latin1_och_har_arets_blankett(self, ar):
+        from services.bokslut import BokslutService
+
+        info, blanketter, _ = BokslutService().sru_files(ar)
+        assert not blanketter.startswith(b"\xef\xbb\xbf")
+        text = blanketter.decode("iso-8859-1")
+        assert "#BLANKETT INK2R-2025P4" in text
+        assert "#UPPGIFT 7654 7840" in text
+        assert "#UPPGIFT 8041 X" in text
+        assert info.decode("iso-8859-1").startswith("#DATABESKRIVNING_START")
+
+
+class TestMoms:
+    def test_ruta_05_och_42(self, ar):
+        from repositories.period_repo import PeriodRepository
+        from services.vat_report import VatReportService
+
+        fy = PeriodRepository.get_fiscal_year(ar)
+        s = VatReportService()
+        decl = s.preview_for_dates(fy.start_date, fy.end_date)
+        rutor = s.format_skv_summary(decl)["skv_4700"]
+        # Momsavstämningen räknas inte, 3100 utan moms går till ruta 42.
+        assert rutor["ruta_05_momspliktig_forsaljning"] == 100000
+        assert rutor["ruta_42_ovrig_forsaljning"] == 5000
+        assert rutor["ruta_10_utgaende_moms_25"] == 25000
+        assert rutor["ruta_48_ingaende_moms"] == 2000
+        assert rutor["ruta_49_moms_att_betala"] == 23000
+        eskd = s.export_eskd(decl).decode("iso-8859-1")
+        assert "<ForsOvrigt>5000</ForsOvrigt>" in eskd
+
+
+class TestArsredovisning:
+    def test_rakningarna_gar_ihop(self, ar):
+        from services.arsredovisning import build_arsredovisning
+
+        r = build_arsredovisning(ar)
+        br = r["balansrakning"]
+        assert br["summa_tillgangar"][0] == br["summa_ek_skulder"][0]
+        assert r["resultatrakning"]["arets_resultat"][0] == 326355
+        assert br["arets_resultat"][0] == 326355
+        # Jämförelsetalen är årets ingående balans.
+        assert br["summa_tillgangar"][1] == 600000
+        assert {m["key"] for m in r["missing"]} >= {"ar.verksamhet", "ar.utdelning"}
+
+    def test_vinstdispositionen_foljer_angiven_utdelning(self, ar):
+        from services.arsredovisning import build_arsredovisning
+        from services.bokslut_inputs import BokslutInputsService
+
+        BokslutInputsService().set_values(ar, {"ar.utdelning": 100000}, "test")
+        vd = build_arsredovisning(ar)["forvaltningsberattelse"]["vinstdisposition"]
+        assert vd["summa"] == 150000 + 326355
+        assert vd["i_ny_rakning"] == vd["summa"] - 100000
+
+
+class TestApi:
+    def test_oversikt_kontroller_och_filer(self, ar, client):
+        r = client.get(f"/api/v1/bokslut/{ar}")
+        assert r.status_code == 200
+        d = r.json()
+        ids = {k["id"]: k["niva"] for k in d["kontroller"]}
+        assert ids["balans"] == "ok"
+        assert ids["momsavstamning"] == "ok"
+        # Skatt och resultat är inte bokförda i testbolaget.
+        assert ids["skatt"] == "varning"
+        assert ids["resultat"] == "varning"
+        for f in d["nedladdningar"]:
+            if f["id"].endswith("_pdf"):
+                continue  # WeasyPrint kräver systembibliotek
+            resp = client.get(f["url"])
+            assert resp.status_code == 200, f["id"]
+            assert "attachment" in resp.headers["content-disposition"]
+
+    def test_uppgifter_valideras_och_ar_append_only(self, ar, client, test_db):
+        bad = client.post(
+            f"/api/v1/bokslut/{ar}/uppgifter",
+            json={"values": {"ar.utdelning": -1, "okand": 1}},
+        )
+        assert bad.status_code == 422
+        assert set(bad.json()["detail"]["errors"]) == {"ar.utdelning", "okand"}
+
+        for v in ("A", "B", None):
+            ok = client.post(
+                f"/api/v1/bokslut/{ar}/uppgifter", json={"values": {"ar.ort": v}}
+            )
+            assert ok.status_code == 200
+        got = client.get(f"/api/v1/bokslut/{ar}/uppgifter").json()
+        assert "ar.ort" not in got["values"]
+        assert [h["value"] for h in got["history"] if h["key"] == "ar.ort"] == [
+            "A",
+            "B",
+            None,
+        ]
+        with pytest.raises(Exception):
+            test_db.execute("DELETE FROM bokslut_inputs")
+
+    def test_okant_ar_och_okand_fil(self, ar, client):
+        assert client.get("/api/v1/bokslut/finns-inte").status_code == 404
+        assert client.get(f"/api/v1/bokslut/{ar}/filer/hemlig.txt").status_code == 404

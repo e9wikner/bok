@@ -34,6 +34,7 @@ export const NY_MARKERING_MS = 6000;
 const MAL_TITEL: Record<RadMal["typ"], string> = {
   konto: "Öppna huvudboken",
   ver: "Öppna verifikationen",
+  bokslut: "Öppna bokslutet",
   vy: "Gå till vyn",
 };
 
