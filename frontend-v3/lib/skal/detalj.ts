@@ -13,7 +13,7 @@
 
 import apiClient from "@/lib/api";
 import type { OverviewFiscalYear } from "@/lib/skal/api";
-import { harUnderlag, type Verifikation, type VerifikationRef } from "@/lib/skal/bocker";
+import { harUnderlag, underlagAlder, type Rattelse, type Verifikation, type VerifikationRef } from "@/lib/skal/bocker";
 import { formatBeloppHela } from "@/lib/skal/format";
 import type { VyData, VyRadData, VySektionData } from "@/lib/skal/vydata";
 import { allaVyer, type ViewKey } from "@/lib/skal/vyer";
@@ -162,6 +162,39 @@ function hanvisning(id: string, titel: string, ref: VerifikationRef): VyRadData 
 }
 
 /**
+ * Konteringen som den står efter rättelsen, som i en pappersbok (§7.5): en
+ * kontering rättelsen tog bort stryks över, en ändrad visar beloppet före
+ * överstruket, en ny säger det — och vid varje ändrad rad står med vilken
+ * verifikation, när och av vem. Beloppen är netto per konto, så att en
+ * återföring och dess nya rad inte syns som fyra rader.
+ */
+function rattadeKonteringar(r: Rattelse): VyRadData[] {
+  const nar = `${nummerAv(r.correction)} ${r.correction_date}${r.actor ? ` · ${r.actor}` : ""}`;
+  const rader: VyRadData[] = r.accounts.map((a) => {
+    const rad: VyRadData = {
+      id: `rattad-${a.account_code}`,
+      titel: a.account_name || a.account_code,
+      meta: a.account_code,
+      hoger: formatBeloppHela(a.after),
+      mal: { typ: "konto", kod: a.account_code },
+    };
+    if (a.before === a.after) return rad;
+    if (a.after === 0)
+      return { ...rad, meta: `${a.account_code} · borttagen ${nar}`, hoger: formatBeloppHela(a.before), struken: true };
+    if (a.before === 0) return { ...rad, meta: `${a.account_code} · ny ${nar}` };
+    return { ...rad, meta: `${a.account_code} · ändrad ${nar}`, hogerFore: formatBeloppHela(a.before) };
+  });
+  rader.push({
+    id: "rattad-omslutning",
+    titel: "Omslutning",
+    hoger: formatBeloppHela(r.after_total),
+    hogerFore: r.before_total !== r.after_total ? formatBeloppHela(r.before_total) : undefined,
+    summa: true,
+  });
+  return rader;
+}
+
+/**
  * Verifikationen: konteringarna (varje konto leder till sin huvudbok),
  * underlaget och hänvisningarna till andra verifikationer. Ingenting här
  * ändrar verifikationen — en postad rättas med en ny i B-serien.
@@ -180,7 +213,26 @@ export function verifikationVy(v: VerifikationDetalj): VyData {
   }));
   konteringar.push({ id: "omslutning", titel: "Omslutning", hoger: formatBeloppHela(v.total_debit), summa: true });
 
-  const sektioner: VySektionData[] = [{ titel: "Konteringar", rader: konteringar }];
+  // En rättad verifikation visar först hur konteringen står nu, sedan den
+  // som postades. En rättelse visar först vad den ändrade, sedan sina egna
+  // rader — återföringen och de nya — som de bokfördes.
+  const r = v.correction?.correction_status === "posted" ? v.correction : null;
+  const rattelseNr = r ? nummerAv(r.correction) : "";
+  const makulerad = r !== null && Boolean(v.corrected_by) && r.kind === "makulering";
+  const sektioner: VySektionData[] = [];
+  if (r && v.corrected_by) {
+    sektioner.push({
+      titel: makulerad ? `Makulerad med ${rattelseNr}` : `Kontering efter ${rattelseNr}`,
+      rader: rattadeKonteringar(r),
+    });
+    sektioner.push({ titel: "Som postad", rader: konteringar });
+  } else if (v.correction && v.corrects) {
+    const vad = v.correction.kind === "makulering" ? "Makulerar" : "Ändrar";
+    sektioner.push({ titel: `${vad} ${nummerAv(v.correction.original)}`, rader: rattadeKonteringar(v.correction) });
+    sektioner.push({ titel: "Konteringar som bokförda", rader: konteringar });
+  } else {
+    sektioner.push({ titel: "Konteringar", rader: konteringar });
+  }
 
   // Kommentaren, en rad per stycke: kursraden servern skrev, sedan agentens text.
   const kommentar = (v.comment ?? "")
@@ -213,16 +265,19 @@ export function verifikationVy(v: VerifikationDetalj): VyData {
   }
 
   if (!utkast) {
-    const underlag: VyRadData = harUnderlag(v)
+    const underlag: VyRadData = makulerad
+      ? // Rättelsen dokumenterar varför; ett kvitto som finns går ändå att öppna.
+        { id: "underlag", titel: "Underlag", meta: `makulerad med ${rattelseNr}`, hoger: "", kvitto: { voucherId: v.id, nummer } }
+      : harUnderlag(v)
       ? { id: "underlag", titel: "Underlag", hoger: "", kvitto: { voucherId: v.id, nummer } }
       : saknar
         ? {
             id: "underlag",
             titel: "Underlag",
-            meta: `saknas sedan ${v.age_days ?? 0} dgr`,
+            meta: underlagAlder("", v.age_days),
             hoger: "",
-            variant: "saknar",
-            ageDays: v.age_days,
+            variant: (v.age_days ?? 0) < 0 ? undefined : "saknar",
+            ageDays: (v.age_days ?? 0) < 0 ? undefined : v.age_days,
           }
         : // En rättelses underlag är originalet (SPEC-flode-underlag.md D3).
           { id: "underlag", titel: "Underlag", meta: "originalets", hoger: "" };
@@ -238,14 +293,22 @@ export function verifikationVy(v: VerifikationDetalj): VyData {
   const postad = v.posted_at ? ` · postad ${v.posted_at.slice(0, 10)}` : "";
   const vy: VyData = {
     lage: utkast || saknar ? "vantar" : "klart",
-    status: utkast ? "utkast" : saknar ? "saknar underlag" : "postad · låst",
+    status: utkast ? "utkast" : saknar ? "saknar underlag" : makulerad ? "makulerad · låst" : "postad · låst",
     period: `${v.date} · ${v.description}${postad}`,
     sektioner,
     fot: utkast
       ? "Utkastet är inte bokfört. Det postas från chatten."
       : "En postad verifikation ändras aldrig. Ett fel rättas med en ny verifikation i B-serien.",
   };
-  if (v.corrected_by) {
+  if (r && v.corrected_by) {
+    const vad = makulerad ? "Makulerad" : "Ändrad";
+    const vem = r.actor ? ` av ${r.actor}` : "";
+    const varfor = r.reason ? ` — ${r.reason}` : "";
+    vy.banner = {
+      ton: "neutral",
+      text: `${vad} med ${rattelseNr} ${r.correction_date}${vem}${varfor}. Rättelsen står i en egen verifikation; den här ligger kvar som den postades.`,
+    };
+  } else if (v.corrected_by) {
     vy.banner = {
       ton: "neutral",
       text: `Rättad av ${nummerAv(v.corrected_by)}. Rättelsen står i en egen verifikation; den här ligger kvar som den postades.`,

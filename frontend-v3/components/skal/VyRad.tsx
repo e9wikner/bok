@@ -66,6 +66,8 @@ export function VyRad({
   hoger,
   variant = "normal",
   summa = false,
+  struken = false,
+  hogerFore,
   storlek = "desktop",
   ageDays,
   kvitto,
@@ -83,6 +85,10 @@ export function VyRad({
   hoger: string;
   variant?: RadVariant;
   summa?: boolean;
+  /** Raden gäller inte längre: titel och belopp stryks över. */
+  struken?: boolean;
+  /** Beloppet före en rättelse, överstruket framför `hoger`. */
+  hogerFore?: string;
   storlek?: "desktop" | "mobil";
   /** Serverns `age_days`; färgar metaraden för `saknar`/`vantar` (§10). */
   ageDays?: number;
@@ -122,7 +128,8 @@ export function VyRad({
   const detalj = useDetalj();
   const pagaende = variant === "pagaende";
   const yta = nyAktiv ? "var(--bok-klart-yta)" : pagaende ? "var(--bok-yta-svag)" : undefined;
-  const textFarg = pagaende ? "var(--bok-meta)" : undefined;
+  const textFarg = pagaende || struken ? "var(--bok-meta)" : undefined;
+  const streck = struken ? "line-through" : undefined;
 
   return (
     <div
@@ -163,14 +170,14 @@ export function VyRad({
             className={`min-w-0 cursor-pointer break-words text-left underline-offset-[3px] hover:underline ${
               storlek === "desktop" ? "text-[14px]" : "text-[15px]"
             }`}
-            style={{ color: textFarg, fontWeight: summa ? 500 : undefined }}
+            style={{ color: textFarg, fontWeight: summa ? 500 : undefined, textDecoration: streck }}
           >
             <Markerad text={titel} index={traff?.titel} />
           </button>
         ) : (
           <span
             className={storlek === "desktop" ? "text-[14px]" : "text-[15px]"}
-            style={{ color: textFarg, fontWeight: summa ? 500 : undefined }}
+            style={{ color: textFarg, fontWeight: summa ? 500 : undefined, textDecoration: streck }}
           >
             <Markerad text={titel} index={traff?.titel} />
           </span>
@@ -208,8 +215,17 @@ export function VyRad({
         className={`bok-mono bok-tal whitespace-nowrap ${
           storlek === "desktop" ? "text-[14px]" : "text-[15px]"
         }`}
-        style={{ color: textFarg, fontWeight: summa ? 500 : undefined }}
+        style={{ color: textFarg, fontWeight: summa ? 500 : undefined, textDecoration: streck }}
       >
+        {hogerFore && (
+          <span
+            data-testid="vyrad-fore"
+            className="mr-[10px] line-through"
+            style={{ color: "var(--bok-meta)", fontWeight: 400 }}
+          >
+            {hogerFore}
+          </span>
+        )}
         <Markerad text={hoger} index={traff?.hoger} />
         {las && (
           <span className={hoger ? "ml-[10px]" : undefined}>

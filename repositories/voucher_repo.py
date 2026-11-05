@@ -34,6 +34,9 @@ from domain.types import VoucherSeries, VoucherStatus
 # statements -- every row on a statement account (1630, 1900-1989) has a
 # linked bank transaction imported for that same account, and the voucher is
 # not a purchase (no input VAT). A transfer 1930 -> 1630 needs both.
+# And not makulerad (`CANCELLED_SQL`): a voucher a posted correction has
+# netted to zero on every account books nothing, and its correction is its
+# documentation -- A-53 reversed by B-1 can never get a statement row.
 # Parenthesised as a whole: callers negate it (`NOT {MISSING_ATTACHMENT_SQL}`).
 #
 # Only *current* links count (migration 035, underlag-ersatt): a link with a
@@ -57,27 +60,58 @@ _HAS_INPUT_VAT_SQL = (
     f" AND vat_r.account_code BETWEEN '{INPUT_VAT_RANGE[0]}'"
     f" AND '{INPUT_VAT_RANGE[1]}')"
 )
+# A voucher and the posted corrections that point at it (SPEC-flode-
+# verifikationer §7): what the ledger holds for the business event once a
+# correction has been posted. `{v}` is an alias of `vouchers`.
+_FAMILY_SQL = (
+    "({v}.id = vouchers.id"
+    " OR ({v}.correction_of = vouchers.id AND {v}.status = 'posted'))"
+)
+# The voucher's net on account `{account}` after its posted corrections.
+_FAMILY_NET_SQL = (
+    "(SELECT SUM(fn_r.debit - fn_r.credit) FROM voucher_rows fn_r"
+    " JOIN vouchers fn_v ON fn_v.id = fn_r.voucher_id"
+    f" WHERE {_FAMILY_SQL.format(v='fn_v')}"
+    " AND fn_r.account_code = {account})"
+)
+# Makulerad: a posted correction exists and the voucher together with its
+# posted corrections nets to zero on every account -- the event is cancelled
+# and there is no underlag left to ask for (B-1 documents why).
+CANCELLED_SQL = (
+    "(EXISTS (SELECT 1 FROM vouchers cx_v WHERE cx_v.correction_of = vouchers.id"
+    " AND cx_v.status = 'posted')"
+    " AND NOT EXISTS (SELECT 1 FROM voucher_rows cx_r"
+    " JOIN vouchers cx_f ON cx_f.id = cx_r.voucher_id"
+    f" WHERE {_FAMILY_SQL.format(v='cx_f')}"
+    " GROUP BY cx_r.account_code HAVING SUM(cx_r.debit - cx_r.credit) != 0))"
+)
+
 # The statement-account rows of the voucher that the linked transactions do
 # not cover. A transaction counts for the account it was imported for
 # (`bank_connections.account_number`), and the account is covered when those
 # transactions add up to the voucher's net on it -- one transaction, or one
-# per row (`domain.statement_coverage.covers`).
+# per row (`domain.statement_coverage.covers`). Both sides are read after the
+# voucher's posted corrections: an account a correction took off the voucher
+# (net zero) needs no statement, and a transaction linked to the correction
+# counts for the voucher it corrects.
 _UNCOVERED_STATEMENT_ROWS_SQL = (
-    "FROM voucher_rows st_r WHERE st_r.voucher_id = vouchers.id"
+    "FROM voucher_rows st_r JOIN vouchers st_v ON st_v.id = st_r.voucher_id"
+    f" WHERE {_FAMILY_SQL.format(v='st_v')}"
     " AND (st_r.debit > 0 OR st_r.credit > 0)"
     f" AND {_statement_account_sql('st_r.account_code')}"
+    f" AND {_FAMILY_NET_SQL.format(account='st_r.account_code')} != 0"
     " AND (SELECT SUM(st_bt.amount) FROM current_voucher_bank_transactions st_vbt"
+    " JOIN vouchers st_lv ON st_lv.id = st_vbt.voucher_id"
     " JOIN bank_transactions st_bt ON st_bt.id = st_vbt.bank_transaction_id"
     " JOIN bank_connections st_bc ON st_bc.id = st_bt.bank_connection_id"
-    " WHERE st_vbt.voucher_id = vouchers.id"
+    f" WHERE {_FAMILY_SQL.format(v='st_lv')}"
     " AND st_bc.account_number = st_r.account_code)"
-    " IS NOT (SELECT SUM(st_n.debit - st_n.credit) FROM voucher_rows st_n"
-    " WHERE st_n.voucher_id = vouchers.id"
-    " AND st_n.account_code = st_r.account_code)"
+    f" IS NOT {_FAMILY_NET_SQL.format(account='st_r.account_code')}"
 )
 STATEMENT_COVERED_SQL = (
     "(EXISTS (SELECT 1 FROM current_voucher_bank_transactions cov_vbt"
-    " WHERE cov_vbt.voucher_id = vouchers.id)"
+    " JOIN vouchers cov_v ON cov_v.id = cov_vbt.voucher_id"
+    f" WHERE {_FAMILY_SQL.format(v='cov_v')})"
     f" AND NOT EXISTS (SELECT 1 {_UNCOVERED_STATEMENT_ROWS_SQL})"
     f" AND NOT {_HAS_INPUT_VAT_SQL})"
 )
@@ -96,6 +130,7 @@ MISSING_ATTACHMENT_SQL = (
     f" AND {CURRENT_LINK_SQL.format(alias='vis')})"
     " AND vouchers.created_by != 'sie4_import'"
     " AND vouchers.correction_of IS NULL"
+    f" AND NOT {CANCELLED_SQL}"
     " AND NOT EXISTS (SELECT 1 FROM voucher_source_references vsr"
     " WHERE vsr.voucher_id = vouchers.id)"
     f" AND NOT {STATEMENT_COVERED_SQL})"
@@ -129,7 +164,10 @@ VOUCHER_SELECT_SQL = f"""
            co.number AS corrects_number,
            rb.id AS referenced_by_id,
            rb.series AS referenced_by_series,
-           rb.number AS referenced_by_number
+           rb.number AS referenced_by_number,
+           (SELECT COUNT(*) FROM vouchers cc
+             WHERE cc.correction_of = vouchers.id AND cc.status = 'posted')
+               AS correction_count
     FROM vouchers
     LEFT JOIN (
         SELECT id, series, number, correction_of,
@@ -229,6 +267,7 @@ def _voucher_from_row(row, rows: List[VoucherRow]) -> Voucher:
         corrected_by=_ref(row, "corrected_by"),
         corrects=_ref(row, "corrects"),
         referenced_by=_ref(row, "referenced_by"),
+        correction_count=row["correction_count"],
     )
 
 
@@ -333,6 +372,36 @@ class VoucherRepository:
             return None
         rows = VoucherRepository._rows_for([voucher_id])
         return _voucher_from_row(row, rows.get(voucher_id, []))
+
+    @staticmethod
+    def list_posted_corrections(
+        original_ids: Sequence[str],
+    ) -> Dict[str, List[Voucher]]:
+        """`{original_id: [posted corrections]}` for every id, oldest posting
+        first (SPEC-flode-verifikationer §7.5) -- one query for the vouchers
+        and one for their rows, however many originals a page holds."""
+        ids = list(dict.fromkeys(original_ids))
+        if not ids:
+            return {}
+        found = []
+        for start in range(0, len(ids), _IN_CHUNK):
+            chunk = ids[start : start + _IN_CHUNK]
+            placeholders = ", ".join("?" for _ in chunk)
+            found.extend(
+                db.execute(
+                    f"{VOUCHER_SELECT_SQL} WHERE vouchers.status = 'posted'"
+                    f" AND vouchers.correction_of IN ({placeholders})"
+                    " ORDER BY vouchers.posted_at, vouchers.number",
+                    tuple(chunk),
+                ).fetchall()
+            )
+        rows = VoucherRepository._rows_for([row["id"] for row in found])
+        result: Dict[str, List[Voucher]] = {}
+        for row in found:
+            result.setdefault(row["correction_of"], []).append(
+                _voucher_from_row(row, rows.get(row["id"], []))
+            )
+        return result
 
     @staticmethod
     def _rows_for(voucher_ids: Sequence[str]) -> Dict[str, List[VoucherRow]]:

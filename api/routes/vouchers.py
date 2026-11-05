@@ -21,6 +21,7 @@ from api.schemas import (
     RejectCorrectionNoteRequest,
     SuggestCorrectionNoteRequest,
     UpdateVoucherRequest,
+    VoucherCorrectionResponse,
     VoucherOriginResponse,
     VoucherRefResponse,
     VoucherResponse,
@@ -493,6 +494,7 @@ async def get_voucher(
                 status_code=http_status.HTTP_404_NOT_FOUND, detail="Voucher not found"
             )
         response = _voucher_to_response(voucher)
+        _attach_corrections([voucher], [response])
         origin = voucher_origin(voucher_id)
         if origin is not None:
             response.origin = VoucherOriginResponse(**origin)
@@ -951,11 +953,13 @@ async def list_vouchers(
 
         # Read once for the page, not once per voucher (SPEC-oversikt §3).
         account_names = AccountRepository.get_all_as_dict()
+        responses = [_voucher_to_response(v, account_names) for v in vouchers]
+        _attach_corrections(vouchers, responses, account_names)
         return {
             "period_id": period_id,
             "status_filter": voucher_status,
             "total": total,
-            "vouchers": [_voucher_to_response(v, account_names) for v in vouchers],
+            "vouchers": responses,
         }
     except Exception as e:
         raise HTTPException(
@@ -1174,6 +1178,18 @@ def _voucher_source_material(source, link) -> dict:
         "linked_by": link.linked_by,
         "link_reason": link.link_reason,
     }
+
+
+def _attach_corrections(vouchers, responses, account_names=None) -> None:
+    """`correction` on every corrected voucher and every correction of the
+    page (`services/correction_view.py`), read once for the page."""
+    from services.correction_view import correction_summaries
+
+    summaries = correction_summaries(vouchers, account_names)
+    for response in responses:
+        summary = summaries.get(response.id)
+        if summary is not None:
+            response.correction = VoucherCorrectionResponse(**summary)
 
 
 def _ref_response(ref) -> Optional[VoucherRefResponse]:

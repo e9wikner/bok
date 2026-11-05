@@ -491,7 +491,10 @@ class LedgerService:
         """Where a correction of `original` is booked, and on which date
         (SPEC-flode-verifikationer §7.2): the original's period if open,
         otherwise the latest open period in the same fiscal year; `today` if
-        it lies in that period, otherwise its last day.
+        it lies in that period, otherwise its last day -- and never before
+        the original's own date: an AGI booked on its due date the 12th and
+        corrected on the 5th is corrected on the 12th, not a week before the
+        voucher it corrects.
 
         `ValidationError(no_open_period)` when the fiscal year has no open
         period -- a correction across the year end is out of scope."""
@@ -503,8 +506,12 @@ class LedgerService:
                 details=f"voucher_id={original.id}, period_id={original.period_id}",
             )
         if period.start_date <= today <= period.end_date:
-            return period, today
-        return period, period.end_date
+            voucher_date = today
+        else:
+            voucher_date = period.end_date
+        if voucher_date < original.date <= period.end_date:
+            voucher_date = original.date
+        return period, voucher_date
 
     def _target_correction_period(self, original: Voucher) -> Period:
         original_period = self.periods.get_period(original.period_id)
