@@ -15,7 +15,7 @@ final.
 
 import json
 from datetime import datetime
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import Any, List, Mapping, Optional, Sequence, Tuple
 
 from db.database import db
 from domain.models import ThreadDraft
@@ -56,6 +56,7 @@ class ThreadDraftRepository:
         intake_source_ids: Sequence[str] = (),
         bank_input_ids: Sequence[str] = (),
         bank_transaction_ids: Sequence[str] = (),
+        shared_intake_sources: Optional[Mapping[str, Sequence[str]]] = None,
         _commit: bool = True,
     ) -> ThreadDraft:
         """Insert one row, `status='pending'`. `post_id` must already exist
@@ -64,10 +65,12 @@ class ThreadDraftRepository:
         The three id lists are the traceability a posting of this draft must
         link (migration 029); stored as one JSON object."""
         now = datetime.now()
-        traceability = {
+        shared = {k: list(v) for k, v in (shared_intake_sources or {}).items()}
+        traceability: dict[str, Any] = {
             "intake_source_ids": list(intake_source_ids),
             "bank_input_ids": list(bank_input_ids),
             "bank_transaction_ids": list(bank_transaction_ids),
+            "shared_intake_sources": shared,
         }
         db.execute(
             """
@@ -104,6 +107,7 @@ class ThreadDraftRepository:
             intake_source_ids=traceability["intake_source_ids"],
             bank_input_ids=traceability["bank_input_ids"],
             bank_transaction_ids=traceability["bank_transaction_ids"],
+            shared_intake_sources=traceability["shared_intake_sources"],
         )
 
     @staticmethod
@@ -333,6 +337,10 @@ class ThreadDraftRepository:
             intake_source_ids=list(traceability.get("intake_source_ids", [])),
             bank_input_ids=list(traceability.get("bank_input_ids", [])),
             bank_transaction_ids=list(traceability.get("bank_transaction_ids", [])),
+            shared_intake_sources={
+                k: list(v)
+                for k, v in traceability.get("shared_intake_sources", {}).items()
+            },
         )
 
 

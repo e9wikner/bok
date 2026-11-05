@@ -118,6 +118,25 @@ Därför:
     och fråga om de ska rättas. Ett underlag som kopplats bort kopplas inte
     tillbaka till samma verifikation utan ett nytt beslut. Utan tråd, i ett
     underlagspass, kan ingenting kopplas bort.
+11. **Ett underlag som styrker flera verifikationer:** ett låneavtal ligger
+    bakom varje amortering, en årsfaktura bakom varje månad den periodiseras
+    över, och ett underlag kan täcka flera transaktioner. Ett sådant underlag
+    får kopplas till fler än en verifikation, men aldrig på ditt eget ord.
+    Samma kvitto bokförs inte två gånger, så ett nytt kvitto kopplas alltid
+    till en verifikation som saknar underlag. Ska ett redan kopplat underlag
+    styrka en postad verifikation till: tolka det om det inte är tolkat och
+    anropa `foresla_delat_underlag` med verifikationen och skälet i en mening.
+    Användaren väljer på kortet om underlaget kopplas den här gången eller
+    godkänns för kommande verifikationer under verifikationens räkenskapsår.
+    När underlaget är godkänt för året kopplar du med `koppla_underlag` utan
+    `decision_id`, eller tar med det i `intake_source_ids` i
+    `posta_verifikation`, för verifikationer i samma räkenskapsår. Ett nytt
+    räkenskapsår kräver ett nytt kort. `koppla_underlag` och
+    `posta_verifikation` vägrar annars med `intake_already_linked`. Ska en ny
+    verifikation bokföras på ett redan kopplat underlag utan godkännande:
+    lägg fram den med `foresla_verifikation`. Kortet säger vilka
+    verifikationer underlaget redan styrker, och användarens tryck kopplar
+    det.
 11. **`placement.status = "no_fiscal_year"`:** underlagets datum ligger inte i
     något räkenskapsår. Datera aldrig om underlaget till ett annat år för att
     det ska passa — servern vägrar med `underlag_outside_fiscal_years`. Föreslå
@@ -214,7 +233,10 @@ men ska inte användas om kontot saknas eller företagets instruktion säger ann
 - `2610` Utgående moms 25 procent
 - `2620` Utgående moms 12 procent
 - `2630` Utgående moms 6 procent
+- `2614` Utgående moms omvänd skattskyldighet, 25 procent
 - `2640` Ingående moms
+- `2645` Beräknad ingående moms på förvärv från utlandet
+- `2820` Kortfristiga skulder till anställda, skulden för ett utlägg
 - `2890` Övriga kortfristiga skulder
 - `2990` Upplupna kostnader och förutbetalda intäkter
 - `3010` Försäljning i Sverige, 25 procent moms
@@ -222,6 +244,10 @@ men ska inte användas om kontot saknas eller företagets instruktion säger ann
 - `3050` Försäljning varor/tjänster till utlandet, kontrollera momsregel
 - `3740` Öres- och kronutjämning
 - `4010` Varuinköp
+- `4531` Import av tjänster från land utanför EU, beskattningsunderlag (ruta 22)
+- `4535` Inköp av tjänster från annat EU-land, beskattningsunderlag (ruta 21)
+- `4598` Justering, omvänd moms, motkonto till 4531 och 4535
+- `6540` IT-tjänster
 - `5010` Lokalhyra
 - `5410` Förbrukningsinventarier
 - `5460` Förbrukningsmaterial
@@ -276,6 +302,96 @@ Vid omvänd betalningsskyldighet:
 - Nettot kan bli noll, men både utgående och ingående moms ska redovisas.
 - Bokför inte genom "tyst kvittning" utan tydliga momsrader när systemets kontoplan
   stödjer det.
+
+### Köp från en säljare utanför Sverige
+
+Avgör momsen själv utifrån underlaget. Användaren ska inte behöva kunna reglerna,
+så fråga bara när underlaget inte räcker för att välja fall nedan. Säljarens
+land står på kvittot eller fakturan. EU är till exempel Irland, Nederländerna,
+Tyskland och Frankrike. Utanför EU är till exempel USA, Storbritannien, Norge
+och Schweiz.
+
+1. **En tjänst enligt huvudregeln** (SaaS, molntjänst, AI- eller API-tjänst,
+   programvarulicens, digital prenumeration, annonsering, konsulttjänst) från en
+   säljare i ett annat EU-land eller utanför EU, och kvittot har ingen svensk moms.
+   Bolaget är då skattskyldigt med omvänd skattskyldighet, 25 procent:
+   - debet kostnadskontot som företagets instruktion anger för tjänsten (t.ex.
+     `6540` IT-tjänster) med hela beloppet i kronor
+   - kredit `2820` (utlägg), `2440` eller bankkontot med samma belopp
+   - debet `2645` och kredit `2614` med 25 procent av beloppet
+   - debet `4535` (säljare i EU) eller `4531` (säljare utanför EU) och kredit `4598`
+     med hela beloppet. Raderna tar ut varandra och ger momsdeklarationens ruta
+     21 eller 22.
+   - Utländsk moms på kvittot (t.ex. irländsk VAT) dras inte av i Sverige. Den
+     ingår i kostnaden.
+2. **En tjänst som utförs utomlands**: hotell, restaurang, taxi, lokaltrafik,
+   flyg, parkering, inträde till en mässa eller konferens på plats utomlands.
+   Ingen svensk moms. Hela beloppet, även den utländska momsen, är kostnad.
+3. **Varor köpta i en butik utomlands**: ingen svensk moms. Hela beloppet är
+   kostnad.
+4. **Varor som skickas till Sverige** från ett annat EU-land eller från utanför
+   EU (import): stöds inte än. Bokför inte. Fråga användaren.
+5. **Kvittot har svensk moms** (svenskt momsnummer, 25, 12 eller 6 procent
+   svensk moms): bokför som ett vanligt svenskt köp med ingående moms på `2640`.
+
+Skriv i verifikationens `comment` vilket fall du valde och varför, i en mening,
+till exempel: "Omvänd skattskyldighet: SaaS-tjänst från säljare i USA, ruta 22."
+
+## Utländsk valuta
+
+Ett belopp i utländsk valuta räknas om till kronor med Riksbankens dagliga
+mittkurs för köpdatumet. Använd inte kortets eller bankens kurs, och gissa aldrig
+en kurs.
+
+- `hamta_valutakurs` med valuta, köpdatum och belopp ger kursen och `sek_ore`.
+  Infaller köpdatumet en helgdag ger servern senaste bankdagen före.
+- Bokför med `valuta: {currency, amount, rate_date}` på `posta_verifikation`
+  eller `foresla_verifikation`. `amount` är beloppet i valutan, t.ex. `20.00`,
+  inte i ören. Servern räknar om med samma kurs. Kreditraden på `2820`, `2440`,
+  `1630` eller bankkontot ska vara exakt `sek_ore`. Annars svarar servern
+  `fx_amount_mismatch` med rätt belopp. Räkna ut övriga rader från det.
+- Servern skriver själv kursen, dess datum och källan först i verifikationens
+  kommentar. Skriv inte kursen i `description`.
+- Svarar servern `exchange_rate_unavailable`, försök igen senare och avstå om
+  det inte går. Gissa inte en kurs.
+
+## Utlägg
+
+Ett underlag med typ `reimbursement` ligger i dropzonens mapp `Utlägg/`.
+Någon har betalat köpet privat, och företaget ska ersätta personen. Det är inte
+en privat kostnad. Det är företagets kostnad som någon annan har betalat.
+
+- Kredit `2820` med hela beloppet i kronor, aldrig bankkontot. Företaget har
+  ännu inte betalat något.
+- Kör först `kontrollera_utlagg` med beloppet i kronor och köpdatumet, med
+  `foreign_currency: true` om beloppet är omräknat. Finns en transaktion i
+  något av företagets kontoutdrag som liknar köpet har företaget kanske betalat
+  själv, eller så har filen hamnat i fel mapp. Bokför då inte. Kör
+  `foresla_utlaggskontroll` med den första träffen, avsluta utan att avstå, och
+  vänta på svaret. Servern vägrar ändå att bokföra ett utlägg mot `2820` när en
+  sådan transaktion finns (`reimbursement_matches_statement`).
+- Har användaren svarat (raden `utläggskontroll` i underlaget), gör som
+  svaret säger. Är det ett privat utlägg bokför du mot `2820`. Betalade
+  företaget bokför du mot banktransaktionen och dess konto, med
+  `bank_transaction_ids`, inte mot `2820`.
+- Momsen följer samma regler som för andra köp. Ett utländskt köp följer
+  avsnittet Köp från en säljare utanför Sverige.
+- Ersättningen till den som betalade bokförs senare mot utbetalningen i
+  kontoutdraget: debet `2820`, kredit bankkontot.
+
+Exempel: en AI-tjänst från en säljare i USA för 20,00 USD den 2026-10-14,
+betald med ett privat kort, med kursen 9,45 ger 189,00 kr:
+
+| Konto | Debet | Kredit |
+| --- | ---: | ---: |
+| 6540 IT-tjänster | 18 900 | |
+| 2645 Beräknad ingående moms | 4 725 | |
+| 4531 Import tjänster utanför EU | 18 900 | |
+| 2820 Skuld till anställd | | 18 900 |
+| 2614 Utgående moms omvänd skattskyldighet | | 4 725 |
+| 4598 Justering, omvänd moms | | 18 900 |
+
+Beloppen är i ören.
 
 ## Inköp
 
@@ -484,9 +600,13 @@ Posta inte automatiskt vid:
 - låst eller saknad period
 - konto saknas eller är inaktivt
 - belopp inte balanserar
-- privat kostnad eller närståendetransaktion
+- privat kostnad eller närståendetransaktion (ett utlägg i `Utlägg/` är ingen
+  privat kostnad: se Utlägg)
+- ett utlägg som liknar en transaktion i företagets kontoutdrag, innan
+  användaren har svarat på `foresla_utlaggskontroll`
+- utländsk valuta utan Riksbankens kurs från `hamta_valutakurs`
 - lön, skatt eller skattekonto utan tydligt underlag
-- import/export/EU-handel utan tydlig momsregel
+- import av varor eller EU-handel med varor utan tydlig momsregel
 - anläggningstillgång utan instruktion om aktivering
 - representation utan syfte, deltagare och momsunderlag
 

@@ -85,6 +85,13 @@ export interface VerifikationDetalj extends Verifikation {
    * ingen.
    */
   origin?: { kind: string; title: string; view_key: string } | null;
+  /**
+   * Verifikationens kommentar (migration 045), skriven när den skapades —
+   * t.ex. växlingskursen ett utländskt belopp räknades om med, kursens datum
+   * och källa. Ändras aldrig när verifikationen är postad. Valfri: en äldre
+   * server skickar den inte.
+   */
+  comment?: string | null;
 }
 
 export const detaljApi = {
@@ -183,6 +190,18 @@ export function verifikationVy(v: VerifikationDetalj): VyData {
   konteringar.push({ id: "omslutning", titel: "Omslutning", hoger: formatBeloppHela(v.total_debit), summa: true });
 
   const sektioner: VySektionData[] = [{ titel: "Konteringar", rader: konteringar }];
+
+  // Kommentaren, en rad per stycke: kursraden servern skrev, sedan agentens text.
+  const kommentar = (v.comment ?? "")
+    .split("\n")
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0);
+  if (kommentar.length > 0) {
+    sektioner.push({
+      titel: "Kommentar",
+      rader: kommentar.map((text, i) => ({ id: `kommentar-${i}`, titel: text, hoger: "" })),
+    });
+  }
 
   // Var den kommer ifrån: lönebeskedet, AGI:n, fakturan eller betalningen.
   // Raden leder tillbaka till vyn där den bor, som vyns rad leder hit.

@@ -135,6 +135,10 @@ class Voucher:
     created_at: datetime = field(default_factory=datetime.now)
     created_by: str = "system"
     posted_at: Optional[datetime] = None
+    # Free text beside `description` (migration 045): what the agent wants a
+    # reader to know, e.g. the exchange rate a foreign amount was converted
+    # at. Written at creation; a posted voucher's never changes.
+    comment: Optional[str] = None
     # Derived by the repository, never stored (SPEC-oversikt.md §3). None on a
     # voucher that was built in memory rather than read back.
     missing_attachment: Optional[bool] = None
@@ -583,6 +587,11 @@ class ThreadDraft:
     intake_source_ids: List[str] = field(default_factory=list)
     bank_input_ids: List[str] = field(default_factory=list)
     bank_transaction_ids: List[str] = field(default_factory=list)
+    # Migration 044: an underlag in `intake_source_ids` that already
+    # supported vouchers when the card was proposed, and which. The card
+    # says so, and the human's press is the basis for the further link; a
+    # link made after the proposal is not covered by it.
+    shared_intake_sources: Dict[str, List[str]] = field(default_factory=dict)
 
 
 @dataclass

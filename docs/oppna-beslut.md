@@ -50,12 +50,13 @@ Det här är kontroller, inte beslut. De kräver en människa, och den första e
    i fritext kopplas om agenten läser det fel. Alternativet är att ett kopplingsbeslut bara kan
    besvaras med ett alternativ.
 7. **Ett kvitto med flera köp** stöds inte.
-8. **Kronbelopp för kvitton i utländsk valuta.** I dag (instruktionerna v5) tar agenten
-   kronbeloppet från kvittot, annars från filnamnet eller förklaringen, och avstår annars.
-   Bättre vore att räkna om med Riksbankens kurs på betalningsdagen och bokföra skillnaden
-   mot kortdragningen som kursdifferens när banktransaktionen matchas: 3960 vid vinst och
-   7960 vid förlust, eftersom det är en rörelseskuld (7960 finns inte i kontoplanen ännu).
-   Det kräver ett verktyg för valutakurser.
+8. **Kursdifferens mot företagets eget kort.** Ett belopp i utländsk valuta räknas nu om med
+   Riksbankens dagliga mittkurs för köpdatumet (`hamta_valutakurs`, `valuta` på
+   `posta_verifikation`/`foresla_verifikation`, migration 045). Servern skriver kursen, datumet
+   och källan i verifikationens kommentar. Kvar är fallet där företagets eget kort drogs med
+   bankens kurs: skillnaden mot kortdragningen ska bokföras som kursdifferens när
+   banktransaktionen matchas, 3960 vid vinst och 7960 vid förlust (7960 finns inte i
+   kontoplanen ännu). Ett utlägg berörs inte, eftersom skulden på 2820 är det omräknade beloppet.
 9. **`thinking`-block över flera turer.** Frågan är om `LLMTurn` ska bära dem, så att långa
    trådar går fram och tillbaka korrekt. Det ändrar agentruntimens gränsyta.
 10. **Små designfrågor:**
@@ -70,12 +71,17 @@ Det här är kontroller, inte beslut. De kräver en människa, och den första e
     Verifikationers tråd, så att svaret blir ett klick (`POST /decisions/{id}/answer`), och att
     likartade avstånden kan grupperas. Formuleringen av alternativen ska först stå i
     instruktionen.
-12. **Moms på tjänster köpta utanför EU.** Instruktionerna v5 säger "utan moms", men för ett
-    svenskt aktiebolag gäller omvänd skattskyldighet: kostnad mot 1920 och 25 % beräknad moms
-    på 2614 (utgående) och 2645 (ingående), redovisad i ruta 22, 30 och 48. 2614 och 2645 finns
-    inte i kontoplanen och `services/vat_report.py` läser bara 2610–2640, så regeln kan inte
-    ändras förrän båda finns. Bokfört 2026 är inkonsekvent (A5, A6 utan moms; A8 bara ingående
-    moms; A20 mot 2650; övriga 2610/2640) och rättas med B-verifikationer när regeln står.
+12. **Moms på tjänster köpta utanför EU** är löst framåt (migration 045). Instruktionen har
+    ett beslutsträd för köp från säljare utanför Sverige. En tjänst enligt huvudregeln bokförs
+    med omvänd skattskyldighet: 2645/2614 för momsen och 4535 (EU) eller 4531 (utanför EU) mot
+    4598 för underlaget. `services/vat_report.py` fyller ruta 21, 22, 30 och 48. Kvar är:
+    - Bokfört 2026 är inkonsekvent (A5, A6 utan moms; A8 bara ingående moms; A20 mot 2650;
+      övriga 2610/2640) och rättas med B-verifikationer.
+    - Företagets egna agentinstruktioner kan fortfarande säga "utan moms" (v5, regel D2/D3)
+      och måste i så fall skrivas om.
+    - eSKD-taggarna för ruta 21, 22 och 30 (`InkopTjanstAnnatEg`, `InkopTjanstUtomEg`,
+      `MomsInkopUtgHog`) är inte kontrollerade mot Skatteverkets DTD.
+    - Import av varor (ruta 50/60) och varor från EU (ruta 20) stöds inte.
 
 ## underlag-ersatt: val som gjordes i bygget, att bekräfta
 
@@ -97,6 +103,29 @@ Det här är kontroller, inte beslut. De kräver en människa, och den första e
 6. **Ingen knapp i gränssnittet.** Vägen tillbaka går genom tråden, som vägen fram. En inloggad
    människa kan också använda routen direkt. Frånkopplade underlag visas i
    `source-context.unlinked_source_material`, men `/v4` ritar dem inte ännu.
+
+## Delat underlag (migration 044): val som gjordes i bygget, att bekräfta
+
+1. **Ett nytt underlag kopplas fortfarande automatiskt till högst en verifikation.** En exakt
+   matchning gäller bara ett underlag som inte styrker någon verifikation än. Ett redan kopplat
+   underlag kopplas till en till bara efter en människas tryck.
+2. **Människans tryck finns på två ställen.** Det ena är `foresla_delat_underlag`-kortet, som
+   kopplar till en redan postad verifikation. Det andra är ett `foresla_verifikation`-kort med ett
+   redan kopplat underlag: fotnoten säger vilka verifikationer underlaget redan styrker, och
+   trycket på Posta kopplar det. Ett vanligt beslut från `be_om_beslut` räcker inte, eftersom det
+   inte visar för människan att underlaget redan är bokfört.
+3. **"Godkänn för kommande verifikationer" finns bara på `foresla_delat_underlag`-kortet.**
+   Verifikationskortet har en knapp, Posta, och den kopplar en gång. Ska valet finnas där också
+   behövs en andra knapp i `/v4`.
+4. **Ett godkännande gäller verifikationens räkenskapsår**, alltså året för verifikationen på
+   kortet, inte året då kortet besvarades. Ett nytt år kräver ett nytt kort.
+5. **Ett godkännande kan återkallas** av en inloggad människa:
+   `POST /api/v1/intake/{id}/reuse-approvals/{approval_id}/revoke`. Kopplingar som redan gjorts
+   står kvar. Det finns ingen knapp i `/v4` än. Godkännandena syns i
+   `GET /intake/workspace/voucher_source/{id}` som `reuse_approvals`.
+6. **En koppling i efterhand till en ytterligare verifikation kräver en tolkning av underlaget**,
+   eftersom kopplingens grund pekar ut en tolkning. Verifikationen behöver däremot inte finnas
+   i tolkningen: kortet pekar ut den, och ett låneavtals belopp matchar ingen enskild amortering.
 
 ## Fakturering
 

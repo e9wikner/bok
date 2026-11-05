@@ -153,6 +153,14 @@ class VoucherResponse(BaseModel):
     date: DateType
     period_id: str
     description: str
+    comment: Optional[str] = Field(
+        None,
+        description=(
+            "Free text beside the description, written when the voucher was "
+            "created -- e.g. the exchange rate a foreign amount was converted "
+            "at, its date and source. Never changes once posted"
+        ),
+    )
     status: str  # draft, posted
     rows: List[VoucherRowResponse]
     total_debit: int = 0

@@ -1,4 +1,4 @@
-"""Repository for `bokslut_inputs` (migration 044). Append-only."""
+"""Repository for `bokslut_inputs` (migration 046). Append-only."""
 
 import json
 import uuid

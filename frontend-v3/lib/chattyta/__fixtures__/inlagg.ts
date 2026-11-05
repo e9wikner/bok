@@ -144,6 +144,7 @@ export const FIXTUR_DRAFT: RaInlagg = {
       { account: "1930", name: "Företagskonto", debit_ore: null, credit_ore: 89600 },
     ],
     footnote: "Underlag: kvitto 2026-09-18 · kompletteringsflagga sätts inte",
+    comment: null,
     consequence: "Låses vid postning · period september öppen till 2026-10-12",
     decision_id: "<om förslaget kommer ur ett besvarat beslut, annars null>",
   },

@@ -315,6 +315,72 @@ class IntakeService:
         """Validate that a source can be linked to a voucher."""
         return self._ensure_can_record_outcome(source_id)
 
+    def supported_vouchers(self, source_id: str) -> list[str]:
+        """The vouchers *source_id* supports now -- its current links'
+        voucher ids, oldest first -- or `[]` for a source that supports none
+        (migration 044: an underlag may support several)."""
+        return [lk.voucher_id for lk in self.sources.list_links_for_source(source_id)]
+
+    def link_shared_source(
+        self,
+        source_id: str,
+        voucher_id: str,
+        *,
+        known_voucher_ids: list[str],
+        actor: str,
+        summary: str,
+        link_reason: str,
+        _commit: bool = True,
+    ) -> VoucherIntakeSource:
+        """Link an underlag that already supports vouchers to one more
+        (migration 044), when a human pressed a proposal card that said so.
+
+        *known_voucher_ids* are the vouchers the card named. A link made
+        after the card was proposed was not shown to the human, so it is
+        refused (`intake_already_linked`): the press is no basis for it.
+        The source stays `processed`; an attempt records the link."""
+        self._validate_summary(summary)
+        source = self.get_source(source_id)
+        if source.status == IntakeStatus.DELETED:
+            raise IntakeConflictError(
+                "intake_not_processable",
+                "Intake source is deleted",
+                f"source_id={source_id}",
+            )
+        current = self.supported_vouchers(source_id)
+        unknown = [v for v in current if v not in known_voucher_ids]
+        if unknown or voucher_id in current:
+            raise IntakeConflictError(
+                "intake_already_linked",
+                "Intake source was linked to a voucher after the proposal",
+                f"source_id={source_id}, voucher_id={(unknown or [voucher_id])[0]}",
+            )
+        voucher = self.vouchers.get(voucher_id)
+        if not voucher or voucher.status != VoucherStatus.POSTED:
+            raise IntakeConflictError(
+                "voucher_not_posted",
+                "Only posted vouchers can be linked to intake sources",
+                f"voucher_id={voucher_id}",
+            )
+        link = self.sources.create_voucher_link(
+            intake_source_id=source_id,
+            voucher_id=voucher_id,
+            linked_by=actor,
+            link_reason=link_reason,
+            _commit=False,
+        )
+        self.sources.record_attempt(
+            intake_source_id=source_id,
+            status=IntakeStatus.PROCESSED.value,
+            summary=summary,
+            voucher_id=voucher_id,
+            actor=actor,
+            _commit=False,
+        )
+        if _commit:
+            db.commit()
+        return link
+
     def link_existing_voucher(
         self,
         source_id: str,
@@ -412,17 +478,27 @@ class IntakeService:
 
     def _ensure_can_record_outcome(self, source_id: str) -> IntakeSource:
         source = self.get_source(source_id)
+        if (
+            source.status != IntakeStatus.DELETED
+            and self.sources.get_link_by_source_id(source_id) is not None
+        ):
+            # Migration 044: an underlag may support several vouchers, but
+            # not on the agent's say alone -- that is how one receipt gets
+            # booked twice.
+            raise IntakeConflictError(
+                "intake_already_linked",
+                "Intake source is already linked to a voucher",
+                f"source_id={source_id} -- underlaget styrker redan en "
+                "verifikation. Ska det styrka en till, lägg fram verifikationen "
+                "med foresla_verifikation, eller koppla den postade "
+                "verifikationen med foresla_delat_underlag, så att användaren "
+                "godkänner.",
+            )
         if source.status not in (IntakeStatus.PENDING, IntakeStatus.PROCESSING):
             raise IntakeConflictError(
                 "intake_not_processable",
                 "Intake source cannot be processed in its current status",
                 f"source_id={source_id}, status={source.status.value}",
-            )
-        if self.sources.get_link_by_source_id(source_id):
-            raise IntakeConflictError(
-                "intake_already_linked",
-                "Intake source is already linked to a voucher",
-                f"source_id={source_id}",
             )
         return source
 

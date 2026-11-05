@@ -1118,6 +1118,7 @@ def _voucher_to_response(voucher, account_names=None) -> VoucherResponse:
         date=voucher.date,
         period_id=voucher.period_id,
         description=voucher.description,
+        comment=voucher.comment,
         status=voucher.status.value,
         rows=[
             VoucherRowResponse(

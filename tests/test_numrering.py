@@ -245,16 +245,21 @@ def test_1_migration_keeps_posted_rows_and_clears_draft_numbers(v26_db):
         (c[0], c[1], c[2], 0, c[4], c[5]) if c[1] == "number" else c
         for c in columns_before
     ]
-    assert columns_after == expected
+    assert columns_after[: len(expected)] == expected
+    # Migration 045 adds `comment` after them; nothing else is added.
+    assert [c[1] for c in columns_after[len(expected) :]] == ["comment"]
 
     posted_after = _rows(
         conn, "SELECT * FROM vouchers WHERE status = 'posted' ORDER BY id"
     )
+    # Migration 045's `comment` is NULL on every voucher from before it.
+    assert all(p.pop("comment") is None for p in posted_after)
     assert posted_after == posted_before
 
     drafts_after = _rows(
         conn, "SELECT * FROM vouchers WHERE status = 'draft' ORDER BY id"
     )
+    assert all(d.pop("comment") is None for d in drafts_after)
     assert [d["number"] for d in drafts_after] == [None, None]
     assert [{**d, "number": None} for d in drafts_before] == drafts_after
 

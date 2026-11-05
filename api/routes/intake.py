@@ -47,6 +47,7 @@ from services.intake_link import (
     LinkNotFoundError,
     LinkRejectedError,
 )
+from services.intake_reuse import IntakeReuseService
 from services.interpretation_service import (
     InterpretationNotFoundError,
     InterpretationService,
@@ -74,6 +75,14 @@ class LinkRequest(BaseModel):
 
     voucher_id: str
     decision_id: str | None = None
+
+
+class RevokeReuseRequest(BaseModel):
+    """Why a standing approval to reuse an underlag ends now."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str
 
 
 class UnlinkRequest(BaseModel):
@@ -236,6 +245,12 @@ async def get_intake_workspace_detail(
                     source.id, include_unlinked=True
                 )
             ],
+            # Migration 044: standing approvals to let the underlag support
+            # further vouchers in a fiscal year, revoked ones included.
+            "reuse_approvals": [
+                approval.to_dict()
+                for approval in IntakeReuseService.approvals(source.id)
+            ],
             "deleted_at": source.deleted_at.isoformat() if source.deleted_at else None,
             "deleted_by": source.deleted_by,
         }
@@ -368,6 +383,40 @@ async def unlink_intake_source(
     except IntakeError as exc:
         raise _http_error(exc) from exc
     return result.to_dict()
+
+
+@router.post("/{source_id}/reuse-approvals/{approval_id}/revoke", response_model=dict)
+async def revoke_reuse_approval(
+    source_id: str,
+    approval_id: str,
+    request: RevokeReuseRequest,
+    caller: Caller = Depends(get_caller),
+):
+    """End a standing approval to let the underlag support further vouchers
+    (migration 044). A logged-in user only: the API key gets `403
+    human_only`, since the approval was a human's. Links already made stay.
+    `200` both when ended and on a replay."""
+    if not caller.human:
+        raise HTTPException(
+            status_code=http_status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "Only a logged-in user can do this",
+                "code": "human_only",
+                "details": "a reuse approval is ended by a logged-in user",
+            },
+        )
+    try:
+        approval = IntakeReuseService().revoke(
+            source_id, approval_id, reason=request.reason, actor=caller.actor
+        )
+    except IntakeError as exc:
+        if exc.code == "approval_not_found":
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail={"error": exc.message, "code": exc.code, "details": exc.details},
+            ) from exc
+        raise _http_error(exc) from exc
+    return approval.to_dict()
 
 
 @router.get("/{source_id}", response_model=dict)

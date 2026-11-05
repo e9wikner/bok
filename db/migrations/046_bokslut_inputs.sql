@@ -1,4 +1,4 @@
--- Migration 044: uppgifter till bokslutet som inte går att läsa ur bokföringen.
+-- Migration 046: uppgifter till bokslutet som inte går att läsa ur bokföringen.
 -- Service: services/bokslut_inputs.py. Test: tests/test_bokslut.py.
 --
 -- Årsredovisningens texter (verksamhet, ort, underskrifter, utdelning),
@@ -31,4 +31,4 @@ CREATE TRIGGER IF NOT EXISTS prevent_delete_bokslut_inputs
 BEFORE DELETE ON bokslut_inputs
 BEGIN SELECT RAISE(ABORT, 'bokslut inputs are append-only'); END;
 
-INSERT OR IGNORE INTO schema_version (version) VALUES (44);
+INSERT OR IGNORE INTO schema_version (version) VALUES (46);

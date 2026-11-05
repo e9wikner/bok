@@ -852,7 +852,8 @@ _FIRST_TEN = [
 # field lengths).
 # Re-taken again for the period lock, which rewords `las_perioder` (it said
 # locking was never the agent's).
-_FIRST_TEN_SHA256 = "3f9f490366d3b62a889ea82a33e7c40ac0b65f7147fc6667822b906fac26701d"
+# Re-taken for migration 045 (`comment` and `valuta` on posta_verifikation).
+_FIRST_TEN_SHA256 = "2ed8ad7cb947b3b222610a0d0da7f46d89f05abf96ac2c63a0397cc4d7421aef"
 
 
 def test_case_22_foresla_verifikation_is_last_and_the_first_ten_are_unchanged():
@@ -888,6 +889,10 @@ def test_case_22_foresla_verifikation_is_last_and_the_first_ten_are_unchanged():
         "sok_verifikationer",
         "foresla_lonebokforing",
         "foresla_agi_bokforing",
+        "foresla_delat_underlag",
+        "hamta_valutakurs",
+        "kontrollera_utlagg",
+        "foresla_utlaggskontroll",
     ]
     first_ten = json.dumps(AGENT_TOOL_DEFINITIONS[:10], ensure_ascii=False)
     assert hashlib.sha256(first_ten.encode("utf-8")).hexdigest() == _FIRST_TEN_SHA256

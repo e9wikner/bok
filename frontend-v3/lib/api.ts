@@ -52,6 +52,8 @@ export interface Voucher {
   date: string;
   period_id: string;
   description: string;
+  /** Kommentaren som skrevs när verifikationen skapades, t.ex. växlingskursen. */
+  comment?: string | null;
   rows: VoucherRow[];
   status: "draft" | "posted";
   created_at: string;

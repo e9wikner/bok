@@ -155,6 +155,25 @@ describe("verifikationen", () => {
     expect(vy.banner?.text).toContain("Rättad av B-3");
   });
 
+  it("kommentaren står efter konteringarna, ett stycke per rad", () => {
+    const vy = verifikationVy(
+      verifikation({
+        comment:
+          "Omräknat 20,00 USD × 9,45 SEK/USD = 189,00 kr. Riksbankens dagliga mittkurs (serie SEKUSDPMI) för 2026-10-14, köpdatum. Källa: Sveriges Riksbank, https://api.riksbank.se/swea/v1/Observations/SEKUSDPMI/2026-10-14/2026-10-14\nOmvänd skattskyldighet: SaaS-tjänst från säljare i USA, ruta 22.",
+      })
+    );
+    expect(vy.sektioner[1].titel).toBe("Kommentar");
+    expect(vy.sektioner[1].rader.map((r) => r.titel)).toEqual([
+      expect.stringContaining("Riksbankens dagliga mittkurs"),
+      "Omvänd skattskyldighet: SaaS-tjänst från säljare i USA, ruta 22.",
+    ]);
+  });
+
+  it("utan kommentar ingen sektion", () => {
+    expect(verifikationVy(verifikation({ comment: null })).sektioner.map((s) => s.titel)).not.toContain("Kommentar");
+    expect(verifikationVy(verifikation({ comment: "  " })).sektioner.map((s) => s.titel)).not.toContain("Kommentar");
+  });
+
   it("ett utkast har ingen underlagssektion", () => {
     const vy = verifikationVy(verifikation({ status: "draft", number: null }));
     expect(vy.sektioner.map((s) => s.titel)).toEqual(["Konteringar"]);

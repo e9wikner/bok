@@ -24,6 +24,7 @@ from repositories.correction_note_repo import CorrectionNoteRepository
 from repositories.intake_repo import IntakeRepository
 from services.agent_runtime import agent_state, get_runner, get_worker
 from services.bank_inputs import BankInputError, BankInputService
+from services.exchange_rates import Valuta
 from services.idempotency import IdempotencyOutcome, IdempotencyService
 from services.intake import IntakeError, IntakeService
 from services.voucher_posting import VoucherPostingRequest, post_agent_voucher
@@ -43,6 +44,8 @@ class AgentVoucherRequest(BaseModel):
     intake_source_ids: list[str] = Field(default_factory=list)
     bank_input_ids: list[str] = Field(default_factory=list)
     bank_transaction_ids: list[str] = Field(default_factory=list)
+    comment: Optional[str] = Field(None, max_length=1000)
+    valuta: Optional[Valuta] = None
 
 
 class AgentProcessingRequest(BaseModel):
@@ -142,6 +145,8 @@ def _create_and_post_voucher(
         intake_source_ids=request.intake_source_ids,
         bank_input_ids=request.bank_input_ids,
         bank_transaction_ids=request.bank_transaction_ids,
+        comment=request.comment,
+        valuta=request.valuta.model_dump() if request.valuta else None,
     )
     try:
         return post_agent_voucher(

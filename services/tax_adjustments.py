@@ -2,7 +2,7 @@
 
 iOrdning lät människan fylla i 4.3c, 4.5c och 4.6a för hand. Här räknas de
 fram ur bokföringen, och var och en kan ersättas med ett belopp som en
-människa har angett (`bokslut_inputs`, migration 044). Det beräknade beloppet
+människa har angett (`bokslut_inputs`, migration 046). Det beräknade beloppet
 visas alltid bredvid, så att en ersättning syns.
 
 - 4.3c Andra bokförda kostnader som inte ska dras av: konton som är ej

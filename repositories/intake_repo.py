@@ -9,6 +9,7 @@ from db.database import db
 from domain.models import IntakeProcessingAttempt, IntakeSource, VoucherIntakeSource
 from domain.types import IntakeSourceType, IntakeStatus
 from repositories.fiscal_year_proposal_repo import NOT_WAITING_FOR_FISCAL_YEAR_SQL
+from repositories.reimbursement_check_repo import NOT_WAITING_FOR_REIMBURSEMENT_SQL
 
 # SPEC-flode-underlag.md §11.3 (D4): a file dropped in a thread is the
 # thread's -- the turn reads and interprets it, and the human decides there.
@@ -24,7 +25,12 @@ _NOT_IN_A_THREAD_SQL = (
 # Migration 041: a source waiting on a pending fiscal-year proposal is out of
 # the pass's queue until the human has answered the card -- otherwise the pass
 # would read it again, and pay for it, every pass. Created, it is back in.
-_PASS_QUEUE_SQL = f"{_NOT_IN_A_THREAD_SQL} AND {NOT_WAITING_FOR_FISCAL_YEAR_SQL}"
+# Migration 045: the same for an utlägg waiting on the card that asks whether
+# the company paid it (a matching statement transaction).
+_PASS_QUEUE_SQL = (
+    f"{_NOT_IN_A_THREAD_SQL} AND {NOT_WAITING_FOR_FISCAL_YEAR_SQL}"
+    f" AND {NOT_WAITING_FOR_REIMBURSEMENT_SQL}"
+)
 
 
 class IntakeRepository:
@@ -390,11 +396,28 @@ class IntakeRepository:
 
     @staticmethod
     def get_link_by_source_id(source_id: str) -> Optional[VoucherIntakeSource]:
-        """The source's current link, or `None` -- never an undone one."""
+        """The source's first current link, or `None` -- never an undone
+        one. Enough to ask "is this underlag linked at all?"; a source may
+        support several vouchers (migration 044), and
+        `list_links_for_source` gives them all."""
         row = db.execute(
             IntakeRepository._LINK_SELECT
-            + " WHERE vis.intake_source_id = ? AND u.link_id IS NULL LIMIT 1",
+            + " WHERE vis.intake_source_id = ? AND u.link_id IS NULL"
+            " ORDER BY vis.linked_at ASC, vis.rowid ASC LIMIT 1",
             (source_id,),
+        ).fetchone()
+        return IntakeRepository._row_to_link(row) if row else None
+
+    @staticmethod
+    def current_link(source_id: str, voucher_id: str) -> Optional[VoucherIntakeSource]:
+        """The current link between the two, or `None`. A source may have
+        current links to several vouchers (migration 044), but at most one
+        to each."""
+        row = db.execute(
+            IntakeRepository._LINK_SELECT
+            + " WHERE vis.intake_source_id = ? AND vis.voucher_id = ?"
+            " AND u.link_id IS NULL LIMIT 1",
+            (source_id, voucher_id),
         ).fetchone()
         return IntakeRepository._row_to_link(row) if row else None
 
@@ -425,8 +448,8 @@ class IntakeRepository:
     def list_links_for_source(
         source_id: str, *, include_unlinked: bool = False
     ) -> List[VoucherIntakeSource]:
-        """The source's current link as a list (at most one), or its whole
-        history with *include_unlinked*, oldest first."""
+        """The source's current links -- one per voucher it supports -- or
+        its whole history with *include_unlinked*, oldest first."""
         where = " WHERE vis.intake_source_id = ?"
         if not include_unlinked:
             where += " AND u.link_id IS NULL"

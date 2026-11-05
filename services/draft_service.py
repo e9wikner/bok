@@ -34,6 +34,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from db.database import db
 from domain.models import Account, Period, Thread, ThreadDraft, ThreadPost, Voucher
+from domain.types import IntakeStatus
 from domain.validation import ValidationError, VoucherValidator
 from repositories.account_repo import AccountRepository
 from repositories.decision_repo import DecisionRepository
@@ -224,6 +225,7 @@ def draft_body(
     period: Period,
     decision_id: Optional[str],
     correction: Optional[str] = None,
+    comment: Optional[str] = None,
 ) -> dict:
     """The `draft` post's body -- exactly SPEC-chattyta.md §4.3's keys, which
     `tests/test_flode_verifikationer.py` reads out of the client's fixture.
@@ -235,6 +237,7 @@ def draft_body(
         "meta": draft_meta(series, voucher_date),
         "rows": card_rows(rows, accounts),
         "footnote": footnote,
+        "comment": comment,
         "consequence": draft_consequence(series, period, correction),
         "decision_id": decision_id,
     }
@@ -874,6 +877,30 @@ class DraftService:
 
         intake = IntakeService()
         for source_id in draft.intake_source_ids:
+            if source_id in draft.shared_intake_sources:
+                try:
+                    intake.link_shared_source(
+                        source_id,
+                        voucher.id,
+                        known_voucher_ids=draft.shared_intake_sources[source_id],
+                        actor=actor,
+                        summary=voucher.description,
+                        link_reason="thread_draft_posted_shared",
+                        _commit=False,
+                    )
+                except IntakeError as exc:
+                    if exc.code == "intake_already_linked":
+                        known = draft.shared_intake_sources[source_id]
+                        later = [
+                            v
+                            for v in intake.supported_vouchers(source_id)
+                            if v not in known
+                        ]
+                        raise _already_booked(
+                            "intake_source", source_id, later[0] if later else None
+                        )
+                    raise _not_linkable("intake_source", source_id, exc)
+                continue
             try:
                 intake.link_existing_voucher(
                     source_id=source_id,
@@ -934,6 +961,8 @@ class DraftService:
         bank_transaction_ids: Sequence[str] = (),
         actor: str = "agent",
         idempotency_key: Optional[str] = None,
+        comment: Optional[str] = None,
+        valuta: Optional[Mapping[str, Any]] = None,
     ) -> dict:
         """Check (§5.3), then write draft, post and row in one transaction.
 
@@ -962,6 +991,8 @@ class DraftService:
             "intake_source_ids": list(intake_source_ids),
             "bank_input_ids": list(bank_input_ids),
             "bank_transaction_ids": list(bank_transaction_ids),
+            "comment": comment,
+            "valuta": dict(valuta) if valuta else None,
         }
 
         idempotency = IdempotencyService()
@@ -1038,8 +1069,17 @@ class DraftService:
         accounts = AccountRepository.get_all_as_dict()
         self._check_decision(thread, request["decision_id"])
         self._check_replaceable(thread, request["replaces_draft_id"])
-        self._check_traceability(request)
+        shared = self._check_traceability(request)
+        footnote = _with_shared_note(request["footnote"], shared)
         agent_rows: List[Dict[str, Any]] = request["rows"]
+        # Migration 045: a foreign amount is converted at Riksbank's rate,
+        # the settlement row must carry it, and the rate line leads the
+        # comment the voucher keeps when it is posted.
+        from services.exchange_rates import ExchangeRateService
+
+        comment, _conversion = ExchangeRateService().apply(
+            request.get("valuta"), agent_rows, request.get("comment")
+        )
 
         # Deferred import (AGENTS.md: service-to-service imports wait until
         # the method runs).
@@ -1062,6 +1102,7 @@ class DraftService:
                     voucher_date=date,
                     description=request["description"],
                     _commit=False,
+                    comment=comment,
                 )
             else:
                 rows = agent_rows
@@ -1073,6 +1114,7 @@ class DraftService:
                     rows_data=rows,
                     created_by="agent",
                     _commit=False,
+                    comment=comment,
                 )
             post = ThreadRepository.add_post(
                 thread_id=thread.id,
@@ -1085,10 +1127,11 @@ class DraftService:
                     voucher_date=date,
                     rows=rows,
                     accounts=accounts,
-                    footnote=request["footnote"],
+                    footnote=footnote,
                     period=period,
                     decision_id=request["decision_id"],
                     correction=correction.line if correction is not None else None,
+                    comment=comment,
                 ),
                 _commit=False,
             )
@@ -1103,6 +1146,7 @@ class DraftService:
                 intake_source_ids=_unique(request["intake_source_ids"]),
                 bank_input_ids=_unique(request["bank_input_ids"]),
                 bank_transaction_ids=_unique(request["bank_transaction_ids"]),
+                shared_intake_sources=shared,
                 _commit=False,
             )
             replaced = request["replaces_draft_id"]
@@ -1274,27 +1318,42 @@ class DraftService:
             )
 
     @staticmethod
-    def _check_traceability(request: Mapping[str, Any]) -> None:
+    def _check_traceability(request: Mapping[str, Any]) -> Dict[str, List[str]]:
         """The checks a direct posting runs on the same ids
         (`services/voucher_posting.post_agent_voucher`), so a proposal never
         carries ids its posting would refuse. They are run again at posting
-        time: a source can be taken in between."""
+        time: a source can be taken in between.
+
+        One difference (migration 044): an underlag that already supports
+        vouchers -- a loan agreement, an annual invoice -- may be proposed
+        for one more, since a human presses the card. Returned as
+        ``{source_id: [voucher_id, ...]}``, the vouchers it supports now;
+        the card names them and the press links only past those."""
         from services.bank_inputs import BankInputService
         from services.intake import IntakeService
         from services.intake_link import IntakeLinkService
 
         intake = IntakeService()
+        shared: Dict[str, List[str]] = {}
+        fresh: List[str] = []
         for source_id in _unique(request["intake_source_ids"]):
+            supported = intake.supported_vouchers(source_id)
+            if (
+                supported
+                and intake.get_source(source_id).status != IntakeStatus.DELETED
+            ):
+                shared[source_id] = supported
+                continue
             intake.ensure_source_ready_for_voucher_link(source_id)
+            fresh.append(source_id)
         # SPEC-flode-underlag.md §8: the posting's stop, for the proposal
         # too. Not run again when the proposal is posted.
-        IntakeLinkService.ensure_not_matching_posted(
-            _unique(request["intake_source_ids"])
-        )
+        IntakeLinkService.ensure_not_matching_posted(fresh)
         BankInputService().ensure_transactions_available(
             _unique(request["bank_input_ids"]),
             _unique(request["bank_transaction_ids"]),
         )
+        return shared
 
 
 @dataclass
@@ -1306,6 +1365,28 @@ class _Correction:
     period: Period
     date: DateType
     line: str
+
+
+def _with_shared_note(
+    footnote: Optional[str], shared: Mapping[str, Sequence[str]]
+) -> Optional[str]:
+    """The card's footnote, with the server's line for each underlag that
+    already supports vouchers (migration 044): the human pressing the card
+    must see that the underlag is booked already, and where."""
+    if not shared:
+        return footnote
+    numbers = VoucherRepository.numbers_for([v for ids in shared.values() for v in ids])
+    lines = []
+    for source_id, voucher_ids in shared.items():
+        source = IntakeRepository.get_source(source_id)
+        name = source.original_filename if source is not None else source_id
+        named = ", ".join(
+            f"{numbers[v][0]}-{numbers[v][1]}" if v in numbers else v
+            for v in voucher_ids
+        )
+        lines.append(f"Underlaget {name} styrker redan {named}.")
+    note = " ".join(lines)
+    return f"{footnote} {note}" if footnote else note
 
 
 def _unique(values: Sequence[str]) -> List[str]:

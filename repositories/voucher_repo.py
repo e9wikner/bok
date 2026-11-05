@@ -216,6 +216,7 @@ def _voucher_from_row(row, rows: List[VoucherRow]) -> Voucher:
         created_at=datetime.fromisoformat(row["created_at"]),
         created_by=row["created_by"],
         posted_at=datetime.fromisoformat(posted_at) if posted_at else None,
+        comment=row["comment"],
         missing_attachment=bool(row["missing_attachment"]),
         age_days=row["age_days"],
         # Only meaningful while the voucher lacks underlag: a receipt covers
@@ -243,6 +244,7 @@ class VoucherRepository:
         fiscal_year_id: str,
         created_by: str = "system",
         _commit: bool = True,
+        comment: Optional[str] = None,
     ) -> Voucher:
         """Create new draft voucher.
 
@@ -251,8 +253,8 @@ class VoucherRepository:
         """
         voucher_id = str(uuid.uuid4())
         sql = """
-        INSERT INTO vouchers (id, series, date, period_id, fiscal_year_id, description, status, created_by, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?)
+        INSERT INTO vouchers (id, series, date, period_id, fiscal_year_id, description, status, created_by, created_at, comment)
+        VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)
         """
         now = datetime.now()
         db.execute(
@@ -266,6 +268,7 @@ class VoucherRepository:
                 description,
                 created_by,
                 now,
+                comment,
             ),
         )
         if _commit:
@@ -282,6 +285,7 @@ class VoucherRepository:
             fiscal_year_id=fiscal_year_id,
             created_at=now,
             created_by=created_by,
+            comment=comment,
         )
 
     @staticmethod
@@ -794,6 +798,7 @@ class VoucherRepository:
         _commit: bool = True,
         voucher_date: Optional[date] = None,
         description: Optional[str] = None,
+        comment: Optional[str] = None,
     ) -> Voucher:
         """Create correction voucher (B-series) for an original voucher.
 
@@ -819,8 +824,8 @@ class VoucherRepository:
         correction_id = str(uuid.uuid4())
 
         sql = """
-        INSERT INTO vouchers (id, series, date, period_id, fiscal_year_id, description, status, correction_of, created_by, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)
+        INSERT INTO vouchers (id, series, date, period_id, fiscal_year_id, description, status, correction_of, created_by, created_at, comment)
+        VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)
         """
         now = datetime.now()
         if description is None:
@@ -842,6 +847,7 @@ class VoucherRepository:
                 original_voucher_id,
                 created_by,
                 now,
+                comment,
             ),
         )
         if _commit:
@@ -859,6 +865,7 @@ class VoucherRepository:
             correction_of=original_voucher_id,
             created_at=now,
             created_by=created_by,
+            comment=comment,
         )
 
     @staticmethod

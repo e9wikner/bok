@@ -179,6 +179,35 @@ def _render_open_periods(open_periods: list[Period]) -> str:
     )
 
 
+#: What the dropzone folder says about an underlag (`services/dropzone.py`).
+_SOURCE_TYPE_TEXT = {
+    "receipt": "kvitto (Kvitton/)",
+    "supplier_invoice": "leverantörsfaktura (Leverantörsfakturor/)",
+    "customer_invoice": "kundfaktura (Kundfakturor/)",
+    "reimbursement": (
+        "utlägg (Utlägg/): ett privat utlägg som företaget ska ersätta den som "
+        "betalade -- krediteras 2820, se Utlägg i bokföringsinstruktionen"
+    ),
+    "other": "övrigt (Övrigt/)",
+}
+
+
+def _render_source_type(source: IntakeSource) -> str:
+    if source.source_type is None:
+        return "-"
+    value = source.source_type.value
+    return _SOURCE_TYPE_TEXT.get(value, value)
+
+
+def _reimbursement_answer(source: IntakeSource) -> Optional[str]:
+    """What the human answered on an utläggs card (migration 045)."""
+    if source.source_type is None or source.source_type.value != "reimbursement":
+        return None
+    from services.reimbursement_check import ReimbursementCheckService
+
+    return ReimbursementCheckService().status_line(source.id)
+
+
 def build_user_turn(
     source: IntakeSource,
     content_block: ContentBlock,
@@ -204,7 +233,11 @@ def build_user_turn(
         f"- filtyp: {source.mime_type}\n"
         f"- förklaring: {source.explanation or '-'}\n"
         f"- agentvägledning: {source.agent_guidance or '-'}\n"
+        f"- typ: {_render_source_type(source)}\n"
     )
+    reimbursement_answer = _reimbursement_answer(source)
+    if reimbursement_answer:
+        metadata_text += f"- utläggskontroll: {reimbursement_answer}\n"
     return [
         {
             "role": "user",

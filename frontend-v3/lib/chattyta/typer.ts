@@ -130,6 +130,12 @@ export interface VerifikationKropp {
   meta: string;
   rows: KonteringsRad[];
   footnote: string | null;
+  /**
+   * Verifikationens kommentar (migration 045), t.ex. växlingskursen ett
+   * utländskt belopp räknades om med. Står kvar på verifikationen när den
+   * postas. Valfri: en server från före fältet skickar den inte.
+   */
+  comment?: string | null;
   /** Bär varningen. Inte metatext (komponenter.md). */
   consequence: string;
   decision_id: string | null;

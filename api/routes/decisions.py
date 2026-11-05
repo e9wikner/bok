@@ -41,7 +41,9 @@ from services.decision_service import (
     DecisionView,
 )
 from services.fiscal_year_proposal import FiscalYearProposalService
+from services.intake_reuse import IntakeReuseService
 from services.payroll_proposal import PayrollProposalService
+from services.reimbursement_check import ReimbursementCheckService
 from services.thread_stream import ThreadTurnRunner
 
 logger = logging.getLogger(__name__)
@@ -247,6 +249,15 @@ async def answer_decision(
     # (JWT), refused before the answer is written. Every other decision can
     # still be answered with the API key.
     actor = caller.actor
+    if not caller.human and IntakeReuseService.requires_human(decision_id):
+        raise HTTPException(
+            status_code=http_status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "Only a logged-in user can do this",
+                "code": "human_only",
+                "details": "a shared underlag is approved by a logged-in user",
+            },
+        )
     if not caller.human and PayrollProposalService.requires_human(decision_id):
         raise HTTPException(
             status_code=http_status.HTTP_403_FORBIDDEN,
@@ -320,6 +331,13 @@ async def answer_decision(
     # press on its book option books the payslip or the AGI before the turn
     # starts, so the agent's turn sees it booked. Any other decision: nothing.
     PayrollProposalService().on_decision_answered(decision, actor=actor)
+    # A shared-underlag card (`foresla_delat_underlag`): the press on a yes
+    # option links the underlag, and on the standing one also approves it
+    # for the fiscal year. Any other decision: nothing.
+    IntakeReuseService().on_decision_answered(decision, actor=actor)
+    # An utläggs card (`foresla_utlaggskontroll`): either answer puts the
+    # underlag back in the pass's queue, the exit records it as failed.
+    ReimbursementCheckService().on_decision_answered(decision, actor=actor)
 
     if settings.agent_runtime_enabled:
         ThreadTurnRunner().start(thread, answer_post, answer_post.body["text"])

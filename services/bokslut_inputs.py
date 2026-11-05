@@ -1,4 +1,4 @@
-"""Uppgifter till bokslutet som inte står i bokföringen (migration 044).
+"""Uppgifter till bokslutet som inte står i bokföringen (migration 046).
 
 Varje nyckel har en typ som kontrolleras innan något skrivs. En ändring är en
 ny rad; `None` tar bort uppgiften. Både agenten och en inloggad människa får
