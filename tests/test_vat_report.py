@@ -50,10 +50,11 @@ def test_yearly_vat_declaration_matches_eskd_and_excludes_settlement_voucher():
         eskd = service.export_eskd(declaration).decode("iso-8859-1")
 
     assert summary == {
-        "ruta_05_forsaljning_25": 1139320,
-        "ruta_06_forsaljning_12": 0,
-        "ruta_07_forsaljning_6": 0,
-        "ruta_08_momsfri_forsaljning": 0,
+        "ruta_05_momspliktig_forsaljning": 1139320,
+        "ruta_06_momspliktiga_uttag": 0,
+        "ruta_07_vinstmarginal": 0,
+        "ruta_08_hyresinkomster": 0,
+        "ruta_42_ovrig_forsaljning": 0,
         "ruta_10_utgaende_moms_25": 284830,
         "ruta_11_utgaende_moms_12": 0,
         "ruta_12_utgaende_moms_6": 0,
@@ -128,7 +129,7 @@ def test_reverse_charge_service_from_outside_eu_fills_boxes_22_30_48():
     assert summary["ruta_48_ingaende_moms"] == 81
     assert summary["ruta_49_moms_att_betala"] == 0
     # The 25 % fallback for box 05 must not read box 30 as sales.
-    assert summary["ruta_05_forsaljning_25"] == 0
+    assert summary["ruta_05_momspliktig_forsaljning"] == 0
     assert "<InkopTjanstAnnatEg>100</InkopTjanstAnnatEg>" in eskd
     assert "<InkopTjanstUtomEg>225</InkopTjanstUtomEg>" in eskd
     assert "<MomsInkopUtgHog>81</MomsInkopUtgHog>" in eskd

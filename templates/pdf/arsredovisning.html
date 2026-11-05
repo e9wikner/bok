@@ -1,0 +1,226 @@
+{#- Årsredovisning K2 (services/arsredovisning.py). Fristående mall: den
+    skickas till Bolagsverket och ska se ut som en årsredovisning, inte som
+    ett utskrift ur bokföringsprogrammet. -#}
+{%- macro n(v) -%}{%- if v is none -%}–{%- else -%}{{ "{:,}".format(v).replace(",", " ") }}{%- endif -%}{%- endmacro -%}
+{%- macro saknas(text) -%}<span class="saknas">[{{ text }}]</span>{%- endmacro -%}
+{%- set ar = r.period.start[:4] -%}
+{%- set fg = r.prior_period.start[:4] -%}
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<title>Årsredovisning {{ r.company.name }} {{ r.period.start }} – {{ r.period.end }}</title>
+<style>
+  @page {
+    size: A4;
+    margin: 25mm 22mm 25mm 25mm;
+    @top-left { content: "{{ r.company.name }}"; font-size: 8pt; color: #666; }
+    @top-right { content: "{{ r.company.org_number }}"; font-size: 8pt; color: #666; }
+    @bottom-right { content: "Sida " counter(page) " (" counter(pages) ")"; font-size: 8pt; color: #666; }
+  }
+  @page :first { @top-left { content: none; } @top-right { content: none; } @bottom-right { content: none; } }
+  body { font-family: "Georgia", "Times New Roman", serif; font-size: 10.5pt; color: #111; line-height: 1.45; }
+  h1 { font-size: 26pt; font-weight: normal; margin: 0 0 6mm; }
+  h2 { font-size: 14pt; font-weight: normal; margin: 0 0 4mm; border-bottom: 0.5pt solid #111; padding-bottom: 1.5mm; }
+  h3 { font-size: 11pt; margin: 5mm 0 1.5mm; }
+  .forsattsblad { page-break-after: always; padding-top: 70mm; text-align: center; }
+  .forsattsblad .sub { font-size: 13pt; margin: 2mm 0; }
+  .sida { page-break-before: always; }
+  table { width: 100%; border-collapse: collapse; }
+  td, th { padding: 0.8mm 0; vertical-align: bottom; }
+  th { font-weight: normal; font-size: 9pt; text-align: right; color: #333; }
+  th.l, td.l { text-align: left; }
+  td.b { text-align: right; width: 30mm; font-variant-numeric: tabular-nums; }
+  td.not { width: 12mm; text-align: center; font-size: 9pt; }
+  tr.rubrik td { font-weight: bold; padding-top: 4mm; }
+  tr.underrubrik td { font-style: italic; padding-top: 2.5mm; }
+  tr.summa td { border-top: 0.5pt solid #111; font-weight: bold; }
+  tr.delsumma td.b { border-top: 0.4pt solid #999; }
+  tr.total td { border-top: 0.5pt solid #111; border-bottom: 1.5pt double #111; font-weight: bold; }
+  .saknas { color: #b00; font-style: italic; }
+  .underskrifter { margin-top: 18mm; display: flex; flex-wrap: wrap; gap: 14mm 20mm; }
+  .underskrift { width: 70mm; border-top: 0.5pt solid #111; padding-top: 1.5mm; }
+  .underskrift .roll { font-size: 9pt; color: #333; }
+  p { margin: 0 0 3mm; }
+</style>
+</head>
+<body>
+
+<section class="forsattsblad">
+  <h1>Årsredovisning</h1>
+  <div class="sub">för</div>
+  <div class="sub"><strong>{{ r.company.name }}</strong></div>
+  <div class="sub">{{ r.company.org_number }}</div>
+  <div class="sub" style="margin-top:10mm">Räkenskapsåret {{ r.period.start }} – {{ r.period.end }}</div>
+</section>
+
+<section>
+  <p>Styrelsen{% if any_vd %} och verkställande direktören{% endif %} för {{ r.company.name }} avger härmed årsredovisning för räkenskapsåret {{ r.period.start }} – {{ r.period.end }}.</p>
+  <p>Årsredovisningen är upprättad i svenska kronor.</p>
+
+  <h2>Förvaltningsberättelse</h2>
+  <h3>Verksamheten</h3>
+  <p>{{ r.forvaltningsberattelse.verksamhet or saknas("Verksamhetens art och inriktning") }}</p>
+  {% if r.company.seat %}<p>Bolaget har sitt säte i {{ r.company.seat }}.</p>{% endif %}
+  {% if r.forvaltningsberattelse.vasentliga_handelser %}
+  <h3>Väsentliga händelser under räkenskapsåret</h3>
+  <p>{{ r.forvaltningsberattelse.vasentliga_handelser }}</p>
+  {% endif %}
+
+  <h3>Flerårsöversikt</h3>
+  {% set fo = r.forvaltningsberattelse.flerarsoversikt %}
+  <table>
+    <tr><th class="l">Belopp i tkr</th>{% for y in fo %}<th>{{ y.ar }}</th>{% endfor %}</tr>
+    <tr><td class="l">Nettoomsättning</td>{% for y in fo %}<td class="b">{{ n(tkr(y.nettoomsattning)) }}</td>{% endfor %}</tr>
+    <tr><td class="l">Resultat efter finansiella poster</td>{% for y in fo %}<td class="b">{{ n(tkr(y.resultat_efter_finansiella)) }}</td>{% endfor %}</tr>
+    <tr><td class="l">Balansomslutning</td>{% for y in fo %}<td class="b">{{ n(tkr(y.balansomslutning)) }}</td>{% endfor %}</tr>
+    <tr><td class="l">Soliditet, %</td>{% for y in fo %}<td class="b">{{ n(y.soliditet) }}</td>{% endfor %}</tr>
+  </table>
+  <p style="font-size:9pt;margin-top:2mm">Soliditet: justerat eget kapital (eget kapital och 79,4 % av obeskattade reserver) i procent av balansomslutningen.</p>
+
+  <h3>Förändringar i eget kapital</h3>
+  {% set ek = r.forvaltningsberattelse.eget_kapital %}
+  <table>
+    <tr><th class="l"></th>{% for k in ek.kolumner %}<th>{{ k }}</th>{% endfor %}</tr>
+    {% for row in ek.rader %}
+    <tr class="{{ 'summa' if loop.last else '' }}"><td class="l">{{ row.label }}</td>{% for v in row.belopp %}<td class="b">{{ n(v) }}</td>{% endfor %}</tr>
+    {% endfor %}
+  </table>
+
+  <h3>Resultatdisposition</h3>
+  {% set vd = r.forvaltningsberattelse.vinstdisposition %}
+  <p>Styrelsen föreslår att till förfogande stående medel (kronor):</p>
+  <table style="width:70%">
+    <tr><td class="l">Balanserat resultat</td><td class="b">{{ n(vd.balanserat_resultat) }}</td></tr>
+    <tr><td class="l">Årets resultat</td><td class="b">{{ n(vd.arets_resultat) }}</td></tr>
+    <tr class="summa"><td class="l"></td><td class="b">{{ n(vd.summa) }}</td></tr>
+  </table>
+  <p style="margin-top:3mm">disponeras enligt följande:</p>
+  <table style="width:70%">
+    <tr><td class="l">Utdelas till aktieägarna</td><td class="b">{{ n(vd.utdelning) }}</td></tr>
+    <tr><td class="l">Balanseras i ny räkning</td><td class="b">{{ n(vd.i_ny_rakning) }}</td></tr>
+    <tr class="summa"><td class="l"></td><td class="b">{{ n(vd.summa) }}</td></tr>
+  </table>
+  <p style="margin-top:4mm">Bolagets resultat och ställning i övrigt framgår av efterföljande resultat- och balansräkning med noter.</p>
+</section>
+
+{%- macro rubrikrad() -%}
+<tr><th class="l"></th><th>Not</th><th>{{ r.period.start }}<br>– {{ r.period.end }}</th><th>{{ r.prior_period.start }}<br>– {{ r.prior_period.end }}</th></tr>
+{%- endmacro -%}
+{%- macro brrubrik() -%}
+<tr><th class="l"></th><th>Not</th><th>{{ r.period.end }}</th><th>{{ r.prior_period.end }}</th></tr>
+{%- endmacro -%}
+{%- macro rad(row, cls="") -%}
+<tr class="{{ cls }}"><td class="l">{{ row.label }}</td><td class="not">{{ notnr.get(row["not"], "") }}</td><td class="b">{{ n(row.belopp[0]) }}</td><td class="b">{{ n(row.belopp[1]) }}</td></tr>
+{%- endmacro -%}
+
+<section class="sida">
+  <h2>Resultaträkning</h2>
+  <table>
+    {{ rubrikrad() }}
+    {% for s in r.resultatrakning.sektioner %}
+      {% if s.rader %}
+        <tr class="rubrik"><td colspan="4">{{ s.titel }}</td></tr>
+        {% for row in s.rader %}{{ rad(row) }}{% endfor %}
+        {% if s.summa and s.rader|length > 1 %}<tr class="delsumma"><td class="l"></td><td></td><td class="b">{{ n(s.summa[0]) }}</td><td class="b">{{ n(s.summa[1]) }}</td></tr>{% endif %}
+      {% elif s.summa %}
+        <tr class="summa"><td class="l">{{ s.titel }}</td><td></td><td class="b">{{ n(s.summa[0]) }}</td><td class="b">{{ n(s.summa[1]) }}</td></tr>
+      {% endif %}
+    {% endfor %}
+    <tr class="total"><td class="l">Årets resultat</td><td></td><td class="b">{{ n(r.resultatrakning.arets_resultat[0]) }}</td><td class="b">{{ n(r.resultatrakning.arets_resultat[1]) }}</td></tr>
+  </table>
+</section>
+
+{% set br = r.balansrakning %}
+<section class="sida">
+  <h2>Balansräkning</h2>
+  <table>
+    {{ brrubrik() }}
+    <tr class="rubrik"><td colspan="4">TILLGÅNGAR</td></tr>
+    {% for del in br.tillgangar %}
+      {% if del.grupper %}
+      <tr class="rubrik"><td colspan="4">{{ del.titel }}</td></tr>
+      {% for g in del.grupper %}
+        <tr class="underrubrik"><td colspan="4">{{ g.titel }}</td></tr>
+        {% for row in g.rader %}{{ rad(row) }}{% endfor %}
+        {% if g.rader|length > 1 %}<tr class="delsumma"><td></td><td></td><td class="b">{{ n(g.summa[0]) }}</td><td class="b">{{ n(g.summa[1]) }}</td></tr>{% endif %}
+      {% endfor %}
+      <tr class="summa"><td class="l">Summa {{ del.titel|lower }}</td><td></td><td class="b">{{ n(del.summa[0]) }}</td><td class="b">{{ n(del.summa[1]) }}</td></tr>
+      {% endif %}
+    {% endfor %}
+    <tr class="total"><td class="l">SUMMA TILLGÅNGAR</td><td></td><td class="b">{{ n(br.summa_tillgangar[0]) }}</td><td class="b">{{ n(br.summa_tillgangar[1]) }}</td></tr>
+  </table>
+</section>
+
+<section class="sida">
+  <h2>Balansräkning</h2>
+  <table>
+    {{ brrubrik() }}
+    <tr class="rubrik"><td colspan="4">EGET KAPITAL OCH SKULDER</td></tr>
+    <tr class="rubrik"><td colspan="4">Eget kapital</td></tr>
+    <tr class="underrubrik"><td colspan="4">Bundet eget kapital</td></tr>
+    {% for row in br.eget_kapital.bundet.rader %}{{ rad(row) }}{% endfor %}
+    <tr class="delsumma"><td></td><td></td><td class="b">{{ n(br.eget_kapital.bundet.summa[0]) }}</td><td class="b">{{ n(br.eget_kapital.bundet.summa[1]) }}</td></tr>
+    <tr class="underrubrik"><td colspan="4">Fritt eget kapital</td></tr>
+    {% for row in br.eget_kapital.fritt.rader %}{{ rad(row) }}{% endfor %}
+    <tr class="delsumma"><td></td><td></td><td class="b">{{ n(br.eget_kapital.fritt.summa[0]) }}</td><td class="b">{{ n(br.eget_kapital.fritt.summa[1]) }}</td></tr>
+    <tr class="summa"><td class="l">Summa eget kapital</td><td></td><td class="b">{{ n(br.eget_kapital.summa[0]) }}</td><td class="b">{{ n(br.eget_kapital.summa[1]) }}</td></tr>
+    {% for s in br.skulder %}
+      <tr class="rubrik"><td colspan="4">{{ s.titel }}</td></tr>
+      {% for row in s.rader %}{{ rad(row) }}{% endfor %}
+      <tr class="summa"><td class="l">Summa {{ s.titel|lower }}</td><td></td><td class="b">{{ n(s.summa[0]) }}</td><td class="b">{{ n(s.summa[1]) }}</td></tr>
+    {% endfor %}
+    <tr class="total"><td class="l">SUMMA EGET KAPITAL OCH SKULDER</td><td></td><td class="b">{{ n(br.summa_ek_skulder[0]) }}</td><td class="b">{{ n(br.summa_ek_skulder[1]) }}</td></tr>
+  </table>
+</section>
+
+{% set noter = r.noter %}
+<section class="sida">
+  <h2>Noter</h2>
+  <h3>Not {{ notnr.principer }} Redovisningsprinciper</h3>
+  {% for p in noter.redovisningsprinciper %}<p>{{ p }}</p>{% endfor %}
+
+  <h3>Not {{ notnr.personal }} Medelantal anställda</h3>
+  <table style="width:80%">
+    <tr><th class="l"></th><th>{{ ar }}</th><th>{{ fg }}</th></tr>
+    <tr><td class="l">Medelantal anställda</td>
+      <td class="b">{% if noter.personal.medeltal_anstallda[0] is none %}{{ saknas("ange") }}{% else %}{{ noter.personal.medeltal_anstallda[0] }}{% endif %}</td>
+      <td class="b">{{ n(noter.personal.medeltal_anstallda[1]) }}</td></tr>
+    <tr><td class="l">Löner och andra ersättningar</td><td class="b">{{ n(noter.personal.loner[0]) }}</td><td class="b">{{ n(noter.personal.loner[1]) }}</td></tr>
+    <tr><td class="l">Sociala kostnader inkl. pensionskostnader</td><td class="b">{{ n(noter.personal.sociala[0]) }}</td><td class="b">{{ n(noter.personal.sociala[1]) }}</td></tr>
+  </table>
+
+  {% if noter.periodiseringsfonder %}
+  <h3>Not {{ notnr.obeskattade }} Periodiseringsfonder</h3>
+  <table style="width:80%">
+    <tr><th class="l"></th><th>{{ r.period.end }}</th><th>{{ r.prior_period.end }}</th></tr>
+    {% for f in noter.periodiseringsfonder %}
+    <tr><td class="l">{{ f.name }}</td><td class="b">{{ n(f.belopp[0]) }}</td><td class="b">{{ n(f.belopp[1]) }}</td></tr>
+    {% endfor %}
+    <tr class="summa"><td class="l"></td>
+      <td class="b">{{ n(noter.periodiseringsfonder|sum(attribute="belopp.0")) }}</td>
+      <td class="b">{{ n(noter.periodiseringsfonder|sum(attribute="belopp.1")) }}</td></tr>
+  </table>
+  {% endif %}
+
+  <h3>Not {{ notnr.sakerheter }} Ställda säkerheter och eventualförpliktelser</h3>
+  <table style="width:80%">
+    <tr><td class="l">Ställda säkerheter</td><td class="b">{{ noter.stallda_sakerheter }}</td></tr>
+    <tr><td class="l">Eventualförpliktelser</td><td class="b">{{ noter.eventualforpliktelser }}</td></tr>
+  </table>
+</section>
+
+<section style="page-break-inside: avoid; margin-top: 12mm">
+  {% set u = r.underskrifter %}
+  <p>{{ u.ort or saknas("ort") }} {{ u.datum or saknas("datum") }}</p>
+  <div class="underskrifter">
+    {% for p in u.personer %}
+    <div class="underskrift"><div>{{ p.namn }}</div><div class="roll">{{ p.roll }}</div></div>
+    {% else %}
+    <div>{{ saknas("underskrifter: styrelsens ledamöter och verkställande direktör") }}</div>
+    {% endfor %}
+  </div>
+</section>
+
+</body>
+</html>

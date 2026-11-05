@@ -1,7 +1,7 @@
 """Opening balance repository - stated IB and per-year account movements."""
 
 from datetime import date, datetime
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 from db.database import db
 
@@ -70,3 +70,21 @@ class OpeningBalanceRepository:
             params += (before.isoformat(),)
         rows = db.execute(sql + " GROUP BY vr.account_code", params).fetchall()
         return {row["account_code"]: row["net"] for row in rows if row["net"]}
+
+    @staticmethod
+    def movement_sides(fiscal_year_id: str) -> Dict[str, Tuple[int, int]]:
+        """(debit, credit) summed per account over the fiscal year's posted
+        vouchers, with the same exclusions as `movements`."""
+        rows = db.execute(
+            """
+            SELECT vr.account_code, SUM(vr.debit) AS d, SUM(vr.credit) AS c
+            FROM voucher_rows vr
+            JOIN vouchers v ON v.id = vr.voucher_id
+            WHERE v.fiscal_year_id = ?
+              AND v.status = 'posted'
+              AND v.series != 'IB'
+            GROUP BY vr.account_code
+            """,
+            (fiscal_year_id,),
+        ).fetchall()
+        return {r["account_code"]: (r["d"] or 0, r["c"] or 0) for r in rows}

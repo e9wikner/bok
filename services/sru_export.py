@@ -9,9 +9,12 @@ import zipfile
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from db.database import get_db
+
+if TYPE_CHECKING:
+    from services.tax_adjustments import Justering
 from domain.sru_fields import (
     BALANCE_ASSET_FIELDS,
     BALANCE_EQUITY_LIABILITY_FIELDS,
@@ -34,7 +37,51 @@ DEFAULT_SRU_MAPPINGS: Dict[str, List[int]] = default_account_mappings()
 CREDIT_BALANCE_FIELDS = set(CREDIT_FIELDS)
 ALWAYS_POSITIVE_FIELDS = set(COST_FIELDS)
 
-INK2S_DERIVED_FIELDS = {"7650", "7651", "7653", "7754", "7654", "7670"}
+INK2S_DERIVED_FIELDS = {
+    "7650",
+    "7750",
+    "7651",
+    "7653",
+    "7754",
+    "7654",
+    "7667",
+    "7670",
+    "7770",
+}
+INK2S_EXPORT_ORDER = [
+    "7650",
+    "7750",
+    "7651",
+    "7653",
+    "7754",
+    "7654",
+    "7667",
+    "7670",
+    "7770",
+]
+# Fields in INK2S that reduce the taxable result.
+INK2S_MINUS_FIELDS = {"7754"}
+
+
+def blankett_period(fiscal_year_end: str) -> str:
+    """Skatteverkets blankettversion, t.ex. "2025P4", ur räkenskapsårets slut.
+
+    Deklarationsperioden följer slutmånaden: januari–april P1, maj–juni P2,
+    juli–augusti P3 och september–december P4.
+    """
+    year = fiscal_year_end[:4]
+    month = int(fiscal_year_end[4:6])
+    if month <= 4:
+        p = 1
+    elif month <= 6:
+        p = 2
+    elif month <= 8:
+        p = 3
+    else:
+        p = 4
+    return f"{year}P{p}"
+
+
 INK2R_ZERO_EXPORT_FIELDS = {"7321", "7370"}
 
 
@@ -73,6 +120,8 @@ class SRUDeclaration:
     postort: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
+    uppdragstagare: bool = False
+    revision: bool = False
 
     def get_field(self, field_number: str) -> Optional[SRUFieldValue]:
         """Get value for a specific field."""
@@ -281,10 +330,21 @@ class SRUExportService:
 
         # Calculate derived fields
         self._calculate_derived_fields(fields)
-        self._calculate_ink2s_fields(fields)
+        from services.tax_adjustments import TaxAdjustmentService
+
+        tax = TaxAdjustmentService().calculate(fiscal_year_id)
+        self.tax_calculation = tax
+        self.warnings.extend(tax.warnings)
+        self._calculate_ink2s_fields(fields, tax.adjustments)
 
         # Validate balance sheet
         self._validate_balance_sheet(field_balances, account_balances)
+
+        from repositories.bokslut_inputs_repo import BokslutInputsRepository
+
+        upplysningar = BokslutInputsRepository.current(fiscal_year_id).get(
+            "ink2s.upplysningar", {}
+        )
 
         return SRUDeclaration(
             fiscal_year_id=fiscal_year_id,
@@ -299,6 +359,8 @@ class SRUExportService:
             postort=company.get("postort"),
             email=company.get("email"),
             phone=company.get("phone"),
+            uppdragstagare=bool(upplysningar.get("uppdragstagare", False)),
+            revision=bool(upplysningar.get("revision", False)),
         )
 
     def _get_company_info(self, db) -> Optional[Dict[str, str]]:
@@ -437,120 +499,96 @@ class SRUExportService:
                 )
         return values
 
-    def _calculate_ink2s_fields(self, fields: Dict[str, SRUFieldValue]):
-        """Calculate INK2S tax adjustment fields from mapped INK2R fields."""
+    def _calculate_ink2s_fields(
+        self,
+        fields: Dict[str, SRUFieldValue],
+        adjustments: Optional[Dict[str, "Justering"]] = None,
+    ):
+        """Calculate INK2S from INK2R and the tax adjustments.
+
+        4.1 and 4.3a come straight from INK2R (3.26 and 3.25). 4.3c, 4.5c,
+        4.6a and 4.6d come from ``services/tax_adjustments.py`` -- the
+        ledger's non-deductible and tax-exempt accounts, the schablonintäkt
+        on the opening periodiseringsfonder and the uppräkning on reversed
+        ones -- each possibly replaced by an amount a human has stated.
+        4.15/4.16 is the sum.
+        """
         descriptions = self._get_field_descriptions()
+        adjustments = adjustments or {}
 
-        def source_account_values(
-            source_fields: List[str],
-            signs: Optional[Dict[str, int]] = None,
-            override_value: Optional[int] = None,
-        ) -> List[Dict[str, int | str]]:
-            values: List[Dict[str, int | str]] = []
-            signs = signs or {}
-            source_values: List[Tuple[str, Dict[str, int | str]]] = []
-            for source_field in source_fields:
-                field = fields.get(source_field)
-                if field:
-                    source_values.extend(
-                        (source_field, account_value)
-                        for account_value in field.source_account_values or []
-                    )
-
-            if override_value is not None and source_values:
-                total = sum(abs(int(account["value"])) for _, account in source_values)
-                if total == 0:
-                    return values
-                allocated = 0
-                for index, (source_field, account) in enumerate(source_values):
-                    sign = signs.get(source_field, 1)
-                    if index == len(source_values) - 1:
-                        amount = override_value - allocated
-                    else:
-                        amount = round(
-                            override_value * abs(int(account["value"])) / total
-                        )
-                        allocated += amount
-                    if amount != 0:
-                        values.append(
-                            {
-                                "account": account["account"],
-                                "name": account.get("name", ""),
-                                "value": amount * sign,
-                            }
-                        )
-                return values
-
-            for source_field in source_fields:
-                sign = signs.get(source_field, 1)
-                for _, account in [
-                    item for item in source_values if item[0] == source_field
-                ]:
-                    amount = int(account["value"]) * sign
-                    if amount != 0:
-                        values.append(
-                            {
-                                "account": account["account"],
-                                "name": account.get("name", ""),
-                                "value": amount,
-                            }
-                        )
-            return values
-
-        def add(
-            field_number: str,
-            value: int,
-            source_accounts: List[str],
-            signs: Optional[Dict[str, int]] = None,
-            override_source_value: Optional[int] = None,
-        ):
+        def put(code: str, value: int, sources: List[Dict[str, int | str]]):
             if value != 0:
-                fields[field_number] = SRUFieldValue(
-                    field_number=field_number,
-                    description=descriptions.get(field_number, "Okänd fältkod"),
+                fields[code] = SRUFieldValue(
+                    field_number=code,
+                    description=descriptions.get(code, "Okänd fältkod"),
                     value=value,
-                    source_accounts=source_accounts,
-                    source_account_values=source_account_values(
-                        source_accounts, signs, override_source_value
-                    ),
+                    source_accounts=[str(s["account"]) for s in sources],
+                    source_account_values=sources,
                 )
 
-        accounting_profit = fields.get("7450")
-        tax_expense = fields.get("7528")
-        non_deductible_interest = fields.get("7522")
-        tax_exempt_income = sum(
-            fields[f].value for f in ["7416", "7417"] if f in fields
+        profit = fields["7450"].value if "7450" in fields else 0
+        loss = fields["7550"].value if "7550" in fields else 0
+        tax = fields["7528"].value if "7528" in fields else 0
+        put(
+            "7650",
+            profit,
+            list(fields["7450"].source_account_values or []) if profit else [],
         )
-        periodiseringsfond_base = fields.get("7420")
-        standard_income = (
-            round(periodiseringsfond_base.value * 0.0196)
-            if periodiseringsfond_base
-            else 0
+        if loss:
+            put("7750", loss, list(fields["7550"].source_account_values or []))
+        put(
+            "7651", tax, list(fields["7528"].source_account_values or []) if tax else []
         )
 
-        add("7650", accounting_profit.value if accounting_profit else 0, ["7450"])
-        add("7651", tax_expense.value if tax_expense else 0, ["7528"])
-        add(
-            "7653",
-            non_deductible_interest.value if non_deductible_interest else 0,
-            ["7522"],
-        )
-        add("7754", tax_exempt_income, ["7416", "7417"])
-        add("7654", standard_income, ["7420"], override_source_value=standard_income)
+        plus = 0
+        minus = 0
+        for code, adj in adjustments.items():
+            sources = [
+                {
+                    "account": s["account"],
+                    "name": s.get("name", ""),
+                    "value": int(s["value"]),
+                }
+                for s in adj.sources
+            ]
+            if adj.override is not None:
+                sources = [
+                    {"account": code, "name": "Angivet belopp", "value": adj.value}
+                ]
+            put(code, adj.value, sources)
+            if code in INK2S_MINUS_FIELDS:
+                minus += adj.value
+            else:
+                plus += adj.value
 
-        taxable_result = (
-            (accounting_profit.value if accounting_profit else 0)
-            + (tax_expense.value if tax_expense else 0)
-            + (non_deductible_interest.value if non_deductible_interest else 0)
-            - tax_exempt_income
-            + standard_income
-        )
-        add(
-            "7670",
-            taxable_result,
-            ["7650", "7651", "7653", "7754", "7654"],
-            {"7754": -1},
-        )
+        taxable = profit - loss + tax + plus - minus
+        total_sources: List[Dict[str, int | str]] = []
+        for code in ["7650", "7651", *adjustments.keys()]:
+            f = fields.get(code)
+            if not f:
+                continue
+            sign = -1 if code in INK2S_MINUS_FIELDS else 1
+            for s in f.source_account_values or []:
+                total_sources.append(
+                    {
+                        "account": s["account"],
+                        "name": s.get("name", ""),
+                        "value": int(s["value"]) * sign,
+                    }
+                )
+        if "7750" in fields:
+            for s in fields["7750"].source_account_values or []:
+                total_sources.append(
+                    {
+                        "account": s["account"],
+                        "name": s.get("name", ""),
+                        "value": -int(s["value"]),
+                    }
+                )
+        if taxable >= 0:
+            put("7670", taxable, total_sources)
+        else:
+            put("7770", -taxable, total_sources)
 
     def _validate_balance_sheet(
         self,
@@ -658,11 +696,12 @@ class SRUExportService:
         """
         lines = []
         timestamp = datetime.now().strftime("%Y%m%d %H%M%S")
+        version = blankett_period(declaration.fiscal_year_end)
 
         # INK2R - Räkenskapsschema
         lines.extend(
             [
-                "#BLANKETT INK2R-2025P4",
+                f"#BLANKETT INK2R-{version}",
                 f"#IDENTITET {declaration.company_org_number} {timestamp}",
                 "#SYSTEMINFO BOKAI 1.0",
             ]
@@ -685,7 +724,7 @@ class SRUExportService:
         # INK2S - Särskild blankett (Balansräkning)
         lines.extend(
             [
-                "#BLANKETT INK2S-2025P4",
+                f"#BLANKETT INK2S-{version}",
                 f"#IDENTITET {declaration.company_org_number} {timestamp}",
                 "#SYSTEMINFO BOKAI 1.0",
             ]
@@ -698,14 +737,18 @@ class SRUExportService:
                 f"{declaration.fiscal_year_start if field_number == '7011' else declaration.fiscal_year_end}"
             )
 
-        for field_number in ["7650", "7651", "7653", "7754", "7654", "7670"]:
+        for field_number in INK2S_EXPORT_ORDER:
             if field_number in declaration.fields:
                 field = declaration.fields[field_number]
                 if field.value != 0:
                     lines.append(f"#UPPGIFT {field_number} {field.value}")
 
-        lines.append("#UPPGIFT 8041 X")
-        lines.append("#UPPGIFT 8045 X")
+        # Upplysningar: uppdragstagare har biträtt (8040 ja / 8041 nej) och
+        # årsredovisningen har reviderats (8044 ja / 8045 nej).
+        lines.append(
+            "#UPPGIFT 8040 X" if declaration.uppdragstagare else "#UPPGIFT 8041 X"
+        )
+        lines.append("#UPPGIFT 8044 X" if declaration.revision else "#UPPGIFT 8045 X")
 
         lines.append("#BLANKETTSLUT")
         lines.append("#FIL_SLUT")
@@ -734,10 +777,9 @@ class SRUExportService:
             # Create ZIP
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-                zip_file.writestr(
-                    "INFO.SRU", info_sru.encode("utf-8-sig")
-                )  # UTF-8 with BOM
-                zip_file.writestr("BLANKETTER.SRU", blanketter_sru.encode("utf-8-sig"))
+                # Skatteverket reads SRU files as ISO 8859-1, without BOM.
+                zip_file.writestr("INFO.SRU", encode_sru(info_sru))
+                zip_file.writestr("BLANKETTER.SRU", encode_sru(blanketter_sru))
 
             zip_bytes = zip_buffer.getvalue()
 
@@ -759,6 +801,11 @@ class SRUExportService:
         except Exception as e:
             self.errors.append(f"Export failed: {str(e)}")
             return b"", "", self.errors, self.warnings
+
+
+def encode_sru(text: str) -> bytes:
+    """SRU files are ISO 8859-1. Characters outside it become '?'."""
+    return text.encode("iso-8859-1", errors="replace")
 
 
 # Convenience function for API usage
