@@ -182,6 +182,24 @@ const detalj = (over: Partial<VerifikationDetalj>): VerifikationDetalj => ({
   ...over,
 });
 
+describe("saknar underlag", () => {
+  it("en ändrad verifikation som saknar underlag säger av vad", () => {
+    const a69 = v({
+      id: "a69",
+      number: 69,
+      missing_attachment: true,
+      age_days: 80,
+      missing_statement_accounts: ["1630"],
+      corrected_by: andring.correction,
+      correction: andring,
+    });
+    const vy = verifikationerVy(AR, lista(), lista(), { beslut: [], forslag: [], saknar: lista(a69) });
+    expect(vy.sektioner.find((s) => s.titel === "Saknar underlag")?.rader[0].meta).toBe(
+      "A-69 · kontoutdrag 1630 saknas sedan 80 dgr · ändrad av B-3"
+    );
+  });
+});
+
 describe("detaljen", () => {
   it("en ändrad verifikation visar konteringen efter rättelsen, borttaget överstruket, med när och vem", () => {
     const vy = verifikationVy(

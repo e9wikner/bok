@@ -527,12 +527,18 @@ function saknarrad(v: Verifikation): VyRadData {
   return {
     id: v.id,
     titel: v.description,
-    meta: `${nummerAv(v)} · ${underlagAlder(vad, v.age_days)}`,
+    meta: `${nummerAv(v)} · ${underlagAlder(vad, v.age_days)}${andradAv(v)}`,
     hoger: formatBeloppHela(v.total_debit),
     variant: framtid ? undefined : "saknar",
     ageDays: framtid ? undefined : v.age_days,
     mal: { typ: "ver", id: v.id },
   };
+}
+
+/** ` · ändrad av B-2` på en rättad verifikation som ännu saknar underlag. */
+function andradAv(v: Verifikation): string {
+  const r = v.correction;
+  return r && v.corrected_by && r.correction_status === "posted" ? ` · ändrad av ${nummerAv(r.correction)}` : "";
 }
 
 /**
