@@ -261,6 +261,102 @@ def test_manual_link_refuses_purchase_and_amount_mismatch(books):
     assert amount_error.value.code == "amount_mismatch"
 
 
+def _agi(books, day: date):
+    """One AGI voucher: 1630 credited once per part, as the tax account
+    debits them."""
+    for code, name in [("2710", "Personalskatt"), ("2730", "Arbetsgivaravgifter")]:
+        if AccountRepository.get(code) is None:
+            AccountRepository.create(code, name, "liability")
+    return _post(
+        books,
+        day,
+        "Arbetsgivardeklaration",
+        [
+            {"account": "2710", "debit": 1_500_000, "credit": 0},
+            {"account": "2730", "debit": 1_571_000, "credit": 0},
+            {"account": "1630", "debit": 0, "credit": 1_500_000},
+            {"account": "1630", "debit": 0, "credit": 1_571_000},
+        ],
+    )
+
+
+def test_a_voucher_with_a_row_per_debit_is_covered_by_both(books):
+    voucher = _agi(books, date(2026, 4, 13))
+    _import(
+        "1630",
+        SKATTEKONTO_HEADER + "2026-04-13;Avdragen skatt 202603;-15000;1000\n",
+    )
+    [link] = BankInputRepository.list_statement_links_for_voucher(voucher.id)
+    assert link["amount"] == -1_500_000
+    # Half the tax account's amount is not underlag for all of it.
+    assert _voucher(voucher.id).missing_statement_accounts == ["1630"]
+
+    _import(
+        "1630",
+        SKATTEKONTO_HEADER + "2026-04-13;Arbetsgivaravgift 202603;-15710;-14710\n",
+        filename="utdrag-2.csv",
+    )
+    links = BankInputRepository.list_statement_links_for_voucher(voucher.id)
+    assert sorted(link["amount"] for link in links) == [-1_571_000, -1_500_000]
+    assert _voucher(voucher.id).missing_attachment is False
+
+
+def test_the_whole_amount_still_covers_a_voucher_with_several_rows(books):
+    voucher = _agi(books, date(2026, 4, 13))
+    _import("1630", SKATTEKONTO_HEADER + "2026-04-13;AGI 202603;-30710;1000\n")
+    [link] = BankInputRepository.list_statement_links_for_voucher(voucher.id)
+    assert link["amount"] == -3_071_000
+    assert _voucher(voucher.id).missing_attachment is False
+
+
+def test_a_row_amount_is_refused_once_the_rest_is_less(books):
+    voucher = _agi(books, date(2026, 4, 13))
+    _import(
+        "1630",
+        SKATTEKONTO_HEADER
+        + "2026-04-13;Arbetsgivaravgift 202603;-15710;1000\n"
+        + "2026-04-14;Arbetsgivaravgift igen;-15710;-14710\n",
+    )
+    [linked] = BankInputRepository.list_statement_links_for_voucher(voucher.id)
+    assert linked["amount"] == -1_571_000
+    [open_tx] = StatementMatchService().open_transactions()
+    assert open_tx.kind == "none"
+
+    with pytest.raises(BankInputConflictError) as error:
+        StatementMatchService().link(
+            open_tx.bank_transaction_id, voucher.id, actor="agent"
+        )
+    assert error.value.code == "amount_mismatch"
+
+
+def test_a_covered_account_refuses_another_transaction(books):
+    voucher = _transfer(books, date(2026, 7, 1), 50_000)
+    _import(
+        "1930",
+        BANK_HEADER + "2026-07-01;-500,00;Till skattekonto\n"
+        "2026-07-02;-500,00;Till skattekonto\n",
+    )
+    [open_tx] = StatementMatchService().open_transactions()
+    with pytest.raises(BankInputConflictError) as error:
+        StatementMatchService().link(
+            open_tx.bank_transaction_id, voucher.id, actor="agent"
+        )
+    assert error.value.code == "voucher_account_already_covered"
+
+
+def test_covers():
+    from domain.statement_coverage import covers
+
+    assert covers(-100, -100, [-100])
+    assert covers(-60, -100, [-60, -40])
+    assert covers(-40, -40, [-60, -40])
+    assert not covers(-60, -40, [-60, -40])  # more than is left
+    assert not covers(60, -100, [60, -160])  # the other way
+    assert not covers(-60, -100, [-100])  # one row: all of it or nothing
+    assert not covers(-50, -100, [-60, -40])  # no such row
+    assert not covers(0, 0, [100, -100])
+
+
 def test_links_are_append_only(books):
     voucher = _transfer(books, date(2026, 1, 15), 30_000_000)
     _import("1930", BANK_HEADER + "2026-01-15;-300000,00;Till skattekonto\n")

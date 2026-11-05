@@ -401,7 +401,9 @@ Löner sätts upp i samtalet när användaren ber om det:
     kandidaterna är (datum, belopp, text) och fråga användaren vilken det är.
     Bokför aldrig mot en utbetalning med ett annat belopp än nettolönen.
   - `foresla_agi_bokforing` bokför månadens AGI mot skattekontot när alla
-    lönebesked i månaden är bokförda. Månaden är den då lönen betalades ut.
+    lönebesked i månaden är bokförda. Skatten och arbetsgivaravgifterna
+    bokförs i en verifikation, med en rad på 1630 per dragning på
+    skattekontot, så att båda dragningarna blir dess underlag. Månaden är den då lönen betalades ut.
     Föreslå den när det sista lönebeskedet i månaden har bokförts.
   - Användaren kan bara bokföra genom kortet, inte genom att svara i text. Ett
     ja i fritext betyder att du lägger fram kortet igen.

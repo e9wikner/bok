@@ -520,32 +520,33 @@ class PayrollService:
         voucher_date: Optional[date] = None,
         actor: str = "system",
     ) -> AgiDeclaration:
-        """Book the month's AGI as two vouchers, one per transaction on the
-        tax account: debit 2710 and credit 1630 for the withheld tax, debit
-        2730 and credit 1630 for the employer fees. Books only the parts not
+        """Book the month's AGI as one voucher: debit 2710 for the withheld
+        tax and 2730 for the employer fees, credit 1630 once per part, since
+        the tax account debits them as two transactions and each matches its
+        row (`domain.statement_coverage.covers`). Books only the parts not
         already booked. Dated on the due date unless the tax account was
         debited another day.
 
         The liability is cleared as the payslips booked it, in öre; the tax
         account is credited the declared whole kronor; the difference goes to
-        öresutjämning (3740). Both parts and their booking rows are written
-        in one transaction, so a part is never posted without the row that
-        stops it from being booked again."""
+        öresutjämning (3740). The voucher and a booking row per part are
+        written in one transaction, so a part is never posted without the
+        row that stops it from being booked again."""
         agi, voucher_date, period = self.check_agi_booking(year, month, voucher_date)
         self._ensure_payroll_accounts()
         ledger = LedgerService()
         with db.transaction():
-            for kind in agi.unbooked_parts:
-                self._book_agi_part(ledger, agi, kind, voucher_date, period.id, actor)
+            self._book_agi_parts(
+                ledger, agi, agi.unbooked_parts, voucher_date, period.id, actor
+            )
         run_statement_match_after_posting()
         return self.get_agi(year, month)
 
     @staticmethod
     def agi_part_rows(agi: AgiDeclaration, kind: str) -> List[Dict]:
-        """One AGI part's voucher rows: the liability as the payslips booked
-        it, in öre, against the declared whole kronor on the tax account,
-        the difference to öresutjämning. The card shows these rows and the
-        press books them."""
+        """One AGI part's rows: the liability as the payslips booked it, in
+        öre, against the declared whole kronor on the tax account, the
+        difference to öresutjämning."""
         liability_account, label = AGI_PARTS[kind]
         declared = agi.amount(kind)
         liability = agi.liability(kind)
@@ -566,48 +567,56 @@ class PayrollService:
             if debit or credit
         ]
 
-    def _book_agi_part(
+    @classmethod
+    def agi_voucher_rows(cls, agi: AgiDeclaration, kinds: List[str]) -> List[Dict]:
+        """The rows of the voucher booking *kinds* of the AGI, part by part.
+        The card shows these rows and the press books them."""
+        return [row for kind in kinds for row in cls.agi_part_rows(agi, kind)]
+
+    def _book_agi_parts(
         self,
         ledger: LedgerService,
         agi: AgiDeclaration,
-        kind: str,
+        kinds: List[str],
         voucher_date: date,
         period_id: str,
         actor: str,
     ) -> None:
-        """One part's voucher and booking row, inside the caller's
-        transaction."""
+        """The parts' voucher and a booking row per part, inside the
+        caller's transaction."""
         year, month = agi.year, agi.month
-        _liability_account, label = AGI_PARTS[kind]
-        declared = agi.amount(kind)
-        rounding = agi.liability(kind) - declared
+        description = f"Arbetsgivardeklaration {year}-{month:02d}"
+        if len(kinds) == 1:
+            description += f", {AGI_PARTS[kinds[0]][1]}"
         voucher = ledger.create_voucher(
             series="A",
             date=voucher_date,
             period_id=period_id,
-            description=f"Arbetsgivardeklaration {year}-{month:02d}, {label}",
-            rows_data=self.agi_part_rows(agi, kind),
+            description=description,
+            rows_data=self.agi_voucher_rows(agi, kinds),
             created_by=actor,
             _commit=False,
         )
         voucher = ledger.post_voucher(voucher.id, actor=actor, _commit=False)
-        booking_id = self.agi_bookings.create(
-            year, month, kind, voucher.id, actor, _commit=False
-        )
-        self.audit.log(
-            "payroll_agi_booking",
-            booking_id,
-            AuditAction.POSTED.value,
-            actor,
-            {
-                "period": f"{year}-{month:02d}",
-                "kind": kind,
-                "voucher_id": voucher.id,
-                "amount": declared,
-                "rounding": rounding,
-            },
-            _commit=False,
-        )
+        for kind in kinds:
+            declared = agi.amount(kind)
+            booking_id = self.agi_bookings.create(
+                year, month, kind, voucher.id, actor, _commit=False
+            )
+            self.audit.log(
+                "payroll_agi_booking",
+                booking_id,
+                AuditAction.POSTED.value,
+                actor,
+                {
+                    "period": f"{year}-{month:02d}",
+                    "kind": kind,
+                    "voucher_id": voucher.id,
+                    "amount": declared,
+                    "rounding": agi.liability(kind) - declared,
+                },
+                _commit=False,
+            )
 
     def get_payslip_context(self, payslip_id: str) -> Dict:
         payslip = self.payslips.get(payslip_id)

@@ -281,7 +281,14 @@ def _rows(ledger_service, voucher_id):
     return voucher, {r.account_code: (r.debit, r.credit) for r in voucher.rows}
 
 
-def test_book_agi_as_one_voucher_per_tax_account_transaction(ledger_service):
+def _row_list(ledger_service, voucher_id):
+    voucher = ledger_service.vouchers.get(voucher_id)
+    assert voucher.is_posted()
+    assert voucher.get_total_debit() == voucher.get_total_credit()
+    return voucher, [(r.account_code, r.debit, r.credit) for r in voucher.rows]
+
+
+def test_book_agi_as_one_voucher_with_a_tax_account_row_per_part(ledger_service):
     payroll, payslip = _setup_payslip(ledger_service)
     _april_period(ledger_service)
 
@@ -292,19 +299,22 @@ def test_book_agi_as_one_voucher_per_tax_account_transaction(ledger_service):
     agi = payroll.book_agi(2026, 3)
 
     assert agi.booked is True
-    tax, tax_rows = _rows(ledger_service, agi.voucher_ids["tax"])
-    fee, fee_rows = _rows(ledger_service, agi.voucher_ids["employer_fee"])
-    assert tax.date == fee.date == date(2026, 4, 13)
-    assert tax.description == "Arbetsgivardeklaration 2026-03, avdragen skatt"
-    assert fee.description == "Arbetsgivardeklaration 2026-03, arbetsgivaravgifter"
-    assert tax_rows == {"2710": (1500000, 0), "1630": (0, 1500000)}
-    assert fee_rows == {"2730": (1571000, 0), "1630": (0, 1571000)}
+    assert agi.voucher_ids["tax"] == agi.voucher_ids["employer_fee"]
+    voucher, rows = _row_list(ledger_service, agi.voucher_ids["tax"])
+    assert voucher.date == date(2026, 4, 13)
+    assert voucher.description == "Arbetsgivardeklaration 2026-03"
+    assert rows == [
+        ("2710", 1500000, 0),
+        ("1630", 0, 1500000),
+        ("2730", 1571000, 0),
+        ("1630", 0, 1571000),
+    ]
 
     with pytest.raises(ValidationError, match="agi_already_booked"):
         payroll.book_agi(2026, 3)
 
 
-def test_agi_vouchers_match_the_two_tax_account_transactions(ledger_service):
+def test_the_agi_voucher_matches_the_two_tax_account_transactions(ledger_service):
     from services.statement_match import StatementMatchService
 
     payroll, payslip = _setup_payslip(ledger_service)
@@ -334,10 +344,12 @@ def test_agi_vouchers_match_the_two_tax_account_transactions(ledger_service):
 
     linked = StatementMatchService().run()["linked"]
 
-    assert {link["voucher_id"] for link in linked} == set(agi.voucher_ids.values())
+    assert [link["voucher_id"] for link in linked] == [agi.voucher_ids["tax"]] * 2
+    voucher = ledger_service.vouchers.get(agi.voucher_ids["tax"])
+    assert voucher.missing_attachment is False
 
 
-def test_book_agi_again_after_a_part_is_reversed(ledger_service):
+def test_book_agi_again_after_it_is_reversed(ledger_service):
     payroll, payslip = _setup_payslip(ledger_service)
     _april_period(ledger_service)
     _book_salary(payroll, payslip)
@@ -359,11 +371,33 @@ def test_book_agi_again_after_a_part_is_reversed(ledger_service):
         voucher_date=date(2026, 4, 20),
     )
     ledger_service.post_voucher(correction.id)
-    assert payroll.get_agi(2026, 3).unbooked_parts == ["tax"]
+    assert payroll.get_agi(2026, 3).unbooked_parts == ["tax", "employer_fee"]
 
     second = payroll.book_agi(2026, 3)
     assert second.voucher_ids["tax"] != first.voucher_ids["tax"]
-    assert second.voucher_ids["employer_fee"] == first.voucher_ids["employer_fee"]
+    assert second.voucher_ids["employer_fee"] == second.voucher_ids["tax"]
+
+
+def test_book_agi_books_only_the_part_left(ledger_service):
+    """A month with one part booked alone (a voucher from before both parts
+    went in one) books the other in a voucher of its own."""
+    from db.database import db
+    from services.ledger import LedgerService
+
+    payroll, payslip = _setup_payslip(ledger_service)
+    _april_period(ledger_service)
+    _book_salary(payroll, payslip)
+    agi, voucher_date, period = payroll.check_agi_booking(2026, 3, None)
+    with db.transaction():
+        payroll._book_agi_parts(
+            LedgerService(), agi, ["tax"], voucher_date, period.id, "test"
+        )
+
+    agi = payroll.book_agi(2026, 3)
+    assert agi.voucher_ids["tax"] != agi.voucher_ids["employer_fee"]
+    fee, fee_rows = _rows(ledger_service, agi.voucher_ids["employer_fee"])
+    assert fee.description == "Arbetsgivardeklaration 2026-03, arbetsgivaravgifter"
+    assert fee_rows == {"2730": (1571000, 0), "1630": (0, 1571000)}
 
 
 def test_whole_kronor_drops_the_ore():
@@ -425,14 +459,15 @@ def test_book_agi_in_whole_kronor_with_ore_to_rounding(ledger_service):
     assert agi.total_to_pay == 2047300
 
     agi = payroll.book_agi(2026, 3)
-    _, tax_rows = _rows(ledger_service, agi.voucher_ids["tax"])
-    _, fee_rows = _rows(ledger_service, agi.voucher_ids["employer_fee"])
-    assert tax_rows == {"2710": (1000050, 0), "1630": (0, 1000000), "3740": (0, 50)}
-    assert fee_rows == {
-        "2730": (1047333, 0),
-        "1630": (0, 1047300),
-        "3740": (0, 33),
-    }
+    _, rows = _row_list(ledger_service, agi.voucher_ids["tax"])
+    assert rows == [
+        ("2710", 1000050, 0),
+        ("1630", 0, 1000000),
+        ("3740", 0, 50),
+        ("2730", 1047333, 0),
+        ("1630", 0, 1047300),
+        ("3740", 0, 33),
+    ]
 
 
 def test_book_agi_writes_nothing_when_a_part_fails(ledger_service, monkeypatch):

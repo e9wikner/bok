@@ -43,7 +43,7 @@ function agiPeriod(paymentDate: string) {
 /**
  * The month's arbetsgivardeklaration: the fields to type into Skatteverket's
  * e-tjänst, and the booking that moves 2710 and 2730 to the tax account
- * (1630) -- two vouchers, since the tax account debits them separately.
+ * (1630) -- one voucher, with a 1630 row per debit on the tax account.
  */
 function AgiPanel({ year, month }: { year: number; month: number }) {
   const queryClient = useQueryClient();
@@ -106,7 +106,7 @@ function AgiPanel({ year, month }: { year: number; month: number }) {
       {error && <p className="text-red-700 dark:text-red-300">{error}</p>}
       {agi.booked ? (
         <p className="text-muted-foreground">
-          Bokförd som två verifikationer, en per dragning på skattekontot: 2710 och 2730 mot 1630.
+          Bokförd mot skattekontot: 2710 och 2730 mot 1630, en rad per dragning.
         </p>
       ) : agi.unbooked_payslips > 0 ? (
         <p className="text-muted-foreground">Bokför månadens löner först, sedan arbetsgivardeklarationen.</p>

@@ -13,6 +13,20 @@ from domain.models import (
 )
 from domain.types import BankInputStatus
 
+# The sum of the current links' transactions on the account of `r`, a row of
+# the voucher `v` (debit positive, like money in).
+_LINKED_ON_ACCOUNT_SQL = """
+    SELECT COALESCE(SUM(lbt.amount), 0)
+    FROM current_voucher_bank_transactions lvbt
+    JOIN bank_transactions lbt ON lbt.id = lvbt.bank_transaction_id
+    JOIN bank_connections lbc ON lbc.id = lbt.bank_connection_id
+    WHERE lvbt.voucher_id = v.id AND lbc.account_number = r.account_code
+"""
+
+
+def _amounts(joined: Optional[str]) -> list[int]:
+    return [int(a) for a in joined.split(",")] if joined else []
+
 
 class BankInputRepository:
     """Manage bank input records, import links, and voucher traceability."""
@@ -557,18 +571,25 @@ class BankInputRepository:
         date_to: str,
         input_vat_range: tuple[str, str],
     ) -> list[dict]:
-        """Posted vouchers a statement transaction on *account_code* can be
-        underlag for: the net of their rows on that account equals
-        *amount_ore* (debit positive, like money in), dated within the
-        window, and that account not covered by a linked transaction yet.
+        """Posted vouchers a statement transaction of *amount_ore* on
+        *account_code* may be underlag for, dated within the window: what is
+        left of their net on that account after the linked transactions
+        (`remaining_ore`, debit positive, like money in) equals the amount,
+        or one of several rows on the account does. Each comes with its
+        rows' amounts on the account (`row_amounts`); the service decides
+        (`domain.statement_coverage.covers`).
 
         Never an opening balance, a SIE4 import, a correction, a reversed
         voucher or a purchase (input VAT).
         """
         rows = db.execute(
-            """
+            f"""
             SELECT v.id, v.series, v.number, v.date, v.description,
-                   SUM(r.debit - r.credit) AS net_ore
+                   SUM(r.debit - r.credit)
+                   - ({_LINKED_ON_ACCOUNT_SQL}) AS remaining_ore,
+                   group_concat(r.debit - r.credit) AS row_amounts,
+                   COUNT(*) AS row_count,
+                   SUM(r.debit - r.credit = ?) AS rows_of_amount
             FROM vouchers v
             JOIN voucher_rows r ON r.voucher_id = v.id AND r.account_code = ?
             WHERE v.status = 'posted'
@@ -585,43 +606,44 @@ class BankInputRepository:
                   WHERE vat.voucher_id = v.id
                     AND vat.account_code BETWEEN ? AND ?
               )
-              AND NOT EXISTS (
-                  SELECT 1 FROM current_voucher_bank_transactions vbt
-                  JOIN bank_transactions bt ON bt.id = vbt.bank_transaction_id
-                  JOIN bank_connections bc ON bc.id = bt.bank_connection_id
-                  WHERE vbt.voucher_id = v.id AND bc.account_number = ?
-              )
             GROUP BY v.id
-            HAVING net_ore = ?
+            HAVING remaining_ore = ? OR (row_count > 1 AND rows_of_amount > 0)
             ORDER BY v.date ASC, v.number ASC
             """,
             (
+                amount_ore,
                 account_code,
                 date_from,
                 date_to,
                 input_vat_range[0],
                 input_vat_range[1],
-                account_code,
                 amount_ore,
             ),
         ).fetchall()
-        return [dict(row) for row in rows]
+        return [
+            {**dict(row), "row_amounts": _amounts(row["row_amounts"])} for row in rows
+        ]
 
     @staticmethod
-    def voucher_link_on_account(voucher_id: str, account_code: str) -> Optional[str]:
-        """The transaction already linked to *voucher_id* for *account_code*."""
+    def statement_account_position(voucher_id: str, account_code: str) -> dict:
+        """*voucher_id*'s rows on *account_code* (`row_amounts`, debit
+        positive) and what of their net the linked transactions do not
+        cover yet (`remaining_ore`). No rows: `row_amounts` is empty."""
         row = db.execute(
-            """
-            SELECT vbt.bank_transaction_id
-            FROM current_voucher_bank_transactions vbt
-            JOIN bank_transactions bt ON bt.id = vbt.bank_transaction_id
-            JOIN bank_connections bc ON bc.id = bt.bank_connection_id
-            WHERE vbt.voucher_id = ? AND bc.account_number = ?
-            LIMIT 1
+            f"""
+            SELECT SUM(r.debit - r.credit)
+                   - ({_LINKED_ON_ACCOUNT_SQL}) AS remaining_ore,
+                   group_concat(r.debit - r.credit) AS row_amounts
+            FROM vouchers v
+            JOIN voucher_rows r ON r.voucher_id = v.id AND r.account_code = ?
+            WHERE v.id = ?
             """,
-            (voucher_id, account_code),
+            (account_code, voucher_id),
         ).fetchone()
-        return row["bank_transaction_id"] if row else None
+        return {
+            "remaining_ore": (row["remaining_ore"] or 0) if row else 0,
+            "row_amounts": _amounts(row["row_amounts"] if row else None),
+        }
 
     @staticmethod
     def list_statement_links_for_voucher(voucher_id: str) -> list[dict]:

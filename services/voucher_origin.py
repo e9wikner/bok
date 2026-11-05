@@ -40,11 +40,13 @@ def voucher_origin(voucher_id: str) -> Optional[Dict[str, str]]:
 
     agi = AgiBookingRepository.get_by_voucher(voucher_id)
     if agi is not None:
-        _account, label = AGI_PARTS[agi["kind"]]
         month = _MANAD[agi["month"] - 1]
+        title = f"Arbetsgivardeklaration {month} {agi['year']}"
+        if len(agi["kinds"]) == 1:
+            title += f" · {AGI_PARTS[agi['kinds'][0]][1]}"
         return {
             "kind": "agi",
-            "title": f"Arbetsgivardeklaration {month} {agi['year']} · {label}",
+            "title": title,
             "view_key": LONER,
         }
 

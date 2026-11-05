@@ -231,11 +231,13 @@ class PayrollProposalService:
             voucher_date=proposal.voucher_date,
             actor=actor,
         )
-        return [
-            agi.voucher_ids[kind]
-            for kind in AGI_PARTS
-            if kind in agi.voucher_ids and kind not in before.voucher_ids
-        ]
+        return list(
+            dict.fromkeys(
+                agi.voucher_ids[kind]
+                for kind in AGI_PARTS
+                if kind in agi.voucher_ids and kind not in before.voucher_ids
+            )
+        )
 
     def _failed(
         self, proposal: PayrollBookingProposal, exc: ValidationError, actor: str
@@ -394,20 +396,12 @@ class PayrollProposalService:
                 "Skatteverkets e-tjänst."
             ),
             consequence=(
-                f"Bokförs som {len(parts)} verifikation"
-                f"{'er' if len(parts) != 1 else ''} daterad"
-                f"{'e' if len(parts) != 1 else ''} {booked_on.isoformat()} mot "
-                f"skattekontot (1630): {', '.join(parts)}."
+                f"Bokförs som en verifikation daterad {booked_on.isoformat()} "
+                f"mot skattekontot (1630): {', '.join(parts)}."
             ),
             kind="approval",
             amount_ore=agi.total_to_pay,
-            rows=_card_rows(
-                [
-                    row
-                    for kind in agi.unbooked_parts
-                    for row in PayrollService.agi_part_rows(agi, kind)
-                ]
-            ),
+            rows=_card_rows(PayrollService.agi_voucher_rows(agi, agi.unbooked_parts)),
             options=[
                 {
                     "title": BOOK_AGI_OPTION_TITLE,

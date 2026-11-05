@@ -57,18 +57,23 @@ _HAS_INPUT_VAT_SQL = (
     f" AND vat_r.account_code BETWEEN '{INPUT_VAT_RANGE[0]}'"
     f" AND '{INPUT_VAT_RANGE[1]}')"
 )
-# The statement-account rows of the voucher that no linked transaction
-# covers. A transaction covers a row when it was imported for the row's
-# account (`bank_connections.account_number`).
+# The statement-account rows of the voucher that the linked transactions do
+# not cover. A transaction counts for the account it was imported for
+# (`bank_connections.account_number`), and the account is covered when those
+# transactions add up to the voucher's net on it -- one transaction, or one
+# per row (`domain.statement_coverage.covers`).
 _UNCOVERED_STATEMENT_ROWS_SQL = (
     "FROM voucher_rows st_r WHERE st_r.voucher_id = vouchers.id"
     " AND (st_r.debit > 0 OR st_r.credit > 0)"
     f" AND {_statement_account_sql('st_r.account_code')}"
-    " AND NOT EXISTS (SELECT 1 FROM current_voucher_bank_transactions st_vbt"
+    " AND (SELECT SUM(st_bt.amount) FROM current_voucher_bank_transactions st_vbt"
     " JOIN bank_transactions st_bt ON st_bt.id = st_vbt.bank_transaction_id"
     " JOIN bank_connections st_bc ON st_bc.id = st_bt.bank_connection_id"
     " WHERE st_vbt.voucher_id = vouchers.id"
     " AND st_bc.account_number = st_r.account_code)"
+    " IS NOT (SELECT SUM(st_n.debit - st_n.credit) FROM voucher_rows st_n"
+    " WHERE st_n.voucher_id = vouchers.id"
+    " AND st_n.account_code = st_r.account_code)"
 )
 STATEMENT_COVERED_SQL = (
     "(EXISTS (SELECT 1 FROM current_voucher_bank_transactions cov_vbt"

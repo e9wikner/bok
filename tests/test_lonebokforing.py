@@ -317,7 +317,7 @@ def test_the_agi_waits_for_the_month_s_salaries(thread, payslip):
     assert error.value.code == "agi_payslips_not_booked"
 
 
-def test_the_human_press_books_the_agi_in_two_vouchers(
+def test_the_human_press_books_the_agi_in_one_voucher(
     client, human_headers, thread, payslip
 ):
     PayrollService().match_bank_transaction_and_book(
@@ -349,13 +349,12 @@ def test_the_human_press_books_the_agi_in_two_vouchers(
     response = _answer(client, human_headers, result["decision_id"], 0)
 
     assert response.status_code == 202
-    assert _voucher_count() == before + 2
+    assert _voucher_count() == before + 1
     assert PayrollService().get_agi(2026, 3).booked is True
-    receipts = [
+    [receipt] = [
         p for p in ThreadRepository.list_posts(thread.id) if p.type == "receipt"
     ]
-    assert len(receipts) == 2
-    assert "Arbetsgivardeklaration 2026-03" in receipts[0].body["title"]
+    assert "Arbetsgivardeklaration 2026-03" in receipt.body["title"]
 
 
 def test_the_runs_list_carries_the_month_s_agi(client, human_headers, payslip):
@@ -409,6 +408,6 @@ def test_the_booked_voucher_says_what_it_books(client, human_headers, thread, pa
     origin = client.get(f"/api/v1/vouchers/{tax_voucher}", headers=human_headers)
     assert origin.json()["origin"] == {
         "kind": "agi",
-        "title": "Arbetsgivardeklaration mars 2026 · avdragen skatt",
+        "title": "Arbetsgivardeklaration mars 2026",
         "view_key": "betala.loner",
     }

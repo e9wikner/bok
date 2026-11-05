@@ -6,7 +6,10 @@ voucher and links the two:
 
 - **Automatically**, after a statement is imported and after a voucher is
   posted (`run`): a transaction is linked when exactly one posted voucher
-  has the same net amount on the statement's account *and* the same date.
+  has the same date and the transaction's amount still to cover on the
+  statement's account -- all of what is left, or one of several rows
+  (`domain.statement_coverage.covers`: an AGI voucher is covered by the
+  tax account's two debits).
   Overlapping exports need no handling here -- the import already keeps one
   transaction per real transaction (`BankIntegrationService.import_csv`).
 - **By the agent**, after asking the user (`koppla_banktransaktion` ->
@@ -34,6 +37,7 @@ from typing import Optional
 from db.database import db
 from domain.statement_coverage import (
     INPUT_VAT_RANGE,
+    covers,
     is_input_vat_account,
     is_statement_account,
 )
@@ -139,6 +143,7 @@ class StatementMatchService:
                 )
                 for row in rows
                 if row["id"] not in undone
+                and covers(tx["amount"], row["remaining_ore"], row["row_amounts"])
             ),
             key=lambda c: (c.date_diff_days, c.voucher_date, c.voucher_number),
         )
@@ -234,7 +239,8 @@ class StatementMatchService:
         thread_id: Optional[str] = None,
     ) -> dict:
         """Link one transaction to one posted voucher, after the user
-        decided. The amount must still agree; the date may differ.
+        decided. The amount must still agree with what is left to cover on
+        the account (`covers`); the date may differ.
 
         Raises `BankTransactionNotFoundError` or `BankInputConflictError`
         (with a code) and writes nothing when a check fails."""
@@ -283,25 +289,25 @@ class StatementMatchService:
                 "not a statement",
                 f"voucher_id={voucher_id}",
             )
-        account_rows = [r for r in voucher.rows if r.account_code == account_code]
-        if not account_rows:
+        position = self.inputs.statement_account_position(voucher_id, account_code)
+        if not position["row_amounts"]:
             raise BankInputConflictError(
                 "voucher_has_no_row_on_account",
                 "The voucher has no row on the statement's account",
                 f"voucher_id={voucher_id}, account_code={account_code}",
             )
-        net = sum(r.debit - r.credit for r in account_rows)
-        if net != tx["amount"]:
+        remaining = position["remaining_ore"]
+        if remaining == 0 and sum(position["row_amounts"]) != 0:
+            raise BankInputConflictError(
+                "voucher_account_already_covered",
+                "The voucher's amount on this account is already covered",
+                f"voucher_id={voucher_id}, account_code={account_code}",
+            )
+        if not covers(tx["amount"], remaining, position["row_amounts"]):
             raise BankInputConflictError(
                 "amount_mismatch",
                 "The voucher's amount on the account differs from the transaction",
-                f"voucher_net_ore={net}, transaction_ore={tx['amount']}",
-            )
-        if self.inputs.voucher_link_on_account(voucher_id, account_code):
-            raise BankInputConflictError(
-                "voucher_account_already_covered",
-                "The voucher already has a transaction on this account",
-                f"voucher_id={voucher_id}, account_code={account_code}",
+                f"voucher_remaining_ore={remaining}, transaction_ore={tx['amount']}",
             )
 
         self._write_link(

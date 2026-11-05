@@ -416,17 +416,21 @@ class AgiBookingRepository:
 
     @staticmethod
     def get_by_voucher(voucher_id: str) -> Optional[Dict[str, Any]]:
-        """`{year, month, kind}` of the AGI part *voucher_id* booked, if any."""
-        row = db.execute(
+        """`{year, month, kinds}` of the AGI parts *voucher_id* booked, if
+        any: both when they were booked together, one for a voucher booked
+        alone (a part booked again after a reversal, or an older booking)."""
+        rows = db.execute(
             "SELECT year, month, kind FROM payroll_agi_bookings WHERE voucher_id = ? "
-            "LIMIT 1",
+            "ORDER BY created_at ASC",
             (voucher_id,),
-        ).fetchone()
-        return (
-            {"year": row["year"], "month": row["month"], "kind": row["kind"]}
-            if row
-            else None
-        )
+        ).fetchall()
+        if not rows:
+            return None
+        return {
+            "year": rows[0]["year"],
+            "month": rows[0]["month"],
+            "kinds": [row["kind"] for row in rows],
+        }
 
     @staticmethod
     def current_voucher_ids(year: int, month: int) -> Dict[str, str]:
