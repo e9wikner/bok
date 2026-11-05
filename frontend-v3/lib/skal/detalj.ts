@@ -19,14 +19,23 @@ import type { VyData, VyRadData, VySektionData } from "@/lib/skal/vydata";
 import { allaVyer, type ViewKey } from "@/lib/skal/vyer";
 import { formatVerifikationsnummer } from "@/lib/utils";
 
-/** Det lagret visar. Bara det översta i stacken syns. */
-export type Detalj = { typ: "konto"; kod: string } | { typ: "ver"; id: string };
+/**
+ * Det lagret visar. Bara det översta i stacken syns. `bokslut` är ett
+ * räkenskapsårs bokslut (`components/skal/BokslutLager.tsx`), öppnat från
+ * årets rad i Rapporter.
+ */
+export type Detalj =
+  | { typ: "konto"; kod: string }
+  | { typ: "ver"; id: string }
+  | { typ: "bokslut"; arId: string };
 
 /** Vart en rad leder: ett lager, eller en annan vy på samma sida. */
 export type RadMal = Detalj | { typ: "vy"; key: ViewKey };
 
 export function sammaDetalj(a: Detalj, b: Detalj): boolean {
-  return a.typ === "konto" ? b.typ === "konto" && a.kod === b.kod : b.typ === "ver" && a.id === b.id;
+  if (a.typ === "konto") return b.typ === "konto" && a.kod === b.kod;
+  if (a.typ === "ver") return b.typ === "ver" && a.id === b.id;
+  return b.typ === "bokslut" && a.arId === b.arId;
 }
 
 // ─── API-svaren ───────────────────────────────────────────────────────────

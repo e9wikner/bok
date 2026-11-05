@@ -45,7 +45,7 @@ export function Skal() {
   const start = useMemo(
     () => ({
       ...lasPosition(params?.get("sida"), params?.get("vy")),
-      detalj: lasDetalj(params?.get("konto"), params?.get("ver")),
+      detalj: lasDetalj(params?.get("konto"), params?.get("ver"), params?.get("bokslut")),
     }),
     // Bara startvärdet; därefter äger komponenten positionen.
     // eslint-disable-next-line react-hooks/exhaustive-deps
