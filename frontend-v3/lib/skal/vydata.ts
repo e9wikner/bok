@@ -25,6 +25,14 @@ export interface VyRadData {
   variant?: RadVariant;
   /** Summarad: samma vikt som designens `r.vikt` 500. */
   summa?: boolean;
+  /**
+   * Raden gäller inte längre: en makulerad verifikation, eller en
+   * kontering som en rättelse tog bort. Titel och belopp stryks över, som
+   * i en pappersbok — raden står kvar, den raderas aldrig.
+   */
+  struken?: boolean;
+  /** Beloppet före en rättelse, överstruket framför `hoger`. */
+  hogerFore?: string;
   /** Serverns `age_days`; färgar metan för `vantar`/`saknar` med `aldersTon`. */
   ageDays?: number;
   /**

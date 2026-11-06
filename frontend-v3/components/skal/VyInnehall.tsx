@@ -112,6 +112,8 @@ export function VyInnehall({
                   hoger={rad.hoger}
                   variant={rad.variant}
                   summa={rad.summa}
+                  struken={rad.struken}
+                  hogerFore={rad.hogerFore}
                   ageDays={rad.ageDays}
                   kvitto={rad.kvitto}
                   forsokIgen={rad.forsokIgen}

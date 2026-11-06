@@ -155,6 +155,8 @@ class Voucher:
     # the posted voucher that has its underlag through this one's link --
     # A-121 on A-118.
     referenced_by: Optional[VoucherRef] = None
+    # Derived: how many posted corrections point at this voucher.
+    correction_count: int = 0
 
     def is_posted(self) -> bool:
         """Check if voucher is posted (varaktighet - immutable)."""

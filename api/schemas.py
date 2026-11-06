@@ -135,6 +135,41 @@ class VoucherRefResponse(BaseModel):
     number: Optional[int]
 
 
+class CorrectionAccountResponse(BaseModel):
+    """One account's net (debit minus credit, öre) before and after."""
+
+    account_code: str
+    account_name: Optional[str] = None
+    before: int
+    after: int
+
+
+class VoucherCorrectionResponse(BaseModel):
+    """What a correction did (SPEC-flode-verifikationer §7.5), derived on
+    read: on a corrected voucher the effect of all its posted corrections,
+    on a correction the effect of that one."""
+
+    kind: str = Field(
+        ...,
+        description=(
+            "makulering when the voucher nets to zero on every account "
+            "afterwards, otherwise andring"
+        ),
+    )
+    title: str = Field(..., description="Display title: `Makulering av A-53: …`")
+    original: VoucherRefResponse
+    original_description: str
+    correction: VoucherRefResponse
+    correction_date: DateType
+    correction_status: str
+    posted_at: Optional[DateTimeType] = None
+    actor: Optional[str] = Field(None, description="Who posted the correction")
+    reason: Optional[str] = None
+    before_total: int
+    after_total: int
+    accounts: List[CorrectionAccountResponse]
+
+
 class VoucherOriginResponse(BaseModel):
     """What a voucher is a booking of, when a flow posted it
     (`services/voucher_origin.py`)."""
@@ -174,7 +209,10 @@ class VoucherResponse(BaseModel):
     missing_attachment: bool = Field(
         False, description="True when no attachment is linked to the voucher"
     )
-    age_days: int = Field(0, description="Whole days since the voucher date")
+    age_days: int = Field(
+        0,
+        description="Whole days since the voucher date; negative for a date ahead",
+    )
     missing_statement_accounts: List[str] = Field(
         default_factory=list,
         description=(
@@ -193,6 +231,13 @@ class VoucherResponse(BaseModel):
         description=(
             "The posted voucher whose underlag is this one's linked receipt "
             "(voucher_source_references), e.g. a difference booked on its own"
+        ),
+    )
+    correction: Optional[VoucherCorrectionResponse] = Field(
+        None,
+        description=(
+            "On a corrected voucher and on a correction: kind, net per account "
+            "before and after, who and when"
         ),
     )
     origin: Optional[VoucherOriginResponse] = Field(

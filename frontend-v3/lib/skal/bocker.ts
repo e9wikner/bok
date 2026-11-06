@@ -89,6 +89,30 @@ export interface Verifikation {
    * server från före FU16 skickar den inte.
    */
   referenced_by?: VerifikationRef | null;
+  /**
+   * Vad en rättelse gjorde (`api/schemas.py::VoucherCorrectionResponse`):
+   * på en rättad verifikation alla dess postade rättelser sammantagna, på
+   * en rättelse just den. Valfri: en äldre server skickar den inte.
+   */
+  correction?: Rattelse | null;
+}
+
+/** `api/schemas.py::VoucherCorrectionResponse`. Belopp i öre, netto debet − kredit per konto. */
+export interface Rattelse {
+  kind: "makulering" | "andring";
+  /** `Makulering av A-53: …` — serverns rubrik för rättelsen. */
+  title: string;
+  original: VerifikationRef;
+  original_description: string;
+  correction: VerifikationRef;
+  correction_date: string;
+  correction_status: string;
+  posted_at?: string | null;
+  actor?: string | null;
+  reason?: string | null;
+  before_total: number;
+  after_total: number;
+  accounts: Array<{ account_code: string; account_name?: string | null; before: number; after: number }>;
 }
 
 /** `api/schemas.py::VoucherRefResponse`. */
@@ -430,7 +454,37 @@ function korrigering(v: { referenced_by?: VerifikationRef | null }): string {
   return v.referenced_by ? ` · ${nummerAv(v.referenced_by)} korrigering` : "";
 }
 
+/**
+ * En rättad verifikation och dess rättelse läses som ett par (§7.5): det
+ * makulerade stryks över, det ändrade visar beloppet före överstruket och
+ * beloppet efter. Rättelsen säger vad den gjorde med vad, i stället för att
+ * se ut som en ny affärshändelse på samma belopp.
+ */
+function rattelserad(v: Verifikation, r: Rattelse): VyRadData {
+  const nummer = nummerAv(v);
+  const fore = r.before_total !== r.after_total ? formatBeloppHela(r.before_total) : undefined;
+  const rad: VyRadData = { id: v.id, titel: v.description, hoger: "", mal: { typ: "ver", id: v.id } };
+  if (v.corrects) {
+    const vad = r.kind === "makulering" ? "makulerar" : "ändrar";
+    const vem = r.actor ? ` · ${r.actor}` : "";
+    return {
+      ...rad,
+      titel: r.title,
+      meta: `${nummer} · ${v.date} · ${vad} ${nummerAv(r.original)}${vem}`,
+      hoger: formatBeloppHela(r.after_total),
+      hogerFore: fore,
+    };
+  }
+  const vad = r.kind === "makulering" ? "makulerad" : "ändrad";
+  const meta = `${nummer} · ${v.date} · ${vad} av ${nummerAv(r.correction)} ${r.correction_date}${korrigering(v)}`;
+  if (r.kind === "makulering") return { ...rad, meta, hoger: formatBeloppHela(r.before_total), struken: true };
+  const andrad: VyRadData = { ...rad, meta, hoger: formatBeloppHela(r.after_total), hogerFore: fore };
+  if (harUnderlag(v)) andrad.kvitto = { voucherId: v.id, nummer };
+  return andrad;
+}
+
 function verifikationsrad(v: Verifikation): VyRadData {
+  if (v.status === "posted" && v.correction?.correction_status === "posted") return rattelserad(v, v.correction);
   const nummer = nummerAv(v);
   const saknar = v.status === "posted" && v.missing_attachment === true;
   const rattadAv = v.corrected_by ? ` · rättad av ${nummerAv(v.corrected_by)}` : "";
@@ -465,18 +519,37 @@ export function harUnderlag(v: Pick<Verifikation, "status" | "missing_attachment
  * av dem finns.
  */
 function saknarrad(v: Verifikation): VyRadData {
-  const alder = v.age_days ?? 0;
   const konton = v.missing_statement_accounts ?? [];
-  const vad = konton.length > 0 ? `kontoutdrag ${konton.join(" och ")} saknas` : "kvitto saknas";
+  const vad = konton.length > 0 ? `kontoutdrag ${konton.join(" och ")}` : "kvitto";
+  // En verifikation daterad framåt (en AGI på förfallodagen) saknar ingenting
+  // ännu: underlaget kan inte finnas före dagen.
+  const framtid = (v.age_days ?? 0) < 0;
   return {
     id: v.id,
     titel: v.description,
-    meta: `${nummerAv(v)} · ${vad} sedan ${alder} dgr`,
+    meta: `${nummerAv(v)} · ${underlagAlder(vad, v.age_days)}${andradAv(v)}`,
     hoger: formatBeloppHela(v.total_debit),
-    variant: "saknar",
-    ageDays: v.age_days,
+    variant: framtid ? undefined : "saknar",
+    ageDays: framtid ? undefined : v.age_days,
     mal: { typ: "ver", id: v.id },
   };
+}
+
+/** ` · ändrad av B-2` på en rättad verifikation som ännu saknar underlag. */
+function andradAv(v: Verifikation): string {
+  const r = v.correction;
+  return r && v.corrected_by && r.correction_status === "posted" ? ` · ändrad av ${nummerAv(r.correction)}` : "";
+}
+
+/**
+ * `kvitto saknas sedan 12 dgr`, eller för en verifikation daterad framåt
+ * `kontoutdrag 1630 väntas om 7 dgr` — aldrig `sedan -7 dgr`. Utan `vad`
+ * bara tiden: `saknas sedan 3 dgr`.
+ */
+export function underlagAlder(vad: string, ageDays: number | undefined): string {
+  const alder = ageDays ?? 0;
+  const forst = vad ? `${vad} ` : "";
+  return alder < 0 ? `${forst}väntas om ${-alder} dgr` : `${forst}saknas sedan ${alder} dgr`;
 }
 
 type KoppladVerifikation = Pick<
