@@ -4,7 +4,7 @@
  * Bokslutet gäller året i årsväljaren (`components/skal/BokslutVy.tsx`,
  * `GET /api/v1/bokslut/{id}`): kontrollerna, INK2, momsdeklarationen,
  * årsredovisningen och filerna att ladda ner, en vy per del. Åtgärder är de
- * öppna avvikelserna från BFL-kontrollerna (`/api/v1/compliance/issues`).
+ * öppna avvikelserna från BFL-kontrollerna (`/api/v1/compliance/check`, sedan `/issues`).
  */
 
 import apiClient from "@/lib/api";
@@ -227,7 +227,13 @@ export const bokslutApi = {
     return data;
   },
 
+  /**
+   * Kör kontrollerna först: en körning sparar nya avvikelser och löser dem
+   * vars villkor inte längre gäller (en låst period, en uppstädad kö), så
+   * att listan aldrig visar det som redan är åtgärdat.
+   */
   getAvvikelser: async (): Promise<Avvikelselista> => {
+    await apiClient.post("/api/v1/compliance/check");
     const { data } = await apiClient.get<Avvikelselista>("/api/v1/compliance/issues");
     return data;
   },
@@ -272,7 +278,7 @@ export function atgarderVy(lista: Avvikelselista): VyData {
     status: tomt ? "inga registrerade" : `${rader.length} öppna`,
     period: "Öppna avvikelser från BFL-kontrollerna",
     sektioner: tomt ? [] : [{ titel: "Öppna", rader }],
-    fot: "BFL-kontrollerna körs inte automatiskt. Listan visar det den senaste körningen sparade.",
+    fot: "BFL-kontrollerna körs när vyn öppnas. Det som har åtgärdats försvinner av sig självt.",
   };
 }
 

@@ -367,3 +367,41 @@ class TestCompliance:
         critical = service.get_open_issues(severity="critical")
         assert len(critical) == 1
         assert critical[0].severity == "critical"
+
+    def test_issue_resolves_when_condition_is_gone(self):
+        """A period that gets locked takes its 'ej stängd' issue with it."""
+        service = ComplianceService()
+        db.execute("""INSERT INTO fiscal_years (id, start_date, end_date)
+               VALUES ('fy-old', '2020-01-01', '2020-12-31')""")
+        db.execute(
+            """INSERT INTO periods (id, fiscal_year_id, year, month, start_date, end_date)
+               VALUES ('p-old', 'fy-old', 2020, 1, '2020-01-01', '2020-01-31')"""
+        )
+        db.commit()
+
+        service.run_all_checks()
+        open_ = [i for i in service.get_open_issues() if i.entity_id == "p-old"]
+        assert len(open_) == 1
+        assert "/api/v1" not in open_[0].recommendation
+
+        db.execute("UPDATE periods SET locked = 1 WHERE id = 'p-old'")
+        db.commit()
+        service.run_all_checks()
+        assert not any(i.entity_id == "p-old" for i in service.get_open_issues())
+        row = db.execute(
+            "SELECT status, resolved_by FROM compliance_checks WHERE entity_id = 'p-old'"
+        ).fetchone()
+        assert (row["status"], row["resolved_by"]) == ("resolved", "system")
+
+    def test_manual_issue_is_not_auto_resolved(self):
+        service = ComplianceService()
+        issue_id = str(uuid.uuid4())
+        db.execute(
+            """INSERT INTO compliance_checks
+               (id, check_type, severity, status, title, description)
+               VALUES (?, 'large_amount', 'info', 'open', 'Stor', 'Desc')""",
+            (issue_id,),
+        )
+        db.commit()
+        service.run_all_checks()
+        assert any(i.id == issue_id for i in service.get_open_issues())

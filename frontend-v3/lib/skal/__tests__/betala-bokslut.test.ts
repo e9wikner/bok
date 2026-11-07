@@ -313,7 +313,7 @@ describe("atgarderVy", () => {
     const vy = atgarderVy({ count: 0, issues: [] });
     expect(vy.lage).toBe("tomt");
     expect(vy.status).toBe("inga registrerade");
-    expect(vy.fot).toMatch(/körs inte automatiskt/);
+    expect(vy.fot).toMatch(/körs när vyn öppnas/);
   });
 
   it("sorterar de allvarligaste först", () => {

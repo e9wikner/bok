@@ -46,6 +46,19 @@ class ComplianceIssue:
 class ComplianceService:
     """Proactive BFL compliance checking."""
 
+    # Checks whose open issue is resolved by the next run once the
+    # condition is gone (see `_resolve_vanished`).
+    SELF_RESOLVING = frozenset(
+        {
+            "voucher_timeliness",
+            "period_closing",
+            "voucher_sequence",
+            "balance_check",
+            "unbooked_backlog",
+            "missing_attachments",
+        }
+    )
+
     def run_all_checks(self) -> Dict:
         """Run all compliance checks and return summary."""
         issues = []
@@ -59,14 +72,20 @@ class ComplianceService:
         issues.extend(self._check_missing_attachments())
         issues.extend(self._check_large_amounts())
 
-        # Save new issues
+        # Save new issues; refresh the text of the ones still open, so that
+        # "ej stängd (N dagar)" or a count does not freeze at the first run.
         new_count = 0
         for issue in issues:
-            if not self._issue_exists(
+            existing = self._issue_exists(
                 issue.check_type, issue.entity_type, issue.entity_id
-            ):
+            )
+            if existing:
+                self._refresh_issue(existing, issue)
+            else:
                 self._save_issue(issue)
                 new_count += 1
+
+        self._resolve_vanished(issues)
 
         # Summary
         all_open = self.get_open_issues()
@@ -218,7 +237,10 @@ class ComplianceService:
                         f"är fortfarande öppen, {days_overdue} dagar efter periodslut. "
                         f"Enligt god redovisningssed bör perioder stängas inom rimlig tid."
                     ),
-                    recommendation=f"Stäng perioden via POST /api/v1/periods/{row['id']}/lock",
+                    recommendation=(
+                        "Lås månaden under Verifikationer när den är avstämd, "
+                        "eller hela räkenskapsåret i bokslutets översikt."
+                    ),
                 )
             )
 
@@ -487,8 +509,8 @@ class ComplianceService:
 
     def _issue_exists(
         self, check_type: str, entity_type: Optional[str], entity_id: Optional[str]
-    ) -> bool:
-        """Check if an open issue already exists for this check."""
+    ) -> Optional[str]:
+        """The id of the open or acknowledged issue for this check, if any."""
         sql = "SELECT id FROM compliance_checks WHERE check_type = ? AND status IN ('open', 'acknowledged')"
         params = [check_type]
 
@@ -496,7 +518,53 @@ class ComplianceService:
             sql += " AND entity_id = ?"
             params.append(entity_id)
 
-        return db.execute(sql, tuple(params)).fetchone() is not None
+        row = db.execute(sql, tuple(params)).fetchone()
+        return row["id"] if row else None
+
+    def _refresh_issue(self, issue_id: str, current: ComplianceIssue) -> None:
+        """Bring a stored issue's wording and severity up to date."""
+        db.execute(
+            """UPDATE compliance_checks
+               SET severity = ?, title = ?, description = ?, recommendation = ?,
+                   deadline = ?
+               WHERE id = ?""",
+            (
+                current.severity,
+                current.title,
+                current.description,
+                current.recommendation,
+                current.deadline.isoformat() if current.deadline else None,
+                issue_id,
+            ),
+        )
+        db.commit()
+
+    def _resolve_vanished(self, found: List[ComplianceIssue]) -> None:
+        """Resolve open issues whose condition no longer holds.
+
+        Only for checks that state a condition of the books (a period is
+        locked, a backlog is gone). A reminder (`vat_deadline`) or a review
+        prompt (`large_amount`) falls out of its time window without anyone
+        having looked at it, so it stays until a human resolves it. An
+        acknowledged issue is left alone.
+        """
+        still = {(i.check_type, i.entity_id) for i in found}
+        rows = db.execute(
+            "SELECT id, check_type, entity_id FROM compliance_checks WHERE status = 'open'"
+        ).fetchall()
+        now = datetime.now().isoformat()
+        for row in rows:
+            if row["check_type"] not in self.SELF_RESOLVING:
+                continue
+            if (row["check_type"], row["entity_id"]) in still:
+                continue
+            db.execute(
+                """UPDATE compliance_checks
+                   SET status = 'resolved', resolved_at = ?, resolved_by = 'system'
+                   WHERE id = ?""",
+                (now, row["id"]),
+            )
+        db.commit()
 
     def _save_issue(self, issue: ComplianceIssue) -> None:
         """Save a compliance issue to the database."""
