@@ -3013,3 +3013,67 @@ class TestAgentStatusEndpoint:
         )
 
         assert response.status_code == 404
+
+
+class TestRateLimitPause:
+    """A rate-limited last pass is a pause until its retry-after has passed."""
+
+    @staticmethod
+    def _run(status="failed", error=None, finished=None):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(status=status, last_error=error, finished_at=finished)
+
+    def test_paused_within_retry_after(self):
+        from datetime import datetime
+
+        from services.agent_runtime import (
+            AGENT_PAUSED_RATE_LIMITED,
+            agent_state,
+            rate_limit_pause,
+        )
+
+        run = self._run(
+            error="llm_rate_limit_error: retry_after_seconds=3600.0",
+            finished=datetime(2026, 11, 7, 22, 0),
+        )
+        reason = rate_limit_pause(run, now=datetime(2026, 11, 7, 22, 30))
+        assert reason == AGENT_PAUSED_RATE_LIMITED
+        assert agent_state(None, reason) == "pausad"
+        assert rate_limit_pause(run, now=datetime(2026, 11, 7, 23, 1)) is None
+
+    def test_no_pause_without_retry_after_or_other_error(self):
+        from datetime import datetime
+
+        from services.agent_runtime import rate_limit_pause
+
+        now = datetime(2026, 11, 7, 22, 30)
+        finished = datetime(2026, 11, 7, 22, 0)
+        assert rate_limit_pause(None, now=now) is None
+        assert (
+            rate_limit_pause(
+                self._run(
+                    error="llm_rate_limit_error: retry_after_seconds=None",
+                    finished=finished,
+                ),
+                now=now,
+            )
+            is None
+        )
+        assert (
+            rate_limit_pause(
+                self._run(error="llm_connection_error", finished=finished), now=now
+            )
+            is None
+        )
+        assert (
+            rate_limit_pause(
+                self._run(
+                    status="completed",
+                    error="llm_rate_limit_error: retry_after_seconds=3600.0",
+                    finished=finished,
+                ),
+                now=now,
+            )
+            is None
+        )

@@ -39,9 +39,10 @@ import fcntl
 import json
 import logging
 import os
+import re
 import threading
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -990,6 +991,32 @@ AGENT_STATE_WORKING = "arbetar"
 AGENT_STATE_POSTING = "postar"
 AGENT_STATE_PAUSED = "pausad"
 AGENT_STATE_IDLE = "vilande"
+
+
+#: `paused_reason` while the LLM gateway's rate limit from the last pass
+#: lasts. Not a switch anyone has to flip: it ends by itself.
+AGENT_PAUSED_RATE_LIMITED = "llm_rate_limited"
+
+_RATE_LIMIT_ERROR = re.compile(r"^llm_rate_limit_error: retry_after_seconds=([0-9.]+)")
+
+
+def rate_limit_pause(last_run, now: Optional[datetime] = None) -> Optional[str]:
+    """`AGENT_PAUSED_RATE_LIMITED` while the last pass's rate limit lasts.
+
+    A rate-limited pass ends and the next one starts later (`LLMRateLimitError`,
+    "vid nästa start"). Until the gateway's `retry-after` has passed, every
+    pass fails the same way, so the agent is in effect paused -- and the
+    interface showed nothing (`vilande`) while underlag waited for a day.
+    Without a `retry-after` there is no end to state, so no pause either.
+    `finished_at` is naive local time (`AgentRunRepository.update_status`).
+    """
+    if last_run is None or last_run.status != "failed" or not last_run.finished_at:
+        return None
+    match = _RATE_LIMIT_ERROR.match(last_run.last_error or "")
+    if not match:
+        return None
+    until = last_run.finished_at + timedelta(seconds=float(match.group(1)))
+    return AGENT_PAUSED_RATE_LIMITED if (now or datetime.now()) < until else None
 
 
 def agent_state(current_activity: Optional[str], paused_reason: Optional[str]) -> str:

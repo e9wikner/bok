@@ -22,7 +22,12 @@ from domain.validation import ValidationError
 from repositories.agent_run_repo import AgentRunRepository
 from repositories.correction_note_repo import CorrectionNoteRepository
 from repositories.intake_repo import IntakeRepository
-from services.agent_runtime import agent_state, get_runner, get_worker
+from services.agent_runtime import (
+    agent_state,
+    get_runner,
+    get_worker,
+    rate_limit_pause,
+)
 from services.bank_inputs import BankInputError, BankInputService
 from services.exchange_rates import Valuta
 from services.idempotency import IdempotencyOutcome, IdempotencyService
@@ -434,7 +439,7 @@ async def get_agent_status(
             last_error=last_run_row.last_error,
         )
 
-    paused_reason = runner_status["paused_reason"]
+    paused_reason = runner_status["paused_reason"] or rate_limit_pause(last_run_row)
     return AgentStatusResponse(
         state=agent_state(worker.current_activity, paused_reason),
         since=current_run_row.started_at if current_run_row else None,

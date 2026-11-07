@@ -141,6 +141,14 @@ describe("AgentStatus faller mjukt (testfall 9)", () => {
     expect(screen.getByText("Agenten pausad")).toBeInTheDocument();
   });
 
+  it("pausorsaken står som en mening i title", () => {
+    render(<AgentStatus state="pausad" pausadOrsak="llm_rate_limited" />);
+    expect(screen.getByText("Agenten pausad")).toHaveAttribute(
+      "title",
+      "Språkmodellens gräns är nådd. Agenten fortsätter när gränsen släpper."
+    );
+  });
+
   it("kompakt: bara verbet, hela texten i title", () => {
     render(<AgentStatus state="arbetar" kompakt />);
     expect(screen.getByText("Arbetar")).toHaveAttribute("title", "Agenten arbetar");

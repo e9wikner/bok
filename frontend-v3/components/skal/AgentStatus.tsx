@@ -20,6 +20,17 @@ const LAGEN: Record<
   pausad: { text: "Agenten pausad", kort: "Pausad", prick: "#dc2626", fg: "#b91c1c" },
 };
 
+/** Serverns `paused_reason` som en mening. En okänd kod visas som den är. */
+const ORSAKER: Record<string, string> = {
+  agent_runtime_disabled: "Agenten är avstängd på servern.",
+  agent_runtime_not_started: "Agenten har inte startat på servern.",
+  llm_rate_limited: "Språkmodellens gräns är nådd. Agenten fortsätter när gränsen släpper.",
+};
+
+export function pausOrsak(kod: string): string {
+  return ORSAKER[kod] ?? kod;
+}
+
 export function AgentStatus({
   state,
   pausadOrsak,
@@ -46,7 +57,7 @@ export function AgentStatus({
     <div
       className="flex items-center gap-[7px] text-[13px]"
       style={{ color: lage.fg }}
-      title={state === "pausad" && pausadOrsak ? pausadOrsak : kompakt ? lage.text : undefined}
+      title={state === "pausad" && pausadOrsak ? pausOrsak(pausadOrsak) : kompakt ? lage.text : undefined}
     >
       <span
         aria-hidden="true"
