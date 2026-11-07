@@ -69,7 +69,8 @@ export const ChattFalt = forwardRef<
   HTMLInputElement,
   {
     vyTitel: string;
-    variant?: "desktop" | "mobil";
+    /** `panel`: desktopfältet i chattbubblans panel — desktopens filval, smalare marginal. */
+    variant?: "desktop" | "mobil" | "panel";
     /**
      * `useTrad().skicka` (chattyta C5): POST /threads/{view_key}/messages.
      * Fältet töms bara när den svarar `true` — servern har då lagrat texten.
@@ -209,7 +210,9 @@ export const ChattFalt = forwardRef<
         className={
           variant === "desktop"
             ? "shrink-0 border-t border-bok-linje px-[38px] pb-5 pt-4"
-            : "shrink-0 px-[18px] pb-[18px] pt-3"
+            : variant === "panel"
+              ? "shrink-0 border-t border-bok-linje px-4 pb-4 pt-3"
+              : "shrink-0 px-[18px] pb-[18px] pt-3"
         }
         onSubmit={async (e) => {
           e.preventDefault();
@@ -324,7 +327,7 @@ export const ChattFalt = forwardRef<
         tabIndex={-1}
         aria-hidden="true"
         className="hidden"
-        multiple={variant === "desktop"}
+        multiple={variant !== "mobil"}
         accept={variant === "mobil" ? "image/*" : ACCEPT_DESKTOP}
         {...(variant === "mobil" ? { capture: "environment" as const } : {})}
         onChange={(e) => {

@@ -72,7 +72,7 @@ export function TradYta({
   /** Beslutskortens status läses per vy (SPEC-chattyta.md §7). */
   viewKey: string;
   trad: TradData;
-  variant?: "desktop" | "mobil";
+  variant?: "desktop" | "mobil" | "panel";
 }) {
   const yta = useRef<HTMLDivElement>(null);
   const langstNer = useRef(true);
@@ -121,9 +121,9 @@ export function TradYta({
       // kanten, där det inte går att skrolla till — tråden tappade sina
       // äldsta inlägg (hittat vid chattyta C14:s visuella kontroll).
       className={
-        variant === "desktop"
-          ? "min-h-0 flex-1 overflow-y-auto"
-          : "bok-dold-skroll h-[260px] overflow-y-auto border-t border-bok-linje-svagast"
+        variant === "mobil"
+          ? "bok-dold-skroll h-[260px] overflow-y-auto border-t border-bok-linje-svagast"
+          : "min-h-0 flex-1 overflow-y-auto"
       }
       // INTE en live-region: då lästes varje text-delta upp ord för ord.
       // Annonseringen bor i `TradRenderare`s dolda region (SPEC-chattyta
@@ -139,7 +139,9 @@ export function TradYta({
         className={
           variant === "desktop"
             ? "flex min-h-full flex-col justify-end gap-6 px-[38px] py-[26px] [&>*]:shrink-0"
-            : "flex min-h-full flex-col justify-end gap-[18px] px-[18px] pb-[18px] pt-4 [&>*]:shrink-0"
+            : variant === "panel"
+              ? "flex min-h-full flex-col justify-end gap-5 px-5 py-5 [&>*]:shrink-0"
+              : "flex min-h-full flex-col justify-end gap-[18px] px-[18px] pb-[18px] pt-4 [&>*]:shrink-0"
         }
       >
         {kontextFran > 0 && (
@@ -172,21 +174,36 @@ export function ChattKolumn({
   vyTitel,
   viewKey,
   aktiv = true,
+  variant = "desktop",
 }: {
   vyTitel: string;
   viewKey: string;
   aktiv?: boolean;
+  /**
+   * `panel`: inuti chattbubblans panel (`ChattBubbla`) i stället för en kolumn.
+   * `mobil`: inuti bubblans uppfällda ark på mobil — tråden 260 px, mobilens fält.
+   */
+  variant?: "desktop" | "panel" | "mobil";
 }) {
-  if (!aktiv) return <KolumnLayout vyTitel={vyTitel} viewKey={viewKey} trad={OLAST_TRAD} />;
-  return <AktivKolumn vyTitel={vyTitel} viewKey={viewKey} />;
+  if (!aktiv) return <KolumnLayout vyTitel={vyTitel} viewKey={viewKey} trad={OLAST_TRAD} variant={variant} />;
+  return <AktivKolumn vyTitel={vyTitel} viewKey={viewKey} variant={variant} />;
 }
 
-function AktivKolumn({ vyTitel, viewKey }: { vyTitel: string; viewKey: string }) {
+function AktivKolumn({
+  vyTitel,
+  viewKey,
+  variant,
+}: {
+  vyTitel: string;
+  viewKey: string;
+  variant: "desktop" | "panel" | "mobil";
+}) {
   const trad = useTrad(viewKey);
   return (
     <KolumnLayout
       vyTitel={vyTitel}
       viewKey={viewKey}
+      variant={variant}
       trad={trad}
       onSkicka={trad.skicka}
       onNollstall={trad.nollstall}
@@ -200,12 +217,14 @@ function KolumnLayout({
   trad,
   onSkicka,
   onNollstall,
+  variant = "desktop",
 }: {
   vyTitel: string;
   viewKey: string;
   trad: TradData;
   onSkicka?: UseTrad["skicka"];
   onNollstall?: UseTrad["nollstall"];
+  variant?: "desktop" | "panel" | "mobil";
 }) {
   // Förslagskortets `Ändra` ska till DEN HÄR kolumnens fält (chattyta C12).
   const falt = useRef<HTMLInputElement>(null);
@@ -215,17 +234,25 @@ function KolumnLayout({
   const kolumn = useRef<HTMLDivElement>(null);
   const { forifyllning } = useBeslutFokus();
   return (
-    <div ref={kolumn} className="flex min-h-0 min-w-0 flex-col border-r border-bok-linje">
+    <div
+      ref={kolumn}
+      className={
+        variant === "mobil"
+          ? "flex min-w-0 flex-col"
+          : `flex min-h-0 min-w-0 flex-1 flex-col ${variant === "desktop" ? "border-r border-bok-linje" : ""}`
+      }
+    >
       <ChattFaltFokus.Provider value={fokuseraFalt}>
-        <TradYta vyTitel={vyTitel} viewKey={viewKey} trad={trad} />
+        <TradYta vyTitel={vyTitel} viewKey={viewKey} trad={trad} variant={variant} />
       </ChattFaltFokus.Provider>
       {onNollstall && kanNollstallas(trad) && (
-        <NollstallKnapp onNollstall={onNollstall} arbetar={trad.strommande !== null} />
+        <NollstallKnapp onNollstall={onNollstall} arbetar={trad.strommande !== null} variant={variant} />
       )}
       <ChattFalt
         ref={falt}
         vyTitel={vyTitel}
         viewKey={viewKey}
+        variant={variant}
         onSkicka={onSkicka}
         slappYta={kolumn}
         forifyllning={forifyllning?.viewKey === viewKey ? forifyllning : null}

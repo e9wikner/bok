@@ -4,8 +4,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } f
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { BeslutFokusProvider } from "@/components/skal/BeslutFokus";
-import { ChattKolumn } from "@/components/skal/ChattKolumn";
-import { ChattList } from "@/components/skal/ChattList";
+import { ChattBubbla } from "@/components/skal/ChattBubbla";
 import { DetaljLager } from "@/components/skal/Detalj";
 import { DetaljProvider, useDetaljHistorik } from "@/components/skal/DetaljKontext";
 import { Header } from "@/components/skal/Header";
@@ -106,11 +105,10 @@ export function Skal() {
   const bred = useBredSkarm();
   const { data: overview } = useOverview();
   const { data: agent } = useAgentStatus();
-  // Märket läses för den aktiva vyn och bara på mobil, där det finns
-  // (SPEC-chattyta.md §10). Inte beroende av om chatten är minimerad: det
-  // är då märket behövs (komponenter.md). Grannvyerna i svepraden får 0,
-  // som de får en oläst tråd (C5) — de ligger utanför skärmen.
-  const vantandeBeslut = useVantandeBeslut(aktivVy.key, { aktiv: !bred });
+  // Märket läses för den aktiva vyn, på chattbubblan (SPEC-chattyta.md §10). Inte beroende av om chatten är
+  // minimerad: det är då märket behövs (komponenter.md). Grannvyerna i
+  // svepraden får 0, som de får en oläst tråd (C5) — de ligger utanför skärmen.
+  const vantandeBeslut = useVantandeBeslut(aktivVy.key);
 
   const metaPerSida = useMemo<Partial<Record<Sidnyckel, SidMeta>>>(() => {
     const ut: Partial<Record<Sidnyckel, SidMeta>> = {};
@@ -191,25 +189,23 @@ export function Skal() {
           // ström per flik.
           const aktiv = i === vyIndex;
           if (bred) {
+            // Vyn äger ytan; chatten är en bubbla (`ChattBubbla`) nere
+            // till höger. Läskolumnen centreras med en läsbar maxbredd i
+            // stället för att dras ut över hela skärmen.
             return (
-              <div
-                className="grid min-h-0 flex-1"
-                // `minmax(0, 1fr)`, inte `1fr`: en bred tabell eller ett
-                // kodblock i tråden gör annars chattkolumnen lika bred som
-                // innehållet och trycker ut läskolumnen ur skärmen.
-                style={{ gridTemplateColumns: "minmax(0, 1fr) var(--bok-vykolumn)" }}
-              >
-                <ChattKolumn vyTitel={vy.titel} viewKey={vy.key} aktiv={aktiv} />
-                {aktiv && lagerOppet ? (
-                  <DetaljLager vyTitel={vy.titel} ar={ar} />
-                ) : (
-                  <VyInnehall
-                    vy={vy}
-                    data={innehall}
-                    laddar={laddar}
-                    sok={vy.key === "bocker.verifikationer" ? sok : undefined}
-                  />
-                )}
+              <div className="flex min-h-0 flex-1 justify-center">
+                <div className="flex min-h-0 w-full max-w-[880px] flex-col border-x border-bok-linje bg-bok-yta">
+                  {aktiv && lagerOppet ? (
+                    <DetaljLager vyTitel={vy.titel} ar={ar} />
+                  ) : (
+                    <VyInnehall
+                      vy={vy}
+                      data={innehall}
+                      laddar={laddar}
+                      sok={vy.key === "bocker.verifikationer" ? sok : undefined}
+                    />
+                  )}
+                </div>
               </div>
             );
           }
@@ -226,12 +222,6 @@ export function Skal() {
                   sok={vy.key === "bocker.verifikationer" ? sok : undefined}
                 />
               )}
-              <ChattList
-                vyTitel={vy.titel}
-                viewKey={vy.key}
-                aktiv={aktiv}
-                vantandeBeslut={aktiv ? vantandeBeslut : 0}
-              />
             </div>
           );
         }}
@@ -244,6 +234,12 @@ export function Skal() {
           <PrickNav vyer={sida.vyer} aktivIndex={vyIndex} onValj={setVyIndex} />
         </div>
       )}
+      <ChattBubbla
+        vyTitel={aktivVy.titel}
+        viewKey={aktivVy.key}
+        vantandeBeslut={vantandeBeslut}
+        variant={bred ? "desktop" : "mobil"}
+      />
     </div>
     </DetaljProvider>
     </BeslutFokusProvider>
