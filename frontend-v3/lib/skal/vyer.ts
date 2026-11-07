@@ -1,7 +1,7 @@
 /**
  * Sid- och vykartan (modul `skal`).
  *
- * Skalets enda sanning om vad som finns: tre sidor, sju vyer, i designens
+ * Skalets enda sanning om vad som finns: tre sidor och deras vyer, i designens
  * ordning (design_handoff_bokai/README.md §Informationsarkitektur).
  *
  * `view_key` är samma sju nycklar som servern validerar mot i
@@ -23,8 +23,21 @@ export type ViewKey =
   | "bokslut.rapporter"
   | "bokslut.atgarder";
 
+/**
+ * Bokslutets delar för det valda räkenskapsåret. De är egna vyer i
+ * navigeringen men inga egna trådar: de delar Översiktens tråd
+ * (`bokslut.rapporter`), så att samtalet om ett års bokslut är ett samtal
+ * oavsett vilken del som står framme. Servern känner inte nycklarna.
+ */
+export type BokslutDel = "bokslut.ink2" | "bokslut.moms" | "bokslut.arsredovisning" | "bokslut.uppgifter";
+
+/** En vy i navigeringen: en trådvy, eller en bokslutsdel. */
+export type Vynyckel = ViewKey | BokslutDel;
+
 export interface Vy {
-  readonly key: ViewKey;
+  readonly key: Vynyckel;
+  /** Tråden vyn chattar i, mot servern. Samma som `key` utom för bokslutsdelarna. */
+  readonly trad: ViewKey;
   /** Kort nyckel i URL:en, t.ex. "balans". */
   readonly slug: string;
   readonly titel: string;
@@ -50,10 +63,11 @@ export const SIDOR: readonly Sida[] = Object.freeze([
     key: "bocker" as const,
     titel: "Böcker",
     vyer: Object.freeze([
-      { key: "bocker.balans", slug: "balans", titel: "Balansräkning", sida: "bocker", lasvy: false },
-      { key: "bocker.resultat", slug: "resultat", titel: "Resultaträkning", sida: "bocker", lasvy: false },
+      { key: "bocker.balans", trad: "bocker.balans", slug: "balans", titel: "Balansräkning", sida: "bocker", lasvy: false },
+      { key: "bocker.resultat", trad: "bocker.resultat", slug: "resultat", titel: "Resultaträkning", sida: "bocker", lasvy: false },
       {
         key: "bocker.verifikationer",
+        trad: "bocker.verifikationer",
         slug: "verifikationer",
         titel: "Verifikationer",
         sida: "bocker",
@@ -67,28 +81,50 @@ export const SIDOR: readonly Sida[] = Object.freeze([
     vyer: Object.freeze([
       {
         key: "betala.fakturering",
+        trad: "betala.fakturering",
         slug: "fakturering",
         titel: "Fakturering",
         sida: "betala",
         // Skrivvy sedan fakturering F1 (SPEC-fakturering-f1.md §10.2).
         lasvy: false,
       },
-      { key: "betala.loner", slug: "loner", titel: "Löner", sida: "betala", lasvy: false },
+      { key: "betala.loner", trad: "betala.loner", slug: "loner", titel: "Löner", sida: "betala", lasvy: false },
     ] as const),
   }),
   Object.freeze({
     key: "bokslut" as const,
     titel: "Bokslut",
     vyer: Object.freeze([
+      // Översikt till Uppgifter gäller året i årsväljaren och delar tråd.
       {
         key: "bokslut.rapporter",
-        slug: "rapporter",
-        titel: "Rapporter",
+        trad: "bokslut.rapporter",
+        slug: "oversikt",
+        titel: "Översikt",
+        sida: "bokslut",
+        lasvy: false,
+      },
+      { key: "bokslut.ink2", trad: "bokslut.rapporter", slug: "ink2", titel: "INK2", sida: "bokslut", lasvy: false },
+      { key: "bokslut.moms", trad: "bokslut.rapporter", slug: "moms", titel: "Moms", sida: "bokslut", lasvy: false },
+      {
+        key: "bokslut.arsredovisning",
+        trad: "bokslut.rapporter",
+        slug: "arsredovisning",
+        titel: "Årsredovisning",
+        sida: "bokslut",
+        lasvy: false,
+      },
+      {
+        key: "bokslut.uppgifter",
+        trad: "bokslut.rapporter",
+        slug: "uppgifter",
+        titel: "Uppgifter",
         sida: "bokslut",
         lasvy: false,
       },
       {
         key: "bokslut.atgarder",
+        trad: "bokslut.atgarder",
         slug: "atgarder",
         titel: "Åtgärder och nyckeltal",
         sida: "bokslut",
@@ -128,14 +164,24 @@ export function vyMedSlug(sida: Sidnyckel, slug: string | null | undefined): Vy 
   return sidan(sida).vyer.find((v) => v.slug === slug);
 }
 
-export function vyIndex(sida: Sidnyckel, key: ViewKey): number {
+export function vyIndex(sida: Sidnyckel, key: Vynyckel): number {
   return sidan(sida).vyer.findIndex((v) => v.key === key);
 }
 
 /** view_key härleds ur kartan, aldrig ur en sträng som klistras ihop. */
 export function viewKeyOf(sida: Sidnyckel, index: number): ViewKey | undefined {
-  return vyAt(sida, index)?.key;
+  return vyAt(sida, index)?.trad;
 }
+
+export function arBokslutsdel(key: Vynyckel): key is BokslutDel | "bokslut.rapporter" {
+  return key === "bokslut.rapporter" || BOKSLUTSDELAR.includes(key as BokslutDel);
+}
+const BOKSLUTSDELAR: readonly BokslutDel[] = [
+  "bokslut.ink2",
+  "bokslut.moms",
+  "bokslut.arsredovisning",
+  "bokslut.uppgifter",
+];
 
 export function allaVyer(): readonly Vy[] {
   return SIDOR.flatMap((s) => s.vyer);

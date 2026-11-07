@@ -20,11 +20,11 @@ import {
   slaSamman,
   verifikationerVy,
 } from "@/lib/skal/bocker";
-import { atgarderVy, bokslutApi, rapporterVy } from "@/lib/skal/bokslut";
+import { atgarderVy, bokslutApi, bokslutNyckel, bokslutStatus } from "@/lib/skal/bokslut";
 import { lasApi } from "@/lib/skal/las";
 import { sokVy } from "@/lib/skal/sok";
 import { FEL_VY, INGET_AR_VY, LADDAR_VY, type VyData } from "@/lib/skal/vydata";
-import type { Sidnyckel, ViewKey } from "@/lib/skal/vyer";
+import type { Sidnyckel, Vynyckel } from "@/lib/skal/vyer";
 
 /** Dagens datum i lokal tid, `YYYY-MM-DD`. */
 function idag(): string {
@@ -53,7 +53,7 @@ function vy<T extends unknown[]>(
 }
 
 /**
- * Alla sju vyernas innehåll, ur API:t.
+ * Alla vyernas innehåll, ur API:t.
  *
  * Frågorna går bara för sidan som visas. Böckernas vyer gäller räkenskapsåret
  * som översikten pekar ut; `ar === undefined` betyder att översikten inte har
@@ -67,7 +67,7 @@ export function useVyer(
   ar: OverviewFiscalYear | null | undefined,
   sida: Sidnyckel,
   sokterm = ""
-): Record<ViewKey, VyInnehallData> {
+): Record<Vynyckel, VyInnehallData> {
   const id = ar?.id ?? "";
   const bocker = sida === "bocker" && !!id;
   const betala = sida === "betala";
@@ -228,11 +228,13 @@ export function useVyer(
     enabled: bocker,
     staleTime,
   });
-  const rakenskapsar = useQuery({
-    queryKey: ["skal", "rakenskapsar"],
-    queryFn: bokslutApi.getRakenskapsar,
-    enabled: bokslut,
-    staleTime,
+  // Bokslutets delar ritas av `BokslutVy`, som läser samma fråga. Här
+  // behövs bara statusraden, till sidhuvudet.
+  const bokslutet = useQuery({
+    queryKey: bokslutNyckel(id),
+    queryFn: () => bokslutApi.getBokslut(id),
+    enabled: bokslut && !!id,
+    staleTime: 30 * 1000,
   });
   const avvikelser = useQuery({
     queryKey: ["skal", "avvikelser"],
@@ -243,6 +245,13 @@ export function useVyer(
 
   const utanAr: VyInnehallData | null =
     ar === null ? { data: INGET_AR_VY, laddar: false } : ar === undefined ? { data: LADDAR_VY, laddar: true } : null;
+
+  const bokslutsdel: VyInnehallData =
+    utanAr ??
+    vy([bokslutet], (b) => {
+      const { text, lage } = bokslutStatus(b);
+      return { lage, status: text, period: "", sektioner: [], fot: "" };
+    });
 
   return {
     "bocker.balans": utanAr ?? vy([balans, resultat], (b, r) => balansVy(ar!, b, r)),
@@ -285,7 +294,11 @@ export function useVyer(
         faktureringVy(f, { utkast: u.drafts, beslut: b.decisions, forslag: fs.drafts, utfardanden })
     ),
     "betala.loner": vy([loner, lonerBeslut], (l, b) => lonerVy(l, { beslut: b.decisions })),
-    "bokslut.rapporter": vy([rakenskapsar], (r) => rapporterVy(r, lasning.ar)),
+    "bokslut.rapporter": bokslutsdel,
+    "bokslut.ink2": bokslutsdel,
+    "bokslut.moms": bokslutsdel,
+    "bokslut.arsredovisning": bokslutsdel,
+    "bokslut.uppgifter": bokslutsdel,
     "bokslut.atgarder": vy([avvikelser], atgarderVy),
   };
 }

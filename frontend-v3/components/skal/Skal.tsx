@@ -4,6 +4,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } f
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { BeslutFokusProvider } from "@/components/skal/BeslutFokus";
+import { BokslutVy } from "@/components/skal/BokslutVy";
 import { ChattBubbla } from "@/components/skal/ChattBubbla";
 import { DetaljLager } from "@/components/skal/Detalj";
 import { DetaljProvider, useDetaljHistorik } from "@/components/skal/DetaljKontext";
@@ -15,6 +16,7 @@ import { VySvep } from "@/components/skal/VySvep";
 import { useAgentStatus, useOverview } from "@/hooks/useSkal";
 import { useVyer } from "@/hooks/useVyer";
 import { useVantandeBeslut } from "@/hooks/useVantandeBeslut";
+import { useLasning } from "@/hooks/useLasning";
 import { useBredSkarm } from "@/hooks/useBredSkarm";
 import { bokslutApi } from "@/lib/skal/bokslut";
 import { arsalternativ, arsrad, somOverviewAr } from "@/lib/skal/header";
@@ -23,9 +25,10 @@ import type { Detalj } from "@/lib/skal/detalj";
 import { lasDetalj, lasPosition, positionsUrl } from "@/lib/skal/rutt";
 import {
   type Sidnyckel,
-  type ViewKey,
   type Vy,
+  type Vynyckel,
   allaVyer,
+  arBokslutsdel,
   forstaVyn,
   sidan,
   vyAt,
@@ -33,7 +36,7 @@ import {
 } from "@/lib/skal/vyer";
 
 /**
- * Skalet: tre sidor, sju vyer, en rutt.
+ * Skalet: tre sidor, deras vyer, en rutt.
  *
  * Vyn är ett skrolläge och sidan är en navigering. Vypositionen skrivs med
  * history.replaceState så att ett svep inte kostar en post i historiken och
@@ -45,7 +48,7 @@ export function Skal() {
   const start = useMemo(
     () => ({
       ...lasPosition(params?.get("sida"), params?.get("vy")),
-      detalj: lasDetalj(params?.get("konto"), params?.get("ver"), params?.get("bokslut")),
+      detalj: lasDetalj(params?.get("konto"), params?.get("ver")),
     }),
     // Bara startvärdet; därefter äger komponenten positionen.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -70,7 +73,7 @@ export function Skal() {
   // just den vyn, som en inklistrad adress, inte ett sidbyte i väljaren —
   // därför landar den inte på sidans första vy.
   const gaTillVy = useCallback(
-    (key: ViewKey) => {
+    (key: Vynyckel) => {
       const i = indexForVy(sidnyckel, key);
       if (i !== -1) {
         setVyIndex(i);
@@ -108,7 +111,7 @@ export function Skal() {
   // Märket läses för den aktiva vyn, på chattbubblan (SPEC-chattyta.md §10). Inte beroende av om chatten är
   // minimerad: det är då märket behövs (komponenter.md). Grannvyerna i
   // svepraden får 0, som de får en oläst tråd (C5) — de ligger utanför skärmen.
-  const vantandeBeslut = useVantandeBeslut(aktivVy.key);
+  const vantandeBeslut = useVantandeBeslut(aktivVy.trad);
 
   const metaPerSida = useMemo<Partial<Record<Sidnyckel, SidMeta>>>(() => {
     const ut: Partial<Record<Sidnyckel, SidMeta>> = {};
@@ -138,6 +141,10 @@ export function Skal() {
   // Utan val löser servern innevarande år själv, så tråden laddas inte om
   // när översikten kommer.
   const tradensAr = valtAr?.id ?? null;
+  // Översiktens lås gäller året som visas.
+  const lasning = useLasning();
+  const visatAr = arslista?.fiscal_years.find((a) => a.id === ar?.id);
+  const arsLas = visatAr ? lasning.ar(visatAr) : undefined;
 
   // Sökrutan i Verifikationer. Den uppskjutna termen filtrerar, så att
   // rutan svarar på varje tangent också när året är stort. Termen står kvar
@@ -194,6 +201,17 @@ export function Skal() {
           // sidans alla vyer, och SPEC-chattyta.md §6.2 punkt 5 säger en
           // ström per flik.
           const aktiv = i === vyIndex;
+          const variant = bred ? "desktop" : "mobil";
+          const bokslutsvy = arBokslutsdel(vy.key) ? (
+            <BokslutVy
+              del={vy.key}
+              titel={vy.titel}
+              arId={ar === undefined ? undefined : (ar?.id ?? null)}
+              las={arsLas}
+              onGaTill={gaTillVy}
+              variant={variant}
+            />
+          ) : null;
           if (bred) {
             // Vyn äger ytan bredvid sidonavigeringen; chatten är en bubbla
             // (`ChattBubbla`) nere till höger. Kolumnen fyller bredden upp
@@ -203,6 +221,8 @@ export function Skal() {
                 <div className="flex min-h-0 w-full max-w-[1180px] flex-col overflow-hidden rounded-t-[12px] border-x border-t border-bok-linje bg-bok-yta">
                   {aktiv && lagerOppet ? (
                     <DetaljLager vyTitel={vy.titel} ar={ar} />
+                  ) : bokslutsvy ? (
+                    bokslutsvy
                   ) : (
                     <VyInnehall
                       vy={vy}
@@ -219,6 +239,8 @@ export function Skal() {
             <div className="flex min-h-0 flex-1 flex-col">
               {aktiv && lagerOppet ? (
                 <DetaljLager vyTitel={vy.titel} ar={ar} variant="mobil" />
+              ) : bokslutsvy ? (
+                bokslutsvy
               ) : (
                 <VyInnehall
                   vy={vy}
@@ -235,7 +257,7 @@ export function Skal() {
       </div>
       <ChattBubbla
         vyTitel={aktivVy.titel}
-        viewKey={aktivVy.key}
+        viewKey={aktivVy.trad}
         vantandeBeslut={vantandeBeslut}
         variant={bred ? "desktop" : "mobil"}
         arId={tradensAr}

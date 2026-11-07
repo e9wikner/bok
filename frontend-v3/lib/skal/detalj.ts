@@ -16,26 +16,18 @@ import type { OverviewFiscalYear } from "@/lib/skal/api";
 import { harUnderlag, underlagAlder, type Rattelse, type Verifikation, type VerifikationRef } from "@/lib/skal/bocker";
 import { formatBeloppHela } from "@/lib/skal/format";
 import type { VyData, VyRadData, VySektionData } from "@/lib/skal/vydata";
-import { allaVyer, type ViewKey } from "@/lib/skal/vyer";
+import { allaVyer, type Vynyckel } from "@/lib/skal/vyer";
 import { formatVerifikationsnummer } from "@/lib/utils";
 
-/**
- * Det lagret visar. Bara det översta i stacken syns. `bokslut` är ett
- * räkenskapsårs bokslut (`components/skal/BokslutLager.tsx`), öppnat från
- * årets rad i Rapporter.
- */
-export type Detalj =
-  | { typ: "konto"; kod: string }
-  | { typ: "ver"; id: string }
-  | { typ: "bokslut"; arId: string };
+/** Det lagret visar. Bara det översta i stacken syns. */
+export type Detalj = { typ: "konto"; kod: string } | { typ: "ver"; id: string };
 
 /** Vart en rad leder: ett lager, eller en annan vy på samma sida. */
-export type RadMal = Detalj | { typ: "vy"; key: ViewKey };
+export type RadMal = Detalj | { typ: "vy"; key: Vynyckel };
 
 export function sammaDetalj(a: Detalj, b: Detalj): boolean {
   if (a.typ === "konto") return b.typ === "konto" && a.kod === b.kod;
-  if (a.typ === "ver") return b.typ === "ver" && a.id === b.id;
-  return b.typ === "bokslut" && a.arId === b.arId;
+  return b.typ === "ver" && a.id === b.id;
 }
 
 // ─── API-svaren ───────────────────────────────────────────────────────────

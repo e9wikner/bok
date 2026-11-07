@@ -30,12 +30,8 @@ describe("kartan (testfall 1)", () => {
     expect(SIDOR.map((s) => s.key)).toEqual(["bocker", "betala", "bokslut"]);
   });
 
-  it("har exakt sju vyer", () => {
-    expect(allaVyer()).toHaveLength(7);
-  });
-
-  it("fördelar vyerna 3 / 2 / 2 som informationsarkitekturen säger", () => {
-    expect(SIDOR.map((s) => s.vyer.length)).toEqual([3, 2, 2]);
+  it("fördelar vyerna 3 / 2 / 6: Bokslut har en vy per bokslutsdel", () => {
+    expect(SIDOR.map((s) => s.vyer.length)).toEqual([3, 2, 6]);
   });
 
   it("bär designens sidtitlar ordagrant", () => {
@@ -44,14 +40,19 @@ describe("kartan (testfall 1)", () => {
 });
 
 describe("view_key mot SPEC-tradar.md §5 (testfall 2)", () => {
-  it("ger exakt de sju nycklarna servern validerar mot, i samma ordning", () => {
-    expect(allaVyer().map((v) => v.key)).toEqual(VIEW_KEYS_I_SPEC_TRADAR);
+  it("chattar bara i de sju nycklarna servern validerar mot, i samma ordning", () => {
+    expect(Array.from(new Set(allaVyer().map((v) => v.trad)))).toEqual(VIEW_KEYS_I_SPEC_TRADAR);
+  });
+
+  it("ger varje vy en egen nyckel", () => {
+    const nycklar = allaVyer().map((v) => v.key);
+    expect(new Set(nycklar).size).toBe(nycklar.length);
   });
 
   it("härleder view_key ur kartan, inte ur en hopklistrad sträng", () => {
     expect(viewKeyOf("bocker", 2)).toBe("bocker.verifikationer");
     expect(viewKeyOf("betala", 1)).toBe("betala.loner");
-    expect(viewKeyOf("bokslut", 5)).toBeUndefined();
+    expect(viewKeyOf("bokslut", 6)).toBeUndefined();
   });
 
   it("har en nyckel som börjar med sin egen sidnyckel", () => {

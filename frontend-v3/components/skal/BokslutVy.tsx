@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { LasKnapp } from "@/components/skal/LasKnapp";
 import { VyBanner } from "@/components/skal/VyBanner";
 import { VyHeaderStatus } from "@/components/skal/VyHeaderStatus";
 import { VyRadSkelett } from "@/components/skal/VyRad";
@@ -14,52 +15,57 @@ import {
   type Uppgifter,
   attAtgarda,
   bokslutApi,
+  bokslutNyckel,
   bokslutStatus,
   bokslutTitel,
   justeringsText,
   kronor,
 } from "@/lib/skal/bokslut";
+import type { LasData } from "@/lib/skal/las";
 import { lageFarg } from "@/lib/skal/lage";
+import type { BokslutDel } from "@/lib/skal/vyer";
 
 /**
- * Ett räkenskapsårs bokslut, i läskolumnens ställe (detaljlagret).
- *
- * Fem flikar: Översikt (kontrollerna och filerna), INK2, Moms,
- * Årsredovisning och Uppgifter. Allt räknas på servern
+ * En del av ett räkenskapsårs bokslut, i läskolumnen: Översikt (kontrollerna
+ * och filerna), INK2, Moms, Årsredovisning eller Uppgifter. Delarna är egna
+ * vyer i navigeringen och gäller året i årsväljaren. Allt räknas på servern
  * (`services/bokslut.py`); här visas det och laddas ner. Uppgifterna är det
  * enda som skrivs, och de bokför ingenting.
  */
 
-export const bokslutNyckel = (arId: string) => ["skal", "bokslut", arId];
-
-type Flik = "oversikt" | "ink2" | "moms" | "ar" | "uppgifter";
-const FLIKAR: { id: Flik; titel: string }[] = [
-  { id: "oversikt", titel: "Översikt" },
-  { id: "ink2", titel: "INK2" },
-  { id: "moms", titel: "Moms" },
-  { id: "ar", titel: "Årsredovisning" },
-  { id: "uppgifter", titel: "Uppgifter" },
-];
-
-export function BokslutLager({
+export function BokslutVy({
+  del,
+  titel,
   arId,
-  tillbaka,
+  las,
+  onGaTill,
   variant,
 }: {
-  arId: string;
-  tillbaka: { text: string; onClick: () => void };
+  del: BokslutDel | "bokslut.rapporter";
+  titel: string;
+  /** Året i årsväljaren; `null` när det inte finns något räkenskapsår. */
+  arId: string | null | undefined;
+  /** Årets lås, på Översikten. */
+  las?: LasData;
+  onGaTill: (del: BokslutDel) => void;
   variant: "desktop" | "mobil";
 }) {
   const { data, isError } = useQuery({
-    queryKey: bokslutNyckel(arId),
-    queryFn: () => bokslutApi.getBokslut(arId),
+    queryKey: bokslutNyckel(arId ?? ""),
+    queryFn: () => bokslutApi.getBokslut(arId ?? ""),
+    enabled: !!arId,
     staleTime: 30 * 1000,
   });
-  const [flik, setFlik] = useState<Flik>("oversikt");
   const pad = variant === "desktop" ? "px-6" : "px-[18px]";
 
-  const titel = data ? bokslutTitel(data) : "Bokslut";
-  const status = data ? bokslutStatus(data) : isError ? { text: "kunde inte läsas", lage: "fel" as const } : { text: "hämtar", lage: "pagaende" as const };
+  const status =
+    arId === null
+      ? { text: "inget räkenskapsår", lage: "tomt" as const }
+      : data
+        ? bokslutStatus(data)
+        : isError
+          ? { text: "kunde inte läsas", lage: "fel" as const }
+          : { text: "hämtar", lage: "pagaende" as const };
 
   return (
     <div
@@ -69,44 +75,21 @@ export function BokslutLager({
           : "bok-dold-skroll flex min-h-0 flex-1 flex-col overflow-auto"
       }
     >
-      <button
-        type="button"
-        onClick={tillbaka.onClick}
-        className={`bok-mono self-start pt-3 text-left text-[12px] text-bok-lank underline-offset-2 hover:text-bok-lank-hover hover:underline ${pad}`}
-      >
-        ← {tillbaka.text}
-      </button>
       <VyHeaderStatus titel={titel} status={status.text} fg={lageFarg(status.lage)} variant={variant} />
-
-      <div
-        role="tablist"
-        aria-label="Bokslutets delar"
-        className={`bok-dold-skroll flex shrink-0 gap-1 overflow-x-auto border-b border-bok-linje-svagast py-2 ${pad}`}
-      >
-        {FLIKAR.map((f) => (
-          <button
-            key={f.id}
-            type="button"
-            role="tab"
-            aria-selected={flik === f.id}
-            onClick={() => setFlik(f.id)}
-            className={`whitespace-nowrap rounded-md px-[10px] py-[5px] text-[13px] ${
-              flik === f.id ? "bg-bok-black text-white" : "text-bok-text-2 hover:bg-bok-yta-svag"
-            }`}
-          >
-            {f.titel}
-          </button>
-        ))}
-      </div>
 
       <div
         className={
           variant === "desktop"
             ? `bok-dold-skroll flex min-h-0 flex-1 flex-col overflow-auto pb-[18px] pt-1 ${pad}`
-            : `flex flex-col pb-5 ${pad}`
+            : // pb: plats under sista raden för chattbubblan (`ChattBubbla`).
+              `flex flex-col pb-24 ${pad}`
         }
       >
-        {isError ? (
+        {arId === null ? (
+          <div className="pt-5 text-[13px] text-bok-text-svag">
+            Det finns inget räkenskapsår att göra bokslut för.
+          </div>
+        ) : isError ? (
           <div className="mt-[14px]">
             <VyBanner ton="fel" text="Bokslutet kunde inte räknas fram. Ladda om sidan." />
           </div>
@@ -116,11 +99,18 @@ export function BokslutLager({
           </div>
         ) : (
           <>
-            {flik === "oversikt" && <Oversikt b={data} onFlik={setFlik} />}
-            {flik === "ink2" && <Ink2Flik b={data} />}
-            {flik === "moms" && <MomsFlik b={data} />}
-            {flik === "ar" && <ArFlik b={data} />}
-            {flik === "uppgifter" && <UppgifterFlik b={data} />}
+            <div className="bok-mono flex items-center justify-between gap-3 pt-[14px] text-[12px] text-bok-meta">
+              <span>
+                {bokslutTitel(data)} · {data.fiscal_year.start} – {data.fiscal_year.end}
+              </span>
+              {del === "bokslut.rapporter" && las && <LasKnapp {...las} />}
+            </div>
+            {del === "bokslut.rapporter" && <Oversikt b={data} onGaTill={onGaTill} />}
+            {del === "bokslut.ink2" && <Ink2Flik b={data} />}
+            {del === "bokslut.moms" && <MomsFlik b={data} />}
+            {del === "bokslut.arsredovisning" && <ArFlik b={data} />}
+            {/* Nyckeln: ett annat år ger formuläret det årets startvärden. */}
+            {del === "bokslut.uppgifter" && <UppgifterFlik key={data.fiscal_year.id} b={data} />}
           </>
         )}
       </div>
@@ -227,15 +217,15 @@ function Filer({ filer }: { filer: Nedladdning[] }) {
 
 // ─── Översikt ─────────────────────────────────────────────────────────────
 
-function Oversikt({ b, onFlik }: { b: Bokslut; onFlik: (f: Flik) => void }) {
+function Oversikt({ b, onGaTill }: { b: Bokslut; onGaTill: (del: BokslutDel) => void }) {
   const kvar = attAtgarda(b.kontroller);
   const ovriga = b.kontroller.filter((k) => !kvar.includes(k));
   const ar = b.arsredovisning;
   const grupper = Array.from(new Set(b.nedladdningar.map((n) => n.grupp)));
   return (
     <>
-      <div className="bok-mono pt-[14px] text-[12px] text-bok-meta">
-        {b.fiscal_year.start} – {b.fiscal_year.end} · {b.company.name} · {b.company.org_number}
+      <div className="bok-mono pt-[2px] text-[12px] text-bok-meta">
+        {b.company.name} · {b.company.org_number}
       </div>
 
       <Rubrik>Nyckeltal</Rubrik>
@@ -272,7 +262,7 @@ function Oversikt({ b, onFlik }: { b: Bokslut; onFlik: (f: Flik) => void }) {
           {ar.missing.length > 0 && (
             <button
               type="button"
-              onClick={() => onFlik("uppgifter")}
+              onClick={() => onGaTill("bokslut.uppgifter")}
               className="bok-mono self-start pt-2 text-[12px] text-bok-lank underline-offset-2 hover:underline"
             >
               Fyll i årsredovisningens uppgifter →

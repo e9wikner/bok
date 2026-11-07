@@ -49,18 +49,16 @@ export function lasPosition(
 }
 
 /**
- * Detaljlagret i URL:en: `&konto=1930`, `&ver=<id>` eller `&bokslut=<år-id>`.
+ * Detaljlagret i URL:en: `&konto=1930` eller `&ver=<id>`.
  * Ett värde som inte går att läsa ger inget lager — länken landar då i vyn,
  * inte i ett fel.
  */
 export function lasDetalj(
   konto?: string | null,
-  ver?: string | null,
-  bokslut?: string | null
+  ver?: string | null
 ): Detalj | null {
   if (konto && /^\d{1,10}$/.test(konto)) return { typ: "konto", kod: konto };
   if (ver && ver.trim() !== "") return { typ: "ver", id: ver };
-  if (bokslut && bokslut.trim() !== "") return { typ: "bokslut", arId: bokslut };
   return null;
 }
 
@@ -68,6 +66,5 @@ export function positionsUrl(sida: Sidnyckel, vy: Vy, detalj?: Detalj | null): s
   const bas = `${SKAL_RUTT}?sida=${sida}&vy=${vy.slug}`;
   if (!detalj) return bas;
   if (detalj.typ === "konto") return `${bas}&konto=${encodeURIComponent(detalj.kod)}`;
-  if (detalj.typ === "ver") return `${bas}&ver=${encodeURIComponent(detalj.id)}`;
-  return `${bas}&bokslut=${encodeURIComponent(detalj.arId)}`;
+  return `${bas}&ver=${encodeURIComponent(detalj.id)}`;
 }

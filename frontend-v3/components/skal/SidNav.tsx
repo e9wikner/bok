@@ -1,7 +1,7 @@
 "use client";
 
 import type { SidMeta } from "@/components/skal/SidVaeljare";
-import { SIDOR, type Sidnyckel, type ViewKey } from "@/lib/skal/vyer";
+import { SIDOR, type Sidnyckel, type Vynyckel } from "@/lib/skal/vyer";
 
 /**
  * Sidonavigeringen på desktop: alla sidor och deras vyer som flikar i en
@@ -17,9 +17,9 @@ export function SidNav({
   metaPerSida,
   onValjVy,
 }: {
-  aktivVy: ViewKey;
+  aktivVy: Vynyckel;
   metaPerSida: Partial<Record<Sidnyckel, SidMeta>>;
-  onValjVy: (key: ViewKey) => void;
+  onValjVy: (key: Vynyckel) => void;
 }) {
   return (
     <nav

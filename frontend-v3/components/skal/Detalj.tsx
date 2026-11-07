@@ -2,12 +2,10 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { BokslutLager, bokslutNyckel } from "@/components/skal/BokslutLager";
 import { useDetalj } from "@/components/skal/DetaljKontext";
 import { VyInnehall } from "@/components/skal/VyInnehall";
 import { VOUCHERS_NYCKEL } from "@/lib/chattyta/api";
 import type { OverviewFiscalYear } from "@/lib/skal/api";
-import { type Bokslut, bokslutTitel } from "@/lib/skal/bokslut";
 import {
   type Detalj,
   type Huvudbok,
@@ -67,10 +65,6 @@ function useDetaljData(
 function useForegaende(foregaende: Detalj | undefined, vyTitel: string, arId: string): string {
   const queryClient = useQueryClient();
   if (!foregaende) return vyTitel;
-  if (foregaende.typ === "bokslut") {
-    const b = queryClient.getQueryData<Bokslut>(bokslutNyckel(foregaende.arId));
-    return b ? bokslutTitel(b) : "Bokslut";
-  }
   if (foregaende.typ === "konto") {
     const h = queryClient.getQueryData<Huvudbok>(huvudbokNyckel(arId, foregaende.kod));
     return huvudbokTitel(foregaende.kod, h?.account_name);
@@ -110,16 +104,6 @@ export function DetaljLager({
   }, [bakat]);
 
   if (!overst || !bakat) return null;
-  if (overst.typ === "bokslut") {
-    return (
-      <BokslutLager
-        key={overst.arId}
-        arId={overst.arId}
-        tillbaka={{ text: foregaende, onClick: bakat }}
-        variant={variant}
-      />
-    );
-  }
   return <DetaljInnehall detalj={overst} ar={ar} foregaende={foregaende} onBakat={bakat} variant={variant} />;
 }
 

@@ -9,7 +9,7 @@ import {
   type Lonekorning,
   lonerVy,
 } from "@/lib/skal/betala";
-import { arsnamn, atgarderVy, rapporterVy } from "@/lib/skal/bokslut";
+import { arsnamn, atgarderVy } from "@/lib/skal/bokslut";
 
 const faktura = (over: Partial<Faktura>): Faktura => ({
   id: "f",
@@ -233,21 +233,7 @@ describe("lonerVy", () => {
   });
 });
 
-describe("rapporterVy", () => {
-  it("listar räkenskapsåren nyast först med låsstatus", () => {
-    const vy = rapporterVy({
-      fiscal_years: [
-        { id: "a", start_date: "2015-07-01", end_date: "2016-12-31", locked: true, locked_at: "2017-05-01T10:00:00" },
-        { id: "b", start_date: "2026-01-01", end_date: "2026-12-31", locked: false, locked_at: null },
-      ],
-    });
-    expect(vy.sektioner[0].rader.map((r) => [r.titel, r.hoger])).toEqual([
-      ["Räkenskapsår 2026", "öppet"],
-      ["Räkenskapsår 2015/16", "låst"],
-    ]);
-    expect(vy.status).toBe("1 av 2 låsta");
-  });
-
+describe("arsnamn", () => {
   it("namnger brutna år med båda åren", () => {
     expect(arsnamn({ start_date: "2025-01-01", end_date: "2025-12-31" })).toBe("2025");
     expect(arsnamn({ start_date: "2013-07-01", end_date: "2014-06-30" })).toBe("2013/14");

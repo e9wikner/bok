@@ -3,12 +3,11 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { LasKnapp } from "@/components/skal/LasKnapp";
 import { VyInnehall } from "@/components/skal/VyInnehall";
 import { type Verifikation, verifikationerVy } from "@/lib/skal/bocker";
-import { rapporterVy } from "@/lib/skal/bokslut";
 import { type LasData, type Period, lasfel, periodnamn } from "@/lib/skal/las";
 import { sidan } from "@/lib/skal/vyer";
 
 /**
- * Låsen: ett per räkenskapsår i Rapporter, ett per månad i Verifikationer.
+ * Låsen: ett per räkenskapsår i Bokslutets översikt, ett per månad i Verifikationer.
  * Postade grupperas per månad när perioderna finns.
  */
 
@@ -108,24 +107,6 @@ describe("verifikationerVy med månader", () => {
     const vy = verifikationerVy(AR, TOM, lista(utkast), undefined, manader({ idag: "2026-01-15" }));
     expect(vy.sektioner.map((s) => s.titel)).toEqual(["Januari 2026", "Utkast"]);
     expect(vy.status).toBe("1 utkast");
-  });
-});
-
-describe("rapporterVy med lås", () => {
-  it("ger varje år sitt lås och ingen text till höger", () => {
-    const vy = rapporterVy(
-      {
-        fiscal_years: [
-          { id: "a", start_date: "2025-01-01", end_date: "2025-12-31", locked: true, locked_at: null },
-          { id: "b", start_date: "2026-01-01", end_date: "2026-12-31", locked: false, locked_at: null },
-        ],
-      },
-      (a) => ({ last: a.locked, vad: a.id, vaxla: async () => {} })
-    );
-    expect(vy.sektioner[0].rader.map((r) => [r.hoger, r.las?.last])).toEqual([
-      ["", false],
-      ["", true],
-    ]);
   });
 });
 

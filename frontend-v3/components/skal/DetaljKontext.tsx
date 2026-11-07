@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { type Detalj, type RadMal, sammaDetalj } from "@/lib/skal/detalj";
-import type { ViewKey } from "@/lib/skal/vyer";
+import type { Vynyckel } from "@/lib/skal/vyer";
 
 /**
  * Detaljlagrets stack (`Detalj.tsx`).
@@ -47,7 +47,7 @@ export function useDetaljHistorik({
 }: {
   start: Detalj | null;
   url: (stack: readonly Detalj[]) => string;
-  gaTillVy: (key: ViewKey) => void;
+  gaTillVy: (key: Vynyckel) => void;
 }): DetaljVarde {
   const [stack, setStack] = useState<Detalj[]>(() => historik().bokDetalj ?? (start ? [start] : []));
 

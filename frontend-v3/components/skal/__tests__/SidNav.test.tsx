@@ -6,7 +6,7 @@ import { SidNav } from "@/components/skal/SidNav";
 describe("SidNav", () => {
   it("visar alla sidor och vyer, och markerar den aktiva vyn", () => {
     render(<SidNav aktivVy="bocker.resultat" metaPerSida={{}} onValjVy={vi.fn()} />);
-    for (const titel of ["Balansräkning", "Resultaträkning", "Verifikationer", "Fakturering", "Löner", "Rapporter"]) {
+    for (const titel of ["Balansräkning", "Resultaträkning", "Verifikationer", "Fakturering", "Löner", "Översikt", "INK2", "Moms", "Årsredovisning", "Uppgifter"]) {
       expect(screen.getByRole("button", { name: titel })).toBeInTheDocument();
     }
     expect(screen.getByRole("button", { name: "Resultaträkning" })).toHaveAttribute("aria-current", "page");

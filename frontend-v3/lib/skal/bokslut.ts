@@ -1,15 +1,13 @@
 /**
- * Rapporter och Åtgärder ur riktiga data (modul `skal`).
+ * Bokslutet och Åtgärder ur riktiga data (modul `skal`).
  *
- * Rapporter listar räkenskapsåren med ett lås per år. Årets rad öppnar
- * bokslutet (`components/skal/BokslutLager.tsx`, `GET /api/v1/bokslut/{id}`):
- * kontrollerna, INK2, momsdeklarationen, årsredovisningen och filerna att
- * ladda ner. Åtgärder är de öppna avvikelserna från BFL-kontrollerna
- * (`/api/v1/compliance/issues`).
+ * Bokslutet gäller året i årsväljaren (`components/skal/BokslutVy.tsx`,
+ * `GET /api/v1/bokslut/{id}`): kontrollerna, INK2, momsdeklarationen,
+ * årsredovisningen och filerna att ladda ner, en vy per del. Åtgärder är de
+ * öppna avvikelserna från BFL-kontrollerna (`/api/v1/compliance/issues`).
  */
 
 import apiClient from "@/lib/api";
-import type { LasData } from "@/lib/skal/las";
 import { formatBeloppHela } from "@/lib/skal/format";
 import type { RadVariant, VyData, VyRadData } from "@/lib/skal/vydata";
 
@@ -199,6 +197,9 @@ export interface Bokslut {
   nedladdningar: Nedladdning[];
 }
 
+/** Under `["skal"]`, så att ett lås eller en sparad uppgift når bokslutet. */
+export const bokslutNyckel = (arId: string) => ["skal", "bokslut", arId];
+
 export const bokslutApi = {
   getBokslut: async (arId: string): Promise<Bokslut> => {
     const { data } = await apiClient.get<Bokslut>(`/api/v1/bokslut/${encodeURIComponent(arId)}`);
@@ -232,43 +233,13 @@ export const bokslutApi = {
   },
 };
 
-// ─── Rapporter ────────────────────────────────────────────────────────────
+// ─── Räkenskapsår ─────────────────────────────────────────────────────────
 
 /** "2025" för ett kalenderår, annars "2015/16". */
 export function arsnamn(ar: { start_date: string; end_date: string }): string {
   const fran = ar.start_date.slice(0, 4);
   const till = ar.end_date.slice(0, 4);
   return fran === till ? fran : `${fran}/${till.slice(2)}`;
-}
-
-/**
- * `las` ger varje år sitt lås. Utan den visar raden läget i text, som
- * innan låset fanns.
- */
-export function rapporterVy(
-  lista: Rakenskapsarslista,
-  las?: (ar: Rakenskapsar) => LasData
-): VyData {
-  const ar = [...lista.fiscal_years].sort((a, b) => b.start_date.localeCompare(a.start_date));
-  const lasta = ar.filter((a) => a.locked).length;
-
-  const rader: VyRadData[] = ar.map((a) => ({
-    id: a.id,
-    titel: `Räkenskapsår ${arsnamn(a)}`,
-    meta: `${a.start_date} – ${a.end_date}${a.locked && a.locked_at ? ` · låst ${a.locked_at.slice(0, 10)}` : ""}`,
-    hoger: las ? "" : a.locked ? "låst" : "öppet",
-    las: las?.(a),
-    mal: { typ: "bokslut", arId: a.id },
-  }));
-
-  const tomt = rader.length === 0;
-  return {
-    lage: tomt ? "tomt" : "normal",
-    status: tomt ? "inga räkenskapsår" : `${lasta} av ${ar.length} låsta`,
-    period: tomt ? "" : `${arsnamn(ar[ar.length - 1])} – ${arsnamn(ar[0])}`,
-    sektioner: tomt ? [] : [{ titel: "Räkenskapsår", rader }],
-    fot: "Öppna ett år för bokslutet: kontroller, inkomstdeklaration, momsdeklaration och årsredovisning, med filerna att ladda ner.",
-  };
 }
 
 // ─── Åtgärder ─────────────────────────────────────────────────────────────
@@ -318,7 +289,7 @@ export function attAtgarda(k: readonly Kontroll[]): Kontroll[] {
   return k.filter((x) => x.niva === "fel" || x.niva === "varning");
 }
 
-/** "Bokslut 2025": årets namn som i Rapporter. */
+/** "Bokslut 2025": årets namn som i årsväljaren. */
 export function bokslutTitel(b: Bokslut): string {
   return `Bokslut ${arsnamn({ start_date: b.fiscal_year.start, end_date: b.fiscal_year.end })}`;
 }

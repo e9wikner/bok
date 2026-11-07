@@ -6,18 +6,9 @@ import {
   bokslutTitel,
   justeringsText,
   kronor,
-  rapporterVy,
 } from "@/lib/skal/bokslut";
-import { lasDetalj, positionsUrl } from "@/lib/skal/rutt";
-import { sidan } from "@/lib/skal/vyer";
-
-const AR = {
-  id: "fy-2025",
-  start_date: "2025-01-01",
-  end_date: "2025-12-31",
-  locked: false,
-  locked_at: null,
-};
+import { lasPosition } from "@/lib/skal/rutt";
+import { arBokslutsdel, sidan, viewKeyOf } from "@/lib/skal/vyer";
 
 function bokslut(kontroller: Bokslut["kontroller"], locked = false): Bokslut {
   return {
@@ -26,19 +17,30 @@ function bokslut(kontroller: Bokslut["kontroller"], locked = false): Bokslut {
   } as unknown as Bokslut;
 }
 
-describe("bokslutet i Rapporter", () => {
-  it("varje räkenskapsår leder till sitt bokslut", () => {
-    const vy = rapporterVy({ fiscal_years: [AR] });
-    expect(vy.sektioner[0].rader[0].mal).toEqual({ typ: "bokslut", arId: "fy-2025" });
-    expect(vy.fot).toMatch(/bokslutet/);
+describe("bokslutets delar i navigeringen", () => {
+  it("står direkt under Bokslut, före Åtgärder", () => {
+    expect(sidan("bokslut").vyer.map((v) => v.titel)).toEqual([
+      "Översikt",
+      "INK2",
+      "Moms",
+      "Årsredovisning",
+      "Uppgifter",
+      "Åtgärder och nyckeltal",
+    ]);
   });
 
-  it("bokslutet står i URL:en och läses tillbaka", () => {
-    const vy = sidan("bokslut").vyer[0];
-    const url = positionsUrl("bokslut", vy, { typ: "bokslut", arId: "fy-2025" });
-    expect(url).toContain("&bokslut=fy-2025");
-    expect(lasDetalj(null, null, "fy-2025")).toEqual({ typ: "bokslut", arId: "fy-2025" });
-    expect(lasDetalj(null, null, " ")).toBeNull();
+  it("delar Översiktens tråd; Åtgärder har sin egen", () => {
+    const vyer = sidan("bokslut").vyer;
+    expect(vyer.slice(0, 5).every((v) => v.trad === "bokslut.rapporter")).toBe(true);
+    expect(vyer.slice(0, 5).every((v) => arBokslutsdel(v.key))).toBe(true);
+    expect(arBokslutsdel("bokslut.atgarder")).toBe(false);
+    expect(viewKeyOf("bokslut", 1)).toBe("bokslut.rapporter");
+    expect(viewKeyOf("bokslut", 5)).toBe("bokslut.atgarder");
+  });
+
+  it("varje del nås med sin slug, och den gamla Rapporter-länken landar på Översikt", () => {
+    expect(lasPosition("bokslut", "moms").vy.key).toBe("bokslut.moms");
+    expect(lasPosition("bokslut", "rapporter").vy.key).toBe("bokslut.rapporter");
   });
 });
 
