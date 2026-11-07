@@ -173,6 +173,24 @@ describe("oppnaStrom", () => {
     expect(init.signal).toBe(styrning.signal);
   });
 
+  it("med ett räkenskapsår öppnas det årets tråd (SPEC-tradar.md §12.3)", async () => {
+    const hamta = vi.fn(async () => {
+      styrning.abort();
+      return svar(200, stromAv([]));
+    });
+    await oppnaStrom({
+      viewKey: "verifikationer",
+      fiscalYearId: "fy-2025",
+      since: 3,
+      signal: styrning.signal,
+      onHandelse: () => {},
+      hamta,
+      vanta,
+    });
+    const [url] = hamta.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/v1/threads/verifikationer/stream?since=3&fiscal_year_id=fy-2025");
+  });
+
   it("lämnar varje händelse till onHandelse i ordning", async () => {
     const sedda: SseHandelse[] = [];
     const hamta = vi.fn(async () => svar(200, oppenStrom([completed(4), completed(5)], styrning.signal)));

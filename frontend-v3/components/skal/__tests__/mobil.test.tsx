@@ -56,32 +56,24 @@ beforeEach(() => {
 });
 
 describe("mobilmönstret under 1000 px", () => {
-  it("lägger vyn överst och chatten nederst i varje vy", () => {
+  it("har en chattbubbla för den aktiva vyn, inte en chattlist per vy", () => {
     const { container } = renderaSkal();
-    // Inaktiva vyer är aria-hidden (de ligger utanför skärmen i svepraden),
-    // så de räknas i DOM:en och inte via rollfrågor.
-    const listar = container.querySelectorAll('[aria-label="Visa eller minimera chatten"]');
-    expect(listar).toHaveLength(3);
+    expect(container.querySelectorAll('[aria-label="Visa eller minimera chatten"]')).toHaveLength(0);
     expect(container.querySelectorAll("[data-view-key]")).toHaveLength(3);
+    expect(screen.getByRole("button", { name: /Öppna chatten för Verifikationer/ })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("minimerar chatten när man går till en ny vy", () => {
-    const { container } = renderaSkal();
-    const aktivList = () =>
-      container.querySelector(
-        '[data-view-key]:not([aria-hidden]) [aria-label="Visa eller minimera chatten"]'
-      ) as HTMLButtonElement;
-    expect(aktivList()).toHaveAttribute("aria-expanded", "false");
-    fireEvent.click(aktivList());
-    expect(aktivList()).toHaveAttribute("aria-expanded", "true");
+  it("bubblan fäller upp arket; ett vybyte stänger det", () => {
+    renderaSkal();
+    fireEvent.click(screen.getByRole("button", { name: /Öppna chatten för Verifikationer/ }));
+    expect(screen.getByRole("dialog", { name: "Chatt · Verifikationer" })).toBeInTheDocument();
+    // Arket täcker bubblan och har sin egen stängknapp.
+    expect(screen.queryByRole("button", { name: /Öppna chatten/ })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Balansräkning" }));
-    expect(aktivList().closest("[data-view-key]")).toHaveAttribute("data-view-key", "bocker.balans");
-    expect(aktivList()).toHaveAttribute("aria-expanded", "false");
-
-    // Tillbaka till vyn där den var uppfälld: också minimerad.
-    fireEvent.click(screen.getByRole("button", { name: "Verifikationer" }));
-    expect(aktivList()).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Öppna chatten för Balansräkning/ })).toBeInTheDocument();
   });
 
   it("har ingen desktopfot med prickar — prickarna ligger i headern", () => {
@@ -90,11 +82,10 @@ describe("mobilmönstret under 1000 px", () => {
     expect(screen.getByRole("button", { name: "Verifikationer" })).toBeInTheDocument();
   });
 
-  it("visar märket för väntande beslut på chattlisten (testfall 21)", () => {
+  it("visar märket för väntande beslut på chattbubblan (testfall 21)", () => {
     renderaSkal();
-    const marken = screen.getAllByTestId("chattlist-marke");
     // Talet är hookens — serverns `total` — ordagrant, för den aktiva vyn.
-    expect(marken.map((m) => m.textContent)).toContain("3 väntar");
+    expect(screen.getByTestId("chattbubbla-marke")).toHaveTextContent("3");
     expect(vantandeBeslut).toHaveBeenCalledWith("bocker.verifikationer");
   });
 

@@ -22,6 +22,7 @@
  */
 
 import apiClient from "@/lib/api";
+import { arsFraga } from "@/lib/chattyta/api";
 
 /** En SSE-ram, med `data` JSON-tolkad. Servern skickar alltid JSON. */
 export interface SseHandelse {
@@ -125,6 +126,8 @@ export type Vanta = (ms: number, signal: AbortSignal) => Promise<void>;
 
 export interface StromAlternativ {
   viewKey: string;
+  /** Trådens räkenskapsår (`arsFraga`). Utan det: innevarande år. */
+  fiscalYearId?: string | null;
   /** `cursor` ur `GET /threads/{vk}` eller `POST …/messages` (§6.2 punkt 2–3). */
   since: number;
   /** Vybyte stänger strömmen (§6.2 punkt 5). */
@@ -180,6 +183,7 @@ function hogstaSeq(h: SseHandelse, nu: number): number {
  */
 export async function oppnaStrom({
   viewKey,
+  fiscalYearId,
   since,
   signal,
   onHandelse,
@@ -190,13 +194,14 @@ export async function oppnaStrom({
   // Samma bas-URL som axios-instansen, så att strömmen och resten av
   // API-anropen aldrig kan peka på olika servrar.
   const bas = apiClient.defaults.baseURL ?? "";
+  const arDel = arsFraga(fiscalYearId) ? `&${arsFraga(fiscalYearId)}` : "";
   let maxSeq = since;
   let backoff = BACKOFF_START_MS;
 
   while (!signal.aborted) {
     try {
       const svar = await hamta(
-        `${bas}/api/v1/threads/${encodeURIComponent(viewKey)}/stream?since=${maxSeq}`,
+        `${bas}/api/v1/threads/${encodeURIComponent(viewKey)}/stream?since=${maxSeq}${arDel}`,
         { headers: { Accept: "text/event-stream", ...bearer() }, signal }
       );
       if (svar.status === 401) {

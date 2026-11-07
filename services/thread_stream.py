@@ -431,6 +431,7 @@ class ThreadTurnRunner:
                     on_tool_call=_on_tool_call,
                     check_between_turns=_check_between_turns,
                     agent_run_id=run.id,
+                    fiscal_year=PeriodRepository.get_fiscal_year(thread.fiscal_year_id),
                 )
             except (LLMConnectionError, LLMRateLimitError) as exc:
                 reason = f"{_error_code(exc)}: {exc}"

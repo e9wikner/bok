@@ -96,10 +96,10 @@ export function NollstallKnapp({
 }: {
   onNollstall: () => Promise<boolean>;
   arbetar: boolean;
-  variant?: "desktop" | "mobil";
+  variant?: "desktop" | "mobil" | "panel";
 }) {
   const [lage, setLage] = useState<"vila" | "fraga" | "pagar" | "fel">("vila");
-  const kant = variant === "desktop" ? "px-[38px]" : "px-[18px]";
+  const kant = variant === "desktop" ? "px-[38px]" : variant === "panel" ? "px-5" : "px-[18px]";
 
   const nollstall = async () => {
     setLage("pagar");
