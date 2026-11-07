@@ -92,6 +92,23 @@ class AccountingCorrectionRepository:
         return [AccountingCorrectionRepository._row_to_history(row) for row in rows]
 
     @staticmethod
+    def for_corrections(correction_ids: List[str]) -> List[CorrectionHistory]:
+        """The history rows of these correction vouchers, in one query."""
+        ids = list(dict.fromkeys(correction_ids))
+        if not ids:
+            return []
+        placeholders = ", ".join("?" for _ in ids)
+        rows = db.execute(
+            f"""
+            SELECT * FROM correction_history
+            WHERE corrected_voucher_id IN ({placeholders})
+            ORDER BY created_at
+            """,
+            tuple(ids),
+        ).fetchall()
+        return [AccountingCorrectionRepository._row_to_history(row) for row in rows]
+
+    @staticmethod
     def _row_to_history(row) -> CorrectionHistory:
         original_data = None
         corrected_data = None

@@ -15,6 +15,7 @@ class CustomerService:
         email: Optional[str] = None,
         address: Optional[str] = None,
         payment_terms_days: int = 30,
+        contact_person: Optional[str] = None,
     ):
         if not name.strip():
             raise ValidationError("invalid_customer", "Customer name is required")
@@ -32,6 +33,7 @@ class CustomerService:
             email=email,
             address=address,
             payment_terms_days=payment_terms_days,
+            contact_person=(contact_person or "").strip() or None,
         )
 
     def list_customers(self, active_only: bool = True, search: Optional[str] = None):

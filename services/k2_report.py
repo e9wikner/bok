@@ -44,7 +44,7 @@ class K2ReportService:
 
         # Calculate financial totals from posted vouchers
         income_stmt = self._calculate_income_statement(period_ids)
-        balance_sheet = self._calculate_balance_sheet(period_ids)
+        balance_sheet = self._calculate_balance_sheet(period_ids, fiscal_year.id)
         cash_flow = self._calculate_cash_flow(income_stmt, balance_sheet)
 
         # Compile report
@@ -153,7 +153,9 @@ class K2ReportService:
 
         return income_stmt
 
-    def _calculate_balance_sheet(self, period_ids: List[str]) -> Dict:
+    def _calculate_balance_sheet(
+        self, period_ids: List[str], fiscal_year_id: str
+    ) -> Dict:
         """Calculate balance sheet from vouchers."""
         balance_sheet = {
             # Assets
@@ -187,10 +189,21 @@ class K2ReportService:
             "2900": ("share_capital", "credit"),  # Equity
         }
 
-        # Calculate balances
+        from services.opening_balance import OpeningBalanceService
+
+        # Opening balance first (services/opening_balance.py)
+        for code, amount in OpeningBalanceService().balances(fiscal_year_id).items():
+            if code in account_mapping:
+                item, side = account_mapping[code]
+                balance_sheet[item] += amount if side == "debit" else -amount
+
+        # Calculate balances. A posted `IB`-series voucher predates
+        # migration 033: opening state, not a movement.
         for period_id in period_ids:
             vouchers = self.vouchers.list_for_period(period_id, status="posted")
             for voucher in vouchers:
+                if voucher.series.value == "IB":
+                    continue
                 for row in voucher.rows:
                     if row.account_code in account_mapping:
                         item, side = account_mapping[row.account_code]

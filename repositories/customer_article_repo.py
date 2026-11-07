@@ -17,14 +17,16 @@ class CustomerRepository:
         address: Optional[str] = None,
         payment_terms_days: int = 30,
         active: bool = True,
+        contact_person: Optional[str] = None,
     ) -> Customer:
         customer_id = str(uuid.uuid4())
         now = datetime.now()
         db.execute(
             """
             INSERT INTO customers
-                (id, name, org_number, email, address, payment_terms_days, active, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, name, org_number, email, address, payment_terms_days, active,
+                 created_at, updated_at, contact_person)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 customer_id,
@@ -36,6 +38,7 @@ class CustomerRepository:
                 int(active),
                 now,
                 now,
+                contact_person,
             ),
         )
         db.commit()
@@ -46,6 +49,7 @@ class CustomerRepository:
             email=email,
             address=address,
             payment_terms_days=payment_terms_days,
+            contact_person=contact_person,
             active=active,
             created_at=now,
             updated_at=now,
@@ -92,6 +96,7 @@ class CustomerRepository:
             email=row["email"],
             address=row["address"],
             payment_terms_days=row["payment_terms_days"],
+            contact_person=row["contact_person"],
             active=bool(row["active"]),
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),

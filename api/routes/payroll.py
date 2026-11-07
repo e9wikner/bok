@@ -6,10 +6,17 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from api.deps import get_current_actor
-from domain.payroll_models import Employee, EmployeeSalarySetting, PayrollRun, Payslip
+from api.deps import get_current_actor, get_human_actor
+from domain.payroll_models import (
+    AgiDeclaration,
+    Employee,
+    EmployeeSalarySetting,
+    PayrollRun,
+    Payslip,
+)
 from domain.validation import ValidationError
 from services.payroll import PayrollService
+from services.payroll_proposal import PayrollProposalService
 
 router = APIRouter(prefix="/api/v1/payroll", tags=["payroll"])
 
@@ -39,6 +46,10 @@ class PayrollRunRequest(BaseModel):
 
 class BookPayslipRequest(BaseModel):
     bank_transaction_id: str
+
+
+class BookAgiRequest(BaseModel):
+    voucher_date: Optional[date] = None
 
 
 @router.get("/employees", response_model=dict)
@@ -126,17 +137,35 @@ async def set_salary_setting(
 @router.get("/runs", response_model=dict)
 async def list_payroll_runs():
     service = PayrollService()
-    runs = service.runs.list_all()
-    return {
-        "payroll_runs": [
-            _run_to_dict(
-                run,
-                service.payslips.list_for_run(run.id),
-                service.validate_payroll_run(run.id) if run.status == "draft" else None,
+    proposals = PayrollProposalService()
+    result = []
+    for run in service.runs.list_all():
+        payslips = service.payslips.list_for_run(run.id)
+        payload = _run_to_dict(
+            run,
+            payslips,
+            service.validate_payroll_run(run.id) if run.status == "draft" else None,
+        )
+        # The AGI of the month the salaries were paid (`/v4` Löner).
+        payload["agi"] = (
+            _agi_summary(service.get_agi(run.payment_date.year, run.payment_date.month))
+            if payslips
+            else None
+        )
+        # The open card behind each row, so the row can open it.
+        for p in payload["payslips"]:
+            p["pending_decision_id"] = (
+                None if p["voucher_id"] else proposals.open_card_for_payslip(p["id"])
             )
-            for run in runs
-        ]
-    }
+        if payload["agi"] is not None:
+            agi = payload["agi"]
+            agi["pending_decision_id"] = (
+                None
+                if agi["booked"]
+                else proposals.open_card_for_agi(agi["year"], agi["month"])
+            )
+        result.append(payload)
+    return {"payroll_runs": result}
 
 
 @router.post("/runs", response_model=dict, status_code=status.HTTP_201_CREATED)
@@ -232,8 +261,11 @@ async def mark_payslip_sent(
 async def book_payslip(
     payslip_id: str,
     request: BookPayslipRequest,
-    actor: str = Depends(get_current_actor),
+    actor: str = Depends(get_human_actor),
 ):
+    """Book a payslip against the bank transaction that paid it. Logged-in
+    users only (JWT): the agent proposes it with `foresla_lonebokforing`
+    instead, and its API key gets `403 human_only` here."""
     try:
         service = PayrollService()
         payslip = service.match_bank_transaction_and_book(
@@ -244,6 +276,72 @@ async def book_payslip(
         return _payslip_to_dict(payslip)
     except ValidationError as exc:
         raise _validation_http(exc)
+
+
+@router.get("/agi/{year}/{month}", response_model=dict)
+async def get_agi(year: int, month: int):
+    try:
+        return _agi_to_dict(PayrollService().get_agi(year, month))
+    except ValidationError as exc:
+        raise _validation_http(exc)
+
+
+@router.post("/agi/{year}/{month}/book", response_model=dict)
+async def book_agi(
+    year: int,
+    month: int,
+    request: BookAgiRequest,
+    actor: str = Depends(get_human_actor),
+):
+    """Book the month's AGI against the tax account. Logged-in users only
+    (JWT): the agent proposes it with `foresla_agi_bokforing` instead."""
+    try:
+        service = PayrollService()
+        return _agi_to_dict(
+            service.book_agi(
+                year, month, voucher_date=request.voucher_date, actor=actor
+            )
+        )
+    except ValidationError as exc:
+        raise _validation_http(exc)
+
+
+def _agi_to_dict(agi: AgiDeclaration) -> dict:
+    return {
+        "year": agi.year,
+        "month": agi.month,
+        "due_date": agi.due_date,
+        "individuals": [
+            {
+                "employee_id": i.employee_id,
+                "name": i.name,
+                "personal_number": i.personal_number,
+                "gross_salary": i.gross_salary,
+                "preliminary_tax": i.preliminary_tax,
+                "employer_fee": i.employer_fee,
+            }
+            for i in agi.individuals
+        ],
+        "total_gross_salary": agi.total_gross_salary,
+        "total_preliminary_tax": agi.total_preliminary_tax,
+        "total_employer_fee": agi.total_employer_fee,
+        "total_to_pay": agi.total_to_pay,
+        "unbooked_payslips": agi.unbooked_payslips,
+        "voucher_ids": agi.voucher_ids,
+        "booked": agi.booked,
+    }
+
+
+def _agi_summary(agi: AgiDeclaration) -> dict:
+    return {
+        "year": agi.year,
+        "month": agi.month,
+        "due_date": agi.due_date,
+        "total_to_pay": agi.total_to_pay,
+        "unbooked_payslips": agi.unbooked_payslips,
+        "voucher_ids": agi.voucher_ids,
+        "booked": agi.booked,
+    }
 
 
 def _employee_to_dict(

@@ -1,6 +1,7 @@
 """Service for uploaded bank input source material."""
 
 import hashlib
+import re
 import sqlite3
 import uuid
 from pathlib import Path
@@ -19,6 +20,11 @@ from services.bank_integration import BankConnection, BankIntegrationService
 # name or a dropdown entry makes that mistake easy to hit by typo.
 STATEMENT_ACCOUNT_TYPES = frozenset({AccountType.ASSET, AccountType.LIABILITY})
 ACCOUNT_REFERENCE_PREFIX = "account:"
+#: `bank_connection_id` for "work the account out from the file"
+#: (`resolve_auto_reference`).
+AUTO_CONNECTION_REFERENCE = "auto"
+AUTO_FILENAME_ACCOUNT_PATTERN = re.compile(r"^(\d{4})(?:[\s\-_.]|$)")
+TAX_ACCOUNT_CODE = "1630"
 
 
 class BankInputError(Exception):
@@ -208,6 +214,27 @@ class BankInputService:
             currency="SEK",
         )
         return connection.id
+
+    def resolve_auto_reference(self, filename: str | None, content: bytes) -> str:
+        """``auto`` -> ``account:<kontokod>`` for a statement dropped in the
+        chat, where nobody picked an account: the file name's leading
+        account code (``1930 sep.csv``, the same rule as the dropzone's
+        statement folders), or 1630 for Skatteverket's tax-account export.
+        """
+        match = AUTO_FILENAME_ACCOUNT_PATTERN.match(Path(filename or "").name)
+        if match:
+            return f"{ACCOUNT_REFERENCE_PREFIX}{match.group(1)}"
+        try:
+            csv_content = content.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            csv_content = ""
+        if self.bank.detect_format_name(csv_content) == "skatteverket_skattekonto":
+            return f"{ACCOUNT_REFERENCE_PREFIX}{TAX_ACCOUNT_CODE}"
+        raise BankInputValidationError(
+            "statement_account_unknown",
+            "Could not tell which account the statement belongs to",
+            "Börja filnamnet med kontokoden, till exempel '1930 kontoutdrag.csv'",
+        )
 
     def statement_account_connections(self) -> list[BankConnection]:
         """Chart-of-accounts options that can legitimately hold a statement."""
@@ -448,7 +475,7 @@ class BankInputService:
                     bank_transaction_id=transaction_id,
                     _commit=False,
                 )
-            return self.inputs.update_processing_result(
+            processed = self.inputs.update_processing_result(
                 bank_input.id,
                 status="processed",
                 detected_format=result.detected_format,
@@ -457,6 +484,14 @@ class BankInputService:
                 parse_error=None,
                 _commit=False,
             )
+
+        # The new transactions may be the underlag of vouchers already
+        # posted. Deferred import (AGENTS.md: service-to-service imports
+        # wait until the method runs).
+        from services.statement_match import StatementMatchService
+
+        StatementMatchService().run_quietly()
+        return processed
 
     def _validate_upload(self, filename: str, mime_type: str, content: bytes) -> None:
         if not filename.lower().endswith(".csv"):

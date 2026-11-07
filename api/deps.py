@@ -2,6 +2,7 @@
 
 import logging
 import uuid
+from dataclasses import dataclass
 from typing import Optional
 
 from fastapi import Depends, Header, HTTPException, status
@@ -59,6 +60,57 @@ async def get_ledger_service() -> LedgerService:
 async def get_current_actor(api_key: str = Depends(verify_api_key)) -> str:
     """Get current actor (user) from API key."""
     return "api"
+
+
+async def get_human_actor(api_key: str = Depends(verify_api_key)) -> str:
+    """The logged-in human, for what only a human may do (opening a locked
+    period or fiscal year).
+
+    The agent authenticates with the static API key, the frontend with a
+    JWT. A request made with the key is refused, so the agent cannot reach
+    these routes through the HTTP API either.
+    """
+    if api_key == settings.api_key:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "Only a logged-in user can do this",
+                "code": "human_only",
+                "details": "the API key is the agent's; log in to the frontend",
+            },
+        )
+    username = AuthService().verify_jwt(api_key).get("sub")
+    if not username:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return username
+
+
+@dataclass(frozen=True)
+class Caller:
+    """Who is calling: the agent's API key (`human=False`, actor `"api"`)
+    or a logged-in user (`human=True`, actor the username)."""
+
+    actor: str
+    human: bool
+
+
+async def get_caller(api_key: str = Depends(verify_api_key)) -> Caller:
+    """For a route that lets a human do on their own what the agent needs a
+    decision for (undoing a link, underlag-ersatt)."""
+    if api_key == settings.api_key:
+        return Caller(actor="api", human=False)
+    username = AuthService().verify_jwt(api_key).get("sub")
+    if not username:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return Caller(actor=username, human=True)
 
 
 async def get_idempotency_key(
