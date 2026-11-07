@@ -64,7 +64,10 @@ class BokslutService:
         underskott = declaration.get_field_value("7770")
         bokford_skatt = kronor(self._movement(fiscal_year_id, ((8910, 8919),)))
         beraknad = beraknad_bolagsskatt(overskott)
-        avsatt = kronor(-self._movement(fiscal_year_id, ((8811, 8811),)))
+        # 8811 debiteras vid avsättning: rörelsen (debet minus kredit) är
+        # avsättningen som ett positivt belopp. Taket räknas på överskottet
+        # före årets avsättning, som redan är avdragen i 7670.
+        avsatt = kronor(self._movement(fiscal_year_id, ((8811, 8811),)))
         max_avsattning = max(0, (overskott + avsatt) * 25 // 100)
 
         skatt = {

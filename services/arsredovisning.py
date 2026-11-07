@@ -27,6 +27,13 @@ Ranges = Sequence[Tuple[int, int]]
 EK_ANDEL_OBESKATTADE = Decimal("0.794")
 
 
+def _ar_etikett(start: date, end: date) -> str:
+    """`2025` för ett kalenderår, `2024/25` för ett brutet."""
+    if start.year == end.year:
+        return str(end.year)
+    return f"{start.year}/{str(end.year)[2:]}"
+
+
 @dataclass(frozen=True)
 class Rad:
     key: str
@@ -234,14 +241,17 @@ class ArsredovisningService:
         prev = next(
             (y for y in years if y.end_date == fy.start_date - timedelta(days=1)), None
         )
-        prev2 = (
-            next(
-                (y for y in years if y.end_date == prev.start_date - timedelta(days=1)),
-                None,
+        # De två räkenskapsåren före föregående år, för flerårsöversikten
+        # (K2: räkenskapsåret och de tre föregående).
+        earlier: List[Any] = []
+        link = prev
+        while link is not None and len(earlier) < 2:
+            start = link.start_date
+            link = next(
+                (y for y in years if y.end_date == start - timedelta(days=1)), None
             )
-            if prev
-            else None
-        )
+            if link is not None:
+                earlier.append(link)
 
         inputs = BokslutInputsRepository.current(fiscal_year_id)
         carried = BokslutInputsRepository.current(prev.id) if prev else {}
@@ -352,11 +362,12 @@ class ArsredovisningService:
             "i_ny_rakning": fritt - utdelning,
         }
 
+        earliest = earlier[-1] if earlier else prev
         flerar = self._flerarsoversikt(
             [(cur, br, rr, 0), (prior, br, rr, 1)],
-            prev2,
+            earlier,
             inputs.get("ar.flerarsoversikt") or {},
-            prev_opening=self._opening(prev.id) if prev else None,
+            earliest_opening=self._opening(earliest.id) if earliest else None,
         )
 
         ek_forandring = self._eget_kapital_forandring(cur, prior)
@@ -689,60 +700,45 @@ class ArsredovisningService:
             "omklassificerade": omklassade,
         }
 
+    #: K2: flerårsöversikten visar räkenskapsåret och de tre föregående.
+    FLERAR_ANTAL = 4
+
     def _flerarsoversikt(
-        self, years, prev2, manual: Dict[str, Any], prev_opening=None
+        self, years, earlier, manual: Dict[str, Any], earliest_opening=None
     ) -> List[Dict[str, Any]]:
-        out = []
-        for data, br, rr, i in years:
-            omslutning = br["summa_tillgangar"][i]
-            ek = br["eget_kapital"]["summa"][i]
-            obesk = br["obeskattade_reserver"][i]
-            soliditet = (
-                round(
-                    float(
-                        (Decimal(ek) + Decimal(obesk) * EK_ANDEL_OBESKATTADE)
-                        / Decimal(omslutning)
-                        * 100
-                    )
-                )
-                if omslutning
-                else None
-            )
-            out.append(
-                {
-                    "ar": (
-                        str(data.end.year)
-                        if data.start.year == data.end.year
-                        else f"{data.start.year}/{str(data.end.year)[2:]}"
-                    ),
-                    "nettoomsattning": rr["nettoomsattning"][i],
-                    "resultat_efter_finansiella": rr["efter_finansiella"][i],
-                    "balansomslutning": omslutning,
-                    "soliditet": soliditet,
-                }
-            )
-        if prev2:
-            data = self._year(prev2.id, prev2.start_date, prev2.end_date)
-            sub = self._balansrakning(data, data)
-            subrr = self._resultatrakning(data, data)
-            out.append(self._flerarsoversikt([(data, sub, subrr, 0)], None, {})[0])
-        elif prev_opening is not None:
-            # Tredje året finns inte som räkenskapsår, men dess balansräkning
-            # är föregående års ingående balans.
-            last = years[-1][0]
-            data = Arsdata(
+        """Räkenskapsåret och de tre föregående. `years` är (data, br, rr, i)
+        för de två år balans- och resultaträkningen redan har räknat,
+        `earlier` de räkenskapsår i Bok som kommer före dem (nyast först).
+        Året före det äldsta räkenskapsåret får sin balansräkning ur dess
+        ingående balans. År som inte finns i Bok fylls ur `manual`."""
+        out = [self._flerar_rad(data, br, rr, i) for data, br, rr, i in years]
+        last = years[-1][0]
+        for fy in earlier:
+            if len(out) >= self.FLERAR_ANTAL:
+                break
+            last = self._year(fy.id, fy.start_date, fy.end_date)
+            sub = self._balansrakning(last, last)
+            subrr = self._resultatrakning(last, last)
+            out.append(self._flerar_rad(last, sub, subrr, 0))
+        if len(out) < self.FLERAR_ANTAL and earliest_opening is not None:
+            # Året finns inte som räkenskapsår, men dess balansräkning är
+            # det äldsta räkenskapsårets ingående balans.
+            last = Arsdata(
                 start=date(last.start.year - 1, last.start.month, last.start.day),
                 end=last.start - timedelta(days=1),
-                closing=prev_opening,
+                closing=earliest_opening,
                 result=None,
             )
-            sub = self._balansrakning(data, data)
-            subrr = self._resultatrakning(data, data)
-            out.append(self._flerarsoversikt([(data, sub, subrr, 0)], None, {})[0])
-        else:
+            sub = self._balansrakning(last, last)
+            subrr = self._resultatrakning(last, last)
+            out.append(self._flerar_rad(last, sub, subrr, 0))
+        while len(out) < self.FLERAR_ANTAL:
+            start = date(last.start.year - 1, last.start.month, last.start.day)
+            end = last.start - timedelta(days=1)
+            last = Arsdata(start=start, end=end, closing={}, result=None)
             out.append(
                 {
-                    "ar": str(years[-1][0].end.year - 1),
+                    "ar": _ar_etikett(start, end),
                     "nettoomsattning": None,
                     "resultat_efter_finansiella": None,
                     "balansomslutning": None,
@@ -754,6 +750,30 @@ class ArsredovisningService:
                 if row.get(k) is None:
                     row[k] = v
         return out
+
+    @staticmethod
+    def _flerar_rad(data, br, rr, i) -> Dict[str, Any]:
+        omslutning = br["summa_tillgangar"][i]
+        ek = br["eget_kapital"]["summa"][i]
+        obesk = br["obeskattade_reserver"][i]
+        soliditet = (
+            round(
+                float(
+                    (Decimal(ek) + Decimal(obesk) * EK_ANDEL_OBESKATTADE)
+                    / Decimal(omslutning)
+                    * 100
+                )
+            )
+            if omslutning
+            else None
+        )
+        return {
+            "ar": _ar_etikett(data.start, data.end),
+            "nettoomsattning": rr["nettoomsattning"][i],
+            "resultat_efter_finansiella": rr["efter_finansiella"][i],
+            "balansomslutning": omslutning,
+            "soliditet": soliditet,
+        }
 
     def _eget_kapital_forandring(self, cur: Arsdata, prior: Arsdata) -> Dict[str, Any]:
         def g(bal, ranges):

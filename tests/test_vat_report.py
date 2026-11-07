@@ -133,3 +133,26 @@ def test_reverse_charge_service_from_outside_eu_fills_boxes_22_30_48():
     assert "<InkopTjanstAnnatEg>100</InkopTjanstAnnatEg>" in eskd
     assert "<InkopTjanstUtomEg>225</InkopTjanstUtomEg>" in eskd
     assert "<MomsInkopUtgHog>81</MomsInkopUtgHog>" in eskd
+
+
+def test_sales_lines_are_sorted_against_the_vouchers_vat():
+    classify = VatReportService._classify_sales
+    # No output VAT: all of it is ruta 42.
+    assert classify([("3010", "F", 10000)], {}) == (
+        [("42", "3010", "F", 10000)],
+        False,
+    )
+    # 25 % VAT on 10 000 and an exempt 4 000 line: the lines are kept whole.
+    out, unsure = classify([("3010", "F", 10000), ("3100", "M", 4000)], {"10": 2500})
+    assert out == [("05", "3010", "F", 10000), ("42", "3100", "M", 4000)]
+    assert not unsure
+    # 12 % and 25 % on one voucher, both lines taxable.
+    out, _ = classify(
+        [("3010", "F", 10000), ("3020", "L", 5000)], {"10": 2500, "11": 600}
+    )
+    assert {box for box, *_ in out} == {"05"}
+    # No whole line matches the base: split pro rata, and say so.
+    out, unsure = classify([("3010", "F", 15000), ("3011", "G", 5000)], {"10": 2500})
+    assert unsure
+    assert sum(a for box, *_, a in out if box == "05") == 10000
+    assert sum(a for box, *_, a in out if box == "42") == 10000
