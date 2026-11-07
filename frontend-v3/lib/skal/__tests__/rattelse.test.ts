@@ -106,7 +106,7 @@ describe("listan", () => {
     expect(rad(vy, "a53")?.kvitto).toBeUndefined();
   });
 
-  it("makuleringen heter så, och visar beloppet den tog bort", () => {
+  it("makuleringen säger vad den makulerade, men visar inte ändringen en gång till", () => {
     const b1 = v({
       id: "b1",
       series: "B",
@@ -114,12 +114,14 @@ describe("listan", () => {
       corrects: A53,
       correction: makulering,
     });
-    expect(rad(verifikationerVy(AR, lista(b1), lista()), "b1")).toMatchObject({
-      titel: "Makulering av A-53: Arbetsgivardeklaration 2026-10, avdragen skatt",
-      meta: "B-1 · 2026-11-12 · makulerar A-53 · stefan",
-      hogerFore: formatBeloppHela(1300000),
-      hoger: "0",
+    const r = rad(verifikationerVy(AR, lista(b1), lista()), "b1");
+    expect(r).toMatchObject({
+      titel: "Makulering av A-53",
+      meta: "B-1 · 2026-11-12 · stefan · Bokförd i fel månad",
+      hoger: "",
     });
+    expect(r?.hogerFore).toBeUndefined();
+    expect(r?.struken).toBeUndefined();
   });
 
   it("en ändrad verifikation utan beloppsändring visar bara beloppet", () => {

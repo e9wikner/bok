@@ -507,22 +507,23 @@ function korrigering(v: { referenced_by?: VerifikationRef | null }): string {
 /**
  * En rättad verifikation och dess rättelse läses som ett par (§7.5): det
  * makulerade stryks över, det ändrade visar beloppet före överstruket och
- * beloppet efter. Rättelsen säger vad den gjorde med vad, i stället för att
- * se ut som en ny affärshändelse på samma belopp.
+ * beloppet efter. Ändringen visas bara där, på originalet. Rättelsen säger
+ * vad den gjorde med vad, när, av vem och varför, men upprepar varken
+ * originalets text eller beloppen — då såg man samma ändring två gånger,
+ * och rättelsen såg ut som en ny affärshändelse.
  */
 function rattelserad(v: Verifikation, r: Rattelse): VyRadData {
   const nummer = nummerAv(v);
   const fore = r.before_total !== r.after_total ? formatBeloppHela(r.before_total) : undefined;
   const rad: VyRadData = { id: v.id, titel: v.description, hoger: "", mal: { typ: "ver", id: v.id } };
   if (v.corrects) {
-    const vad = r.kind === "makulering" ? "makulerar" : "ändrar";
+    const vad = r.kind === "makulering" ? "Makulering" : "Ändring";
     const vem = r.actor ? ` · ${r.actor}` : "";
+    const varfor = r.reason ? ` · ${r.reason}` : "";
     return {
       ...rad,
-      titel: r.title,
-      meta: `${nummer} · ${v.date} · ${vad} ${nummerAv(r.original)}${vem}`,
-      hoger: formatBeloppHela(r.after_total),
-      hogerFore: fore,
+      titel: `${vad} av ${nummerAv(r.original)}`,
+      meta: `${nummer} · ${v.date}${vem}${varfor}`,
     };
   }
   const vad = r.kind === "makulering" ? "makulerad" : "ändrad";
