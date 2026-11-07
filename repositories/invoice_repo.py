@@ -6,7 +6,7 @@ invoice can run in one `with db.transaction():` (SPEC-fakturering.md §5).
 
 import uuid
 from datetime import date, datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from db.database import db
 from domain.invoice_models import CreditNote, Invoice, InvoiceRow, Payment
@@ -212,14 +212,25 @@ class InvoiceRepository:
         )
 
     @staticmethod
-    def list_all(status: Optional[str] = None) -> List[Invoice]:
-        """List all invoices, optionally filtered by status."""
-        sql = "SELECT id FROM invoices"
-        params = []
+    def list_all(
+        status: Optional[str] = None,
+        date_from: Optional[date] = None,
+        date_to: Optional[date] = None,
+    ) -> List[Invoice]:
+        """List all invoices, optionally filtered by status and by invoice
+        date (`date_from`/`date_to` inclusive -- a fiscal year)."""
+        sql = "SELECT id FROM invoices WHERE 1 = 1"
+        params: List[Any] = []
 
         if status:
-            sql += " WHERE status = ?"
+            sql += " AND status = ?"
             params.append(status)
+        if date_from is not None:
+            sql += " AND invoice_date >= ?"
+            params.append(date_from.isoformat())
+        if date_to is not None:
+            sql += " AND invoice_date <= ?"
+            params.append(date_to.isoformat())
 
         sql += " ORDER BY invoice_date DESC, invoice_number DESC"
 

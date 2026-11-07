@@ -334,3 +334,67 @@ describe("betalaVantar", () => {
     expect(betalaVantar({ ...k, ar: { start: "2026-01-01", end: "2026-12-31" } })).toHaveLength(1);
   });
 });
+
+describe("Fakturering och Löner följer valt räkenskapsår", () => {
+  const ar = { start: "2026-01-01", end: "2026-12-31" };
+  const utkast = (id: string, invoice_date: string) => ({
+    id,
+    invoice_number: id,
+    customer_name: `Kund ${id}`,
+    invoice_date,
+    due_date: invoice_date,
+    status: "needs_review",
+    amount_inc_vat: 100000,
+  });
+  const forslag = (draft_id: string) =>
+    ({
+      kind: "invoice",
+      draft_id,
+      post_id: `p-${draft_id}`,
+      decision_id: null,
+      correction_of: null,
+      status: "pending",
+      replaced_by: null,
+      posted_at: null,
+      voucher: null,
+      last_error_code: null,
+      created_at: "2026-10-25T08:00:00",
+    }) as ForslagStatusSvar;
+
+  it("Fakturering visar bara årets förslag och utkast, och året i perioden", () => {
+    const vy = faktureringVy(
+      { total: 0, invoices: [] },
+      {
+        utkast: [
+          utkast("i-ar", "2026-03-01"),
+          utkast("i-fjol", "2025-12-31"),
+          utkast("u-ar", "2026-12-31"),
+          utkast("u-nasta", "2027-01-01"),
+        ],
+        forslag: [forslag("i-ar"), forslag("i-fjol")],
+        beslut: [],
+        utfardanden: [],
+        ar,
+      }
+    );
+    const ids = vy.sektioner.flatMap((s) => s.rader.map((r) => r.id));
+    expect(ids).toEqual(["forslag:i-ar", "utkast:u-ar"]);
+    expect(vy.period).toBe("2026-01-01 – 2026-12-31 · 0 fakturor");
+  });
+
+  it("Löner visar alla årets körningar och året i perioden", () => {
+    const run = { payment_date: null, payslip_count: 1, total_gross_salary: 1, total_net_salary: 1, status: "booked" };
+    const korningar = Array.from({ length: 13 }, (_, i) => ({
+      ...run,
+      id: `k${i}`,
+      year: 2026,
+      month: (i % 12) + 1,
+    }));
+    const vy = lonerVy({ payroll_runs: korningar }, { beslut: [], ar });
+    expect(vy.sektioner).toHaveLength(13);
+    expect(vy.period).toBe("2026-01-01 – 2026-12-31 · 13 lönekörningar · nettolön");
+    expect(lonerVy({ payroll_runs: [] }, { beslut: [], ar }).period).toBe(
+      "2026-01-01 – 2026-12-31 · inga lönekörningar"
+    );
+  });
+});

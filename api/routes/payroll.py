@@ -6,7 +6,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from api.deps import get_current_actor, get_human_actor
+from api.deps import get_current_actor, get_fiscal_year_filter, get_human_actor
+from domain.models import FiscalYear
 from domain.payroll_models import (
     AgiDeclaration,
     Employee,
@@ -135,11 +136,19 @@ async def set_salary_setting(
 
 
 @router.get("/runs", response_model=dict)
-async def list_payroll_runs():
+async def list_payroll_runs(
+    fiscal_year: Optional[FiscalYear] = Depends(get_fiscal_year_filter),
+):
+    """Every payroll run with its payslips and the month's AGI.
+    `fiscal_year_id` keeps the runs paid out in that year."""
     service = PayrollService()
     proposals = PayrollProposalService()
     result = []
-    for run in service.runs.list_all():
+    runs = service.runs.list_all(
+        date_from=fiscal_year.start_date if fiscal_year else None,
+        date_to=fiscal_year.end_date if fiscal_year else None,
+    )
+    for run in runs:
         payslips = service.payslips.list_for_run(run.id)
         payload = _run_to_dict(
             run,

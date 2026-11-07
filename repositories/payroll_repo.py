@@ -209,12 +209,24 @@ class PayrollRunRepository:
         return PayrollRunRepository._row_to_run(row) if row else None
 
     @staticmethod
-    def list_all() -> List[PayrollRun]:
+    def list_all(
+        date_from: Optional[date] = None, date_to: Optional[date] = None
+    ) -> List[PayrollRun]:
+        """Every run, newest first; with `date_from`/`date_to` (inclusive, a
+        fiscal year) only runs paid out between them -- the payment date is
+        the salary voucher's date, so the run lies in that voucher's year."""
+        sql = "SELECT * FROM payroll_runs WHERE 1 = 1"
+        params: List[Any] = []
+        if date_from is not None:
+            sql += " AND payment_date >= ?"
+            params.append(date_from.isoformat())
+        if date_to is not None:
+            sql += " AND payment_date <= ?"
+            params.append(date_to.isoformat())
+        sql += " ORDER BY year DESC, month DESC, payment_date DESC"
         return [
             PayrollRunRepository._row_to_run(row)
-            for row in db.execute(
-                "SELECT * FROM payroll_runs ORDER BY year DESC, month DESC, payment_date DESC"
-            ).fetchall()
+            for row in db.execute(sql, tuple(params)).fetchall()
         ]
 
     @staticmethod

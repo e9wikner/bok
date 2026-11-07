@@ -7,9 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from api.deps import get_current_actor
+from api.deps import get_current_actor, get_fiscal_year_filter
 from domain.invoice_validation import ValidationError as InvoiceValidationError
 from domain.invoice_validation import quantity_from_centi
+from domain.models import FiscalYear
 from domain.validation import ValidationError
 from services.invoice import InvoiceService
 
@@ -71,11 +72,19 @@ async def list_invoices(
     search: str = Query(None, description="Search customer name or invoice number"),
     limit: int = Query(None, description="Max invoices to return"),
     offset: int = Query(0, description="Number of invoices to skip"),
+    fiscal_year: Optional[FiscalYear] = Depends(get_fiscal_year_filter),
 ):
-    """List invoices with server-side filtering, pagination and summary."""
+    """List invoices with server-side filtering, pagination and summary.
+
+    `fiscal_year_id` keeps the invoices dated in that year -- the year their
+    voucher is booked in."""
     try:
         service = InvoiceService()
-        invoices = service.invoices.list_all(status=status_filter)
+        invoices = service.invoices.list_all(
+            status=status_filter,
+            date_from=fiscal_year.start_date if fiscal_year else None,
+            date_to=fiscal_year.end_date if fiscal_year else None,
+        )
         if search:
             search_lower = search.lower()
             invoices = [

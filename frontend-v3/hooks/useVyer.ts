@@ -55,9 +55,10 @@ function vy<T extends unknown[]>(
 /**
  * Alla vyernas innehåll, ur API:t.
  *
- * Frågorna går bara för sidan som visas. Böckernas vyer gäller räkenskapsåret
- * som översikten pekar ut; `ar === undefined` betyder att översikten inte har
- * svarat än, `null` att det inte finns något räkenskapsår.
+ * Frågorna går bara för sidan som visas. Böckernas, Faktureringens och
+ * Lönernas vyer gäller årsväljarens räkenskapsår; `ar === undefined` betyder
+ * att översikten inte har svarat än, `null` att det inte finns något
+ * räkenskapsår.
  *
  * `sokterm` filtrerar Verifikationer (`lib/skal/sok.ts`). Med en sökterm
  * hämtas årets alla postade, så att sökningen inte stannar vid de sidor
@@ -70,7 +71,7 @@ export function useVyer(
 ): Record<Vynyckel, VyInnehallData> {
   const id = ar?.id ?? "";
   const bocker = sida === "bocker" && !!id;
-  const betala = sida === "betala";
+  const betala = sida === "betala" && !!id;
   const bokslut = sida === "bokslut";
   const staleTime = 60 * 1000;
 
@@ -177,8 +178,8 @@ export function useVyer(
   // Under `FAKTUROR_NYCKEL`, så att ett utfärdande och `view.changed` når
   // dem (SPEC-fakturering-f1.md §10.2).
   const fakturor = useQuery({
-    queryKey: [...FAKTUROR_NYCKEL, "skal"],
-    queryFn: betalaApi.getFakturor,
+    queryKey: [...FAKTUROR_NYCKEL, "skal", id],
+    queryFn: () => betalaApi.getFakturor(id),
     enabled: betala,
     staleTime,
   });
@@ -191,11 +192,14 @@ export function useVyer(
     enabled: betalaVantarFragor,
     staleTime,
   });
-  // Samma nycklar som trådens `useBeslut`/`useForslag`, en fråga per vy.
+  // Under trådens `useBeslut`/`useForslag`-nycklar, en fråga per vy. Besluten
+  // är årets (`fiscal_year_id`); förslagen delar trådens fråga och vyn visar
+  // bara dem vars utkast hör till året.
   const fakturering = "betala.fakturering";
   const faktureringBeslut = useQuery({
-    queryKey: beslutStatusNyckel(fakturering),
-    queryFn: () => hamtaBeslut({ viewKey: fakturering, status: "all", limit: BESLUT_GRANS }),
+    queryKey: [...beslutStatusNyckel(fakturering), id],
+    queryFn: () =>
+      hamtaBeslut({ viewKey: fakturering, status: "all", limit: BESLUT_GRANS, fiscalYearId: id }),
     enabled: betala,
     staleTime,
   });
@@ -208,24 +212,18 @@ export function useVyer(
   const utfardanden = useUtfardanden();
   // Under `LONER_NYCKEL`, så att `view.changed` efter en bokföring når dem.
   const loner = useQuery({
-    queryKey: [...LONER_NYCKEL, "skal"],
-    queryFn: betalaApi.getLonekorningar,
+    queryKey: [...LONER_NYCKEL, "skal", id],
+    queryFn: () => betalaApi.getLonekorningar(id),
     enabled: betala,
     staleTime,
   });
+  // Årets lönekort, i Löner och i Verifikationers Väntar på beslut.
   const lonerVyKey = "betala.loner";
   const lonerBeslut = useQuery({
-    queryKey: beslutStatusNyckel(lonerVyKey),
-    queryFn: () => hamtaBeslut({ viewKey: lonerVyKey, status: "all", limit: BESLUT_GRANS }),
-    enabled: betala,
-    staleTime,
-  });
-  // Verifikationer visar bara årets lönekort.
-  const lonerBeslutAret = useQuery({
     queryKey: [...beslutStatusNyckel(lonerVyKey), id],
     queryFn: () =>
       hamtaBeslut({ viewKey: lonerVyKey, status: "all", limit: BESLUT_GRANS, fiscalYearId: id }),
-    enabled: bocker,
+    enabled: betalaVantarFragor,
     staleTime,
   });
   // Bokslutets delar ritas av `BokslutVy`, som läser samma fråga. Här
@@ -273,7 +271,7 @@ export function useVyer(
             // Ett fel eller en fråga i flykt fäller inte Verifikationer: då
             // står bara vyns egna rader där.
             andraVyer: betalaVantar({
-              lonerBeslut: lonerBeslutAret.data?.decisions ?? [],
+              lonerBeslut: lonerBeslut.data?.decisions ?? [],
               faktureringForslag: faktureringForslag.data?.drafts ?? [],
               fakturautkast: fakturautkast.data?.drafts ?? [],
               ar: ar!,
@@ -288,12 +286,12 @@ export function useVyer(
         );
         return soker ? sokVy(v, sokterm) : { ...v, harFler, hamtaFler };
       }),
-    "betala.fakturering": vy(
-      [fakturor, fakturautkast, faktureringBeslut, faktureringForslag],
-      (f, u, b, fs) =>
-        faktureringVy(f, { utkast: u.drafts, beslut: b.decisions, forslag: fs.drafts, utfardanden })
-    ),
-    "betala.loner": vy([loner, lonerBeslut], (l, b) => lonerVy(l, { beslut: b.decisions })),
+    "betala.fakturering":
+      utanAr ??
+      vy([fakturor, fakturautkast, faktureringBeslut, faktureringForslag], (f, u, b, fs) =>
+        faktureringVy(f, { utkast: u.drafts, beslut: b.decisions, forslag: fs.drafts, utfardanden, ar: ar! })
+      ),
+    "betala.loner": utanAr ?? vy([loner, lonerBeslut], (l, b) => lonerVy(l, { beslut: b.decisions, ar: ar! })),
     "bokslut.rapporter": bokslutsdel,
     "bokslut.ink2": bokslutsdel,
     "bokslut.moms": bokslutsdel,

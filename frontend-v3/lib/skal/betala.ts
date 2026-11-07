@@ -98,9 +98,16 @@ export interface Lonekorningar {
   payroll_runs: Lonekorning[];
 }
 
+/**
+ * Fakturorna och lönekörningarna gäller årsväljarens år (`fiscal_year_id`):
+ * en faktura hör till året för sitt fakturadatum, en lönekörning till året
+ * för sin utbetalning — samma år som deras verifikationer.
+ */
 export const betalaApi = {
-  getFakturor: async (): Promise<Fakturalista> => {
-    const { data } = await apiClient.get<Fakturalista>("/api/v1/invoices");
+  getFakturor: async (arId: string): Promise<Fakturalista> => {
+    const { data } = await apiClient.get<Fakturalista>("/api/v1/invoices", {
+      params: { fiscal_year_id: arId },
+    });
     return data;
   },
 
@@ -109,11 +116,24 @@ export const betalaApi = {
     return data;
   },
 
-  getLonekorningar: async (): Promise<Lonekorningar> => {
-    const { data } = await apiClient.get<Lonekorningar>("/api/v1/payroll/runs");
+  getLonekorningar: async (arId: string): Promise<Lonekorningar> => {
+    const { data } = await apiClient.get<Lonekorningar>("/api/v1/payroll/runs", {
+      params: { fiscal_year_id: arId },
+    });
     return data;
   },
 };
+
+/** Räkenskapsåret vyn visar, som `OverviewFiscalYear`. */
+export interface BetalaAr {
+  start: string;
+  end: string;
+}
+
+/** Ligger datumet i året? Utan år eller datum: ja, raden står kvar hellre än försvinner. */
+function iAret(ar: BetalaAr | undefined, datum: string | undefined): boolean {
+  return !ar || !datum || (ar.start <= datum && datum <= ar.end);
+}
 
 // ─── Fakturering ──────────────────────────────────────────────────────────
 
@@ -165,6 +185,12 @@ export interface FaktureringExtra {
   beslut: BeslutSvar[];
   /** Klientens optimistiska rader (`utfardanden.ts`). */
   utfardanden: readonly Utfardande[];
+  /**
+   * Årsväljarens år. Fakturorna och besluten filtrerar servern; utkasten och
+   * förslagen hämtas för alla år och visas här bara om fakturadatumet ligger
+   * i året, med samma regel som `betalaVantar`.
+   */
+  ar?: BetalaAr;
 }
 
 const OPPNA_UTKAST = new Set(["draft", "needs_review"]);
@@ -185,8 +211,13 @@ export function faktureringVy(lista: Fakturalista, extra?: FaktureringExtra): Vy
   // Väntar på dig: väntande fakturaförslag och öppna beslut i vyn. Ett
   // förslag som utfärdas just nu står inte här utan som raden `utfärdas…`.
   const utkastPerId = new Map((extra?.utkast ?? []).map((u) => [u.id, u]));
+  const ar = extra?.ar;
   const vantande = (extra?.forslag ?? []).filter(
-    (f) => (f.kind ?? "voucher") === "invoice" && f.status === "pending" && !utfardas.has(f.draft_id)
+    (f) =>
+      (f.kind ?? "voucher") === "invoice" &&
+      f.status === "pending" &&
+      !utfardas.has(f.draft_id) &&
+      iAret(ar, utkastPerId.get(f.draft_id)?.invoice_date)
   );
   const medForslag = new Set(vantande.map((f) => f.decision_id).filter(Boolean));
   const oppnaBeslut = (extra?.beslut ?? []).filter((b) => b.status === "open" && !medForslag.has(b.id));
@@ -242,7 +273,9 @@ export function faktureringVy(lista: Fakturalista, extra?: FaktureringExtra): Vy
 
   // Utkast utanför tråden: de gamla sidornas, som inte har ett väntande kort.
   const vantandeIds = new Set((extra?.forslag ?? []).filter((f) => f.status === "pending").map((f) => f.draft_id));
-  const nyaUtkast = (extra?.utkast ?? []).filter((u) => OPPNA_UTKAST.has(u.status) && !vantandeIds.has(u.id));
+  const nyaUtkast = (extra?.utkast ?? []).filter(
+    (u) => OPPNA_UTKAST.has(u.status) && !vantandeIds.has(u.id) && iAret(ar, u.invoice_date)
+  );
 
   const sektioner: VySektionData[] = [];
   if (vantarRader.length > 0) sektioner.push({ titel: "Väntar på dig", rader: vantarRader });
@@ -279,7 +312,7 @@ export function faktureringVy(lista: Fakturalista, extra?: FaktureringExtra): Vy
         : forfallna > 0
           ? `${forfallna} förfallen${forfallna > 1 ? "a" : ""}`
           : `${obetalda.length} obetald${obetalda.length === 1 ? "" : "a"}`,
-    period: `${lista.total} fakturor i systemet`,
+    period: ar ? `${ar.start} – ${ar.end} · ${lista.total} fakturor` : `${lista.total} fakturor i systemet`,
     sektioner,
     fot: extra
       ? "Beskriv vad som ska faktureras, så lägger agenten fram fakturan. Du utfärdar den, och PDF:en skickar du själv."
@@ -307,6 +340,8 @@ const MANAD = [
 export interface LonerExtra {
   /** `GET /decisions?view_key=betala.loner`. */
   beslut: BeslutSvar[];
+  /** Årsväljarens år; körningarna och besluten filtrerar servern. */
+  ar?: BetalaAr;
 }
 
 const LONER_VY = "betala.loner";
@@ -388,9 +423,9 @@ function helBokford(k: Lonekorning): boolean {
 }
 
 export function lonerVy(lista: Lonekorningar, extra?: LonerExtra): VyData {
-  const korningar = [...lista.payroll_runs]
-    .sort((a, b) => b.year - a.year || b.month - a.month)
-    .slice(0, LONEKORNINGAR_ANTAL);
+  // Ett år har sina körningar, alla; utan år de senaste.
+  const sorterade = [...lista.payroll_runs].sort((a, b) => b.year - a.year || b.month - a.month);
+  const korningar = extra?.ar ? sorterade : sorterade.slice(0, LONEKORNINGAR_ANTAL);
   const oklara = korningar.filter((k) => !helBokford(k)).length;
 
   // Väntar på beslut: korten agenten lagt fram. Titeln tar upp kortet i
@@ -429,7 +464,11 @@ export function lonerVy(lista: Lonekorningar, extra?: LonerExtra): VyData {
         : oklara > 0
           ? `${oklara} ej bokförd${oklara > 1 ? "a" : ""}`
           : "alla bokförda",
-    period: tomt ? "Nettolön per lönebesked" : `${lista.payroll_runs.length} lönekörningar · nettolön`,
+    period: extra?.ar
+      ? `${extra.ar.start} – ${extra.ar.end} · ${tomt ? "inga lönekörningar" : `${lista.payroll_runs.length} lönekörningar · nettolön`}`
+      : tomt
+        ? "Nettolön per lönebesked"
+        : `${lista.payroll_runs.length} lönekörningar · nettolön`,
     sektioner,
     fot: "Be agenten bokföra lönen eller arbetsgivardeklarationen, så lägger den fram ett kort. Du bokför med ett tryck i kortet.",
   };
@@ -449,7 +488,7 @@ export interface BetalaVantarKallor {
    * Räkenskapsåret Verifikationer visar: bara fakturor med fakturadatum i
    * året står med. Lönekorten filtreras av servern (`fiscal_year_id`).
    */
-  ar?: { start: string; end: string };
+  ar?: BetalaAr;
 }
 
 /**
@@ -477,11 +516,8 @@ export function betalaVantar(k: BetalaVantarKallor): VyRadData[] {
   const utkast = new Map(k.fakturautkast.map((u) => [u.id, u]));
   const fakturor: VyRadData[] = k.faktureringForslag
     .filter((f) => (f.kind ?? "voucher") === "invoice" && f.status === "pending")
-    .filter((f) => {
-      const datum = utkast.get(f.draft_id)?.invoice_date;
-      // Utan utkastet vet vyn inte året; raden står kvar hellre än försvinner.
-      return !k.ar || !datum || (k.ar.start <= datum && datum <= k.ar.end);
-    })
+    // Utan utkastet vet vyn inte året; raden står kvar hellre än försvinner.
+    .filter((f) => iAret(k.ar, utkast.get(f.draft_id)?.invoice_date))
     .map((f) => {
       const u = utkast.get(f.draft_id);
       const titel = u ? `Faktura ${u.invoice_number ?? "utan nummer"} · ${u.customer_name}` : "Fakturaförslag";

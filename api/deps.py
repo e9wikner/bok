@@ -5,9 +5,10 @@ import uuid
 from dataclasses import dataclass
 from typing import Optional
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Query, status
 
 from config import settings
+from domain.models import FiscalYear
 from services.auth import AuthService
 from services.ledger import LedgerService
 
@@ -138,3 +139,31 @@ async def get_idempotency_key(
             },
         )
     return idempotency_key
+
+
+async def get_fiscal_year_filter(
+    fiscal_year_id: Optional[str] = Query(
+        None,
+        description=(
+            "Only what belongs to this fiscal year; omitted, every year. "
+            "Unknown id is 404 fiscal_year_not_found."
+        ),
+    ),
+) -> Optional[FiscalYear]:
+    """`?fiscal_year_id=` for the lists the year selector narrows. An unknown
+    id is 404 -- never a silent fallback to every year or to this year."""
+    if fiscal_year_id is None:
+        return None
+    from repositories.period_repo import PeriodRepository
+
+    fiscal_year = PeriodRepository.get_fiscal_year(fiscal_year_id)
+    if fiscal_year is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": f"Unknown fiscal year: {fiscal_year_id!r}",
+                "code": "fiscal_year_not_found",
+                "details": "fiscal_year_id must name an existing fiscal year.",
+            },
+        )
+    return fiscal_year
