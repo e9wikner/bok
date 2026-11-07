@@ -1595,7 +1595,15 @@ def _run_las_okopplade_banktransaktioner(
     # method runs).
     from services.statement_match import StatementMatchService
 
-    items = [m.to_dict() for m in StatementMatchService().open_transactions()]
+    service = StatementMatchService()
+    items = []
+    for match in service.open_transactions():
+        item = match.to_dict()
+        if match.kind == "none":
+            # A purchase booked from its receipt is never linked to the
+            # statement; saying so keeps it from being booked a second time.
+            item["covered_by_purchase"] = service.purchases_covering(match)
+        items.append(item)
     return {
         "total": len(items),
         "limit": args.limit,
@@ -2372,7 +2380,9 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
         "Läs transaktionerna från kontoutdrag (1630, 1900-1989) som ännu "
         "inte är underlag för någon postad verifikation, var och en med "
         "match (exact/candidates/none) och kandidatverifikationer med "
-        "datumskillnad. Exakta matchningar kopplar servern själv efter varje "
+        "datumskillnad. covered_by_purchase namnger inköp (med ingående moms) "
+        "som redan bokförts på sitt kvitto med samma belopp: de bokförs inte "
+        "igen. Exakta matchningar kopplar servern själv efter varje "
         "import och postning. Skrivskyddat.",
         LasOkoppladeBanktransaktionerArgs,
         _run_las_okopplade_banktransaktioner,

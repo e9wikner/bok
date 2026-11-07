@@ -474,6 +474,8 @@ användaren ladda upp ett utdrag igen för att perioderna överlappar.
   beslut med `be_om_beslut` och kopplar efter svaret med
   `koppla_banktransaktion`. I ett intagspass kopplar du ingenting utan beslut.
 - En verifikation med ingående moms kopplas aldrig till ett kontoutdrag.
+  Därför står kortbetalningen kvar som okopplad. Har den `covered_by_purchase`
+  är köpet redan bokfört på sitt kvitto: bokför den inte igen.
 - Säger användaren att en koppling är fel (två händelser med samma belopp samma
   dag), ångra den med `koppla_bort_banktransaktion` och skriv varför med
   användarens ord. Koppla sedan transaktionen rätt med `koppla_banktransaktion`

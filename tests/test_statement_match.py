@@ -722,3 +722,30 @@ def test_open_route_unknown_year_is_404(books):
     response = _open_route("no-such-year")
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "fiscal_year_not_found"
+
+
+def test_agent_tool_names_the_purchase_that_covers_a_transaction(books):
+    """The agent sees that a card payment is booked from its receipt, so it
+    does not book it again (`covered_by_purchase`)."""
+    purchase = _post(
+        books,
+        date(2026, 1, 20),
+        "Telefon",
+        [
+            {"account": "6212", "debit": 22_000, "credit": 0},
+            {"account": "2641", "debit": 5_500, "credit": 0},
+            {"account": "1930", "debit": 0, "credit": 27_500},
+        ],
+    )
+    _import("1930", BANK_HEADER + "2026-01-22;-275,00;Fello\n")
+    result = execute_tool(
+        "las_okopplade_banktransaktioner",
+        {},
+        actor="agent",
+        capabilities=LLMCapabilities(
+            cache_breakpoint=False, pdf_document_blocks=False, refusal_stop_reason=False
+        ),
+    )
+    [item] = result["items"]
+    assert item["match"] == "none"
+    assert item["covered_by_purchase"] == [f"A-{purchase.number}"]

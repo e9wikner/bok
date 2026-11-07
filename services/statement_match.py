@@ -192,22 +192,28 @@ class StatementMatchService:
         a voucher, so it is not something to book -- what is left is the
         statement's events that no voucher accounts for yet.
         """
+        return [
+            match
+            for match in self.open_transactions(date_from=date_from, date_to=date_to)
+            if match.kind != "none" or not self.purchases_covering(match)
+        ]
+
+    def purchases_covering(self, match: TransactionMatch) -> list[str]:
+        """Numbers of posted purchases (input VAT) with the transaction's
+        amount on its account, dated within the candidate window: booked
+        from their receipt, so the transaction needs no voucher of its own."""
         window = timedelta(days=CANDIDATE_WINDOW_DAYS)
-        out = []
-        for match in self.open_transactions(date_from=date_from, date_to=date_to):
-            if match.kind == "none":
-                day = date.fromisoformat(match.date)
-                purchases = self.inputs.list_purchase_vouchers_for_amount(
-                    account_code=match.account_code,
-                    amount_ore=match.amount_ore,
-                    date_from=(day - window).isoformat(),
-                    date_to=(day + window).isoformat(),
-                    input_vat_range=INPUT_VAT_RANGE,
-                )
-                if purchases:
-                    continue
-            out.append(match)
-        return out
+        day = date.fromisoformat(match.date)
+        return [
+            _number(row)
+            for row in self.inputs.list_purchase_vouchers_for_amount(
+                account_code=match.account_code,
+                amount_ore=match.amount_ore,
+                date_from=(day - window).isoformat(),
+                date_to=(day + window).isoformat(),
+                input_vat_range=INPUT_VAT_RANGE,
+            )
+        ]
 
     def run(self, actor: str = AUTO_MATCH_ACTOR) -> dict:
         """Link every `exact` match. Returns what was linked and what is left
