@@ -423,3 +423,28 @@ class TestOversiktensBokslut:
     def test_under_aret_utan_ingaende_resultat_vantar_inget(self, ar):
         page = self._bokslut(ar, "2025-06-01")
         assert page.counters["closing_checks"] == 0
+
+
+class TestOdisponeratIArsredovisningen:
+    """Ett tidigare års resultat kvar på 2099 är balanserat resultat, inte
+    årets, och blir ingen påhittad utdelning i förändringen av eget kapital."""
+
+    def test_arets_resultat_ar_resultatrakningens(self, test_db):
+        from services.arsredovisning import build_arsredovisning
+
+        r = build_arsredovisning(_importera(TestDisposition.SIE_2099))
+        br = r["balansrakning"]
+        assert br["arets_resultat"][0] == r["resultatrakning"]["arets_resultat"][0]
+        fritt = {r["key"]: r["belopp"] for r in br["eget_kapital"]["fritt"]["rader"]}
+        assert fritt["balanserat"][0] == 100000 + 50000
+        assert br["summa_tillgangar"][0] == br["summa_ek_skulder"][0]
+        assert not any("skiljer sig" in w for w in r["warnings"])
+
+    def test_ingen_paahittad_utdelning(self, test_db):
+        from services.arsredovisning import build_arsredovisning
+
+        r = build_arsredovisning(_importera(TestDisposition.SIE_2099))
+        ek = r["forvaltningsberattelse"]["eget_kapital"]["rader"]
+        assert not any(rad["label"] == "Utdelning" for rad in ek)
+        ub = next(rad for rad in ek if rad["label"] == "Belopp vid årets utgång")
+        assert ub["belopp"][2] == r["resultatrakning"]["arets_resultat"][0]

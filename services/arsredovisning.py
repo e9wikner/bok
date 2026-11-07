@@ -227,6 +227,24 @@ class Arsdata:
             return 0
         return -sum(v for c, v in self.result.items() if _in(c, ((3000, 8999),)))
 
+    @property
+    def year_result(self) -> int:
+        """Årets resultat enligt resultaträkningen (kredit positivt), vare
+        sig det är fört till 2099 eller inte: resultatkontona utom 899x.
+
+        Utan resultatkonton (ett jämförelseår som bara är nästa års ingående
+        balans) är 2099 vid årets utgång just det årets resultat."""
+        if self.result is None:
+            return -self.closing.get("2099", 0)
+        return -sum(v for c, v in self.result.items() if _in(c, ((3000, 8989),)))
+
+    @property
+    def carried_result(self) -> int:
+        """Det på 2099 som inte är årets resultat (kredit positivt): ett
+        tidigare års resultat som inte disponerats till 2091. Det är
+        balanserat resultat i årsredovisningen, inte årets."""
+        return -self.closing.get("2099", 0) + self.unclosed_result - self.year_result
+
 
 class ArsredovisningService:
     def build(self, fiscal_year_id: str) -> Dict[str, Any]:
@@ -631,10 +649,9 @@ class ArsredovisningService:
 
         bundet = self._rows(BR_BUNDET, ys, -1)
         fritt = self._rows(BR_FRITT, ys, -1)
-        arets = [
-            kr(-cur.closing.get("2099", 0) + cur.unclosed_result),
-            kr(-prior.closing.get("2099", 0) + prior.unclosed_result),
-        ]
+        # Årets resultat är resultaträkningens. Ett tidigare års resultat
+        # som ligger kvar på 2099 (inte disponerat) är balanserat resultat.
+        arets = [kr(cur.year_result), kr(prior.year_result)]
         if not any(r["key"] == "balanserat" for r in fritt):
             fritt.insert(
                 0,
@@ -645,6 +662,12 @@ class ArsredovisningService:
                     "belopp": [0, 0],
                 },
             )
+        for r in fritt:
+            if r["key"] == "balanserat":
+                r["belopp"] = [
+                    (r["belopp"][i] or 0) + kr(y.carried_result)
+                    for i, y in enumerate((cur, prior))
+                ]
         fritt.append(
             {
                 "key": "arets_resultat",
@@ -781,10 +804,12 @@ class ArsredovisningService:
 
         ak_ib = g(prior.closing, ((2080, 2089),))
         ak_ub = g(cur.closing, ((2080, 2089),))
-        bal_ib = g(prior.closing, ((2090, 2098),))
-        res_ib = kr(-prior.closing.get("2099", 0) + prior.unclosed_result)
-        bal_ub = g(cur.closing, ((2090, 2098),))
-        res_ub = kr(-cur.closing.get("2099", 0) + cur.unclosed_result)
+        # Som i balansräkningen: årets resultat är resultaträkningens, ett
+        # odisponerat tidigare resultat på 2099 är balanserat.
+        bal_ib = g(prior.closing, ((2090, 2098),)) + kr(prior.carried_result)
+        res_ib = kr(prior.year_result)
+        bal_ub = g(cur.closing, ((2090, 2098),)) + kr(cur.carried_result)
+        res_ub = kr(cur.year_result)
         # Det som inte är föregående års resultat är utdelning (eller annan
         # förändring av det fria egna kapitalet).
         ovrigt = bal_ub - (bal_ib + res_ib)
