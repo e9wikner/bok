@@ -42,6 +42,7 @@ class TestSRUExportService:
         assert mappings["1920"] == "7281"  # Bankkonto -> Likvida medel
         assert mappings["3010"] == "7410"  # Försäljning -> Nettoomsättning
         assert mappings["1510"] == "7251"  # Kundfordringar -> Kundfordringar
+        assert mappings["1500"] == "7251"  # gruppkontot, som iOrdning bokför på
         assert mappings["1630"] == "7261"  # Skattekonto -> Övriga fordringar
 
     def test_get_sru_mappings_prefers_db_over_defaults(self, service, mock_db):

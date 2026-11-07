@@ -181,7 +181,7 @@ INK2R_ROWS: Tuple[INK2RRow, ...] = (
         "2.18", "7246", "Förskott till leverantörer", _CURRENT_ASSETS, ((1480, 1489),)
     ),
     INK2RRow(
-        "2.19", "7251", "Kundfordringar", _CURRENT_ASSETS, ((1510, 1559), (1580, 1589))
+        "2.19", "7251", "Kundfordringar", _CURRENT_ASSETS, ((1500, 1559), (1580, 1589))
     ),
     INK2RRow(
         "2.20",
