@@ -219,15 +219,18 @@ class TaxAdjustmentService:
                 )
             )
 
-        # 4.6a
+        # 4.6a: statslåneräntan vid utgången av november året före det
+        # kalenderår då beskattningsåret går ut -- för ett brutet år som
+        # slutar 2025 alltså november 2024, inte året före startåret.
         start_year = fy.start_date.year
+        rate_year = fy.end_date.year - 1
         slr: Optional[Decimal]
         if "ink2s.slr" in inputs:
             slr = Decimal(str(inputs["ink2s.slr"]))
             slr_source = "angiven"
-        elif start_year - 1 in STATSLANERANTA_NOVEMBER:
-            slr = STATSLANERANTA_NOVEMBER[start_year - 1]
-            slr_source = f"statslåneräntan 30 november {start_year - 1}"
+        elif rate_year in STATSLANERANTA_NOVEMBER:
+            slr = STATSLANERANTA_NOVEMBER[rate_year]
+            slr_source = f"statslåneräntan 30 november {rate_year}"
         else:
             slr = None
             slr_source = "saknas"
@@ -236,7 +239,7 @@ class TaxAdjustmentService:
             schablon_ore = 0
             if fond_ib:
                 warnings.append(
-                    f"Statslåneräntan för november {start_year - 1} saknas. "
+                    f"Statslåneräntan för november {rate_year} saknas. "
                     "Ange den för att få schablonintäkten i 4.6a."
                 )
         else:

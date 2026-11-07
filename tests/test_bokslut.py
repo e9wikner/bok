@@ -179,8 +179,112 @@ class TestMoms:
         eskd = s.export_eskd(decl).decode("iso-8859-1")
         assert "<ForsOvrigt>5000</ForsOvrigt>" in eskd
 
+    def test_moms_och_momsfritt_pa_samma_verifikation(self, test_db):
+        """En faktura med både momspliktig och momsfri försäljning: bara
+        raden som momsen motsvarar går till ruta 05."""
+        from repositories.period_repo import PeriodRepository
+        from services.vat_report import VatReportService
+
+        fy = _importera(
+            SIE.replace(
+                """#VER A 2 20250201 Momsfri intakt
+{
+#TRANS 3100 {} -5000.00
+#TRANS 1920 {} 5000.00
+}""",
+                """#VER A 2 20250201 Faktura med momsfri rad
+{
+#TRANS 3010 {} -20000.00
+#TRANS 3100 {} -5000.00
+#TRANS 2610 {} -5000.00
+#TRANS 1920 {} 30000.00
+}""",
+            )
+        )
+        fy = PeriodRepository.get_fiscal_year(fy)
+        s = VatReportService()
+        decl = s.preview_for_dates(fy.start_date, fy.end_date)
+        rutor = s.format_skv_summary(decl)["skv_4700"]
+        assert rutor["ruta_05_momspliktig_forsaljning"] == 120000
+        assert rutor["ruta_42_ovrig_forsaljning"] == 5000
+        assert not decl.warnings
+
+    def test_ruta_42_sparas_och_gamla_deklarationer_lases_om(self, ar, test_db):
+        from services.vat_report import VatReportService
+
+        s = VatReportService()
+        decl = s.generate_yearly(2025)
+        saved = s.get_declaration(decl.id)
+        assert saved.sales_25 == 10000000
+        assert saved.sales_other == 500000
+
+        # Sparad före migration 047: sales_12/sales_6 var försäljning 12 %
+        # och 6 %, sales_exempt momsfri försäljning.
+        test_db.execute("""INSERT INTO vat_declarations
+               (id, period_year, period_month, sales_25, sales_12, sales_6,
+                sales_exempt, vat_out_25, vat_out_12, vat_out_6, vat_in,
+                vat_to_pay)
+               VALUES ('gammal', 2024, 12, 100, 20, 30, 40, 25, 2, 2, 0, 29)""")
+        test_db.commit()
+        old = s.get_declaration("gammal")
+        assert (old.sales_25, old.sales_12, old.sales_6) == (150, 0, 0)
+        assert (old.sales_exempt, old.sales_other) == (0, 40)
+
+
+def _importera(sie: str) -> str:
+    from services.sie4_import import SIE4Importer
+
+    importer = SIE4Importer("", "")
+    assert importer.import_content(sie), importer.errors
+    return importer.fiscal_year_resolution["id"]
+
+
+class TestSkatt:
+    def test_statslaneranta_for_brutet_ar_ar_slutarets(self, test_db):
+        """Ett år 2024-07-01--2025-06-30 går ut 2025: november 2024
+        (1,96 %), inte november 2023."""
+        sie = (
+            SIE.replace("#RAR 0 20250101 20251231", "#RAR 0 20240701 20250630")
+            .replace("20251231", "20250630")
+            .replace("20250131", "20240731")
+        )
+        f = _falt(_importera(sie))
+        assert f["7654"] == 7840
+
+    def test_bokford_avsattning_till_periodiseringsfond_ar_positiv(self, test_db):
+        from services.bokslut import BokslutService
+
+        sie = (
+            SIE.replace(
+                "#KONTO 8819",
+                '#KONTO 2125 "Periodiseringsfond 2025"\n#KONTO 8811'
+                ' "Avsättning till periodiseringsfond"\n#KONTO 8819',
+            )
+            + """#VER A 9 20251231 Avsattning periodiseringsfond
+{
+#TRANS 8811 {} 50000.00
+#TRANS 2125 {} -50000.00
+}
+"""
+        )
+        fy = _importera(sie)
+        skatt = BokslutService().overview(fy)["skatt"]
+        assert skatt["bokford_avsattning"] == 50000
+        assert skatt["max_avsattning_periodiseringsfond"] == (
+            (skatt["overskott"] + 50000) * 25 // 100
+        )
+
 
 class TestArsredovisning:
+    def test_flerarsoversikten_har_fyra_ar(self, ar):
+        from services.arsredovisning import build_arsredovisning
+
+        fo = build_arsredovisning(ar)["forvaltningsberattelse"]["flerarsoversikt"]
+        assert [y["ar"] for y in fo] == ["2025", "2024", "2023", "2022"]
+        # 2024 ur årets ingående balans, 2023 och 2022 finns inte i Bok.
+        assert fo[1]["balansomslutning"] == 600000
+        assert fo[2]["balansomslutning"] is None
+
     def test_rakningarna_gar_ihop(self, ar):
         from services.arsredovisning import build_arsredovisning
 

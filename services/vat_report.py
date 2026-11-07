@@ -9,8 +9,9 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from decimal import ROUND_HALF_UP, Decimal
 from html import escape
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from db.database import get_db
 from domain.validation import ValidationError
@@ -94,6 +95,11 @@ VAT_BOXES = [
     ("48", "Ingående moms att dra av", "vat_in"),
     ("49", "Moms att betala eller få tillbaka", "vat_to_pay"),
 ]
+
+
+# What the sales columns in `vat_declarations` mean (migration 047): 1 is the
+# original 12 %/6 %/momsfri meaning, 2 the box mapping in VAT_BOXES.
+BOX_LAYOUT = 2
 
 
 # Reverse-charge accounts (migration 045) and the box each one fills.
@@ -402,14 +408,16 @@ class VatReportService:
             end_date=end,
         )
 
-        # Per voucher, so that a sale lands in ruta 05 only when the same
-        # voucher carries output VAT, and in ruta 42 otherwise. The year-end
+        # Per voucher and account, so that each sales line can be sorted into
+        # ruta 05 or 42 against the output VAT on its own voucher
+        # (`_classify_sales`). The year-end
         # settlement (the voucher that books 2650) is left out, and so is
         # öres- och kronutjämning (3740-3799): it is not a sale.
         rows = db.execute(
             """
             SELECT
                 vr.voucher_id,
+                v.date AS voucher_date,
                 vr.account_code,
                 COALESCE(a.name, '') AS account_name,
                 SUM(vr.debit) AS debit,
@@ -432,19 +440,16 @@ class VatReportService:
                   OR CAST(vr.account_code AS INTEGER) BETWEEN 2610 AND 2649
                   OR vr.account_code IN ('4531', '4535')
               )
-            GROUP BY vr.voucher_id, vr.account_code, a.name
-            ORDER BY vr.account_code
+            GROUP BY vr.voucher_id, v.date, vr.account_code, a.name
+            ORDER BY vr.voucher_id, vr.account_code
             """,
             (start.isoformat(), end.isoformat()),
         ).fetchall()
 
-        with_output_vat = {
-            row["voucher_id"]
-            for row in rows
-            if self._output_vat_box(row["account_code"])
-            and (row["credit"] or 0) != (row["debit"] or 0)
-        }
         per_box: Dict[tuple, int] = {}
+        sales_by_voucher: Dict[str, List[tuple]] = {}
+        vat_by_voucher: Dict[str, Dict[str, int]] = {}
+        voucher_dates: Dict[str, str] = {}
         for row in rows:
             code = row["account_code"]
             net_credit = (row["credit"] or 0) - (row["debit"] or 0)
@@ -452,6 +457,8 @@ class VatReportService:
             out_box = self._output_vat_box(code)
             if out_box:
                 box, amount = out_box, net_credit
+                by_rate = vat_by_voucher.setdefault(row["voucher_id"], {})
+                by_rate[out_box] = by_rate.get(out_box, 0) + net_credit
             elif code in REVERSE_CHARGE_BOXES:
                 # Omvänd skattskyldighet (migration 045): the calculated VAT
                 # on 2614 is box 30 (credit), the base on 4535/4531 box 21/22
@@ -461,11 +468,29 @@ class VatReportService:
             elif self._is_input_vat_account(code):
                 box, amount = "48", -net_credit
             elif self._is_sales_account(code):
-                box = "05" if row["voucher_id"] in with_output_vat else "42"
-                amount = net_credit
+                if net_credit:
+                    sales_by_voucher.setdefault(row["voucher_id"], []).append(
+                        (code, name, net_credit)
+                    )
+                    voucher_dates[row["voucher_id"]] = str(row["voucher_date"])
+                continue
             else:
                 continue
             per_box[(box, code, name)] = per_box.get((box, code, name), 0) + amount
+
+        for voucher_id, lines in sales_by_voucher.items():
+            classified, unsure = self._classify_sales(
+                lines, vat_by_voucher.get(voucher_id, {})
+            )
+            if unsure:
+                decl.warnings.append(
+                    f"En verifikation den {voucher_dates[voucher_id]} har "
+                    "försäljning med och utan moms som inte går att skilja åt "
+                    "per konto. Ruta 05 har fått det belopp momsen motsvarar, "
+                    "resten ligger i ruta 42. Kontrollera verifikationen."
+                )
+            for box, code, name, amount in classified:
+                per_box[(box, code, name)] = per_box.get((box, code, name), 0) + amount
 
         attr = {
             "05": "sales_25",
@@ -506,6 +531,85 @@ class VatReportService:
         ]
         return decl
 
+    #: Output-VAT box -> rate, to work out the taxable base the VAT implies.
+    _OUTPUT_VAT_RATES = {
+        "10": Decimal("0.25"),
+        "11": Decimal("0.12"),
+        "12": Decimal("0.06"),
+    }
+
+    #: More sales lines than this on one voucher are not searched for a subset.
+    _MAX_SUBSET_LINES = 12
+
+    @classmethod
+    def _classify_sales(
+        cls, lines: List[tuple], vat_by_box: Dict[str, int]
+    ) -> Tuple[List[tuple], bool]:
+        """Sort one voucher's sales lines `(code, name, net_credit)` into ruta
+        05 (momspliktig) and ruta 42 (övrig försäljning).
+
+        The output VAT on the voucher implies the taxable base (VAT / rate,
+        per rate). The lines whose sum matches that base, within the rounding
+        the VAT may carry, are ruta 05 and the rest ruta 42. A voucher with no
+        output VAT is all ruta 42. When no set of whole lines matches, ruta 05
+        gets the implied base, split over the lines pro rata, and the second
+        value is True so that the caller can warn.
+
+        Returns `[(box, code, name, amount)]` and the warning flag."""
+        base_dec = Decimal(0)
+        tolerance = Decimal(0)
+        for box, vat in vat_by_box.items():
+            rate = cls._OUTPUT_VAT_RATES[box]
+            if vat:
+                base_dec += Decimal(vat) / rate
+                # Up to 50 öre of rounding in the VAT, scaled up to the base.
+                tolerance += Decimal(50) / rate
+        base = int(base_dec.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        tol = int(tolerance.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+        def whole(taxable: set) -> List[tuple]:
+            return [
+                ("05" if i in taxable else "42", code, name, amount)
+                for i, (code, name, amount) in enumerate(lines)
+            ]
+
+        if base == 0:
+            return whole(set()), False
+        total = sum(amount for _, _, amount in lines)
+        if abs(total - base) <= tol:
+            return whole(set(range(len(lines)))), False
+
+        if len(lines) <= cls._MAX_SUBSET_LINES:
+            best: Optional[Tuple[int, set]] = None
+            for mask in range(1, 1 << len(lines)):
+                subset = {i for i in range(len(lines)) if mask >> i & 1}
+                diff = abs(sum(lines[i][2] for i in subset) - base)
+                if diff <= tol and (best is None or diff < best[0]):
+                    best = (diff, subset)
+            if best is not None:
+                return whole(best[1]), False
+
+        # VAT on a non-sales account, or a credit note against a sale on the
+        # same voucher, leaves no exempt part to find: all of it is taxable.
+        if (total > 0) != (base > 0) or abs(total) <= abs(base):
+            return whole(set(range(len(lines)))), False
+
+        out: List[tuple] = []
+        left = base
+        for i, (code, name, amount) in enumerate(lines):
+            if i == len(lines) - 1:
+                taxable = left
+            else:
+                taxable = int(
+                    (Decimal(amount) * base / total).quantize(
+                        Decimal("1"), rounding=ROUND_HALF_UP
+                    )
+                )
+                left -= taxable
+            out.append(("05", code, name, taxable))
+            out.append(("42", code, name, amount - taxable))
+        return out, True
+
     def _save_declaration(self, decl: VatDeclaration) -> None:
         """Save VAT declaration to database."""
 
@@ -528,7 +632,9 @@ class VatReportService:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 purchases_services_eu INTEGER DEFAULT 0,
                 purchases_services_non_eu INTEGER DEFAULT 0,
-                vat_out_reverse_25 INTEGER DEFAULT 0
+                vat_out_reverse_25 INTEGER DEFAULT 0,
+                sales_other INTEGER DEFAULT 0,
+                box_layout INTEGER NOT NULL DEFAULT 1
             )""")
         db.execute(
             """INSERT OR REPLACE INTO vat_declarations
@@ -536,8 +642,8 @@ class VatReportService:
                 sales_25, sales_12, sales_6, sales_exempt,
                 vat_out_25, vat_out_12, vat_out_6, vat_in, vat_to_pay, status,
                 purchases_services_eu, purchases_services_non_eu,
-                vat_out_reverse_25)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                vat_out_reverse_25, sales_other, box_layout)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 decl.id,
                 decl.period_year,
@@ -556,20 +662,35 @@ class VatReportService:
                 decl.purchases_services_eu,
                 decl.purchases_services_non_eu,
                 decl.vat_out_reverse_25,
+                decl.sales_other,
+                BOX_LAYOUT,
             ),
         )
         db.commit()
 
     def _row_to_declaration(self, row) -> VatDeclaration:
+        sales_25 = row["sales_25"] or 0
+        sales_12 = row["sales_12"] or 0
+        sales_6 = row["sales_6"] or 0
+        sales_exempt = row["sales_exempt"] or 0
+        sales_other = row["sales_other"] or 0
+        if row["box_layout"] == 1:
+            # Saved before migration 047: sales_12/sales_6 were 12 % and 6 %
+            # sales (ruta 05 now), sales_exempt was momsfri försäljning
+            # (ruta 42 now).
+            sales_25 += sales_12 + sales_6
+            sales_other += sales_exempt
+            sales_12 = sales_6 = sales_exempt = 0
         return VatDeclaration(
             id=row["id"],
             period_year=row["period_year"],
             period_month=row["period_month"],
             period_quarter=row["period_quarter"],
-            sales_25=row["sales_25"] or 0,
-            sales_12=row["sales_12"] or 0,
-            sales_6=row["sales_6"] or 0,
-            sales_exempt=row["sales_exempt"] or 0,
+            sales_25=sales_25,
+            sales_12=sales_12,
+            sales_6=sales_6,
+            sales_exempt=sales_exempt,
+            sales_other=sales_other,
             vat_out_25=row["vat_out_25"] or 0,
             vat_out_12=row["vat_out_12"] or 0,
             vat_out_6=row["vat_out_6"] or 0,
