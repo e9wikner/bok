@@ -261,6 +261,15 @@ export interface CompanyInfo {
   postort?: string | null;
   email?: string | null;
   phone?: string | null;
+  website?: string | null;
+  /** Säte; krävs för att utfärda en faktura. */
+  seat?: string | null;
+  /** SE + organisationsnumrets tio siffror + 01; krävs för en faktura. */
+  vat_number?: string | null;
+  bankgiro?: string | null;
+  plusgiro?: string | null;
+  /** Godkänd för F-skatt; står på fakturan. */
+  f_skatt?: boolean;
 }
 
 export interface PayrollSalarySetting {

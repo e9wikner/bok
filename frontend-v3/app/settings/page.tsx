@@ -26,16 +26,7 @@ import Link from "next/link";
 export default function SettingsPage() {
   const { data: health } = useHealth();
   const { isDark, toggle } = useDarkMode();
-  const [companyInfo, setCompanyInfo] = useState<CompanyInfo>({
-    name: "",
-    org_number: "",
-    contact_name: "",
-    address: "",
-    postnr: "",
-    postort: "",
-    email: "",
-    phone: "",
-  });
+  const [companyInfo, setCompanyInfo] = useState<CompanyInfo>(fromApi({ name: "", org_number: "" }));
   const [companyStatus, setCompanyStatus] = useState<"idle" | "loading" | "saving" | "success" | "error">("loading");
   const [companyMessage, setCompanyMessage] = useState("");
 
@@ -46,22 +37,13 @@ export default function SettingsPage() {
       try {
         const data = await api.getCompanyInfo();
         if (!cancelled) {
-          setCompanyInfo({
-            name: data.name || "",
-            org_number: data.org_number || "",
-            contact_name: data.contact_name || "",
-            address: data.address || "",
-            postnr: data.postnr || "",
-            postort: data.postort || "",
-            email: data.email || "",
-            phone: data.phone || "",
-          });
+          setCompanyInfo(fromApi(data));
           setCompanyStatus("idle");
         }
       } catch (err: any) {
         if (!cancelled) {
           setCompanyStatus("error");
-          setCompanyMessage(err?.response?.data?.detail || "Kunde inte läsa företagsuppgifter");
+          setCompanyMessage(felText(err, "Kunde inte läsa företagsuppgifter"));
         }
       }
     };
@@ -81,16 +63,7 @@ export default function SettingsPage() {
     setCompanyMessage("");
     try {
       const saved = await api.updateCompanyInfo(companyInfo);
-      setCompanyInfo({
-        name: saved.name || "",
-        org_number: saved.org_number || "",
-        contact_name: saved.contact_name || "",
-        address: saved.address || "",
-        postnr: saved.postnr || "",
-        postort: saved.postort || "",
-        email: saved.email || "",
-        phone: saved.phone || "",
-      });
+      setCompanyInfo(fromApi(saved));
       setCompanyStatus("success");
       setCompanyMessage("Företagsuppgifter sparade");
       setTimeout(() => {
@@ -99,7 +72,7 @@ export default function SettingsPage() {
       }, 2500);
     } catch (err: any) {
       setCompanyStatus("error");
-      setCompanyMessage(err?.response?.data?.detail || "Kunde inte spara företagsuppgifter");
+      setCompanyMessage(felText(err, "Kunde inte spara företagsuppgifter"));
     }
   };
 
@@ -174,6 +147,57 @@ export default function SettingsPage() {
               onChange={(value) => updateCompanyField("postort", value)}
               disabled={companyStatus === "loading" || companyStatus === "saving"}
             />
+            <Field
+              label="Webbplats"
+              value={companyInfo.website || ""}
+              onChange={(value) => updateCompanyField("website", value)}
+              disabled={companyStatus === "loading" || companyStatus === "saving"}
+            />
+          </div>
+          {/* Det en faktura kräver (fakturering F0): utan säte, momsnummer och
+              bankgiro eller plusgiro vägrar utfärdandet. */}
+          <div className="space-y-1">
+            <h3 className="text-sm font-semibold">På fakturan</h3>
+            <p className="text-xs text-muted-foreground">
+              Säte, momsregistreringsnummer och bankgiro eller plusgiro krävs för att utfärda en faktura.
+            </p>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field
+              label="Säte"
+              value={companyInfo.seat || ""}
+              onChange={(value) => updateCompanyField("seat", value)}
+              disabled={companyStatus === "loading" || companyStatus === "saving"}
+            />
+            <Field
+              label="Momsregistreringsnummer"
+              value={companyInfo.vat_number || ""}
+              placeholder="SE556677889901"
+              onChange={(value) => updateCompanyField("vat_number", value.replace(/[\s-]/g, "").toUpperCase())}
+              disabled={companyStatus === "loading" || companyStatus === "saving"}
+            />
+            <Field
+              label="Bankgiro"
+              value={companyInfo.bankgiro || ""}
+              onChange={(value) => updateCompanyField("bankgiro", value)}
+              disabled={companyStatus === "loading" || companyStatus === "saving"}
+            />
+            <Field
+              label="Plusgiro"
+              value={companyInfo.plusgiro || ""}
+              onChange={(value) => updateCompanyField("plusgiro", value)}
+              disabled={companyStatus === "loading" || companyStatus === "saving"}
+            />
+            <label className="flex items-center gap-2 text-sm font-medium md:col-span-2">
+              <input
+                type="checkbox"
+                checked={!!companyInfo.f_skatt}
+                onChange={(event) => setCompanyInfo((c) => ({ ...c, f_skatt: event.target.checked }))}
+                disabled={companyStatus === "loading" || companyStatus === "saving"}
+                className="h-4 w-4"
+              />
+              Godkänd för F-skatt
+            </label>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Button onClick={saveCompanyInfo} disabled={companyStatus === "loading" || companyStatus === "saving"}>
@@ -360,16 +384,46 @@ export default function SettingsPage() {
   );
 }
 
+/** API-svaret som formulärets värden: tomma strängar i stället för null. */
+function fromApi(data: CompanyInfo): CompanyInfo {
+  return {
+    name: data.name || "",
+    org_number: data.org_number || "",
+    contact_name: data.contact_name || "",
+    address: data.address || "",
+    postnr: data.postnr || "",
+    postort: data.postort || "",
+    email: data.email || "",
+    phone: data.phone || "",
+    website: data.website || "",
+    seat: data.seat || "",
+    vat_number: data.vat_number || "",
+    bankgiro: data.bankgiro || "",
+    plusgiro: data.plusgiro || "",
+    f_skatt: !!data.f_skatt,
+  };
+}
+
+/** Serverns `detail` kan vara ett objekt (422); det får aldrig renderas som barn. */
+function felText(err: any, reserv: string): string {
+  const detail = err?.response?.data?.detail;
+  if (typeof detail === "string") return detail;
+  if (detail && typeof detail.message === "string") return detail.message;
+  return reserv;
+}
+
 function Field({
   label,
   value,
   onChange,
   disabled,
+  placeholder,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
+  placeholder?: string;
 }) {
   const id = label.toLowerCase().replace(/\s+/g, "-");
   return (
@@ -380,6 +434,7 @@ function Field({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         disabled={disabled}
+        placeholder={placeholder}
         className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary disabled:cursor-not-allowed disabled:opacity-60"
       />
     </label>

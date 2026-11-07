@@ -108,6 +108,10 @@ describe("skalet håller sig innanför sin gräns (testfall 18)", () => {
     // Undantag, inte skalets: dropzonens status visas bara på intagssidan, och
     // den varnar för underlag daterade utanför alla räkenskapsår.
     const intaget = ["frontend-v3/app/vouchers/intake/page.tsx"];
+    // Undantag, inte skalets: fakturering F0 kräver säte, momsnummer och
+    // bankgiro, och F-skatt står på fakturan. Inställningarna är enda stället
+    // där en människa kan ange dem.
+    const installningarna = ["frontend-v3/app/settings/page.tsx"];
     const tillatet = (f: string) =>
       f.includes("frontend-v3/app/v4/") ||
       f.endsWith("frontend-v3/app/globals.css") ||
@@ -115,7 +119,8 @@ describe("skalet håller sig innanför sin gräns (testfall 18)", () => {
       numreringen.includes(f) ||
       faktureringen.includes(f) ||
       lonerna.includes(f) ||
-      intaget.includes(f);
+      intaget.includes(f) ||
+      installningarna.includes(f);
     expect(andrade.filter((f) => !tillatet(f))).toEqual([]);
   });
 });

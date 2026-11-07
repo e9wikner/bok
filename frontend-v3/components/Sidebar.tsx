@@ -21,10 +21,16 @@ import {
   FileCheck,
   WalletCards,
   Upload,
+  Sparkles,
 } from "lucide-react";
 import { useDarkMode } from "@/hooks/useDarkMode";
 import { useAuth } from "@/hooks/useAuth";
 import { useState } from "react";
+
+// Det nya skalet, när byggflaggan är på. Läses här i stället för ur
+// `lib/skal/rutt`: de gamla sidorna rör inte skalets moduler (grans.test).
+const NYA_BOKAI =
+  process.env.NEXT_PUBLIC_SKAL === "1" || process.env.NEXT_PUBLIC_SKAL === "true" ? "/v4" : null;
 
 const navItems = [
   { href: "/", label: "Översikt", icon: LayoutDashboard },
@@ -64,6 +70,11 @@ export function Sidebar() {
           <span className="font-bold text-lg">BokAi</span>
         </div>
         <div className="flex items-center gap-2">
+          {NYA_BOKAI && (
+            <Link href={NYA_BOKAI} className="rounded-lg px-2 py-1 text-sm font-medium text-primary hover:bg-accent">
+              Nya BokAI
+            </Link>
+          )}
           <button onClick={toggle} className="p-2 rounded-lg hover:bg-accent">
             {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
           </button>
@@ -116,6 +127,21 @@ export function Sidebar() {
 
         {/* Nav */}
         <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto scrollbar-thin">
+          {/* Det nya skalet, när det är påslaget: de gamla sidorna tas bort
+              vy för vy, och fram till dess ska man hitta dit härifrån. */}
+          {NYA_BOKAI && (
+            <Link
+              href={NYA_BOKAI}
+              className={cn(
+                "mb-2 flex items-center gap-3 rounded-lg border border-primary/30 px-3 py-2.5 text-sm font-medium text-primary transition-all hover:bg-primary/10",
+                collapsed && "justify-center px-0"
+              )}
+              title={collapsed ? "Nya BokAI" : undefined}
+            >
+              <Sparkles className="h-5 w-5 flex-shrink-0" />
+              {!collapsed && <span>Nya BokAI</span>}
+            </Link>
+          )}
           {navItems.map((item) => {
             const isActive = activeNavItem?.href === item.href;
             return (
