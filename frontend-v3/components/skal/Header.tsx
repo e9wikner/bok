@@ -126,17 +126,10 @@ export function Header({
       style={{ position: "relative", zIndex: 6 }}
     >
       <div className="flex items-center gap-4">
-        <SidVaeljare
-          aktiv={sida.key}
-          metaPerSida={metaPerSida}
-          onValj={onValjSida}
-          variant="desktop"
-        />
-        {/* Öppen fråga 1: var bolagsnamnet kommer ifrån. GET /overview bär
-            det inte, och enbolagsantagandet gör en väljare fel. Tills någon
-            säger var namnet bor står det bara "BokAi" — skärmbildens
-            "Wikner Teknik AB" är exempeldata, inte ett fält. */}
-        <span className="text-[14px] text-bok-meta">BokAi</span>
+        {/* Sidorna och vyerna står i sidonavigeringen (`SidNav`); headern
+            bär bara namnet. Öppen fråga 1: var bolagsnamnet kommer ifrån.
+            GET /overview bär det inte, så det står "BokAi". */}
+        <span className="text-[15px] font-medium tracking-[-0.01em] text-bok-text">BokAi</span>
       </div>
 
       <div className="flex items-center gap-5">

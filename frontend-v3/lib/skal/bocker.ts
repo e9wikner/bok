@@ -300,8 +300,34 @@ export function summarad(id: string, titel: string, belopp: number): VyRadData {
 function sorterade(...listor: BalansKonto[][]): BalansKonto[] {
   return listor
     .flat()
-    .filter((k) => k.closing_balance !== 0)
+    // Ett konto som tömts under året står kvar: dess förändring är en del av bilden.
+    .filter((k) => k.closing_balance !== 0 || k.opening_balance !== 0 || k.change !== 0)
     .sort((a, b) => a.code.localeCompare(b.code));
+}
+
+/** En förändring med tecken: "+12 000", "−3 500", "0". */
+export function formatForandring(belopp: number): string {
+  const s = formatBeloppHela(belopp);
+  return belopp > 0 && s !== "0" ? `+${s}` : s;
+}
+
+function summa(konton: BalansKonto[], falt: "opening_balance" | "change"): number {
+  return konton.reduce((acc, k) => acc + k[falt], 0);
+}
+
+/** Ett kontos rad med ingående balans och förändring före saldot. */
+function balansrad(k: BalansKonto): VyRadData {
+  return {
+    ...kontorad(k, k.closing_balance),
+    kolumner: [formatBeloppHela(k.opening_balance), formatForandring(k.change)],
+  };
+}
+
+function balanssumma(id: string, titel: string, ib: number, forandring: number, ub: number): VyRadData {
+  return {
+    ...summarad(id, titel, ub),
+    kolumner: [formatBeloppHela(ib), formatForandring(forandring)],
+  };
 }
 
 /** Varifrån årets ingående balans kommer — IB är ingen verifikation. */
@@ -312,7 +338,9 @@ const IB_FOT: Record<Balansrakning["opening_balance_source"], string> = {
 };
 
 /**
- * Balansräkningen per räkenskapsårets utgång, med årets resultat.
+ * Balansräkningen med tre kolumner per konto: ingående balans, årets
+ * förändring och saldot — nuvarande under ett pågående år, utgående när
+ * året är slut. Årets resultat räknas med.
  *
  * Serverns summa för eget kapital och skulder omfattar bara klass 2. Förrän
  * årets resultat är bokat mot 2099 ligger det i resultatkontona, så det
@@ -322,7 +350,8 @@ const IB_FOT: Record<Balansrakning["opening_balance_source"], string> = {
 export function balansVy(
   ar: OverviewFiscalYear,
   b: Balansrakning,
-  r: Resultatrakning
+  r: Resultatrakning,
+  idag: string = new Date().toISOString().slice(0, 10)
 ): VyData {
   const tillgangar = sorterade(
     b.fixed_assets_details,
@@ -339,7 +368,10 @@ export function balansVy(
   const summaSkulder = b.closing_equity_liabilities + r.profit;
   const differens = b.closing_assets - summaSkulder;
 
-  const skuldrader = skulder.map((k) => kontorad(k, k.closing_balance));
+  const pagaende = idag <= ar.end;
+  const kolumner = ["Ingående", "Förändring", pagaende ? "Nuvarande" : "Utgående"];
+
+  const skuldrader = skulder.map(balansrad);
   if (r.profit !== 0) {
     // Efter det sista eget kapital-kontot, före skulderna.
     const index = skulder.findIndex((k) => Number(k.code) >= 2100);
@@ -348,6 +380,7 @@ export function balansVy(
       titel: "Årets resultat, ej bokfört",
       meta: "resultaträkningen",
       hoger: formatBeloppHela(r.profit),
+      kolumner: [formatBeloppHela(0), formatForandring(r.profit)],
       mal: { typ: "vy", key: "bocker.resultat" },
     };
     skuldrader.splice(index === -1 ? skuldrader.length : index, 0, rad);
@@ -356,18 +389,35 @@ export function balansVy(
   const vy: VyData = {
     lage: differens === 0 ? "normal" : "fel",
     status: differens === 0 ? "balanserar" : `differens ${formatBeloppHela(differens)}`,
-    period: `${arsrubrik(ar)} · utgående balans`,
+    period: `${arsrubrik(ar)} · ${pagaende ? `saldo per ${idag}` : "utgående balans"}`,
     sektioner: [
       {
         titel: "Tillgångar",
+        kolumner,
         rader: [
-          ...tillgangar.map((k) => kontorad(k, k.closing_balance)),
-          summarad("sum-t", "Summa tillgångar", b.closing_assets),
+          ...tillgangar.map(balansrad),
+          balanssumma(
+            "sum-t",
+            "Summa tillgångar",
+            summa(tillgangar, "opening_balance"),
+            summa(tillgangar, "change"),
+            b.closing_assets
+          ),
         ],
       },
       {
         titel: "Eget kapital och skulder",
-        rader: [...skuldrader, summarad("sum-s", "Summa eget kapital och skulder", summaSkulder)],
+        kolumner,
+        rader: [
+          ...skuldrader,
+          balanssumma(
+            "sum-s",
+            "Summa eget kapital och skulder",
+            summa(skulder, "opening_balance"),
+            summa(skulder, "change") + r.profit,
+            summaSkulder
+          ),
+        ],
       },
     ],
     fot: IB_FOT[b.opening_balance_source],

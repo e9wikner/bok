@@ -3,6 +3,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { LasKnapp } from "@/components/skal/LasKnapp";
+import { KOLUMN_BREDD } from "@/components/skal/VySektion";
 import { useBeslutFokus } from "@/components/skal/BeslutFokus";
 import { useDetalj } from "@/components/skal/DetaljKontext";
 import { aldersTon } from "@/lib/chattyta/alder";
@@ -69,6 +70,8 @@ export function VyRad({
   summa = false,
   struken = false,
   hogerFore,
+  kolumner,
+  kolumnRubriker,
   storlek = "desktop",
   ageDays,
   kvitto,
@@ -90,6 +93,10 @@ export function VyRad({
   struken?: boolean;
   /** Beloppet före en rättelse, överstruket framför `hoger`. */
   hogerFore?: string;
+  /** Beloppskolumner före `hoger` (Balansräkningen). */
+  kolumner?: string[];
+  /** Sektionens rubriker för kolumnerna; på mobilen står de i metaraden. */
+  kolumnRubriker?: string[];
   storlek?: "desktop" | "mobil";
   /** Serverns `age_days`; färgar metaraden för `saknar`/`vantar` (§10). */
   ageDays?: number;
@@ -131,6 +138,13 @@ export function VyRad({
   const yta = nyAktiv ? "var(--bok-klart-yta)" : pagaende ? "var(--bok-yta-svag)" : undefined;
   const textFarg = pagaende || struken ? "var(--bok-meta)" : undefined;
   const streck = struken ? "line-through" : undefined;
+  const iKolumner = !!kolumner && storlek === "desktop";
+  // Mobilen har inte bredd för kolumnerna: de står i metaraden i stället.
+  const kolumnMeta =
+    kolumner && storlek === "mobil"
+      ? kolumner.map((k, i) => `${(kolumnRubriker?.[i] ?? "").toLowerCase()} ${k}`.trim()).join(" · ")
+      : undefined;
+  const metaText = [meta, kolumnMeta].filter(Boolean).join(" · ") || undefined;
 
   return (
     <div
@@ -141,7 +155,7 @@ export function VyRad({
       }`}
       style={{ background: yta }}
     >
-      <span className="flex min-w-0 flex-col gap-[2px]">
+      <span className={`flex min-w-0 flex-col gap-[2px] ${iKolumner ? "flex-1" : ""}`}>
         {beslut ? (
           <button
             type="button"
@@ -183,12 +197,12 @@ export function VyRad({
             <Markerad text={titel} index={traff?.titel} />
           </span>
         )}
-        {(meta || kvitto || forsokIgen || fraga || (lankar && detalj)) && (
+        {(metaText || kvitto || forsokIgen || fraga || (lankar && detalj)) && (
           <span
             className={`bok-mono ${storlek === "desktop" ? "text-[11px]" : "text-[12px]"}`}
             style={{ color: metaFarg(variant, ageDays) }}
           >
-            {meta && <Markerad text={meta} index={traff?.meta} />}
+            {metaText && <Markerad text={metaText} index={traff?.meta} />}
             {kvitto && <KvittoLank {...kvitto} forsta={!meta} />}
             {forsokIgen && <ForsokIgenLank {...forsokIgen} forsta={!meta && !kvitto} />}
             {fraga && (
@@ -212,10 +226,24 @@ export function VyRad({
           </span>
         )}
       </span>
+      {iKolumner && (
+        <span className="flex shrink-0">
+          {kolumner!.map((k, i) => (
+            <span
+              key={i}
+              data-testid="vyrad-kolumn"
+              className={`bok-mono bok-tal whitespace-nowrap text-right text-[14px] ${KOLUMN_BREDD}`}
+              style={{ color: summa ? textFarg : "var(--bok-text-dampad)", fontWeight: summa ? 500 : undefined }}
+            >
+              {k}
+            </span>
+          ))}
+        </span>
+      )}
       <span
         className={`bok-mono bok-tal whitespace-nowrap ${
           storlek === "desktop" ? "text-[14px]" : "text-[15px]"
-        }`}
+        } ${iKolumner ? `-ml-[14px] shrink-0 text-right ${KOLUMN_BREDD}` : ""}`}
         style={{ color: textFarg, fontWeight: summa ? 500 : undefined, textDecoration: streck }}
       >
         {hogerFore && (

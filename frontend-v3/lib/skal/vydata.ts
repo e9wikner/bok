@@ -33,6 +33,11 @@ export interface VyRadData {
   struken?: boolean;
   /** Beloppet före en rättelse, överstruket framför `hoger`. */
   hogerFore?: string;
+  /**
+   * Beloppskolumner före `hoger`, som sektionens `kolumner` namnger
+   * (Balansräkningen: ingående och förändring före saldot).
+   */
+  kolumner?: string[];
   /** Serverns `age_days`; färgar metan för `vantar`/`saknar` med `aldersTon`. */
   ageDays?: number;
   /**
@@ -74,6 +79,11 @@ export interface VyRadData {
 export interface VySektionData {
   titel: string;
   rader: VyRadData[];
+  /**
+   * Rubriker för radernas beloppskolumner, den sista för `hoger`
+   * (t.ex. Ingående · Förändring · Nuvarande).
+   */
+  kolumner?: string[];
   /** Månadens lås, i rubrikraden (Verifikationer, en sektion per månad). */
   las?: LasData;
   /**

@@ -3,6 +3,9 @@
 import { LasKnapp } from "@/components/skal/LasKnapp";
 import type { LasData } from "@/lib/skal/las";
 
+/** En beloppskolumns bredd, samma i rubriken och i raden (`VyRad`). */
+export const KOLUMN_BREDD = "w-[124px]";
+
 /**
  * `VySektion` (komponenter.md): rubrik mono 10 versalt, padding 20/0/6.
  *
@@ -19,6 +22,7 @@ export function VySektion({
   variant = "desktop",
   las,
   tom,
+  kolumner,
 }: {
   titel: string;
   children: React.ReactNode;
@@ -28,6 +32,8 @@ export function VySektion({
   las?: LasData;
   /** Texten som står i stället för rader när sektionen är tom. */
   tom?: string;
+  /** Beloppskolumnernas rubriker, i linje med radernas kolumner (bara desktop). */
+  kolumner?: string[];
 }) {
   if (antalRader === 0 && !tom) return null;
 
@@ -39,6 +45,15 @@ export function VySektion({
         }`}
       >
         <span className="bok-etikett text-[10px] text-bok-meta">{titel}</span>
+        {kolumner && variant === "desktop" && (
+          <span className="flex shrink-0">
+            {kolumner.map((k) => (
+              <span key={k} className={`bok-etikett text-right text-[10px] text-bok-meta ${KOLUMN_BREDD}`}>
+                {k}
+              </span>
+            ))}
+          </span>
+        )}
         {las && <LasKnapp {...las} />}
       </div>
       {antalRader === 0 ? (

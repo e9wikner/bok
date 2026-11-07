@@ -64,9 +64,39 @@ describe("balansVy", () => {
     expect(summor).toEqual([formatBeloppHela(150000), formatBeloppHela(150000)]);
   });
 
-  it("utelämnar konton med noll i utgående balans", () => {
+  it("utelämnar konton som är noll i alla tre kolumnerna", () => {
     const vy = balansVy(AR, BALANS, RESULTAT);
     expect(rader(vy).map((r) => r.id)).not.toContain("1940");
+  });
+
+  it("visar ett konto som tömts under året", () => {
+    const tomt = { code: "1940", name: "Tömt", opening_balance: 20000, change: -20000, closing_balance: 0 };
+    const vy = balansVy(AR, { ...BALANS, bank_and_cash_details: [tomt] }, RESULTAT);
+    const rad = rader(vy).find((r) => r.id === "1940");
+    expect(rad?.kolumner).toEqual([formatBeloppHela(20000), formatBeloppHela(-20000)]);
+    expect(rad?.hoger).toBe("0");
+  });
+
+  it("har ingående, förändring och nuvarande saldo per konto och i summorna", () => {
+    const ib = { code: "1930", name: "Företagskonto", opening_balance: 40000, change: 60000, closing_balance: 100000 };
+    const vy = balansVy(AR, { ...BALANS, bank_and_cash_details: [ib] }, RESULTAT, "2026-11-07");
+    expect(vy.sektioner.map((s) => s.kolumner)).toEqual([
+      ["Ingående", "Förändring", "Nuvarande"],
+      ["Ingående", "Förändring", "Nuvarande"],
+    ]);
+    expect(vy.period).toContain("saldo per 2026-11-07");
+    const r = new Map(rader(vy).map((x) => [x.id, x]));
+    expect(r.get("1930")?.kolumner).toEqual([formatBeloppHela(40000), `+${formatBeloppHela(60000)}`]);
+    expect(r.get("sum-t")?.kolumner).toEqual([formatBeloppHela(40000), `+${formatBeloppHela(110000)}`]);
+    // Årets resultat räknas med i förändringen för eget kapital och skulder.
+    expect(r.get("arets-resultat")?.kolumner).toEqual(["0", `+${formatBeloppHela(50000)}`]);
+    expect(r.get("sum-s")?.kolumner).toEqual(["0", `+${formatBeloppHela(150000)}`]);
+  });
+
+  it("säger Utgående när året är slut", () => {
+    const vy = balansVy(AR, BALANS, RESULTAT, "2027-02-01");
+    expect(vy.sektioner[0].kolumner?.[2]).toBe("Utgående");
+    expect(vy.period).toContain("utgående balans");
   });
 
   it("är i felläge med en banner när summorna inte möts", () => {

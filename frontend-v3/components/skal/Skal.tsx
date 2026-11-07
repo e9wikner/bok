@@ -8,7 +8,7 @@ import { ChattBubbla } from "@/components/skal/ChattBubbla";
 import { DetaljLager } from "@/components/skal/Detalj";
 import { DetaljProvider, useDetaljHistorik } from "@/components/skal/DetaljKontext";
 import { Header } from "@/components/skal/Header";
-import { PrickNav } from "@/components/skal/PrickNav";
+import { SidNav } from "@/components/skal/SidNav";
 import type { SidMeta } from "@/components/skal/SidVaeljare";
 import { VyInnehall } from "@/components/skal/VyInnehall";
 import { VySvep } from "@/components/skal/VySvep";
@@ -179,6 +179,8 @@ export function Skal() {
         onValjVy={setVyIndex}
       />
 
+      <div className="flex min-h-0 flex-1">
+      {bred && <SidNav aktivVy={aktivVy.key} metaPerSida={metaPerSida} onValjVy={gaTillVy} />}
       <VySvep
         // Ny sida = ny sverprad. Utan nyckeln ligger skrollpositionen kvar
         // från förra sidan medan innehållet redan har bytts.
@@ -193,12 +195,12 @@ export function Skal() {
           // ström per flik.
           const aktiv = i === vyIndex;
           if (bred) {
-            // Vyn äger ytan; chatten är en bubbla (`ChattBubbla`) nere
-            // till höger. Läskolumnen centreras med en läsbar maxbredd i
-            // stället för att dras ut över hela skärmen.
+            // Vyn äger ytan bredvid sidonavigeringen; chatten är en bubbla
+            // (`ChattBubbla`) nere till höger. Kolumnen fyller bredden upp
+            // till en maxbredd, så att beloppskolumnerna får plats.
             return (
-              <div className="flex min-h-0 flex-1 justify-center">
-                <div className="flex min-h-0 w-full max-w-[880px] flex-col border-x border-bok-linje bg-bok-yta">
+              <div className="flex min-h-0 flex-1 justify-center px-6 pt-5">
+                <div className="flex min-h-0 w-full max-w-[1180px] flex-col overflow-hidden rounded-t-[12px] border-x border-t border-bok-linje bg-bok-yta">
                   {aktiv && lagerOppet ? (
                     <DetaljLager vyTitel={vy.titel} ar={ar} />
                   ) : (
@@ -230,14 +232,7 @@ export function Skal() {
           );
         }}
       />
-
-      {bred && (
-        <div className="flex h-[48px] shrink-0 items-center justify-center border-t border-bok-linje bg-bok-yta px-5">
-          {/* Foten bär bara prickarna. "dra i sidled" och lägesräknaren i
-              v10 är dokumentationskrom och byggs inte (SPEC-skal.md §2.3). */}
-          <PrickNav vyer={sida.vyer} aktivIndex={vyIndex} onValj={setVyIndex} />
-        </div>
-      )}
+      </div>
       <ChattBubbla
         vyTitel={aktivVy.titel}
         viewKey={aktivVy.key}

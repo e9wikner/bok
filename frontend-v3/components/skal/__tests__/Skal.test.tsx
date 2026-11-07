@@ -81,28 +81,24 @@ describe("skalet i drift", () => {
     expect(window.history.length).toBe(langdFore);
   });
 
-  it("sidbyte landar på den nya sidans FÖRSTA vy (testfall 3)", async () => {
+  it("sidonavigeringen leder direkt till en vy på en annan sida", async () => {
     const user = userEvent.setup();
     renderaSkal();
 
-    // Gå till tredje vyn på Böcker först …
-    await user.click(screen.getByRole("button", { name: "Verifikationer" }));
-    await waitFor(() => expect(window.location.search).toContain("vy=verifikationer"));
-
-    // … byt sedan sida.
-    await user.click(screen.getByRole("button", { name: "Välj sida" }));
-    await user.click(screen.getByRole("menuitem", { name: /Bokslut/ }));
+    await user.click(screen.getByRole("button", { name: "Åtgärder och nyckeltal" }));
 
     await waitFor(() => {
-      expect(window.location.search).toBe("?sida=bokslut&vy=rapporter");
+      expect(window.location.search).toBe("?sida=bokslut&vy=atgarder");
     });
     expect(screen.getByRole("group", { name: "Vyer i Bokslut" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Åtgärder och nyckeltal" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    );
   });
 
   it("hämtar sidornas metarader från servern och visar dem ordagrant", async () => {
-    const user = userEvent.setup();
     renderaSkal();
-    await user.click(await screen.findByRole("button", { name: "Välj sida" }));
     expect(await screen.findByText("1 väntar på dig")).toBeInTheDocument();
   });
 

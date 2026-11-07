@@ -104,6 +104,7 @@ export function VyInnehall({
               variant={variant}
               las={sektion.las}
               tom={sektion.tom}
+              kolumner={sektion.kolumner}
             >
               {sektion.rader.map((rad) => (
                 <VyRad
@@ -115,6 +116,8 @@ export function VyInnehall({
                   summa={rad.summa}
                   struken={rad.struken}
                   hogerFore={rad.hogerFore}
+                  kolumner={rad.kolumner}
+                  kolumnRubriker={sektion.kolumner}
                   ageDays={rad.ageDays}
                   kvitto={rad.kvitto}
                   forsokIgen={rad.forsokIgen}

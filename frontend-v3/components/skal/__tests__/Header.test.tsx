@@ -27,8 +27,9 @@ function renderaHeader(over: Partial<Parameters<typeof Header>[0]> = {}) {
 }
 
 describe("headern räknar ingenting (testfall 8)", () => {
+  // Desktop har sidorna i `SidNav` (SidNav.test.tsx); mobilen i väljaren.
   it("visar serverns meta-sträng ordagrant", async () => {
-    renderaHeader();
+    renderaHeader({ variant: "mobil" });
     await userEvent.setup().click(screen.getByRole("button", { name: "Välj sida" }));
     expect(screen.getByText("3 väntar på dig · 7 saknar underlag")).toBeInTheDocument();
   });
@@ -37,6 +38,7 @@ describe("headern räknar ingenting (testfall 8)", () => {
     // Servern bestämmer formuleringen (datakontraktets regel 2). Om klienten
     // räknade skulle den här strängen inte kunna uppstå.
     renderaHeader({
+      variant: "mobil",
       metaPerSida: { bocker: { waiting: false, meta: "Allt är avstämt sedan i morse" } },
     });
     await userEvent.setup().click(screen.getByRole("button", { name: "Välj sida" }));
