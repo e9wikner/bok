@@ -18,6 +18,9 @@ class CreateCustomerRequest(BaseModel):
     email: Optional[str] = None
     address: Optional[str] = None
     payment_terms_days: int = Field(30, ge=0)
+    contact_person: Optional[str] = Field(
+        None, description="Er referens; prefills invoice drafts for this customer"
+    )
 
 
 @router.get("", response_model=dict)
@@ -52,6 +55,7 @@ def _customer_to_dict(customer) -> dict:
         "email": customer.email,
         "address": customer.address,
         "payment_terms_days": customer.payment_terms_days,
+        "contact_person": customer.contact_person,
         "active": customer.active,
         "created_at": customer.created_at,
         "updated_at": customer.updated_at,

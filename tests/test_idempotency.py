@@ -771,7 +771,7 @@ async def test_an_aborted_correction_leaves_no_trace(
         raise RuntimeError("simulated failure after the correction")
 
     monkeypatch.setattr(
-        "services.ledger.LedgerService._record_correction_history", explode
+        "services.ledger.LedgerService.record_correction_history", explode
     )
 
     failed = await async_client.post(
@@ -871,3 +871,145 @@ async def test_correcting_without_a_key_still_works(test_db, async_client):
     assert response.status_code == 200
     assert _key_rows() == []
     assert _correction_history_count() == 1
+
+
+# --- POST /vouchers/{id}/post reads the key (chattyta, open question 4) ----
+#
+# The chat's Posta button has sent a key derived from `draft_id` since C12,
+# but the route never read it. Posting only flips a draft's own status, so a
+# second request could not create a second voucher -- yet two requests that
+# arrived at the same instant could both pass validation and both write a
+# `posted` audit row. With the key, the second one is `request_in_flight`
+# or a replay, never a second posting.
+
+
+def _draft_voucher(period, amount: int = 12500):
+    return LedgerService().create_voucher(
+        series="A",
+        date=date.today(),
+        period_id=period.id,
+        description="Telefonutgift Fello",
+        rows_data=[
+            {"account": "1920", "debit": 0, "credit": amount},
+            {"account": "6200", "debit": amount, "credit": 0},
+        ],
+        created_by="api",
+    )
+
+
+def _posted_audit_rows(voucher_id: str) -> int:
+    return db.execute(
+        "SELECT COUNT(*) AS n FROM audit_log WHERE entity_id = ? AND action = 'posted'",
+        (voucher_id,),
+    ).fetchone()["n"]
+
+
+def _post_endpoint(voucher_id: str) -> str:
+    return f"POST /api/v1/vouchers/{voucher_id}/post"
+
+
+@pytest.mark.asyncio
+async def test_posting_twice_with_one_key_replays(test_db, async_client):
+    _ensure_accounts()
+    voucher = _draft_voucher(_period())
+    key = str(uuid.uuid4())
+
+    first = await async_client.post(
+        f"/api/v1/vouchers/{voucher.id}/post", headers=_headers(key)
+    )
+    second = await async_client.post(
+        f"/api/v1/vouchers/{voucher.id}/post", headers=_headers(key)
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.headers.get("Idempotent-Replay") is None
+    assert second.headers.get("Idempotent-Replay") == "true"
+    assert second.json() == first.json()
+    assert first.json()["status"] == "posted"
+    assert _posted_audit_rows(voucher.id) == 1
+
+
+@pytest.mark.asyncio
+async def test_posting_records_the_key_with_the_voucher(test_db, async_client):
+    _ensure_accounts()
+    voucher = _draft_voucher(_period())
+    key = str(uuid.uuid4())
+
+    await async_client.post(
+        f"/api/v1/vouchers/{voucher.id}/post", headers=_headers(key)
+    )
+
+    [row] = _key_rows()
+    assert row["key"] == key
+    assert row["endpoint"] == _post_endpoint(voucher.id)
+    assert row["state"] == "completed"
+    assert row["entity_id"] == voucher.id
+
+
+@pytest.mark.asyncio
+async def test_posting_while_the_key_is_held_is_in_flight(test_db, async_client):
+    _ensure_accounts()
+    voucher = _draft_voucher(_period())
+    key = str(uuid.uuid4())
+    IdempotencyService().begin(key, _post_endpoint(voucher.id), {}, "api")
+
+    response = await async_client.post(
+        f"/api/v1/vouchers/{voucher.id}/post", headers=_headers(key)
+    )
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["code"] == "request_in_flight"
+    assert detail["retry_after_ms"] > 0
+    assert LedgerService().vouchers.get(voucher.id).status.value == "draft"
+    assert _posted_audit_rows(voucher.id) == 0
+
+
+@pytest.mark.asyncio
+async def test_a_refused_posting_releases_the_key(test_db, async_client):
+    """A locked period is an answer, not a completed posting: the key is freed."""
+    _ensure_accounts()
+    period = _period()
+    voucher = _draft_voucher(period)
+    PeriodRepository.lock_period(period.id, actor="stefan")
+    key = str(uuid.uuid4())
+
+    response = await async_client.post(
+        f"/api/v1/vouchers/{voucher.id}/post", headers=_headers(key)
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "period_locked"
+    assert _key_rows() == []
+
+
+@pytest.mark.asyncio
+async def test_already_posted_is_still_a_conflict_under_a_new_key(
+    test_db, async_client
+):
+    """A voucher posted by another path, then pressed under a fresh key."""
+    _ensure_accounts()
+    voucher = _posted_voucher(_period())
+
+    response = await async_client.post(
+        f"/api/v1/vouchers/{voucher.id}/post", headers=_headers(str(uuid.uuid4()))
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "already_posted"
+    assert _key_rows() == []
+
+
+@pytest.mark.asyncio
+async def test_posting_without_a_key_still_works(test_db, async_client):
+    _ensure_accounts()
+    voucher = _draft_voucher(_period())
+
+    response = await async_client.post(
+        f"/api/v1/vouchers/{voucher.id}/post", headers=_headers()
+    )
+
+    assert response.status_code == 200
+    assert _key_rows() == []
+    assert _posted_audit_rows(voucher.id) == 1

@@ -3,14 +3,49 @@
 from datetime import date, timedelta
 from typing import Dict, List, Optional
 
-from domain.invoice_validation import ValidationError, VATCalculator
+from domain.invoice_validation import (
+    ValidationError,
+    VATCalculator,
+    amount_ex_vat_from_centi,
+    legacy_quantity,
+    normalize_delivery,
+    normalize_invoice_number,
+    parse_quantity_centi,
+)
 from domain.types import AuditAction
 from repositories.account_repo import AccountRepository
 from repositories.audit_repo import AuditRepository
 from repositories.customer_article_repo import ArticleRepository, CustomerRepository
 from repositories.invoice_draft_repo import InvoiceDraftRepository
 from repositories.period_repo import PeriodRepository
-from services.invoice import InvoiceService
+from services.invoice import unit_of_work
+
+
+def _refuse_issued(draft) -> None:
+    """An issued draft is history: it has become an invoice
+    (SPEC-fakturering.md §5) and changes no more."""
+    if draft.status == "issued":
+        raise ValidationError(
+            "draft_already_issued",
+            "Invoice draft is already issued",
+            payload={"invoice_id": draft.approved_invoice_id},
+        )
+
+
+def _refuse_in_thread(draft) -> None:
+    """SPEC-fakturering-f1.md §4.3 (beslut 2): a draft behind a pending card
+    in a thread changes only by being replaced there, never in place -- or
+    the card would no longer show what `Utfärda` issues."""
+    from repositories.invoice_proposal_repo import InvoiceProposalRepository
+
+    proposal = InvoiceProposalRepository.get(draft.id)
+    if proposal is not None and proposal.status == "pending":
+        raise ValidationError(
+            "draft_in_thread",
+            "The draft is a pending proposal in a thread and changes only there",
+            "ask the agent in Fakturering's chat to change it",
+            payload={"post_id": proposal.post_id, "thread_id": proposal.thread_id},
+        )
 
 
 class InvoiceDraftService:
@@ -34,65 +69,56 @@ class InvoiceDraftService:
         agent_confidence: Optional[float] = None,
         agent_warnings: Optional[str] = None,
         created_by: str = "system",
+        invoice_number: Optional[str] = None,
+        customer_address: Optional[str] = None,
+        delivery_from: Optional[date] = None,
+        delivery_to: Optional[date] = None,
+        delivery_month: Optional[str] = None,
+        _commit: bool = True,
     ):
-        customer = CustomerRepository.get(customer_id) if customer_id else None
-        if customer_id and not customer:
-            raise ValidationError("customer_not_found", "Customer not found")
-        if customer:
-            customer_name = customer_name or customer.name
-            customer_org_number = customer_org_number or customer.org_number
-            customer_email = customer_email or customer.email
-            due_date = due_date or invoice_date + timedelta(
-                days=customer.payment_terms_days
+        with unit_of_work(_commit):
+            normalized = self._normalize_draft_input(
+                invoice_date=invoice_date,
+                rows_data=rows_data,
+                due_date=due_date,
+                customer_id=customer_id,
+                customer_name=customer_name,
+                customer_org_number=customer_org_number,
+                customer_email=customer_email,
+                reference=reference,
+                invoice_number=invoice_number,
+                customer_address=customer_address,
+                delivery_from=delivery_from,
+                delivery_to=delivery_to,
+                delivery_month=delivery_month,
             )
 
-        if not customer_name:
-            raise ValidationError(
-                "missing_customer", "Customer name or customer_id is required"
+            draft = self.drafts.create(
+                description=description,
+                status=status,
+                agent_summary=agent_summary,
+                agent_confidence=agent_confidence,
+                agent_warnings=agent_warnings,
+                created_by=created_by,
+                **self._draft_columns(normalized),
             )
-        if not due_date:
-            due_date = invoice_date + timedelta(days=30)
-        if due_date < invoice_date:
-            raise ValidationError(
-                "invalid_due_date", "Due date must be on or after invoice date"
-            )
-        if not rows_data:
-            raise ValidationError(
-                "missing_rows", "At least one invoice row is required"
+            self.drafts.replace_rows(draft.id, normalized["rows"])
+            draft = self.drafts.get(draft.id)
+
+            self.audit.log(
+                entity_type="invoice_draft",
+                entity_id=draft.id,
+                action=AuditAction.CREATED.value,
+                actor=created_by,
+                payload={
+                    "customer": draft.customer_name,
+                    "amount_inc_vat": draft.amount_inc_vat,
+                    "rows_count": len(draft.rows),
+                    "agent_confidence": agent_confidence,
+                },
+                _commit=False,
             )
 
-        draft = self.drafts.create(
-            customer_id=customer_id,
-            customer_name=customer_name,
-            customer_org_number=customer_org_number,
-            customer_email=customer_email,
-            invoice_date=invoice_date,
-            due_date=due_date,
-            reference=reference,
-            description=description,
-            status=status,
-            agent_summary=agent_summary,
-            agent_confidence=agent_confidence,
-            agent_warnings=agent_warnings,
-            created_by=created_by,
-        )
-
-        normalized_rows = [self._normalize_row(row) for row in rows_data]
-        self.drafts.replace_rows(draft.id, normalized_rows)
-        draft = self.drafts.get(draft.id)
-
-        self.audit.log(
-            entity_type="invoice_draft",
-            entity_id=draft.id,
-            action=AuditAction.CREATED.value,
-            actor=created_by,
-            payload={
-                "customer": draft.customer_name,
-                "amount_inc_vat": draft.amount_inc_vat,
-                "rows_count": len(draft.rows),
-                "agent_confidence": agent_confidence,
-            },
-        )
         return draft
 
     def list_drafts(self, status: Optional[str] = None):
@@ -121,133 +147,88 @@ class InvoiceDraftService:
         agent_confidence: Optional[float] = None,
         agent_warnings: Optional[str] = None,
         actor: str = "system",
+        invoice_number: Optional[str] = None,
+        customer_address: Optional[str] = None,
+        delivery_from: Optional[date] = None,
+        delivery_to: Optional[date] = None,
+        delivery_month: Optional[str] = None,
+        _commit: bool = True,
     ):
-        draft = self.get_draft(draft_id)
-        if draft.status == "sent":
-            raise ValidationError(
-                "draft_already_sent", "Sent invoice draft cannot be updated"
+        with unit_of_work(_commit):
+            draft = self.get_draft(draft_id)
+            _refuse_issued(draft)
+            _refuse_in_thread(draft)
+            if draft.status == "sent":
+                raise ValidationError(
+                    "draft_already_sent", "Sent invoice draft cannot be updated"
+                )
+            if draft.status == "rejected":
+                raise ValidationError(
+                    "draft_rejected", "Rejected invoice draft cannot be updated"
+                )
+
+            normalized = self._normalize_draft_input(
+                invoice_date=invoice_date,
+                rows_data=rows_data,
+                due_date=due_date,
+                customer_id=customer_id,
+                customer_name=customer_name,
+                customer_org_number=customer_org_number,
+                customer_email=customer_email,
+                reference=reference,
+                invoice_number=invoice_number,
+                customer_address=customer_address,
+                delivery_from=delivery_from,
+                delivery_to=delivery_to,
+                delivery_month=delivery_month,
             )
-        if draft.status == "rejected":
-            raise ValidationError(
-                "draft_rejected", "Rejected invoice draft cannot be updated"
+            self.drafts.update(
+                draft_id=draft_id,
+                description=description,
+                status=status,
+                agent_summary=agent_summary,
+                agent_confidence=agent_confidence,
+                agent_warnings=agent_warnings,
+                **self._draft_columns(normalized),
+            )
+            self.drafts.replace_rows(draft_id, normalized["rows"])
+            updated = self.drafts.get(draft_id)
+            self.audit.log(
+                entity_type="invoice_draft",
+                entity_id=draft_id,
+                action="updated",
+                actor=actor,
+                payload={
+                    "customer": updated.customer_name,
+                    "amount_inc_vat": updated.amount_inc_vat,
+                    "rows_count": len(updated.rows),
+                    "previous_status": draft.status,
+                    "status": updated.status,
+                },
+                _commit=False,
             )
 
-        normalized = self._normalize_draft_input(
-            invoice_date=invoice_date,
-            rows_data=rows_data,
-            due_date=due_date,
-            customer_id=customer_id,
-            customer_name=customer_name,
-            customer_org_number=customer_org_number,
-            customer_email=customer_email,
-        )
-        self.drafts.update(
-            draft_id=draft_id,
-            customer_id=normalized["customer_id"],
-            customer_name=normalized["customer_name"],
-            customer_org_number=normalized["customer_org_number"],
-            customer_email=normalized["customer_email"],
-            invoice_date=normalized["invoice_date"],
-            due_date=normalized["due_date"],
-            reference=reference,
-            description=description,
-            status=status,
-            agent_summary=agent_summary,
-            agent_confidence=agent_confidence,
-            agent_warnings=agent_warnings,
-        )
-        self.drafts.replace_rows(draft_id, normalized["rows"])
-        updated = self.drafts.get(draft_id)
-        self.audit.log(
-            entity_type="invoice_draft",
-            entity_id=draft_id,
-            action="updated",
-            actor=actor,
-            payload={
-                "customer": updated.customer_name,
-                "amount_inc_vat": updated.amount_inc_vat,
-                "rows_count": len(updated.rows),
-                "previous_status": draft.status,
-                "status": updated.status,
-            },
-        )
         return updated
 
-    def send(
-        self,
-        draft_id: str,
-        period_id: Optional[str] = None,
-        actor: str = "system",
-    ):
-        draft = self.get_draft(draft_id)
-        if draft.status == "sent":
-            raise ValidationError("draft_already_sent", "Invoice draft is already sent")
-        if draft.status == "rejected":
-            raise ValidationError(
-                "draft_rejected", "Rejected invoice draft cannot be sent"
+    def reject(self, draft_id: str, actor: str = "system", _commit: bool = True):
+        with unit_of_work(_commit):
+            draft = self.get_draft(draft_id)
+            _refuse_issued(draft)
+            _refuse_in_thread(draft)
+            if draft.status == "sent":
+                raise ValidationError(
+                    "draft_already_sent", "Sent invoice draft cannot be rejected"
+                )
+            self.drafts.update_status(draft_id, "rejected")
+            self.audit.log(
+                entity_type="invoice_draft",
+                entity_id=draft_id,
+                action="rejected",
+                actor=actor,
+                payload={"previous_status": draft.status},
+                _commit=False,
             )
-        if not draft.rows:
-            raise ValidationError("missing_rows", "Invoice draft has no rows")
 
-        period_id = period_id or self._resolve_period_id(draft.invoice_date)
-        invoice_service = InvoiceService()
-        invoice = invoice_service.create_invoice(
-            customer_name=draft.customer_name,
-            invoice_date=draft.invoice_date,
-            due_date=draft.due_date,
-            rows_data=[
-                {
-                    "description": row.description,
-                    "quantity": row.quantity,
-                    "unit_price": row.unit_price,
-                    "vat_code": row.vat_code,
-                    "revenue_account": row.revenue_account,
-                }
-                for row in draft.rows
-            ],
-            customer_org_number=draft.customer_org_number,
-            customer_email=draft.customer_email,
-            description=draft.description or draft.reference,
-            created_by=actor,
-        )
-        invoice_service.send_invoice(invoice.id, actor=actor)
-        voucher_id = invoice_service.create_booking_for_invoice(
-            invoice.id, period_id, actor=actor
-        )
-        self.drafts.mark_sent(draft.id, invoice.id, voucher_id)
-
-        self.audit.log(
-            entity_type="invoice_draft",
-            entity_id=draft.id,
-            action="sent",
-            actor=actor,
-            payload={
-                "invoice_id": invoice.id,
-                "voucher_id": voucher_id,
-                "period_id": period_id,
-            },
-        )
-        return {
-            "draft": self.drafts.get(draft.id),
-            "invoice": invoice_service.invoices.get(invoice.id),
-            "voucher_id": voucher_id,
-            "pdf_url": f"/api/v1/export/pdf/invoice/{invoice.id}",
-        }
-
-    def reject(self, draft_id: str, actor: str = "system"):
-        draft = self.get_draft(draft_id)
-        if draft.status == "sent":
-            raise ValidationError(
-                "draft_already_sent", "Sent invoice draft cannot be rejected"
-            )
-        self.drafts.update_status(draft_id, "rejected")
-        self.audit.log(
-            entity_type="invoice_draft",
-            entity_id=draft_id,
-            action="rejected",
-            actor=actor,
-            payload={"previous_status": draft.status},
-        )
         return self.drafts.get(draft_id)
 
     def _normalize_draft_input(
@@ -259,14 +240,28 @@ class InvoiceDraftService:
         customer_name: Optional[str] = None,
         customer_org_number: Optional[str] = None,
         customer_email: Optional[str] = None,
+        reference: Optional[str] = None,
+        invoice_number: Optional[str] = None,
+        customer_address: Optional[str] = None,
+        delivery_from: Optional[date] = None,
+        delivery_to: Optional[date] = None,
+        delivery_month: Optional[str] = None,
     ) -> Dict:
+        """The draft as it is stored. Fields not given are filled from the
+        customer: address (§4.3), Er referens from `contact_person`, and the
+        due date from the payment terms. The invoice number is checked here,
+        when the draft is saved (§4.1 allows saving or issuing)."""
         customer = CustomerRepository.get(customer_id) if customer_id else None
         if customer_id and not customer:
             raise ValidationError("customer_not_found", "Customer not found")
+        customer_address = (customer_address or "").strip() or None
+        reference = (reference or "").strip() or None
         if customer:
             customer_name = customer_name or customer.name
             customer_org_number = customer_org_number or customer.org_number
             customer_email = customer_email or customer.email
+            customer_address = customer_address or customer.address
+            reference = reference or customer.contact_person
             due_date = due_date or invoice_date + timedelta(
                 days=customer.payment_terms_days
             )
@@ -286,15 +281,30 @@ class InvoiceDraftService:
                 "missing_rows", "At least one invoice row is required"
             )
 
+        delivery_from, delivery_to, delivery_month = normalize_delivery(
+            delivery_from, delivery_to, delivery_month
+        )
         return {
             "customer_id": customer_id,
             "customer_name": customer_name,
             "customer_org_number": customer_org_number,
             "customer_email": customer_email,
+            "customer_address": customer_address,
+            "reference": reference,
+            "invoice_number": normalize_invoice_number(invoice_number),
             "invoice_date": invoice_date,
             "due_date": due_date,
+            "delivery_from": delivery_from,
+            "delivery_to": delivery_to,
+            "delivery_month": delivery_month,
             "rows": [self._normalize_row(row) for row in rows_data],
         }
+
+    @staticmethod
+    def _draft_columns(normalized: Dict) -> Dict:
+        """The draft-level columns of a normalized input (everything but
+        the rows)."""
+        return {key: value for key, value in normalized.items() if key != "rows"}
 
     def _normalize_row(self, row: Dict) -> Dict:
         article = (
@@ -305,7 +315,16 @@ class InvoiceDraftService:
             or (article.description if article else None)
             or (article.name if article else None)
         )
-        quantity = int(row.get("quantity") or 0)
+        quantity_centi = parse_quantity_centi(row.get("quantity"))
+        unit = (row.get("unit") or "").strip() or (article.unit if article else "st")
+        article_number = (
+            article.article_number
+            if article
+            else ((row.get("article_number") or "").strip() or None)
+        )
+        delivery_from, delivery_to, delivery_month = normalize_delivery(
+            row.get("delivery_from"), row.get("delivery_to"), row.get("delivery_month")
+        )
         unit_price = int(
             row.get("unit_price")
             if row.get("unit_price") is not None
@@ -320,11 +339,6 @@ class InvoiceDraftService:
             raise ValidationError(
                 "missing_description", "Invoice draft row description is required"
             )
-        if quantity <= 0:
-            raise ValidationError(
-                "invalid_quantity",
-                "Invoice draft row quantity must be greater than zero",
-            )
         if unit_price < 0:
             raise ValidationError(
                 "invalid_unit_price",
@@ -337,13 +351,15 @@ class InvoiceDraftService:
                 "invalid_revenue_account", f"Account {revenue_account} does not exist"
             )
 
-        amount_ex_vat = quantity * unit_price
+        amount_ex_vat = amount_ex_vat_from_centi(quantity_centi, unit_price)
         vat_amount = VATCalculator.calculate_vat(amount_ex_vat, vat_code)
         amount_inc_vat = amount_ex_vat + vat_amount
         return {
             "article_id": article.id if article else row.get("article_id"),
             "description": description,
-            "quantity": quantity,
+            "quantity": legacy_quantity(quantity_centi),
+            "quantity_centi": quantity_centi,
+            "unit": unit,
             "unit_price": unit_price,
             "vat_code": vat_code,
             "revenue_account": revenue_account,
@@ -351,6 +367,10 @@ class InvoiceDraftService:
             "vat_amount": vat_amount,
             "amount_inc_vat": amount_inc_vat,
             "source_note": row.get("source_note"),
+            "delivery_from": delivery_from,
+            "delivery_to": delivery_to,
+            "delivery_month": delivery_month,
+            "article_number": article_number,
         }
 
     def _resolve_period_id(self, invoice_date: date) -> str:

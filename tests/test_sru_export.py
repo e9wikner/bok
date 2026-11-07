@@ -9,6 +9,7 @@ from services.sru_export import (
     DEFAULT_SRU_MAPPINGS,
     SRUExportService,
 )
+from services.tax_adjustments import Skatteberakning
 
 
 class TestSRUExportService:
@@ -83,39 +84,29 @@ class TestSRUExportService:
     def test_calculate_account_balances_carries_forward_opening_for_balance_accounts(
         self,
     ):
-        """Balance accounts use closing balance, while result accounts stay in fiscal year."""
+        """Balance accounts are IB plus the year's movements; result accounts
+        the year's movements only."""
         db = sqlite3.connect(":memory:")
         db.row_factory = sqlite3.Row
         db.executescript("""
             CREATE TABLE fiscal_years (id TEXT PRIMARY KEY, start_date DATE, end_date DATE);
             CREATE TABLE accounts (code TEXT PRIMARY KEY, name TEXT, account_type TEXT);
-            CREATE TABLE vouchers (
-                id TEXT PRIMARY KEY,
-                series TEXT,
-                date DATE,
-                fiscal_year_id TEXT,
-                status TEXT
-            );
-            CREATE TABLE voucher_rows (
-                voucher_id TEXT,
-                account_code TEXT,
-                debit INTEGER,
-                credit INTEGER
-            );
             INSERT INTO fiscal_years VALUES ('fy-2026', '2026-01-01', '2026-12-31');
             INSERT INTO accounts VALUES ('1500', 'Kundfordringar', 'asset');
             INSERT INTO accounts VALUES ('3010', 'Försäljning', 'income');
-            INSERT INTO vouchers VALUES ('prior', 'A', '2025-12-31', 'fy-2025', 'posted');
-            INSERT INTO vouchers VALUES ('sent', 'A', '2026-02-05', 'fy-2026', 'posted');
-            INSERT INTO vouchers VALUES ('paid', 'A', '2026-03-01', 'fy-2026', 'posted');
-            INSERT INTO voucher_rows VALUES ('prior', '1500', 32000000, 0);
-            INSERT INTO voucher_rows VALUES ('sent', '1500', 9200000, 0);
-            INSERT INTO voucher_rows VALUES ('paid', '1500', 0, 4800000);
-            INSERT INTO voucher_rows VALUES ('prior', '3010', 0, 10000000);
-            INSERT INTO voucher_rows VALUES ('sent', '3010', 0, 9200000);
             """)
 
-        with patch("services.sru_export.get_db", return_value=db):
+        with (
+            patch("services.sru_export.get_db", return_value=db),
+            patch(
+                "services.opening_balance.OpeningBalanceService.balances",
+                return_value={"1500": 32000000, "3010": -10000000},
+            ),
+            patch(
+                "repositories.opening_balance_repo.OpeningBalanceRepository.movements",
+                return_value={"1500": 4400000, "3010": -9200000},
+            ),
+        ):
             balances = SRUExportService().calculate_account_balances("fy-2026")
 
         assert balances["1500"]["balance"] == 36400000
@@ -198,18 +189,32 @@ class TestSRUExportService:
             "name": "Test AB",
         }[key]
 
-        mock_ib_count = Mock()
-        mock_ib_count.__getitem__ = lambda self, key: {"count": 0}[key]
-
         mock_db.execute.return_value.fetchone.side_effect = [
             mock_fy,
             mock_company,
             mock_fy,
-            mock_ib_count,
         ]
         mock_db.execute.return_value.fetchall.return_value = []
 
-        zip_bytes, filename, errors, warnings = service.export_sru_zip("fy-123")
+        with (
+            patch(
+                "services.opening_balance.OpeningBalanceService.balances",
+                return_value={},
+            ),
+            patch(
+                "repositories.opening_balance_repo.OpeningBalanceRepository.movements",
+                return_value={},
+            ),
+            patch(
+                "services.tax_adjustments.TaxAdjustmentService.calculate",
+                return_value=Skatteberakning({}, [], None, "saknas", [], []),
+            ),
+            patch(
+                "repositories.bokslut_inputs_repo.BokslutInputsRepository.current",
+                return_value={},
+            ),
+        ):
+            zip_bytes, filename, errors, warnings = service.export_sru_zip("fy-123")
 
         assert isinstance(zip_bytes, bytes)
         assert len(zip_bytes) > 0
@@ -295,9 +300,15 @@ class TestSRUExportService:
         assert fields["7514"].description == "Personalkostnader"
         assert fields["7514"].value == 30000
 
-    def test_ink2s_fields_are_derived_from_iordning_sru_values(self, service):
-        """Test INK2S tax adjustments match the iOrdning 2025 reference logic."""
+    def test_ink2s_fields_combine_ink2r_and_tax_adjustments(self, service):
+        """INK2S: 4.1 and 4.3a from INK2R, 4.3c-4.6d from the adjustments.
+
+        The figures are the 2025 reference year: 4.3c now holds 8423 and the
+        förseningsavgift on 6992 (iOrdning's file left out 6992), 4.5c the
+        kapitalförsäkring (8226) and the skattefria ränta (8314).
+        """
         from services.sru_export import SRUFieldValue
+        from services.tax_adjustments import Justering
 
         fields = {
             "7450": SRUFieldValue(
@@ -312,77 +323,69 @@ class TestSRUExportService:
                 "Skatt på årets resultat",
                 114975,
                 ["8910"],
-                [
-                    {
-                        "account": "8910",
-                        "name": "Skatt på årets resultat",
-                        "value": 114975,
-                    }
-                ],
-            ),
-            "7522": SRUFieldValue(
-                "7522",
-                "Andra ej avdragsgilla kostnader",
-                270,
-                ["8423"],
-                [{"account": "8423", "name": "Räntekostnader", "value": 270}],
-            ),
-            "7416": SRUFieldValue(
-                "7416",
-                "Skattefria intäkter",
-                120000,
-                ["8226"],
-                [{"account": "8226", "name": "Resultat värdepapper", "value": 120000}],
-            ),
-            "7417": SRUFieldValue(
-                "7417",
-                "Skattefria intäkter",
-                2069,
-                ["8310", "8314"],
-                [
-                    {"account": "8310", "name": "Ränteintäkter", "value": 2000},
-                    {"account": "8314", "name": "Skattefri ränta", "value": 69},
-                ],
-            ),
-            "7420": SRUFieldValue(
-                "7420",
-                "Periodiseringsfond",
-                190000,
-                ["8819"],
-                [
-                    {
-                        "account": "8819",
-                        "name": "Återföring periodiseringsfond",
-                        "value": 190000,
-                    }
-                ],
+                [{"account": "8910", "name": "Skatt", "value": 114975}],
             ),
         }
+        adjustments = {
+            "7653": Justering(
+                "7653",
+                "4.3c",
+                "",
+                895,
+                sources=[
+                    {"account": "6992", "name": "Ej avdragsgill", "value": 625},
+                    {"account": "8423", "name": "Ränta skattekonto", "value": 270},
+                ],
+            ),
+            "7754": Justering(
+                "7754",
+                "4.5c",
+                "",
+                120845,
+                sources=[
+                    {"account": "8226", "name": "KF", "value": 120000},
+                    {"account": "8314", "name": "Skattefri ränta", "value": 845},
+                ],
+            ),
+            "7654": Justering("7654", "4.6a", "", 3724),
+            "7667": Justering("7667", "4.6d", "", 0, override=500),
+        }
 
-        service._calculate_ink2s_fields(fields)
+        service._calculate_ink2s_fields(fields, adjustments)
 
         assert fields["7650"].value == 561232
         assert fields["7651"].value == 114975
-        assert fields["7653"].value == 270
-        assert fields["7754"].value == 122069
+        assert fields["7653"].value == 895
+        assert fields["7754"].value == 120845
         assert fields["7654"].value == 3724
-        assert fields["7670"].value == 558132
-        assert fields["7651"].source_account_values == [
-            {"account": "8910", "name": "Skatt på årets resultat", "value": 114975}
+        assert fields["7667"].value == 500
+        assert fields["7667"].source_account_values == [
+            {"account": "7667", "name": "Angivet belopp", "value": 500}
         ]
-        assert fields["7754"].source_account_values == [
-            {"account": "8226", "name": "Resultat värdepapper", "value": 120000},
-            {"account": "8310", "name": "Ränteintäkter", "value": 2000},
-            {"account": "8314", "name": "Skattefri ränta", "value": 69},
-        ]
-        assert fields["7654"].source_account_values == [
-            {"account": "8819", "name": "Återföring periodiseringsfond", "value": 3724}
-        ]
-        assert {
-            "account": "8226",
-            "name": "Resultat värdepapper",
-            "value": -120000,
-        } in fields["7670"].source_account_values
+        assert fields["7670"].value == 561232 + 114975 + 895 - 120845 + 3724 + 500
+        assert {"account": "8226", "name": "KF", "value": -120000} in fields[
+            "7670"
+        ].source_account_values
+
+    def test_ink2s_loss_goes_to_4_16(self, service):
+        from services.sru_export import SRUFieldValue
+        from services.tax_adjustments import Justering
+
+        fields = {"7550": SRUFieldValue("7550", "Förlust", 1000, [], [])}
+        service._calculate_ink2s_fields(
+            fields, {"7754": Justering("7754", "4.5c", "", 200)}
+        )
+        assert fields["7750"].value == 1000
+        assert fields["7770"].value == 1200
+        assert "7670" not in fields
+
+    def test_blankett_period_follows_fiscal_year_end(self):
+        from services.sru_export import blankett_period
+
+        assert blankett_period("20241231") == "2024P4"
+        assert blankett_period("20250430") == "2025P1"
+        assert blankett_period("20250630") == "2025P2"
+        assert blankett_period("20250831") == "2025P3"
 
 
 class TestSIE4ParserSRU:

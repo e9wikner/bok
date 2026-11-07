@@ -13,6 +13,7 @@ class Customer:
     email: Optional[str] = None
     address: Optional[str] = None
     payment_terms_days: int = 30
+    contact_person: Optional[str] = None
     active: bool = True
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
@@ -38,7 +39,7 @@ class InvoiceDraftRow:
     id: str
     draft_id: str
     description: str
-    quantity: int
+    quantity: int  # legacy, rounded up; compute on quantity_centi (§4.2)
     unit_price: int
     vat_code: str
     revenue_account: str
@@ -48,6 +49,12 @@ class InvoiceDraftRow:
     article_id: Optional[str] = None
     source_note: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
+    quantity_centi: Optional[int] = None  # quantity × 100 (§4.2)
+    unit: str = "st"
+    delivery_from: Optional[date] = None
+    delivery_to: Optional[date] = None
+    delivery_month: Optional[str] = None  # YYYY-MM
+    article_number: Optional[str] = None
 
 
 @dataclass
@@ -74,3 +81,8 @@ class InvoiceDraft:
     created_at: datetime = field(default_factory=datetime.now)
     created_by: str = "system"
     updated_at: datetime = field(default_factory=datetime.now)
+    invoice_number: Optional[str] = None  # proposed, not unique (§4.1)
+    customer_address: Optional[str] = None
+    delivery_from: Optional[date] = None  # for rows without their own
+    delivery_to: Optional[date] = None
+    delivery_month: Optional[str] = None

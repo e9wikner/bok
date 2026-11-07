@@ -13,6 +13,20 @@ from domain.models import (
 )
 from domain.types import BankInputStatus
 
+# The sum of the current links' transactions on the account of `r`, a row of
+# the voucher `v` (debit positive, like money in).
+_LINKED_ON_ACCOUNT_SQL = """
+    SELECT COALESCE(SUM(lbt.amount), 0)
+    FROM current_voucher_bank_transactions lvbt
+    JOIN bank_transactions lbt ON lbt.id = lvbt.bank_transaction_id
+    JOIN bank_connections lbc ON lbc.id = lbt.bank_connection_id
+    WHERE lvbt.voucher_id = v.id AND lbc.account_number = r.account_code
+"""
+
+
+def _amounts(joined: Optional[str]) -> list[int]:
+    return [int(a) for a in joined.split(",")] if joined else []
+
 
 class BankInputRepository:
     """Manage bank input records, import links, and voucher traceability."""
@@ -253,14 +267,32 @@ class BankInputRepository:
         if _commit:
             db.commit()
         row = db.execute(
-            """
-            SELECT * FROM voucher_bank_transactions
-            WHERE voucher_id = ? AND bank_transaction_id = ?
-            LIMIT 1
-            """,
-            (voucher_id, bank_transaction_id),
+            "SELECT * FROM voucher_bank_transactions WHERE id = ?", (link_id,)
         ).fetchone()
         return BankInputRepository._row_to_voucher_bank_transaction(row)
+
+    @staticmethod
+    def count_transactions_outside_fiscal_years(
+        bank_input_id: str | None = None,
+    ) -> int:
+        """Statement transactions dated in no fiscal year -- of one bank
+        input, or of all of them. They cannot be booked or matched until the
+        year exists, and no year's views show them."""
+        sql = """
+            SELECT COUNT(DISTINCT bt.id) AS count
+            FROM bank_transactions bt
+            JOIN bank_input_transactions bit ON bit.bank_transaction_id = bt.id
+            WHERE NOT EXISTS (
+                SELECT 1 FROM fiscal_years fy
+                WHERE bt.transaction_date BETWEEN fy.start_date AND fy.end_date
+            )
+        """
+        params: tuple = ()
+        if bank_input_id is not None:
+            sql += " AND bit.bank_input_id = ?"
+            params = (bank_input_id,)
+        row = db.execute(sql, params).fetchone()
+        return row["count"] if row else 0
 
     @staticmethod
     def list_transaction_ids_for_input(bank_input_id: str) -> list[str]:
@@ -333,13 +365,33 @@ class BankInputRepository:
         if _commit:
             db.commit()
 
+    #: A file link holds while one of the file's transactions has a current
+    #: link to the voucher, or none of them ever had one -- a file linked on
+    #: its own, without transactions (migration 040).
+    _INPUT_LINK_HOLDS_SQL = """
+        (EXISTS (
+            SELECT 1 FROM current_voucher_bank_transactions c
+            JOIN bank_input_transactions bit
+              ON bit.bank_transaction_id = c.bank_transaction_id
+            WHERE c.voucher_id = vbi.voucher_id
+              AND bit.bank_input_id = vbi.bank_input_id
+        ) OR NOT EXISTS (
+            SELECT 1 FROM voucher_bank_transactions vbt
+            JOIN bank_input_transactions bit
+              ON bit.bank_transaction_id = vbt.bank_transaction_id
+            WHERE vbt.voucher_id = vbi.voucher_id
+              AND bit.bank_input_id = vbi.bank_input_id
+        ))
+    """
+
     @staticmethod
     def list_inputs_for_voucher(voucher_id: str) -> list[VoucherBankInput]:
         rows = db.execute(
-            """
-            SELECT * FROM voucher_bank_inputs
-            WHERE voucher_id = ?
-            ORDER BY linked_at ASC
+            f"""
+            SELECT vbi.* FROM voucher_bank_inputs vbi
+            WHERE vbi.voucher_id = ?
+              AND {BankInputRepository._INPUT_LINK_HOLDS_SQL}
+            ORDER BY vbi.linked_at ASC
             """,
             (voucher_id,),
         ).fetchall()
@@ -348,10 +400,11 @@ class BankInputRepository:
     @staticmethod
     def list_voucher_links_for_input(bank_input_id: str) -> list[VoucherBankInput]:
         rows = db.execute(
-            """
-            SELECT * FROM voucher_bank_inputs
-            WHERE bank_input_id = ?
-            ORDER BY linked_at ASC
+            f"""
+            SELECT vbi.* FROM voucher_bank_inputs vbi
+            WHERE vbi.bank_input_id = ?
+              AND {BankInputRepository._INPUT_LINK_HOLDS_SQL}
+            ORDER BY vbi.linked_at ASC
             """,
             (bank_input_id,),
         ).fetchall()
@@ -361,7 +414,7 @@ class BankInputRepository:
     def list_transactions_for_voucher(voucher_id: str) -> list[VoucherBankTransaction]:
         rows = db.execute(
             """
-            SELECT * FROM voucher_bank_transactions
+            SELECT * FROM current_voucher_bank_transactions
             WHERE voucher_id = ?
             ORDER BY linked_at ASC
             """,
@@ -370,6 +423,289 @@ class BankInputRepository:
         return [
             BankInputRepository._row_to_voucher_bank_transaction(row) for row in rows
         ]
+
+    # --- undoing a statement link (migration 040) -------------------------
+
+    @staticmethod
+    def current_transaction_link(
+        bank_transaction_id: str,
+    ) -> Optional[VoucherBankTransaction]:
+        row = db.execute(
+            """
+            SELECT * FROM current_voucher_bank_transactions
+            WHERE bank_transaction_id = ?
+            """,
+            (bank_transaction_id,),
+        ).fetchone()
+        return (
+            BankInputRepository._row_to_voucher_bank_transaction(row) if row else None
+        )
+
+    @staticmethod
+    def create_transaction_unlink(
+        link_id: str,
+        bank_transaction_id: str,
+        voucher_id: str,
+        reason: str,
+        actor: str,
+        thread_id: Optional[str] = None,
+        _commit: bool = True,
+    ) -> None:
+        db.execute(
+            """
+            INSERT INTO voucher_bank_transaction_unlinks
+            (link_id, bank_transaction_id, voucher_id, reason, actor, thread_id,
+             created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                link_id,
+                bank_transaction_id,
+                voucher_id,
+                reason,
+                actor,
+                thread_id,
+                datetime.now(),
+            ),
+        )
+        if _commit:
+            db.commit()
+
+    @staticmethod
+    def unlinked_voucher_ids(bank_transaction_id: str) -> list[str]:
+        """The vouchers *bank_transaction_id* was linked to and unlinked
+        from."""
+        rows = db.execute(
+            """
+            SELECT DISTINCT voucher_id FROM voucher_bank_transaction_unlinks
+            WHERE bank_transaction_id = ?
+            """,
+            (bank_transaction_id,),
+        ).fetchall()
+        return [row["voucher_id"] for row in rows]
+
+    @staticmethod
+    def release_transaction(bank_transaction_id: str, _commit: bool = True) -> None:
+        """Undo `mark_transactions_booked` for one transaction."""
+        db.execute(
+            """
+            UPDATE bank_transactions
+            SET status = 'pending', matched_voucher_id = NULL, booked_at = NULL
+            WHERE id = ?
+            """,
+            (bank_transaction_id,),
+        )
+        if _commit:
+            db.commit()
+
+    # --- statement matching (services/statement_match.py) ----------------
+
+    @staticmethod
+    def list_unlinked_transactions_with_account() -> list[dict]:
+        """Bank transactions not linked to any voucher, with the account
+        their statement was imported for, oldest first."""
+        rows = db.execute("""
+            SELECT bt.id, bt.transaction_date, bt.amount, bt.description,
+                   bt.counterpart_name, bc.account_number AS account_code
+            FROM bank_transactions bt
+            JOIN bank_connections bc ON bc.id = bt.bank_connection_id
+            WHERE bt.matched_voucher_id IS NULL
+              AND bt.status != 'ignored'
+              AND bc.account_number IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM current_voucher_bank_transactions vbt
+                  WHERE vbt.bank_transaction_id = bt.id
+              )
+            ORDER BY bt.transaction_date ASC, bt.created_at ASC
+            """).fetchall()
+        return [dict(row) for row in rows]
+
+    @staticmethod
+    def list_unlinked_payments(
+        amount_ore: int, date_from: str, date_to: str
+    ) -> list[str]:
+        """Ids of money-out transactions of exactly *amount_ore* dated within
+        the window, not booked, matched or linked to any voucher -- the
+        payments a payslip's net salary can be booked against."""
+        rows = db.execute(
+            """
+            SELECT bt.id
+            FROM bank_transactions bt
+            WHERE bt.amount = ?
+              AND bt.transaction_date BETWEEN ? AND ?
+              AND bt.matched_voucher_id IS NULL
+              AND bt.status NOT IN ('booked', 'ignored')
+              AND NOT EXISTS (
+                  SELECT 1 FROM current_voucher_bank_transactions vbt
+                  WHERE vbt.bank_transaction_id = bt.id
+              )
+            ORDER BY bt.transaction_date ASC, bt.created_at ASC
+            """,
+            (-amount_ore, date_from, date_to),
+        ).fetchall()
+        return [row["id"] for row in rows]
+
+    @staticmethod
+    def find_outgoing_near(
+        min_ore: int, max_ore: int, date_from: str, date_to: str
+    ) -> list[dict]:
+        """Money-out transactions on any of the company's statements whose
+        amount is between *min_ore* and *max_ore* (positive öre) and whose
+        date is in the window -- linked or not, since a purchase already
+        booked from the company's card is exactly what an utlägg must not
+        repeat (services/reimbursement_check.py). Ignored transactions and
+        the ones booked as the payout of an utlägg (their voucher debits
+        2820) are left out."""
+        rows = db.execute(
+            """
+            SELECT bt.id, bt.transaction_date, bt.amount, bt.description,
+                   bt.counterpart_name, bc.account_number AS account_code,
+                   (SELECT vbt.voucher_id FROM current_voucher_bank_transactions vbt
+                    WHERE vbt.bank_transaction_id = bt.id) AS linked_voucher_id
+            FROM bank_transactions bt
+            JOIN bank_connections bc ON bc.id = bt.bank_connection_id
+            WHERE bt.amount BETWEEN ? AND ?
+              AND bt.transaction_date BETWEEN ? AND ?
+              AND bt.status != 'ignored'
+              AND NOT EXISTS (
+                  SELECT 1 FROM current_voucher_bank_transactions vbt
+                  JOIN voucher_rows vr ON vr.voucher_id = vbt.voucher_id
+                  WHERE vbt.bank_transaction_id = bt.id
+                    AND vr.account_code = '2820' AND vr.debit > 0
+              )
+            ORDER BY bt.transaction_date ASC, bt.created_at ASC
+            """,
+            (-max_ore, -min_ore, date_from, date_to),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    @staticmethod
+    def get_transaction_with_account(bank_transaction_id: str) -> Optional[dict]:
+        """One transaction, its account, and the voucher it is linked to."""
+        row = db.execute(
+            """
+            SELECT bt.id, bt.transaction_date, bt.amount, bt.description,
+                   bt.counterpart_name, bt.status, bt.matched_voucher_id,
+                   bc.account_number AS account_code,
+                   (SELECT vbt.voucher_id FROM current_voucher_bank_transactions vbt
+                    WHERE vbt.bank_transaction_id = bt.id) AS linked_voucher_id
+            FROM bank_transactions bt
+            JOIN bank_connections bc ON bc.id = bt.bank_connection_id
+            WHERE bt.id = ?
+            """,
+            (bank_transaction_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    @staticmethod
+    def list_statement_match_vouchers(
+        account_code: str,
+        amount_ore: int,
+        date_from: str,
+        date_to: str,
+        input_vat_range: tuple[str, str],
+    ) -> list[dict]:
+        """Posted vouchers a statement transaction of *amount_ore* on
+        *account_code* may be underlag for, dated within the window: what is
+        left of their net on that account after the linked transactions
+        (`remaining_ore`, debit positive, like money in) equals the amount,
+        or one of several rows on the account does. Each comes with its
+        rows' amounts on the account (`row_amounts`); the service decides
+        (`domain.statement_coverage.covers`).
+
+        Never an opening balance, a SIE4 import, a correction, a reversed
+        voucher or a purchase (input VAT).
+        """
+        rows = db.execute(
+            f"""
+            SELECT v.id, v.series, v.number, v.date, v.description,
+                   SUM(r.debit - r.credit)
+                   - ({_LINKED_ON_ACCOUNT_SQL}) AS remaining_ore,
+                   group_concat(r.debit - r.credit) AS row_amounts,
+                   COUNT(*) AS row_count,
+                   SUM(r.debit - r.credit = ?) AS rows_of_amount
+            FROM vouchers v
+            JOIN voucher_rows r ON r.voucher_id = v.id AND r.account_code = ?
+            WHERE v.status = 'posted'
+              AND v.series != 'IB'
+              AND v.created_by != 'sie4_import'
+              AND v.correction_of IS NULL
+              AND v.date BETWEEN ? AND ?
+              AND NOT EXISTS (
+                  SELECT 1 FROM vouchers c
+                  WHERE c.correction_of = v.id AND c.status = 'posted'
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM voucher_rows vat
+                  WHERE vat.voucher_id = v.id
+                    AND vat.account_code BETWEEN ? AND ?
+              )
+            GROUP BY v.id
+            HAVING remaining_ore = ? OR (row_count > 1 AND rows_of_amount > 0)
+            ORDER BY v.date ASC, v.number ASC
+            """,
+            (
+                amount_ore,
+                account_code,
+                date_from,
+                date_to,
+                input_vat_range[0],
+                input_vat_range[1],
+                amount_ore,
+            ),
+        ).fetchall()
+        return [
+            {**dict(row), "row_amounts": _amounts(row["row_amounts"])} for row in rows
+        ]
+
+    @staticmethod
+    def statement_account_position(voucher_id: str, account_code: str) -> dict:
+        """*voucher_id*'s rows on *account_code* (`row_amounts`, debit
+        positive) and what of their net the linked transactions do not
+        cover yet (`remaining_ore`). No rows: `row_amounts` is empty."""
+        row = db.execute(
+            f"""
+            SELECT SUM(r.debit - r.credit)
+                   - ({_LINKED_ON_ACCOUNT_SQL}) AS remaining_ore,
+                   group_concat(r.debit - r.credit) AS row_amounts
+            FROM vouchers v
+            JOIN voucher_rows r ON r.voucher_id = v.id AND r.account_code = ?
+            WHERE v.id = ?
+            """,
+            (account_code, voucher_id),
+        ).fetchone()
+        return {
+            "remaining_ore": (row["remaining_ore"] or 0) if row else 0,
+            "row_amounts": _amounts(row["row_amounts"] if row else None),
+        }
+
+    @staticmethod
+    def list_statement_links_for_voucher(voucher_id: str) -> list[dict]:
+        """The statement transactions linked to *voucher_id*, each with the
+        first file it was imported from -- what the voucher shows as its
+        underlag."""
+        rows = db.execute(
+            """
+            SELECT bt.id AS bank_transaction_id, bt.transaction_date,
+                   bt.amount, bt.description, bc.account_number AS account_code,
+                   vbt.linked_by, vbt.linked_at,
+                   (SELECT bi.id FROM bank_input_transactions bit
+                    JOIN bank_inputs bi ON bi.id = bit.bank_input_id
+                    WHERE bit.bank_transaction_id = bt.id
+                    ORDER BY bit.linked_at ASC LIMIT 1) AS bank_input_id,
+                   (SELECT bi.original_filename FROM bank_input_transactions bit
+                    JOIN bank_inputs bi ON bi.id = bit.bank_input_id
+                    WHERE bit.bank_transaction_id = bt.id
+                    ORDER BY bit.linked_at ASC LIMIT 1) AS original_filename
+            FROM current_voucher_bank_transactions vbt
+            JOIN bank_transactions bt ON bt.id = vbt.bank_transaction_id
+            JOIN bank_connections bc ON bc.id = bt.bank_connection_id
+            WHERE vbt.voucher_id = ?
+            ORDER BY bc.account_number ASC, bt.transaction_date ASC
+            """,
+            (voucher_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
 
     @staticmethod
     def _row_to_bank_input(row) -> BankInput:

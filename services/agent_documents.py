@@ -107,6 +107,18 @@ def extract_pdf_text(file_bytes: bytes) -> str:
     return text if text.strip() else ""
 
 
+def count_pdf_pages(file_bytes: bytes) -> int | None:
+    """How many pages a PDF has, or `None` when `pypdf` cannot read it.
+
+    For the file card's "218 kB · 1 sida" (SPEC-flode-underlag.md §10.4):
+    a `user_file` post carries `pages`, and a file the server cannot count
+    gets none rather than an error -- the card still stands."""
+    try:
+        return len(PdfReader(io.BytesIO(file_bytes)).pages)
+    except Exception:
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Step 1b: the reconciliation heuristic (SPEC §6.3, "Avstämningen...")
 # ---------------------------------------------------------------------------

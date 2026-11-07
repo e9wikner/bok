@@ -26,7 +26,7 @@ from typing import Any
 
 import openai
 import pytest
-from openai.types.chat import ChatCompletion
+from openai.types.chat import ChatCompletion, ChatCompletionChunk
 
 from services.llm import (
     LLMCapabilities,
@@ -36,9 +36,11 @@ from services.llm import (
 )
 from services.llm.chat import (
     ChatClient,
+    IncompleteResponseError,
     MalformedToolArgumentsError,
     UnrecognizedFinishReasonError,
     UnsupportedContentBlockError,
+    _ChatStreamDispatcher,
 )
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "llm_chat"
@@ -468,6 +470,9 @@ class TestCapabilities:
             cache_breakpoint=False,
             pdf_document_blocks=False,
             refusal_stop_reason=False,
+            # SPEC-tradar.md §12.1 / task T5: both adapters stream, each
+            # through its own SDK's streaming helper.
+            streaming=True,
         )
 
 
@@ -574,6 +579,35 @@ class TestNormalizeResponse:
 
 
 class TestRunTurnWiring:
+    @staticmethod
+    def _kwargs_sent_for(model: str) -> dict[str, Any]:
+        client = ChatClient(api_key="dummy-test-key", base_url="http://127.0.0.1:0")
+        received_kwargs: dict[str, Any] = {}
+
+        def fake_create(**kwargs: Any) -> ChatCompletion:
+            received_kwargs.update(kwargs)
+            return _load_completion("tool_calls_stop.json")
+
+        client._client.chat.completions.create = fake_create  # type: ignore[method-assign]
+        client.run_turn(
+            system="systemprompt",
+            messages=[{"role": "user", "content": [{"type": "text", "text": "hej"}]}],
+            tools=[],
+            model=model,
+            max_tokens=None,
+        )
+        return received_kwargs
+
+    def test_glm_is_sent_its_reasoning_effort(self):
+        """Without one, glm-5.3 reasons as if "high": ~10x the tokens."""
+        assert self._kwargs_sent_for("opencode-go/glm-5.3")["reasoning_effort"] == (
+            "medium"
+        )
+
+    def test_a_model_without_a_reasoning_row_is_sent_none(self):
+        assert "reasoning_effort" not in self._kwargs_sent_for("opencode/gpt-5.5")
+        assert "reasoning_effort" not in self._kwargs_sent_for("opencode/unknown-x")
+
     def test_run_turn_wires_translate_call_and_normalize_without_network(self):
         client = ChatClient(api_key="dummy-test-key", base_url="http://127.0.0.1:0")
         fake_response = _load_completion("tool_calls_stop.json")
@@ -597,7 +631,7 @@ class TestRunTurnWiring:
             max_tokens=1024,
         )
 
-        assert received_kwargs["model"] == "opencode/gpt-5.5"
+        assert received_kwargs["model"] == "gpt-5.5"
         assert received_kwargs["messages"][0] == {
             "role": "system",
             "content": "systemprompt",
@@ -759,3 +793,284 @@ class TestOpenaiImportBoundary:
                 offenders.append(str(path.relative_to(repo_root)))
 
         assert offenders == []
+
+
+# --- T5 (SPEC-tradar.md §12.1): streaming hooks ------------------------------
+#
+# `on_text`/`on_tool_call` on `run_turn`, and the pure dispatcher behind
+# them. These live here rather than in `tests/test_tradar.py` because they
+# assert against this SDK's own event types, and SPEC §4/§10's import
+# boundary allows that in this file alone (see `TestOpenaiImportBoundary`
+# for the check that enforces it).
+
+
+class _StubChunkEvent:
+    """Stands in for the SDK's `ChunkEvent` -- the dispatcher reads only
+    `.type` and `.chunk`, and the real event type is not constructible
+    without a full stream state."""
+
+    type = "chunk"
+
+    def __init__(self, chunk: ChatCompletionChunk) -> None:
+        self.chunk = chunk
+
+
+class TestChatAdapterStreamDispatch:
+    """The same, for the Chat Completions protocol."""
+
+    @staticmethod
+    def _chunk_event(content=None, tool_calls=None, index: int = 0):
+        delta: dict = {}
+        if content is not None:
+            delta["content"] = content
+        if tool_calls is not None:
+            delta["tool_calls"] = tool_calls
+        chunk = ChatCompletionChunk.model_validate(
+            {
+                "id": "chatcmpl-1",
+                "object": "chat.completion.chunk",
+                "created": 1,
+                "model": "opencode/gpt-5.5",
+                "choices": [{"index": index, "delta": delta, "finish_reason": None}],
+            }
+        )
+
+        return _StubChunkEvent(chunk)
+
+    def test_content_deltas_reach_on_text(self):
+        dispatcher = _ChatStreamDispatcher(on_text=(seen := []).append)
+
+        dispatcher.dispatch(self._chunk_event(content="Jag "))
+        dispatcher.dispatch(self._chunk_event(content="bokför."))
+
+        assert seen == ["Jag ", "bokför."]
+
+    def test_a_tool_call_is_announced_once_not_per_argument_fragment(self):
+        """The wire sends the name on the first chunk of a call and then
+        streams its arguments. `SkriverIndikator` must not flicker through
+        the same name a dozen times."""
+        dispatcher = _ChatStreamDispatcher(on_tool_call=(seen := []).append)
+        first = [
+            {
+                "index": 0,
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "posta_verifikation", "arguments": ""},
+            }
+        ]
+        rest = [{"index": 0, "function": {"arguments": '{"perio'}}]
+
+        dispatcher.dispatch(self._chunk_event(tool_calls=first))
+        dispatcher.dispatch(self._chunk_event(tool_calls=rest))
+        dispatcher.dispatch(self._chunk_event(tool_calls=rest))
+
+        assert seen == ["posta_verifikation"]
+
+    def test_two_different_tool_calls_are_both_announced(self):
+        dispatcher = _ChatStreamDispatcher(on_tool_call=(seen := []).append)
+
+        dispatcher.dispatch(
+            self._chunk_event(
+                tool_calls=[
+                    {
+                        "index": 0,
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": "las_kontoplan", "arguments": ""},
+                    }
+                ]
+            )
+        )
+        dispatcher.dispatch(
+            self._chunk_event(
+                tool_calls=[
+                    {
+                        "index": 1,
+                        "id": "c2",
+                        "type": "function",
+                        "function": {"name": "las_perioder", "arguments": ""},
+                    }
+                ]
+            )
+        )
+
+        assert seen == ["las_kontoplan", "las_perioder"]
+
+    def test_a_usage_only_chunk_with_no_choices_is_ignored(self):
+        """`stream_options={"include_usage": True}` appends a final chunk
+        that carries usage and an empty `choices` list."""
+        dispatcher = _ChatStreamDispatcher(on_text=(seen := []).append)
+        chunk = ChatCompletionChunk.model_validate(
+            {
+                "id": "chatcmpl-1",
+                "object": "chat.completion.chunk",
+                "created": 1,
+                "model": "opencode/gpt-5.5",
+                "choices": [],
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 2,
+                    "total_tokens": 12,
+                },
+            }
+        )
+
+        dispatcher.dispatch(_StubChunkEvent(chunk))
+
+        assert seen == []
+
+    def test_non_chunk_events_are_ignored(self):
+        dispatcher = _ChatStreamDispatcher(
+            on_text=(seen := []).append, on_tool_call=seen.append
+        )
+
+        class _Other:
+            type = "content.done"
+
+        dispatcher.dispatch(_Other())
+
+        assert seen == []
+
+
+class TestStreamedLengthFinish:
+    """The streaming helper raises `LengthFinishReasonError` on a
+    `finish_reason == "length"` completion instead of returning it. That
+    must still come out as a `max_tokens` turn, not an exception.
+    """
+
+    def test_truncated_streamed_turn_is_max_tokens_not_an_error(self):
+        client = ChatClient(api_key="dummy-test-key", base_url="http://127.0.0.1:0")
+        truncated = _load_completion("length_finish.json")
+
+        class _Stream:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc: Any) -> None:
+                return None
+
+            def __iter__(self):
+                return iter(())
+
+            def get_final_completion(self) -> ChatCompletion:
+                raise openai.LengthFinishReasonError(completion=truncated)
+
+        client._client.chat.completions.stream = (  # type: ignore[method-assign]
+            lambda **kwargs: _Stream()
+        )
+
+        turn = client.run_turn(
+            system="systemprompt",
+            messages=[{"role": "user", "content": [{"type": "text", "text": "hej"}]}],
+            tools=[],
+            model="opencode-go/glm-5.3",
+            max_tokens=1024,
+            on_text=lambda _: None,
+        )
+
+        assert turn.stop == "max_tokens"
+        assert turn.usage.output_tokens == truncated.usage.completion_tokens
+
+
+class TestMissingFinishReason:
+    """A response with no `finish_reason` at all -- a stream the gateway cut
+    off -- is an incomplete response (a connection error), never an outcome.
+    Seen in production: `opencode-go/glm-5.3`, a document pass, after four
+    minutes of streaming."""
+
+    @staticmethod
+    def _cut_off() -> ChatCompletion:
+        response = _load_completion("tool_calls_stop.json")
+        response.choices[0].finish_reason = None  # type: ignore[assignment]
+        return response
+
+    def _client_streaming(self, completions: list) -> tuple:
+        client = ChatClient(api_key="dummy-test-key", base_url="http://127.0.0.1:0")
+        calls: list = []
+
+        class _Stream:
+            def __init__(self, completion):
+                self.completion = completion
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc: Any) -> None:
+                return None
+
+            def __iter__(self):
+                return iter(())
+
+            def get_final_completion(self) -> ChatCompletion:
+                return self.completion
+
+        def fake_stream(**kwargs: Any):
+            calls.append(kwargs)
+            return _Stream(completions[len(calls) - 1])
+
+        client._client.chat.completions.stream = fake_stream  # type: ignore[method-assign]
+        return client, calls
+
+    def _turn(self, client, **hooks):
+        return client.run_turn(
+            system="s",
+            messages=[{"role": "user", "content": [{"type": "text", "text": "hej"}]}],
+            tools=[],
+            model="opencode-go/glm-5.3",
+            max_tokens=None,
+            **hooks,
+        )
+
+    def test_normalize_raises_incomplete_response_a_connection_error(self):
+        with pytest.raises(IncompleteResponseError) as exc_info:
+            ChatClient.normalize_response(self._cut_off())
+        assert isinstance(exc_info.value, LLMConnectionError)
+
+    def test_the_intake_pass_gets_one_retry(self):
+        client, calls = self._client_streaming(
+            [self._cut_off(), _load_completion("stop_finish.json")]
+        )
+
+        turn = self._turn(client, on_tool_call=lambda _name: None)
+
+        assert turn.stop == "end"
+        assert len(calls) == 2
+
+    def test_cut_off_twice_is_a_connection_error(self):
+        client, calls = self._client_streaming([self._cut_off(), self._cut_off()])
+
+        with pytest.raises(IncompleteResponseError):
+            self._turn(client, on_tool_call=lambda _name: None)
+        assert len(calls) == 2
+
+    def test_a_thread_watching_the_text_is_not_retried(self):
+        client, calls = self._client_streaming(
+            [self._cut_off(), _load_completion("stop_finish.json")]
+        )
+
+        with pytest.raises(IncompleteResponseError):
+            self._turn(client, on_text=lambda _text: None)
+        assert len(calls) == 1
+
+
+class TestNoPerTurnCap:
+    def test_no_cap_sends_no_max_completion_tokens(self):
+        client = ChatClient(api_key="dummy-test-key", base_url="http://127.0.0.1:0")
+        received: dict[str, Any] = {}
+
+        def fake_create(**kwargs: Any) -> ChatCompletion:
+            received.update(kwargs)
+            return _load_completion("stop_finish.json")
+
+        client._client.chat.completions.create = fake_create  # type: ignore[method-assign]
+
+        client.run_turn(
+            system="s",
+            messages=[{"role": "user", "content": [{"type": "text", "text": "hej"}]}],
+            tools=[],
+            model="opencode-go/glm-5.3",
+            max_tokens=None,
+        )
+
+        assert "max_completion_tokens" not in received
+        assert "max_tokens" not in received

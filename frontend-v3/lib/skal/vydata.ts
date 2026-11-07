@@ -1,0 +1,166 @@
+/**
+ * Vyernas dataform (modul `skal`).
+ *
+ * Komponenterna tar `VyData` som props. Innehållet byggs ur API-svar i
+ * `bocker.ts`, `betala.ts` och `bokslut.ts`; skalet har ingen påhittad data.
+ */
+
+import type { BeslutSvar } from "@/lib/chattyta/api";
+import type { RadMal } from "@/lib/skal/detalj";
+import type { LasData } from "@/lib/skal/las";
+
+/** De sex lägena i README.md §Tillstånd. En vy ska kunna visa alla sex. */
+export type VyLage = "normal" | "vantar" | "pagaende" | "klart" | "fel" | "tomt";
+
+/** `VyRad`-varianterna i komponenter.md. */
+export type RadVariant = "normal" | "saknar" | "vantar" | "pagaende" | "ny" | "fel" | "paverkad";
+
+export type BannerTon = "varning" | "neutral" | "fel" | "klart";
+
+export interface VyRadData {
+  id: string;
+  titel: string;
+  meta?: string;
+  hoger: string;
+  variant?: RadVariant;
+  /** Summarad: samma vikt som designens `r.vikt` 500. */
+  summa?: boolean;
+  /**
+   * Raden gäller inte längre: en makulerad verifikation, eller en
+   * kontering som en rättelse tog bort. Titel och belopp stryks över, som
+   * i en pappersbok — raden står kvar, den raderas aldrig.
+   */
+  struken?: boolean;
+  /** Beloppet före en rättelse, överstruket framför `hoger`. */
+  hogerFore?: string;
+  /**
+   * En rättelse: originalets id och beloppen före och efter. De visas bara
+   * när originalet inte står i samma lista, annars bär originalet ändringen
+   * (`parBelopp`).
+   */
+  rattar?: { id: string; hoger: string; hogerFore?: string };
+  /**
+   * Beloppskolumner före `hoger`, som sektionens `kolumner` namnger
+   * (Balansräkningen: ingående och förändring före saldot).
+   */
+  kolumner?: string[];
+  /** Serverns `age_days`; färgar metan för `vantar`/`saknar` med `aldersTon`. */
+  ageDays?: number;
+  /**
+   * Radens länk till kvittot (SPEC-flode-underlag.md §10.4, FU23). Källan
+   * slås upp först när länken används, inte per rad.
+   */
+  kvitto?: { voucherId: string; nummer: string };
+  /** Ett underlag agenten avstod från: länken `försök igen` (`POST /intake/{id}/retry`). */
+  forsokIgen?: { sourceId: string };
+  /** Ett öppet beslut: titeln är en knapp som tar upp det i chatten (`BeslutFokus`). */
+  beslut?: BeslutSvar;
+  /**
+   * En rad som väntar men inte har något kort: länken `be agenten` fyller
+   * vyns chattfält med `text`. Ingenting skickas förrän människan skickar.
+   */
+  fraga?: { viewKey: string; text: string };
+  /**
+   * Fler steg i radens kedja, som länkar i metaraden: en betald faktura
+   * leder med titeln till verifikationen som bokförde den och med
+   * `betalning` till den som bokförde betalningen.
+   */
+  lankar?: { text: string; mal: RadMal }[];
+  /**
+   * Ett inlägg i en annan vys tråd, som raden visar när den följer `mal`
+   * dit: ett fakturaförslag i Verifikationers Väntar på beslut.
+   */
+  inlagg?: { viewKey: string; postId: string };
+  /** Räkenskapsårets lås, sist på raden (Rapporter). */
+  las?: LasData;
+  /**
+   * Vart raden leder: ett konto till sin huvudbok, en verifikation till sin
+   * detalj (`lib/skal/detalj.ts`). Titeln blir då en knapp.
+   */
+  mal?: RadMal;
+  /** Sökrutans träff (`lib/skal/sok.ts`): de matchade tecknens positioner per fält. */
+  traff?: { titel?: number[]; meta?: number[]; hoger?: number[] };
+}
+
+export interface VySektionData {
+  titel: string;
+  rader: VyRadData[];
+  /**
+   * Rubriker för radernas beloppskolumner, den sista för `hoger`
+   * (t.ex. Ingående · Förändring · Nuvarande).
+   */
+  kolumner?: string[];
+  /** Månadens lås, i rubrikraden (Verifikationer, en sektion per månad). */
+  las?: LasData;
+  /**
+   * Visas i stället för rader när sektionen är tom. Utan den visas en tom
+   * sektion inte alls; med den är tomheten själv uppgiften — en månad utan
+   * verifikationer kan ändå behöva låsas.
+   */
+  tom?: string;
+}
+
+export interface VyData {
+  lage: VyLage;
+  /** Kort status, samma sträng i headern och i vyns rubrikrad. */
+  status: string;
+  period: string;
+  banner?: { ton: BannerTon; text: string };
+  sektioner: VySektionData[];
+  /** Fottexten säger vad agenten gör härnäst. Inget mer. */
+  fot: string;
+  /**
+   * Listan har fler rader på servern (SPEC-lasbarhet.md §4.5). Då står
+   * "Laddar fler…" sist, och `hamtaFler` anropas när raden syns. En vy
+   * utan dem är hel.
+   */
+  harFler?: boolean;
+  hamtaFler?: () => void;
+}
+
+// ─── Vyernas rader ────────────────────────────────────────────────────────
+
+/**
+ * En rättelse och dess original visar ändringen en gång, på originalet. En
+ * rättelse vars original inte står bland `sektioner` — en ensam sökträff,
+ * originalet på en annan sida eller i ett annat år — visar själv beloppet
+ * före och efter, annars syns ändringen inte alls.
+ */
+export function parBelopp(sektioner: VySektionData[]): VySektionData[] {
+  const synliga = new Set(sektioner.flatMap((s) => s.rader.map((r) => r.id)));
+  return sektioner.map((s) => ({
+    ...s,
+    rader: s.rader.map((r) => {
+      if (!r.rattar) return r;
+      const ensam = !synliga.has(r.rattar.id);
+      return { ...r, hoger: ensam ? r.rattar.hoger : "", hogerFore: ensam ? r.rattar.hogerFore : undefined };
+    }),
+  }));
+}
+
+// ─── Lägen som inte beror på vyn ──────────────────────────────────────────
+
+export const LADDAR_VY: VyData = {
+  lage: "pagaende",
+  status: "hämtar",
+  period: "",
+  sektioner: [],
+  fot: "",
+};
+
+export const FEL_VY: VyData = {
+  lage: "fel",
+  status: "kunde inte läsas",
+  period: "",
+  banner: { ton: "fel", text: "Uppgifterna kunde inte hämtas från servern. Ladda om sidan." },
+  sektioner: [],
+  fot: "",
+};
+
+export const INGET_AR_VY: VyData = {
+  lage: "tomt",
+  status: "inget räkenskapsår",
+  period: "",
+  sektioner: [],
+  fot: "Det finns inget räkenskapsår för dagens datum.",
+};

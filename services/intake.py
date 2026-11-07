@@ -12,6 +12,10 @@ from domain.types import IntakeSourceType, IntakeStatus, VoucherStatus
 from repositories.intake_repo import IntakeRepository
 from repositories.voucher_repo import VoucherRepository
 
+#: The statuses `IntakeService.retry` takes back to `pending`: the two the
+#: decision queue shows as `intake:` decisions (`_INTAKE_OPEN_STATUSES`).
+RETRYABLE_STATUSES = (IntakeStatus.FAILED, IntakeStatus.NEEDS_ATTENTION)
+
 
 class IntakeError(Exception):
     """Base error for intake workflow failures."""
@@ -150,6 +154,66 @@ class IntakeService:
         db.commit()
         return self.get_source(source_id)
 
+    def retry(
+        self,
+        source_id: str,
+        actor: str,
+        agent_guidance: str | None = None,
+    ) -> IntakeSource:
+        """Put a source the agent abstained on back in the intake pass's queue.
+
+        The next pass reads it with the instructions as they are then, plus
+        `agent_guidance` when given (blank keeps the current guidance). The
+        earlier attempts stay as they are: the history is append-only.
+
+        Refused for a source that is not `failed`/`needs_attention`, that has
+        a current link (it is bokfört already, a new pass could book it
+        twice), or that a thread owns (the pass never reads those, so it
+        would sit `pending` forever -- the answer is in that thread).
+        """
+        source = self.get_source(source_id)
+        if source.status not in RETRYABLE_STATUSES:
+            raise IntakeConflictError(
+                "intake_not_retryable",
+                "Only sources the agent abstained on can be retried",
+                f"source_id={source_id}, status={source.status.value}",
+            )
+        if self.sources.get_link_by_source_id(source_id) is not None:
+            raise IntakeConflictError(
+                "intake_already_linked",
+                "The source is linked to a voucher; unlink it before retrying",
+                f"source_id={source_id}",
+            )
+        if self.sources.is_in_a_thread(source_id):
+            raise IntakeConflictError(
+                "intake_in_thread",
+                "The source belongs to a thread; answer it in that thread",
+                f"source_id={source_id}",
+            )
+        normalized = agent_guidance.strip() if agent_guidance else None
+        with db.transaction():
+            if normalized:
+                self.sources.update_agent_guidance(source_id, normalized, _commit=False)
+            self.sources.update_status(
+                source_id, IntakeStatus.PENDING.value, actor=actor, _commit=False
+            )
+        return self.get_source(source_id)
+
+    def reopen_for_thread(self, source_id: str) -> None:
+        """A source the agent abstained on, attached to a thread message, is
+        `pending` again so the thread's agent may post from it -- posting
+        takes only `pending`/`processing` (`_ensure_can_record_outcome`).
+        The `user_file` post makes the thread own it, so the intake pass
+        still never reads it. Any other status, or a current link, is left
+        as it is: the thread then sees the source as it stands.
+        """
+        source = self.get_source(source_id)
+        if source.status not in RETRYABLE_STATUSES:
+            return
+        if self.sources.get_link_by_source_id(source_id) is not None:
+            return
+        self.sources.update_status(source_id, IntakeStatus.PENDING.value)
+
     def resolve_source_file(self, source: IntakeSource) -> Path:
         """Return a stored file path only if it remains inside the intake root."""
         root = Path(settings.intake_dir).resolve()
@@ -251,6 +315,72 @@ class IntakeService:
         """Validate that a source can be linked to a voucher."""
         return self._ensure_can_record_outcome(source_id)
 
+    def supported_vouchers(self, source_id: str) -> list[str]:
+        """The vouchers *source_id* supports now -- its current links'
+        voucher ids, oldest first -- or `[]` for a source that supports none
+        (migration 044: an underlag may support several)."""
+        return [lk.voucher_id for lk in self.sources.list_links_for_source(source_id)]
+
+    def link_shared_source(
+        self,
+        source_id: str,
+        voucher_id: str,
+        *,
+        known_voucher_ids: list[str],
+        actor: str,
+        summary: str,
+        link_reason: str,
+        _commit: bool = True,
+    ) -> VoucherIntakeSource:
+        """Link an underlag that already supports vouchers to one more
+        (migration 044), when a human pressed a proposal card that said so.
+
+        *known_voucher_ids* are the vouchers the card named. A link made
+        after the card was proposed was not shown to the human, so it is
+        refused (`intake_already_linked`): the press is no basis for it.
+        The source stays `processed`; an attempt records the link."""
+        self._validate_summary(summary)
+        source = self.get_source(source_id)
+        if source.status == IntakeStatus.DELETED:
+            raise IntakeConflictError(
+                "intake_not_processable",
+                "Intake source is deleted",
+                f"source_id={source_id}",
+            )
+        current = self.supported_vouchers(source_id)
+        unknown = [v for v in current if v not in known_voucher_ids]
+        if unknown or voucher_id in current:
+            raise IntakeConflictError(
+                "intake_already_linked",
+                "Intake source was linked to a voucher after the proposal",
+                f"source_id={source_id}, voucher_id={(unknown or [voucher_id])[0]}",
+            )
+        voucher = self.vouchers.get(voucher_id)
+        if not voucher or voucher.status != VoucherStatus.POSTED:
+            raise IntakeConflictError(
+                "voucher_not_posted",
+                "Only posted vouchers can be linked to intake sources",
+                f"voucher_id={voucher_id}",
+            )
+        link = self.sources.create_voucher_link(
+            intake_source_id=source_id,
+            voucher_id=voucher_id,
+            linked_by=actor,
+            link_reason=link_reason,
+            _commit=False,
+        )
+        self.sources.record_attempt(
+            intake_source_id=source_id,
+            status=IntakeStatus.PROCESSED.value,
+            summary=summary,
+            voucher_id=voucher_id,
+            actor=actor,
+            _commit=False,
+        )
+        if _commit:
+            db.commit()
+        return link
+
     def link_existing_voucher(
         self,
         source_id: str,
@@ -280,34 +410,63 @@ class IntakeService:
             )
 
         def persist_link() -> tuple[IntakeProcessingAttempt, VoucherIntakeSource]:
-            link = self.sources.create_voucher_link(
-                intake_source_id=source_id,
-                voucher_id=voucher_id,
-                linked_by=actor,
-                link_reason=link_reason,
-                _commit=False,
-            )
-            attempt = self.sources.record_attempt(
-                intake_source_id=source_id,
-                status=IntakeStatus.PROCESSED.value,
+            return self.persist_voucher_link(
+                source_id,
+                voucher_id,
+                actor=actor,
                 summary=summary,
                 warnings=warnings,
-                voucher_id=voucher_id,
-                actor=actor,
-                _commit=False,
+                link_reason=link_reason,
             )
-            self.sources.update_status(
-                source_id,
-                IntakeStatus.PROCESSED.value,
-                actor=actor,
-                _commit=False,
-            )
-            return attempt, link
 
         if _commit:
             with db.transaction():
                 return persist_link()
         return persist_link()
+
+    def persist_voucher_link(
+        self,
+        source_id: str,
+        voucher_id: str,
+        *,
+        actor: str,
+        summary: str,
+        warnings: list[str] | None = None,
+        link_reason: str | None = None,
+    ) -> tuple[IntakeProcessingAttempt, VoucherIntakeSource]:
+        """The link's three writes -- `voucher_intake_sources`, a `processed`
+        attempt, the source's status -- with `_commit=False` and **no
+        checks**. The caller owns the transaction and has made its checks.
+
+        `link_existing_voucher` calls this after `_ensure_can_record_outcome`
+        (the posting's check: `pending`/`processing` only). The only other
+        caller is `IntakeLinkService` (SPEC-flode-underlag.md §3.3, D9),
+        which makes its own check that also lets `failed` and
+        `needs_attention` through -- so the posting keeps refusing an
+        abstained source while a link after the fact does not."""
+        link = self.sources.create_voucher_link(
+            intake_source_id=source_id,
+            voucher_id=voucher_id,
+            linked_by=actor,
+            link_reason=link_reason,
+            _commit=False,
+        )
+        attempt = self.sources.record_attempt(
+            intake_source_id=source_id,
+            status=IntakeStatus.PROCESSED.value,
+            summary=summary,
+            warnings=warnings,
+            voucher_id=voucher_id,
+            actor=actor,
+            _commit=False,
+        )
+        self.sources.update_status(
+            source_id,
+            IntakeStatus.PROCESSED.value,
+            actor=actor,
+            _commit=False,
+        )
+        return attempt, link
 
     def list_links_for_voucher(self, voucher_id: str) -> list[VoucherIntakeSource]:
         """List intake sources linked to a voucher."""
@@ -319,17 +478,27 @@ class IntakeService:
 
     def _ensure_can_record_outcome(self, source_id: str) -> IntakeSource:
         source = self.get_source(source_id)
+        if (
+            source.status != IntakeStatus.DELETED
+            and self.sources.get_link_by_source_id(source_id) is not None
+        ):
+            # Migration 044: an underlag may support several vouchers, but
+            # not on the agent's say alone -- that is how one receipt gets
+            # booked twice.
+            raise IntakeConflictError(
+                "intake_already_linked",
+                "Intake source is already linked to a voucher",
+                f"source_id={source_id} -- underlaget styrker redan en "
+                "verifikation. Ska det styrka en till, lägg fram verifikationen "
+                "med foresla_verifikation, eller koppla den postade "
+                "verifikationen med foresla_delat_underlag, så att användaren "
+                "godkänner.",
+            )
         if source.status not in (IntakeStatus.PENDING, IntakeStatus.PROCESSING):
             raise IntakeConflictError(
                 "intake_not_processable",
                 "Intake source cannot be processed in its current status",
                 f"source_id={source_id}, status={source.status.value}",
-            )
-        if self.sources.get_link_by_source_id(source_id):
-            raise IntakeConflictError(
-                "intake_already_linked",
-                "Intake source is already linked to a voucher",
-                f"source_id={source_id}",
             )
         return source
 

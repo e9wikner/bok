@@ -3,10 +3,13 @@
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi import status as http_status
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 
 from api.deps import get_current_actor
 from domain.models import BankInput
+from repositories.bank_input_repo import BankInputRepository
 from services.bank_inputs import (
+    AUTO_CONNECTION_REFERENCE,
     BankConnectionNotFoundError,
     BankInputConflictError,
     BankInputError,
@@ -14,6 +17,7 @@ from services.bank_inputs import (
     BankInputNotFoundError,
     BankInputService,
     BankInputValidationError,
+    BankTransactionNotFoundError,
     DuplicateBankInputError,
 )
 from services.bank_integration import BankConnection, BankIntegrationService
@@ -28,18 +32,36 @@ async def upload_bank_input(
     bank_connection_id: str = Form(...),
     actor: str = Depends(get_current_actor),
 ):
-    """Upload bank CSV source material before agent voucher posting."""
+    """Upload a bank CSV (an account statement).
+
+    `bank_connection_id` is a connection id, `account:<kontokod>`, or `auto`
+    -- the account is then read from the file name's leading account code,
+    or is 1630 for Skatteverket's tax-account export (the chat's upload).
+    Imported transactions that are the underlag of already posted vouchers
+    are linked to them at once; the answer says how many vouchers that is
+    (`linked_voucher_count`) and which account (`account_code`)."""
     content = await _read_limited_upload(file)
     service = BankInputService()
     try:
+        reference = bank_connection_id
+        if reference == AUTO_CONNECTION_REFERENCE:
+            reference = service.resolve_auto_reference(file.filename, content)
+        connection_id = service.resolve_connection_reference(reference)
         bank_input = service.create_from_upload_content(
             filename=file.filename,
             content_type=file.content_type,
             content=content,
-            bank_connection_id=service.resolve_connection_reference(bank_connection_id),
+            bank_connection_id=connection_id,
             actor=actor,
         )
-        return _bank_input_to_dict(bank_input)
+        connection = BankIntegrationService().get_connection(connection_id)
+        return {
+            **_bank_input_to_dict(bank_input),
+            "account_code": connection.account_number if connection else None,
+            "linked_voucher_count": len(
+                BankInputRepository.list_voucher_links_for_input(bank_input.id)
+            ),
+        }
     except BankInputError as exc:
         raise _http_error(exc) from exc
 
@@ -116,6 +138,36 @@ async def delete_bank_input(
         raise _http_error(exc) from exc
 
 
+class UnlinkBankTransactionRequest(BaseModel):
+    reason: str = Field(..., description="Why the link is wrong; kept in the trace")
+
+
+@router.post("/transactions/{bank_transaction_id}/unlink", response_model=dict)
+async def unlink_bank_transaction(
+    bank_transaction_id: str,
+    request: UnlinkBankTransactionRequest,
+    actor: str = Depends(get_current_actor),
+):
+    """Undo a statement transaction's link to a posted voucher
+    (`services/statement_match.py`, migration 040). The link row stays and a
+    `voucher_bank_transaction_unlinks` row says it no longer holds; the
+    voucher is not touched. The transaction is never again linked
+    automatically -- only by `koppla_banktransaktion`.
+
+    - `400 unlink_reason_required`
+    - `404 bank_transaction_not_found`
+    - `409 bank_transaction_not_linked`
+    """
+    from services.statement_match import StatementMatchService
+
+    try:
+        return StatementMatchService().unlink(
+            bank_transaction_id, reason=request.reason, actor=actor
+        )
+    except BankInputError as exc:
+        raise _http_error(exc) from exc
+
+
 def _bank_input_to_dict(bank_input: BankInput) -> dict:
     return {
         "id": bank_input.id,
@@ -151,7 +203,14 @@ def _http_error(exc: BankInputError) -> HTTPException:
     status_code = http_status.HTTP_400_BAD_REQUEST
     if isinstance(exc, DuplicateBankInputError):
         status_code = http_status.HTTP_409_CONFLICT
-    elif isinstance(exc, (BankInputNotFoundError, BankConnectionNotFoundError)):
+    elif isinstance(
+        exc,
+        (
+            BankInputNotFoundError,
+            BankConnectionNotFoundError,
+            BankTransactionNotFoundError,
+        ),
+    ):
         status_code = http_status.HTTP_404_NOT_FOUND
     elif isinstance(exc, BankInputConflictError):
         status_code = http_status.HTTP_409_CONFLICT

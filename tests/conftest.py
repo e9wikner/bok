@@ -38,8 +38,11 @@ def test_db():
     # Cleanup
     db.disconnect()
     db.db_path = original_path
-    if os.path.exists(path):
-        os.remove(path)
+    # WAL mode leaves -wal/-shm beside the file when a connection on another
+    # thread is still open; left behind they filled /tmp (4 MB per test).
+    for leftover in (path, f"{path}-wal", f"{path}-shm"):
+        if os.path.exists(leftover):
+            os.remove(leftover)
 
 
 @pytest.fixture

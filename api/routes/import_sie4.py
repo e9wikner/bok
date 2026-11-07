@@ -115,6 +115,7 @@ async def import_sie4(
             "success": success,
             "imported": importer.imported,
             "errors": importer.errors,
+            "warnings": importer.warnings,
             "parser_errors": importer.parser.errors,
             "fiscal_year": importer.fiscal_year_resolution,
         }

@@ -33,9 +33,6 @@ class SIE4ExportData:
         self.previous_fiscal_year: Optional[FiscalYear] = None
         self.accounts: List[Account] = []
         self.vouchers: List[Voucher] = []
-        # Årets IB-verifikation (serie "IB"), oavsett status. SIE4-importen
-        # skriver filens #IB-rader dit; exporten läser den för #IB.
-        self.opening_balance_voucher: Optional[Voucher] = None
         self.periods: List[Period] = []
         # IB (ingående balans) per konto: {account_code: amount_in_öre}
         self.opening_balances: Dict[str, int] = {}
@@ -145,8 +142,10 @@ class SIE4Exporter:
         # Hämta alla verifikationer för räkenskapsåret
         data.vouchers = self._get_vouchers_for_fiscal_year(fiscal_year_id)
 
-        # Årets IB-verifikation (utkast eller postad) — filens #IB-rader
-        data.opening_balance_voucher = self._get_opening_balance_voucher(fiscal_year_id)
+        # Årets ingående balans (services/opening_balance.py)
+        from services.opening_balance import OpeningBalanceService
+
+        data.opening_balances = OpeningBalanceService().balances(fiscal_year_id)
 
         # Beräkna saldon
         self._calculate_balances(data)
@@ -229,58 +228,12 @@ class SIE4Exporter:
         vouchers.sort(key=lambda v: (v.date, v.series.value, v.number))
         return vouchers
 
-    def _get_opening_balance_voucher(self, fiscal_year_id: str) -> Optional[Voucher]:
-        """Hämta räkenskapsårets IB-verifikation (serie "IB"), oavsett status.
-
-        SIE4-importen skapar den ur filens #IB-rader men lämnar den som utkast
-        (den postas först när räkenskapsåret stängs). Exporten ska ändå spegla
-        den ingående ställning som importerats, så vi läser den oavsett status.
-        """
-        from repositories.voucher_repo import VoucherRepository
-
-        row = db.execute(
-            "SELECT id FROM vouchers WHERE fiscal_year_id = ? AND series = ? "
-            "ORDER BY date LIMIT 1",
-            (fiscal_year_id, VoucherSeries.IB.value),
-        ).fetchone()
-        if not row:
-            return None
-        return VoucherRepository.get(row["id"])
-
-    def _closing_position(
-        self, fiscal_year_id: str, accounts: List[Account]
-    ) -> Dict[str, int]:
-        """Balanskontonas utgående ställning för ett räkenskapsår.
-
-        = ingående ställning (dess IB-verifikation) + alla bokförda rörelser
-        under året. Används som IB för nästa år när det året saknar egen
-        IB-verifikation.
-        """
-        position: Dict[str, int] = defaultdict(int)
-
-        ib_voucher = self._get_opening_balance_voucher(fiscal_year_id)
-        if ib_voucher is not None:
-            for row in ib_voucher.rows:
-                acc = self._find_account(accounts, row.account_code)
-                if acc and self._is_balance_account(acc):
-                    position[row.account_code] += row.debit - row.credit
-
-        for voucher in self._get_vouchers_for_fiscal_year(fiscal_year_id):
-            if voucher.series == VoucherSeries.IB:
-                continue
-            for row in voucher.rows:
-                acc = self._find_account(accounts, row.account_code)
-                if acc and self._is_balance_account(acc):
-                    position[row.account_code] += row.debit - row.credit
-
-        return dict(position)
-
     def _calculate_balances(self, data: SIE4ExportData) -> None:
         """Beräkna IB, UB, RES och PSALDO.
 
         Affärsregler:
-        - IB (Ingående Balans): årets IB-verifikation, annars föregående års
-          utgående ställning, annars 0 — bara balanskonton (klass 1-2)
+        - IB (Ingående Balans): årets ingående balans från
+          OpeningBalanceService — bara balanskonton (klass 1-2)
         - UB (Utgående Balans): IB + alla transaktioner under året
           - Gäller bara balanskonton (klass 1-2)
         - RES (Resultat): Summa transaktioner för resultatkonton (klass 3-8)
@@ -288,11 +241,10 @@ class SIE4Exporter:
 
         I SIE4 anges belopp med positivt = debet, negativt = kredit.
 
-        IB tas från årets egna IB-verifikation (serie "IB") om den finns —
-        SIE4-importen skriver dit filens #IB-rader. Saknas den (t.ex. första
-        räkenskapsåret) återfaller vi på föregående års utgående ställning.
-        IB-verifikationen räknas aldrig som en rörelse under året och skrivs
-        aldrig ut som #VER; den representeras enbart av #IB-raderna.
+        IB är ingen verifikation: för första året i böckerna är den angiven,
+        för senare år framräknad ur föregående år. En postad IB-verifikation
+        från före migrering 033 räknas aldrig som en rörelse under året och
+        skrivs aldrig ut som #VER.
         """
         # Initiera saldon
         account_movements: Dict[str, int] = defaultdict(int)
@@ -300,8 +252,8 @@ class SIE4Exporter:
             lambda: defaultdict(int)
         )
 
-        # Beräkna rörelser från verifikationer (IB-verifikationen exkluderad —
-        # den är ingående ställning, inte en transaktion under året).
+        # Beräkna rörelser från verifikationer (en gammal IB-verifikation
+        # exkluderad — den är ingående ställning, inte en transaktion).
         for voucher in data.vouchers:
             if voucher.series == VoucherSeries.IB:
                 continue
@@ -312,33 +264,27 @@ class SIE4Exporter:
                 account_movements[row.account_code] += movement
                 period_movements[period_key][row.account_code] += movement
 
-        # IB: årets egen IB-verifikation, annars föregående års slutställning.
-        if data.opening_balance_voucher is not None:
-            for row in data.opening_balance_voucher.rows:
-                data.opening_balances[row.account_code] = data.opening_balances.get(
-                    row.account_code, 0
-                ) + (row.debit - row.credit)
-        elif data.previous_fiscal_year:
-            for code, balance in self._closing_position(
-                data.previous_fiscal_year.id, data.accounts
-            ).items():
-                data.opening_balances[code] = (
-                    data.opening_balances.get(code, 0) + balance
-                )
-
-        # UB och RES
-        for acc in data.accounts:
-            movement = account_movements.get(acc.code, 0)
-            if self._is_balance_account(acc):
+        # UB och RES — över alla konton med saldo, även ett som saknas i
+        # kontoplanen (t.ex. 2099 dit föregående års resultat förs i IB).
+        accounts_by_code = {acc.code: acc for acc in data.accounts}
+        codes = set(accounts_by_code) | set(data.opening_balances)
+        codes |= set(account_movements)
+        for code in codes:
+            movement = account_movements.get(code, 0)
+            acc = accounts_by_code.get(code)
+            if acc is not None:
+                is_balance = self._is_balance_account(acc)
+            else:
+                is_balance = code[:1] in ("1", "2")
+            if is_balance:
                 # UB = IB + rörelse under året
-                ib = data.opening_balances.get(acc.code, 0)
-                ub = ib + movement
+                ub = data.opening_balances.get(code, 0) + movement
                 if ub != 0:
-                    data.closing_balances[acc.code] = ub
+                    data.closing_balances[code] = ub
             else:
                 # RES = summa rörelse under året (resultatkonton)
                 if movement != 0:
-                    data.result_balances[acc.code] = movement
+                    data.result_balances[code] = movement
 
         # Ta bort nollställda ingående balanser så att exporten bara innehåller
         # #IB-rader för konton som faktiskt hade en ingående ställning.
@@ -515,8 +461,8 @@ class SIE4Exporter:
                         f"#PSALDO 0 {period_str} {code} {self._format_amount(balance)}"
                     )
 
-        # Verifikationer (IB-verifikationen skrivs inte ut som #VER — den
-        # ingående ställningen ligger redan i #IB-raderna ovan).
+        # Verifikationer (en gammal IB-verifikation skrivs inte ut som #VER —
+        # den ingående ställningen ligger redan i #IB-raderna ovan).
         ver_vouchers = [v for v in data.vouchers if v.series != VoucherSeries.IB]
         if ver_vouchers:
             lines.append("")

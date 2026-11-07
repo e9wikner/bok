@@ -606,7 +606,19 @@ function DropzoneStatusLine({
   const hasStopped =
     !lastScan || checkedAt - lastScan.getTime() > staleAfterMs;
   const unknownFolders = status.unknown_account_folders;
-  const isWarning = hasStopped || unknownFolders.length > 0 || !!status.last_error;
+  // A file can go in fine and still be impossible to book: its date is in no
+  // fiscal year. Say so here rather than let it go quiet.
+  const dateWarnings = status.date_warnings?.underlag ?? [];
+  const waiting = dateWarnings.filter((w) => w.code === "waiting_for_fiscal_year");
+  const outside = dateWarnings.filter((w) => w.code === "outside_fiscal_years");
+  const outsideTransactions =
+    status.date_warnings?.bank_transactions_outside_fiscal_years ?? 0;
+  const isWarning =
+    hasStopped ||
+    unknownFolders.length > 0 ||
+    !!status.last_error ||
+    outside.length > 0 ||
+    outsideTransactions > 0;
 
   return (
     <Card className={isWarning ? "border-destructive/50" : undefined}>
@@ -639,6 +651,28 @@ function DropzoneStatusLine({
             <p className="text-destructive">
               Okänd kontokod i {unknownFolders.join(", ")}. Lägg upp kontot i
               kontoplanen eller döp om mappen — kontoutdrag som läggs där avvisas.
+            </p>
+          )}
+
+          {waiting.length > 0 && (
+            <p className="text-muted-foreground">
+              {waiting.length} underlag väntar på ett nytt räkenskapsår (
+              {waiting.map((w) => w.original_filename).join(", ")}). Svara på
+              frågan i Verifikationer.
+            </p>
+          )}
+
+          {outside.length > 0 && (
+            <p className="text-destructive">
+              {outside.length} underlag är daterade utanför alla räkenskapsår och
+              kan inte bokföras: {outside.map((w) => w.original_filename).join(", ")}.
+            </p>
+          )}
+
+          {outsideTransactions > 0 && (
+            <p className="text-destructive">
+              {outsideTransactions} transaktion(er) från kontoutdrag ligger utanför
+              alla räkenskapsår och syns inte i något år förrän året finns.
             </p>
           )}
 
@@ -834,6 +868,12 @@ function RowActions({
 }
 
 function getStatusDetail(item: IntakeWorkspaceItem) {
+  if (item.kind === "voucher_source" && item.date_warning) {
+    return item.date_warning.message;
+  }
+  if (item.kind === "bank_input" && item.transactions_outside_fiscal_years) {
+    return `${item.transactions_outside_fiscal_years} transaktion(er) ligger utanför alla räkenskapsår.`;
+  }
   if (item.kind === "bank_input") {
     if (item.status === "processed") {
       return `${item.imported_count} importerade, ${item.skipped_count} hoppade över`;

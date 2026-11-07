@@ -2,11 +2,13 @@
 
 import logging
 import uuid
+from dataclasses import dataclass
 from typing import Optional
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Query, status
 
 from config import settings
+from domain.models import FiscalYear
 from services.auth import AuthService
 from services.ledger import LedgerService
 
@@ -61,6 +63,57 @@ async def get_current_actor(api_key: str = Depends(verify_api_key)) -> str:
     return "api"
 
 
+async def get_human_actor(api_key: str = Depends(verify_api_key)) -> str:
+    """The logged-in human, for what only a human may do (opening a locked
+    period or fiscal year).
+
+    The agent authenticates with the static API key, the frontend with a
+    JWT. A request made with the key is refused, so the agent cannot reach
+    these routes through the HTTP API either.
+    """
+    if api_key == settings.api_key:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "Only a logged-in user can do this",
+                "code": "human_only",
+                "details": "the API key is the agent's; log in to the frontend",
+            },
+        )
+    username = AuthService().verify_jwt(api_key).get("sub")
+    if not username:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return username
+
+
+@dataclass(frozen=True)
+class Caller:
+    """Who is calling: the agent's API key (`human=False`, actor `"api"`)
+    or a logged-in user (`human=True`, actor the username)."""
+
+    actor: str
+    human: bool
+
+
+async def get_caller(api_key: str = Depends(verify_api_key)) -> Caller:
+    """For a route that lets a human do on their own what the agent needs a
+    decision for (undoing a link, underlag-ersatt)."""
+    if api_key == settings.api_key:
+        return Caller(actor="api", human=False)
+    username = AuthService().verify_jwt(api_key).get("sub")
+    if not username:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return Caller(actor=username, human=True)
+
+
 async def get_idempotency_key(
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ) -> Optional[str]:
@@ -86,3 +139,31 @@ async def get_idempotency_key(
             },
         )
     return idempotency_key
+
+
+async def get_fiscal_year_filter(
+    fiscal_year_id: Optional[str] = Query(
+        None,
+        description=(
+            "Only what belongs to this fiscal year; omitted, every year. "
+            "Unknown id is 404 fiscal_year_not_found."
+        ),
+    ),
+) -> Optional[FiscalYear]:
+    """`?fiscal_year_id=` for the lists the year selector narrows. An unknown
+    id is 404 -- never a silent fallback to every year or to this year."""
+    if fiscal_year_id is None:
+        return None
+    from repositories.period_repo import PeriodRepository
+
+    fiscal_year = PeriodRepository.get_fiscal_year(fiscal_year_id)
+    if fiscal_year is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": f"Unknown fiscal year: {fiscal_year_id!r}",
+                "code": "fiscal_year_not_found",
+                "details": "fiscal_year_id must name an existing fiscal year.",
+            },
+        )
+    return fiscal_year

@@ -651,6 +651,9 @@ INK2S_FIELD_LABELS = {
     "7754": "Andra bokförda intäkter som inte ska tas upp",
     "7654": "Schablonintäkt på kvarvarande periodiseringsfonder",
     "7670": "Överskott av näringsverksamhet",
+    "7750": "Årets resultat, förlust",
+    "7667": "Uppräknat belopp vid återföring av periodiseringsfond",
+    "7770": "Underskott av näringsverksamhet",
 }
 
 # A code that is one row's primary field and another row's negative half — 7525
