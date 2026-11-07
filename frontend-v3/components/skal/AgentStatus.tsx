@@ -11,16 +11,25 @@ import type { AgentState } from "@/lib/skal/api";
  * Pausad ska visas så länge den är pausad, "inte bara i felinlägget".
  */
 
-const LAGEN: Record<Exclude<AgentState, "vilande">, { text: string; prick: string; fg: string }> = {
-  arbetar: { text: "Agenten arbetar", prick: "#16a34a", fg: "#15803d" },
-  postar: { text: "Agenten postar", prick: "#2563d9", fg: "#1b49a3" },
-  pausad: { text: "Agenten pausad", prick: "#dc2626", fg: "#b91c1c" },
+const LAGEN: Record<
+  Exclude<AgentState, "vilande">,
+  { text: string; kort: string; prick: string; fg: string }
+> = {
+  arbetar: { text: "Agenten arbetar", kort: "Arbetar", prick: "#16a34a", fg: "#15803d" },
+  postar: { text: "Agenten postar", kort: "Postar", prick: "#2563d9", fg: "#1b49a3" },
+  pausad: { text: "Agenten pausad", kort: "Pausad", prick: "#dc2626", fg: "#b91c1c" },
 };
 
 export function AgentStatus({
   state,
   pausadOrsak,
+  kompakt = false,
 }: {
+  /**
+   * Mobilens header: bara verbet ("Pausad"). Med sex vyprickar på Bokslut
+   * räckte inte bredden till hela texten, och året lades ovanpå den.
+   */
+  kompakt?: boolean;
   /**
    * `undefined` när statusanropet inte gick fram. Då visas INGENTING —
    * aldrig "pausad". Pausad är ett riktigt läge med en orsak, och att gissa
@@ -37,14 +46,14 @@ export function AgentStatus({
     <div
       className="flex items-center gap-[7px] text-[13px]"
       style={{ color: lage.fg }}
-      title={state === "pausad" && pausadOrsak ? pausadOrsak : undefined}
+      title={state === "pausad" && pausadOrsak ? pausadOrsak : kompakt ? lage.text : undefined}
     >
       <span
         aria-hidden="true"
         className="h-[7px] w-[7px] rounded-full"
         style={{ background: lage.prick }}
       />
-      {lage.text}
+      {kompakt ? lage.kort : lage.text}
     </div>
   );
 }

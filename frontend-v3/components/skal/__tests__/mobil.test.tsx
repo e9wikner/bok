@@ -89,9 +89,10 @@ describe("mobilmönstret under 1000 px", () => {
     expect(vantandeBeslut).toHaveBeenCalledWith("bocker.verifikationer");
   });
 
-  it("visar Agenten pausad även i mobilheadern", async () => {
+  it("visar pausad även i mobilheadern, i kort form", async () => {
     renderaSkal();
-    expect(await screen.findByText("Agenten pausad")).toBeInTheDocument();
+    // Kort form: med Bokslutets sex vyprickar räcker inte bredden till hela texten.
+    expect(await screen.findByText("Pausad")).toBeInTheDocument();
     expect(agentLage.state).toBe("pausad");
   });
 });

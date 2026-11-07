@@ -110,7 +110,7 @@ export function Header({
             står i tasks/skal/todo.md. */}
         {agent?.state === "pausad" && (
           <div className="shrink-0">
-            <AgentStatus state={agent.state} pausadOrsak={agent.paused_reason} />
+            <AgentStatus state={agent.state} pausadOrsak={agent.paused_reason} kompakt />
           </div>
         )}
         <div className="shrink-0">

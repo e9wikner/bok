@@ -140,4 +140,9 @@ describe("AgentStatus faller mjukt (testfall 9)", () => {
     rerender(<AgentStatus state="pausad" pausadOrsak="dygnstaket nått" />);
     expect(screen.getByText("Agenten pausad")).toBeInTheDocument();
   });
+
+  it("kompakt: bara verbet, hela texten i title", () => {
+    render(<AgentStatus state="arbetar" kompakt />);
+    expect(screen.getByText("Arbetar")).toHaveAttribute("title", "Agenten arbetar");
+  });
 });
