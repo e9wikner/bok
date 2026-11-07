@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { skipToken, useQuery } from "@tanstack/react-query";
 import { UTFARDANDEN_NYCKEL, type Utfardande } from "@/lib/chattyta/utfardanden";
 
 const INGA: readonly Utfardande[] = [];
@@ -9,7 +9,7 @@ const INGA: readonly Utfardande[] = [];
 export function useUtfardanden(): readonly Utfardande[] {
   const { data } = useQuery<Utfardande[]>({
     queryKey: UTFARDANDEN_NYCKEL,
-    enabled: false,
+    queryFn: skipToken,
     staleTime: Infinity,
   });
   return data ?? INGA;

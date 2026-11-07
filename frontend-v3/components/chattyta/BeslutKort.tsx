@@ -75,16 +75,29 @@ function kallFarg(lage: Lage, beslut: BeslutSvar | undefined): string {
     : "var(--bok-vantar-meta)";
 }
 
+/** Källslagen servern skickar i dag, på svenska. Ett okänt slag visas som det är. */
+const KALLSLAG: Record<string, string> = {
+  intake_source: "underlag",
+  intake: "underlag",
+  voucher: "verifikation",
+  bank_transaction: "banktransaktion",
+};
+
+/** Ett internt id (uuid) säger människan ingenting och spräcker kortets bredd. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * `källa · id`, plus datumet ur listan när det finns — inlägget bär bara
  * `{kind, id}` (`_decision_body`), komponenter.md vill "källa och datum".
- * Serverns strängar, ingen översättning: `kind` är öppen (`BeslutKallaSvar`).
+ * `kind` är öppen (`BeslutKallaSvar`): de kända slagen står på svenska, ett
+ * okänt som servern skrev det. Ett uuid visas inte.
  */
 function kallText(inlagg: DecisionInlagg, beslut: BeslutSvar | undefined): string | null {
   const kalla = inlagg.body.source;
   if (!kalla) return null;
   const datum = beslut?.source?.date;
-  return [kalla.kind, kalla.id, datum].filter(Boolean).join(" · ");
+  const id = kalla.id && !UUID.test(kalla.id) ? kalla.id : null;
+  return [KALLSLAG[kalla.kind] ?? kalla.kind, id, datum].filter(Boolean).join(" · ");
 }
 
 /**

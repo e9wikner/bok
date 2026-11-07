@@ -315,6 +315,13 @@ describe("kroppen (komponenter.md §BeslutKort, SPEC §10)", () => {
     expect(screen.getByTestId("beslut-kalla").style.color).not.toBe("var(--bok-fel-meta)");
   });
 
+  it("ett känt källslag på svenska, utan uuid", () => {
+    const kalla = { kind: "intake_source", id: "82af12ba-f943-45ca-8735-a78418b0c0de" };
+    const inlagg = typad(medKropp(FIXTUR_DECISION, { ...kropp(FIXTUR_DECISION), source: kalla }));
+    renderaKort(beslut({ source: { ...kalla, date: "2026-11-05" } }), inlagg as DecisionInlagg);
+    expect(screen.getByTestId("beslut-kalla")).toHaveTextContent(/^underlag · 2026-11-05$/);
+  });
+
   it("utan källa: ingen källrad", () => {
     const utanKalla = typad(medKropp(FIXTUR_DECISION, { ...kropp(FIXTUR_DECISION), source: null }));
     renderaKort(beslut({ source: null }), utanKalla as DecisionInlagg);
