@@ -13,6 +13,7 @@ from domain.invoice_validation import quantity_from_centi
 from domain.models import FiscalYear
 from domain.validation import ValidationError
 from services.invoice import InvoiceService
+from services.ledger_bookings import LedgerBookingService
 
 router = APIRouter(prefix="/api/v1/invoices", tags=["invoices"])
 
@@ -77,7 +78,8 @@ async def list_invoices(
     """List invoices with server-side filtering, pagination and summary.
 
     `fiscal_year_id` keeps the invoices dated in that year -- the year their
-    voucher is booked in."""
+    voucher is booked in. `ledger_invoices` are the outgoing invoices booked
+    outside BokAI in the same range: vouchers, not invoices."""
     try:
         service = InvoiceService()
         invoices = service.invoices.list_all(
@@ -100,6 +102,12 @@ async def list_invoices(
             invoices[offset : offset + limit] if limit is not None else invoices
         )
         page_total = sum(inv.amount_inc_vat for inv in page_invoices)
+        # Invoices issued in another system, booked here only as vouchers
+        # (services/ledger_bookings.py). Not in `total` or `summary`.
+        ledger_invoices = LedgerBookingService().invoices(
+            date_from=fiscal_year.start_date if fiscal_year else None,
+            date_to=fiscal_year.end_date if fiscal_year else None,
+        )
 
         return {
             "total": total,
@@ -111,6 +119,7 @@ async def list_invoices(
                 _invoice_to_list_item(inv, service.payments.list_for_invoice(inv.id))
                 for inv in page_invoices
             ],
+            "ledger_invoices": ledger_invoices,
         }
     except Exception as e:
         raise HTTPException(

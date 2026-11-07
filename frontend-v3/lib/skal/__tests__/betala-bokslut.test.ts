@@ -72,6 +72,46 @@ describe("faktureringVy", () => {
     // En faktura från en äldre server, utan verifikation, är text.
     expect(rad("d").mal).toBeUndefined();
   });
+
+  it("visar fakturor bokförda utanför BokAI, med betalningen när den hittats", () => {
+    const vy = faktureringVy({
+      total: 0,
+      invoices: [],
+      ledger_invoices: [
+        {
+          voucher_id: "v2",
+          voucher_number: "A49",
+          date: "2026-04-30",
+          description: "Faktura #101269 skickad",
+          amount_inc_vat: 12555000,
+          vat_amount: 2511000,
+          paid: false,
+          payment_voucher_id: null,
+          payment_date: null,
+        },
+        {
+          voucher_id: "v1",
+          voucher_number: "A6",
+          date: "2026-01-29",
+          description: "Faktura #101266 skickad",
+          amount_inc_vat: 9720000,
+          vat_amount: 1944000,
+          paid: true,
+          payment_voucher_id: "v1-bet",
+          payment_date: "2026-03-25",
+        },
+      ],
+    });
+    expect(vy.lage).toBe("normal");
+    expect(vy.status).toBe("1 obetald");
+    const [sektion] = vy.sektioner;
+    expect(sektion.titel).toBe("Bokförda utanför BokAI");
+    expect(sektion.rader.map((r) => r.titel)).toEqual(["Faktura #101269 skickad", "Faktura #101266 skickad"]);
+    expect(sektion.rader[0].meta).toBe("A49 · 2026-04-30 · ingen matchande betalning");
+    expect(sektion.rader[1].meta).toBe("A6 · 2026-01-29 · betald 2026-03-25");
+    expect(sektion.rader[1].mal).toEqual({ typ: "ver", id: "v1" });
+    expect(sektion.rader[1].lankar).toEqual([{ text: "betalning", mal: { typ: "ver", id: "v1-bet" } }]);
+  });
 });
 
 describe("lonerVy", () => {
@@ -79,6 +119,34 @@ describe("lonerVy", () => {
     const vy = lonerVy({ payroll_runs: [] });
     expect(vy.lage).toBe("tomt");
     expect(vy.status).toBe("inga lönekörningar");
+  });
+
+  it("visar löner bokförda utanför BokAI, nettolön till höger", () => {
+    const vy = lonerVy(
+      {
+        payroll_runs: [],
+        ledger_payouts: [
+          {
+            voucher_id: "v22",
+            voucher_number: "A22",
+            date: "2025-02-26",
+            description: "Lön till tjänstemän (januari)",
+            gross_salary: 4358300,
+            preliminary_tax: 1249500,
+            net_salary: 3108800,
+          },
+        ],
+      },
+      { beslut: [], ar: { start: "2025-01-01", end: "2025-12-31" } }
+    );
+    expect(vy.lage).toBe("normal");
+    expect(vy.status).toBe("alla bokförda");
+    expect(vy.period).toBe("2025-01-01 – 2025-12-31 · 1 bokförda utanför BokAI · nettolön");
+    const [sektion] = vy.sektioner;
+    expect(sektion.titel).toBe("Bokförda utanför BokAI");
+    expect(sektion.rader[0].titel).toBe("Lön till tjänstemän (januari)");
+    expect(sektion.rader[0].meta).toMatch(/^A22 · 2025-02-26 · skatt 12\s?495/);
+    expect(sektion.rader[0].mal).toEqual({ typ: "ver", id: "v22" });
   });
 
   it("visar senaste månaden först och väntar på ej bokförda", () => {

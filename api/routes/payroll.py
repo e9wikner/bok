@@ -16,6 +16,7 @@ from domain.payroll_models import (
     Payslip,
 )
 from domain.validation import ValidationError
+from services.ledger_bookings import LedgerBookingService
 from services.payroll import PayrollService
 from services.payroll_proposal import PayrollProposalService
 
@@ -140,7 +141,8 @@ async def list_payroll_runs(
     fiscal_year: Optional[FiscalYear] = Depends(get_fiscal_year_filter),
 ):
     """Every payroll run with its payslips and the month's AGI.
-    `fiscal_year_id` keeps the runs paid out in that year."""
+    `fiscal_year_id` keeps the runs paid out in that year. `ledger_payouts`
+    are the salaries booked outside BokAI paid in the same range."""
     service = PayrollService()
     proposals = PayrollProposalService()
     result = []
@@ -174,7 +176,13 @@ async def list_payroll_runs(
                 else proposals.open_card_for_agi(agi["year"], agi["month"])
             )
         result.append(payload)
-    return {"payroll_runs": result}
+    # Salaries paid outside BokAI, booked here only as vouchers
+    # (services/ledger_bookings.py).
+    ledger_payouts = LedgerBookingService().salaries(
+        date_from=fiscal_year.start_date if fiscal_year else None,
+        date_to=fiscal_year.end_date if fiscal_year else None,
+    )
+    return {"payroll_runs": result, "ledger_payouts": ledger_payouts}
 
 
 @router.post("/runs", response_model=dict, status_code=status.HTTP_201_CREATED)

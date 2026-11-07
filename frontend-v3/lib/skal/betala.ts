@@ -33,9 +33,29 @@ export interface Faktura {
   payment_voucher_ids?: string[];
 }
 
+/**
+ * En utgående faktura som bokförts utanför BokAI: bara en verifikation
+ * (debet kundfordringar, kredit intäkt), ingen faktura här
+ * (`services/ledger_bookings.py`). Betald när en senare verifikation minskar
+ * kundfordringarna med exakt beloppet.
+ */
+export interface HuvudboksFaktura {
+  voucher_id: string;
+  voucher_number: string | null;
+  date: string;
+  description: string;
+  amount_inc_vat: number;
+  vat_amount: number;
+  paid: boolean;
+  payment_voucher_id: string | null;
+  payment_date: string | null;
+}
+
 export interface Fakturalista {
   total: number;
   invoices: Faktura[];
+  /** Valfri: en äldre server skickar den inte. */
+  ledger_invoices?: HuvudboksFaktura[];
 }
 
 /** En rad ur `GET /invoice-drafts` (`api/routes/invoice_drafts.py`). */
@@ -94,9 +114,27 @@ export interface Lonekorning {
   agi?: LoneAgi | null;
 }
 
+/** En lön som bokförts utanför BokAI: bara en verifikation, inget lönebesked. */
+export interface HuvudboksLon {
+  voucher_id: string;
+  voucher_number: string | null;
+  date: string;
+  description: string;
+  /** Debet på lönekontona; inte bruttolönen när semesterlön tas ur skulden. */
+  gross_salary: number;
+  preliminary_tax: number;
+  /** Krediterat bankkonto, annars skuld till den anställde; null utan någotdera. */
+  net_salary: number | null;
+}
+
 export interface Lonekorningar {
   payroll_runs: Lonekorning[];
+  /** Valfri: en äldre server skickar den inte. */
+  ledger_payouts?: HuvudboksLon[];
 }
+
+/** Rubriken för det som bokförts utanför BokAI, i båda vyerna. */
+export const UTANFOR_RUBRIK = "Bokförda utanför BokAI";
 
 /**
  * Fakturorna och lönekörningarna gäller årsväljarens år (`fiscal_year_id`):
@@ -160,6 +198,18 @@ function fakturarad(f: Faktura): VyRadData {
     // `betalning` den som bokförde betalningen.
     mal: f.voucher_id ? { typ: "ver", id: f.voucher_id } : undefined,
     lankar: betalningslankar(f.payment_voucher_ids ?? []),
+  };
+}
+
+function huvudboksFakturarad(f: HuvudboksFaktura): VyRadData {
+  const status = f.paid ? `betald ${f.payment_date}` : "ingen matchande betalning";
+  return {
+    id: `huvudbok:${f.voucher_id}`,
+    titel: f.description || "Faktura",
+    meta: [f.voucher_number, f.date, status].filter(Boolean).join(" · "),
+    hoger: formatBeloppHela(f.amount_inc_vat),
+    mal: { typ: "ver", id: f.voucher_id },
+    lankar: f.payment_voucher_id ? betalningslankar([f.payment_voucher_id]) : undefined,
   };
 }
 
@@ -300,6 +350,12 @@ export function faktureringVy(lista: Fakturalista, extra?: FaktureringExtra): Vy
   ];
   if (utkastRader.length > 0) sektioner.push({ titel: "Utkast", rader: utkastRader });
   if (betalda.length > 0) sektioner.push({ titel: "Senast betalda", rader: betalda.map(fakturarad) });
+  // Fakturor från ett annat system, bokförda som verifikationer. Serverns
+  // ordning: nyast först.
+  const utanfor = lista.ledger_invoices ?? [];
+  if (utanfor.length > 0) sektioner.push({ titel: UTANFOR_RUBRIK, rader: utanfor.map(huvudboksFakturarad) });
+  const obetaldaTotalt = obetalda.length + utanfor.filter((f) => !f.paid).length;
+  const antal = lista.total + utanfor.length;
 
   const vantar = vantarRader.length;
   const tomt = sektioner.length === 0;
@@ -311,8 +367,8 @@ export function faktureringVy(lista: Fakturalista, extra?: FaktureringExtra): Vy
         ? `${vantar} väntar på dig`
         : forfallna > 0
           ? `${forfallna} förfallen${forfallna > 1 ? "a" : ""}`
-          : `${obetalda.length} obetald${obetalda.length === 1 ? "" : "a"}`,
-    period: ar ? `${ar.start} – ${ar.end} · ${lista.total} fakturor` : `${lista.total} fakturor i systemet`,
+          : `${obetaldaTotalt} obetald${obetaldaTotalt === 1 ? "" : "a"}`,
+    period: ar ? `${ar.start} – ${ar.end} · ${antal} fakturor` : `${antal} fakturor i systemet`,
     sektioner,
     fot: extra
       ? "Beskriv vad som ska faktureras, så lägger agenten fram fakturan. Du utfärdar den, och PDF:en skickar du själv."
@@ -416,6 +472,23 @@ function korningRad(k: Lonekorning): VyRadData {
   };
 }
 
+function huvudboksLonRad(l: HuvudboksLon): VyRadData {
+  return {
+    id: `huvudbok:${l.voucher_id}`,
+    titel: l.description || "Lön",
+    meta: [
+      l.voucher_number,
+      l.date,
+      l.preliminary_tax > 0 ? `skatt ${formatBeloppHela(l.preliminary_tax)}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+    // Nettolön som lönebeskeden; lönekontona när nettot inte står i verifikationen.
+    hoger: formatBeloppHela(l.net_salary ?? l.gross_salary),
+    mal: { typ: "ver", id: l.voucher_id },
+  };
+}
+
 /** Bokförd hel: alla lönebesked och AGI:n. Utan AGI-uppgift räknas körningens status. */
 function helBokford(k: Lonekorning): boolean {
   if (k.status !== "booked") return false;
@@ -452,9 +525,20 @@ export function lonerVy(lista: Lonekorningar, extra?: LonerExtra): VyData {
     if (k.agi) rader.push(agiRad(k, k.agi, kort(k.agi.pending_decision_id)));
     sektioner.push({ titel: `${MANAD[k.month - 1] ?? k.month} ${k.year}`, rader });
   }
+  // Löner från ett annat lönesystem, bokförda som verifikationer. Ett år har
+  // alla sina; utan år de senaste.
+  const utanforAlla = lista.ledger_payouts ?? [];
+  const utanfor = extra?.ar ? utanforAlla : utanforAlla.slice(0, LONEKORNINGAR_ANTAL);
+  if (utanfor.length > 0) sektioner.push({ titel: UTANFOR_RUBRIK, rader: utanfor.map(huvudboksLonRad) });
 
   const vantar = vantarRader.length;
-  const tomt = korningar.length === 0 && vantar === 0;
+  const tomt = korningar.length === 0 && vantar === 0 && utanfor.length === 0;
+  const antal = [
+    korningar.length > 0 ? `${lista.payroll_runs.length} lönekörningar` : null,
+    utanforAlla.length > 0 ? `${utanforAlla.length} bokförda utanför BokAI` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return {
     lage: tomt ? "tomt" : vantar > 0 || oklara > 0 ? "vantar" : "normal",
     status: tomt
@@ -465,10 +549,10 @@ export function lonerVy(lista: Lonekorningar, extra?: LonerExtra): VyData {
           ? `${oklara} ej bokförd${oklara > 1 ? "a" : ""}`
           : "alla bokförda",
     period: extra?.ar
-      ? `${extra.ar.start} – ${extra.ar.end} · ${tomt ? "inga lönekörningar" : `${lista.payroll_runs.length} lönekörningar · nettolön`}`
+      ? `${extra.ar.start} – ${extra.ar.end} · ${tomt ? "inga lönekörningar" : `${antal} · nettolön`}`
       : tomt
         ? "Nettolön per lönebesked"
-        : `${lista.payroll_runs.length} lönekörningar · nettolön`,
+        : `${antal} · nettolön`,
     sektioner,
     fot: "Be agenten bokföra lönen eller arbetsgivardeklarationen, så lägger den fram ett kort. Du bokför med ett tryck i kortet.",
   };
