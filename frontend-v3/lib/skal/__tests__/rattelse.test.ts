@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { verifikationerVy, type Rattelse, type Verifikation, type Verifikationslista } from "@/lib/skal/bocker";
 import { verifikationVy, type VerifikationDetalj } from "@/lib/skal/detalj";
 import { formatBeloppHela } from "@/lib/skal/format";
+import { sokVy } from "@/lib/skal/sok";
 import type { VyData, VyRadData } from "@/lib/skal/vydata";
 
 /**
@@ -106,20 +107,37 @@ describe("listan", () => {
     expect(rad(vy, "a53")?.kvitto).toBeUndefined();
   });
 
-  it("makuleringen heter så, och visar beloppet den tog bort", () => {
-    const b1 = v({
-      id: "b1",
-      series: "B",
-      number: 1,
-      corrects: A53,
-      correction: makulering,
+  const b1 = v({
+    id: "b1",
+    series: "B",
+    number: 1,
+    corrects: A53,
+    correction: makulering,
+  });
+  const a53 = v({ corrected_by: B1, correction: makulering });
+
+  it("makuleringen säger vad den makulerade, men visar inte ändringen en gång till", () => {
+    const r = rad(verifikationerVy(AR, lista(b1, a53), lista()), "b1");
+    expect(r).toMatchObject({
+      titel: "Makulering av A-53",
+      meta: "B-1 · 2026-11-12 · stefan · Bokförd i fel månad",
+      hoger: "",
     });
-    expect(rad(verifikationerVy(AR, lista(b1), lista()), "b1")).toMatchObject({
-      titel: "Makulering av A-53: Arbetsgivardeklaration 2026-10, avdragen skatt",
-      meta: "B-1 · 2026-11-12 · makulerar A-53 · stefan",
-      hogerFore: formatBeloppHela(1300000),
-      hoger: "0",
-    });
+    expect(r?.hogerFore).toBeUndefined();
+    expect(r?.struken).toBeUndefined();
+  });
+
+  it("utan originalet i listan visar makuleringen själv beloppet före och efter", () => {
+    const r = rad(verifikationerVy(AR, lista(b1), lista()), "b1");
+    expect(r).toMatchObject({ titel: "Makulering av A-53", hogerFore: formatBeloppHela(1300000), hoger: "0" });
+  });
+
+  it("en sökträff på bara rättelsen visar beloppet, en träff på paret visar det en gång", () => {
+    const vy = verifikationerVy(AR, lista(b1, a53), lista());
+    expect(rad(sokVy(vy, "stefan"), "b1")).toMatchObject({ hogerFore: formatBeloppHela(1300000), hoger: "0" });
+    const par = sokVy(vy, "a-53");
+    expect(rad(par, "a53")?.struken).toBe(true);
+    expect(rad(par, "b1")).toMatchObject({ hoger: "" });
   });
 
   it("en ändrad verifikation utan beloppsändring visar bara beloppet", () => {

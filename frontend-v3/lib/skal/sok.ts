@@ -9,7 +9,7 @@
  * står överst. Serverns `search` är bara LIKE, därför sker det här.
  */
 
-import type { VyData, VyRadData } from "@/lib/skal/vydata";
+import { parBelopp, type VyData, type VyRadData } from "@/lib/skal/vydata";
 
 export interface Matchning {
   poang: number;
@@ -157,7 +157,7 @@ export function sokVy(vy: VyData, fraga: string): VyData {
     lage: traffar.length === 0 ? "tomt" : "normal",
     status: antalTraffar(traffar.length),
     period: vy.period,
-    sektioner: [{ titel: "Träffar", rader: traffar.map((t) => t.rad), tom: "inga träffar" }],
+    sektioner: parBelopp([{ titel: "Träffar", rader: traffar.map((t) => t.rad), tom: "inga träffar" }]),
     fot: vy.fot,
   };
 }

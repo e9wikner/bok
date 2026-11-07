@@ -11,7 +11,7 @@
 import apiClient from "@/lib/api";
 import { formatBeloppHela } from "@/lib/skal/format";
 import { formatVerifikationsnummer } from "@/lib/utils";
-import type { VyData, VyRadData, VySektionData } from "@/lib/skal/vydata";
+import { parBelopp, type VyData, type VyRadData, type VySektionData } from "@/lib/skal/vydata";
 import type { OverviewFiscalYear } from "@/lib/skal/api";
 import { oppnaFil, underlagsfilSokvag, type BeslutSvar, type ForslagStatusSvar } from "@/lib/chattyta/api";
 import type { Koppling } from "@/lib/chattyta/kopplingar";
@@ -507,22 +507,24 @@ function korrigering(v: { referenced_by?: VerifikationRef | null }): string {
 /**
  * En rättad verifikation och dess rättelse läses som ett par (§7.5): det
  * makulerade stryks över, det ändrade visar beloppet före överstruket och
- * beloppet efter. Rättelsen säger vad den gjorde med vad, i stället för att
- * se ut som en ny affärshändelse på samma belopp.
+ * beloppet efter. Ändringen visas bara där, på originalet. Rättelsen säger
+ * vad den gjorde med vad, när, av vem och varför, men upprepar varken
+ * originalets text eller — när originalet står i samma lista — beloppen
+ * (`parBelopp`): då såg man samma ändring två gånger.
  */
 function rattelserad(v: Verifikation, r: Rattelse): VyRadData {
   const nummer = nummerAv(v);
   const fore = r.before_total !== r.after_total ? formatBeloppHela(r.before_total) : undefined;
   const rad: VyRadData = { id: v.id, titel: v.description, hoger: "", mal: { typ: "ver", id: v.id } };
   if (v.corrects) {
-    const vad = r.kind === "makulering" ? "makulerar" : "ändrar";
+    const vad = r.kind === "makulering" ? "Makulering" : "Ändring";
     const vem = r.actor ? ` · ${r.actor}` : "";
+    const varfor = r.reason ? ` · ${r.reason}` : "";
     return {
       ...rad,
-      titel: r.title,
-      meta: `${nummer} · ${v.date} · ${vad} ${nummerAv(r.original)}${vem}`,
-      hoger: formatBeloppHela(r.after_total),
-      hogerFore: fore,
+      titel: `${vad} av ${nummerAv(r.original)}`,
+      meta: `${nummer} · ${v.date}${vem}${varfor}`,
+      rattar: { id: r.original.id, hoger: formatBeloppHela(r.after_total), hogerFore: fore },
     };
   }
   const vad = r.kind === "makulering" ? "makulerad" : "ändrad";
@@ -917,7 +919,7 @@ export function verifikationerVy(
       saknarRader.length > 0
         ? `${arsrubrik(ar)} · kompletteringar först · postade nedan`
         : `${arsrubrik(ar)} · ${postade.total} postade verifikationer`,
-    sektioner,
+    sektioner: parBelopp(sektioner),
     fot: FOT_UNDERLAG,
   };
 }
