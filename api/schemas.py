@@ -270,12 +270,13 @@ class OverviewPeriodState(BaseModel):
 
 
 class OverviewCounters(BaseModel):
-    """The same four counters on every page (SPEC-oversikt.md §5)."""
+    """The same counters on every page (SPEC-oversikt.md §5)."""
 
     open_decisions: int = 0
     overdue_invoices: int = 0
     payroll_waiting: int = 0
     missing_attachments: int = 0
+    closing_checks: int = 0
 
 
 class OverviewPageResponse(BaseModel):

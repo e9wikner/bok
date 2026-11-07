@@ -17,6 +17,8 @@ export interface OverviewCounters {
   overdue_invoices: number;
   payroll_waiting: number;
   missing_attachments: number;
+  /** Bokslutets kontroller som återstår (fel och varningar). */
+  closing_checks: number;
 }
 
 export interface OverviewPage {

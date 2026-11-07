@@ -351,3 +351,75 @@ class TestApi:
     def test_okant_ar_och_okand_fil(self, ar, client):
         assert client.get("/api/v1/bokslut/finns-inte").status_code == 404
         assert client.get(f"/api/v1/bokslut/{ar}/filer/hemlig.txt").status_code == 404
+
+
+def _kontroll(fy, id_):
+    from services.bokslut import BokslutService
+
+    return [k for k in BokslutService().overview(fy)["kontroller"] if k["id"] == id_]
+
+
+class TestDisposition:
+    """Förra årets resultat på 2099 ska föras till 2091 (och 2898)."""
+
+    SIE_2099 = SIE.replace(
+        "#IB 0 2091 -150000", "#IB 0 2091 -100000\n#IB 0 2099 -50000"
+    )
+
+    def test_odisponerat_resultat_ger_varning(self, test_db):
+        [k] = _kontroll(_importera(self.SIE_2099), "disposition")
+        assert k["niva"] == "varning"
+        assert "50000 kr (vinst)" in k["text"]
+        assert "2091" in k["text"]
+
+    def test_disponerat_resultat_ar_ok(self, test_db):
+        sie = self.SIE_2099 + """#VER A 9 20250515 Vinstdisposition
+{
+#TRANS 2099 {} 50000.00
+#TRANS 2091 {} -40000.00
+#TRANS 2898 {} -10000.00
+}
+"""
+        sie = sie.replace(
+            "#KONTO 2512", '#KONTO 2898 "Outtagen vinstutdelning"\n#KONTO 2512'
+        )
+        [k] = _kontroll(_importera(sie), "disposition")
+        assert k["niva"] == "ok"
+
+    def test_inget_ingaende_resultat_ingen_kontroll(self, ar):
+        assert _kontroll(ar, "disposition") == []
+
+
+class TestOversiktensBokslut:
+    """Bokslut-fliken i översikten säger vad som återstår av bokslutet."""
+
+    def _bokslut(self, fy, today):
+        from datetime import date
+
+        from services.overview import OverviewService
+
+        o = OverviewService().get_overview(
+            today=date.fromisoformat(today), fiscal_year_id=fy
+        )
+        return next(p for p in o.pages if p.key == "bokslut")
+
+    def test_avslutat_ar_raknar_kontrollerna(self, ar):
+        from services.bokslut import BokslutService
+
+        page = self._bokslut(ar, "2026-02-01")
+        kvar = [
+            k
+            for k in BokslutService().overview(ar)["kontroller"]
+            if k["niva"] in ("fel", "varning")
+        ]
+        assert page.counters["closing_checks"] == len(kvar) > 0
+        assert f"{len(kvar)} att åtgärda i bokslutet" in page.meta
+        assert page.waiting is True
+
+    def test_under_aret_bara_dispositionen(self, test_db):
+        fy = _importera(TestDisposition.SIE_2099)
+        assert self._bokslut(fy, "2025-06-01").counters["closing_checks"] == 1
+
+    def test_under_aret_utan_ingaende_resultat_vantar_inget(self, ar):
+        page = self._bokslut(ar, "2025-06-01")
+        assert page.counters["closing_checks"] == 0

@@ -188,6 +188,37 @@ class BokslutService:
                 closing[code] = closing.get(code, 0) + net
         return closing
 
+    def disposition_checks(self, fiscal_year_id: str) -> List[Dict[str, str]]:
+        """Förra årets resultat ska disponeras enligt årsstämman.
+
+        Det ingående saldot på 2099 är förra årets resultat. Det flyttas till
+        balanserat resultat (2091), och en beslutad utdelning till 2898. Det
+        som är kvar på 2099 efter årets egna rörelser, bortsett från årets
+        resultat (8999 mot 2099), är odisponerat. Utan ett ingående saldo
+        finns inget att disponera och ingen kontroll visas.
+        """
+        from services.opening_balance import OpeningBalanceService
+        from services.tax_adjustments import kronor
+
+        ib = OpeningBalanceService().balances(fiscal_year_id).get("2099", 0)
+        if not ib:
+            return []
+        kvar = ib + self._movement(fiscal_year_id, ((2099, 2099), (8999, 8999)))
+        if kvar == 0:
+            return [_kontroll("disposition", OK, "Förra årets resultat är disponerat")]
+        belopp = kronor(-kvar)
+        slag = "vinst" if belopp >= 0 else "förlust"
+        return [
+            _kontroll(
+                "disposition",
+                VARNING,
+                "Förra årets resultat är inte disponerat",
+                f"{abs(belopp)} kr ({slag}) ligger kvar på 2099 Årets resultat. Bokför "
+                "årsstämmans beslut: 2099 mot 2091 Balanserad vinst eller förlust, och "
+                "en beslutad utdelning mot 2898 Outtagen vinstutdelning.",
+            )
+        ]
+
     def _kontroller(
         self, fiscal_year_id, fy, declaration, sru, vat, ar, skatt
     ) -> List[Dict[str, str]]:
@@ -208,6 +239,8 @@ class BokslutService:
                 f"Tillgångar minus eget kapital och skulder är {diff} kr.",
             )
         )
+
+        out.extend(self.disposition_checks(fiscal_year_id))
 
         unclosed = -self._movement(fiscal_year_id, ((3000, 8999),))
         out.append(

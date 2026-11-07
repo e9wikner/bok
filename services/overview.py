@@ -34,12 +34,14 @@ _PAYROLL_UNBOOKED = ("draft", "generated")
 
 @dataclass
 class PageCounters:
-    """The same four counters on every page, so a counter can move home."""
+    """The same counters on every page, so a counter can move home."""
 
     open_decisions: int = 0
     overdue_invoices: int = 0
     payroll_waiting: int = 0
     missing_attachments: int = 0
+    # Bokslut: the year-end checks still to do (`_count_closing_checks`).
+    closing_checks: int = 0
 
     def as_dict(self) -> Dict[str, int]:
         return {
@@ -47,6 +49,7 @@ class PageCounters:
             "overdue_invoices": self.overdue_invoices,
             "payroll_waiting": self.payroll_waiting,
             "missing_attachments": self.missing_attachments,
+            "closing_checks": self.closing_checks,
         }
 
     def any_waiting(self) -> bool:
@@ -148,9 +151,10 @@ class OverviewService:
                 overdue_invoices=self._count_overdue_invoices(today, counted),
                 payroll_waiting=self._count_payroll_waiting(counted),
             ),
-            # The period-level checks that belong here have not arrived; a
-            # thread's decisions are all Bokslut counts so far.
-            "bokslut": PageCounters(open_decisions=per_page["bokslut"]),
+            "bokslut": PageCounters(
+                open_decisions=per_page["bokslut"],
+                closing_checks=self._count_closing_checks(today, counted),
+            ),
         }
 
         return Overview(
@@ -242,6 +246,26 @@ class OverviewService:
             )
         )
 
+    def _count_closing_checks(self, today: date, fiscal_year) -> int:
+        """What is left of the year-end closing, once there is one to do.
+
+        A year that has ended and is not locked: its errors and warnings
+        (`BokslutService.overview`), the same list Bokslut's Översikt shows.
+        During the year most of those are expected (the result is not booked
+        yet), so only last year's undisposed result counts -- the årsstämma
+        decides it in the first half of the year. A locked year has none.
+        """
+        from services.bokslut import BokslutService
+
+        if fiscal_year is None or getattr(fiscal_year, "locked", False):
+            return 0
+        service = BokslutService()
+        if today <= fiscal_year.end_date:
+            checks = service.disposition_checks(fiscal_year.id)
+        else:
+            checks = service.overview(fiscal_year.id)["kontroller"]
+        return sum(1 for k in checks if k["niva"] in ("fel", "varning"))
+
     # -- period ------------------------------------------------------------
 
     def _current_fiscal_year(self, today: date):
@@ -313,5 +337,7 @@ class OverviewService:
             )
         if counters.missing_attachments:
             parts.append(f"{counters.missing_attachments} saknar underlag")
+        if counters.closing_checks:
+            parts.append(f"{counters.closing_checks} att åtgärda i bokslutet")
 
         return " · ".join(parts) if parts else "Inget väntar"

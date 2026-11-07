@@ -415,6 +415,7 @@ def test_overview_has_three_pages_in_order(client, auth_headers, period_id):
             "overdue_invoices",
             "payroll_waiting",
             "missing_attachments",
+            "closing_checks",
         }
         assert page["title"]
         assert page["meta"]
