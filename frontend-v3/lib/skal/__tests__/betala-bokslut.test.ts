@@ -341,4 +341,10 @@ describe("betalaVantar", () => {
     });
     expect(rader).toEqual([]);
   });
+
+  it("med ett år står bara fakturor med fakturadatum i året med", () => {
+    const k = { lonerBeslut: [], faktureringForslag: [forslag({})], fakturautkast: [utkast] };
+    expect(betalaVantar({ ...k, ar: { start: "2025-01-01", end: "2025-12-31" } })).toEqual([]);
+    expect(betalaVantar({ ...k, ar: { start: "2026-01-01", end: "2026-12-31" } })).toHaveLength(1);
+  });
 });

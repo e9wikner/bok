@@ -445,6 +445,11 @@ export interface BetalaVantarKallor {
   faktureringForslag: ForslagStatusSvar[];
   /** `GET /invoice-drafts`: namn, nummer och belopp till förslagen. */
   fakturautkast: Fakturautkast[];
+  /**
+   * Räkenskapsåret Verifikationer visar: bara fakturor med fakturadatum i
+   * året står med. Lönekorten filtreras av servern (`fiscal_year_id`).
+   */
+  ar?: { start: string; end: string };
 }
 
 /**
@@ -472,6 +477,11 @@ export function betalaVantar(k: BetalaVantarKallor): VyRadData[] {
   const utkast = new Map(k.fakturautkast.map((u) => [u.id, u]));
   const fakturor: VyRadData[] = k.faktureringForslag
     .filter((f) => (f.kind ?? "voucher") === "invoice" && f.status === "pending")
+    .filter((f) => {
+      const datum = utkast.get(f.draft_id)?.invoice_date;
+      // Utan utkastet vet vyn inte året; raden står kvar hellre än försvinner.
+      return !k.ar || !datum || (k.ar.start <= datum && datum <= k.ar.end);
+    })
     .map((f) => {
       const u = utkast.get(f.draft_id);
       const titel = u ? `Faktura ${u.invoice_number ?? "utan nummer"} · ${u.customer_name}` : "Fakturaförslag";

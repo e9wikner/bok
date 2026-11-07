@@ -43,6 +43,7 @@ from domain.models import (
     CorrectionNote,
     Decision,
     DecisionOption,
+    FiscalYear,
     IntakeProcessingAttempt,
     IntakeSource,
     Thread,
@@ -55,6 +56,7 @@ from repositories.decision_repo import DecisionRepository
 from repositories.intake_repo import IntakeRepository
 from repositories.thread_draft_repo import ThreadDraftRepository
 from repositories.thread_repo import ThreadRepository
+from repositories.voucher_repo import VoucherRepository
 
 logger = logging.getLogger(__name__)
 
@@ -274,6 +276,47 @@ def _correction_to_view(note: CorrectionNote, *, today: Optional[date]) -> Decis
         options=[],
         created_at=note.created_at,
     )
+
+
+def _in_year(day: date, fiscal_year: FiscalYear) -> bool:
+    return fiscal_year.start_date <= day <= fiscal_year.end_date
+
+
+def _decisions_in_year(
+    decisions: Sequence[Decision], fiscal_year: FiscalYear
+) -> List[Decision]:
+    """`list_decisions`'s year filter for `decisions` rows: the underlag's
+    date when the decision names one, else its thread's year. The date wins
+    over the thread because threads only followed the year selector from
+    2026-11-07 -- every older decision sits in the current year's thread
+    whatever year its underlag is from."""
+    thread_years: Dict[str, Optional[str]] = {}
+
+    def belongs(decision: Decision) -> bool:
+        if decision.source_date is not None:
+            return _in_year(decision.source_date, fiscal_year)
+        if decision.thread_id not in thread_years:
+            thread = ThreadRepository.get(decision.thread_id)
+            thread_years[decision.thread_id] = (
+                thread.fiscal_year_id if thread is not None else None
+            )
+        return thread_years[decision.thread_id] == fiscal_year.id
+
+    return [decision for decision in decisions if belongs(decision)]
+
+
+def _notes_in_year(
+    notes: Sequence[CorrectionNote], fiscal_year: FiscalYear
+) -> List[CorrectionNote]:
+    """A correction note belongs to its voucher's year; the note's own
+    date when the voucher cannot be read."""
+
+    def belongs(note: CorrectionNote) -> bool:
+        voucher = VoucherRepository.get(note.voucher_id)
+        day = voucher.date if voucher is not None else note.created_at.date()
+        return _in_year(day, fiscal_year)
+
+    return [note for note in notes if belongs(note)]
 
 
 def _decode_synthetic_id(decision_id: str) -> Optional[Tuple[str, str]]:
@@ -1158,6 +1201,7 @@ class DecisionService:
         limit: int = 50,
         offset: int = 0,
         today: Optional[date] = None,
+        fiscal_year: Optional[FiscalYear] = None,
     ) -> Tuple[List[DecisionView], int]:
         """SPEC §6.1: the union of `decisions`, `intake_sources`
         (`failed`/`needs_attention`) and `correction_notes`
@@ -1210,6 +1254,14 @@ class DecisionService:
         function keyed by `intake_source_id`), called once per
         `list_decisions` call -- not once per intake row, which is what a
         loop calling `list_attempts_for_source` per source would do.
+
+        `fiscal_year` keeps only what belongs to that year, before the
+        union is sorted and sliced, so `total` is the year's count. A row
+        belongs to the year that contains its date: a decision's
+        `source_date` (the underlag's own date), else the year of the
+        thread it was raised in; a correction note's voucher date; a
+        failed intake source's upload date (it was never dated). `None`
+        keeps every year, as before.
         """
         if status not in ("open", "answered", "all"):
             raise ValidationError(
@@ -1222,6 +1274,8 @@ class DecisionService:
         decisions = DecisionRepository.list_decisions(
             status=decision_status, view_key=view_key
         )
+        if fiscal_year is not None:
+            decisions = _decisions_in_year(decisions, fiscal_year)
         views: List[DecisionView] = [
             _decision_to_view(decision, today=today) for decision in decisions
         ]
@@ -1235,6 +1289,12 @@ class DecisionService:
         )
         if include_synthetic:
             sources = IntakeRepository.list_by_statuses(_INTAKE_OPEN_STATUSES)
+            if fiscal_year is not None:
+                sources = [
+                    source
+                    for source in sources
+                    if _in_year(source.uploaded_at.date(), fiscal_year)
+                ]
             latest_attempts: Dict[str, IntakeProcessingAttempt] = (
                 IntakeRepository.list_latest_attempts([source.id for source in sources])
             )
@@ -1244,6 +1304,8 @@ class DecisionService:
             )
 
             notes = CorrectionNoteRepository.list_by_statuses(_CORRECTION_OPEN_STATUSES)
+            if fiscal_year is not None:
+                notes = _notes_in_year(notes, fiscal_year)
             views.extend(_correction_to_view(note, today=today) for note in notes)
 
         views.sort(key=lambda view: (view.created_at, view.id))

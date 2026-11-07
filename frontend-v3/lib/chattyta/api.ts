@@ -326,14 +326,17 @@ export async function hamtaBeslut({
   status,
   limit,
   offset,
+  fiscalYearId,
 }: {
   viewKey?: string;
   status?: BeslutFilter;
   limit?: number;
   offset?: number;
+  /** Bara det som hör till räkenskapsåret (underlagets datum, annars trådens år). */
+  fiscalYearId?: string;
 }): Promise<BeslutListSvar> {
   const { data } = await apiClient.get<BeslutListSvar>("/api/v1/decisions", {
-    params: { view_key: viewKey, status, limit, offset },
+    params: { view_key: viewKey, status, limit, offset, fiscal_year_id: fiscalYearId },
   });
   return data;
 }

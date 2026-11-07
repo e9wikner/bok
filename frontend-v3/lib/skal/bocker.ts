@@ -815,7 +815,12 @@ export function verifikationerVy(
   // Väntar på beslut.
   const oppna = underlag.beslut.filter((b) => b.status === "open");
   const oppnaIds = new Set(oppna.map((b) => b.id));
-  const vantande = underlag.forslag.filter((f) => f.status === "pending");
+  // Bara förslag vars utkast hör till året (utkastlistan är årets), eller
+  // som postas just nu: ett förslag från ett annat år varken visas, räknas
+  // eller står i stället för ett av årets beslut.
+  const vantande = underlag.forslag.filter(
+    (f) => f.status === "pending" && (utkastPerId.has(f.draft_id) || postas.has(f.draft_id))
+  );
   // Beslut som ett förslag står i stället för — också medan förslaget postas,
   // annars dyker beslutet upp i Väntar under postningen.
   const ersatta = new Set(vantande.map(vantarPa).filter((k) => oppnaIds.has(k)));
@@ -825,10 +830,7 @@ export function verifikationerVy(
   const andraVyer = underlag.andraVyer ?? [];
   const vantarRader: VyRadData[] = [
     ...oppna.filter((b) => !ersatta.has(b.id)).map(beslutsrad),
-    ...synligaForslag.flatMap((f) => {
-      const u = utkastPerId.get(f.draft_id);
-      return u ? [forslagsrad(f, u)] : [];
-    }),
+    ...synligaForslag.map((f) => forslagsrad(f, utkastPerId.get(f.draft_id)!)),
     ...andraVyer,
   ];
   const antalVantar =

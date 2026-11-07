@@ -135,13 +135,16 @@ export function useVyer(
     enabled: bocker,
     staleTime,
   });
-  // Väntar på beslut (flode-verifikationer §11.1). Samma nycklar och samma
-  // cachade form som trådens `useBeslut`/`useForslag` — en fråga per vy, som
-  // korten och vyn delar; bara `select` skiljer, och den är per observatör.
+  // Väntar på beslut (flode-verifikationer §11.1). Besluten är bara årets
+  // (`fiscal_year_id`): ett beslut om ett underlag från ett annat år väntar
+  // där, inte här. Nyckeln ligger under trådens `useBeslut`, så att varje
+  // invalidering av `BESLUT_NYCKEL` når båda. Förslagen delar trådens fråga;
+  // vyn visar bara dem vars utkast hör till året.
   const verifikationer = "bocker.verifikationer";
   const beslut = useQuery({
-    queryKey: beslutStatusNyckel(verifikationer),
-    queryFn: () => hamtaBeslut({ viewKey: verifikationer, status: "all", limit: BESLUT_GRANS }),
+    queryKey: [...beslutStatusNyckel(verifikationer), id],
+    queryFn: () =>
+      hamtaBeslut({ viewKey: verifikationer, status: "all", limit: BESLUT_GRANS, fiscalYearId: id }),
     enabled: bocker,
     staleTime,
   });
@@ -214,7 +217,15 @@ export function useVyer(
   const lonerBeslut = useQuery({
     queryKey: beslutStatusNyckel(lonerVyKey),
     queryFn: () => hamtaBeslut({ viewKey: lonerVyKey, status: "all", limit: BESLUT_GRANS }),
-    enabled: betalaVantarFragor,
+    enabled: betala,
+    staleTime,
+  });
+  // Verifikationer visar bara årets lönekort.
+  const lonerBeslutAret = useQuery({
+    queryKey: [...beslutStatusNyckel(lonerVyKey), id],
+    queryFn: () =>
+      hamtaBeslut({ viewKey: lonerVyKey, status: "all", limit: BESLUT_GRANS, fiscalYearId: id }),
+    enabled: bocker,
     staleTime,
   });
   const rakenskapsar = useQuery({
@@ -253,9 +264,10 @@ export function useVyer(
             // Ett fel eller en fråga i flykt fäller inte Verifikationer: då
             // står bara vyns egna rader där.
             andraVyer: betalaVantar({
-              lonerBeslut: lonerBeslut.data?.decisions ?? [],
+              lonerBeslut: lonerBeslutAret.data?.decisions ?? [],
               faktureringForslag: faktureringForslag.data?.drafts ?? [],
               fakturautkast: fakturautkast.data?.drafts ?? [],
+              ar: ar!,
             }),
           },
           {

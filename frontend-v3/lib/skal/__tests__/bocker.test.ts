@@ -281,6 +281,17 @@ describe("verifikationerVy: Väntar på beslut, Postade, Utkast (testfall 45)", 
     expect(alla.filter((id) => id === "trad")).toHaveLength(1);
   });
 
+  it("ett förslag vars utkast inte hör till året varken visas eller räknas", () => {
+    const vy = verifikationerVy(
+      AR,
+      { total: 1, vouchers: [v({ id: "a1", status: "posted", number: 1 })] },
+      { total: 1, vouchers: [v({ id: "i-ar", description: "Årets förslag" })] },
+      { beslut: [], forslag: [forslag({ draft_id: "i-ar" }), forslag({ draft_id: "annat-ar" })] }
+    );
+    expect(sektion(vy, "Väntar på beslut").map((r) => r.id)).toEqual(["i-ar"]);
+    expect(vy.status).toBe("1 väntar på dig");
+  });
+
   it("ett underlag agenten avstod från får länken försök igen", () => {
     const vy = verifikationerVy(AR, TOM, TOM, {
       beslut: [

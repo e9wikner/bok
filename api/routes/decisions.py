@@ -30,6 +30,7 @@ from config import settings
 from domain.models import DecisionOption
 from domain.types import ThreadViewKey
 from domain.validation import ValidationError
+from repositories.period_repo import PeriodRepository
 from repositories.thread_repo import ThreadRepository
 from services.company_info_proposal import CompanyInfoProposalService
 from services.decision_service import (
@@ -129,6 +130,13 @@ async def list_decisions(
     ),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    fiscal_year_id: Optional[str] = Query(
+        None,
+        description=(
+            "Only what belongs to this fiscal year (the underlag's date, else "
+            "the thread's year); omitted, every year. Unknown id is 404."
+        ),
+    ),
     actor: str = Depends(get_current_actor),
 ):
     """`GET /decisions` -- the union of the three sources (SPEC §5, §6.1),
@@ -138,10 +146,26 @@ async def list_decisions(
     `LIMIT` would silently produce a wrong page.
     """
     validated_view_key = _validate_view_key(view_key) if view_key is not None else None
+    fiscal_year = None
+    if fiscal_year_id is not None:
+        fiscal_year = PeriodRepository.get_fiscal_year(fiscal_year_id)
+        if fiscal_year is None:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail={
+                    "error": f"Unknown fiscal year: {fiscal_year_id!r}",
+                    "code": "fiscal_year_not_found",
+                    "details": "fiscal_year_id must name an existing fiscal year.",
+                },
+            )
 
     try:
         views, total = DecisionService().list_decisions(
-            status=status, view_key=validated_view_key, limit=limit, offset=offset
+            status=status,
+            view_key=validated_view_key,
+            limit=limit,
+            offset=offset,
+            fiscal_year=fiscal_year,
         )
     except ValidationError as exc:
         raise HTTPException(
