@@ -34,6 +34,12 @@ export interface VyRadData {
   /** Beloppet före en rättelse, överstruket framför `hoger`. */
   hogerFore?: string;
   /**
+   * En rättelse: originalets id och beloppen före och efter. De visas bara
+   * när originalet inte står i samma lista, annars bär originalet ändringen
+   * (`parBelopp`).
+   */
+  rattar?: { id: string; hoger: string; hogerFore?: string };
+  /**
    * Beloppskolumner före `hoger`, som sektionens `kolumner` namnger
    * (Balansräkningen: ingående och förändring före saldot).
    */
@@ -113,6 +119,24 @@ export interface VyData {
 }
 
 // ─── Vyernas rader ────────────────────────────────────────────────────────
+
+/**
+ * En rättelse och dess original visar ändringen en gång, på originalet. En
+ * rättelse vars original inte står bland `sektioner` — en ensam sökträff,
+ * originalet på en annan sida eller i ett annat år — visar själv beloppet
+ * före och efter, annars syns ändringen inte alls.
+ */
+export function parBelopp(sektioner: VySektionData[]): VySektionData[] {
+  const synliga = new Set(sektioner.flatMap((s) => s.rader.map((r) => r.id)));
+  return sektioner.map((s) => ({
+    ...s,
+    rader: s.rader.map((r) => {
+      if (!r.rattar) return r;
+      const ensam = !synliga.has(r.rattar.id);
+      return { ...r, hoger: ensam ? r.rattar.hoger : "", hogerFore: ensam ? r.rattar.hogerFore : undefined };
+    }),
+  }));
+}
 
 // ─── Lägen som inte beror på vyn ──────────────────────────────────────────
 

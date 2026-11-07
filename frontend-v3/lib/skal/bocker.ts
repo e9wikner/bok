@@ -11,7 +11,7 @@
 import apiClient from "@/lib/api";
 import { formatBeloppHela } from "@/lib/skal/format";
 import { formatVerifikationsnummer } from "@/lib/utils";
-import type { VyData, VyRadData, VySektionData } from "@/lib/skal/vydata";
+import { parBelopp, type VyData, type VyRadData, type VySektionData } from "@/lib/skal/vydata";
 import type { OverviewFiscalYear } from "@/lib/skal/api";
 import { oppnaFil, underlagsfilSokvag, type BeslutSvar, type ForslagStatusSvar } from "@/lib/chattyta/api";
 import type { Koppling } from "@/lib/chattyta/kopplingar";
@@ -509,8 +509,8 @@ function korrigering(v: { referenced_by?: VerifikationRef | null }): string {
  * makulerade stryks över, det ändrade visar beloppet före överstruket och
  * beloppet efter. Ändringen visas bara där, på originalet. Rättelsen säger
  * vad den gjorde med vad, när, av vem och varför, men upprepar varken
- * originalets text eller beloppen — då såg man samma ändring två gånger,
- * och rättelsen såg ut som en ny affärshändelse.
+ * originalets text eller — när originalet står i samma lista — beloppen
+ * (`parBelopp`): då såg man samma ändring två gånger.
  */
 function rattelserad(v: Verifikation, r: Rattelse): VyRadData {
   const nummer = nummerAv(v);
@@ -524,6 +524,7 @@ function rattelserad(v: Verifikation, r: Rattelse): VyRadData {
       ...rad,
       titel: `${vad} av ${nummerAv(r.original)}`,
       meta: `${nummer} · ${v.date}${vem}${varfor}`,
+      rattar: { id: r.original.id, hoger: formatBeloppHela(r.after_total), hogerFore: fore },
     };
   }
   const vad = r.kind === "makulering" ? "makulerad" : "ändrad";
@@ -918,7 +919,7 @@ export function verifikationerVy(
       saknarRader.length > 0
         ? `${arsrubrik(ar)} · kompletteringar först · postade nedan`
         : `${arsrubrik(ar)} · ${postade.total} postade verifikationer`,
-    sektioner,
+    sektioner: parBelopp(sektioner),
     fot: FOT_UNDERLAG,
   };
 }
