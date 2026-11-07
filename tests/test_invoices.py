@@ -418,3 +418,57 @@ def test_a_voucher_says_which_invoice_or_payment_it_books(
     }
     assert origin(paid)["kind"] == "invoice_payment"
     assert origin(paid)["title"] == f"Betalning av faktura {number} · Ursprung AB"
+
+
+def test_payment_is_booked_on_the_statement_bank_account(
+    invoice_service, invoice_period, tmp_path
+):
+    """A payment lands on the account the company banks on (the one its
+    statements are imported for), not on 1010 PlusGiro."""
+    from config import settings
+    from repositories.voucher_repo import VoucherRepository
+    from services.bank_inputs import BankInputService
+
+    if not AccountRepository.exists("1920"):
+        AccountRepository.create("1920", "Bankkonto", "asset")
+    original = settings.bank_input_dir
+    settings.bank_input_dir = str(tmp_path / "bank-inputs")
+    try:
+        service = BankInputService()
+        service.create_from_upload_content(
+            filename="1920.csv",
+            content_type="text/csv",
+            content="Datum;Belopp;Text\n2026-01-02;-1,00;Avgift\n".encode(),
+            bank_connection_id=service.resolve_connection_reference("account:1920"),
+            actor="test",
+        )
+    finally:
+        settings.bank_input_dir = original
+
+    invoice = invoice_service.create_invoice(
+        customer_name="Bank AB",
+        invoice_date=date(2026, 3, 1),
+        due_date=date(2026, 3, 31),
+        rows_data=[
+            {
+                "description": "Tjänst",
+                "quantity": 1,
+                "unit_price": 100000,
+                "vat_code": "MP1",
+            }
+        ],
+    )
+    invoice_service.create_booking_for_invoice(
+        invoice_id=invoice.id, period_id=invoice_period.id
+    )
+    payment = invoice_service.register_payment(
+        invoice_id=invoice.id,
+        amount=125000,
+        payment_date=date(2026, 3, 15),
+        payment_method="bank_transfer",
+        period_id=invoice_period.id,
+    )
+    voucher = VoucherRepository.get(invoice_service.payments.get(payment.id).voucher_id)
+    debit = [r for r in voucher.rows if r.debit > 0]
+    assert [r.account_code for r in debit] == ["1920"]
+    assert voucher.description == f"Inbetalning faktura {invoice.invoice_number}"

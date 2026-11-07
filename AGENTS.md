@@ -121,7 +121,8 @@ Service-to-service imports are deferred inside methods to avoid import cycles.
 - **Issuing an invoice books it** in the same transaction: debit 1510
   (kundfordringar) incl. VAT, credit revenue excl. VAT and output VAT per VAT
   code (25 %: 3011/2610). Payment registration creates a second voucher:
-  debit 1010 (bank), credit 1510.
+  debit the bank account statements are imported for (else 1930), credit
+  1510 (`services/invoice.py::payment_bank_account`).
 - **A salary or an AGI is booked by a human's press, not by the agent.** The
   agent proposes it as a decision card (`foresla_lonebokforing`,
   `foresla_agi_bokforing`, `services/payroll_proposal.py`, migration 043);

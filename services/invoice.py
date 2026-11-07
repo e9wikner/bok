@@ -67,7 +67,7 @@ def invoice_booking_rows(invoice_number, amount_inc_vat: int, rows) -> List[Dict
             "account": "1510",  # Kundfordringar
             "debit": amount_inc_vat,
             "credit": 0,
-            "description": f"Invoice {invoice_number}",
+            "description": f"Faktura {invoice_number}",
         }
     ]
 
@@ -99,7 +99,7 @@ def invoice_booking_rows(invoice_number, amount_inc_vat: int, rows) -> List[Dict
                 "account": amounts["revenue_account"],
                 "debit": 0,
                 "credit": amounts["amount_ex_vat"],
-                "description": f"Revenue - {vat_code}",
+                "description": f"Försäljning, faktura {invoice_number}",
             }
         )
         if vat_acct and amounts["vat_amount"] > 0:
@@ -108,10 +108,37 @@ def invoice_booking_rows(invoice_number, amount_inc_vat: int, rows) -> List[Dict
                     "account": vat_acct,
                     "debit": 0,
                     "credit": amounts["vat_amount"],
-                    "description": f"VAT {vat_code}",
+                    "description": f"Utgående moms, faktura {invoice_number}",
                 }
             )
     return voucher_rows
+
+
+#: Bank accounts to book an incoming payment on when no statement says
+#: which, in order. 1010 last: the old default, PlusGiro.
+_FALLBACK_BANK_ACCOUNTS = ("1930", "1940", "1920", "1910", "1010")
+
+
+def payment_bank_account() -> str:
+    """The account a customer payment lands on.
+
+    The bank account the company imports statements for (the newest one),
+    so the payment is booked where the bank shows it. Without one, the first
+    of `_FALLBACK_BANK_ACCOUNTS` in the chart of accounts. It used to be
+    1010 PlusGiro always, whichever account the company banks on.
+    """
+    from domain.statement_coverage import is_bank_account
+    from repositories.account_repo import AccountRepository
+    from repositories.bank_input_repo import BankInputRepository
+
+    for row in BankInputRepository.list_processed_inputs_with_account():
+        code = row["account_code"]
+        if is_bank_account(code) and AccountRepository.exists(code):
+            return code
+    for code in _FALLBACK_BANK_ACCOUNTS:
+        if AccountRepository.exists(code):
+            return code
+    return "1930"
 
 
 class InvoiceService:
@@ -343,7 +370,7 @@ class InvoiceService:
                 date=invoice.invoice_date,
                 period_id=period_id,
                 description=description
-                or f"Invoice {invoice.invoice_number} - {invoice.customer_name}",
+                or f"Faktura {invoice.invoice_number} {invoice.customer_name}",
                 rows_data=voucher_rows,
                 created_by=actor,
                 _commit=False,
@@ -446,19 +473,19 @@ class InvoiceService:
             series="A",
             date=payment.payment_date,
             period_id=period_id,
-            description=f"Payment - Invoice {invoice.invoice_number}",
+            description=f"Inbetalning faktura {invoice.invoice_number}",
             rows_data=[
                 {
-                    "account": "1010",  # PlusGiro/Bank
+                    "account": payment_bank_account(),
                     "debit": payment.amount,
                     "credit": 0,
-                    "description": "Payment received",
+                    "description": "Inbetalning",
                 },
                 {
                     "account": "1510",  # Kundfordringar
                     "debit": 0,
                     "credit": payment.amount,
-                    "description": f"Invoice {invoice.invoice_number}",
+                    "description": f"Faktura {invoice.invoice_number}",
                 },
             ],
             created_by=actor,
@@ -548,19 +575,19 @@ class InvoiceService:
                     "account": "3011",  # Revenue reversal (debit reduces revenue)
                     "debit": credit.amount_ex_vat,
                     "credit": 0,
-                    "description": "Revenue reversal",
+                    "description": "Kreditering försäljning",
                 },
                 {
                     "account": "2610",  # VAT reversal (debit reduces VAT liability)
                     "debit": credit.vat_amount,
                     "credit": 0,
-                    "description": "VAT reversal",
+                    "description": "Kreditering utgående moms",
                 },
                 {
                     "account": "1510",  # Reduce receivables (credit)
                     "debit": 0,
                     "credit": credit.amount_inc_vat,
-                    "description": f"Credit - Invoice {invoice.invoice_number}",
+                    "description": f"Kredit faktura {invoice.invoice_number}",
                 },
             ],
             created_by=actor,
