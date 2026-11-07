@@ -134,6 +134,10 @@ export function Skal() {
   const [valtArId, setValtArId] = useState<string | null>(null);
   const valtAr = arslista?.fiscal_years.find((a) => a.id === valtArId);
   const ar = valtAr ? somOverviewAr(valtAr) : overview === undefined ? undefined : overview.fiscal_year;
+  // Chatten följer årsväljaren (SPEC-tradar.md §12.3: en tråd per vy och år).
+  // Utan val löser servern innevarande år själv, så tråden laddas inte om
+  // när översikten kommer.
+  const tradensAr = valtAr?.id ?? null;
 
   // Sökrutan i Verifikationer. Den uppskjutna termen filtrerar, så att
   // rutan svarar på varje tangent också när året är stort. Termen står kvar
@@ -239,6 +243,7 @@ export function Skal() {
         viewKey={aktivVy.key}
         vantandeBeslut={vantandeBeslut}
         variant={bred ? "desktop" : "mobil"}
+        arId={tradensAr}
       />
     </div>
     </DetaljProvider>

@@ -61,6 +61,7 @@ from services.llm import (
 )
 from services.thread_service import ThreadService, compact
 from services.thread_session import (
+    build_thread_user_turn,
     build_thread_window,
     estimate_tokens,
     render_post,
@@ -2358,6 +2359,155 @@ class TestPostMessage:
         assert response.status_code == 201
 
 
+class TestEveryFiscalYearsThreadIsWritable:
+    """Decision §12.3, one thread per view and year -- and every year's
+    thread is reachable *and writable* through `?fiscal_year_id=`: the
+    closing work for a year happens after it ended."""
+
+    @pytest.fixture
+    def old_year(self):
+        return PeriodRepository.create_fiscal_year(
+            start_date=date(2019, 1, 1), end_date=date(2019, 12, 31)
+        )
+
+    def test_a_message_lands_in_the_named_years_thread(
+        self, client, auth_headers, current_fiscal_year, old_year
+    ):
+        body = client.post(
+            f"{THREADS_URL}/bocker.balans/messages?fiscal_year_id={old_year.id}",
+            json={"text": "bokslut 2019"},
+            headers=auth_headers,
+        ).json()
+
+        assert body["fiscal_year_id"] == old_year.id
+        old = client.get(
+            f"{THREADS_URL}/bocker.balans?fiscal_year_id={old_year.id}",
+            headers=auth_headers,
+        ).json()
+        current = client.get(
+            f"{THREADS_URL}/bocker.balans", headers=auth_headers
+        ).json()
+        assert [p["body"]["text"] for p in old["posts"]] == ["bokslut 2019"]
+        assert current["posts"] == []
+
+    def test_without_a_year_a_message_still_goes_to_the_current_one(
+        self, client, auth_headers, current_fiscal_year, old_year
+    ):
+        body = client.post(
+            f"{THREADS_URL}/bocker.balans/messages",
+            json={"text": "i år"},
+            headers=auth_headers,
+        ).json()
+
+        assert body["fiscal_year_id"] == current_fiscal_year.id
+
+    def test_an_unknown_year_is_404_not_the_current_years_thread(
+        self, client, auth_headers, current_fiscal_year
+    ):
+        """A silent fallback would write into a thread the human is not
+        looking at."""
+        response = client.post(
+            f"{THREADS_URL}/bocker.balans/messages?fiscal_year_id=finns-inte",
+            json={"text": "hej"},
+            headers=auth_headers,
+        )
+        read = client.get(
+            f"{THREADS_URL}/bocker.balans?fiscal_year_id=finns-inte",
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"]["code"] == "fiscal_year_not_found"
+        assert read.status_code == 404
+        assert db.execute("SELECT COUNT(*) AS n FROM threads").fetchone()["n"] == 0
+
+    def test_reset_and_model_act_on_the_named_years_thread(
+        self, client, auth_headers, current_fiscal_year, old_year
+    ):
+        client.post(
+            f"{THREADS_URL}/bocker.balans/messages?fiscal_year_id={old_year.id}",
+            json={"text": "bokslut 2019"},
+            headers=auth_headers,
+        )
+
+        # The current year has no thread in this view: without the year,
+        # there is nothing to reset.
+        without_year = client.post(
+            f"{THREADS_URL}/bocker.balans/reset", headers=auth_headers
+        )
+        reset = client.post(
+            f"{THREADS_URL}/bocker.balans/reset?fiscal_year_id={old_year.id}",
+            headers=auth_headers,
+        )
+        model = client.get(
+            f"{THREADS_URL}/bocker.balans/model?fiscal_year_id={old_year.id}",
+            headers=auth_headers,
+        )
+
+        old_thread = ThreadRepository.find("bocker.balans", old_year.id)
+        assert without_year.status_code == 404
+        assert reset.status_code == 200
+        assert reset.json()["thread_id"] == old_thread.id
+        assert model.status_code == 200
+        assert model.json()["thread_id"] == old_thread.id
+
+    def test_the_stream_looks_up_the_named_years_thread(
+        self, client, auth_headers, current_fiscal_year, old_year
+    ):
+        """Without the year the stream looks for the current year's thread,
+        finds none and answers 404 -- which is why the client has to name
+        the year it is showing. (Opening a live stream is the stream tests'
+        job; here it is the lookup.)"""
+        ThreadRepository.get_or_create(
+            view_key="bocker.balans",
+            fiscal_year_id=old_year.id,
+            model="opencode/claude-opus-5",
+        )
+
+        without_year = client.get(
+            f"{THREADS_URL}/bocker.balans/stream", headers=auth_headers
+        )
+        unknown_year = client.get(
+            f"{THREADS_URL}/bocker.balans/stream?fiscal_year_id=finns-inte",
+            headers=auth_headers,
+        )
+
+        assert without_year.status_code == 404
+        assert unknown_year.json()["detail"]["code"] == "fiscal_year_not_found"
+
+
+class TestTheAgentIsToldWhichYear:
+    def test_an_ended_years_thread_says_so(self):
+        fy = _fiscal_year(date(2025, 1, 1), date(2025, 12, 31))
+        thread = ThreadRepository.get_or_create(
+            view_key="bokslut.atgarder",
+            fiscal_year_id=fy.id,
+            model="opencode/claude-opus-5",
+        )
+
+        turn = build_thread_user_turn(
+            thread, [], "hej", date(2026, 3, 1), [], fiscal_year=fy
+        )
+        text = turn[0]["content"][0]["text"]
+
+        assert "2025-01-01 – 2025-12-31" in text
+        assert "Räkenskapsåret är avslutat" in text
+
+    def test_the_current_years_thread_does_not(self):
+        fy = _fiscal_year(date(2026, 1, 1), date(2026, 12, 31))
+        thread = ThreadRepository.get_or_create(
+            view_key="bokslut.atgarder",
+            fiscal_year_id=fy.id,
+            model="opencode/claude-opus-5",
+        )
+
+        turn = build_thread_user_turn(
+            thread, [], "hej", date(2026, 3, 1), [], fiscal_year=fy
+        )
+
+        assert "avslutat" not in turn[0]["content"][0]["text"]
+
+
 # --- T9: the stream (SPEC §6.5, test cases 19, 20, 21, 22) ----------------
 
 
@@ -2604,6 +2754,7 @@ class TestStreamReconnect:
             view_key="bocker.balans",
             request=_FakeRequest(),
             since=1,
+            fiscal_year_id=None,
             actor="api",
         )
         frames = await _collect_frames(response, expected=2)
@@ -2652,7 +2803,11 @@ class TestStreamReconnect:
         )
         try:
             response = await stream_thread(
-                view_key="bocker.balans", request=_FakeRequest(), since=0, actor="api"
+                view_key="bocker.balans",
+                request=_FakeRequest(),
+                since=0,
+                fiscal_year_id=None,
+                actor="api",
             )
             frames = await _collect_frames(response, expected=2)
         finally:
@@ -2691,7 +2846,11 @@ class TestStreamReconnect:
         )
 
         response = await stream_thread(
-            view_key="bocker.balans", request=_FakeRequest(), since=1, actor="api"
+            view_key="bocker.balans",
+            request=_FakeRequest(),
+            since=1,
+            fiscal_year_id=None,
+            actor="api",
         )
         frame = (await _collect_frames(response, expected=1))[0]
 
@@ -2717,7 +2876,11 @@ class TestStreamReconnect:
         )
 
         response = await stream_thread(
-            view_key="bocker.balans", request=_FakeRequest(), since=None, actor="api"
+            view_key="bocker.balans",
+            request=_FakeRequest(),
+            since=None,
+            fiscal_year_id=None,
+            actor="api",
         )
         collector = asyncio.ensure_future(_collect_frames(response, expected=2))
         # Let the generator subscribe before anything is published.
@@ -2757,7 +2920,11 @@ class TestStreamReconnect:
         )
 
         response = await stream_thread(
-            view_key="bocker.balans", request=_FakeRequest(), since=0, actor="api"
+            view_key="bocker.balans",
+            request=_FakeRequest(),
+            since=0,
+            fiscal_year_id=None,
+            actor="api",
         )
         collector = asyncio.ensure_future(_collect_frames(response, expected=2))
         await asyncio.sleep(0.05)
@@ -2796,7 +2963,11 @@ class TestStreamReconnect:
         )
 
         response = await stream_thread(
-            view_key="bocker.balans", request=_FakeRequest(), since=0, actor="api"
+            view_key="bocker.balans",
+            request=_FakeRequest(),
+            since=0,
+            fiscal_year_id=None,
+            actor="api",
         )
         await _collect_frames(response, expected=1)
 
@@ -2823,7 +2994,11 @@ class TestStreamReconnect:
         )
 
         response = await stream_thread(
-            view_key="bocker.balans", request=_FakeRequest(), since=0, actor="api"
+            view_key="bocker.balans",
+            request=_FakeRequest(),
+            since=0,
+            fiscal_year_id=None,
+            actor="api",
         )
         await _collect_frames(response, expected=1)
 

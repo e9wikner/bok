@@ -286,6 +286,15 @@ describe("skickaMeddelande — med och utan bilagor", () => {
       attachments: ["src-1", "src-2"],
     });
   });
+
+  it("med ett valt räkenskapsår går meddelandet till det årets tråd (SPEC-tradar.md §12.3)", async () => {
+    post.mockResolvedValue({ data: svar });
+    await skickaMeddelande("bokslut.atgarder", "bokslut", [], "fy-2025");
+    expect(post).toHaveBeenCalledWith(
+      "/api/v1/threads/bokslut.atgarder/messages?fiscal_year_id=fy-2025",
+      { text: "bokslut", attachments: [] }
+    );
+  });
 });
 
 // ─── Kontoutdrag som CSV (services/statement_match.py) ────────────────────

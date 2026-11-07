@@ -55,6 +55,8 @@ const FORSLAGSTYPER = new Set(["draft", "receipt", "error"]);
 /** Allt som hör till EN vy. Byts ut hel vid vybyte (§6.2 punkt 5). */
 interface Vy {
   viewKey: string;
+  /** Trådens räkenskapsår; `null` = innevarande. Ett årsbyte är ett vybyte. */
+  fiscalYearId: string | null;
   avbryt: AbortController;
   stromOppen: boolean;
 }
@@ -88,7 +90,12 @@ export interface UseTrad {
 
 let lopnummer = 0;
 
-export function useTrad(viewKey: string): UseTrad {
+/**
+ * `fiscalYearId` är årsväljarens år (SPEC-tradar.md §12.3: en tråd per vy och
+ * räkenskapsår). `null` = innevarande år, som servern löser själv. Byte av år
+ * byter tråd precis som byte av vy: strömmen stängs, den nya tråden läses.
+ */
+export function useTrad(viewKey: string, fiscalYearId: string | null = null): UseTrad {
   const [tillstand, dispatch] = useReducer(tradReducer, undefined, tomTrad);
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState<unknown>(null);
@@ -139,6 +146,7 @@ export function useTrad(viewKey: string): UseTrad {
       vy.stromOppen = true;
       void oppnaStrom({
         viewKey: vy.viewKey,
+        ...(vy.fiscalYearId ? { fiscalYearId: vy.fiscalYearId } : {}),
         since,
         signal: vy.avbryt.signal,
         onHandelse: paHandelse,
@@ -149,13 +157,13 @@ export function useTrad(viewKey: string): UseTrad {
   );
 
   useEffect(() => {
-    const vy: Vy = { viewKey, avbryt: new AbortController(), stromOppen: false };
+    const vy: Vy = { viewKey, fiscalYearId, avbryt: new AbortController(), stromOppen: false };
     vyRef.current = vy;
     dispatch({ typ: "nollstall" });
     setLaddar(true);
     setFel(null);
 
-    hamtaTrad(viewKey)
+    (fiscalYearId ? hamtaTrad(viewKey, fiscalYearId) : hamtaTrad(viewKey))
       .then((svar) => {
         if (vy.avbryt.signal.aborted) return;
         dispatch({
@@ -179,7 +187,7 @@ export function useTrad(viewKey: string): UseTrad {
     // Vybyte och avmontering stänger strömmen och gör varje svar som
     // fortfarande är i flykt för den här vyn verkningslöst.
     return () => vy.avbryt.abort();
-  }, [viewKey, oppna]);
+  }, [viewKey, fiscalYearId, oppna]);
 
   const skicka = useCallback(
     async (text: string, attachments: readonly string[] = []): Promise<boolean> => {
@@ -195,8 +203,10 @@ export function useTrad(viewKey: string): UseTrad {
 
       try {
         // Utan bilagor: samma anrop som före `flode-underlag`.
-        const svar =
-          attachments.length > 0
+        // Utan valt år: samma anrop som innan tråden fick sitt år.
+        const svar = vy.fiscalYearId
+          ? await skickaMeddelande(vy.viewKey, text, attachments, vy.fiscalYearId)
+          : attachments.length > 0
             ? await skickaMeddelande(vy.viewKey, text, attachments)
             : await skickaMeddelande(vy.viewKey, text);
         // Svaret hör till vyn som var aktiv när människan tryckte. Har hon
@@ -225,7 +235,9 @@ export function useTrad(viewKey: string): UseTrad {
     const vy = vyRef.current;
     if (!vy || vy.avbryt.signal.aborted) return false;
     try {
-      const svar = await nollstallTrad(vy.viewKey);
+      const svar = vy.fiscalYearId
+        ? await nollstallTrad(vy.viewKey, vy.fiscalYearId)
+        : await nollstallTrad(vy.viewKey);
       if (vy.avbryt.signal.aborted) return true;
       dispatch({
         typ: "kontextNollstalld",

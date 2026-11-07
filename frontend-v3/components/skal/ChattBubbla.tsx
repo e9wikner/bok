@@ -30,11 +30,14 @@ export function ChattBubbla({
   viewKey,
   vantandeBeslut,
   variant = "desktop",
+  arId = null,
 }: {
   vyTitel: string;
   viewKey: string;
   vantandeBeslut: number;
   variant?: "desktop" | "mobil";
+  /** Årsväljarens räkenskapsår; `null` = innevarande. Varje år har sin tråd. */
+  arId?: string | null;
 }) {
   const mobil = variant === "mobil";
   const [oppen, setOppen] = useState(false);
@@ -118,7 +121,13 @@ export function ChattBubbla({
             <X size={mobil ? 20 : 16} aria-hidden="true" />
           </button>
         </div>
-        <ChattKolumn key={viewKey} vyTitel={vyTitel} viewKey={viewKey} variant={mobil ? "mobil" : "panel"} />
+        <ChattKolumn
+          key={viewKey}
+          vyTitel={vyTitel}
+          viewKey={viewKey}
+          variant={mobil ? "mobil" : "panel"}
+          arId={arId}
+        />
       </div>
 
       <button

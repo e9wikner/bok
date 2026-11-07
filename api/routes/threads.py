@@ -11,7 +11,7 @@ tråd med sin egen historik. Byter man vy byter man tråd."
 
 import asyncio
 import logging
-from typing import AsyncIterator, Optional
+from typing import Any, AsyncIterator, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi import status as http_status
@@ -92,6 +92,45 @@ def _current_fiscal_year_id() -> Optional[str]:
     return fiscal_years[0].id if fiscal_years else None
 
 
+def _fiscal_year_query() -> Any:
+    """The `?fiscal_year_id=` every thread route takes (decision §12.3).
+
+    One thread per view *and* year, and every year's thread is writable: the
+    closing work for a year (INK2, årsredovisning, late underlag) happens
+    after the year has ended, and it belongs in that year's thread with that
+    year's open periods as the agent's context. Omitted, it is the current
+    year's, so a client that never chose a year gets what it always got.
+    """
+    return Query(
+        None,
+        description=(
+            "The fiscal year whose thread this is. Omitted, the current "
+            "year's (decision §12.3: one thread per view and fiscal year)."
+        ),
+    )
+
+
+def _resolve_fiscal_year_id(fiscal_year_id: Optional[str]) -> Optional[str]:
+    """The year a request is about: the one it named, else the current one.
+
+    A named year that does not exist is a `404`, not a silent fallback to
+    the current year -- that would write a message into a thread the human
+    is not looking at.
+    """
+    if fiscal_year_id is None:
+        return _current_fiscal_year_id()
+    if PeriodRepository.get_fiscal_year(fiscal_year_id) is None:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": f"Unknown fiscal year: {fiscal_year_id!r}",
+                "code": "fiscal_year_not_found",
+                "details": "fiscal_year_id must name an existing fiscal year.",
+            },
+        )
+    return fiscal_year_id
+
+
 def _post_response(post: ThreadPost) -> ThreadPostResponse:
     return ThreadPostResponse(
         id=post.id,
@@ -116,13 +155,7 @@ async def get_thread(
             "already has."
         ),
     ),
-    fiscal_year_id: Optional[str] = Query(
-        None,
-        description=(
-            "Read an older year's thread. Omitted, this is the current "
-            "year's (decision §12.3: one thread per view and fiscal year)."
-        ),
-    ),
+    fiscal_year_id: Optional[str] = _fiscal_year_query(),
     actor: str = Depends(get_current_actor),
 ):
     """The view's thread, oldest post first (SPEC §1).
@@ -132,7 +165,7 @@ async def get_thread(
     `None` -- the thread is created by the first message, not by looking.
     """
     view_key = _validate_view_key(view_key)
-    target_year = fiscal_year_id or _current_fiscal_year_id()
+    target_year = _resolve_fiscal_year_id(fiscal_year_id)
     archive = ThreadRepository.list_fiscal_years(view_key)
 
     thread = ThreadRepository.find(view_key, target_year) if target_year else None
@@ -165,6 +198,7 @@ async def get_thread(
 async def post_message(
     view_key: str,
     request: ThreadMessageRequest,
+    fiscal_year_id: Optional[str] = _fiscal_year_query(),
     actor: str = Depends(get_current_actor),
 ):
     """Write a message to the view's thread and answer immediately (§6.1).
@@ -180,7 +214,7 @@ async def post_message(
     expressible as plain text here.
     """
     view_key = _validate_view_key(view_key)
-    fiscal_year_id = _current_fiscal_year_id()
+    fiscal_year_id = _resolve_fiscal_year_id(fiscal_year_id)
     if fiscal_year_id is None:
         raise HTTPException(
             status_code=http_status.HTTP_409_CONFLICT,
@@ -244,6 +278,7 @@ async def post_message(
 @router.post("/{view_key}/reset", response_model=ThreadResetResponse)
 async def reset_thread(
     view_key: str,
+    fiscal_year_id: Optional[str] = _fiscal_year_query(),
     actor: str = Depends(get_current_actor),
 ):
     """Reset the view's conversation: the next turn starts without context.
@@ -256,7 +291,7 @@ async def reset_thread(
     Refused with `409` while a turn is streaming: its answer would land on
     the new side of the boundary while having been written from the old one.
     """
-    thread = _require_thread(_validate_view_key(view_key))
+    thread = _require_thread(_validate_view_key(view_key), fiscal_year_id)
     broker = get_broker()
     if broker.turn_in_progress(thread.id):
         raise HTTPException(
@@ -353,6 +388,7 @@ async def stream_thread(
             "nothing duplicated."
         ),
     ),
+    fiscal_year_id: Optional[str] = _fiscal_year_query(),
     actor: str = Depends(get_current_actor),
 ):
     """`text/event-stream` for one view's thread (SPEC §6.5).
@@ -369,18 +405,7 @@ async def stream_thread(
     *before* the replay is read -- an event that lands mid-replay is queued,
     not lost.
     """
-    view_key = _validate_view_key(view_key)
-    fiscal_year_id = _current_fiscal_year_id()
-    thread = ThreadRepository.find(view_key, fiscal_year_id) if fiscal_year_id else None
-    if thread is None:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": f"No thread for view {view_key!r} in this fiscal year",
-                "code": "thread_not_found",
-                "details": "A thread is created by its first message.",
-            },
-        )
+    thread = _require_thread(_validate_view_key(view_key), fiscal_year_id)
 
     broker = get_broker()
     queue: asyncio.Queue = asyncio.Queue()
@@ -488,10 +513,11 @@ def _model_capabilities(thread: Thread) -> ThreadModelResponse:
 @router.get("/{view_key}/model", response_model=ThreadModelResponse)
 async def get_thread_model(
     view_key: str,
+    fiscal_year_id: Optional[str] = _fiscal_year_query(),
     actor: str = Depends(get_current_actor),
 ):
     """This thread's model, and what it can and cannot do (§12.4)."""
-    thread = _require_thread(_validate_view_key(view_key))
+    thread = _require_thread(_validate_view_key(view_key), fiscal_year_id)
     return _model_capabilities(thread)
 
 
@@ -499,6 +525,7 @@ async def get_thread_model(
 async def set_thread_model(
     view_key: str,
     request: ThreadModelRequest,
+    fiscal_year_id: Optional[str] = _fiscal_year_query(),
     actor: str = Depends(get_current_actor),
 ):
     """Change which model this thread talks to (§12.4).
@@ -510,7 +537,7 @@ async def set_thread_model(
     inte ett standardvärde", and the honest moment to say so is when it is
     chosen.
     """
-    thread = _require_thread(_validate_view_key(view_key))
+    thread = _require_thread(_validate_view_key(view_key), fiscal_year_id)
     try:
         get_model_info(request.model)
     except UnknownModelError as exc:
@@ -527,8 +554,8 @@ async def set_thread_model(
     return _model_capabilities(updated)
 
 
-def _require_thread(view_key: str) -> Thread:
-    fiscal_year_id = _current_fiscal_year_id()
+def _require_thread(view_key: str, fiscal_year_id: Optional[str] = None) -> Thread:
+    fiscal_year_id = _resolve_fiscal_year_id(fiscal_year_id)
     thread = ThreadRepository.find(view_key, fiscal_year_id) if fiscal_year_id else None
     if thread is None:
         raise HTTPException(

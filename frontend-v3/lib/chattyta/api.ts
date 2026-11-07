@@ -58,8 +58,24 @@ export interface MeddelandeSvar {
 
 const tradUrl = (viewKey: string) => `/api/v1/threads/${encodeURIComponent(viewKey)}`;
 
-export async function hamtaTrad(viewKey: string): Promise<TradSvar> {
-  const { data } = await apiClient.get<TradSvar>(tradUrl(viewKey));
+/**
+ * En tråd per vy OCH räkenskapsår (SPEC-tradar.md §12.3), och varje års tråd
+ * går att skriva i: bokslutet för ett år görs efter att året slutat. Utan år
+ * menar servern innevarande år. Samma frågesträng på varje anrop — läsning,
+ * meddelande, nollställning och ström — så att de aldrig hamnar i olika
+ * trådar.
+ */
+export function arsFraga(fiscalYearId?: string | null): string {
+  return fiscalYearId ? `fiscal_year_id=${encodeURIComponent(fiscalYearId)}` : "";
+}
+
+const medAr = (url: string, fiscalYearId?: string | null) => {
+  const fraga = arsFraga(fiscalYearId);
+  return fraga ? `${url}?${fraga}` : url;
+};
+
+export async function hamtaTrad(viewKey: string, fiscalYearId?: string | null): Promise<TradSvar> {
+  const { data } = await apiClient.get<TradSvar>(medAr(tradUrl(viewKey), fiscalYearId));
   return data;
 }
 
@@ -68,8 +84,13 @@ export async function hamtaTrad(viewKey: string): Promise<TradSvar> {
  * raderas — servern flyttar en gräns, och allt före den står kvar i tråden.
  * `409 turn_in_progress` medan agenten svarar.
  */
-export async function nollstallTrad(viewKey: string): Promise<NollstallSvar> {
-  const { data } = await apiClient.post<NollstallSvar>(`${tradUrl(viewKey)}/reset`);
+export async function nollstallTrad(
+  viewKey: string,
+  fiscalYearId?: string | null
+): Promise<NollstallSvar> {
+  const { data } = await apiClient.post<NollstallSvar>(
+    medAr(`${tradUrl(viewKey)}/reset`, fiscalYearId)
+  );
   return data;
 }
 
@@ -85,9 +106,10 @@ export async function nollstallTrad(viewKey: string): Promise<NollstallSvar> {
 export async function skickaMeddelande(
   viewKey: string,
   text: string,
-  attachments: readonly string[] = []
+  attachments: readonly string[] = [],
+  fiscalYearId?: string | null
 ): Promise<MeddelandeSvar> {
-  const { data } = await apiClient.post<MeddelandeSvar>(`${tradUrl(viewKey)}/messages`, {
+  const { data } = await apiClient.post<MeddelandeSvar>(medAr(`${tradUrl(viewKey)}/messages`, fiscalYearId), {
     text,
     attachments: [...attachments],
   });

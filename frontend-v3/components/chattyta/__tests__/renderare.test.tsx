@@ -459,6 +459,22 @@ describe("ChattKolumn skickar genom tråden", () => {
     expect(fel.textContent).not.toBe("");
   });
 
+  it("ett valt räkenskapsår läser och skriver i det årets tråd, och ett årsbyte läser om (SPEC-tradar.md §12.3)", async () => {
+    hamtaTrad.mockResolvedValue(tomTradSvar({ posts: [agent], cursor: 1 }));
+    skickaMeddelande.mockReturnValue(uppskjutet<MeddelandeSvar>().lofte);
+    const { rerender } = render(
+      medKlient(<ChattKolumn vyTitel="Balansräkning" viewKey="bocker.balans" arId="fy-2025" />)
+    );
+    await screen.findByText(/Jag postar elnätsfakturan/);
+    expect(hamtaTrad).toHaveBeenCalledWith("bocker.balans", "fy-2025");
+
+    await userEvent.type(screen.getByRole("textbox"), "bokslut{Enter}");
+    expect(skickaMeddelande).toHaveBeenCalledWith("bocker.balans", "bokslut", [], "fy-2025");
+
+    rerender(medKlient(<ChattKolumn vyTitel="Balansräkning" viewKey="bocker.balans" arId="fy-2026" />));
+    await waitFor(() => expect(hamtaTrad).toHaveBeenCalledWith("bocker.balans", "fy-2026"));
+  });
+
   it("en inaktiv vy läser ingen tråd — en ström per flik, den aktiva vyns (§6.2 punkt 5)", () => {
     hamtaTrad.mockResolvedValue(tomTradSvar());
     render(medKlient(<ChattKolumn vyTitel="Resultaträkning" viewKey="bocker.resultat" aktiv={false} />));

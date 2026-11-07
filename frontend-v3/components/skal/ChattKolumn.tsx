@@ -175,6 +175,7 @@ export function ChattKolumn({
   viewKey,
   aktiv = true,
   variant = "desktop",
+  arId = null,
 }: {
   vyTitel: string;
   viewKey: string;
@@ -184,21 +185,25 @@ export function ChattKolumn({
    * `mobil`: inuti bubblans uppfällda ark på mobil — tråden 260 px, mobilens fält.
    */
   variant?: "desktop" | "panel" | "mobil";
+  /** Årsväljarens räkenskapsår; `null` = innevarande. Varje år har sin tråd. */
+  arId?: string | null;
 }) {
   if (!aktiv) return <KolumnLayout vyTitel={vyTitel} viewKey={viewKey} trad={OLAST_TRAD} variant={variant} />;
-  return <AktivKolumn vyTitel={vyTitel} viewKey={viewKey} variant={variant} />;
+  return <AktivKolumn vyTitel={vyTitel} viewKey={viewKey} variant={variant} arId={arId} />;
 }
 
 function AktivKolumn({
   vyTitel,
   viewKey,
   variant,
+  arId,
 }: {
   vyTitel: string;
   viewKey: string;
   variant: "desktop" | "panel" | "mobil";
+  arId: string | null;
 }) {
-  const trad = useTrad(viewKey);
+  const trad = useTrad(viewKey, arId);
   return (
     <KolumnLayout
       vyTitel={vyTitel}

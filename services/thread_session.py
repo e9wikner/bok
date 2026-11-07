@@ -36,7 +36,7 @@ from datetime import date
 from typing import Any, Optional
 
 from config import settings
-from domain.models import Period, Thread, ThreadPost
+from domain.models import FiscalYear, Period, Thread, ThreadPost
 from services.agent_session import (
     THREAD_POLICY,
     SessionOutcome,
@@ -143,6 +143,15 @@ def _render_open_periods(open_periods: list[Period]) -> str:
     )
 
 
+def _render_fiscal_year(thread: Thread, fiscal_year: Optional[FiscalYear]) -> str:
+    if fiscal_year is None:
+        return thread.fiscal_year_id
+    return (
+        f"{fiscal_year.start_date.isoformat()} – {fiscal_year.end_date.isoformat()}, "
+        f"id {fiscal_year.id}"
+    )
+
+
 def build_thread_user_turn(
     thread: Thread,
     window: list[ThreadPost],
@@ -152,6 +161,7 @@ def build_thread_user_turn(
     *,
     omitted_posts: int = 0,
     reset_posts: int = 0,
+    fiscal_year: Optional[FiscalYear] = None,
 ) -> list[dict]:
     """Build the volatile user turn for a thread reply (SPEC §6.1 step 4).
 
@@ -169,6 +179,11 @@ def build_thread_user_turn(
     budget cut: the human chose to start over, so the model is told that the
     earlier posts are disconnected on purpose rather than that they did not
     fit.
+
+    `fiscal_year` is the thread's own year, which is not always the one that
+    contains today: every year's thread is writable (decision §12.3), and the
+    closing work for a year is done after it ended. The model is told the
+    year's dates, and told plainly when the year is already over.
     """
     lines = [
         f"Dagens datum: {today.isoformat()}",
@@ -176,9 +191,15 @@ def build_thread_user_turn(
         "Öppna perioder:",
         _render_open_periods(open_periods),
         "",
-        f"Tråd: {thread.view_key} (räkenskapsår {thread.fiscal_year_id})",
+        f"Tråd: {thread.view_key} (räkenskapsår {_render_fiscal_year(thread, fiscal_year)})",
         "",
     ]
+    if fiscal_year is not None and fiscal_year.end_date < today:
+        lines.append(
+            "(Räkenskapsåret är avslutat. Tråden gäller det året — t.ex. "
+            "bokslut och sena underlag — inte innevarande år.)"
+        )
+        lines.append("")
     if reset_posts:
         lines.append(
             f"(Människan har nollställt konversationen: {reset_posts} tidigare "
@@ -225,6 +246,7 @@ def run_thread_session(
     on_tool_call: Optional[StreamToolCallHook] = None,
     check_between_turns: Optional[Any] = None,
     agent_run_id: Optional[str] = None,
+    fiscal_year: Optional[FiscalYear] = None,
 ) -> SessionOutcome:
     """Run one LLM session for one message in one thread (SPEC §6.1).
 
@@ -267,6 +289,7 @@ def run_thread_session(
             open_periods,
             omitted_posts=len(eligible) - len(window),
             reset_posts=len(history) - len(eligible),
+            fiscal_year=fiscal_year,
         ),
         # Unchanged, in `_TOOL_SPECS`' unchanged order -- the tool list is
         # part of the cached prefix, and the thread gets no tool of its own

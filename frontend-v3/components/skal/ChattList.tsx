@@ -32,26 +32,31 @@ export function ChattList({
   viewKey,
   vantandeBeslut,
   aktiv = true,
+  arId = null,
 }: {
   vyTitel: string;
   viewKey: string;
   vantandeBeslut: number;
   aktiv?: boolean;
+  /** Årsväljarens räkenskapsår; `null` = innevarande. Varje år har sin tråd. */
+  arId?: string | null;
 }) {
   if (!aktiv) return <ListLayout vyTitel={vyTitel} viewKey={viewKey} trad={OLAST_TRAD} vantandeBeslut={vantandeBeslut} />;
-  return <AktivList vyTitel={vyTitel} viewKey={viewKey} vantandeBeslut={vantandeBeslut} />;
+  return <AktivList vyTitel={vyTitel} viewKey={viewKey} vantandeBeslut={vantandeBeslut} arId={arId} />;
 }
 
 function AktivList({
   vyTitel,
   viewKey,
   vantandeBeslut,
+  arId,
 }: {
   vyTitel: string;
   viewKey: string;
   vantandeBeslut: number;
+  arId: string | null;
 }) {
-  const trad = useTrad(viewKey);
+  const trad = useTrad(viewKey, arId);
   return (
     <ListLayout
       vyTitel={vyTitel}
