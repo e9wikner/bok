@@ -9,7 +9,7 @@
  */
 
 import apiClient from "@/lib/api";
-import { formatBeloppHela } from "@/lib/skal/format";
+import { formatBelopp, formatBeloppHela } from "@/lib/skal/format";
 import { formatVerifikationsnummer } from "@/lib/utils";
 import { parBelopp, type VyData, type VyRadData, type VySektionData } from "@/lib/skal/vydata";
 import type { OverviewFiscalYear } from "@/lib/skal/api";
@@ -209,7 +209,32 @@ export function nastaSida(sida: Verifikationslista, offset: number): number | un
   return sida.vouchers.length > 0 && nasta < sida.total ? nasta : undefined;
 }
 
+/** En kontoutdragsrad som ingen verifikation står för (`GET /bank-inputs/transactions/open`). */
+export interface OppenBanktransaktion {
+  bank_transaction_id: string;
+  account_code: string;
+  date: string;
+  /** Öre, negativt ut från kontot. */
+  amount_ore: number;
+  description: string | null;
+  /** `candidates`: postade verifikationer som kan vara den; `none`: ingen. */
+  match: "exact" | "candidates" | "none";
+  candidates: { voucher_id: string; voucher_number: string; voucher_date: string; date_diff_days: number }[];
+}
+
+export interface OppnaBanktransaktioner {
+  total: number;
+  items: OppenBanktransaktion[];
+}
+
 export const bockerApi = {
+  getOppnaBanktransaktioner: async (fiscalYearId: string): Promise<OppnaBanktransaktioner> => {
+    const { data } = await apiClient.get<OppnaBanktransaktioner>("/api/v1/bank-inputs/transactions/open", {
+      params: { fiscal_year_id: fiscalYearId },
+    });
+    return data;
+  },
+
   getBalansrakning: async (fiscalYearId: string): Promise<Balansrakning> => {
     const { data } = await apiClient.get<Balansrakning>("/api/v1/reports/balance-sheet", {
       params: { fiscal_year_id: fiscalYearId },
@@ -651,6 +676,11 @@ export interface VantarUnderlag {
    * sist i Väntar på beslut och räknar dem.
    */
   andraVyer?: readonly VyRadData[];
+  /**
+   * Kontoutdragens rader som ingen verifikation står för, i året
+   * (`GET /bank-inputs/transactions/open`). Utelämnad: ingen sektion.
+   */
+  bank?: readonly OppenBanktransaktion[];
 }
 
 /**
@@ -710,6 +740,60 @@ function manadssektioner(
 }
 
 /** Vyns fot, panelens ord (SPEC-flode-underlag.md §10.4). */
+/** Så många bankrader visas; resten sammanfattas i en rad till agenten. */
+export const BANK_RADER = 8;
+
+const VY_VERIFIKATIONER = "bocker.verifikationer";
+
+function bankrad(t: OppenBanktransaktion): VyRadData {
+  const text = t.description?.trim() || "Banktransaktion";
+  const belopp = formatBelopp(t.amount_ore);
+  const kandidat = t.candidates[0];
+  return {
+    id: `bank:${t.bank_transaction_id}`,
+    titel: text,
+    meta: `${t.date} · konto ${t.account_code} · ${kandidat ? "ej kopplad" : "ingen verifikation"}`,
+    hoger: belopp,
+    variant: "saknar",
+    lankar: kandidat
+      ? t.candidates.map((c) => ({ text: `kanske ${c.voucher_number}`, mal: { typ: "ver" as const, id: c.voucher_id } }))
+      : undefined,
+    fraga: {
+      viewKey: VY_VERIFIKATIONER,
+      text: kandidat
+        ? `Bankhändelsen ${t.date} "${text}" ${belopp} kr på ${t.account_code} har ingen koppling. Är det ${kandidat.voucher_number}? `
+        : `Bankhändelsen ${t.date} "${text}" ${belopp} kr på ${t.account_code} saknar verifikation. `,
+    },
+  };
+}
+
+/**
+ * Kontoutdragens rader utan verifikation, senaste först. De `BANK_RADER`
+ * senaste står var för sig; resten blir en rad som ber agenten ta dem.
+ */
+export function banksektion(bank: readonly OppenBanktransaktion[] | undefined): VySektionData | null {
+  if (!bank || bank.length === 0) return null;
+  const senast = [...bank].sort((a, b) => b.date.localeCompare(a.date));
+  const rader = senast.slice(0, BANK_RADER).map(bankrad);
+  const resten = senast.slice(BANK_RADER);
+  if (resten.length > 0) {
+    const fran = resten[resten.length - 1].date;
+    const till = resten[0].date;
+    rader.push({
+      id: "bank:resten",
+      titel: `${resten.length} äldre`,
+      meta: `${fran} – ${till}`,
+      hoger: formatBelopp(resten.reduce((s, t) => s + t.amount_ore, 0)),
+      variant: "saknar",
+      fraga: {
+        viewKey: VY_VERIFIKATIONER,
+        text: `Kontoutdragen har ${bank.length} händelser utan verifikation. Gå igenom dem och lägg fram verifikationer, äldst först. `,
+      },
+    });
+  }
+  return { titel: "I banken, inte bokfört", rader };
+}
+
 export const FOT_UNDERLAG =
   "Underlag kan släppas i chatten när som helst. Agenten kopplar det till rätt verifikation och säger till om något inte stämmer.";
 
@@ -885,6 +969,8 @@ export function verifikationerVy(
   const sektioner: VySektionData[] = [];
   if (vantarRader.length > 0) sektioner.push({ titel: "Väntar på beslut", rader: vantarRader });
   if (saknarRader.length > 0) sektioner.push({ titel: "Saknar underlag", rader: saknarRader });
+  const bank = banksektion(underlag.bank);
+  if (bank) sektioner.push(bank);
   if (manader && manader.perioder.length > 0) {
     const aldsta = postade.vouchers.reduce<string | undefined>(
       (min, v) => (min === undefined || v.date < min ? v.date : min),
@@ -903,17 +989,24 @@ export function verifikationerVy(
   // Serverns tal, inte raderna: `total` räknar också dem utanför sidan.
   // Nyss kopplade dras inte av — omhämtningen ger rätt tal strax.
   const antalSaknar = saknarRader.length > 0 ? (underlag.saknar?.total ?? 0) : 0;
+  const antalBank = underlag.bank?.length ?? 0;
   return {
-    lage: tomt ? "tomt" : antalVantar > 0 || antalSaknar > 0 || egnaUtkast.length > 0 ? "vantar" : "normal",
+    lage: tomt
+      ? "tomt"
+      : antalVantar > 0 || antalSaknar > 0 || antalBank > 0 || egnaUtkast.length > 0
+        ? "vantar"
+        : "normal",
     status: tomt
       ? "inga verifikationer"
       : antalVantar > 0
         ? `${antalVantar} väntar på dig`
         : antalSaknar > 0
           ? `${antalSaknar} saknar underlag`
-          : egnaUtkast.length > 0
-            ? `${egnaUtkast.length} utkast`
-            : `${postade.total} postade`,
+          : antalBank > 0
+            ? `${antalBank} i banken utan verifikation`
+            : egnaUtkast.length > 0
+              ? `${egnaUtkast.length} utkast`
+              : `${postade.total} postade`,
     // Panelen: "Kompletteringar först · postade nedan".
     period:
       saknarRader.length > 0

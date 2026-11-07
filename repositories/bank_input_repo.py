@@ -659,6 +659,49 @@ class BankInputRepository:
         ]
 
     @staticmethod
+    def list_purchase_vouchers_for_amount(
+        account_code: str,
+        amount_ore: int,
+        date_from: str,
+        date_to: str,
+        input_vat_range: tuple[str, str],
+    ) -> list[dict]:
+        """Posted purchases (input VAT) with a row of *amount_ore* on
+        *account_code* (debit positive, like money in), dated within the
+        window. Their underlag is the receipt, so a statement transaction is
+        never linked to them (`list_statement_match_vouchers` leaves them
+        out) -- but the transaction is accounted for all the same."""
+        rows = db.execute(
+            """
+            SELECT DISTINCT v.id, v.series, v.number, v.date, v.description
+            FROM vouchers v
+            JOIN voucher_rows r ON r.voucher_id = v.id AND r.account_code = ?
+            WHERE v.status = 'posted'
+              AND v.date BETWEEN ? AND ?
+              AND r.debit - r.credit = ?
+              AND EXISTS (
+                  SELECT 1 FROM voucher_rows vat
+                  WHERE vat.voucher_id = v.id
+                    AND vat.account_code BETWEEN ? AND ?
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM vouchers c
+                  WHERE c.correction_of = v.id AND c.status = 'posted'
+              )
+            ORDER BY v.date ASC, v.number ASC
+            """,
+            (
+                account_code,
+                date_from,
+                date_to,
+                amount_ore,
+                input_vat_range[0],
+                input_vat_range[1],
+            ),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    @staticmethod
     def statement_account_position(voucher_id: str, account_code: str) -> dict:
         """*voucher_id*'s rows on *account_code* (`row_amounts`, debit
         positive) and what of their net the linked transactions do not

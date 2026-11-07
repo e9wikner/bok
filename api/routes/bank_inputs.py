@@ -138,6 +138,35 @@ async def delete_bank_input(
         raise _http_error(exc) from exc
 
 
+@router.get("/transactions/open", response_model=dict)
+async def list_open_bank_transactions(fiscal_year_id: str):
+    """Statement transactions in the fiscal year that no voucher accounts
+    for: not linked, not matched, not ignored and not a purchase booked from
+    its receipt (`StatementMatchService.unaccounted_transactions`). Each
+    carries the posted vouchers that could be it (`match`: `candidates`), as
+    the agent's `las_okopplade_banktransaktioner` does. Read-only: exact
+    matches are linked after each import and posting, not here.
+
+    - `404 fiscal_year_not_found`
+    """
+    from repositories.period_repo import PeriodRepository
+    from services.statement_match import StatementMatchService
+
+    fiscal_year = PeriodRepository.get_fiscal_year(fiscal_year_id)
+    if fiscal_year is None:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail={"error": "Fiscal year not found", "code": "fiscal_year_not_found"},
+        )
+    items = [
+        m.to_dict()
+        for m in StatementMatchService().unaccounted_transactions(
+            date_from=fiscal_year.start_date, date_to=fiscal_year.end_date
+        )
+    ]
+    return {"total": len(items), "items": items}
+
+
 class UnlinkBankTransactionRequest(BaseModel):
     reason: str = Field(..., description="Why the link is wrong; kept in the trace")
 

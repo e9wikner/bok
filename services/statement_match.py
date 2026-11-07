@@ -164,13 +164,50 @@ class StatementMatchService:
             candidates=candidates,
         )
 
-    def open_transactions(self) -> list[TransactionMatch]:
-        """Every unlinked transaction on a statement account, classified."""
+    def open_transactions(
+        self, date_from: Optional[date] = None, date_to: Optional[date] = None
+    ) -> list[TransactionMatch]:
+        """Every unlinked transaction on a statement account, classified.
+        With `date_from`/`date_to`, only those dated within (inclusive)."""
+
+        def within(tx: dict) -> bool:
+            day = date.fromisoformat(str(tx["transaction_date"])[:10])
+            return (date_from is None or day >= date_from) and (
+                date_to is None or day <= date_to
+            )
+
         return [
             self.match_transaction(tx)
             for tx in self.inputs.list_unlinked_transactions_with_account()
-            if is_statement_account(tx["account_code"])
+            if is_statement_account(tx["account_code"]) and within(tx)
         ]
+
+    def unaccounted_transactions(
+        self, date_from: Optional[date] = None, date_to: Optional[date] = None
+    ) -> list[TransactionMatch]:
+        """`open_transactions` without those a posted purchase accounts for.
+
+        A purchase with input VAT is never linked to its statement
+        transaction: the receipt is its underlag. Its transaction still has
+        a voucher, so it is not something to book -- what is left is the
+        statement's events that no voucher accounts for yet.
+        """
+        window = timedelta(days=CANDIDATE_WINDOW_DAYS)
+        out = []
+        for match in self.open_transactions(date_from=date_from, date_to=date_to):
+            if match.kind == "none":
+                day = date.fromisoformat(match.date)
+                purchases = self.inputs.list_purchase_vouchers_for_amount(
+                    account_code=match.account_code,
+                    amount_ore=match.amount_ore,
+                    date_from=(day - window).isoformat(),
+                    date_to=(day + window).isoformat(),
+                    input_vat_range=INPUT_VAT_RANGE,
+                )
+                if purchases:
+                    continue
+            out.append(match)
+        return out
 
     def run(self, actor: str = AUTO_MATCH_ACTOR) -> dict:
         """Link every `exact` match. Returns what was linked and what is left

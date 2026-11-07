@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback } from "react";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { skipToken, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { BESLUT_GRANS, beslutStatusNyckel } from "@/hooks/useBeslut";
 import { FORSLAG_GRANS, forslagNyckel } from "@/hooks/useForslag";
 import { useLasning } from "@/hooks/useLasning";
@@ -130,6 +130,15 @@ export function useVyer(
     enabled: bocker,
     staleTime,
   });
+  // Kontoutdragens rader utan verifikation. Under `VOUCHERS_NYCKEL`: en
+  // postning eller koppling kan ta bort en rad. Väntas inte in — ett fel
+  // eller en fråga i flykt ger bara ingen sektion.
+  const bank = useQuery({
+    queryKey: [...VOUCHERS_NYCKEL, "skal", id, "bank"],
+    queryFn: () => bockerApi.getOppnaBanktransaktioner(id),
+    enabled: bocker,
+    staleTime,
+  });
   const utkast = useQuery({
     queryKey: [...VOUCHERS_NYCKEL, "skal", id, "draft"],
     queryFn: () => bockerApi.getVerifikationer(id, "draft"),
@@ -172,7 +181,7 @@ export function useVyer(
   // `Nyss kopplad` (§10.4): klientens, som postningarna — ingen fråga går.
   const { data: kopplingar } = useQuery<Koppling[]>({
     queryKey: KOPPLINGAR_NYCKEL,
-    enabled: false,
+    queryFn: skipToken,
     staleTime: Infinity,
   });
   // Under `FAKTUROR_NYCKEL`, så att ett utfärdande och `view.changed` når
@@ -268,6 +277,7 @@ export function useVyer(
             postningar,
             saknar: s,
             kopplingar: kopplingar ?? [],
+            bank: bank.data?.items,
             // Ett fel eller en fråga i flykt fäller inte Verifikationer: då
             // står bara vyns egna rader där.
             andraVyer: betalaVantar({

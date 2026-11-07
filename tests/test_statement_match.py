@@ -656,3 +656,69 @@ def test_one_current_link_per_transaction_and_unlinks_are_append_only(books):
         db.execute("DELETE FROM voucher_bank_transaction_unlinks")
     with pytest.raises(sqlite3.IntegrityError, match="append-only"):
         db.execute("DELETE FROM voucher_bank_transactions")
+
+
+# --- unaccounted transactions (GET /bank-inputs/transactions/open) ----------
+
+
+def _open_route(fiscal_year_id: str):
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+
+    client = TestClient(app, headers={"Authorization": f"Bearer {settings.api_key}"})
+    return client.get(
+        "/api/v1/bank-inputs/transactions/open",
+        params={"fiscal_year_id": fiscal_year_id},
+    )
+
+
+def test_unbooked_transaction_is_listed_for_its_year(books, fiscal_year):
+    _import(
+        "1930",
+        BANK_HEADER + "2026-03-10;-500,00;Årsavgift\n2025-12-30;-100,00;Förra året\n",
+    )
+    response = _open_route(fiscal_year.id)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    [item] = body["items"]
+    assert (item["date"], item["amount_ore"], item["match"]) == (
+        "2026-03-10",
+        -50000,
+        "none",
+    )
+    assert item["account_code"] == "1930"
+
+
+def test_purchase_booked_from_receipt_is_accounted_for(books, fiscal_year):
+    _post(
+        books,
+        date(2026, 1, 20),
+        "Telefon",
+        [
+            {"account": "6212", "debit": 22_000, "credit": 0},
+            {"account": "2641", "debit": 5_500, "credit": 0},
+            {"account": "1930", "debit": 0, "credit": 27_500},
+        ],
+    )
+    _import(
+        "1930", BANK_HEADER + "2026-01-22;-275,00;Fello\n2026-02-20;-275,00;Fello\n"
+    )
+    [left] = _open_route(fiscal_year.id).json()["items"]
+    # January's is the receipt-booked purchase; February's has no voucher.
+    assert left["date"] == "2026-02-20"
+
+
+def test_candidate_is_listed_with_the_voucher(books, fiscal_year):
+    voucher = _transfer(books, date(2026, 3, 10), 10_000_000)
+    _import("1930", BANK_HEADER + "2026-03-12;-100000,00;Till skattekonto\n")
+    [item] = _open_route(fiscal_year.id).json()["items"]
+    assert item["match"] == "candidates"
+    assert item["candidates"][0]["voucher_id"] == voucher.id
+
+
+def test_open_route_unknown_year_is_404(books):
+    response = _open_route("no-such-year")
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "fiscal_year_not_found"
