@@ -78,93 +78,153 @@ class PeriodStateSummary:
 
 
 @dataclass
+class ViewWaiting:
+    """What waits on the human in one view, in the counted year."""
+
+    key: str
+    waiting: int
+
+
+@dataclass
+class OtherYearWaiting:
+    """Another fiscal year where something waits on the human."""
+
+    id: str
+    label: str
+    waiting: int
+    meta: str
+
+
+@dataclass
 class Overview:
     fiscal_year: Optional[FiscalYearSummary]
     period_state: Optional[PeriodStateSummary]
     pages: List[OverviewPage]
+    # The year the counters are for: the asked one, else `fiscal_year`.
+    counted_fiscal_year_id: Optional[str] = None
+    views: List[ViewWaiting] = field(default_factory=list)
+    other_years: List[OtherYearWaiting] = field(default_factory=list)
 
 
 class OverviewService:
     """Aggregates the page counters. Reads only."""
 
-    def get_overview(self, today: Optional[date] = None) -> Overview:
-        today = today or date.today()
+    def get_overview(
+        self, today: Optional[date] = None, fiscal_year_id: Optional[str] = None
+    ) -> Overview:
+        """The counters are for one fiscal year: `fiscal_year_id`, else the
+        current one (`fiscal_year`). What waits in another year is not in
+        the pages' numbers -- it is listed in `other_years`, so the human
+        sees where it is instead of a count that the views of the year on
+        screen cannot show.
 
-        counters = {
-            "bocker": PageCounters(
-                open_decisions=self._count_open_decisions(),
-                missing_attachments=VoucherRepository.count_missing_attachments(),
-            ),
-            "betala": PageCounters(
-                open_decisions=self._count_waiting_on_page("betala"),
-                overdue_invoices=self._count_overdue_invoices(today),
-                payroll_waiting=self._count_payroll_waiting(),
-            ),
-            # Nothing is counted for Bokslut yet. The period-level checks that
-            # belong here arrive with flode-verifikationer; until then a quiet
-            # page is an honest one.
-            "bokslut": PageCounters(),
-        }
+        `fiscal_year` and `period_state` stay the current year's whatever
+        year is counted: they are what the header calls "now".
+        """
+        today = today or date.today()
 
         fiscal_year = self._current_fiscal_year(today)
         period = self._current_period(fiscal_year, today) if fiscal_year else None
+        counted = fiscal_year
+        if fiscal_year_id is not None:
+            counted = PeriodRepository.get_fiscal_year(fiscal_year_id)
+            if counted is None:
+                raise ValueError(f"unknown fiscal year: {fiscal_year_id!r}")
+
+        views = self._views_waiting(counted)
+        per_page = {
+            key: sum(v.waiting for v in views if v.key.startswith(f"{key}."))
+            for key, _ in PAGE_TITLES
+        }
+        counters = {
+            "bocker": PageCounters(
+                open_decisions=per_page["bocker"],
+                missing_attachments=VoucherRepository.count_missing_attachments(
+                    fiscal_year_id=counted.id if counted else None
+                ),
+            ),
+            "betala": PageCounters(
+                open_decisions=per_page["betala"],
+                overdue_invoices=self._count_overdue_invoices(today, counted),
+                payroll_waiting=self._count_payroll_waiting(counted),
+            ),
+            # The period-level checks that belong here have not arrived; a
+            # thread's decisions are all Bokslut counts so far.
+            "bokslut": PageCounters(open_decisions=per_page["bokslut"]),
+        }
 
         return Overview(
             fiscal_year=self._fiscal_year_payload(fiscal_year),
             period_state=self._period_payload(period),
             pages=[self._page(key, title, counters[key]) for key, title in PAGE_TITLES],
+            counted_fiscal_year_id=counted.id if counted else None,
+            views=views,
+            other_years=self._other_years(counted),
         )
 
     # -- counters ---------------------------------------------------------
 
-    def _count_open_decisions(self) -> int:
-        """The `beslut` module owns this now (SPEC-beslut.md §6.6), and
-        since flode-verifikationer it counts what waits, not only what is a
-        decision (SPEC-flode-verifikationer.md §11.3): open decisions plus
-        pending thread proposals, each thing once. See
-        `DecisionService.count_waiting` for the rule.
-
-        The field did not change — only the arithmetic behind it, which is
-        what SPEC-oversikt.md said would happen: "När `beslut` kommer byter
-        den ut uträkningen bakom fältet — inte fältet." The approximation
-        that stood here summed the two synthetic sources DecisionService
-        still unions, so the number is unchanged on the day of the switch
-        and only grows as real decisions and proposals are written
-        (testfall 33).
-
-        Every view, since `bocker` is the one page that shows it.
+    def _views_waiting(self, fiscal_year) -> List[ViewWaiting]:
+        """`DecisionService.count_waiting` per view, in the year: open
+        decisions plus pending proposals, each thing once
+        (SPEC-flode-verifikationer.md §11.3). A page's `open_decisions` is
+        the sum of its views, so the number by the page and the numbers by
+        its tabs always add up. Without any fiscal year, every year.
 
         Deferred import, per AGENTS.md's service-to-service rule.
         """
-        from services.decision_service import DecisionService
-
-        return DecisionService().count_waiting()
-
-    def _count_waiting_on_page(self, page: str) -> int:
-        """What waits on the human in one page's views, each view counted
-        with `DecisionService.count_waiting` -- for Fakturering and löner,
-        the invoice proposals and the decisions in its two threads
-        (SPEC-fakturering-f1.md §10.3). Böcker keeps the count without
-        `view_key` (`_count_open_decisions`)."""
         from domain.types import ThreadViewKey
         from services.decision_service import DecisionService
 
         service = DecisionService()
-        return sum(
-            service.count_waiting(key.value)
+        return [
+            ViewWaiting(
+                key=key.value,
+                waiting=service.count_waiting(key.value, fiscal_year=fiscal_year),
+            )
             for key in ThreadViewKey
-            if key.value.startswith(f"{page}.")
-        )
+        ]
 
-    def _count_overdue_invoices(self, today: date) -> int:
-        """Same predicate as the invoice list summary — see Invoice.counts_as_overdue."""
+    def _other_years(self, counted) -> List[OtherYearWaiting]:
+        """Every other fiscal year where something waits on the human,
+        newest first."""
+        from services.decision_service import DecisionService
+
+        if counted is None:
+            return []
+        service = DecisionService()
+        out = []
+        for fiscal_year in PeriodRepository.list_fiscal_years():
+            if fiscal_year.id == counted.id:
+                continue
+            waiting = service.count_waiting(fiscal_year=fiscal_year)
+            if waiting:
+                out.append(
+                    OtherYearWaiting(
+                        id=fiscal_year.id,
+                        label=self._label(fiscal_year),
+                        waiting=waiting,
+                        meta=f"{waiting} väntar på dig",
+                    )
+                )
+        return out
+
+    def _count_overdue_invoices(self, today: date, fiscal_year=None) -> int:
+        """Same predicate as the invoice list summary — see
+        Invoice.counts_as_overdue. Only invoices dated in `fiscal_year`."""
         return sum(
             1
             for invoice in InvoiceRepository.list_all()
             if invoice.counts_as_overdue(today)
+            and (
+                fiscal_year is None
+                or fiscal_year.start_date
+                <= invoice.invoice_date
+                <= fiscal_year.end_date
+            )
         )
 
-    def _count_payroll_waiting(self) -> int:
+    def _count_payroll_waiting(self, fiscal_year=None) -> int:
         """Approximation until lönens fyra spår exist (out of scope, ANALYS §2).
 
         "Not booked yet" is true but coarser than the four tracks the design
@@ -174,6 +234,12 @@ class OverviewService:
             1
             for run in PayrollRunRepository.list_all()
             if run.status in _PAYROLL_UNBOOKED
+            and (
+                fiscal_year is None
+                or fiscal_year.start_date
+                <= date(run.year, run.month, 1)
+                <= fiscal_year.end_date
+            )
         )
 
     # -- period ------------------------------------------------------------
@@ -196,16 +262,17 @@ class OverviewService:
     def _fiscal_year_payload(self, fiscal_year) -> Optional[FiscalYearSummary]:
         if not fiscal_year:
             return None
-        start, end = fiscal_year.start_date, fiscal_year.end_date
-        label = (
-            str(start.year) if start.year == end.year else f"{start.year}/{end.year}"
-        )
         return FiscalYearSummary(
             id=fiscal_year.id,
-            label=label,
-            start=start.isoformat(),
-            end=end.isoformat(),
+            label=self._label(fiscal_year),
+            start=fiscal_year.start_date.isoformat(),
+            end=fiscal_year.end_date.isoformat(),
         )
+
+    @staticmethod
+    def _label(fiscal_year) -> str:
+        start, end = fiscal_year.start_date, fiscal_year.end_date
+        return str(start.year) if start.year == end.year else f"{start.year}/{end.year}"
 
     def _period_payload(self, period) -> Optional[PeriodStateSummary]:
         if not period:

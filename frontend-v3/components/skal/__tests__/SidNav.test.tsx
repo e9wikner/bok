@@ -32,4 +32,34 @@ describe("SidNav", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "Löner" }));
     expect(onValjVy).toHaveBeenCalledWith("betala.loner");
   });
+
+  it("fliken där något väntar bär antalet", () => {
+    render(
+      <SidNav
+        aktivVy="bocker.balans"
+        metaPerSida={{ bocker: { waiting: true, meta: "2 väntar på dig" } }}
+        antalPerVy={{ "bocker.verifikationer": 2, "bocker.balans": 0 }}
+        onValjVy={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId("sidnav-antal-bocker.verifikationer")).toHaveTextContent("2");
+    expect(screen.getByRole("button", { name: "Verifikationer, 2 väntar på dig" })).toBeInTheDocument();
+    expect(screen.queryByTestId("sidnav-antal-bocker.balans")).toBeNull();
+  });
+
+  it("ett annat år där något väntar står överst och byter år", async () => {
+    const onValjAr = vi.fn();
+    render(
+      <SidNav
+        aktivVy="bocker.balans"
+        metaPerSida={{}}
+        andraAr={[{ id: "ar-2026", label: "2026", waiting: 2, meta: "2 väntar på dig" }]}
+        onValjVy={vi.fn()}
+        onValjAr={onValjAr}
+      />
+    );
+    await userEvent.setup().click(screen.getByTestId("sidnav-annat-ar-ar-2026"));
+    expect(onValjAr).toHaveBeenCalledWith("ar-2026");
+    expect(screen.getByText("Räkenskapsår 2026")).toBeInTheDocument();
+  });
 });

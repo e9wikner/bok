@@ -916,7 +916,11 @@ class DecisionService:
             + CorrectionNoteRepository.count_open()
         )
 
-    def count_waiting(self, view_key: Optional[str] = None) -> int:
+    def count_waiting(
+        self,
+        view_key: Optional[str] = None,
+        fiscal_year: Optional[FiscalYear] = None,
+    ) -> int:
         """Everything that waits on the human, each thing once
         (SPEC-flode-verifikationer.md §11.3) -- the number `GET /overview`'s
         `open_decisions`, the view header and the receipt's `{n} kvar` chip
@@ -951,7 +955,16 @@ class DecisionService:
         Counted, not listed, like `count_open`: three counts and one
         statement over `thread_drafts` (`ThreadDraftRepository.
         count_pending_not_yet_counted`), not a list per source.
+
+        `fiscal_year` counts only what belongs to that year. Part 1 is then
+        `list_decisions(status="open", ..., fiscal_year=...)`'s `total`, so
+        the year's count and the year's list cannot disagree; the proposals
+        count by their voucher's year and invoice date. A proposal whose open
+        decision lies in another year is left out in both years -- it waits
+        once, through the decision.
         """
+        if fiscal_year is not None:
+            return self._count_waiting_in_year(view_key, fiscal_year)
         include_synthetic = view_key is None or view_key == _SYNTHETIC_VIEW_KEY
         waiting = DecisionRepository.count(status="open", view_key=view_key)
         if include_synthetic:
@@ -970,6 +983,27 @@ class DecisionService:
         # Invoice proposals, by the same rule (SPEC-fakturering-f1.md §10.3).
         return waiting + InvoiceProposalRepository.count_pending_not_yet_counted(
             view_key=view_key
+        )
+
+    def _count_waiting_in_year(
+        self, view_key: Optional[str], fiscal_year: FiscalYear
+    ) -> int:
+        from repositories.invoice_proposal_repo import InvoiceProposalRepository
+
+        include_synthetic = view_key is None or view_key == _SYNTHETIC_VIEW_KEY
+        _, waiting = self.list_decisions(
+            status="open", view_key=view_key, limit=1, fiscal_year=fiscal_year
+        )
+        waiting += ThreadDraftRepository.count_pending_not_yet_counted(
+            view_key=view_key,
+            open_note_statuses=_CORRECTION_OPEN_STATUSES,
+            notes_counted=include_synthetic,
+            fiscal_year_id=fiscal_year.id,
+        )
+        return waiting + InvoiceProposalRepository.count_pending_not_yet_counted(
+            view_key=view_key,
+            date_from=fiscal_year.start_date.isoformat(),
+            date_to=fiscal_year.end_date.isoformat(),
         )
 
     def supersede(self, decision_id: str) -> Decision:

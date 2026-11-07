@@ -942,7 +942,12 @@ def test_32_count_waiting(books, client, human, auth_headers):
     overview = client.get("/api/v1/overview", headers=auth_headers).json()
     pages = {p["key"]: p for p in overview["pages"]}
     assert pages["betala"]["counters"]["open_decisions"] == 1
-    assert pages["bocker"]["counters"]["open_decisions"] == 1
+    # Each page counts its own views: the proposal waits in Fakturering,
+    # not in Böcker too.
+    assert pages["bocker"]["counters"]["open_decisions"] == 0
+    assert {v["key"]: v["waiting"] for v in overview["views"]}[
+        "betala.fakturering"
+    ] == 1
 
     current = InvoiceProposalRepository.list(
         view_key="betala.fakturering", status="pending"

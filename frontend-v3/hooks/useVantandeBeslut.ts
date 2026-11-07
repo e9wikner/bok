@@ -21,7 +21,8 @@ import { BESLUT_NYCKEL, hamtaBeslut } from "@/lib/chattyta/api";
  * träffar märket utan att veta om det. C6:s status per vy ligger bredvid,
  * `[...BESLUT_NYCKEL, viewKey, "all"]`.
  */
-export const beslutMarkeNyckel = (viewKey: string) => [...BESLUT_NYCKEL, viewKey, "open"] as const;
+export const beslutMarkeNyckel = (viewKey: string, arId?: string | null) =>
+  arId ? ([...BESLUT_NYCKEL, viewKey, "open", arId] as const) : ([...BESLUT_NYCKEL, viewKey, "open"] as const);
 
 /**
  * `aktiv: false` frågar inte — desktop har inget märke. Minimerad chatt är
@@ -31,10 +32,15 @@ export const beslutMarkeNyckel = (viewKey: string) => [...BESLUT_NYCKEL, viewKey
  * Ger `0` medan frågan laddar eller om den misslyckats; märket faller då
  * tillbaka på inläggsräkningen, som det gjorde utan beslut.
  */
-export function useVantandeBeslut(viewKey: string, { aktiv = true }: { aktiv?: boolean } = {}): number {
+export function useVantandeBeslut(
+  viewKey: string,
+  { aktiv = true, arId }: { aktiv?: boolean; arId?: string | null } = {}
+): number {
+  // Med `arId` bara årets beslut, som vyn visar (`fiscal_year_id`).
   const { data } = useQuery({
-    queryKey: beslutMarkeNyckel(viewKey),
-    queryFn: () => hamtaBeslut({ viewKey, status: "open", limit: 1 }),
+    queryKey: beslutMarkeNyckel(viewKey, arId),
+    queryFn: () =>
+      hamtaBeslut({ viewKey, status: "open", limit: 1, fiscalYearId: arId ?? undefined }),
     select: (svar) => svar.total,
     enabled: aktiv,
     // Samma som headerns `useOverview`: de två ska visa samma tal, och

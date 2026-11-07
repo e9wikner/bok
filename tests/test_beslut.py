@@ -3907,8 +3907,13 @@ class TestOverviewReadsTheUnion:
     def test_overview_open_decisions_matches_decision_service(self):
         from services.overview import OverviewService
 
-        _insert_intake_source(status="failed")
         thread = _new_thread()
+        # Uploaded inside a fiscal year: what lies in no year is counted in
+        # none (`list_decisions`' year filter).
+        year = PeriodRepository.get_fiscal_year(thread.fiscal_year_id)
+        _insert_intake_source(
+            status="failed", uploaded_at=datetime.combine(year.start_date, time(9))
+        )
         DecisionService().create(
             thread,
             title="Kortköp Elektronikhuset",
@@ -3919,8 +3924,13 @@ class TestOverviewReadsTheUnion:
         overview = OverviewService().get_overview()
         bocker = [page for page in overview.pages if page.key == "bocker"][0]
 
-        assert bocker.counters["open_decisions"] == DecisionService().count_open()
-        assert bocker.counters["open_decisions"] == 2
+        # The counters are one year's; the decision's thread is in another
+        # year, so it waits there (`other_years`), not in the page's number.
+        in_all_years = bocker.counters["open_decisions"] + sum(
+            year.waiting for year in overview.other_years
+        )
+        assert in_all_years == DecisionService().count_open()
+        assert in_all_years == 2
 
     def test_a_decision_raised_in_a_thread_reaches_the_header(self):
         """End to end, and the reason the module exists: an abstention the

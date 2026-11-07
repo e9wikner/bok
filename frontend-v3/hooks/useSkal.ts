@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { skalApi } from "@/lib/skal/api";
 
 /**
@@ -10,10 +10,17 @@ import { skalApi } from "@/lib/skal/api";
  * parallella hookar och räknar i klienten — det är precis problemet
  * SPEC-oversikt.md §1 beskriver och som den här hooken stänger.
  */
-export function useOverview() {
+/**
+ * Sidornas och flikarnas räknare för årsväljarens år (`null`: innevarande).
+ * Under `["overview"]`, så att varje invalidering av översikten når alla år.
+ */
+export function useOverview(arId: string | null = null) {
   return useQuery({
-    queryKey: ["overview"],
-    queryFn: skalApi.getOverview,
+    queryKey: ["overview", arId ?? "aktuellt"],
+    queryFn: () => skalApi.getOverview(arId),
+    // Räknarna för det förra året står kvar tills det nya årets kommer, så
+    // att headern och årsväljaren inte blinkar bort vid ett årsbyte.
+    placeholderData: keepPreviousData,
     staleTime: 60 * 1000,
   });
 }

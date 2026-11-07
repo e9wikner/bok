@@ -3,7 +3,7 @@
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from db.database import db
 from domain.models import Voucher, VoucherRef, VoucherRow
@@ -546,19 +546,25 @@ class VoucherRepository:
         return vouchers, total
 
     @staticmethod
-    def count_missing_attachments(min_row_ore: Optional[int] = None) -> int:
+    def count_missing_attachments(
+        min_row_ore: Optional[int] = None, fiscal_year_id: Optional[str] = None
+    ) -> int:
         """Posted vouchers that lack a document (SPEC-oversikt.md §3, the
         predicate per SPEC-underlagstolkning.md §2.1).
 
         With *min_row_ore*, only vouchers with a row whose debit or credit
         exceeds it: the compliance check's 500 kr threshold is
         ``min_row_ore=50000``. `vouchers` stays unaliased for the predicate.
+        With *fiscal_year_id*, only that year's vouchers.
         """
         sql = f"""
             SELECT COUNT(*) AS cnt FROM vouchers
             WHERE vouchers.status = 'posted' AND {MISSING_ATTACHMENT_SQL}
         """
-        params: Tuple[int, ...] = ()
+        params: Tuple[Any, ...] = ()
+        if fiscal_year_id is not None:
+            sql += " AND vouchers.fiscal_year_id = ?"
+            params = (fiscal_year_id,)
         if min_row_ore is not None:
             sql += """
             AND EXISTS (
@@ -567,7 +573,7 @@ class VoucherRepository:
                 AND (vr.debit > ? OR vr.credit > ?)
             )
             """
-            params = (min_row_ore, min_row_ore)
+            params = params + (min_row_ore, min_row_ore)
         return db.execute(sql, params).fetchone()["cnt"]
 
     @staticmethod

@@ -110,11 +110,18 @@ class InvoiceProposalRepository:
         return [InvoiceProposalRepository._row_to_proposal(r) for r in rows], total
 
     @staticmethod
-    def count_pending_not_yet_counted(*, view_key: Optional[str]) -> int:
+    def count_pending_not_yet_counted(
+        *,
+        view_key: Optional[str],
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+    ) -> int:
         """The pending proposals `DecisionService.count_waiting` adds on top
         of the open decisions (§10.3), with `thread_drafts`' rule: one whose
         `decision_id` is an open decision in the same filter is already
-        counted; the rest once per decision, else one each."""
+        counted; the rest once per decision, else one each. `date_from` /
+        `date_to` (ISO dates, both or neither) keep only drafts whose
+        invoice date lies between them -- a fiscal year."""
         row = db.execute(
             """
             SELECT COUNT(DISTINCT COALESCE(
@@ -123,14 +130,24 @@ class InvoiceProposalRepository:
             )) AS n
             FROM thread_invoice_drafts tid
             LEFT JOIN decisions d ON d.id = tid.decision_id
+            LEFT JOIN invoice_drafts idr ON idr.id = tid.draft_id
             WHERE tid.status = 'pending'
               AND (? IS NULL OR tid.view_key = ?)
+              AND (? IS NULL OR idr.invoice_date BETWEEN ? AND ?)
               AND NOT (
                   d.id IS NOT NULL AND d.status = 'open'
                   AND (? IS NULL OR d.view_key = ?)
               )
             """,
-            (view_key, view_key, view_key, view_key),
+            (
+                view_key,
+                view_key,
+                date_from,
+                date_from,
+                date_to,
+                view_key,
+                view_key,
+            ),
         ).fetchone()
         return row["n"]
 

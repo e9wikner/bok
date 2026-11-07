@@ -149,3 +149,63 @@ def test_unknown_fiscal_year_is_404(client, headers, years):
     )
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "fiscal_year_not_found"
+
+
+# --- GET /overview?fiscal_year_id= ------------------------------------------
+
+
+def _overview(client, headers, fiscal_year_id):
+    response = client.get(
+        "/api/v1/overview",
+        params={"fiscal_year_id": fiscal_year_id},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_overview_counts_only_the_chosen_year(client, headers, years):
+    """Två beslut om underlag från 2026 väntar: i 2025 står Böcker tom, och
+    2026 pekas ut som året där de väntar."""
+    y25, y26 = years
+    thread = _thread(y26.id)
+    _decision(thread, "Kvitto OpenCode", "2026-11-05")
+    _decision(thread, "Kvittens A-53", "2026-10-25")
+
+    body = _overview(client, headers, y25.id)
+    pages = {p["key"]: p for p in body["pages"]}
+    assert body["counted_fiscal_year_id"] == y25.id
+    assert pages["bocker"]["counters"]["open_decisions"] == 0
+    assert pages["bocker"]["meta"] == "Inget väntar"
+    assert all(v["waiting"] == 0 for v in body["views"])
+    assert body["other_years"] == [
+        {"id": y26.id, "label": "2026", "waiting": 2, "meta": "2 väntar på dig"}
+    ]
+
+    body = _overview(client, headers, y26.id)
+    pages = {p["key"]: p for p in body["pages"]}
+    assert pages["bocker"]["meta"] == "2 väntar på dig"
+    assert {v["key"]: v["waiting"] for v in body["views"]}[VIEW] == 2
+    assert body["other_years"] == []
+
+
+def test_overview_page_count_is_the_sum_of_its_views(client, headers, years):
+    _, y26 = years
+    _decision(_thread(y26.id), "I Verifikationer", "2026-03-01")
+    _decision(_thread(y26.id, "bocker.balans"), "I Balans", "2026-03-02")
+    _decision(_thread(y26.id, "betala.loner"), "I Löner", "2026-03-03")
+
+    body = _overview(client, headers, y26.id)
+    views = {v["key"]: v["waiting"] for v in body["views"]}
+    pages = {p["key"]: p for p in body["pages"]}
+    assert views[VIEW] == 1 and views["bocker.balans"] == 1
+    assert pages["bocker"]["counters"]["open_decisions"] == 2
+    assert pages["betala"]["counters"]["open_decisions"] == 1
+
+
+def test_overview_unknown_fiscal_year_is_404(client, headers, years):
+    response = client.get(
+        "/api/v1/overview", params={"fiscal_year_id": "nope"}, headers=headers
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "fiscal_year_not_found"

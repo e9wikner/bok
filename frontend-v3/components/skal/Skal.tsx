@@ -25,6 +25,7 @@ import type { Detalj } from "@/lib/skal/detalj";
 import { lasDetalj, lasPosition, positionsUrl } from "@/lib/skal/rutt";
 import {
   type Sidnyckel,
+  type ViewKey,
   type Vy,
   type Vynyckel,
   allaVyer,
@@ -106,12 +107,35 @@ export function Skal() {
   const lagerOppet = detaljer.length > 0;
 
   const bred = useBredSkarm();
-  const { data: overview } = useOverview();
+  // Årsväljaren. Utan val gäller översiktens år (det aktuella); ett valt år
+  // som inte längre finns i listan faller tillbaka dit.
+  const { data: arslista } = useQuery({
+    queryKey: ["skal", "rakenskapsar"],
+    queryFn: bokslutApi.getRakenskapsar,
+    staleTime: 60 * 1000,
+  });
+  const [valtArId, setValtArId] = useState<string | null>(null);
+  const valtAr = arslista?.fiscal_years.find((a) => a.id === valtArId);
+  // Räknarna (sidornas rader, flikarnas antal) gäller året som visas; det
+  // som väntar i ett annat år står i `other_years`.
+  const { data: overview } = useOverview(valtAr?.id ?? null);
+  const ar = valtAr ? somOverviewAr(valtAr) : overview === undefined ? undefined : overview.fiscal_year;
+  // Chatten följer årsväljaren (SPEC-tradar.md §12.3: en tråd per vy och år).
+  // Utan val löser servern innevarande år själv, så tråden laddas inte om
+  // när översikten kommer.
+  const tradensAr = valtAr?.id ?? null;
   const { data: agent } = useAgentStatus();
   // Märket läses för den aktiva vyn, på chattbubblan (SPEC-chattyta.md §10). Inte beroende av om chatten är
   // minimerad: det är då märket behövs (komponenter.md). Grannvyerna i
   // svepraden får 0, som de får en oläst tråd (C5) — de ligger utanför skärmen.
-  const vantandeBeslut = useVantandeBeslut(aktivVy.trad);
+  // Bara årets beslut, som vyn visar.
+  const vantandeBeslut = useVantandeBeslut(aktivVy.trad, { arId: ar?.id });
+
+  const antalPerVy = useMemo<Partial<Record<ViewKey, number>>>(() => {
+    const ut: Partial<Record<ViewKey, number>> = {};
+    for (const v of overview?.views ?? []) ut[v.key] = v.waiting;
+    return ut;
+  }, [overview]);
 
   const metaPerSida = useMemo<Partial<Record<Sidnyckel, SidMeta>>>(() => {
     const ut: Partial<Record<Sidnyckel, SidMeta>> = {};
@@ -127,20 +151,6 @@ export function Skal() {
     setVyIndex(0); // Byte av sida landar alltid på sidans första vy.
   }, []);
 
-  // Årsväljaren. Utan val gäller översiktens år (det aktuella); ett valt år
-  // som inte längre finns i listan faller tillbaka dit.
-  const { data: arslista } = useQuery({
-    queryKey: ["skal", "rakenskapsar"],
-    queryFn: bokslutApi.getRakenskapsar,
-    staleTime: 60 * 1000,
-  });
-  const [valtArId, setValtArId] = useState<string | null>(null);
-  const valtAr = arslista?.fiscal_years.find((a) => a.id === valtArId);
-  const ar = valtAr ? somOverviewAr(valtAr) : overview === undefined ? undefined : overview.fiscal_year;
-  // Chatten följer årsväljaren (SPEC-tradar.md §12.3: en tråd per vy och år).
-  // Utan val löser servern innevarande år själv, så tråden laddas inte om
-  // när översikten kommer.
-  const tradensAr = valtAr?.id ?? null;
   // Översiktens lås gäller året som visas.
   const lasning = useLasning();
   const visatAr = arslista?.fiscal_years.find((a) => a.id === ar?.id);
@@ -187,7 +197,16 @@ export function Skal() {
       />
 
       <div className="flex min-h-0 flex-1">
-      {bred && <SidNav aktivVy={aktivVy.key} metaPerSida={metaPerSida} onValjVy={gaTillVy} />}
+      {bred && (
+        <SidNav
+          aktivVy={aktivVy.key}
+          metaPerSida={metaPerSida}
+          antalPerVy={antalPerVy}
+          andraAr={overview?.other_years ?? []}
+          onValjVy={gaTillVy}
+          onValjAr={setValtArId}
+        />
+      )}
       <VySvep
         // Ny sida = ny sverprad. Utan nyckeln ligger skrollpositionen kvar
         // från förra sidan medan innehållet redan har bytts.

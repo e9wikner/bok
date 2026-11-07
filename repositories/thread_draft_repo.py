@@ -160,6 +160,7 @@ class ThreadDraftRepository:
         view_key: Optional[str],
         open_note_statuses: Sequence[str],
         notes_counted: bool,
+        fiscal_year_id: Optional[str] = None,
     ) -> int:
         """The pending drafts `DecisionService.count_waiting` adds on top of
         the open decisions (§11.3), in one statement.
@@ -171,7 +172,11 @@ class ThreadDraftRepository:
         the count -- its `correction_note_id` is an open correction note.
         The rest are counted once per decision, once per note, and one each
         when they answer neither: `COUNT(DISTINCT ...)` over that key, so a
-        decision with two pending drafts still waits as one thing."""
+        decision with two pending drafts still waits as one thing.
+
+        `fiscal_year_id` keeps only drafts whose voucher lies in that year
+        (the year Verifikationer lists the draft under), the thread's year
+        when the voucher cannot be read."""
         placeholders = ", ".join("?" for _ in open_note_statuses)
         note_counted = (
             f"(cn.id IS NOT NULL AND cn.status IN ({placeholders}))"
@@ -187,15 +192,25 @@ class ThreadDraftRepository:
             FROM thread_drafts td
             LEFT JOIN decisions d ON d.id = td.decision_id
             LEFT JOIN correction_notes cn ON cn.id = td.correction_note_id
+            LEFT JOIN vouchers v ON v.id = td.voucher_id
+            LEFT JOIN threads t ON t.id = td.thread_id
             WHERE td.status = 'pending'
               AND (? IS NULL OR td.view_key = ?)
+              AND (? IS NULL OR COALESCE(v.fiscal_year_id, t.fiscal_year_id) = ?)
               AND NOT (
                   d.id IS NOT NULL AND d.status = 'open'
                   AND (? IS NULL OR d.view_key = ?)
               )
               AND NOT {note_counted}
         """
-        params: List[Any] = [view_key, view_key, view_key, view_key]
+        params: List[Any] = [
+            view_key,
+            view_key,
+            fiscal_year_id,
+            fiscal_year_id,
+            view_key,
+            view_key,
+        ]
         if notes_counted:
             params.extend(open_note_statuses)
         return db.execute(sql, tuple(params)).fetchone()["n"]

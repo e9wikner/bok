@@ -288,12 +288,31 @@ class OverviewPageResponse(BaseModel):
     counters: OverviewCounters
 
 
+class OverviewViewWaiting(BaseModel):
+    """What waits on the human in one view (tab), in the counted year."""
+
+    key: str
+    waiting: int
+
+
+class OverviewOtherYear(BaseModel):
+    """Another fiscal year where something waits on the human."""
+
+    id: str
+    label: str
+    waiting: int
+    meta: str
+
+
 class OverviewResponse(BaseModel):
     """Everything the header needs, in one call."""
 
     fiscal_year: Optional[OverviewFiscalYear] = None
     period_state: Optional[OverviewPeriodState] = None
     pages: List[OverviewPageResponse]
+    counted_fiscal_year_id: Optional[str] = None
+    views: List[OverviewViewWaiting] = []
+    other_years: List[OverviewOtherYear] = []
 
 
 # Account Schemas

@@ -10,7 +10,7 @@
  */
 
 import apiClient from "@/lib/api";
-import type { Sidnyckel } from "@/lib/skal/vyer";
+import type { Sidnyckel, ViewKey } from "@/lib/skal/vyer";
 
 export interface OverviewCounters {
   open_decisions: number;
@@ -42,10 +42,30 @@ export interface OverviewPeriodState {
   locked: boolean;
 }
 
+/** Hur mycket som väntar på människan i en vy (flik), i det räknade året. */
+export interface OverviewVy {
+  key: ViewKey;
+  waiting: number;
+}
+
+/** Ett annat räkenskapsår där något väntar på människan. */
+export interface OverviewAnnatAr {
+  id: string;
+  label: string;
+  waiting: number;
+  /** Serverns formulering: "2 väntar på dig". */
+  meta: string;
+}
+
 export interface Overview {
+  /** Innevarande år, vilket år som än räknas. */
   fiscal_year: OverviewFiscalYear | null;
   period_state: OverviewPeriodState | null;
+  /** Sidornas räknare gäller detta år (det valda, annars innevarande). */
   pages: OverviewPage[];
+  counted_fiscal_year_id?: string | null;
+  views?: OverviewVy[];
+  other_years?: OverviewAnnatAr[];
 }
 
 /** Fyra lägen; `vilande` ritas som ingen indikator alls (api/schemas.py). */
@@ -59,8 +79,11 @@ export interface AgentStatus {
 }
 
 export const skalApi = {
-  getOverview: async (): Promise<Overview> => {
-    const { data } = await apiClient.get<Overview>("/api/v1/overview");
+  /** Räknarna för `fiscalYearId`; utan det för innevarande år. */
+  getOverview: async (fiscalYearId?: string | null): Promise<Overview> => {
+    const { data } = await apiClient.get<Overview>("/api/v1/overview", {
+      params: fiscalYearId ? { fiscal_year_id: fiscalYearId } : undefined,
+    });
     return data;
   },
 

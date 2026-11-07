@@ -50,12 +50,12 @@ export function arsalternativ(
   lista: Rakenskapsar[],
   overview?: Overview
 ): { id: string; text: string; etikett: string }[] {
-  return lista.map((ar) => ({
-    id: ar.id,
-    etikett: arsetikett(ar),
-    text:
-      ar.id === overview?.fiscal_year?.id
-        ? arsrad(overview)
-        : `Räkenskapsår ${arsetikett(ar)}`,
-  }));
+  // Ett annat år där något väntar säger det i listan, med serverns ord.
+  const vantar = new Map((overview?.other_years ?? []).map((a) => [a.id, a.meta]));
+  return lista.map((ar) => {
+    const text =
+      ar.id === overview?.fiscal_year?.id ? arsrad(overview) : `Räkenskapsår ${arsetikett(ar)}`;
+    const meta = vantar.get(ar.id);
+    return { id: ar.id, etikett: arsetikett(ar), text: meta ? `${text} · ${meta}` : text };
+  });
 }
