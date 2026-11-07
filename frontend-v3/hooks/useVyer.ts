@@ -278,6 +278,7 @@ export function useVyer(
             saknar: s,
             kopplingar: kopplingar ?? [],
             bank: bank.data?.items,
+            avstamning: bank.data?.reconciliation,
             // Ett fel eller en fråga i flykt fäller inte Verifikationer: då
             // står bara vyns egna rader där.
             andraVyer: betalaVantar({

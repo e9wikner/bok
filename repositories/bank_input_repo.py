@@ -501,6 +501,21 @@ class BankInputRepository:
     # --- statement matching (services/statement_match.py) ----------------
 
     @staticmethod
+    def list_processed_inputs_with_account() -> list[dict]:
+        """Every processed statement with the account it was imported for,
+        newest upload first."""
+        rows = db.execute("""
+            SELECT bi.id, bi.original_filename, bi.stored_path, bi.uploaded_at,
+                   bc.account_number AS account_code
+            FROM bank_inputs bi
+            JOIN bank_connections bc ON bc.id = bi.bank_connection_id
+            WHERE bi.status = 'processed'
+              AND bc.account_number IS NOT NULL
+            ORDER BY bi.uploaded_at DESC
+            """).fetchall()
+        return [dict(row) for row in rows]
+
+    @staticmethod
     def list_unlinked_transactions_with_account() -> list[dict]:
         """Bank transactions not linked to any voucher, with the account
         their statement was imported for, oldest first."""

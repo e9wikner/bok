@@ -222,9 +222,21 @@ export interface OppenBanktransaktion {
   candidates: { voucher_id: string; voucher_number: string; voucher_date: string; date_diff_days: number }[];
 }
 
+/** Ett kontos senaste kontoutdrag mot bokföringen samma dag. */
+export interface Bankavstamning {
+  account_code: string;
+  date: string;
+  statement_balance_ore: number;
+  ledger_balance_ore: number;
+  /** Utdraget minus bokföringen. */
+  difference_ore: number;
+  filename: string;
+}
+
 export interface OppnaBanktransaktioner {
   total: number;
   items: OppenBanktransaktion[];
+  reconciliation?: Bankavstamning[];
 }
 
 export const bockerApi = {
@@ -681,6 +693,8 @@ export interface VantarUnderlag {
    * (`GET /bank-inputs/transactions/open`). Utelämnad: ingen sektion.
    */
   bank?: readonly OppenBanktransaktion[];
+  /** Kontoutdragens saldon mot bokföringen, i samma svar som `bank`. */
+  avstamning?: readonly Bankavstamning[];
 }
 
 /**
@@ -743,6 +757,8 @@ function manadssektioner(
 /** Så många bankrader visas; resten sammanfattas i en rad till agenten. */
 export const BANK_RADER = 8;
 
+export const BANK_TITEL = "Kontoutdrag mot bokföringen";
+
 const VY_VERIFIKATIONER = "bocker.verifikationer";
 
 function bankrad(t: OppenBanktransaktion): VyRadData {
@@ -767,14 +783,33 @@ function bankrad(t: OppenBanktransaktion): VyRadData {
   };
 }
 
+function avstamningsrad(a: Bankavstamning): VyRadData {
+  const stammer = a.difference_ore === 0;
+  return {
+    id: `avstamning:${a.account_code}`,
+    titel: `Saldo ${a.account_code} enligt kontoutdraget`,
+    meta: stammer
+      ? `${a.date} · stämmer med bokföringen`
+      : `${a.date} · bokfört ${formatBelopp(a.ledger_balance_ore)} · differens ${formatBelopp(a.difference_ore)}`,
+    hoger: formatBelopp(a.statement_balance_ore),
+    variant: stammer ? undefined : "saknar",
+    mal: { typ: "konto", kod: a.account_code },
+  };
+}
+
 /**
- * Kontoutdragens rader utan verifikation, senaste först. De `BANK_RADER`
- * senaste står var för sig; resten blir en rad som ber agenten ta dem.
+ * Kontoutdragen mot bokföringen: först varje kontos saldo enligt det
+ * senaste utdraget, sedan raderna utan verifikation, senaste först. De
+ * `BANK_RADER` senaste står var för sig; resten blir en rad som ber
+ * agenten ta dem.
  */
-export function banksektion(bank: readonly OppenBanktransaktion[] | undefined): VySektionData | null {
-  if (!bank || bank.length === 0) return null;
-  const senast = [...bank].sort((a, b) => b.date.localeCompare(a.date));
-  const rader = senast.slice(0, BANK_RADER).map(bankrad);
+export function banksektion(
+  bank: readonly OppenBanktransaktion[] | undefined,
+  avstamning: readonly Bankavstamning[] = []
+): VySektionData | null {
+  if ((!bank || bank.length === 0) && avstamning.length === 0) return null;
+  const senast = [...(bank ?? [])].sort((a, b) => b.date.localeCompare(a.date));
+  const rader = [...avstamning.map(avstamningsrad), ...senast.slice(0, BANK_RADER).map(bankrad)];
   const resten = senast.slice(BANK_RADER);
   if (resten.length > 0) {
     const fran = resten[resten.length - 1].date;
@@ -787,11 +822,11 @@ export function banksektion(bank: readonly OppenBanktransaktion[] | undefined): 
       variant: "saknar",
       fraga: {
         viewKey: VY_VERIFIKATIONER,
-        text: `Kontoutdragen har ${bank.length} händelser utan verifikation. Gå igenom dem och lägg fram verifikationer, äldst först. `,
+        text: `Kontoutdragen har ${senast.length} händelser utan verifikation. Gå igenom dem och lägg fram verifikationer, äldst först. `,
       },
     });
   }
-  return { titel: "I banken, inte bokfört", rader };
+  return { titel: BANK_TITEL, rader };
 }
 
 export const FOT_UNDERLAG =
@@ -969,7 +1004,7 @@ export function verifikationerVy(
   const sektioner: VySektionData[] = [];
   if (vantarRader.length > 0) sektioner.push({ titel: "Väntar på beslut", rader: vantarRader });
   if (saknarRader.length > 0) sektioner.push({ titel: "Saknar underlag", rader: saknarRader });
-  const bank = banksektion(underlag.bank);
+  const bank = banksektion(underlag.bank, underlag.avstamning);
   if (bank) sektioner.push(bank);
   if (manader && manader.perioder.length > 0) {
     const aldsta = postade.vouchers.reduce<string | undefined>(

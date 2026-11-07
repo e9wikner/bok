@@ -147,9 +147,14 @@ async def list_open_bank_transactions(fiscal_year_id: str):
     the agent's `las_okopplade_banktransaktioner` does. Read-only: exact
     matches are linked after each import and posting, not here.
 
+    `reconciliation` is each account's newest stated statement balance in
+    the year against the ledger's on the same day
+    (`services/bank_reconciliation.py`).
+
     - `404 fiscal_year_not_found`
     """
     from repositories.period_repo import PeriodRepository
+    from services.bank_reconciliation import BankReconciliationService
     from services.statement_match import StatementMatchService
 
     fiscal_year = PeriodRepository.get_fiscal_year(fiscal_year_id)
@@ -164,7 +169,13 @@ async def list_open_bank_transactions(fiscal_year_id: str):
             date_from=fiscal_year.start_date, date_to=fiscal_year.end_date
         )
     ]
-    return {"total": len(items), "items": items}
+    reconciliation = [
+        r.to_dict()
+        for r in BankReconciliationService().latest(
+            date_from=fiscal_year.start_date, date_to=fiscal_year.end_date
+        )
+    ]
+    return {"total": len(items), "items": items, "reconciliation": reconciliation}
 
 
 class UnlinkBankTransactionRequest(BaseModel):

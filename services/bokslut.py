@@ -219,6 +219,38 @@ class BokslutService:
             )
         ]
 
+    def _bank_checks(self, fy) -> List[Dict[str, str]]:
+        """Each statement account against its newest statement in the year."""
+        from services.bank_reconciliation import BankReconciliationService
+        from services.tax_adjustments import kronor
+
+        out = []
+        for r in BankReconciliationService().latest(
+            date_from=fy.start_date, date_to=fy.end_date
+        ):
+            if r.difference_ore == 0:
+                out.append(
+                    _kontroll(
+                        f"bank_{r.account_code}",
+                        OK,
+                        f"{r.account_code} stämmer med kontoutdraget {r.day.isoformat()}",
+                    )
+                )
+                continue
+            out.append(
+                _kontroll(
+                    f"bank_{r.account_code}",
+                    VARNING,
+                    f"{r.account_code} stämmer inte med kontoutdraget",
+                    f"Kontoutdraget {r.day.isoformat()} visar "
+                    f"{kronor(r.statement_balance_ore)} kr, bokföringen samma dag "
+                    f"{kronor(r.ledger_balance_ore)} kr (differens "
+                    f"{kronor(r.difference_ore)} kr). Det som står på utdraget men "
+                    "inte är bokfört listas under Verifikationer.",
+                )
+            )
+        return out
+
     def _kontroller(
         self, fiscal_year_id, fy, declaration, sru, vat, ar, skatt
     ) -> List[Dict[str, str]]:
@@ -241,6 +273,7 @@ class BokslutService:
         )
 
         out.extend(self.disposition_checks(fiscal_year_id))
+        out.extend(self._bank_checks(fy))
 
         unclosed = -self._movement(fiscal_year_id, ((3000, 8999),))
         out.append(

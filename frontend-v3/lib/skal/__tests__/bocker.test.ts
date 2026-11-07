@@ -5,12 +5,13 @@ import {
   type OppenBanktransaktion,
   type Verifikation,
   BANK_RADER,
+  BANK_TITEL,
   FOT_UNDERLAG,
   balansVy,
   resultatVy,
   verifikationerVy,
 } from "@/lib/skal/bocker";
-import { formatBeloppHela } from "@/lib/skal/format";
+import { formatBelopp, formatBeloppHela } from "@/lib/skal/format";
 import type { BeslutSvar, ForslagStatusSvar } from "@/lib/chattyta/api";
 
 const AR = { id: "fy", label: "2026", start: "2026-01-01", end: "2026-12-31" };
@@ -518,7 +519,7 @@ describe("Verifikationer samlar det som väntar i andra vyer", () => {
 
 // ─── Kontoutdragens rader utan verifikation ─────────────────────────────────
 
-describe("verifikationerVy: I banken, inte bokfört", () => {
+describe("verifikationerVy: Kontoutdrag mot bokföringen", () => {
   const tx = (over: Partial<OppenBanktransaktion>): OppenBanktransaktion => ({
     bank_transaction_id: "t",
     account_code: "1920",
@@ -534,17 +535,17 @@ describe("verifikationerVy: I banken, inte bokfört", () => {
     verifikationerVy(AR, tomma, tomma, { beslut: [], forslag: [], bank });
 
   it("ingen sektion utan rader", () => {
-    expect(vyMed([]).sektioner.map((s) => s.titel)).not.toContain("I banken, inte bokfört");
+    expect(vyMed([]).sektioner.map((s) => s.titel)).not.toContain(BANK_TITEL);
   });
 
   it("en rad per händelse, senaste först, som ber agenten", () => {
     const vy = vyMed([tx({ bank_transaction_id: "a", date: "2026-01-30" }), tx({ bank_transaction_id: "b" })]);
-    const sektion = vy.sektioner.find((s) => s.titel === "I banken, inte bokfört")!;
+    const sektion = vy.sektioner.find((s) => s.titel === BANK_TITEL)!;
     expect(sektion.rader.map((r) => r.id)).toEqual(["bank:b", "bank:a"]);
     const [rad] = sektion.rader;
     expect(rad.titel).toBe("Betalning - FELLO");
     expect(rad.meta).toBe("2026-05-19 · konto 1920 · ingen verifikation");
-    expect(rad.hoger).toBe("−275,00");
+    expect(rad.hoger).toBe(formatBelopp(-27500));
     expect(rad.variant).toBe("saknar");
     expect(rad.fraga?.viewKey).toBe("bocker.verifikationer");
     expect(rad.fraga?.text).toMatch(/saknar verifikation/);
@@ -561,7 +562,7 @@ describe("verifikationerVy: I banken, inte bokfört", () => {
         candidates: [{ voucher_id: "v29", voucher_number: "A-29", voucher_date: "2026-02-26", date_diff_days: 1 }],
       }),
     ]);
-    const [rad] = vy.sektioner.find((s) => s.titel === "I banken, inte bokfört")!.rader;
+    const [rad] = vy.sektioner.find((s) => s.titel === BANK_TITEL)!.rader;
     expect(rad.meta).toMatch(/ej kopplad$/);
     expect(rad.lankar).toEqual([{ text: "kanske A-29", mal: { typ: "ver", id: "v29" } }]);
     expect(rad.fraga?.text).toMatch(/Är det A-29\?/);
@@ -571,12 +572,50 @@ describe("verifikationerVy: I banken, inte bokfört", () => {
     const manga = Array.from({ length: BANK_RADER + 3 }, (_, i) =>
       tx({ bank_transaction_id: `t${i}`, date: `2026-0${(i % 9) + 1}-10`, amount_ore: -1000 })
     );
-    const rader = vyMed(manga).sektioner.find((s) => s.titel === "I banken, inte bokfört")!.rader;
+    const rader = vyMed(manga).sektioner.find((s) => s.titel === BANK_TITEL)!.rader;
     expect(rader).toHaveLength(BANK_RADER + 1);
     const sista = rader[rader.length - 1];
     expect(sista.id).toBe("bank:resten");
     expect(sista.titel).toBe("3 äldre");
-    expect(sista.hoger).toBe("−30,00");
+    expect(sista.hoger).toBe(formatBelopp(-3000));
     expect(sista.fraga?.text).toMatch(/11 händelser utan verifikation/);
+  });
+});
+
+describe("banksektion: avstämningen", () => {
+  const avst = (diff: number) => ({
+    account_code: "1920",
+    date: "2026-11-03",
+    statement_balance_ore: 18009714,
+    ledger_balance_ore: 18009714 - diff,
+    difference_ore: diff,
+    filename: "1920.csv",
+  });
+
+  it("en differens står först, med bokfört saldo och differensen", () => {
+    const s = verifikationerVy(AR, { total: 0, vouchers: [] }, { total: 0, vouchers: [] }, {
+      beslut: [],
+      forslag: [],
+      bank: [],
+      avstamning: [avst(-86431166)],
+    }).sektioner.find((x) => x.titel === BANK_TITEL)!;
+    const [rad] = s.rader;
+    expect(rad.titel).toBe("Saldo 1920 enligt kontoutdraget");
+    expect(rad.hoger).toBe(formatBelopp(18009714));
+    expect(rad.meta).toBe(
+      `2026-11-03 · bokfört ${formatBelopp(104440880)} · differens ${formatBelopp(-86431166)}`
+    );
+    expect(rad.variant).toBe("saknar");
+    expect(rad.mal).toEqual({ typ: "konto", kod: "1920" });
+  });
+
+  it("ett konto som stämmer säger det", () => {
+    const s = verifikationerVy(AR, { total: 0, vouchers: [] }, { total: 0, vouchers: [] }, {
+      beslut: [],
+      forslag: [],
+      avstamning: [avst(0)],
+    }).sektioner.find((x) => x.titel === BANK_TITEL)!;
+    expect(s.rader[0].meta).toBe("2026-11-03 · stämmer med bokföringen");
+    expect(s.rader[0].variant).toBeUndefined();
   });
 });
