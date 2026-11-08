@@ -31,8 +31,15 @@ export type ViewKey =
  */
 export type BokslutDel = "bokslut.ink2" | "bokslut.moms" | "bokslut.arsredovisning" | "bokslut.uppgifter";
 
-/** En vy i navigeringen: en trådvy, eller en bokslutsdel. */
-export type Vynyckel = ViewKey | BokslutDel;
+/**
+ * Dropzonen: samma mappar som SMB-utdelningen, i webben. Ingen egen tråd —
+ * den chattar i Verifikationers, där underlagen bokförs. Servern känner
+ * inte nyckeln.
+ */
+export type Dropzonevy = "bocker.dropzone";
+
+/** En vy i navigeringen: en trådvy, en bokslutsdel eller dropzonen. */
+export type Vynyckel = ViewKey | BokslutDel | Dropzonevy;
 
 export interface Vy {
   readonly key: Vynyckel;
@@ -70,6 +77,14 @@ export const SIDOR: readonly Sida[] = Object.freeze([
         trad: "bocker.verifikationer",
         slug: "verifikationer",
         titel: "Verifikationer",
+        sida: "bocker",
+        lasvy: false,
+      },
+      {
+        key: "bocker.dropzone",
+        trad: "bocker.verifikationer",
+        slug: "dropzone",
+        titel: "Dropzone",
         sida: "bocker",
         lasvy: false,
       },

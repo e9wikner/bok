@@ -31,6 +31,9 @@ from repositories.bank_input_repo import BankInputRepository
 from repositories.intake_repo import IntakeRepository
 from services.agent_tools import TolkaUnderlagArgs
 from services.dropzone import dropzone_status
+from services.dropzone_upload import MAX_DROP_BYTES as DROPZONE_MAX_DROP_BYTES
+from services.dropzone_upload import MAX_FILES_PER_DROP as DROPZONE_MAX_FILES_PER_DROP
+from services.dropzone_upload import DropzoneUploadError, drop_file, dropzone_overview
 from services.fiscal_year_proposal import FiscalYearProposalService
 from services.intake import (
     DuplicateIntakeSourceError,
@@ -208,6 +211,68 @@ async def get_dropzone_status(actor: str = Depends(get_current_actor)):
     in the folder, so the answer has to come from here.
     """
     return dropzone_status()
+
+
+@router.get("/dropzone", response_model=dict)
+async def get_dropzone_overview(actor: str = Depends(get_current_actor)):
+    """The dropzone's folders and what lies in them, for the web view.
+
+    Read off the same directory the SMB share serves: the folders a file can
+    be dropped into, files the scanner has yet to read, `_Problem/` with each
+    file's reason, and the latest read-in files.
+    """
+    return dropzone_overview()
+
+
+@router.post("/dropzone/files", response_model=dict)
+async def drop_dropzone_files(
+    files: list[UploadFile] = File(...),
+    folder: str = Form(...),
+    actor: str = Depends(get_current_actor),
+):
+    """Put one or more files in a dropzone folder, as if copied in over SMB.
+
+    The folder decides what each file becomes. The scanner reads them in on
+    its next tick; nothing is ingested here. Each file succeeds or fails on
+    its own: `results` has one entry per file, in order, with `ok` and either
+    the stored `filename` or `error`/`code`. A folder that is not in the
+    dropzone, or a disabled dropzone, refuses the whole request.
+    """
+    if len(files) > DROPZONE_MAX_FILES_PER_DROP:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": f"Högst {DROPZONE_MAX_FILES_PER_DROP} filer åt gången.",
+                "code": "too_many_files",
+            },
+        )
+    results: list[dict[str, Any]] = []
+    for upload in files:
+        content = await upload.read(DROPZONE_MAX_DROP_BYTES + 1)
+        try:
+            stored = drop_file(
+                folder=folder,
+                filename=upload.filename,
+                content=content,
+                actor=actor,
+            )
+        except DropzoneUploadError as exc:
+            if exc.status != 400:
+                raise HTTPException(
+                    status_code=exc.status,
+                    detail={"error": exc.message, "code": exc.code},
+                ) from exc
+            results.append(
+                {
+                    "ok": False,
+                    "original_filename": upload.filename,
+                    "error": exc.message,
+                    "code": exc.code,
+                }
+            )
+            continue
+        results.append({"ok": True, "original_filename": upload.filename, **stored})
+    return {"folder": folder, "results": results}
 
 
 @router.get("/workspace/{kind}/{item_id}", response_model=dict)

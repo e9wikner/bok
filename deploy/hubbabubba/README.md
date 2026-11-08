@@ -196,6 +196,15 @@ smb://hubbabubba/Bokforing        (macOS)
 The share is hidden from the server's share list (`browseable: false`), so
 connect to it by exact name.
 
+The same folders are in the web UI: `/v4?sida=bocker&vy=dropzone` (Böcker →
+Dropzone), listed as on the share. One or more files dropped on a folder are
+written into that folder (`POST /api/v1/intake/dropzone/files`,
+`services/dropzone_upload.py`) and read in by the scanner like any other —
+the folder decides what each file becomes, and nothing is ingested by the
+upload itself. Any top-level folder except `_Inläst/`/`_Problem/` can be
+written, plus existing `Kontoutdrag/<konto>/` folders; new statement folders
+are still made on the share.
+
 ### The split with hubbabubba
 
 The share is **not** created by this repo. It is declared in

@@ -2,6 +2,7 @@
 
 import { useCallback } from "react";
 import { skipToken, useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useDropzoneOversikt } from "@/hooks/useDropzone";
 import { BESLUT_GRANS, beslutStatusNyckel } from "@/hooks/useBeslut";
 import { FORSLAG_GRANS, forslagNyckel } from "@/hooks/useForslag";
 import { useLasning } from "@/hooks/useLasning";
@@ -22,6 +23,7 @@ import {
 } from "@/lib/skal/bocker";
 import { atgarderVy, bokslutApi, bokslutNyckel, bokslutStatus } from "@/lib/skal/bokslut";
 import { lasApi } from "@/lib/skal/las";
+import { dropzoneStatus } from "@/lib/skal/dropzone";
 import { sokVy } from "@/lib/skal/sok";
 import { FEL_VY, INGET_AR_VY, LADDAR_VY, type VyData } from "@/lib/skal/vydata";
 import type { Sidnyckel, Vynyckel } from "@/lib/skal/vyer";
@@ -124,6 +126,8 @@ export function useVyer(
     // Utan spärren avbryter ett andra anrop det pågående och börjar om.
     if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  // Dropzonen gäller inget år; frågan går när Böcker visas.
+  const dropzone = useDropzoneOversikt(sida === "bocker");
   const saknar = useQuery({
     queryKey: [...VOUCHERS_NYCKEL, "skal", id, "saknar"],
     queryFn: () => bockerApi.getSaknarUnderlag(id),
@@ -309,5 +313,17 @@ export function useVyer(
     "bokslut.arsredovisning": bokslutsdel,
     "bokslut.uppgifter": bokslutsdel,
     "bokslut.atgarder": vy([avvikelser], atgarderVy),
+    // Dropzonen har sin egen komponent (`DropzoneVy`), som Bokslutets delar.
+    // Här bara statusraden, till headern.
+    "bocker.dropzone": {
+      data: {
+        ...LADDAR_VY,
+        ...(() => {
+          const st = dropzoneStatus(dropzone.data, dropzone.isError, dropzone.dataUpdatedAt);
+          return { status: st.text, lage: st.lage };
+        })(),
+      },
+      laddar: false,
+    },
   };
 }

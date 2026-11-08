@@ -13,7 +13,8 @@ describe("PrickNav är riktiga knappar (testfall 11)", () => {
     expect(screen.getByRole("button", { name: "Balansräkning" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Resultaträkning" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Verifikationer" })).toBeInTheDocument();
-    expect(screen.getAllByRole("button")).toHaveLength(3);
+    expect(screen.getByRole("button", { name: "Dropzone" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button")).toHaveLength(4);
   });
 
   it("markerar aktiv vy med aria-current", () => {
@@ -74,7 +75,7 @@ describe("piltangenterna är svepets ekvivalent (testfall 12)", () => {
   });
 
   it("stannar vid sidans sista vy — vyer wrappar inte till nästa sida", () => {
-    const { grupp, onIndexChange } = renderaSvep(2);
+    const { grupp, onIndexChange } = renderaSvep(bocker.vyer.length - 1);
     fireEvent.keyDown(grupp, { key: "ArrowRight" });
     expect(onIndexChange).not.toHaveBeenCalled();
   });

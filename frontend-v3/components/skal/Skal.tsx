@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { BeslutFokusProvider } from "@/components/skal/BeslutFokus";
 import { BokslutVy } from "@/components/skal/BokslutVy";
 import { ChattBubbla } from "@/components/skal/ChattBubbla";
+import { DropzoneVy } from "@/components/skal/DropzoneVy";
 import { DetaljLager } from "@/components/skal/Detalj";
 import { DetaljProvider, useDetaljHistorik } from "@/components/skal/DetaljKontext";
 import { Header } from "@/components/skal/Header";
@@ -230,6 +231,8 @@ export function Skal() {
               onGaTill={gaTillVy}
               variant={variant}
             />
+          ) : vy.key === "bocker.dropzone" ? (
+            <DropzoneVy titel={vy.titel} variant={variant} />
           ) : null;
           if (bred) {
             // Vyn äger ytan bredvid sidonavigeringen; chatten är en bubbla

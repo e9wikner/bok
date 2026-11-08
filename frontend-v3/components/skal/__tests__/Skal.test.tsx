@@ -59,13 +59,14 @@ describe("skalet i drift", () => {
     expect(screen.getAllByText("Balansräkning").length).toBeGreaterThan(0);
   });
 
-  it("renderar sidans tre vyer i svepraden, inte bara den aktiva", () => {
+  it("renderar sidans fyra vyer i svepraden, inte bara den aktiva", () => {
     const { container } = renderaSkal();
     const vyer = container.querySelectorAll("[data-view-key]");
     expect([...vyer].map((v) => v.getAttribute("data-view-key"))).toEqual([
       "bocker.balans",
       "bocker.resultat",
       "bocker.verifikationer",
+      "bocker.dropzone",
     ]);
   });
 

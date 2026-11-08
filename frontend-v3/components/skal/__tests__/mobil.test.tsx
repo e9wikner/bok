@@ -59,7 +59,7 @@ describe("mobilmönstret under 1000 px", () => {
   it("har en chattbubbla för den aktiva vyn, inte en chattlist per vy", () => {
     const { container } = renderaSkal();
     expect(container.querySelectorAll('[aria-label="Visa eller minimera chatten"]')).toHaveLength(0);
-    expect(container.querySelectorAll("[data-view-key]")).toHaveLength(3);
+    expect(container.querySelectorAll("[data-view-key]")).toHaveLength(4);
     expect(screen.getByRole("button", { name: /Öppna chatten för Verifikationer/ })).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
