@@ -32,6 +32,7 @@ from domain.types import ThreadViewKey
 from domain.validation import ValidationError
 from repositories.period_repo import PeriodRepository
 from repositories.thread_repo import ThreadRepository
+from services.agreement_booking import AgreementBookingService
 from services.company_info_proposal import CompanyInfoProposalService
 from services.decision_service import (
     DecisionAlreadyAnswered,
@@ -282,6 +283,15 @@ async def answer_decision(
                 "details": "a shared underlag is approved by a logged-in user",
             },
         )
+    if not caller.human and AgreementBookingService.requires_human(decision_id):
+        raise HTTPException(
+            status_code=http_status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "Only a logged-in user can do this",
+                "code": "human_only",
+                "details": "an agreement booking is approved by a logged-in user",
+            },
+        )
     if not caller.human and PayrollProposalService.requires_human(decision_id):
         raise HTTPException(
             status_code=http_status.HTTP_403_FORBIDDEN,
@@ -362,6 +372,10 @@ async def answer_decision(
     # An utläggs card (`foresla_utlaggskontroll`): either answer puts the
     # underlag back in the pass's queue, the exit records it as failed.
     ReimbursementCheckService().on_decision_answered(decision, actor=actor)
+    # An agreement card (`foresla_avtalsbokforing`): a yes puts the underlag
+    # back in the pass's queue (or wakes the pass), the standing yes also
+    # approves it for the fiscal year; the exit records it as failed.
+    AgreementBookingService().on_decision_answered(decision, actor=actor)
 
     if settings.agent_runtime_enabled:
         ThreadTurnRunner().start(thread, answer_post, answer_post.body["text"])

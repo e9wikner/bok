@@ -77,9 +77,12 @@ def post_agent_voucher(
 
     # Migration 044: an underlag that already supports vouchers may be
     # posted on again only under a standing approval for the voucher's
-    # fiscal year (`foresla_delat_underlag`); otherwise it is refused as
-    # already linked.
-    shared = _approved_shared_sources(intake, intake_source_ids, request.period_id)
+    # fiscal year (`foresla_delat_underlag`), or (migration 048) against a
+    # statement transaction a human approved on an agreement card;
+    # otherwise it is refused as already linked.
+    shared = _approved_shared_sources(
+        intake, intake_source_ids, request.period_id, bank_transaction_ids
+    )
     for source_id in intake_source_ids:
         if source_id not in shared:
             intake.ensure_source_ready_for_voucher_link(source_id)
@@ -111,6 +114,13 @@ def post_agent_voucher(
         request.date,
         foreign=conversion is not None,
     )
+    # Migration 048: under an agreement approval, one approved transaction
+    # per voucher and exactly the kontering the human approved.
+    from services.agreement_booking import AgreementBookingService
+
+    AgreementBookingService().guard_posting(
+        intake_source_ids, bank_transaction_ids, request.rows
+    )
 
     with db.transaction():
         ledger = LedgerService()
@@ -139,7 +149,7 @@ def post_agent_voucher(
                     known_voucher_ids=shared[source_id][0],
                     actor=actor,
                     summary=summary,
-                    link_reason=f"reuse_approval={shared[source_id][1]}",
+                    link_reason=shared[source_id][1],
                     _commit=False,
                 )
                 continue
@@ -234,12 +244,18 @@ def _ensure_agent_voucher_has_traceability(
 
 
 def _approved_shared_sources(
-    intake: IntakeService, source_ids: list, period_id: Optional[str]
+    intake: IntakeService,
+    source_ids: list,
+    period_id: Optional[str],
+    bank_transaction_ids: Optional[list] = None,
 ) -> dict:
-    """``{source_id: (voucher_ids it supports now, approval_id)}`` for the
-    underlag that already support vouchers and are approved for further
-    ones in the fiscal year of *period_id* (migration 044)."""
+    """``{source_id: (voucher_ids it supports now, link reason)}`` for the
+    underlag that already support vouchers and may support this one too:
+    approved for further ones in the fiscal year of *period_id* (migration
+    044), or approved on an agreement card for *bank_transaction_ids*
+    (migration 048)."""
     from repositories.period_repo import PeriodRepository
+    from services.agreement_booking import AgreementBookingService
     from services.intake_reuse import IntakeReuseService
 
     period = PeriodRepository.get_period(period_id) if period_id else None
@@ -252,5 +268,11 @@ def _approved_shared_sources(
             continue
         approval = IntakeReuseService.approval_for(source_id, period.fiscal_year_id)
         if approval is not None:
-            shared[source_id] = (supported, approval.id)
+            shared[source_id] = (supported, f"reuse_approval={approval.id}")
+            continue
+        booking = AgreementBookingService().posting_basis(
+            source_id, bank_transaction_ids or []
+        )
+        if booking is not None:
+            shared[source_id] = (supported, f"agreement_booking={booking.id}")
     return shared

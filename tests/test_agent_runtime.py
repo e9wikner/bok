@@ -1131,6 +1131,9 @@ _EXPECTED_TOOL_NAMES = [
     "hamta_valutakurs",
     "kontrollera_utlagg",
     "foresla_utlaggskontroll",
+    # The thirty-sixth (migration 048): an agreement booked against the
+    # statement transactions it covers, asked about on a card.
+    "foresla_avtalsbokforing",
 ]
 
 #: Names that carry a forbidden fragment by design, and why it is not the
@@ -1305,6 +1308,7 @@ class TestAppendOnlyToolSurface:
             "foresla_agi_bokforing",
             "foresla_delat_underlag",
             "foresla_utlaggskontroll",
+            "foresla_avtalsbokforing",
         }
         read_tool_names = set(_EXPECTED_TOOL_NAMES) - write_tool_names
         for tool in AGENT_TOOL_DEFINITIONS:

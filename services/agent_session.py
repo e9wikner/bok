@@ -208,11 +208,19 @@ def _reimbursement_answer(source: IntakeSource) -> Optional[str]:
     return ReimbursementCheckService().status_line(source.id)
 
 
+def _agreement_answer(source: IntakeSource) -> Optional[str]:
+    """What the human approved on an agreement card (migration 048)."""
+    from services.agreement_booking import AgreementBookingService
+
+    return AgreementBookingService().status_line(source.id)
+
+
 def build_user_turn(
     source: IntakeSource,
     content_block: ContentBlock,
     today: date,
     open_periods: list[Period],
+    extra_text: Optional[str] = None,
 ) -> list[dict]:
     """Build the volatile user turn (SPEC §6.3): today's date, a compact open-
     periods summary, this source's own metadata, and finally `content_block`
@@ -238,6 +246,13 @@ def build_user_turn(
     reimbursement_answer = _reimbursement_answer(source)
     if reimbursement_answer:
         metadata_text += f"- utläggskontroll: {reimbursement_answer}\n"
+    if extra_text:
+        # A follow-up (`AgentWorker`): the text says what to book.
+        metadata_text += f"\n{extra_text}\n"
+    else:
+        agreement_answer = _agreement_answer(source)
+        if agreement_answer:
+            metadata_text += f"- avtalsbokföring: {agreement_answer}\n"
     return [
         {
             "role": "user",
@@ -644,10 +659,16 @@ def run_tool_loop(
                     ExecutedToolCall(tool_call=tool_call, ok=True, result=result)
                 )
 
-                if tool_call.name == _POSTING_TOOL:
+                if tool_call.name == _POSTING_TOOL and not (
+                    isinstance(result, dict) and result.get("pass_continues")
+                ):
                     # Immediately -- no further tool calls in this turn (or
                     # ever again in this session) run once a posting has
-                    # happened.
+                    # happened. The one exception is a posting that says the
+                    # session goes on (`pass_continues`, migration 048): one
+                    # of several transactions a human approved on an
+                    # agreement card. It is answered like any tool call, and
+                    # the last of them ends the session here.
                     turns.append(
                         SessionTurnRecord(turn=turn, executed_tool_calls=executed)
                     )
@@ -752,8 +773,13 @@ def run_session(
     on_text: Optional[StreamTextHook] = None,
     on_tool_call: Optional[StreamToolCallHook] = None,
     agent_run_id: Optional[str] = None,
+    extra_text: Optional[str] = None,
 ) -> SessionOutcome:
     """Run one LLM session for one intake source (SPEC §6.3, §6.7).
+
+    `extra_text` is added to the user turn: the follow-up of an agreement
+    (migration 048), an underlag already booked that has new statement
+    transactions to book.
 
     A thin wrapper around `run_tool_loop` since SPEC-tradar.md T4: this
     function owns what is specific to a *document* -- selecting the content
@@ -789,7 +815,9 @@ def run_session(
     return run_tool_loop(
         client,
         system_prompt=build_system_prompt(),
-        messages=build_user_turn(source, content_block, today, open_periods),
+        messages=build_user_turn(
+            source, content_block, today, open_periods, extra_text=extra_text
+        ),
         tools=DOCUMENT_TOOL_DEFINITIONS,
         model=model,
         actor=actor,

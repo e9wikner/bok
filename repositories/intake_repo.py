@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Sequence
 from db.database import db
 from domain.models import IntakeProcessingAttempt, IntakeSource, VoucherIntakeSource
 from domain.types import IntakeSourceType, IntakeStatus
+from repositories.agreement_booking_repo import NOT_WAITING_FOR_AGREEMENT_SQL
 from repositories.fiscal_year_proposal_repo import NOT_WAITING_FOR_FISCAL_YEAR_SQL
 from repositories.reimbursement_check_repo import NOT_WAITING_FOR_REIMBURSEMENT_SQL
 
@@ -27,9 +28,12 @@ _NOT_IN_A_THREAD_SQL = (
 # would read it again, and pay for it, every pass. Created, it is back in.
 # Migration 045: the same for an utlägg waiting on the card that asks whether
 # the company paid it (a matching statement transaction).
+# Migration 048: the same for an agreement waiting on the card that asks
+# which statement transactions it is booked against.
 _PASS_QUEUE_SQL = (
     f"{_NOT_IN_A_THREAD_SQL} AND {NOT_WAITING_FOR_FISCAL_YEAR_SQL}"
     f" AND {NOT_WAITING_FOR_REIMBURSEMENT_SQL}"
+    f" AND {NOT_WAITING_FOR_AGREEMENT_SQL}"
 )
 
 

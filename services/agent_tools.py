@@ -1280,12 +1280,63 @@ def _run_posta_verifikation(
     idempotency_key: Optional[str] = None,
     tool_context: Optional[Mapping[str, Any]] = None,
 ) -> dict:
-    # No decision is ever behind a direct posting: a late booking is a
-    # proposal (`foresla_verifikation` with `decision_id`) or an abstention.
-    _check_underlag_dates(
-        args.intake_source_ids, args.date, decision_id=None, tool_context=tool_context
+    # Migration 048: a posting under an agreement card a human approved.
+    # Only the intake pass makes one; its date is the statement row's, not
+    # the agreement's, so the underlag's own date is not checked; and its
+    # key is the transaction's, since one underlag books several of them.
+    from services.agreement_booking import AgreementBookingService
+
+    booking = AgreementBookingService.check_posting_context(
+        args.intake_source_ids,
+        args.bank_transaction_ids,
+        in_thread=(tool_context or {}).get("thread") is not None,
     )
-    return _post_voucher(args, actor=actor, idempotency_key=idempotency_key)
+    if booking is None:
+        # No decision is ever behind a direct posting: a late booking is a
+        # proposal (`foresla_verifikation` with `decision_id`) or an
+        # abstention.
+        _check_underlag_dates(
+            args.intake_source_ids,
+            args.date,
+            decision_id=None,
+            tool_context=tool_context,
+        )
+        return _post_voucher(args, actor=actor, idempotency_key=idempotency_key)
+
+    source_id = booking.intake_source_id
+    if not args.bank_input_ids:
+        # The statement the transaction came in with: the server knows it,
+        # and the agent was told only the transaction.
+        from repositories.bank_input_repo import BankInputRepository
+
+        args = args.model_copy(
+            update={
+                "bank_input_ids": list(
+                    dict.fromkeys(
+                        input_id
+                        for tx_id in args.bank_transaction_ids
+                        for input_id in BankInputRepository.list_input_ids_for_transaction(
+                            tx_id
+                        )[
+                            :1
+                        ]
+                    )
+                )
+            }
+        )
+    if idempotency_key is None:
+        transactions = ",".join(sorted(set(args.bank_transaction_ids)))
+        idempotency_key = derive_posting_idempotency_key(
+            f"{source_id}:bank:{transactions}"
+        )
+    result = _post_voucher(args, actor=actor, idempotency_key=idempotency_key)
+    remaining = [tx["id"] for tx in AgreementBookingService().remaining(source_id)]
+    result = dict(result)
+    result["agreement_remaining_transaction_ids"] = remaining
+    # Not terminal while approved transactions are left: the session goes on
+    # to the next one (`services/agent_session.py`).
+    result["pass_continues"] = bool(remaining)
+    return result
 
 
 def _run_registrera_avstaende(
@@ -2235,6 +2286,53 @@ def _run_foresla_utlaggskontroll(
     )
 
 
+class ForeslaAvtalsbokforingArgs(BaseModel):
+    """Fråga användaren om ett avtal eller medgivande ska bokföras mot de
+    transaktioner i kontoutdraget som det gäller."""
+
+    source_id: str = Field(..., description="Avtalets underlag")
+    bank_transaction_ids: list[str] = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Transaktionerna avtalet gäller, från las_okopplade_banktransaktioner: "
+            "samma konto, belopp och text, i ett räkenskapsår"
+        ),
+    )
+    counter_account: str = Field(
+        ...,
+        description=(
+            "Motkontot mot bankkontot, t.ex. 1387 för en placering. Inget momskonto."
+        ),
+    )
+    reason: str = Field(
+        ..., description="En mening om varför avtalet gäller transaktionerna"
+    )
+
+
+def _run_foresla_avtalsbokforing(
+    args: ForeslaAvtalsbokforingArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """Not terminal. In a thread the card goes in it; in the intake pass in
+    the Verifikationer thread, and the underlag waits for the answer -- the
+    pass should then end without abstaining (migration 048)."""
+    from services.agreement_booking import AgreementBookingService
+
+    return AgreementBookingService().propose(
+        (tool_context or {}).get("thread"),
+        source_id=args.source_id,
+        bank_transaction_ids=args.bank_transaction_ids,
+        counter_account=args.counter_account,
+        reason=args.reason,
+        actor=actor,
+    )
+
+
 _ToolHandler = Callable[..., Any]
 
 _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
@@ -2599,6 +2697,20 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
         ForeslaUtlaggskontrollArgs,
         _run_foresla_utlaggskontroll,
     ),
+    (
+        "foresla_avtalsbokforing",
+        "Fråga användaren om ett avtal eller medgivande utan eget datum och "
+        "belopp (autogiromedgivande, låneavtal, abonnemang) ska bokföras mot "
+        "flera transaktioner i kontoutdraget: en verifikation per transaktion, "
+        "bankkontot mot counter_account, hela beloppet, ingen moms. "
+        "Transaktionerna måste ha samma konto, belopp och text och ligga i ett "
+        "räkenskapsår. Lägger ett beslutskort; utan tråd (intagskön) i "
+        "Verifikationers tråd, och underlaget väntar på svaret -- avsluta då "
+        "utan att avstå. Användaren kan också godkänna underlaget för kommande "
+        "transaktioner under året. Bokför ingenting själv.",
+        ForeslaAvtalsbokforingArgs,
+        _run_foresla_avtalsbokforing,
+    ),
 )
 
 #: Anthropic tool-definition shape: {"name", "description", "input_schema"}.
@@ -2643,8 +2755,9 @@ def execute_tool(
     tool_context: Optional[Mapping[str, Any]] = None,
 ) -> Any:
     """Validate and run one model-requested tool call -- one of the
-    thirty-five tools in ``_TOOL_SPECS``, the last of them
-    ``foresla_utlaggskontroll`` (the thirty-third and thirty-fourth
+    thirty-six tools in ``_TOOL_SPECS``, the last of them
+    ``foresla_avtalsbokforing`` (the thirty-fifth ``foresla_utlaggskontroll``,
+    the thirty-third and thirty-fourth
     ``hamta_valutakurs`` and ``kontrollera_utlagg``, the thirty-second
     ``foresla_delat_underlag``, the thirty-first ``foresla_agi_bokforing``,
     the thirtieth ``foresla_lonebokforing``, the

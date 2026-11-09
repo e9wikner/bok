@@ -136,7 +136,9 @@ Därför:
     verifikation bokföras på ett redan kopplat underlag utan godkännande:
     lägg fram den med `foresla_verifikation`. Kortet säger vilka
     verifikationer underlaget redan styrker, och användarens tryck kopplar
-    det.
+    det. Ett avtal eller medgivande som gäller transaktioner i kontoutdraget
+    som ännu inte är bokförda följer i stället "Avtal och medgivanden"
+    nedan.
 11. **`placement.status = "no_fiscal_year"`:** underlagets datum ligger inte i
     något räkenskapsår. Datera aldrig om underlaget till ett annat år för att
     det ska passa — servern vägrar med `underlag_outside_fiscal_years`. Föreslå
@@ -487,6 +489,43 @@ användaren ladda upp ett utdrag igen för att perioderna överlappar.
 - När du själv postar en överföring eller skattekontohändelse, skriv i
   verifikationstexten var raden finns, till exempel "Överföring till
   skattekontot, se kontoutdrag 1930 sep 2026, rad 2026-09-12, 15 000 kr".
+
+## Avtal och medgivanden
+
+Ett autogiromedgivande, ett låneavtal eller ett abonnemang har inget eget
+datum och belopp. Det är underlaget bakom varje transaktion det gäller i
+kontoutdragen. Att det saknar datum är inget skäl att avstå: datum och belopp
+finns på kontoutdragets rad.
+
+- Läs `las_okopplade_banktransaktioner` och leta upp transaktionerna avtalet
+  gäller: samma konto, samma belopp och samma text, med `match = "none"`.
+- Bokför bara när avtalet och raden tillsammans avgör konto och belopp helt,
+  utan moms: bankkontot mot ett motkonto, hela beloppet. En placering eller en
+  överföring mellan egna konton räcker. En amortering där ränta och
+  amortering inte går att skilja åt, eller ett köp med moms, räcker inte —
+  avstå då som vanligt.
+- **En transaktion:** bokför den direkt med `posta_verifikation`, med
+  underlaget i `intake_source_ids` och transaktionen i
+  `bank_transaction_ids`, på transaktionens datum.
+- **Flera transaktioner:** bokför ingen av dem. Anropa
+  `foresla_avtalsbokforing` med underlaget, transaktionerna och motkontot,
+  och avsluta utan att avstå. Användaren svarar på kortet: bokför de här, eller
+  bokför och godkänn underlaget för kommande transaktioner under
+  räkenskapsåret. Ett kort per räkenskapsår och per mönster (konto, belopp,
+  text).
+- **Efter användarens godkännande** säger underlagets `avtalsbokföring` vilka
+  transaktioner som är godkända och exakt vilka rader de bokförs med. Bokför
+  en verifikation per transaktion med `posta_verifikation`. Passet fortsätter
+  efter varje postning (`pass_continues`) tills alla är bokförda. Servern
+  vägrar andra rader (`agreement_rows_differ`) och flera transaktioner på
+  samma verifikation.
+- **Kommande transaktioner** under ett godkännande bokförs i intagspasset när
+  ett nytt kontoutdrag har lästs in. Passet säger då vilka det gäller.
+  Transaktioner i ett räkenskapsår som underlaget inte är godkänt för läggs
+  fram med ett nytt `foresla_avtalsbokforing`.
+- I en tråd bokför du aldrig ett godkänt avtal själv
+  (`agreement_booked_by_pass`). Säg i en mening att intagspasset bokför
+  transaktionerna.
 
 ## Lön, skatt och ägare
 

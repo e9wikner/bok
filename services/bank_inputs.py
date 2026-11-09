@@ -491,6 +491,11 @@ class BankInputService:
         from services.statement_match import StatementMatchService
 
         StatementMatchService().run_quietly()
+        # Migration 048: a transaction an agreement is approved for is booked
+        # by the agent: wake the intake pass when there is one.
+        from services.agreement_booking import AgreementBookingService
+
+        AgreementBookingService().wake_if_followups()
         return processed
 
     def _validate_upload(self, filename: str, mime_type: str, content: bytes) -> None:

@@ -135,6 +135,7 @@ _TRACE_LABELS = {
     "hamta_valutakurs": "valutakurs hämtad",
     "kontrollera_utlagg": "utlägg kontrollerat mot kontoutdragen",
     "foresla_utlaggskontroll": "fråga om utlägget",
+    "foresla_avtalsbokforing": "fråga om avtalets transaktioner",
 }
 
 

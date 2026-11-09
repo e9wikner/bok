@@ -398,7 +398,11 @@ class AgentWorker:
             limit=settings.agent_max_items_per_pass, offset=0
         )
         sources: list[IntakeSource] = queue["items"]
-        if not sources:
+        # Migration 048: an agreement a human approved for coming statement
+        # transactions, with new ones to book. Asked again after the queue:
+        # an item in it may have changed what is left.
+        has_followups = _has_agreement_followups()
+        if not sources and not has_followups:
             logger.info("Agent pass: pending queue is empty, nothing to do")
             return None
 
@@ -559,9 +563,116 @@ class AgentWorker:
                 self.current_source_id = None
                 self.current_activity = None
 
+        stopped = self._run_agreement_followups(
+            run.id, client, resolved_model, open_periods
+        )
+        if stopped is not None:
+            return stopped
+
         AgentRunRepository.update_status(run.id, "completed")
         logger.info("Agent run %s completed", run.id)
         return AgentRunRepository.get(run.id)
+
+    def _run_agreement_followups(
+        self,
+        run_id: str,
+        client: LLMClient,
+        model: str,
+        open_periods: list,
+    ) -> Optional[AgentRun]:
+        """Book the statement transactions agreements are approved for
+        (migration 048): one session per underlag, the underlag's own file
+        plus a text naming the transactions. What a session leaves open gets
+        an attempt row and is not tried again. Returns the finished run when
+        the pass has to stop (budget, LLM gateway), else `None`."""
+        from services.agreement_booking import AgreementBookingService
+
+        service = AgreementBookingService()
+        try:
+            items = service.followups()
+        except Exception:
+            logger.exception(
+                "Agent run %s: could not read agreement follow-ups", run_id
+            )
+            return None
+        intake_service = IntakeService()
+        for item in items:
+            source = item["source"]
+            transaction_ids = [tx["id"] for tx in item["book"]] + [
+                tx["id"] for tx in item["ask"]
+            ]
+            try:
+                ensure_daily_budget_available()
+            except DailyBudgetExhaustedError as exc:
+                AgentRunRepository.update_status(
+                    run_id,
+                    "completed",
+                    last_error=(
+                        f"budget_exhausted: spent {exc.spent_ore} of "
+                        f"{exc.budget_ore} öre"
+                    ),
+                )
+                return AgentRunRepository.get(run_id)
+            self.current_source_id = source.id
+            self.current_activity = "processing"
+            try:
+                file_bytes = intake_service.resolve_source_file(source).read_bytes()
+                try:
+                    outcome = run_session(
+                        client=client,
+                        source=source,
+                        file_bytes=file_bytes,
+                        open_periods=open_periods,
+                        today=date.today(),
+                        model=model,
+                        actor="agent",
+                        on_tool_call=self._note_tool_call,
+                        agent_run_id=run_id,
+                        extra_text=service.followup_turn(item),
+                    )
+                except LLMConnectionError as exc:
+                    AgentRunRepository.update_status(
+                        run_id, "failed", last_error=f"llm_connection_error: {exc}"
+                    )
+                    return AgentRunRepository.get(run_id)
+                except LLMRateLimitError as exc:
+                    AgentRunRepository.update_status(
+                        run_id,
+                        "failed",
+                        last_error=(
+                            "llm_rate_limit_error: retry_after_seconds="
+                            f"{exc.retry_after_seconds}"
+                        ),
+                    )
+                    return AgentRunRepository.get(run_id)
+                except Exception as exc:  # noqa: BLE001 -- as for an item
+                    logger.exception(
+                        "Agent run %s: unexpected error on agreement %s",
+                        run_id,
+                        source.id,
+                    )
+                    reason = f"{type(exc).__name__}: {exc}"
+                    AgentRunRepository.add_event(
+                        run_id,
+                        "error",
+                        _event_payload(error=reason),
+                        source_id=source.id,
+                    )
+                    AgentRunRepository.update_status(
+                        run_id, "failed", last_error=reason
+                    )
+                    return AgentRunRepository.get(run_id)
+                self._record_outcome(run_id, model, source, outcome)
+                service.record_followup_outcome(
+                    source.id,
+                    transaction_ids,
+                    agent_run_id=run_id,
+                    reason=outcome.reason or outcome.kind,
+                )
+            finally:
+                self.current_source_id = None
+                self.current_activity = None
+        return None
 
     def _note_tool_call(self, tool_name: str) -> None:
         """`on_tool_call` for the document pass: report the live tool name.
@@ -646,6 +757,18 @@ class AgentWorker:
             source_id=source.id,
             voucher_id=outcome.voucher_id,
         )
+
+
+def _has_agreement_followups() -> bool:
+    """Whether an approved agreement has statement transactions to book.
+    Never raises: a failure here must not stop the intake queue."""
+    try:
+        from services.agreement_booking import AgreementBookingService
+
+        return AgreementBookingService().has_followups()
+    except Exception:
+        logger.exception("Agent pass: could not read agreement follow-ups")
+        return False
 
 
 # ---------------------------------------------------------------------------
