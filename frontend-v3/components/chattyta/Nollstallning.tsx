@@ -42,12 +42,20 @@ export function TidigareKonversation({
   inlagg,
   nollstalldVid,
   viewKey,
+  visaInlagg = null,
 }: {
   inlagg: Inlagg[];
   nollstalldVid: string | null;
   viewKey?: string;
+  /**
+   * Ett inlägg som ska synas, ett beslut som tagits upp från vyn. Står det
+   * före gränsen fälls de tidigare inläggen upp, i samma rendering, så att
+   * det finns att skrolla till.
+   */
+  visaInlagg?: string | null;
 }) {
-  const [oppen, setOppen] = useState(false);
+  const [oppenVald, setOppen] = useState(false);
+  const oppen = oppenVald || (visaInlagg !== null && inlagg.some((i) => i.id === visaInlagg));
   const tid = tidpunkt(nollstalldVid);
   return (
     <>
@@ -55,7 +63,7 @@ export function TidigareKonversation({
         <button
           type="button"
           aria-expanded={oppen}
-          onClick={() => setOppen((v) => !v)}
+          onClick={() => setOppen(!oppen)}
           className="bok-mono self-start text-[12px] text-bok-meta hover:text-bok-text"
         >
           {`${oppen ? "▾" : "▸"} ${inlagg.length} tidigare inlägg · ${oppen ? "dölj" : "visa"}`}

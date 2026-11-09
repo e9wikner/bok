@@ -78,7 +78,7 @@ export function TradYta({
   const langstNer = useRef(true);
   const kontextFran = trad.kontextFran ?? 0;
   const { fore, efter } = delaVidGrans(trad.inlagg, kontextFran);
-  const { valt, inlagg: inlaggFokus } = useBeslutFokus();
+  const { valt, valtNyckel, inlagg: inlaggFokus } = useBeslutFokus();
   const visaFokus = valt !== null && valt.view_key === viewKey;
   const inlaggIds = useMemo(() => new Set(trad.inlagg.map((i) => i.id)), [trad.inlagg]);
 
@@ -99,7 +99,7 @@ export function TradYta({
       langstNer.current = true;
       el.scrollTop = el.scrollHeight;
     }
-  }, [visaFokus, valt]);
+  }, [visaFokus, valtNyckel]);
 
   // Följ med nedåt när något nytt kommer — men bara om människan redan var
   // längst ner. Den som skrollat upp för att läsa ett gammalt beslut ska inte
@@ -145,7 +145,12 @@ export function TradYta({
         }
       >
         {kontextFran > 0 && (
-          <TidigareKonversation inlagg={fore} nollstalldVid={trad.nollstalldVid ?? null} viewKey={viewKey} />
+          <TidigareKonversation
+            inlagg={fore}
+            nollstalldVid={trad.nollstalldVid ?? null}
+            viewKey={viewKey}
+            visaInlagg={visaFokus ? (valt?.post_id ?? null) : fokusPost}
+          />
         )}
         <TradRenderare inlagg={efter} strommande={trad.strommande} viewKey={viewKey} />
         {visaFokus && <BeslutFokusKort viewKey={viewKey} inlaggIds={inlaggIds} />}

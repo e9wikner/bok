@@ -38,6 +38,18 @@ describe("TidigareKonversation", () => {
     expect(screen.getByRole("button", { name: /dölj/ })).toHaveAttribute("aria-expanded", "true");
   });
 
+  it("fälls ut av sig själv när ett beslut som tas upp står före gränsen", () => {
+    const inlagg = [agent("a", 1, "gammalt kort")];
+    const { rerender } = render(
+      <TidigareKonversation inlagg={inlagg} nollstalldVid={null} visaInlagg="annat" />
+    );
+    expect(screen.queryByText("gammalt kort")).not.toBeInTheDocument();
+
+    rerender(<TidigareKonversation inlagg={inlagg} nollstalldVid={null} visaInlagg="a" />);
+    expect(screen.getByText("gammalt kort")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /dölj/ })).toHaveAttribute("aria-expanded", "true");
+  });
+
   it("avdelaren säger när konversationen nollställdes", () => {
     render(<TidigareKonversation inlagg={[]} nollstalldVid="2026-09-29T14:02:00" />);
     expect(screen.getByRole("separator")).toHaveAccessibleName("Konversationen nollställd 2026-09-29 14:02");

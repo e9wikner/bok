@@ -43,6 +43,8 @@ export interface Forifyllning {
 
 interface BeslutFokusVarde {
   valt: BeslutSvar | null;
+  /** Ny för varje tryck, så att samma beslut två gånger skrollar dit igen. */
+  valtNyckel: number;
   valj: (b: BeslutSvar) => void;
   stang: () => void;
   forifyllning: Forifyllning | null;
@@ -69,6 +71,7 @@ export interface InlaggFokus {
 
 const INGET: BeslutFokusVarde = {
   valt: null,
+  valtNyckel: 0,
   valj: () => {},
   stang: () => {},
   forifyllning: null,
@@ -93,6 +96,11 @@ export function svarsinledning(b: BeslutSvar): string {
 
 export function BeslutFokusProvider({ children }: { children: React.ReactNode }) {
   const [valt, setValt] = useState<BeslutSvar | null>(null);
+  const [valtNyckel, setValtNyckel] = useState(0);
+  const valj = useCallback((b: BeslutSvar) => {
+    setValt(b);
+    setValtNyckel(++fyllnummer);
+  }, []);
   const [forifyllning, setForifyllning] = useState<Forifyllning | null>(null);
   const stang = useCallback(() => setValt(null), []);
   const svara = useCallback((b: BeslutSvar) => {
@@ -111,8 +119,8 @@ export function BeslutFokusProvider({ children }: { children: React.ReactNode })
     setInlagg({ nyckel: ++fyllnummer, viewKey, postId });
   }, []);
   const varde = useMemo(
-    () => ({ valt, valj: setValt, stang, forifyllning, svara, fyll, inlagg, visaInlagg }),
-    [valt, stang, forifyllning, svara, fyll, inlagg, visaInlagg]
+    () => ({ valt, valtNyckel, valj, stang, forifyllning, svara, fyll, inlagg, visaInlagg }),
+    [valt, valtNyckel, valj, stang, forifyllning, svara, fyll, inlagg, visaInlagg]
   );
   return <BeslutFokusKontext.Provider value={varde}>{children}</BeslutFokusKontext.Provider>;
 }
@@ -130,7 +138,7 @@ const RUBRIK: Record<BeslutSvar["kind"], string> = {
  * (besvarat, eller underlaget har tagits upp igen) stängs kortet.
  */
 export function BeslutFokusKort({ viewKey, inlaggIds }: { viewKey: string; inlaggIds: ReadonlySet<string> }) {
-  const { valt, stang, svara } = useBeslutFokus();
+  const { valt, valtNyckel, stang, svara } = useBeslutFokus();
   const uppslag = useBeslut(valt ? viewKey : undefined);
   const aktuell = valt && uppslag ? uppslag.get(valt.id) : valt;
   const oppet = aktuell?.status === "open";
@@ -145,7 +153,7 @@ export function BeslutFokusKort({ viewKey, inlaggIds }: { viewKey: string; inlag
   useEffect(() => {
     if (!iTraden || !postId) return;
     return markeraInlagg(postId);
-  }, [iTraden, postId, valt]);
+  }, [iTraden, postId, valtNyckel]);
 
   if (!aktuell || !oppet || iTraden) return null;
   return <Kort beslut={aktuell} onStang={stang} onSvara={() => svara(aktuell)} />;
@@ -154,17 +162,36 @@ export function BeslutFokusKort({ viewKey, inlaggIds }: { viewKey: string; inlag
 /**
  * Skrollar till inlägget i tråden och markerar det en stund. Ger städningen,
  * för en effekt; `undefined` när inlägget inte är ritat.
+ *
+ * Chatten kan vara stängd när beslutet tas upp: panelen öppnas av samma
+ * tryck, men först efter den här effekten. En dold tråd har ingen höjd att
+ * skrolla i, så skrollningen väntar några bildrutor på att den syns.
  */
 export function markeraInlagg(postId: string): (() => void) | undefined {
   const el = Array.from(document.querySelectorAll<HTMLElement>("[data-inlagg-id]")).find(
     (e) => e.dataset.inlaggId === postId
   );
   if (!el) return undefined;
-  centreraITraden(el);
+  let ram = 0;
+  let kvar = SYNS_INOM_RUTOR;
+  const forsok = () => {
+    if (el.getClientRects().length === 0 && kvar-- > 0) {
+      ram = requestAnimationFrame(forsok);
+      return;
+    }
+    centreraITraden(el);
+  };
+  forsok();
   el.dataset.fokus = "true";
   const t = setTimeout(() => delete el.dataset.fokus, 2400);
-  return () => clearTimeout(t);
+  return () => {
+    cancelAnimationFrame(ram);
+    clearTimeout(t);
+  };
 }
+
+/** Så många bildrutor väntar skrollningen på att en dold tråd ska synas. */
+const SYNS_INOM_RUTOR = 30;
 
 /**
  * Skrollar trådens egen yta så att inlägget hamnar mitt i den. Inte
