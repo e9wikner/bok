@@ -411,6 +411,43 @@ def test_declining_records_the_dropzone_file_as_failed_with_the_reason(
     assert IntakeRepository.get_source(in_chat.id).status == IntakeStatus.PENDING
 
 
+def _human_headers() -> dict:
+    from services.auth import AuthService
+
+    return {"Authorization": f"Bearer {AuthService().create_jwt('stefan')}"}
+
+
+def test_avfarda_releases_the_card_and_skips_the_dropzone_file(
+    client, year_2026, intake_dir
+):
+    # A dismissed card asks nothing more. Its pending row would otherwise
+    # hold the file out of the queue for good, waiting on a card nobody can
+    # answer; the dropzone file is skipped, the thread's own left to it.
+    thread = _thread(year_2026)
+    dropped = _upload("dropzone.png")
+    in_chat = _upload("chatt.png")
+    ThreadService.record_user_file(
+        thread,
+        filename=in_chat.original_filename,
+        size_bytes=in_chat.size_bytes,
+        pages=None,
+        intake_source_id=in_chat.id,
+        actor="människa",
+    )
+    result = _propose(date(2027, 1, 15), [dropped.id, in_chat.id], thread=thread)
+
+    response = client.post(
+        f"/api/v1/decisions/{result['decision_id']}/dismiss", headers=_human_headers()
+    )
+
+    assert response.status_code in (200, 204), response.text
+    proposal = FiscalYearProposalRepository.get(result["proposal_id"])
+    assert proposal.status == "superseded"
+    assert FiscalYearProposalRepository.pending_for_source(dropped.id) is None
+    assert IntakeRepository.get_source(dropped.id).status == IntakeStatus.SKIPPED
+    assert IntakeRepository.get_source(in_chat.id).status == IntakeStatus.PENDING
+
+
 def test_a_free_text_answer_creates_nothing_and_a_new_card_carries_the_files(
     client, auth_headers, year_2026, intake_dir
 ):

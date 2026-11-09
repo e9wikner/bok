@@ -99,6 +99,21 @@ class AgreementBookingService:
                 "Name the statement transactions the agreement covers",
             )
         transactions = [self._open_transaction(tx_id) for tx_id in ids]
+        approved = [
+            tx_id for tx_id in ids if self.posting_basis(source.id, [tx_id]) is not None
+        ]
+        if approved:
+            # A human already answered yes for these: the pass books them. A
+            # second card would take the underlag out of the queue again and
+            # ask for what is already approved (the thread turn that follows
+            # the press would otherwise raise it).
+            raise ValidationError(
+                "agreement_already_approved",
+                "The user has already approved these transactions; the intake "
+                "pass books them",
+                f"bank_transaction_ids={approved}. Raise no new card for them; "
+                "say in the thread that the intake pass books them.",
+            )
         transactions.sort(key=lambda tx: (str(tx["transaction_date"]), tx["id"]))
         first = transactions[0]
         account_code = str(first["account_code"])

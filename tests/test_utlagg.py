@@ -426,3 +426,34 @@ def test_a_proposal_carries_the_comment_to_the_card_and_the_draft(books):
         p for p in ThreadRepository.list_posts(thread.id) if p.id == result["post_id"]
     )
     assert post.body["comment"] == draft.comment
+
+
+def _human_headers() -> dict:
+    from services.auth import AuthService
+
+    return {"Authorization": f"Bearer {AuthService().create_jwt('stefan')}"}
+
+
+def test_avfarda_releases_the_card_and_skips_the_underlag(books, client):
+    # Dismissed, the card asks nothing more: its row no longer holds the
+    # underlag out of the queue for a card nobody can answer, and the
+    # underlag is skipped rather than asked about again.
+    _statement("2026-10-14;-189,00;OPENAI\n")
+    source = _utlagg()
+    hits = _tool(
+        "kontrollera_utlagg",
+        {"source_id": source.id, "amount_ore": 18900, "date": "2026-10-14"},
+    )["hits"]
+    card = _tool(
+        "foresla_utlaggskontroll",
+        {"source_id": source.id, "bank_transaction_id": hits[0]["bank_transaction_id"]},
+    )
+
+    response = client.post(
+        f"/api/v1/decisions/{card['decision_id']}/dismiss", headers=_human_headers()
+    )
+
+    assert response.status_code in (200, 204), response.text
+    check = ReimbursementCheckRepository.get_by_decision(card["decision_id"])
+    assert check.status == "superseded"
+    assert IntakeRepository.get_source(source.id).status == IntakeStatus.SKIPPED

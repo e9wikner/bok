@@ -1080,13 +1080,24 @@ class DecisionService:
                 source is not None and source.status.value in _INTAKE_OPEN_STATUSES
             )
 
+        released: List[str] = []
         with db.transaction():
             for decision in decisions:
                 DecisionRepository.set_status(decision.id, "superseded", _commit=False)
+                released += _release_waiting_card(decision.id, actor)
+            skipped: List[str] = []
             if skip_source and source is not None:
                 IntakeRepository.update_status(
                     source.id, "skipped", actor=actor, _commit=False
                 )
+                skipped.append(source.id)
+            for source_id in dict.fromkeys(released):
+                if source_id in skipped or not _waits_for_card(source_id):
+                    continue
+                IntakeRepository.update_status(
+                    source_id, "skipped", actor=actor, _commit=False
+                )
+                skipped.append(source_id)
             AuditRepository.log(
                 entity_type="decision",
                 entity_id=decision_id,
@@ -1094,9 +1105,8 @@ class DecisionService:
                 actor=actor,
                 payload={
                     "superseded_decisions": [d.id for d in decisions],
-                    "skipped_intake_source": (
-                        source.id if skip_source and source is not None else None
-                    ),
+                    "skipped_intake_source": skipped[0] if skipped else None,
+                    "skipped_intake_sources": skipped,
                 },
                 _commit=False,
             )
@@ -1487,3 +1497,55 @@ class DecisionService:
         needs to silence a decision without writing a post alongside it.
         """
         DecisionRepository.set_reminded(decision_id, datetime.now())
+
+
+# -- dismissing a card that holds underlag ------------------------------------
+
+
+def _release_waiting_card(decision_id: str, actor: str) -> List[str]:
+    """A dismissed card whose pending row holds underlag out of the intake
+    pass's queue -- a fiscal-year card (041), an utläggs card (045), an
+    agreement card (048, which also pauses a standing approval). The row is
+    superseded with its decision; otherwise the underlag would wait for a
+    card nobody can answer any more. Returns the underlag it held."""
+    from repositories.agreement_booking_repo import AgreementBookingRepository
+    from repositories.fiscal_year_proposal_repo import FiscalYearProposalRepository
+    from repositories.reimbursement_check_repo import ReimbursementCheckRepository
+
+    released: List[str] = []
+    proposal = FiscalYearProposalRepository.get_by_decision(decision_id)
+    if proposal is not None and proposal.status == "pending":
+        FiscalYearProposalRepository.resolve(
+            proposal.id, "superseded", actor=actor, _commit=False
+        )
+        released += proposal.source_ids
+    check = ReimbursementCheckRepository.get_by_decision(decision_id)
+    if check is not None and check.status == "pending":
+        ReimbursementCheckRepository.resolve(
+            check.id, "superseded", actor=actor, _commit=False
+        )
+        released.append(check.intake_source_id)
+    booking = AgreementBookingRepository.get_by_decision(decision_id)
+    if booking is not None and booking.status == "pending":
+        AgreementBookingRepository.resolve(
+            booking.id, "superseded", actor=actor, _commit=False
+        )
+        released.append(booking.intake_source_id)
+    return released
+
+
+def _waits_for_card(source_id: str) -> bool:
+    """A dropzone underlag the dismissed card held out of the queue: still
+    `pending`, no thread's file and supporting no voucher. `Avfärda` means
+    it is not to be asked about again, so it is skipped -- back in the queue
+    the pass would only raise the same card. One already booked (an
+    agreement booked once) is left as it is."""
+    from domain.types import IntakeStatus
+
+    source = IntakeRepository.get_source(source_id)
+    return (
+        source is not None
+        and source.status == IntakeStatus.PENDING
+        and not IntakeRepository.is_in_a_thread(source_id)
+        and not IntakeRepository.list_links_for_source(source_id)
+    )

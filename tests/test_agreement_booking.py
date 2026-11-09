@@ -253,6 +253,37 @@ def test_the_api_key_cannot_answer_the_card(books, client, api_key_headers):
     assert response.json()["detail"]["code"] == "human_only"
 
 
+@pytest.mark.parametrize("option_index", [0, 1])
+def test_no_second_card_for_transactions_already_approved(
+    books, client, human_headers, option_index
+):
+    # The thread turn that follows the press, before the pass has booked:
+    # proposing the same set again would put the underlag back on hold.
+    source = _mandate()
+    transactions = _monthly()
+    card = _propose(source.id, [tx["id"] for tx in transactions])
+    _answer(client, human_headers, card["decision_id"], option_index)
+
+    with pytest.raises(ValidationError) as excinfo:
+        _propose(source.id, [tx["id"] for tx in transactions])
+
+    assert excinfo.value.code == "agreement_already_approved"
+    assert AgreementBookingRepository.pending_for_source(source.id) is None
+
+
+def test_dismissing_the_card_releases_the_underlag(books, client, human_headers):
+    source = _mandate()
+    card = _propose(source.id, [tx["id"] for tx in _monthly()])
+
+    response = client.post(
+        f"/api/v1/decisions/{card['decision_id']}/dismiss", headers=human_headers
+    )
+
+    assert response.status_code in (200, 204)
+    assert AgreementBookingRepository.get(card["booking_id"]).status == "superseded"
+    assert AgreementBookingRepository.pending_for_source(source.id) is None
+
+
 # -- the press and the pass's postings ------------------------------------------
 
 
