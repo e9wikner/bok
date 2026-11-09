@@ -40,8 +40,8 @@ describe("faktureringVy", () => {
         faktura({ id: "c", status: "paid", remaining_amount: 0 }),
       ],
     });
-    expect(vy.sektioner.map((s) => s.titel)).toEqual(["Obetalda", "Utkast", "Senast betalda"]);
-    expect(vy.sektioner[0].rader[0].variant).toBe("fel");
+    expect(vy.sektioner.map((s) => s.titel)).toEqual(["Summering", "Obetalda", "Utkast", "Senast betalda"]);
+    expect(vy.sektioner[1].rader[0].variant).toBe("fel");
     expect(vy.status).toBe("1 förfallen");
     expect(vy.lage).toBe("vantar");
   });
@@ -104,13 +104,87 @@ describe("faktureringVy", () => {
     });
     expect(vy.lage).toBe("normal");
     expect(vy.status).toBe("1 obetald");
-    const [sektion] = vy.sektioner;
+    const [, sektion] = vy.sektioner;
     expect(sektion.titel).toBe("Bokförda utanför BokAI");
     expect(sektion.rader.map((r) => r.titel)).toEqual(["Faktura #101269 skickad", "Faktura #101266 skickad"]);
     expect(sektion.rader[0].meta).toBe("A49 · 2026-04-30 · ingen matchande betalning");
     expect(sektion.rader[1].meta).toBe("A6 · 2026-01-29 · betald 2026-03-25");
     expect(sektion.rader[1].mal).toEqual({ typ: "ver", id: "v1" });
     expect(sektion.rader[1].lankar).toEqual([{ text: "betalning", mal: { typ: "ver", id: "v1-bet" } }]);
+  });
+});
+
+describe("Summering", () => {
+  const tal = (s: string) => s.replace(/\s/g, "");
+
+  it("Fakturering summerar fakturerat, betalt, obetalt och förfallet, utan utkast och makulerade", () => {
+    const vy = faktureringVy({
+      total: 5,
+      invoices: [
+        faktura({ id: "a", amount_inc_vat: 125000, vat_amount: 25000, status: "overdue", is_overdue: true }),
+        faktura({ id: "b", amount_inc_vat: 250000, vat_amount: 50000, remaining_amount: 100000 }),
+        faktura({ id: "c", amount_inc_vat: 500000, vat_amount: 100000, remaining_amount: 0, status: "paid" }),
+        faktura({ id: "d", amount_inc_vat: 999900, status: "draft" }),
+        faktura({ id: "e", amount_inc_vat: 777700, remaining_amount: 0, status: "cancelled" }),
+      ],
+      ledger_invoices: [
+        {
+          voucher_id: "v1",
+          voucher_number: "A6",
+          date: "2026-01-29",
+          description: "Faktura #101266 skickad",
+          amount_inc_vat: 1000000,
+          vat_amount: 200000,
+          paid: false,
+          payment_voucher_id: null,
+          payment_date: null,
+        },
+      ],
+    });
+    const summering = vy.sektioner.find((s) => s.titel === "Summering")!;
+    expect(summering.rader.map((r) => [r.titel, tal(r.hoger)])).toEqual([
+      ["Fakturerat", "18750"],
+      ["Betalt", "6750"],
+      ["Obetalt", "12000"],
+      ["Varav förfallet", "1000"],
+    ]);
+    expect(tal(summering.rader[0].meta!)).toBe("4fakturor·varavmoms3750");
+    expect(summering.rader[2].meta).toBe("3 fakturor");
+  });
+
+  it("Löner visar skatt och sociala avgifter betalda under året, och summan till Skatteverket", () => {
+    const vy = lonerVy(
+      {
+        payroll_runs: [],
+        summary: {
+          gross_salary: 8000000,
+          tax_withheld: 2400000,
+          tax_paid: 2400000,
+          employer_fee_charged: 2513600,
+          employer_fee_paid: 1256800,
+        },
+      },
+      { beslut: [], ar: { start: "2026-01-01", end: "2026-12-31" } }
+    );
+    expect(vy.lage).toBe("normal");
+    const [summering] = vy.sektioner;
+    expect(summering.titel).toBe("Summering");
+    expect(summering.rader.map((r) => [r.titel, tal(r.hoger)])).toEqual([
+      ["Löner", "80000"],
+      ["Skatt betald", "24000"],
+      ["Sociala avgifter betalda", "12568"],
+      ["Betalt till Skatteverket", "36568"],
+    ]);
+    expect(tal(summering.rader[2].meta!)).toBe("påfördaunderåret25136");
+    expect(summering.rader[3].summa).toBe(true);
+    expect(vy.period).toBe("2026-01-01 – 2026-12-31 · inga lönekörningar");
+  });
+
+  it("Löner utan något bokfört har ingen summering", () => {
+    const noll = { gross_salary: 0, tax_withheld: 0, tax_paid: 0, employer_fee_charged: 0, employer_fee_paid: 0 };
+    const vy = lonerVy({ payroll_runs: [], summary: noll });
+    expect(vy.lage).toBe("tomt");
+    expect(vy.sektioner).toEqual([]);
   });
 });
 

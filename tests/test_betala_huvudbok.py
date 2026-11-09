@@ -197,3 +197,71 @@ def test_a_salary_owed_to_the_employee_has_its_net(client, headers, years):
     )
     (payout,) = r.json()["ledger_payouts"]
     assert payout["net_salary"] == 3900000
+
+
+def test_payroll_summary_reads_tax_and_fees_off_the_ledger(client, headers, years):
+    """Årets lön, skatt och sociala avgifter ur huvudboken: avdragen skatt
+    och påförda avgifter ur lönerna, betalda ur AGI:erna. Decembers AGI
+    betalas i januari och räknas till det år den betalas."""
+    y25, y26 = years
+    if not AccountRepository.exists("1630"):
+        AccountRepository.create("1630", "Skattekonto", "asset")
+
+    def salary(day: date) -> str:
+        return _post(
+            day,
+            "Lön",
+            [
+                ("7010", 4000000, 0),
+                ("7510", 1256800, 0),
+                ("1920", 0, 2800000),
+                ("2710", 0, 1200000),
+                ("2730", 0, 1256800),
+            ],
+        )
+
+    def agi(day: date) -> str:
+        return _post(
+            day,
+            "Arbetsgivardeklaration",
+            [("2710", 1200000, 0), ("2730", 1256800, 0), ("1630", 0, 2456800)],
+        )
+
+    salary(date(2025, 12, 25))
+    agi(date(2026, 1, 12))  # December's
+    salary(date(2026, 1, 25))
+    agi(date(2026, 2, 12))
+    salary(date(2026, 2, 25))  # its AGI not yet booked
+    # A makulerad salary counts nowhere.
+    wrong = salary(date(2026, 3, 25))
+    LedgerService().create_posted_correction(wrong, [], reason="Fel", actor="stefan")
+    db.commit()
+    # An accrual is a salary cost, not a tax.
+    _post(
+        date(2026, 3, 31),
+        "Semesterlöneskuld",
+        [("7090", 100000, 0), ("2920", 0, 100000)],
+    )
+
+    r = client.get(
+        "/api/v1/payroll/runs", params={"fiscal_year_id": y26.id}, headers=headers
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["summary"] == {
+        "gross_salary": 8100000,
+        "tax_withheld": 2400000,
+        "tax_paid": 2400000,
+        "employer_fee_charged": 2513600,
+        "employer_fee_paid": 2513600,
+    }
+
+    r = client.get(
+        "/api/v1/payroll/runs", params={"fiscal_year_id": y25.id}, headers=headers
+    )
+    assert r.json()["summary"] == {
+        "gross_salary": 4000000,
+        "tax_withheld": 1200000,
+        "tax_paid": 0,
+        "employer_fee_charged": 1256800,
+        "employer_fee_paid": 0,
+    }

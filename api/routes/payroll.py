@@ -182,7 +182,19 @@ async def list_payroll_runs(
         date_from=fiscal_year.start_date if fiscal_year else None,
         date_to=fiscal_year.end_date if fiscal_year else None,
     )
-    return {"payroll_runs": result, "ledger_payouts": ledger_payouts}
+    # The year's totals off the ledger, BokAI's own and the rest alike.
+    summary = (
+        LedgerBookingService().payroll_summary(
+            fiscal_year.start_date, fiscal_year.end_date
+        )
+        if fiscal_year
+        else None
+    )
+    return {
+        "payroll_runs": result,
+        "ledger_payouts": ledger_payouts,
+        "summary": summary,
+    }
 
 
 @router.post("/runs", response_model=dict, status_code=status.HTTP_201_CREATED)

@@ -25,6 +25,8 @@ export interface Faktura {
   due_date: string;
   amount_inc_vat: number;
   remaining_amount: number;
+  /** Valfri i äldre testdata; summeringen räknar moms bara när den finns. */
+  vat_amount?: number;
   status: string;
   is_overdue: boolean;
   /** Verifikationen som bokförde fakturan. Valfri: en äldre server skickar den inte. */
@@ -127,14 +129,32 @@ export interface HuvudboksLon {
   net_salary: number | null;
 }
 
+/**
+ * Årets löner, skatt och sociala avgifter ur huvudboken, i öre
+ * (`LedgerBookingService.payroll_summary`). Avdraget och påfört ur lönerna,
+ * betalt ur AGI:erna — decembers AGI betalas i januari, och räknas dit.
+ */
+export interface LoneSummering {
+  gross_salary: number;
+  tax_withheld: number;
+  tax_paid: number;
+  employer_fee_charged: number;
+  employer_fee_paid: number;
+}
+
 export interface Lonekorningar {
   payroll_runs: Lonekorning[];
   /** Valfri: en äldre server skickar den inte. */
   ledger_payouts?: HuvudboksLon[];
+  /** Bara med ett räkenskapsår; en äldre server skickar den inte. */
+  summary?: LoneSummering | null;
 }
 
 /** Rubriken för det som bokförts utanför BokAI, i båda vyerna. */
 export const UTANFOR_RUBRIK = "Bokförda utanför BokAI";
+
+/** Rubriken för årets summor, i båda vyerna. */
+export const SUMMERING_RUBRIK = "Summering";
 
 /**
  * Fakturorna och lönekörningarna gäller årsväljarens år (`fiscal_year_id`):
@@ -245,6 +265,61 @@ export interface FaktureringExtra {
 
 const OPPNA_UTKAST = new Set(["draft", "needs_review"]);
 
+/** Fakturor som inte gäller: utkast och makulerade. */
+const EJ_FAKTURERAD = new Set(["draft", "cancelled"]);
+
+/**
+ * Årets fakturering: BokAI:s utfärdade fakturor och de bokförda utanför,
+ * fakturerat, betalt, obetalt och förfallet, inklusive moms.
+ */
+export function faktureringSummering(lista: Fakturalista): VySektionData | null {
+  const fakturor = lista.invoices.filter((f) => !EJ_FAKTURERAD.has(f.status));
+  const utanfor = lista.ledger_invoices ?? [];
+  if (fakturor.length + utanfor.length === 0) return null;
+  const summa = (tal: number[]) => tal.reduce((a, b) => a + b, 0);
+
+  const fakturerat = summa([...fakturor, ...utanfor].map((f) => f.amount_inc_vat));
+  const moms = summa([...fakturor.map((f) => f.vat_amount ?? 0), ...utanfor.map((f) => f.vat_amount)]);
+  const obetalda = [
+    ...fakturor
+      .filter((f) => f.remaining_amount > 0)
+      .map((f) => ({ belopp: f.remaining_amount, forfallen: f.is_overdue })),
+    ...utanfor.filter((f) => !f.paid).map((f) => ({ belopp: f.amount_inc_vat, forfallen: false })),
+  ];
+  const obetalt = summa(obetalda.map((o) => o.belopp));
+  const forfallna = obetalda.filter((o) => o.forfallen);
+  const forfallet = summa(forfallna.map((o) => o.belopp));
+  const antal = (n: number) => `${n} faktur${n === 1 ? "a" : "or"}`;
+
+  const rader: VyRadData[] = [
+    {
+      id: "summering:fakturerat",
+      titel: "Fakturerat",
+      meta: [antal(fakturor.length + utanfor.length), moms > 0 ? `varav moms ${formatBeloppHela(moms)}` : null]
+        .filter(Boolean)
+        .join(" · "),
+      hoger: formatBeloppHela(fakturerat),
+    },
+    { id: "summering:betalt", titel: "Betalt", hoger: formatBeloppHela(fakturerat - obetalt) },
+    {
+      id: "summering:obetalt",
+      titel: "Obetalt",
+      meta: obetalda.length > 0 ? antal(obetalda.length) : undefined,
+      hoger: formatBeloppHela(obetalt),
+    },
+  ];
+  if (forfallet > 0) {
+    rader.push({
+      id: "summering:forfallet",
+      titel: "Varav förfallet",
+      meta: antal(forfallna.length),
+      hoger: formatBeloppHela(forfallet),
+      variant: "fel",
+    });
+  }
+  return { titel: SUMMERING_RUBRIK, rader };
+}
+
 export function faktureringVy(lista: Fakturalista, extra?: FaktureringExtra): VyData {
   const nyast = (a: Faktura, b: Faktura) => b.invoice_date.localeCompare(a.invoice_date);
   const utfardanden = extra?.utfardanden ?? [];
@@ -329,6 +404,8 @@ export function faktureringVy(lista: Fakturalista, extra?: FaktureringExtra): Vy
 
   const sektioner: VySektionData[] = [];
   if (vantarRader.length > 0) sektioner.push({ titel: "Väntar på dig", rader: vantarRader });
+  const summering = faktureringSummering(lista);
+  if (summering) sektioner.push(summering);
   const obetaldaRader = [
     ...optimistiska,
     ...obetalda
@@ -489,6 +566,39 @@ function huvudboksLonRad(l: HuvudboksLon): VyRadData {
   };
 }
 
+/**
+ * Årets löner ur huvudboken: lönekostnaden, och skatten och de sociala
+ * avgifterna som betalts — med det som dragits av och påförts under året i
+ * metaraden. Summan är det som betalts till Skatteverket.
+ */
+export function lonerSummering(s: LoneSummering | null | undefined): VySektionData | null {
+  if (!s || Object.values(s).every((v) => v === 0)) return null;
+  return {
+    titel: SUMMERING_RUBRIK,
+    rader: [
+      { id: "summering:lon", titel: "Löner", meta: "bokfört på lönekontona", hoger: formatBeloppHela(s.gross_salary) },
+      {
+        id: "summering:skatt",
+        titel: "Skatt betald",
+        meta: `avdragen under året ${formatBeloppHela(s.tax_withheld)}`,
+        hoger: formatBeloppHela(s.tax_paid),
+      },
+      {
+        id: "summering:avgifter",
+        titel: "Sociala avgifter betalda",
+        meta: `påförda under året ${formatBeloppHela(s.employer_fee_charged)}`,
+        hoger: formatBeloppHela(s.employer_fee_paid),
+      },
+      {
+        id: "summering:skatteverket",
+        titel: "Betalt till Skatteverket",
+        hoger: formatBeloppHela(s.tax_paid + s.employer_fee_paid),
+        summa: true,
+      },
+    ],
+  };
+}
+
 /** Bokförd hel: alla lönebesked och AGI:n. Utan AGI-uppgift räknas körningens status. */
 function helBokford(k: Lonekorning): boolean {
   if (k.status !== "booked") return false;
@@ -516,6 +626,8 @@ export function lonerVy(lista: Lonekorningar, extra?: LonerExtra): VyData {
 
   const sektioner: VySektionData[] = [];
   if (vantarRader.length > 0) sektioner.push({ titel: "Väntar på beslut", rader: vantarRader });
+  const summering = lonerSummering(lista.summary);
+  if (summering) sektioner.push(summering);
   const kort = (id: string | null | undefined) => (id ? oppna.find((b) => b.id === id) : undefined);
   for (const k of korningar) {
     const besked = k.payslips ?? [];
@@ -532,7 +644,7 @@ export function lonerVy(lista: Lonekorningar, extra?: LonerExtra): VyData {
   if (utanfor.length > 0) sektioner.push({ titel: UTANFOR_RUBRIK, rader: utanfor.map(huvudboksLonRad) });
 
   const vantar = vantarRader.length;
-  const tomt = korningar.length === 0 && vantar === 0 && utanfor.length === 0;
+  const tomt = korningar.length === 0 && vantar === 0 && utanfor.length === 0 && !summering;
   const antal = [
     korningar.length > 0 ? `${lista.payroll_runs.length} lönekörningar` : null,
     utanforAlla.length > 0 ? `${utanforAlla.length} bokförda utanför BokAI` : null,
@@ -549,7 +661,7 @@ export function lonerVy(lista: Lonekorningar, extra?: LonerExtra): VyData {
           ? `${oklara} ej bokförd${oklara > 1 ? "a" : ""}`
           : "alla bokförda",
     period: extra?.ar
-      ? `${extra.ar.start} – ${extra.ar.end} · ${tomt ? "inga lönekörningar" : `${antal} · nettolön`}`
+      ? `${extra.ar.start} – ${extra.ar.end} · ${antal ? `${antal} · nettolön` : "inga lönekörningar"}`
       : tomt
         ? "Nettolön per lönebesked"
         : `${antal} · nettolön`,

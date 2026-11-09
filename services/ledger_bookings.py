@@ -83,3 +83,25 @@ class LedgerBookingService:
                 LedgerBookingRepository.salaries_outside_bokai(date_from, date_to)
             )
         ]
+
+    def payroll_summary(
+        self, date_from: Optional[date] = None, date_to: Optional[date] = None
+    ) -> Dict[str, int]:
+        """The year's salaries, tax and employer fees as the ledger holds
+        them, in öre. Each event counts once, after its corrections: a
+        voucher crediting personalskatt withheld it, one debiting it paid it
+        (the AGI, against the tax account), and one debiting the employer
+        fee liability paid the fees. The fees charged are their cost
+        (7510-7519), since the liability is not always credited 2730.
+        A December salary's AGI is paid in January, so the paid sums cover
+        what was paid in the range, not what the range's salaries owe."""
+        nets = LedgerBookingRepository.payroll_family_nets(date_from, date_to)
+        return {
+            "gross_salary": sum(n.salary for n in nets),
+            "tax_withheld": sum(n.tax for n in nets if n.tax > 0),
+            "tax_paid": -sum(n.tax for n in nets if n.tax < 0),
+            "employer_fee_charged": sum(n.employer_fee_cost for n in nets),
+            "employer_fee_paid": -sum(
+                n.employer_fee for n in nets if n.employer_fee < 0
+            ),
+        }

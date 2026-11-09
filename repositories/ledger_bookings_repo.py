@@ -31,6 +31,11 @@ SALARY_RANGE = ("7000", "7299")
 PERSONAL_TAX = "2710"
 # Kortfristiga skulder till anställda: nettolönen bokad som skuld, betald senare.
 EMPLOYEE_DEBT_RANGE = ("2820", "2829")
+# Lagstadgade sociala avgifter: skulden och dess avräkning (BAS 2730-2731).
+EMPLOYER_FEE_RANGE = ("2730", "2731")
+# Kostnaden för de lagstadgade sociala avgifterna (BAS 7510-7519). Skulden
+# krediteras ibland ett annat konto; kostnaden står alltid här.
+EMPLOYER_FEE_COST_RANGE = ("7510", "7519")
 
 
 def _between(column: str, rng: tuple) -> str:
@@ -86,6 +91,22 @@ class LedgerSalary(LedgerVoucher):
     # Krediterat bankkonto, annars skuld till den anställde (2820); None
     # när ingetdera står i verifikationen.
     net: Optional[int]
+
+
+@dataclass
+class PayrollFamilyNet:
+    """A voucher and its posted corrections, netted: what the ledger holds
+    for one business event on the payroll accounts."""
+
+    date: date
+    # Debit - credit on the salary accounts.
+    salary: int
+    # Credit - debit on personalskatt: positive withheld, negative paid.
+    tax: int
+    # Credit - debit on the employer fees: negative paid.
+    employer_fee: int
+    # Debit - credit on the employer fee cost accounts: what was charged.
+    employer_fee_cost: int
 
 
 def _base(row: Any) -> dict:
@@ -188,6 +209,64 @@ class LedgerBookingRepository:
                 net=(
                     r["bank"] if r["bank"] > 0 else r["debt"] if r["debt"] > 0 else None
                 ),
+            )
+            for r in rows
+        ]
+
+    @staticmethod
+    def payroll_family_nets(
+        date_from: Optional[date] = None, date_to: Optional[date] = None
+    ) -> List[PayrollFamilyNet]:
+        """Every voucher dated in the range that touches the salary
+        accounts, personalskatt or the employer fees, netted with its posted
+        corrections -- BokAI's own payslips and AGIs as well as those booked
+        outside it. A correction counts on its original's date, and a
+        makulerad voucher nets to zero."""
+
+        def family(rng: tuple, sign: str) -> str:
+            return (
+                f"COALESCE((SELECT SUM({sign}) FROM voucher_rows n"
+                " JOIN vouchers f ON f.id = n.voucher_id"
+                " WHERE (f.id = vouchers.id"
+                " OR (f.correction_of = vouchers.id AND f.status = 'posted'))"
+                f" AND {_between('n.account_code', rng)}), 0)"
+            )
+
+        salary = family(SALARY_RANGE, "n.debit - n.credit")
+        tax = family((PERSONAL_TAX, PERSONAL_TAX), "n.credit - n.debit")
+        fee = family(EMPLOYER_FEE_RANGE, "n.credit - n.debit")
+        fee_cost = family(EMPLOYER_FEE_COST_RANGE, "n.debit - n.credit")
+        accounts = " OR ".join(
+            _between("t.account_code", rng)
+            for rng in (
+                SALARY_RANGE,
+                (PERSONAL_TAX, PERSONAL_TAX),
+                EMPLOYER_FEE_RANGE,
+                EMPLOYER_FEE_COST_RANGE,
+            )
+        )
+        range_sql, params = _range_params(date_from, date_to)
+        rows = db.execute(
+            f"SELECT vouchers.date, {salary} AS salary, {tax} AS tax, {fee} AS fee,"
+            f" {fee_cost} AS fee_cost"
+            " FROM vouchers"
+            " WHERE vouchers.status = 'posted' AND vouchers.series != 'IB'"
+            " AND vouchers.correction_of IS NULL"
+            " AND EXISTS (SELECT 1 FROM voucher_rows t JOIN vouchers tf"
+            " ON tf.id = t.voucher_id WHERE (tf.id = vouchers.id"
+            " OR (tf.correction_of = vouchers.id AND tf.status = 'posted'))"
+            f" AND ({accounts}))"
+            f"{range_sql}"
+            " ORDER BY vouchers.date",
+            tuple(params),
+        ).fetchall()
+        return [
+            PayrollFamilyNet(
+                date=date.fromisoformat(str(r["date"])[:10]),
+                salary=r["salary"],
+                tax=r["tax"],
+                employer_fee=r["fee"],
+                employer_fee_cost=r["fee_cost"],
             )
             for r in rows
         ]
