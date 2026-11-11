@@ -536,6 +536,34 @@ class BankInputRepository:
         return [dict(row) for row in rows]
 
     @staticmethod
+    def list_open_transactions_for_amount(
+        amount_ore: int, date_from: str, date_to: str
+    ) -> list[dict]:
+        """Transactions of exactly *amount_ore* dated within the window, on
+        any statement with an account, not linked, matched or ignored --
+        what `list_unlinked_transactions_with_account` gives, narrowed."""
+        rows = db.execute(
+            """
+            SELECT bt.id, bt.transaction_date, bt.amount, bt.description,
+                   bt.counterpart_name, bc.account_number AS account_code
+            FROM bank_transactions bt
+            JOIN bank_connections bc ON bc.id = bt.bank_connection_id
+            WHERE bt.amount = ?
+              AND bt.transaction_date BETWEEN ? AND ?
+              AND bt.matched_voucher_id IS NULL
+              AND bt.status != 'ignored'
+              AND bc.account_number IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM current_voucher_bank_transactions vbt
+                  WHERE vbt.bank_transaction_id = bt.id
+              )
+            ORDER BY bt.transaction_date ASC, bt.created_at ASC
+            """,
+            (amount_ore, date_from, date_to),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    @staticmethod
     def list_unlinked_payments(
         amount_ore: int, date_from: str, date_to: str
     ) -> list[str]:

@@ -12,6 +12,12 @@ voucher and links the two:
   tax account's two debits).
   Overlapping exports need no handling here -- the import already keeps one
   transaction per real transaction (`BankIntegrationService.import_csv`).
+- **Automatically, the later side of a transfer** (`run`,
+  `transfer_counterpart`): a transfer between own statement accounts
+  (`1930 -> 1630`) whose one side is already linked. The other bank books
+  the money a day or three later, so that side is never same-day. It is
+  linked when it is unique both ways: the one voucher that fits the
+  transaction, and the one open transaction that fits the voucher.
 - **By the agent**, after asking the user (`koppla_banktransaktion` ->
   `link`): when several vouchers fit, or the dates differ by a few days.
 
@@ -57,7 +63,9 @@ logger = logging.getLogger(__name__)
 AUTO_MATCH_ACTOR = "statement_match"
 
 #: How far a voucher's date may lie from the transaction's and still be
-#: offered as a candidate. Only a same-day match is linked without asking.
+#: offered as a candidate. Only a same-day match is linked without asking,
+#: and the later side of a transfer whose other side is linked
+#: (`transfer_counterpart`).
 CANDIDATE_WINDOW_DAYS = 5
 
 
@@ -215,12 +223,85 @@ class StatementMatchService:
             )
         ]
 
+    def transfer_counterpart(
+        self, match: TransactionMatch
+    ) -> Optional[StatementCandidate]:
+        """The voucher a `candidates` transaction is the later side of, when
+        that is beyond doubt; else `None`.
+
+        A transfer between own accounts is booked on the day the money
+        left; the receiving account (Skatteverket's above all) books it a
+        day or three later. Linked without asking only when:
+
+        - the transaction was never unlinked from anything, and has exactly
+          one candidate;
+        - that voucher is a transfer: every row on a statement account, at
+          least two such accounts;
+        - its other side is already linked to a transaction on another
+          statement account -- the voucher's date is the bank's;
+        - no other open transaction on this account, of this amount, lies
+          within the window around the voucher's date.
+
+        Classified afresh, so a link made earlier in the same run counts."""
+        fresh = self.inputs.get_transaction_with_account(match.bank_transaction_id)
+        if fresh is None or fresh["linked_voucher_id"] is not None:
+            return None
+        if fresh["matched_voucher_id"] is not None:
+            return None
+        again = self.match_transaction({**fresh, "account_code": match.account_code})
+        if again.kind != "candidates" or len(again.candidates) != 1:
+            return None
+        if self.inputs.unlinked_voucher_ids(match.bank_transaction_id):
+            return None
+        candidate = again.candidates[0]
+
+        voucher = VoucherRepository.get(candidate.voucher_id)
+        if voucher is None:
+            return None
+        accounts = {row.account_code for row in voucher.rows}
+        if len(accounts) < 2 or not all(is_statement_account(a) for a in accounts):
+            return None
+        linked_elsewhere = {
+            link["account_code"]
+            for link in self.inputs.list_statement_links_for_voucher(voucher.id)
+        } - {match.account_code}
+        if not linked_elsewhere:
+            return None
+
+        window = timedelta(days=CANDIDATE_WINDOW_DAYS)
+        voucher_day = date.fromisoformat(candidate.voucher_date)
+        rivals = [
+            tx
+            for tx in self.inputs.list_open_transactions_for_amount(
+                amount_ore=match.amount_ore,
+                date_from=(voucher_day - window).isoformat(),
+                date_to=(voucher_day + window).isoformat(),
+            )
+            if tx["account_code"] == match.account_code
+            and tx["id"] != match.bank_transaction_id
+        ]
+        if rivals:
+            return None
+        return candidate
+
     def run(self, actor: str = AUTO_MATCH_ACTOR) -> dict:
-        """Link every `exact` match. Returns what was linked and what is left
-        for the user to decide."""
+        """Link every `exact` match, then the later side of each transfer
+        whose other side is now linked (`transfer_counterpart`). Returns
+        what was linked and what is left for the user to decide."""
         linked: list[dict] = []
-        undecided: list[dict] = []
+        undecided: list[TransactionMatch] = []
         unmatched = 0
+
+        def note(match: TransactionMatch, candidate: StatementCandidate) -> None:
+            linked.append(
+                {
+                    "bank_transaction_id": match.bank_transaction_id,
+                    "voucher_id": candidate.voucher_id,
+                    "voucher_number": candidate.voucher_number,
+                    "account_code": match.account_code,
+                }
+            )
+
         for match in self.open_transactions():
             if match.kind == "exact":
                 # A link made earlier in this run may have covered the
@@ -243,23 +324,33 @@ class StatementMatchService:
                     actor=actor,
                     basis="exact_match",
                 )
-                linked.append(
-                    {
-                        "bank_transaction_id": match.bank_transaction_id,
-                        "voucher_id": candidate.voucher_id,
-                        "voucher_number": candidate.voucher_number,
-                        "account_code": match.account_code,
-                    }
-                )
+                note(match, candidate)
             elif match.kind == "candidates":
-                undecided.append(match.to_dict())
+                undecided.append(match)
             else:
                 unmatched += 1
+
+        # After the exact links: a transfer's first side may be linked only
+        # now, whichever of the two statements lists its row first.
+        still_undecided: list[dict] = []
+        for match in undecided:
+            counterpart = self.transfer_counterpart(match)
+            if counterpart is None:
+                still_undecided.append(match.to_dict())
+                continue
+            self._write_link(
+                match.bank_transaction_id,
+                counterpart.voucher_id,
+                account_code=match.account_code,
+                actor=actor,
+                basis="transfer_counterpart",
+            )
+            note(match, counterpart)
         if linked:
             logger.info("statement_match linked %d transaction(s)", len(linked))
         return {
             "linked": linked,
-            "undecided": undecided,
+            "undecided": still_undecided,
             "unmatched_count": unmatched,
         }
 

@@ -44,6 +44,7 @@ def books(test_db, tmp_path):
         date(2026, 1, 1), date(2026, 12, 31), actor="test"
     )
     for code, name, kind in [
+        ("1630", "Skattekonto", "asset"),
         ("1920", "PlusGiro", "asset"),
         ("2440", "Leverantörsskulder", "liability"),
         ("2640", "Ingående moms", "liability"),
@@ -287,6 +288,99 @@ def test_a_transaction_the_pass_left_open_is_not_paid_for_again(books):
     assert "kvittot" in reason
     assert StatementFollowupService().followups() == []
     assert _run_pass([_GIVING_UP])[0] is None  # nothing to do
+
+
+# -- a transfer between own accounts ------------------------------------------
+
+TILL_SKATTEKONTO = "Betalning - SKATTEVERKET"
+INBETALNING = "Inbetalning bokförd 260831"
+
+
+def _transfer_statements():
+    """2026-08-29 out of 1920, 2026-09-01 into 1630: one transfer, two months."""
+    _statement([("2026-08-29", "-300000,00", TILL_SKATTEKONTO)])
+    _statement([("2026-09-01", "300000,00", INBETALNING)], account="1630")
+    return _transaction(TILL_SKATTEKONTO), _transaction(INBETALNING)
+
+
+def _transfer_turn(out: dict, into: dict) -> LLMTurn:
+    return LLMTurn(
+        text="",
+        tool_calls=[
+            ToolCall(
+                id="call-0",
+                name="posta_verifikation",
+                arguments={
+                    "date": "2026-08-29",
+                    "period_id": _period_id("2026-08-29"),
+                    "description": "Överföring till skattekontot, se "
+                    "kontoutdrag 1920 2026-08-29 och 1630 2026-09-01",
+                    "rows": [
+                        {"account": "1630", "debit": 30_000_000},
+                        {"account": "1920", "credit": 30_000_000},
+                    ],
+                    "bank_transaction_ids": [out["id"], into["id"]],
+                    "bank_input_ids": _bank_input_ids(out["id"])
+                    + _bank_input_ids(into["id"]),
+                },
+            )
+        ],
+        stop="tool_calls",
+        usage=_usage(),
+    )
+
+
+def test_a_transfer_comes_with_its_other_side(books):
+    out, into = _transfer_statements()
+
+    items = {item["id"]: item for item in StatementFollowupService().followups()}
+
+    other = items[out["id"]]["counterpart"]
+    assert other["id"] == into["id"]
+    assert other["bank_input_ids"] == _bank_input_ids(into["id"]) != []
+    # Dated on the side the money left, whichever row the session is about.
+    assert other["voucher_date"] == "2026-08-29"
+    assert other["voucher_period_id"] == _period_id("2026-08-29")
+    assert items[into["id"]]["counterpart"]["voucher_period_id"] == _period_id(
+        "2026-08-29"
+    )
+    turn = StatementFollowupService.followup_turn(items[out["id"]])
+    assert into["id"] in turn and "en gång per rad" in turn
+
+
+def test_the_pass_books_a_transfer_once(books):
+    out, into = _transfer_statements()
+
+    run, fake = _run_pass([_transfer_turn(out, into)])
+
+    assert run is not None and run.status == "completed"
+    voucher_id = _linked_voucher(out["id"])
+    assert voucher_id is not None and _linked_voucher(into["id"]) == voucher_id
+    # One session, ended by its posting: the second row was booked by the
+    # first, so it gets none.
+    assert len(fake.calls) == 1
+    assert (
+        db.execute(
+            "SELECT COUNT(*) AS n FROM vouchers WHERE status = 'posted'"
+        ).fetchone()["n"]
+        == 1
+    )
+
+
+def test_a_booked_row_is_no_longer_refreshed(books):
+    out, into = _transfer_statements()
+    [first, _second] = StatementFollowupService().followups()
+    assert StatementFollowupService().refreshed(first["id"]) is not None
+
+    execute_tool(
+        "posta_verifikation",
+        _transfer_turn(out, into).tool_calls[0].arguments,
+        actor="agent",
+        capabilities=_CAPABILITIES,
+    )
+
+    assert StatementFollowupService().refreshed(out["id"]) is None
+    assert StatementFollowupService().refreshed(into["id"]) is None
 
 
 def test_migration_049_attempts_are_append_only(books):

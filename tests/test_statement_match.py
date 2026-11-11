@@ -184,6 +184,106 @@ def test_date_off_by_days_is_a_candidate_not_a_link(books):
     assert open_tx.candidates[0].date_diff_days == 2
 
 
+def _links(voucher_id: str) -> dict:
+    """{account: linked_by} for the statement links of a voucher."""
+    return {
+        link["account_code"]: link["linked_by"]
+        for link in BankInputRepository.list_statement_links_for_voucher(voucher_id)
+    }
+
+
+def _basis(voucher_id: str, account_code: str) -> str:
+    import json
+
+    rows = db.execute(
+        "SELECT payload FROM audit_log WHERE entity_id = ? AND action = ?",
+        (voucher_id, "statement_linked"),
+    ).fetchall()
+    for row in rows:
+        payload = json.loads(row["payload"])
+        if payload["account_code"] == account_code:
+            return payload["basis"]
+    raise AssertionError(f"no link on {account_code}")
+
+
+def test_the_later_side_of_a_transfer_is_linked_once_the_first_is(books):
+    """A-15: Skatteverket books the payment two days after the bank."""
+    voucher = _transfer(books, date(2026, 2, 2), 1_000_000)
+    _import("1930", BANK_HEADER + "2026-02-02;-10000,00;Till skattekonto\n")
+    _import(
+        "1630",
+        SKATTEKONTO_HEADER + "2026-02-04;Inbetalning bokförd 260203;10000;10000\n",
+    )
+
+    assert set(_links(voucher.id)) == {"1630", "1930"}
+    assert _voucher(voucher.id).missing_attachment is False
+    assert _basis(voucher.id, "1630") == "transfer_counterpart"
+    assert StatementMatchService().open_transactions() == []
+
+
+def test_the_later_side_waits_for_the_first_whichever_comes_first(books):
+    voucher = _transfer(books, date(2026, 2, 2), 1_000_000)
+    _import(
+        "1630",
+        SKATTEKONTO_HEADER + "2026-02-04;Inbetalning bokförd 260203;10000;10000\n",
+    )
+    assert _links(voucher.id) == {}
+
+    _import("1930", BANK_HEADER + "2026-02-02;-10000,00;Till skattekonto\n")
+    assert set(_links(voucher.id)) == {"1630", "1930"}
+
+
+def test_a_rival_transaction_keeps_the_later_side_a_candidate(books):
+    voucher = _transfer(books, date(2026, 2, 2), 1_000_000)
+    _import("1930", BANK_HEADER + "2026-02-02;-10000,00;Till skattekonto\n")
+    _import(
+        "1630",
+        SKATTEKONTO_HEADER
+        + "2026-02-04;Inbetalning bokförd 260203;10000;10000\n"
+        + "2026-02-05;Inbetalning bokförd 260204;10000;20000\n",
+    )
+
+    assert set(_links(voucher.id)) == {"1930"}
+    assert {m.kind for m in StatementMatchService().open_transactions()} == {
+        "candidates"
+    }
+
+
+def test_a_voucher_that_is_not_a_transfer_is_not_linked_days_apart(books):
+    voucher = _post(
+        books,
+        date(2026, 2, 12),
+        "Debiterad preliminärskatt",
+        [
+            {"account": "2518", "debit": 1_520_200, "credit": 0},
+            {"account": "1630", "debit": 0, "credit": 1_520_200},
+        ],
+    )
+    _import(
+        "1630",
+        SKATTEKONTO_HEADER + "2026-02-14;Debiterad preliminärskatt;-15202;1000\n",
+    )
+    assert _links(voucher.id) == {}
+
+
+def test_an_unlinked_later_side_is_never_linked_again(books):
+    voucher = _transfer(books, date(2026, 2, 2), 1_000_000)
+    _import("1930", BANK_HEADER + "2026-02-02;-10000,00;Till skattekonto\n")
+    _import(
+        "1630",
+        SKATTEKONTO_HEADER + "2026-02-04;Inbetalning bokförd 260203;10000;10000\n",
+    )
+    [tx_id] = [
+        link["bank_transaction_id"]
+        for link in BankInputRepository.list_statement_links_for_voucher(voucher.id)
+        if link["account_code"] == "1630"
+    ]
+    StatementMatchService().unlink(tx_id, reason="Fel överföring", actor="test")
+
+    StatementMatchService().run()
+    assert set(_links(voucher.id)) == {"1930"}
+
+
 def test_two_vouchers_same_day_same_amount_are_candidates(books):
     first = _post(
         books,

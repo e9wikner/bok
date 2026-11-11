@@ -487,6 +487,10 @@ användaren ladda upp ett utdrag igen för att perioderna överlappar.
 
 - En överföring mellan två konton är komplett först när båda kontona har ett
   utdrag. `missing_statement_accounts` på verifikationen säger vilka som saknas.
+  Mottagande konto bokför ofta pengarna några dagar senare (skattekontots
+  "Inbetalning bokförd ..."). Servern kopplar den sidan själv när den andra
+  sidan redan är kopplad och raden och verifikationen bara passar varandra.
+  Därför behövs inget beslut för den.
 - Resten läser du med `las_okopplade_banktransaktioner`. Vid `candidates`
   (flera verifikationer, eller datum som skiljer några dagar) lägger du fram ett
   beslut med `be_om_beslut` och kopplar efter svaret med

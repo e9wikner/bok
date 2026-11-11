@@ -710,7 +710,20 @@ class AgentWorker:
                 "Agent run %s: could not read statement follow-ups", run_id
             )
             return None
-        for transaction in transactions:
+        for listed in transactions:
+            # The list was read once; a session before this one may have
+            # booked this transaction as the other side of its transfer.
+            try:
+                transaction = service.refreshed(listed["id"])
+            except Exception:
+                logger.exception(
+                    "Agent run %s: could not re-read statement transaction %s",
+                    run_id,
+                    listed["id"],
+                )
+                continue
+            if transaction is None:
+                continue
             try:
                 ensure_daily_budget_available()
             except DailyBudgetExhaustedError as exc:
