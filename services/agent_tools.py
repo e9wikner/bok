@@ -1646,10 +1646,17 @@ def _run_las_okopplade_banktransaktioner(
     # method runs).
     from services.statement_match import StatementMatchService
 
+    from repositories.bank_input_repo import BankInputRepository
+
     service = StatementMatchService()
     items = []
     for match in service.open_transactions():
         item = match.to_dict()
+        # The statement the row came with: a posting with no underlag of its
+        # own carries it as its traceability (migration 049).
+        item["bank_input_ids"] = BankInputRepository.list_input_ids_for_transaction(
+            match.bank_transaction_id
+        )[:1]
         if match.kind == "none":
             # A purchase booked from its receipt is never linked to the
             # statement; saying so keeps it from being booked a second time.

@@ -447,8 +447,9 @@ Bokför inte betalningen som ny intäkt eller kostnad om fakturan redan är bokf
 
 ## Bankhändelser utan faktura
 
-Om bankhändelsen saknar underlag, fråga. Ett kontoutdrag kan visa betalning men
-räcker inte alltid för att avgöra kostnadens art, moms eller avdragsrätt.
+Är bankhändelsen en sådan som kontoutdraget självt är underlag för (se
+"Kontoutdrag som underlag" nedan), bokför den. Annars fråga: ett kontoutdrag
+visar betalningen men avgör inte kostnadens art, moms eller avdragsrätt.
 
 Bankavgifter bokförs normalt som kostnad utan moms, men kontrollera underlaget.
 Ränta, amortering och avgifter ska separeras.
@@ -458,9 +459,24 @@ Ränta, amortering och avgifter ska separeras.
 För en händelse som bara är en rörelse på bankkontot eller skattekontot är
 kontoutdragets rad underlaget: överföringar mellan egna konton (bank och
 skattekonto, placeringar, utdelning), skattekontots händelser (debiterad
-preliminärskatt, ränta), bankavgifter och kundinbetalningar. Ett inköp, en
+preliminärskatt, ränta), bankavgifter, kundinbetalningar och betalningen av en
+leverantörsfaktura som redan är bokförd. Ett inköp, en
 arbetsgivardeklaration eller en momsredovisning behöver sin faktura, sitt kvitto
 eller sin deklaration; ett kontoutdrag visar bara betalningen.
+
+Betalningen av en bokförd leverantörsfaktura: hitta fakturans verifikation med
+`sok_verifikationer` (leverantörens namn eller fakturanumret i radens text) och
+kontrollera att skulden på `2440` är samma belopp. Bokför debet `2440`, kredit
+bankkontot, på radens datum, med `bank_transaction_ids` och `bank_input_ids`.
+Finns ingen bokförd faktura, bokför inte betalningen som en kostnad: fakturan
+är underlaget och har inte kommit än.
+
+En sådan rad ska bokföras utan att någon behöver peka på den. Intagspasset tar
+själv, efter kön, varje okopplad rad med `match = "none"` som inget köp täcker,
+en i taget. Passets meddelande säger vilken rad det gäller. Bokför den, eller
+avsluta med en mening om varför den behöver något mer, så står den kvar för
+användaren. I en tråd, när du ändå har läst `las_okopplade_banktransaktioner`,
+bokför du rader av det här slaget direkt i stället för att räkna upp dem.
 
 Kontoutdrag kommer in som CSV, i Dropzone (`Kontoutdrag/`, med kontokoden först
 i filnamnet: `1930 oktober.csv`) eller i tråden. Servern läser in raderna, håller en transaktion per verklig transaktion

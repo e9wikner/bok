@@ -50,7 +50,11 @@ from config import settings
 from domain.models import AgentRun, IntakeSource
 from repositories.agent_run_repo import AgentRunRepository
 from repositories.period_repo import PeriodRepository
-from services.agent_session import SessionOutcome, run_session
+from services.agent_session import (
+    SessionOutcome,
+    run_session,
+    run_statement_session,
+)
 from services.intake import IntakeService
 from services.llm import (
     LLMClient,
@@ -401,7 +405,7 @@ class AgentWorker:
         # Migration 048: an agreement a human approved for coming statement
         # transactions, with new ones to book. Asked again after the queue:
         # an item in it may have changed what is left.
-        has_followups = _has_agreement_followups()
+        has_followups = _has_agreement_followups() or _has_statement_followups()
         if not sources and not has_followups:
             logger.info("Agent pass: pending queue is empty, nothing to do")
             return None
@@ -569,6 +573,15 @@ class AgentWorker:
         if stopped is not None:
             return stopped
 
+        # Migration 049: the statement's rows no voucher and no underlag
+        # account for. Last, so a receipt or an agreement in this pass has
+        # already taken its transaction.
+        stopped = self._run_statement_followups(
+            run.id, client, resolved_model, open_periods
+        )
+        if stopped is not None:
+            return stopped
+
         AgentRunRepository.update_status(run.id, "completed")
         logger.info("Agent run %s completed", run.id)
         return AgentRunRepository.get(run.id)
@@ -674,6 +687,95 @@ class AgentWorker:
                 self.current_activity = None
         return None
 
+    def _run_statement_followups(
+        self,
+        run_id: str,
+        client: LLMClient,
+        model: str,
+        open_periods: list,
+    ) -> Optional[AgentRun]:
+        """One session per open statement transaction with no voucher and
+        no underlag (migration 049, `services/statement_followup.py`): a
+        transfer, a tax-account event, a fee, a payment of an invoice already
+        booked. What a session leaves open gets an attempt row and is not
+        tried again. At most `agent_max_items_per_pass` per pass. Returns the
+        finished run when the pass has to stop, else `None`."""
+        from services.statement_followup import StatementFollowupService
+
+        service = StatementFollowupService()
+        try:
+            transactions = service.followups(limit=settings.agent_max_items_per_pass)
+        except Exception:
+            logger.exception(
+                "Agent run %s: could not read statement follow-ups", run_id
+            )
+            return None
+        for transaction in transactions:
+            try:
+                ensure_daily_budget_available()
+            except DailyBudgetExhaustedError as exc:
+                AgentRunRepository.update_status(
+                    run_id,
+                    "completed",
+                    last_error=(
+                        f"budget_exhausted: spent {exc.spent_ore} of "
+                        f"{exc.budget_ore} öre"
+                    ),
+                )
+                return AgentRunRepository.get(run_id)
+            self.current_activity = "processing"
+            try:
+                try:
+                    outcome = run_statement_session(
+                        client,
+                        transaction_id=transaction["id"],
+                        turn_text=service.followup_turn(transaction),
+                        open_periods=open_periods,
+                        today=date.today(),
+                        model=model,
+                        actor="agent",
+                        on_tool_call=self._note_tool_call,
+                        agent_run_id=run_id,
+                    )
+                except LLMConnectionError as exc:
+                    AgentRunRepository.update_status(
+                        run_id, "failed", last_error=f"llm_connection_error: {exc}"
+                    )
+                    return AgentRunRepository.get(run_id)
+                except LLMRateLimitError as exc:
+                    AgentRunRepository.update_status(
+                        run_id,
+                        "failed",
+                        last_error=(
+                            "llm_rate_limit_error: retry_after_seconds="
+                            f"{exc.retry_after_seconds}"
+                        ),
+                    )
+                    return AgentRunRepository.get(run_id)
+                except Exception as exc:  # noqa: BLE001 -- as for an item
+                    logger.exception(
+                        "Agent run %s: unexpected error on statement " "transaction %s",
+                        run_id,
+                        transaction["id"],
+                    )
+                    reason = f"{type(exc).__name__}: {exc}"
+                    AgentRunRepository.add_event(
+                        run_id, "error", _event_payload(error=reason)
+                    )
+                    AgentRunRepository.update_status(
+                        run_id, "failed", last_error=reason
+                    )
+                    return AgentRunRepository.get(run_id)
+                self._record_outcome(run_id, model, None, outcome)
+                service.record_outcome(
+                    transaction["id"],
+                    agent_run_id=run_id,
+                    reason=_closing_text(outcome) or outcome.reason or outcome.kind,
+                )
+            finally:
+                self.current_activity = None
+        return None
+
     def _note_tool_call(self, tool_name: str) -> None:
         """`on_tool_call` for the document pass: report the live tool name.
 
@@ -688,7 +790,7 @@ class AgentWorker:
         self,
         run_id: str,
         model: str,
-        source: IntakeSource,
+        source: Optional[IntakeSource],
         outcome: SessionOutcome,
     ) -> None:
         """SPEC §6.2 step 7e/f: accumulate usage/cost, item counters, and
@@ -709,22 +811,24 @@ class AgentWorker:
         self._write_events(run_id, source, outcome)
 
     def _write_events(
-        self, run_id: str, source: IntakeSource, outcome: SessionOutcome
+        self, run_id: str, source: Optional[IntakeSource], outcome: SessionOutcome
     ) -> None:
         """One `agent_run_events` row per tool call (`'tool_call'` on
         success, `'error'` on a raised exception), one per non-empty turn
         text (`'text'`), and one final row for the session's own outcome
         (`'posted'`/`'abstained'`/`'error'`) -- not a serialization of every
         raw `LLMTurn`, just enough for a human reading `GET /agent/status`
-        (A11) to follow what happened.
+        (A11) to follow what happened. A statement transaction's session
+        has no source (migration 049): its events carry none.
         """
+        source_id = source.id if source is not None else None
         for turn_record in outcome.turns:
             if turn_record.turn.text:
                 AgentRunRepository.add_event(
                     run_id,
                     "text",
                     _event_payload(text=turn_record.turn.text),
-                    source_id=source.id,
+                    source_id=source_id,
                 )
             for executed in turn_record.executed_tool_calls:
                 if executed.ok:
@@ -736,7 +840,7 @@ class AgentWorker:
                             args=executed.tool_call.arguments,
                             result=_compact_tool_result(executed.result),
                         ),
-                        source_id=source.id,
+                        source_id=source_id,
                     )
                 else:
                     AgentRunRepository.add_event(
@@ -747,16 +851,37 @@ class AgentWorker:
                             args=executed.tool_call.arguments,
                             error=executed.error,
                         ),
-                        source_id=source.id,
+                        source_id=source_id,
                     )
 
         AgentRunRepository.add_event(
             run_id,
             _OUTCOME_EVENT_KIND[outcome.kind],
             _event_payload(reason=outcome.reason),
-            source_id=source.id,
+            source_id=source_id,
             voucher_id=outcome.voucher_id,
         )
+
+
+def _has_statement_followups() -> bool:
+    """Whether a statement transaction waits for the pass (migration 049).
+    Never raises, as `_has_agreement_followups`."""
+    try:
+        from services.statement_followup import StatementFollowupService
+
+        return StatementFollowupService().has_followups()
+    except Exception:
+        logger.exception("Agent pass: could not read statement follow-ups")
+        return False
+
+
+def _closing_text(outcome: SessionOutcome) -> str:
+    """The model's last words in a session that booked nothing: why the
+    transaction was left for a human."""
+    for record in reversed(outcome.turns):
+        if record.turn.text:
+            return record.turn.text.strip()
+    return ""
 
 
 def _has_agreement_followups() -> bool:

@@ -57,7 +57,11 @@ from repositories.agent_instruction_repo import AgentInstructionRepository
 from repositories.system_instructions import get_system_instructions
 from services.agent_documents import ContentBlock, DocumentUnreadableError
 from services.agent_documents import select_content_for_source as _select_content
-from services.agent_tools import DOCUMENT_TOOL_DEFINITIONS, execute_tool
+from services.agent_tools import (
+    DOCUMENT_TOOL_DEFINITIONS,
+    derive_posting_idempotency_key,
+    execute_tool,
+)
 from services.llm import (
     LLMClient,
     LLMTurn,
@@ -827,5 +831,81 @@ def run_session(
         max_output_tokens=max_output_tokens,
         on_text=on_text,
         on_tool_call=on_tool_call,
+        tool_context={"agent_run_id": agent_run_id},
+    )
+
+
+# ---------------------------------------------------------------------------
+# A statement transaction without underlag (migration 049)
+# ---------------------------------------------------------------------------
+
+#: Tools a statement-transaction session is not offered: there is no
+#: underlag to abstain on or link, and no thread for a card or a decision.
+#: What is left reads, searches and posts.
+_STATEMENT_SESSION_EXCLUDED: frozenset[str] = frozenset(
+    {
+        "registrera_avstaende",
+        "be_om_beslut",
+        "koppla_underlag",
+        "koppla_bort_underlag",
+        "koppla_banktransaktion",
+        "koppla_bort_banktransaktion",
+        "stang_perioder",
+        "registrera_anstalld",
+        "satt_lon",
+        "skapa_lonekorning",
+        "andra_fakturautkast",
+    }
+)
+
+STATEMENT_TOOL_DEFINITIONS: list[dict] = [
+    tool
+    for tool in DOCUMENT_TOOL_DEFINITIONS
+    if tool["name"] not in _STATEMENT_SESSION_EXCLUDED
+    and not tool["name"].startswith("foresla_")
+]
+
+
+def run_statement_session(
+    client: LLMClient,
+    *,
+    transaction_id: str,
+    turn_text: str,
+    open_periods: list[Period],
+    today: date,
+    model: str,
+    actor: str,
+    on_tool_call: Optional[StreamToolCallHook] = None,
+    agent_run_id: Optional[str] = None,
+) -> SessionOutcome:
+    """One session for one statement transaction no voucher accounts for
+    and no underlag stands behind (`services/statement_followup.py`).
+
+    The document path's loop and policy: a posting ends it, and a bare
+    `end` is `agent_no_outcome` -- the transaction stays open for a human.
+    The user turn is text only; the statement's row is the underlag. The
+    posting key is the transaction's, so a retried session cannot book it
+    twice.
+    """
+    text = (
+        f"Dagens datum: {today.isoformat()}\n\n"
+        "Öppna perioder:\n"
+        f"{_render_open_periods(open_periods)}\n\n"
+        f"{turn_text}\n"
+    )
+    return run_tool_loop(
+        client,
+        system_prompt=build_system_prompt(),
+        messages=[{"role": "user", "content": [{"type": "text", "text": text}]}],
+        tools=STATEMENT_TOOL_DEFINITIONS,
+        model=model,
+        actor=actor,
+        policy=DOCUMENT_POLICY,
+        turn_limit=settings.agent_max_tool_turns_per_item,
+        max_output_tokens=settings.agent_max_output_tokens_per_item,
+        on_tool_call=on_tool_call,
+        posting_idempotency_key=derive_posting_idempotency_key(
+            f"statement:{transaction_id}"
+        ),
         tool_context={"agent_run_id": agent_run_id},
     )

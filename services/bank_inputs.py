@@ -496,6 +496,11 @@ class BankInputService:
         from services.agreement_booking import AgreementBookingService
 
         AgreementBookingService().wake_if_followups()
+        # Migration 049: a transaction no voucher and no underlag accounts
+        # for -- a transfer, a fee, a payment -- is the pass's to book.
+        from services.statement_followup import StatementFollowupService
+
+        StatementFollowupService().wake_if_followups()
         return processed
 
     def _validate_upload(self, filename: str, mime_type: str, content: bytes) -> None:
