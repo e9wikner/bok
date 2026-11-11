@@ -296,6 +296,14 @@ class OverviewViewWaiting(BaseModel):
     waiting: int
 
 
+class OverviewClosingView(BaseModel):
+    """The year-end checks left to do in one Bokslut view, shown under it."""
+
+    key: str
+    waiting: int
+    meta: str
+
+
 class OverviewOtherYear(BaseModel):
     """Another fiscal year where something waits on the human."""
 
@@ -314,6 +322,7 @@ class OverviewResponse(BaseModel):
     counted_fiscal_year_id: Optional[str] = None
     views: List[OverviewViewWaiting] = []
     other_years: List[OverviewOtherYear] = []
+    closing_views: List[OverviewClosingView] = []
 
 
 # Account Schemas

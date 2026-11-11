@@ -21,7 +21,22 @@ OK, INFO, VARNING, FEL = "ok", "info", "varning", "fel"
 
 
 def _kontroll(id_: str, niva: str, titel: str, text: str = "") -> Dict[str, str]:
-    return {"id": id_, "niva": niva, "titel": titel, "text": text}
+    return {"id": id_, "niva": niva, "titel": titel, "text": text, "del": _del(id_)}
+
+
+def _del(id_: str) -> str:
+    """The Bokslut view a check is acted on in, so it is shown there: a
+    missing annual-report detail under Uppgifter, the tax under INK2, the VAT
+    under Moms. What concerns the year as a whole stays on Översikt."""
+    if id_ in ("skatt", "ink2", "periodiseringsfond") or id_.startswith("ink2s_"):
+        return "bokslut.ink2"
+    if id_ in ("momsavstamning", "moms_varning"):
+        return "bokslut.moms"
+    if id_ == "ar_varning":
+        return "bokslut.arsredovisning"
+    if id_.startswith("ar_"):
+        return "bokslut.uppgifter"
+    return "bokslut.rapporter"
 
 
 def _filnamn(namn: str) -> str:

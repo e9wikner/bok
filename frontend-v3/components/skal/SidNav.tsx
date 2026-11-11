@@ -15,13 +15,16 @@ import { SIDOR, type Sidnyckel, type ViewKey, type Vynyckel } from "@/lib/skal/v
  * Mobilen behåller `SidVaeljare`: där finns inte plats för en kolumn.
  *
  * Varje flik där något väntar bär antalet (serverns, per vy och valt år), så
- * att det syns vilken flik sidans rad gäller. Väntar något i ett annat
+ * att det syns vilken flik sidans rad gäller. Bokslutets kontroller står som
+ * en rad under vyn där de åtgärdas (Uppgifter, INK2 …), inte under sidan;
+ * då upprepar sidans rubrik dem inte. Väntar något i ett annat
  * räkenskapsår står det överst, som en knapp som byter till det året.
  */
 export function SidNav({
   aktivVy,
   metaPerSida,
   antalPerVy = {},
+  metaPerVy = {},
   andraAr = [],
   onValjVy,
   onValjAr,
@@ -30,6 +33,8 @@ export function SidNav({
   metaPerSida: Partial<Record<Sidnyckel, SidMeta>>;
   /** Serverns antal som väntar per vy, i året som visas. */
   antalPerVy?: Partial<Record<ViewKey, number>>;
+  /** Serverns rad under en vy: bokslutets kontroller som är kvar där. */
+  metaPerVy?: Partial<Record<Vynyckel, SidMeta>>;
   /** Andra räkenskapsår där något väntar (serverns `other_years`). */
   andraAr?: OverviewAnnatAr[];
   onValjVy: (key: Vynyckel) => void;
@@ -64,6 +69,7 @@ export function SidNav({
       )}
       {SIDOR.map((sida) => {
         const m = metaPerSida[sida.key];
+        const vyernaHarRader = sida.vyer.some((vy) => metaPerVy[vy.key]?.meta);
         return (
           <div key={sida.key} className="flex flex-col gap-[2px]">
             <div className="flex flex-col gap-[2px] px-3 pb-[6px]">
@@ -77,7 +83,7 @@ export function SidNav({
                   />
                 )}
               </span>
-              {m?.meta && (
+              {m?.meta && !vyernaHarRader && (
                 <span
                   className={`bok-mono truncate text-[11px] ${
                     m.waiting ? "text-bok-vantar-meta" : "text-bok-meta"
@@ -93,20 +99,38 @@ export function SidNav({
               // Antalet är trådens; en bokslutsdel som delar Rapporters tråd
               // bär det inte, bara vyn som äger tråden.
               const antal = vy.key === vy.trad ? (antalPerVy[vy.trad] ?? 0) : 0;
+              const rad = metaPerVy[vy.key];
               return (
                 <button
                   key={vy.key}
                   type="button"
                   aria-current={aktiv ? "page" : undefined}
                   onClick={() => onValjVy(vy.key)}
-                  aria-label={antal > 0 ? `${vy.titel}, ${antal} väntar på dig` : undefined}
+                  aria-label={
+                    antal > 0
+                      ? [vy.titel, `${antal} väntar på dig`, rad?.meta].filter(Boolean).join(", ")
+                      : undefined
+                  }
                   className={`flex min-h-[36px] items-center justify-between gap-2 rounded-lg px-3 text-left text-[14px] transition-colors ${
                     aktiv
                       ? "bg-bok-linje-svagast font-medium text-bok-text"
                       : "text-bok-text-2 hover:bg-bok-yta-svag hover:text-bok-text"
                   }`}
                 >
-                  <span className="truncate">{vy.titel}</span>
+                  <span className="flex min-w-0 flex-col py-[6px]">
+                    <span className="truncate">{vy.titel}</span>
+                    {rad?.meta && (
+                      <span
+                        data-testid={`sidnav-rad-${vy.key}`}
+                        className={`bok-mono truncate text-[11px] font-normal ${
+                          rad.waiting ? "text-bok-vantar-meta" : "text-bok-meta"
+                        }`}
+                        title={rad.meta}
+                      >
+                        {rad.meta}
+                      </span>
+                    )}
+                  </span>
                   {antal > 0 && (
                     <span
                       data-testid={`sidnav-antal-${vy.key}`}

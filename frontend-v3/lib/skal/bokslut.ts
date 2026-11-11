@@ -10,6 +10,7 @@
 import apiClient from "@/lib/api";
 import { formatBeloppHela } from "@/lib/skal/format";
 import type { RadVariant, VyData, VyRadData } from "@/lib/skal/vydata";
+import type { BokslutDel } from "@/lib/skal/vyer";
 
 // ─── API-svaren ───────────────────────────────────────────────────────────
 
@@ -48,6 +49,8 @@ export interface Kontroll {
   niva: KontrollNiva;
   titel: string;
   text: string;
+  /** Vyn där kontrollen åtgärdas (`services/bokslut.py::_del`). */
+  del?: BokslutDel | "bokslut.rapporter";
 }
 
 export interface Ink2Rad {

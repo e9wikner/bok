@@ -10,7 +10,7 @@
  */
 
 import apiClient from "@/lib/api";
-import type { Sidnyckel, ViewKey } from "@/lib/skal/vyer";
+import type { Sidnyckel, ViewKey, Vynyckel } from "@/lib/skal/vyer";
 
 export interface OverviewCounters {
   open_decisions: number;
@@ -50,6 +50,16 @@ export interface OverviewVy {
   waiting: number;
 }
 
+/**
+ * Bokslutets kontroller som är kvar att åtgärda i en vy (Uppgifter, INK2 …),
+ * med serverns formulering. Visas under vyn, där det görs.
+ */
+export interface OverviewBokslutVy {
+  key: Vynyckel;
+  waiting: number;
+  meta: string;
+}
+
 /** Ett annat räkenskapsår där något väntar på människan. */
 export interface OverviewAnnatAr {
   id: string;
@@ -68,6 +78,7 @@ export interface Overview {
   counted_fiscal_year_id?: string | null;
   views?: OverviewVy[];
   other_years?: OverviewAnnatAr[];
+  closing_views?: OverviewBokslutVy[];
 }
 
 /** Fyra lägen; `vilande` ritas som ingen indikator alls (api/schemas.py). */

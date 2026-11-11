@@ -40,7 +40,7 @@ class PageCounters:
     overdue_invoices: int = 0
     payroll_waiting: int = 0
     missing_attachments: int = 0
-    # Bokslut: the year-end checks still to do (`_count_closing_checks`).
+    # Bokslut: the year-end checks still to do (`_closing_checks`).
     closing_checks: int = 0
 
     def as_dict(self) -> Dict[str, int]:
@@ -89,6 +89,18 @@ class ViewWaiting:
 
 
 @dataclass
+class ClosingView:
+    """The year-end checks left to do in one Bokslut view, and what they say.
+
+    Shown under that view, not under the page: the human goes to the view
+    where the thing is done."""
+
+    key: str
+    waiting: int
+    meta: str
+
+
+@dataclass
 class OtherYearWaiting:
     """Another fiscal year where something waits on the human."""
 
@@ -107,6 +119,7 @@ class Overview:
     counted_fiscal_year_id: Optional[str] = None
     views: List[ViewWaiting] = field(default_factory=list)
     other_years: List[OtherYearWaiting] = field(default_factory=list)
+    closing_views: List[ClosingView] = field(default_factory=list)
 
 
 class OverviewService:
@@ -135,6 +148,7 @@ class OverviewService:
                 raise ValueError(f"unknown fiscal year: {fiscal_year_id!r}")
 
         views = self._views_waiting(counted)
+        closing = self._closing_checks(today, counted)
         per_page = {
             key: sum(v.waiting for v in views if v.key.startswith(f"{key}."))
             for key, _ in PAGE_TITLES
@@ -153,7 +167,7 @@ class OverviewService:
             ),
             "bokslut": PageCounters(
                 open_decisions=per_page["bokslut"],
-                closing_checks=self._count_closing_checks(today, counted),
+                closing_checks=len(closing),
             ),
         }
 
@@ -164,6 +178,7 @@ class OverviewService:
             counted_fiscal_year_id=counted.id if counted else None,
             views=views,
             other_years=self._other_years(counted),
+            closing_views=self._closing_views(closing),
         )
 
     # -- counters ---------------------------------------------------------
@@ -246,7 +261,7 @@ class OverviewService:
             )
         )
 
-    def _count_closing_checks(self, today: date, fiscal_year) -> int:
+    def _closing_checks(self, today: date, fiscal_year) -> List[Dict[str, str]]:
         """What is left of the year-end closing, once there is one to do.
 
         A year that has ended and is not locked: its errors and warnings
@@ -258,13 +273,32 @@ class OverviewService:
         from services.bokslut import BokslutService
 
         if fiscal_year is None or getattr(fiscal_year, "locked", False):
-            return 0
+            return []
         service = BokslutService()
         if today <= fiscal_year.end_date:
             checks = service.disposition_checks(fiscal_year.id)
         else:
             checks = service.overview(fiscal_year.id)["kontroller"]
-        return sum(1 for k in checks if k["niva"] in ("fel", "varning"))
+        return [k for k in checks if k["niva"] in ("fel", "varning")]
+
+    @staticmethod
+    def _closing_views(checks: List[Dict[str, str]]) -> List[ClosingView]:
+        """The checks grouped by the view they belong to (`BokslutService`'s
+        `del`), in the order they first appear. One check is named by its
+        title; several are counted."""
+        by_view: Dict[str, List[Dict[str, str]]] = {}
+        for k in checks:
+            by_view.setdefault(k["del"], []).append(k)
+        out = []
+        for key, items in by_view.items():
+            if len(items) == 1:
+                meta = items[0]["titel"]
+            elif all(k["id"].startswith("ar_ar.") for k in items):
+                meta = f"{len(items)} uppgifter saknas"
+            else:
+                meta = f"{len(items)} att åtgärda"
+            out.append(ClosingView(key=key, waiting=len(items), meta=meta))
+        return out
 
     # -- period ------------------------------------------------------------
 

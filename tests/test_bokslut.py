@@ -416,6 +416,44 @@ class TestOversiktensBokslut:
         assert f"{len(kvar)} att åtgärda i bokslutet" in page.meta
         assert page.waiting is True
 
+    def test_kontrollerna_star_under_vyn_de_galler(self, ar):
+        """Varje kontroll som är kvar räknas under vyn där den åtgärdas, och
+        vyernas antal går ihop med sidans."""
+        from datetime import date
+
+        from services.bokslut import BokslutService
+        from services.overview import OverviewService
+
+        o = OverviewService().get_overview(
+            today=date.fromisoformat("2026-02-01"), fiscal_year_id=ar
+        )
+        page = next(p for p in o.pages if p.key == "bokslut")
+        per_vy = {v.key: v for v in o.closing_views}
+        assert (
+            sum(v.waiting for v in per_vy.values()) == page.counters["closing_checks"]
+        )
+        kvar = [
+            k
+            for k in BokslutService().overview(ar)["kontroller"]
+            if k["niva"] in ("fel", "varning")
+        ]
+        for k in kvar:
+            assert k["del"] in per_vy
+        saknas = [k for k in kvar if k["id"].startswith("ar_ar.")]
+        if len(saknas) > 1:
+            assert per_vy["bokslut.uppgifter"].meta == f"{len(saknas)} uppgifter saknas"
+
+    def test_kontrollens_vy(self):
+        from services.bokslut import _del
+
+        assert _del("ar_ar.datum") == "bokslut.uppgifter"
+        assert _del("ar_varning") == "bokslut.arsredovisning"
+        assert _del("skatt") == "bokslut.ink2"
+        assert _del("ink2s_4.3c") == "bokslut.ink2"
+        assert _del("momsavstamning") == "bokslut.moms"
+        assert _del("disposition") == "bokslut.rapporter"
+        assert _del("bank_1930") == "bokslut.rapporter"
+
     def test_under_aret_bara_dispositionen(self, test_db):
         fy = _importera(TestDisposition.SIE_2099)
         assert self._bokslut(fy, "2025-06-01").counters["closing_checks"] == 1

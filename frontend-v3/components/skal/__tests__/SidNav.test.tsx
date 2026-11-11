@@ -47,6 +47,24 @@ describe("SidNav", () => {
     expect(screen.queryByTestId("sidnav-antal-bocker.balans")).toBeNull();
   });
 
+  it("bokslutets kontroller står under vyn de gäller, inte under sidan", () => {
+    render(
+      <SidNav
+        aktivVy="bocker.balans"
+        metaPerSida={{ bokslut: { waiting: true, meta: "6 att åtgärda i bokslutet" } }}
+        metaPerVy={{
+          "bokslut.uppgifter": { waiting: true, meta: "5 uppgifter saknas" },
+          "bokslut.ink2": { waiting: true, meta: "Bokförd skatt skiljer sig från beräknad" },
+        }}
+        onValjVy={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId("sidnav-rad-bokslut.uppgifter")).toHaveTextContent("5 uppgifter saknas");
+    expect(screen.getByTestId("sidnav-rad-bokslut.ink2")).toHaveTextContent("Bokförd skatt skiljer sig från beräknad");
+    expect(screen.queryByText("6 att åtgärda i bokslutet")).toBeNull();
+    expect(screen.getByTestId("sidnav-vantar-bokslut")).toBeInTheDocument();
+  });
+
   it("ett annat år där något väntar står överst och byter år", async () => {
     const onValjAr = vi.fn();
     render(

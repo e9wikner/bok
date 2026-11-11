@@ -138,6 +138,13 @@ export function Skal() {
     return ut;
   }, [overview]);
 
+  // Bokslutets kontroller står under vyn de gäller, inte under sidan.
+  const bokslutPerVy = useMemo<Partial<Record<Vynyckel, SidMeta>>>(() => {
+    const ut: Partial<Record<Vynyckel, SidMeta>> = {};
+    for (const v of overview?.closing_views ?? []) ut[v.key] = { waiting: v.waiting > 0, meta: v.meta };
+    return ut;
+  }, [overview]);
+
   const metaPerSida = useMemo<Partial<Record<Sidnyckel, SidMeta>>>(() => {
     const ut: Partial<Record<Sidnyckel, SidMeta>> = {};
     for (const s of overview?.pages ?? []) {
@@ -203,6 +210,7 @@ export function Skal() {
           aktivVy={aktivVy.key}
           metaPerSida={metaPerSida}
           antalPerVy={antalPerVy}
+          metaPerVy={bokslutPerVy}
           andraAr={overview?.other_years ?? []}
           onValjVy={gaTillVy}
           onValjAr={setValtArId}

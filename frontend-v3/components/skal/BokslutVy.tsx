@@ -23,7 +23,7 @@ import {
 } from "@/lib/skal/bokslut";
 import type { LasData } from "@/lib/skal/las";
 import { lageFarg } from "@/lib/skal/lage";
-import type { BokslutDel } from "@/lib/skal/vyer";
+import { type BokslutDel, sidan } from "@/lib/skal/vyer";
 
 /**
  * En del av ett räkenskapsårs bokslut, i läskolumnen: Översikt (kontrollerna
@@ -105,6 +105,7 @@ export function BokslutVy({
               </span>
               {del === "bokslut.rapporter" && las && <LasKnapp {...las} />}
             </div>
+            {del !== "bokslut.rapporter" && <AttAtgardaHar b={data} del={del} />}
             {del === "bokslut.rapporter" && <Oversikt b={data} onGaTill={onGaTill} />}
             {del === "bokslut.ink2" && <Ink2Flik b={data} />}
             {del === "bokslut.moms" && <MomsFlik b={data} />}
@@ -215,6 +216,31 @@ function Filer({ filer }: { filer: Nedladdning[] }) {
   );
 }
 
+/** Vytiteln för en bokslutsdel: "INK2", "Uppgifter". */
+function delTitel(del: BokslutDel): string {
+  return sidan("bokslut").vyer.find((v) => v.key === del)?.titel ?? del;
+}
+
+/** Kontrollerna som ska åtgärdas i just den här delen, överst i den. */
+function AttAtgardaHar({ b, del }: { b: Bokslut; del: BokslutDel }) {
+  const kvar = attAtgarda(b.kontroller).filter((k) => k.del === del);
+  if (kvar.length === 0) return null;
+  return (
+    <>
+      <Rubrik>Att åtgärda</Rubrik>
+      {kvar.map((k, i) => (
+        <Rad
+          key={`${k.id}-${i}`}
+          titel={k.titel}
+          meta={k.text}
+          hoger={<span className="text-[12px]">{NIVA_TEXT[k.niva]}</span>}
+          ton={NIVA_TON[k.niva]}
+        />
+      ))}
+    </>
+  );
+}
+
 // ─── Översikt ─────────────────────────────────────────────────────────────
 
 function Oversikt({ b, onGaTill }: { b: Bokslut; onGaTill: (del: BokslutDel) => void }) {
@@ -250,24 +276,30 @@ function Oversikt({ b, onGaTill }: { b: Bokslut; onGaTill: (del: BokslutDel) => 
       {kvar.length > 0 && (
         <>
           <Rubrik>Att åtgärda</Rubrik>
-          {kvar.map((k, i) => (
-            <Rad
-              key={`${k.id}-${i}`}
-              titel={k.titel}
-              meta={k.text}
-              hoger={<span className="text-[12px]">{NIVA_TEXT[k.niva]}</span>}
-              ton={NIVA_TON[k.niva]}
-            />
-          ))}
-          {ar.missing.length > 0 && (
-            <button
-              type="button"
-              onClick={() => onGaTill("bokslut.uppgifter")}
-              className="bok-mono self-start pt-2 text-[12px] text-bok-lank underline-offset-2 hover:underline"
-            >
-              Fyll i årsredovisningens uppgifter →
-            </button>
-          )}
+          {kvar.map((k, i) => {
+            const dit = k.del && k.del !== "bokslut.rapporter" ? k.del : null;
+            return (
+              <Rad
+                key={`${k.id}-${i}`}
+                titel={k.titel}
+                meta={k.text}
+                hoger={
+                  dit ? (
+                    <button
+                      type="button"
+                      onClick={() => onGaTill(dit)}
+                      className="text-[12px] text-bok-lank underline-offset-2 hover:underline"
+                    >
+                      {delTitel(dit)} →
+                    </button>
+                  ) : (
+                    <span className="text-[12px]">{NIVA_TEXT[k.niva]}</span>
+                  )
+                }
+                ton={NIVA_TON[k.niva]}
+              />
+            );
+          })}
         </>
       )}
 

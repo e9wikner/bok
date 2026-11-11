@@ -7,6 +7,7 @@ from fastapi import status as http_status
 
 from api.deps import get_current_actor
 from api.schemas import (
+    OverviewClosingView,
     OverviewCounters,
     OverviewFiscalYear,
     OverviewOtherYear,
@@ -100,5 +101,9 @@ async def get_overview(
                 id=year.id, label=year.label, waiting=year.waiting, meta=year.meta
             )
             for year in overview.other_years
+        ],
+        closing_views=[
+            OverviewClosingView(key=v.key, waiting=v.waiting, meta=v.meta)
+            for v in overview.closing_views
         ],
     )
