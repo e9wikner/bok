@@ -4,7 +4,7 @@ import {
   type Resultatrakning,
   type OppenBanktransaktion,
   type Verifikation,
-  BANK_RADER,
+  banksektion,
   BANK_TITEL,
   FOT_UNDERLAG,
   balansVy,
@@ -568,17 +568,17 @@ describe("verifikationerVy: Kontoutdrag mot bokföringen", () => {
     expect(rad.fraga?.text).toMatch(/Är det A-29\?/);
   });
 
-  it("fler än BANK_RADER: resten blir en rad till agenten", () => {
-    const manga = Array.from({ length: BANK_RADER + 3 }, (_, i) =>
-      tx({ bank_transaction_id: `t${i}`, date: `2026-0${(i % 9) + 1}-10`, amount_ore: -1000 })
+  it("alla rader visas, senaste först eller stigande", () => {
+    const manga = Array.from({ length: 11 }, (_, i) =>
+      tx({ bank_transaction_id: `t${i}`, date: `2026-0${(i % 9) + 1}-${String(10 + i).padStart(2, "0")}`, amount_ore: -1000 })
     );
     const rader = vyMed(manga).sektioner.find((s) => s.titel === BANK_TITEL)!.rader;
-    expect(rader).toHaveLength(BANK_RADER + 1);
-    const sista = rader[rader.length - 1];
-    expect(sista.id).toBe("bank:resten");
-    expect(sista.titel).toBe("3 äldre");
-    expect(sista.hoger).toBe(formatBelopp(-3000));
-    expect(sista.fraga?.text).toMatch(/11 händelser utan verifikation/);
+    expect(rader).toHaveLength(11);
+    expect(rader.some((r) => r.id === "bank:resten")).toBe(false);
+    const datum = rader.map((r) => r.meta!.slice(0, 10));
+    expect(datum).toEqual([...datum].sort().reverse());
+    const stigande = banksektion(manga, [], "stigande")!.rader.map((r) => r.meta!.slice(0, 10));
+    expect(stigande).toEqual([...datum].sort());
   });
 });
 

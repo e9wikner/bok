@@ -5,6 +5,7 @@ import { VyBanner } from "@/components/skal/VyBanner";
 import { VyHeaderStatus } from "@/components/skal/VyHeaderStatus";
 import { VyRad, VyRadSkelett } from "@/components/skal/VyRad";
 import { VySektion } from "@/components/skal/VySektion";
+import type { Sortering } from "@/lib/skal/bocker";
 import { lageFarg } from "@/lib/skal/lage";
 import type { VyData } from "@/lib/skal/vydata";
 
@@ -33,8 +34,16 @@ export function VyInnehall({
   variant?: "desktop" | "mobil";
   /** Detaljlagrets länk tillbaka till det under, ovanför rubriken. */
   tillbaka?: { text: string; onClick: () => void };
-  /** Sökrutan under perioden (Verifikationer). Filtreringen sker i `useVyer`. */
-  sok?: { varde: string; onAndra: (s: string) => void };
+  /**
+   * Sökrutan under perioden (Verifikationer), med sorteringen bredvid när
+   * den ges. Filtreringen och sorteringen sker i `useVyer`.
+   */
+  sok?: {
+    varde: string;
+    onAndra: (s: string) => void;
+    sortering?: Sortering;
+    onSortera?: (s: Sortering) => void;
+  };
 }) {
   const fg = lageFarg(data.lage);
 
@@ -71,19 +80,24 @@ export function VyInnehall({
         <div className="bok-mono pt-[14px] text-[12px] text-bok-meta">{data.period}</div>
 
         {sok && (
-          <input
-            type="search"
-            value={sok.varde}
-            onChange={(e) => sok.onAndra(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") sok.onAndra("");
-            }}
-            placeholder="Sök verifikation…"
-            aria-label="Sök bland verifikationerna"
-            autoComplete="off"
-            spellCheck={false}
-            className="bok-mono mt-[14px] w-full rounded-md border border-bok-linje bg-bok-yta px-3 py-[7px] text-[13px] text-bok-text placeholder:text-bok-meta focus:border-bok-lank focus:outline-none"
-          />
+          <div className="mt-[14px] flex gap-2">
+            <input
+              type="search"
+              value={sok.varde}
+              onChange={(e) => sok.onAndra(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") sok.onAndra("");
+              }}
+              placeholder="Sök verifikation…"
+              aria-label="Sök bland verifikationerna"
+              autoComplete="off"
+              spellCheck={false}
+              className="bok-mono min-w-0 flex-1 rounded-md border border-bok-linje bg-bok-yta px-3 py-[7px] text-[13px] text-bok-text placeholder:text-bok-meta focus:border-bok-lank focus:outline-none"
+            />
+            {sok.sortering && sok.onSortera && (
+              <SorteringsVal sortering={sok.sortering} onSortera={sok.onSortera} />
+            )}
+          </div>
         )}
 
         {data.banner && (
@@ -144,6 +158,42 @@ export function VyInnehall({
         </div>
       </div>
     </div>
+  );
+}
+
+const KONTROLL =
+  "bok-mono rounded-md border border-bok-linje bg-bok-yta px-2 py-[7px] text-[13px] text-bok-text hover:border-bok-lank focus:border-bok-lank focus:outline-none";
+
+/** Sortera Postade på datum eller verifikationsnummer, stigande eller fallande. */
+function SorteringsVal({
+  sortering,
+  onSortera,
+}: {
+  sortering: Sortering;
+  onSortera: (s: Sortering) => void;
+}) {
+  const stigande = sortering.ordning === "stigande";
+  return (
+    <>
+      <select
+        value={sortering.falt}
+        onChange={(e) => onSortera({ ...sortering, falt: e.target.value as Sortering["falt"] })}
+        aria-label="Sortera på"
+        className={KONTROLL}
+      >
+        <option value="datum">Datum</option>
+        <option value="nummer">Ver.nr</option>
+      </select>
+      <button
+        type="button"
+        onClick={() => onSortera({ ...sortering, ordning: stigande ? "fallande" : "stigande" })}
+        aria-label={stigande ? "Stigande ordning, byt till fallande" : "Fallande ordning, byt till stigande"}
+        title={stigande ? "Stigande" : "Fallande"}
+        className={`${KONTROLL} w-[34px] text-center`}
+      >
+        {stigande ? "↑" : "↓"}
+      </button>
+    </>
   );
 }
 
