@@ -80,7 +80,7 @@ export function BokslutVy({
       <div
         className={
           variant === "desktop"
-            ? `bok-dold-skroll flex min-h-0 flex-1 flex-col overflow-auto pb-[18px] pt-1 ${pad}`
+            ? `bok-dold-skroll flex min-h-0 flex-1 flex-col overflow-auto pb-[136px] pt-1 ${pad}`
             : // pb: plats under sista raden för chattbubblan (`ChattBubbla`).
               `flex flex-col pb-24 ${pad}`
         }

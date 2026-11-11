@@ -60,11 +60,12 @@ export function VyInnehall({
       <VyHeaderStatus titel={vy.titel} status={data.status} fg={fg} variant={variant} />
 
       <div
+        // pb: plats under sista raden för chattbubblan (`ChattBubbla`), som
+        // på desktop når 120 px upp från nederkanten.
         className={
           variant === "desktop"
-            ? "bok-dold-skroll flex min-h-0 flex-1 flex-col overflow-auto px-6 pb-[18px] pt-1"
-            : // pb: plats under sista raden för chattbubblan (`ChattBubbla`).
-              "flex flex-col px-[18px] pb-24"
+            ? "bok-dold-skroll flex min-h-0 flex-1 flex-col overflow-auto px-6 pb-[136px] pt-1"
+            : "flex flex-col px-[18px] pb-24"
         }
       >
         <div className="bok-mono pt-[14px] text-[12px] text-bok-meta">{data.period}</div>
