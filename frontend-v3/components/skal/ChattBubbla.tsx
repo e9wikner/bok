@@ -4,6 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { MessageCircle, X } from "lucide-react";
 import { useBeslutFokus } from "@/components/skal/BeslutFokus";
 import { ChattKolumn } from "@/components/skal/ChattKolumn";
+import { tradNyckel, useOlastaSvar } from "@/hooks/useOlastaSvar";
+import { allaVyer } from "@/lib/skal/vyer";
+
+/** Vyns namn för en tråd. Flera vyer kan dela tråd; den första får ge namnet. */
+function tradensTitel(viewKey: string): string {
+  return allaVyer().find((v) => v.trad === viewKey)?.titel ?? viewKey;
+}
 
 /**
  * Chatten: en bubbla nere till höger som fäller ut den aktiva vyns tråd.
@@ -25,6 +32,11 @@ import { ChattKolumn } from "@/components/skal/ChattKolumn";
  * upp i vyn öppnar den. Väntande beslut syns som ett märke på bubblan även
  * när chatten är stängd (komponenter.md) — kön ligger i tråden och det finns
  * inga notiser.
+ *
+ * Ett svar från agenten öppnar den inte: den som stängt chatten läser något
+ * annat. Ett oläst textsvar syns som en prick på bubblan, också när svaret
+ * kom i en annan vys tråd (`useOlastaSvar`). Panelen säger då var svaret
+ * ligger och leder dit.
  */
 export function ChattBubbla({
   vyTitel,
@@ -32,6 +44,7 @@ export function ChattBubbla({
   vantandeBeslut,
   variant = "desktop",
   arId = null,
+  gaTillTrad,
 }: {
   vyTitel: string;
   viewKey: string;
@@ -39,12 +52,26 @@ export function ChattBubbla({
   variant?: "desktop" | "mobil";
   /** Årsväljarens räkenskapsår; `null` = innevarande. Varje år har sin tråd. */
   arId?: string | null;
+  /** Byter till en vy med den tråden: dit ett oläst svar i en annan vy leder. */
+  gaTillTrad?: (viewKey: string) => void;
 }) {
   const mobil = variant === "mobil";
   const [oppen, setOppen] = useState(false);
   const panel = useRef<HTMLDivElement>(null);
   const bubbla = useRef<HTMLButtonElement>(null);
   const { valt, inlagg, forifyllning } = useBeslutFokus();
+  const { olasta, onAgentSvar, onLamnadUtanSvar } = useOlastaSvar(viewKey, arId, oppen);
+  const aktuell = tradNyckel(viewKey, arId);
+  const svarHar = olasta.has(aktuell);
+  const svarAndra = Array.from(olasta.entries())
+    .filter(([k]) => k !== aktuell)
+    .map(([, s]) => s);
+  const harOlast = olasta.size > 0;
+  const olastText = svarHar
+    ? "nytt svar"
+    : svarAndra.length > 0
+      ? `nytt svar i ${svarAndra.map((s) => tradensTitel(s.viewKey)).join(", ")}`
+      : null;
 
   // Mobil: ett vybyte stänger arket.
   const forraVyn = useRef(viewKey);
@@ -138,12 +165,30 @@ export function ChattBubbla({
             <X size={mobil ? 20 : 16} aria-hidden="true" />
           </button>
         </div>
+        {svarAndra.length > 0 && (
+          <ul className="shrink-0 border-b border-bok-linje px-5 py-2 text-[13px]">
+            {svarAndra.map((s) => (
+              <li key={tradNyckel(s.viewKey, s.fiscalYearId)}>
+                <button
+                  type="button"
+                  onClick={() => gaTillTrad?.(s.viewKey)}
+                  disabled={!gaTillTrad}
+                  className="text-bok-lank hover:text-bok-lank-hover hover:underline disabled:text-bok-text-svag disabled:no-underline"
+                >
+                  Nytt svar i {tradensTitel(s.viewKey)} →
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
         <ChattKolumn
           key={viewKey}
           vyTitel={vyTitel}
           viewKey={viewKey}
           variant={mobil ? "mobil" : "panel"}
           arId={arId}
+          onAgentSvar={onAgentSvar}
+          onLamnadUtanSvar={onLamnadUtanSvar}
         />
       </div>
 
@@ -157,9 +202,11 @@ export function ChattBubbla({
         aria-label={
           oppen
             ? "Stäng chatten"
-            : vantandeBeslut > 0
-              ? `Öppna chatten för ${vyTitel} · ${vantandeBeslut} väntar på beslut`
-              : `Öppna chatten för ${vyTitel}`
+            : [
+                `Öppna chatten för ${vyTitel}`,
+                ...(olastText ? [olastText] : []),
+                ...(vantandeBeslut > 0 ? [`${vantandeBeslut} väntar på beslut`] : []),
+              ].join(" · ")
         }
         className={`fixed z-40 flex h-14 w-14 items-center justify-center rounded-full bg-bok-text text-bok-yta shadow-bok-meny transition-transform hover:scale-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bok-lank [&[hidden]]:hidden ${
           mobil ? "bottom-[calc(16px+env(safe-area-inset-bottom))] right-4" : "bottom-[64px] right-6"
@@ -179,6 +226,13 @@ export function ChattBubbla({
           >
             {vantandeBeslut}
           </span>
+        )}
+        {!oppen && harOlast && (
+          <span
+            data-testid="chattbubbla-svar"
+            aria-hidden="true"
+            className="absolute -left-0.5 -top-0.5 h-[14px] w-[14px] rounded-full border-2 border-bok-yta bg-bok-lank"
+          />
         )}
       </button>
     </>

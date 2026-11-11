@@ -14,7 +14,7 @@
  * återansluter på `404` — en för tidig ström vore en evig backoff-slinga.
  */
 
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -59,6 +59,40 @@ interface Vy {
   fiscalYearId: string | null;
   avbryt: AbortController;
   stromOppen: boolean;
+  /** Högsta `seq` vyn sett: var en överlämnad bevakning ska börja. */
+  maxSeq: number;
+  /**
+   * En fråga är ställd och agentens textsvar har inte kommit. Lämnas vyn då
+   * får `onLamnadUtanSvar` bevaka svaret i stället (`useOlastaSvar`).
+   */
+  vantarSvar: boolean;
+}
+
+/** Ett textsvar från agenten — inte en status, inte ett kort. */
+export function arAgentText(h: SseHandelse): boolean {
+  return (
+    h.event === "message.completed" &&
+    (h.data as { type?: unknown } | null)?.type === "agent_text"
+  );
+}
+
+function seqAv(h: SseHandelse): number {
+  const seq = (h.data as { seq?: unknown } | null)?.seq;
+  return typeof seq === "number" && Number.isInteger(seq) ? seq : 0;
+}
+
+/** En tråd som lämnats med en obesvarad fråga. */
+export interface LamnadTrad {
+  viewKey: string;
+  fiscalYearId: string | null;
+  since: number;
+}
+
+export interface UseTradAlternativ {
+  /** Ett nytt textsvar från agenten kom i den här tråden (inte en återuppspelning). */
+  onAgentSvar?: () => void;
+  /** Tråden stängdes (vy- eller årsbyte) medan svaret ännu inte kommit. */
+  onLamnadUtanSvar?: (trad: LamnadTrad) => void;
 }
 
 export interface UseTrad {
@@ -95,7 +129,11 @@ let lopnummer = 0;
  * räkenskapsår). `null` = innevarande år, som servern löser själv. Byte av år
  * byter tråd precis som byte av vy: strömmen stängs, den nya tråden läses.
  */
-export function useTrad(viewKey: string, fiscalYearId: string | null = null): UseTrad {
+export function useTrad(
+  viewKey: string,
+  fiscalYearId: string | null = null,
+  alternativ: UseTradAlternativ = {}
+): UseTrad {
   const [tillstand, dispatch] = useReducer(tradReducer, undefined, tomTrad);
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState<unknown>(null);
@@ -104,6 +142,24 @@ export function useTrad(viewKey: string, fiscalYearId: string | null = null): Us
   // axios-instansen att återanvända (C2), så strömmen får den härifrån.
   const { logout } = useAuth();
   const vyRef = useRef<Vy | null>(null);
+  // Anroparens callbacks byts varje rendering; strömmen ska inte öppnas om
+  // för det.
+  const alt = useRef(alternativ);
+  useLayoutEffect(() => {
+    alt.current = alternativ;
+  });
+
+  /** Det `useTrad` själv behöver veta om en händelse, före reducern. */
+  const notera = useCallback((vy: Vy, h: SseHandelse) => {
+    const seq = seqAv(h);
+    const ny = seq > vy.maxSeq;
+    if (seq > 0) vy.maxSeq = Math.max(vy.maxSeq, seq);
+    if (h.event === "message.created" || h.event === "message.delta") vy.vantarSvar = true;
+    if (arAgentText(h) && (ny || seq === 0)) {
+      vy.vantarSvar = false;
+      alt.current.onAgentSvar?.();
+    }
+  }, []);
 
   const paHandelse = useCallback(
     (h: SseHandelse) => {
@@ -149,15 +205,25 @@ export function useTrad(viewKey: string, fiscalYearId: string | null = null): Us
         ...(vy.fiscalYearId ? { fiscalYearId: vy.fiscalYearId } : {}),
         since,
         signal: vy.avbryt.signal,
-        onHandelse: paHandelse,
+        onHandelse: (h) => {
+          notera(vy, h);
+          paHandelse(h);
+        },
         onObehorig: logout,
       });
     },
-    [paHandelse, logout]
+    [paHandelse, logout, notera]
   );
 
   useEffect(() => {
-    const vy: Vy = { viewKey, fiscalYearId, avbryt: new AbortController(), stromOppen: false };
+    const vy: Vy = {
+      viewKey,
+      fiscalYearId,
+      avbryt: new AbortController(),
+      stromOppen: false,
+      maxSeq: 0,
+      vantarSvar: false,
+    };
     vyRef.current = vy;
     dispatch({ typ: "nollstall" });
     setLaddar(true);
@@ -166,6 +232,7 @@ export function useTrad(viewKey: string, fiscalYearId: string | null = null): Us
     (fiscalYearId ? hamtaTrad(viewKey, fiscalYearId) : hamtaTrad(viewKey))
       .then((svar) => {
         if (vy.avbryt.signal.aborted) return;
+        vy.maxSeq = Math.max(vy.maxSeq, svar.cursor);
         dispatch({
           typ: "hamtad",
           posts: svar.posts,
@@ -186,7 +253,12 @@ export function useTrad(viewKey: string, fiscalYearId: string | null = null): Us
 
     // Vybyte och avmontering stänger strömmen och gör varje svar som
     // fortfarande är i flykt för den här vyn verkningslöst.
-    return () => vy.avbryt.abort();
+    return () => {
+      vy.avbryt.abort();
+      if (vy.vantarSvar) {
+        alt.current.onLamnadUtanSvar?.({ viewKey, fiscalYearId, since: vy.maxSeq });
+      }
+    };
   }, [viewKey, fiscalYearId, oppna]);
 
   const skicka = useCallback(
@@ -201,6 +273,9 @@ export function useTrad(viewKey: string, fiscalYearId: string | null = null): Us
         dispatch({ typ: "optimistisk", id: lokaltId, text, skapad: new Date().toISOString() });
       }
 
+      // Före POST: byter människan vy medan det är i flykt ska svaret ändå
+      // bevakas (`onLamnadUtanSvar`).
+      vy.vantarSvar = true;
       try {
         // Utan bilagor: samma anrop som före `flode-underlag`.
         // Utan valt år: samma anrop som innan tråden fick sitt år.
@@ -212,6 +287,7 @@ export function useTrad(viewKey: string, fiscalYearId: string | null = null): Us
         // Svaret hör till vyn som var aktiv när människan tryckte. Har hon
         // bytt vy sedan dess är den nya vyns tråd en annan tråd.
         if (vy.avbryt.signal.aborted) return true;
+        vy.maxSeq = Math.max(vy.maxSeq, svar.cursor);
         dispatch({ typ: "skickad", lokaltId, posts: svar.posts, cursor: svar.cursor });
         setFel(null);
         oppna(vy, svar.cursor);
@@ -223,6 +299,7 @@ export function useTrad(viewKey: string, fiscalYearId: string | null = null): Us
         // append-only-bokens samtal, där ett påstående om vad som sagts ska
         // vara sant (antagande 2). Texten går inte förlorad: `false` säger
         // till fältet att behålla den, och `fel` bär orsaken.
+        vy.vantarSvar = false;
         dispatch({ typ: "misslyckad", lokaltId });
         setFel(e);
         return false;

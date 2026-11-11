@@ -5,7 +5,7 @@ import { delaVidGrans, NollstallKnapp, TidigareKonversation } from "@/components
 import { ChattFaltFokus, TradRenderare } from "@/components/chattyta/TradRenderare";
 import { BeslutFokusKort, markeraInlagg, useBeslutFokus } from "@/components/skal/BeslutFokus";
 import { ChattFalt } from "@/components/skal/ChattFalt";
-import { useTrad, type UseTrad } from "@/hooks/useTrad";
+import { useTrad, type UseTrad, type UseTradAlternativ } from "@/hooks/useTrad";
 
 /**
  * Chattkolumnen som SKAL.
@@ -199,6 +199,7 @@ export function ChattKolumn({
   aktiv = true,
   variant = "desktop",
   arId = null,
+  ...alternativ
 }: {
   vyTitel: string;
   viewKey: string;
@@ -210,9 +211,11 @@ export function ChattKolumn({
   variant?: "desktop" | "panel" | "mobil";
   /** Årsväljarens räkenskapsår; `null` = innevarande. Varje år har sin tråd. */
   arId?: string | null;
-}) {
+} & UseTradAlternativ) {
   if (!aktiv) return <KolumnLayout vyTitel={vyTitel} viewKey={viewKey} trad={OLAST_TRAD} variant={variant} />;
-  return <AktivKolumn vyTitel={vyTitel} viewKey={viewKey} variant={variant} arId={arId} />;
+  return (
+    <AktivKolumn vyTitel={vyTitel} viewKey={viewKey} variant={variant} arId={arId} alternativ={alternativ} />
+  );
 }
 
 function AktivKolumn({
@@ -220,13 +223,15 @@ function AktivKolumn({
   viewKey,
   variant,
   arId,
+  alternativ,
 }: {
   vyTitel: string;
   viewKey: string;
   variant: "desktop" | "panel" | "mobil";
   arId: string | null;
+  alternativ: UseTradAlternativ;
 }) {
-  const trad = useTrad(viewKey, arId);
+  const trad = useTrad(viewKey, arId, alternativ);
   return (
     <KolumnLayout
       vyTitel={vyTitel}

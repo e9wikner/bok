@@ -90,6 +90,17 @@ export function Skal() {
     },
     [sidnyckel]
   );
+  // Ett oläst svar i en annan vys tråd leder dit (`ChattBubbla`). Hör den
+  // aktiva vyn redan till tråden står man kvar.
+  const gaTillTrad = useCallback(
+    (trad: string) => {
+      if (aktivVy.trad === trad) return;
+      const pasidan = sida.vyer.find((v) => v.trad === trad);
+      const vy = pasidan ?? allaVyer().find((v) => v.trad === trad);
+      if (vy) gaTillVy(vy.key);
+    },
+    [aktivVy.trad, sida, gaTillVy]
+  );
   const detalj = useDetaljHistorik({ start: start.detalj, url: detaljUrl, gaTillVy });
   const { stack: detaljer, stang: stangDetalj } = detalj;
 
@@ -301,6 +312,7 @@ export function Skal() {
         vantandeBeslut={vantandeBeslut}
         variant={bred ? "desktop" : "mobil"}
         arId={tradensAr}
+        gaTillTrad={gaTillTrad}
       />
     </div>
     </DetaljProvider>

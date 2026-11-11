@@ -531,3 +531,66 @@ describe("useTrad — nollställ konversationen", () => {
     expect(result.current.kontextFran).toBe(1);
   });
 });
+
+describe("useTrad — agentens svar för bubblans märke", () => {
+  function monteraMed(alternativ: Parameters<typeof useTrad>[2]) {
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={qc}>
+        <AuthContext.Provider value={{ logout } as unknown as AuthContextType}>
+          {children}
+        </AuthContext.Provider>
+      </QueryClientProvider>
+    );
+    return renderHook(({ vk }) => useTrad(vk, null, alternativ), {
+      wrapper,
+      initialProps: { vk: "verifikationer" },
+    });
+  }
+
+  it("ett nytt textsvar säger till; en återuppspelning och en status gör det inte", async () => {
+    hamtaTrad.mockResolvedValue(trad({ posts: [agent("p-1", 1, "gammalt")], cursor: 1 }));
+    const onAgentSvar = vi.fn();
+    monteraMed({ onAgentSvar });
+    await waitFor(() => expect(oppnaStrom).toHaveBeenCalled());
+
+    sand("message.completed", agent("p-1", 1, "gammalt"));
+    sand("message.created", { id: "streaming-r1", run_id: "r1", text: "", activity: "lista_konton" });
+    expect(onAgentSvar).not.toHaveBeenCalled();
+
+    sand("message.completed", agent("p-2", 2, "svaret", "r1"));
+    expect(onAgentSvar).toHaveBeenCalledTimes(1);
+  });
+
+  it("vybyte med en obesvarad fråga lämnar över tråden från senaste seq", async () => {
+    hamtaTrad.mockResolvedValue(trad({ posts: [], cursor: 3 }));
+    skickaMeddelande.mockResolvedValue({ posts: [du("p-4", 4, "fråga")], cursor: 4 });
+    const onLamnadUtanSvar = vi.fn();
+    const { result, rerender } = monteraMed({ onLamnadUtanSvar });
+    await waitFor(() => expect(result.current.laddar).toBe(false));
+    await act(async () => {
+      await result.current.skicka("fråga");
+    });
+
+    rerender({ vk: "loner" });
+    expect(onLamnadUtanSvar).toHaveBeenCalledWith({
+      viewKey: "verifikationer",
+      fiscalYearId: null,
+      since: 4,
+    });
+  });
+
+  it("vybyte efter att svaret kommit lämnar inget över", async () => {
+    hamtaTrad.mockResolvedValue(trad({ posts: [], cursor: 3 }));
+    skickaMeddelande.mockResolvedValue({ posts: [du("p-4", 4, "fråga")], cursor: 4 });
+    const onLamnadUtanSvar = vi.fn();
+    const { result, rerender } = monteraMed({ onLamnadUtanSvar });
+    await waitFor(() => expect(result.current.laddar).toBe(false));
+    await act(async () => {
+      await result.current.skicka("fråga");
+    });
+    sand("message.completed", agent("p-5", 5, "svar"));
+
+    rerender({ vk: "loner" });
+    expect(onLamnadUtanSvar).not.toHaveBeenCalled();
+  });
+});
