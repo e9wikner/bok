@@ -97,6 +97,30 @@ describe("verifikationerVy med månader", () => {
     expect(vy.sektioner.map((s) => s.titel)).toEqual(["September 2026", "Augusti 2026", "Juli 2026"]);
   });
 
+  it("stigande: äldsta månaden först, och i månaden äldst först", () => {
+    const vy = verifikationerVy(
+      AR,
+      lista(v("a4", "2026-02-20"), v("a3", "2026-02-05"), v("a2", "2026-01-25"), v("a1", "2026-01-02")),
+      TOM,
+      undefined,
+      manader({ idag: "2026-02-25" }),
+      { falt: "datum", ordning: "stigande" }
+    );
+    expect(vy.sektioner.map((s) => s.titel)).toEqual(["Januari 2026", "Februari 2026"]);
+    expect(vy.sektioner.map((s) => s.rader.map((r) => r.id))).toEqual([["a1", "a2"], ["a3", "a4"]]);
+  });
+
+  it("på verifikationsnummer, fallande och stigande", () => {
+    // Numret följer inte datumet: a5 bokfördes efter a7 men med tidigare datum.
+    const postade = lista(v("a7", "2026-01-20"), v("a5", "2026-01-10"), v("a6", "2026-01-15"));
+    const ordning = (o: "fallande" | "stigande") =>
+      verifikationerVy(AR, postade, TOM, undefined, undefined, { falt: "nummer", ordning: o }).sektioner[0].rader.map(
+        (r) => r.id
+      );
+    expect(ordning("fallande")).toEqual(["a7", "a6", "a5"]);
+    expect(ordning("stigande")).toEqual(["a5", "a6", "a7"]);
+  });
+
   it("utan månader: en sektion Postade, som förut", () => {
     const vy = verifikationerVy(AR, lista(v("a1", "2026-09-10")), TOM);
     expect(vy.sektioner.map((s) => s.titel)).toEqual(["Postade"]);

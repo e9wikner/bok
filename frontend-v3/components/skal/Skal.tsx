@@ -21,6 +21,7 @@ import { useVantandeBeslut } from "@/hooks/useVantandeBeslut";
 import { useLasning } from "@/hooks/useLasning";
 import { useBredSkarm } from "@/hooks/useBredSkarm";
 import { useDarkMode } from "@/hooks/useDarkMode";
+import { STANDARDSORTERING, type Sortering } from "@/lib/skal/bocker";
 import { bokslutApi } from "@/lib/skal/bokslut";
 import { arsalternativ, arsrad, somOverviewAr } from "@/lib/skal/header";
 import { lageFarg } from "@/lib/skal/lage";
@@ -182,8 +183,10 @@ export function Skal() {
   // rutan svarar på varje tangent också när året är stort. Termen står kvar
   // medan en verifikation är öppen, så "tillbaka" landar i samma träffar.
   const [sokterm, setSokterm] = useState("");
-  const vyer = useVyer(ar, sidnyckel, useDeferredValue(sokterm));
-  const sok = { varde: sokterm, onAndra: setSokterm };
+  // Postades ordning, som söktermen kvar medan en verifikation är öppen.
+  const [sortering, setSortering] = useState<Sortering>(STANDARDSORTERING);
+  const vyer = useVyer(ar, sidnyckel, useDeferredValue(sokterm), sortering);
+  const sok = { varde: sokterm, onAndra: setSokterm, sortering, onSortera: setSortering };
 
   const { data } = vyer[aktivVy.key];
   const vyStatus = { text: data.status, fg: lageFarg(data.lage) };

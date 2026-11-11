@@ -697,6 +697,54 @@ export interface VantarUnderlag {
   avstamning?: readonly Bankavstamning[];
 }
 
+export type Ordning = "fallande" | "stigande";
+
+/** Hur Postade (och kontoutdragens rader) ordnas. Standard: datum, senaste först. */
+export interface Sortering {
+  falt: "datum" | "nummer";
+  ordning: Ordning;
+}
+
+export const STANDARDSORTERING: Sortering = { falt: "datum", ordning: "fallande" };
+
+export function arStandardsortering(s: Sortering): boolean {
+  return s.falt === STANDARDSORTERING.falt && s.ordning === STANDARDSORTERING.ordning;
+}
+
+/** En rad i Postade med det den sorteras på. En rad som postas har inget nummer än. */
+interface PostadRad {
+  rad: VyRadData;
+  datum?: string;
+  nummer?: { series: string; number: number | null };
+}
+
+/**
+ * Raderna i `sortering`s ordning. Standardordningen är serverns (och de
+ * optimistiska överst), så den lämnas orörd. Annars sorteras stabilt; en
+ * rad utan nyckel — en som postas just nu — står först.
+ */
+function sorteraPostade(rader: readonly PostadRad[], sortering: Sortering): PostadRad[] {
+  if (arStandardsortering(sortering)) return [...rader];
+  const riktning = sortering.ordning === "stigande" ? 1 : -1;
+  const jamfor = (a: PostadRad, b: PostadRad): number => {
+    if (sortering.falt === "nummer") {
+      const na = a.nummer?.number ?? null;
+      const nb = b.nummer?.number ?? null;
+      if (na === null || nb === null) return na === nb ? 0 : na === null ? -1 : 1;
+      const serie = a.nummer!.series.localeCompare(b.nummer!.series);
+      if (serie !== 0) return riktning * serie;
+      if (na !== nb) return riktning * (na - nb);
+      return riktning * (a.datum ?? "").localeCompare(b.datum ?? "");
+    }
+    if (!a.datum || !b.datum) return a.datum === b.datum ? 0 : !a.datum ? -1 : 1;
+    const datum = a.datum.localeCompare(b.datum);
+    if (datum !== 0) return riktning * datum;
+    const serie = (a.nummer?.series ?? "").localeCompare(b.nummer?.series ?? "");
+    return serie !== 0 ? riktning * serie : riktning * ((a.nummer?.number ?? 0) - (b.nummer?.number ?? 0));
+  };
+  return [...rader].sort(jamfor);
+}
+
 /**
  * Postade, en sektion per månad med månadens lås i rubriken. Utan den står
  * de postade i en enda sektion, `Postade` — som när perioderna inte gick att
@@ -717,7 +765,7 @@ export interface Manader {
 }
 
 /**
- * En sektion per period, senaste först. En månad visas när den har rader,
+ * En sektion per period, senaste först (`ordning` stigande: äldsta först). En månad visas när den har rader,
  * eller när den har börjat och vyn vet att den är tom — den kan ju behöva
  * låsas ändå. En rad utan datum i någon period står i dagens månad, annars
  * i den senaste.
@@ -725,7 +773,8 @@ export interface Manader {
 function manadssektioner(
   rader: readonly { rad: VyRadData; datum?: string }[],
   aldstaHamtade: string | undefined,
-  m: Manader
+  m: Manader,
+  ordning: Ordning = "fallande"
 ): VySektionData[] {
   const perioder = [...m.perioder].sort((a, b) => b.start_date.localeCompare(a.start_date));
   const iPeriod = (datum: string | undefined) =>
@@ -737,7 +786,8 @@ function manadssektioner(
     perPeriod.get((iPeriod(datum) ?? reserv).id)!.push(rad);
   }
 
-  return perioder.flatMap((p) => {
+  const visade = ordning === "stigande" ? [...perioder].reverse() : perioder;
+  return visade.flatMap((p) => {
     const periodRader = perPeriod.get(p.id)!;
     const kand = p.start_date <= m.idag && (!m.harFler || (aldstaHamtade !== undefined && p.end_date >= aldstaHamtade));
     if (periodRader.length === 0 && !kand) return [];
@@ -752,10 +802,6 @@ function manadssektioner(
     ];
   });
 }
-
-/** Vyns fot, panelens ord (SPEC-flode-underlag.md §10.4). */
-/** Så många bankrader visas; resten sammanfattas i en rad till agenten. */
-export const BANK_RADER = 8;
 
 export const BANK_TITEL = "Kontoutdrag mot bokföringen";
 
@@ -799,36 +845,21 @@ function avstamningsrad(a: Bankavstamning): VyRadData {
 
 /**
  * Kontoutdragen mot bokföringen: först varje kontos saldo enligt det
- * senaste utdraget, sedan raderna utan verifikation, senaste först. De
- * `BANK_RADER` senaste står var för sig; resten blir en rad som ber
- * agenten ta dem.
+ * senaste utdraget, sedan alla raderna utan verifikation i datumordning —
+ * senaste först om inte `ordning` säger stigande.
  */
 export function banksektion(
   bank: readonly OppenBanktransaktion[] | undefined,
-  avstamning: readonly Bankavstamning[] = []
+  avstamning: readonly Bankavstamning[] = [],
+  ordning: Ordning = "fallande"
 ): VySektionData | null {
   if ((!bank || bank.length === 0) && avstamning.length === 0) return null;
-  const senast = [...(bank ?? [])].sort((a, b) => b.date.localeCompare(a.date));
-  const rader = [...avstamning.map(avstamningsrad), ...senast.slice(0, BANK_RADER).map(bankrad)];
-  const resten = senast.slice(BANK_RADER);
-  if (resten.length > 0) {
-    const fran = resten[resten.length - 1].date;
-    const till = resten[0].date;
-    rader.push({
-      id: "bank:resten",
-      titel: `${resten.length} äldre`,
-      meta: `${fran} – ${till}`,
-      hoger: formatBelopp(resten.reduce((s, t) => s + t.amount_ore, 0)),
-      variant: "saknar",
-      fraga: {
-        viewKey: VY_VERIFIKATIONER,
-        text: `Kontoutdragen har ${senast.length} händelser utan verifikation. Gå igenom dem och lägg fram verifikationer, äldst först. `,
-      },
-    });
-  }
-  return { titel: BANK_TITEL, rader };
+  const riktning = ordning === "stigande" ? 1 : -1;
+  const sorterade = [...(bank ?? [])].sort((a, b) => riktning * a.date.localeCompare(b.date));
+  return { titel: BANK_TITEL, rader: [...avstamning.map(avstamningsrad), ...sorterade.map(bankrad)] };
 }
 
+/** Vyns fot, panelens ord (SPEC-flode-underlag.md §10.4). */
 export const FOT_UNDERLAG =
   "Underlag kan släppas i chatten när som helst. Agenten kopplar det till rätt verifikation och säger till om något inte stämmer.";
 
@@ -926,7 +957,8 @@ export function verifikationerVy(
   postade: Verifikationslista,
   utkast: Verifikationslista,
   underlag: VantarUnderlag = INGET_UNDERLAG,
-  manader?: Manader
+  manader?: Manader,
+  sortering: Sortering = STANDARDSORTERING
 ): VyData {
   const postningar = underlag.postningar ?? [];
   const postas = new Set(postningar.map((p) => p.draftId));
@@ -972,30 +1004,32 @@ export function verifikationerVy(
   // Postade: de optimistiska överst, sedan de nyss kopplade, sedan serverns lista.
   const postadePerId = new Map(postade.vouchers.map((v) => [v.id, v]));
   const nyss = new Set(postningar.filter((p) => p.lage === "postad").map((p) => p.draftId));
-  const optimistiska = postningar.map((p): { rad: VyRadData; datum?: string } => {
+  const optimistiska = postningar.map((p): PostadRad => {
     const v = postadePerId.get(p.draftId);
     if (p.lage === "postad" && v) {
       return {
         rad: { ...verifikationsrad(v), variant: "ny", meta: nyMeta(nummerAv(v), klockslag(v.posted_at)) },
         datum: v.date,
+        nummer: v,
       };
     }
-    const datum = (p.lage === "postad" ? p.verifikation?.date : undefined) ?? utkastPerId.get(p.draftId)?.date;
-    return { rad: postningsrad(p), datum };
+    const postad = p.lage === "postad" ? p.verifikation : undefined;
+    const datum = postad?.date ?? utkastPerId.get(p.draftId)?.date;
+    return { rad: postningsrad(p), datum, nummer: postad ?? undefined };
   });
   const nyssKopplade = kopplingar.filter((k) => k.ny && !postas.has(k.voucherId));
   const nyssKoppladeIds = new Set(nyssKopplade.map((k) => k.voucherId));
   const koppladeRader = nyssKopplade.flatMap((k) => {
     const v = postadePerId.get(k.voucherId) ?? saknarPerId.get(k.voucherId) ?? k.verifikation;
-    return v ? [{ rad: nyssKoppladRad(v, k), datum: v.date }] : [];
+    return v ? [{ rad: nyssKoppladRad(v, k), datum: v.date, nummer: v }] : [];
   });
-  const postadeMedDatum = [
+  const postadeMedDatum = sorteraPostade([
     ...optimistiska,
     ...koppladeRader,
     ...postade.vouchers
       .filter((v) => !postas.has(v.id) && !nyss.has(v.id) && !nyssKoppladeIds.has(v.id) && !iSaknar.has(v.id))
-      .map((v) => ({ rad: kopplade.has(v.id) ? koppladRad(v) : verifikationsrad(v), datum: v.date })),
-  ];
+      .map((v) => ({ rad: kopplade.has(v.id) ? koppladRad(v) : verifikationsrad(v), datum: v.date, nummer: v })),
+  ], sortering);
   const postadeRader = postadeMedDatum.map((r) => r.rad);
 
   // Utkast: bara de som inte är trådens (och inte postas just nu).
@@ -1004,14 +1038,14 @@ export function verifikationerVy(
   const sektioner: VySektionData[] = [];
   if (vantarRader.length > 0) sektioner.push({ titel: "Väntar på beslut", rader: vantarRader });
   if (saknarRader.length > 0) sektioner.push({ titel: "Saknar underlag", rader: saknarRader });
-  const bank = banksektion(underlag.bank, underlag.avstamning);
+  const bank = banksektion(underlag.bank, underlag.avstamning, sortering.ordning);
   if (bank) sektioner.push(bank);
   if (manader && manader.perioder.length > 0) {
     const aldsta = postade.vouchers.reduce<string | undefined>(
       (min, v) => (min === undefined || v.date < min ? v.date : min),
       undefined
     );
-    sektioner.push(...manadssektioner(postadeMedDatum, aldsta, manader));
+    sektioner.push(...manadssektioner(postadeMedDatum, aldsta, manader, sortering.ordning));
   } else if (postadeRader.length > 0) {
     sektioner.push({ titel: "Postade", rader: postadeRader });
   }

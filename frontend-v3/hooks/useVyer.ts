@@ -13,12 +13,15 @@ import { KOPPLINGAR_NYCKEL, type Koppling } from "@/lib/chattyta/kopplingar";
 import type { OverviewFiscalYear } from "@/lib/skal/api";
 import { betalaApi, betalaVantar, faktureringVy, lonerVy } from "@/lib/skal/betala";
 import {
+  STANDARDSORTERING,
   VERIFIKATIONER_ANTAL,
+  arStandardsortering,
   balansVy,
   bockerApi,
   nastaSida,
   resultatVy,
   slaSamman,
+  type Sortering,
   verifikationerVy,
 } from "@/lib/skal/bocker";
 import { atgarderVy, bokslutApi, bokslutNyckel, bokslutStatus } from "@/lib/skal/bokslut";
@@ -66,11 +69,16 @@ function vy<T extends unknown[]>(
  * `sokterm` filtrerar Verifikationer (`lib/skal/sok.ts`). Med en sökterm
  * hämtas årets alla postade, så att sökningen inte stannar vid de sidor
  * som hunnit skrollas fram; tills de har svarat söks de hämtade sidorna.
+ *
+ * `sortering` ordnar Postade. Annat än standardordningen (datum, senaste
+ * först) hämtar också årets alla postade och sorterar dem i klienten — en
+ * sida i taget i fel ordning vore en lista med hål.
  */
 export function useVyer(
   ar: OverviewFiscalYear | null | undefined,
   sida: Sidnyckel,
-  sokterm = ""
+  sokterm = "",
+  sortering: Sortering = STANDARDSORTERING
 ): Record<Vynyckel, VyInnehallData> {
   const id = ar?.id ?? "";
   const bocker = sida === "bocker" && !!id;
@@ -107,15 +115,16 @@ export function useVyer(
     staleTime,
   });
   const soker = sokterm.trim() !== "";
+  const helaListan = soker || !arStandardsortering(sortering);
   const allaPostade = useQuery({
     queryKey: [...VOUCHERS_NYCKEL, "skal", id, "posted", "alla"],
     queryFn: () => bockerApi.getVerifikationer(id, "posted", undefined, false),
-    enabled: bocker && soker,
+    enabled: bocker && helaListan,
     staleTime,
   });
   const postade = {
     data:
-      soker && allaPostade.data
+      helaListan && allaPostade.data
         ? allaPostade.data
         : postadeSidor.data
           ? slaSamman(postadeSidor.data.pages)
@@ -279,7 +288,7 @@ export function useVyer(
     "bocker.verifikationer":
       utanAr ??
       vy([postade, utkast, beslut, forslag, saknar, perioderFraga], (p, u, b, f, s, per) => {
-        const harFler = hasNextPage && !(soker && allaPostade.data);
+        const harFler = hasNextPage && !(helaListan && allaPostade.data);
         const v = verifikationerVy(
           ar!,
           p,
@@ -306,7 +315,8 @@ export function useVyer(
             las: lasning.period,
             idag: idag(),
             harFler,
-          }
+          },
+          sortering
         );
         return soker ? sokVy(v, sokterm) : { ...v, harFler, hamtaFler };
       }),
