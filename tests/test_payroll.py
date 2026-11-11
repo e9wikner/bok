@@ -189,9 +189,13 @@ def test_payslip_html_contains_salary_amounts(ledger_service):
     assert "50 000,00" in html
     assert "15 000,00" in html
     assert "35 000,00" in html
-    assert "15 710,00" in html
     assert "Skatteavdrag (30,0 %)" in html
     assert "Insättning på bankkonto 1234-567890" in html
+    # The payslip is the employee's document: the employer's fee and cost
+    # are not on it. The voucher books them; the payslip is still its underlag.
+    assert "15 710,00" not in html
+    assert "Arbetsgivarens underlag" not in html
+    assert "Bokföringsunderlag" not in html
 
 
 def test_book_payslip_credits_the_statements_bank_account(ledger_service):
