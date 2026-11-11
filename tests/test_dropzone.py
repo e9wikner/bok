@@ -17,7 +17,6 @@ from services.dropzone import (
     INGESTED_DIR_NAME,
     PROBLEM_DIR_NAME,
     DropzoneScanner,
-    account_code_from_folder,
     mime_type_for,
 )
 from services.intake import IntakeService
@@ -141,9 +140,9 @@ def test_file_in_dropzone_root_is_ingested_without_a_type(
 # --- 3: account statements ---------------------------------------------
 
 
-def test_csv_in_account_folder_creates_bank_input(test_db, scanner, dropzone_dir):
+def test_csv_named_after_the_account_creates_bank_input(test_db, scanner, dropzone_dir):
     _statement_account()
-    _drop(dropzone_dir, "Kontoutdrag/1930/utdrag.csv", CSV_BYTES)
+    _drop(dropzone_dir, "Kontoutdrag/1930 oktober.csv", CSV_BYTES)
 
     scanner.scan_once()
 
@@ -152,24 +151,27 @@ def test_csv_in_account_folder_creates_bank_input(test_db, scanner, dropzone_dir
     connection = BankIntegrationService().get_connection(inputs[0].bank_connection_id)
     assert connection is not None
     assert connection.account_number == "1930"
-    assert [p.name for p in _ingested_files(dropzone_dir)] == ["utdrag.csv"]
+    assert [p.name for p in _ingested_files(dropzone_dir)] == ["1930 oktober.csv"]
 
 
-def test_account_folder_label_after_the_code_is_ignored(test_db, scanner, dropzone_dir):
+@pytest.mark.parametrize(
+    "name", ["1930.csv", "1930-okt.csv", "1930_okt.csv", "1930 Företagskonto okt.csv"]
+)
+def test_account_code_separators_in_the_file_name(test_db, scanner, dropzone_dir, name):
     _statement_account()
-    _drop(dropzone_dir, "Kontoutdrag/1930 Företagskonto/utdrag.csv", CSV_BYTES)
+    _drop(dropzone_dir, f"Kontoutdrag/{name}", CSV_BYTES)
 
     scanner.scan_once()
 
-    inputs = BankInputRepository().list_by_status(status=None, limit=10, offset=0)
-    assert len(inputs) == 1
-    connection = BankIntegrationService().get_connection(inputs[0].bank_connection_id)
-    assert connection.account_number == "1930"
+    assert _problem_files(dropzone_dir) == []
+    assert (
+        len(BankInputRepository().list_by_status(status=None, limit=10, offset=0)) == 1
+    )
 
 
 def test_legacy_bank_folder_alias_is_accepted(test_db, scanner, dropzone_dir):
     _statement_account()
-    _drop(dropzone_dir, "Bank/1930-Företagskonto/utdrag.csv", CSV_BYTES)
+    _drop(dropzone_dir, "Bank/1930 utdrag.csv", CSV_BYTES)
 
     scanner.scan_once()
 
@@ -180,11 +182,11 @@ def test_legacy_bank_folder_alias_is_accepted(test_db, scanner, dropzone_dir):
 
 def test_repeated_statements_reuse_one_connection(test_db, scanner, dropzone_dir):
     _statement_account()
-    _drop(dropzone_dir, "Kontoutdrag/1930/utdrag-1.csv", CSV_BYTES)
+    _drop(dropzone_dir, "Kontoutdrag/1930 utdrag-1.csv", CSV_BYTES)
     scanner.scan_once()
     _drop(
         dropzone_dir,
-        "Kontoutdrag/1930/utdrag-2.csv",
+        "Kontoutdrag/1930 utdrag-2.csv",
         CSV_BYTES.replace(b"Kaffe", b"Lunch"),
     )
     scanner.scan_once()
@@ -203,12 +205,12 @@ def test_repeated_statements_reuse_one_connection(test_db, scanner, dropzone_dir
 def test_statement_for_missing_account_explains_how_to_fix_it(
     test_db, scanner, dropzone_dir
 ):
-    _drop(dropzone_dir, "Kontoutdrag/1630 Skattekonto/utdrag.csv", CSV_BYTES)
+    _drop(dropzone_dir, "Kontoutdrag/1630 skattekonto.csv", CSV_BYTES)
 
     result = scanner.scan_once()
 
     assert result.problems == 1
-    assert not (dropzone_dir / "Kontoutdrag/1630 Skattekonto/utdrag.csv").exists()
+    assert not (dropzone_dir / "Kontoutdrag/1630 skattekonto.csv").exists()
     note = next(
         p for p in _problem_files(dropzone_dir) if p.name.endswith(".problem.txt")
     )
@@ -219,12 +221,12 @@ def test_statement_for_missing_account_explains_how_to_fix_it(
 
 
 def test_statement_ingests_after_the_account_is_added(test_db, scanner, dropzone_dir):
-    _drop(dropzone_dir, "Kontoutdrag/1630 Skattekonto/utdrag.csv", CSV_BYTES)
+    _drop(dropzone_dir, "Kontoutdrag/1630 skattekonto.csv", CSV_BYTES)
     scanner.scan_once()
     assert BankInputRepository().list_by_status(status=None, limit=10, offset=0) == []
 
     AccountRepository.create("1630", "Skattekonto", "asset")
-    _drop(dropzone_dir, "Kontoutdrag/1630 Skattekonto/utdrag.csv", CSV_BYTES)
+    _drop(dropzone_dir, "Kontoutdrag/1630 skattekonto.csv", CSV_BYTES)
 
     scanner.scan_once()
 
@@ -234,7 +236,7 @@ def test_statement_ingests_after_the_account_is_added(test_db, scanner, dropzone
 
 def test_statement_for_revenue_account_is_rejected(test_db, scanner, dropzone_dir):
     AccountRepository.create("3010", "Försäljning tjänster", "revenue")
-    _drop(dropzone_dir, "Kontoutdrag/3010/utdrag.csv", CSV_BYTES)
+    _drop(dropzone_dir, "Kontoutdrag/3010 utdrag.csv", CSV_BYTES)
 
     scanner.scan_once()
 
@@ -246,44 +248,50 @@ def test_statement_for_revenue_account_is_rejected(test_db, scanner, dropzone_di
     assert "inte ett tillgångs- eller skuldkonto" in text
 
 
-def test_statement_without_account_folder_is_rejected(test_db, scanner, dropzone_dir):
-    _drop(dropzone_dir, "Kontoutdrag/utdrag.csv", CSV_BYTES)
-
-    scanner.scan_once()
-
-    note = next(
-        p for p in _problem_files(dropzone_dir) if p.name.endswith(".problem.txt")
-    )
-    assert "undermapp som börjar med kontokoden" in note.read_text(encoding="utf-8")
-
-
-def test_statement_folder_without_account_code_is_rejected(
+def test_statement_without_account_code_in_its_name_is_rejected(
     test_db, scanner, dropzone_dir
 ):
-    _drop(dropzone_dir, "Kontoutdrag/Företagskontot/utdrag.csv", CSV_BYTES)
+    # A recognised bank format: a headerless file would be read as
+    # Skatteverket's tax-account export and go to 1630 without a code.
+    bank_csv = "Datum;Text;Belopp\n2026-09-01;Kaffe;-45,00\n".encode("utf-8")
+    _drop(dropzone_dir, "Kontoutdrag/utdrag.csv", bank_csv)
 
     scanner.scan_once()
 
     note = next(
         p for p in _problem_files(dropzone_dir) if p.name.endswith(".problem.txt")
     )
-    assert "börjar inte med en kontokod" in note.read_text(encoding="utf-8")
+    text = note.read_text(encoding="utf-8")
+    assert "Börja filnamnet med kontokoden" in text
+    assert "statement_account_unknown" in text
 
 
-@pytest.mark.parametrize(
-    "folder,expected",
-    [
-        ("1930", "1930"),
-        ("1930 Företagskonto", "1930"),
-        ("1930-Företagskonto", "1930"),
-        ("1930_Företagskonto", "1930"),
-        ("Företagskonto", None),
-        ("19", None),
-        ("1930Företagskonto", None),
-    ],
-)
-def test_account_code_parsing(folder, expected):
-    assert account_code_from_folder(folder) == expected
+def test_skatteverket_export_goes_to_1630_without_a_code(
+    test_db, scanner, dropzone_dir
+):
+    _statement_account("1630", "Skattekonto")
+    export = "2026-09-01;Debiterad preliminärskatt;-5000;-5000\n".encode("utf-8")
+    _drop(dropzone_dir, "Kontoutdrag/Skattekonto.csv", export)
+
+    scanner.scan_once()
+
+    assert _problem_files(dropzone_dir) == []
+    inputs = BankInputRepository().list_by_status(status=None, limit=10, offset=0)
+    connection = BankIntegrationService().get_connection(inputs[0].bank_connection_id)
+    assert connection.account_number == "1630"
+
+
+def test_statement_in_a_subfolder_is_rejected(test_db, scanner, dropzone_dir):
+    _statement_account()
+    _drop(dropzone_dir, "Kontoutdrag/1930 Företagskonto/1930 okt.csv", CSV_BYTES)
+
+    scanner.scan_once()
+
+    assert BankInputRepository().list_by_status(status=None, limit=10, offset=0) == []
+    note = next(
+        p for p in _problem_files(dropzone_dir) if p.name.endswith(".problem.txt")
+    )
+    assert "inte i en undermapp" in note.read_text(encoding="utf-8")
 
 
 # --- 4: stability gate -------------------------------------------------
@@ -645,22 +653,6 @@ async def test_status_endpoint_reports_last_scan_and_counts(
 
 
 @pytest.mark.asyncio
-async def test_status_endpoint_lists_unknown_account_folders(
-    test_db, dropzone_dir, storage_dirs, monkeypatch
-):
-    from services import dropzone as dropzone_module
-
-    monkeypatch.setattr(dropzone_module, "_scanner", DropzoneScanner(quiet_seconds=0))
-    _statement_account()
-    (dropzone_dir / "Kontoutdrag" / "1930 Företagskonto").mkdir(parents=True)
-    (dropzone_dir / "Kontoutdrag" / "1630 Skattekonto").mkdir(parents=True)
-
-    status = await get_dropzone_status(actor="api")
-
-    assert status["unknown_account_folders"] == ["Kontoutdrag/1630 Skattekonto"]
-
-
-@pytest.mark.asyncio
 async def test_status_endpoint_reports_disabled_by_default(
     test_db, dropzone_dir, storage_dirs, monkeypatch
 ):
@@ -769,7 +761,7 @@ def test_mime_type_detection(filename, expected):
 def test_scanner_only_ever_moves_files(test_db, scanner, dropzone_dir):
     _drop(dropzone_dir, "Kvitton/bra.pdf")
     _drop(dropzone_dir, "Kvitton/dalig.docx", b"nope")
-    _drop(dropzone_dir, "Kontoutdrag/9999/utdrag.csv", CSV_BYTES)
+    _drop(dropzone_dir, "Kontoutdrag/9999 utdrag.csv", CSV_BYTES)
 
     scanner.scan_once()
 
@@ -778,14 +770,14 @@ def test_scanner_only_ever_moves_files(test_db, scanner, dropzone_dir):
         for p in dropzone_dir.rglob("*")
         if p.is_file() and not p.name.endswith(".problem.txt")
     )
-    assert remaining == ["bra.pdf", "dalig.docx", "utdrag.csv"]
+    assert remaining == ["9999 utdrag.csv", "bra.pdf", "dalig.docx"]
 
 
 def test_duplicate_bank_input_is_also_tidied_away(test_db, scanner, dropzone_dir):
     _statement_account()
-    _drop(dropzone_dir, "Kontoutdrag/1930/utdrag.csv", CSV_BYTES)
+    _drop(dropzone_dir, "Kontoutdrag/1930 utdrag.csv", CSV_BYTES)
     scanner.scan_once()
-    _drop(dropzone_dir, "Kontoutdrag/1930/utdrag.csv", CSV_BYTES)
+    _drop(dropzone_dir, "Kontoutdrag/1930 utdrag.csv", CSV_BYTES)
 
     result = scanner.scan_once()
 
@@ -1238,7 +1230,7 @@ def test_statements_duplicates_and_problems_start_no_pass(
     test_db, scanner, dropzone_dir, runner
 ):
     _statement_account()
-    _drop(dropzone_dir, "Kontoutdrag/1930 Företagskonto/sept.csv", CSV_BYTES)
+    _drop(dropzone_dir, "Kontoutdrag/1930 sept.csv", CSV_BYTES)
     _drop(dropzone_dir, "Kvitton/bild.heic", b"heic")
 
     scanner.scan_once()

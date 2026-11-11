@@ -27,8 +27,8 @@ import { lageFarg } from "@/lib/skal/lage";
  * Dropzonen (`bocker.dropzone`): SMB-utdelningens mappar i webben.
  *
  * Mapparna visas som i utdelningen, och mappen är hela klassningen: en fil
- * som läggs i `Kvitton/` blir ett kvitto, en i `Kontoutdrag/1930 …/` ett
- * kontoutdrag för 1930. Släpp en eller flera filer på en mapp, eller tryck på
+ * som läggs i `Kvitton/` blir ett kvitto, en i `Kontoutdrag/` ett kontoutdrag
+ * för kontot filnamnet börjar med (`1930 oktober.csv`). Släpp en eller flera filer på en mapp, eller tryck på
  * den för filväljaren (flera filer går att välja). Filerna skrivs i mappen på
  * servern i ett anrop och läses in av mappskannern vid nästa varv — samma
  * `_Inläst/` och `_Problem/` som en fil som kopierats dit i Finder. Därför
@@ -142,12 +142,7 @@ function Innehall({
             data.status.last_scan_at ? ` — senast ${tidpunkt(data.status.last_scan_at)}` : ""
           }. Filer som läggs här läses inte in förrän den går igång igen.`,
         }
-      : data.status.unknown_account_folders.length > 0
-        ? {
-            ton: "varning" as const,
-            text: `Okänd kontokod i ${data.status.unknown_account_folders.join(", ")}. Lägg upp kontot i kontoplanen eller döp om mappen.`,
-          }
-        : null;
+      : null;
   const avstangd = !data.enabled;
   const noder = mapptrad(data.targets);
   const vantetid = Math.max(data.quiet_seconds, 0) + data.scan_interval_seconds;
@@ -221,8 +216,8 @@ function Innehall({
       <div className="pt-5 text-[13px] leading-[1.55] text-bok-text-svag [text-wrap:pretty]">
         En fil som läggs här hamnar i samma mapp som om den kopierats in via utdelningen. Skannern läser in
         den när den legat orörd i {data.quiet_seconds} s, flyttar den till _Inläst/ och agenten bokför den i
-        Verifikationer. En fil som inte går att läsa hamnar i _Problem/ med en förklaring. Nya kontomappar
-        under Kontoutdrag/ skapas i utdelningen.
+        Verifikationer. En fil som inte går att läsa hamnar i _Problem/ med en förklaring. Ett kontoutdrag
+        bokförs på kontot filnamnet börjar med, till exempel 1930 oktober.csv.
       </div>
     </>
   );
@@ -263,7 +258,7 @@ function Mapp({
         <div className="flex items-center gap-[10px] border-b border-bok-linje-svagast py-[9px]">
           <MappIkon />
           <span className="bok-mono text-[14px] text-bok-text">{nod.namn}/</span>
-          <span className="bok-mono text-[11px] text-bok-meta">lägg filen i en kontomapp</span>
+          <span className="bok-mono text-[11px] text-bok-meta">lägg filen i en undermapp</span>
         </div>
       )}
       {nod.undermappar.length > 0 && (

@@ -14,7 +14,7 @@ import type { VyLage } from "@/lib/skal/vydata";
 export type MalTyp = "voucher_source" | "bank_input" | "sie4_import";
 
 export interface DropzoneMal {
-  /** Sökvägen i dropzonen, t.ex. `Kontoutdrag/1930 Företagskonto`. Målets identitet. */
+  /** Sökvägen i dropzonen, t.ex. `Kvitton`. Målets identitet. */
   folder: string;
   label: string;
   kind: MalTyp;
@@ -124,9 +124,7 @@ export function dropzoneStatus(
 
 /** Vad mappen gör med en fil, i en mening. */
 export function malBeskrivning(mal: DropzoneMal): string {
-  if (mal.kind === "bank_input") {
-    return `kontoutdrag för ${mal.account_code}${mal.account_name ? ` ${mal.account_name}` : ""}`;
-  }
+  if (mal.kind === "bank_input") return "kontoutdrag (CSV), kontokoden först i filnamnet: 1930 oktober.csv";
   if (mal.kind === "sie4_import") return "hel årsexport, bokförs direkt";
   return MAPPTYP[mal.source_type ?? ""] ?? "ingen typ, agenten avgör";
 }

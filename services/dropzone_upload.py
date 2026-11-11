@@ -31,6 +31,7 @@ from pathlib import Path
 from config import settings
 from domain.types import IntakeSourceType
 from repositories.account_repo import AccountRepository
+from services.bank_inputs import BankInputError, is_statement_account
 from services.dropzone import (
     INGESTED_DIR_NAME,
     PROBLEM_DIR_NAME,
@@ -41,10 +42,9 @@ from services.dropzone import (
     DropzoneScanner,
     _is_ignored,
     _is_sidecar,
-    _is_usable_statement_folder,
-    account_code_from_folder,
     folder_key,
     get_scanner,
+    statement_account_code,
 )
 
 logger = logging.getLogger(__name__)
@@ -121,12 +121,11 @@ def _existing_child(parent: Path, name: str) -> Path:
 def drop_targets(scanner: DropzoneScanner | None = None) -> list[DropTarget]:
     """The folders the browser may drop into.
 
-    The share's folders, in the share's layout: the five type folders and
-    ``SIE4-import`` always (created on first drop if missing), every other
-    top-level folder someone made on the share (read in without a type, the
-    agent classifies), and every ``Kontoutdrag/<konto>`` folder that exists
-    and names a usable statement account. A statement folder is not invented
-    here: which accounts get one is decided on the share, as before.
+    The share's folders, in the share's layout: the five type folders,
+    ``Kontoutdrag`` and ``SIE4-import`` always (created on first drop if
+    missing), and every other top-level folder someone made on the share (read
+    in without a type, the agent classifies). ``Kontoutdrag`` has no account
+    subfolders: a statement's file name says which account it is for.
     """
     root = (scanner or get_scanner()).root
     targets: list[DropTarget] = []
@@ -160,38 +159,10 @@ def drop_targets(scanner: DropzoneScanner | None = None) -> list[DropTarget]:
         name = unicodedata.normalize("NFC", entry.name)
         targets.append(DropTarget(folder=entry.name, label=name, kind="voucher_source"))
 
-    statement_roots: list[Path] = []
-    try:
-        statement_roots = sorted(
-            entry
-            for entry in root.iterdir()
-            if entry.is_dir()
-            and not entry.is_symlink()
-            and folder_key(entry.name) in STATEMENT_FOLDERS
-        )
-    except OSError:
-        pass
-    for statement_root in statement_roots:
-        try:
-            children = sorted(statement_root.iterdir())
-        except OSError:
-            continue
-        for child in children:
-            if not child.is_dir() or child.is_symlink() or _is_ignored(child.name):
-                continue
-            if not _is_usable_statement_folder(child.name):
-                continue
-            code = account_code_from_folder(child.name)
-            account = AccountRepository.get(code) if code else None
-            targets.append(
-                DropTarget(
-                    folder=f"{statement_root.name}/{child.name}",
-                    label=unicodedata.normalize("NFC", child.name),
-                    kind="bank_input",
-                    account_code=code,
-                    account_name=account.name if account else None,
-                )
-            )
+    statements = _existing_child(root, STATEMENT_ROOT_NAME)
+    targets.append(
+        DropTarget(folder=statements.name, label="Kontoutdrag", kind="bank_input")
+    )
 
     sie4 = _existing_child(root, SIE4_FOLDER_NAME)
     targets.append(
@@ -235,6 +206,38 @@ def _clean_filename(filename: str | None) -> str:
             + suffix
         )
     return name
+
+
+def _check_statement(name: str, content: bytes) -> None:
+    """Say at once what the scanner would otherwise put in ``_Problem/``.
+
+    The scanner decides again when it reads the file; this only spares a
+    round trip through the share for a name that cannot work.
+    """
+    if Path(name).suffix.lower() != ".csv":
+        raise DropzoneUploadError(
+            "Kontoutdrag måste vara CSV-filer.", "not_csv_statement"
+        )
+    try:
+        code = statement_account_code(name, content)
+    except BankInputError:
+        raise DropzoneUploadError(
+            'Börja filnamnet med kontokoden, till exempel "1930 oktober.csv", '
+            "så att utdraget hamnar på rätt konto.",
+            "statement_account_unknown",
+        )
+    account = AccountRepository.get(code)
+    if not account or not account.active:
+        raise DropzoneUploadError(
+            f"Konto {code} finns inte i kontoplanen, eller är inaktivt.",
+            "statement_account_missing",
+        )
+    if not is_statement_account(account):
+        raise DropzoneUploadError(
+            f"Konto {code} är inte ett tillgångs- eller skuldkonto och kan inte "
+            "ta emot kontoutdrag.",
+            "statement_account_type",
+        )
 
 
 def _free_destination(folder: Path, filename: str) -> Path:
@@ -287,6 +290,8 @@ def drop_file(
             "SIE4-import tar bara emot bokföringsexporter (.se, .si, .sie eller .sie4).",
             "not_sie4",
         )
+    if target.kind == "bank_input":
+        _check_statement(name, content)
 
     directory = root.joinpath(*target.folder.split("/"))
     directory.mkdir(parents=True, exist_ok=True)

@@ -75,7 +75,7 @@ def test_a_new_file_does_not_inherit_an_existing_sidecar(test_db, root):
 
 @pytest.mark.parametrize(
     "folder",
-    ["_Problem", "_Inläst", "../utanför", "Kontoutdrag/9999 Påhittat", "/etc"],
+    ["_Problem", "_Inläst", "../utanför", "Kontoutdrag/1930 Företagskonto", "/etc"],
 )
 def test_only_listed_folders_can_be_written(test_db, root, folder):
     with pytest.raises(DropzoneUploadError) as err:
@@ -111,6 +111,41 @@ def test_sie4_folder_takes_only_sie_files(test_db, root):
     assert err.value.code == "not_sie4"
 
 
+CSV = b"Datum;Text;Belopp\n2026-10-01;Kaffe;-45,00\n"
+
+
+def test_a_statement_named_after_its_account_is_accepted(test_db, root):
+    if not AccountRepository.exists("1930"):
+        AccountRepository.create("1930", "Företagskonto", "asset")
+
+    result = _drop("Kontoutdrag", name="1930 oktober.csv", content=CSV)
+
+    assert (root / "Kontoutdrag" / result["filename"]).exists()
+
+
+@pytest.mark.parametrize(
+    "name,code",
+    [
+        ("oktober.csv", "statement_account_unknown"),
+        ("9999 oktober.csv", "statement_account_missing"),
+        ("1930 oktober.pdf", "not_csv_statement"),
+    ],
+)
+def test_a_statement_the_scanner_would_refuse_is_refused_at_once(
+    test_db, root, name, code
+):
+    if not AccountRepository.exists("1930"):
+        AccountRepository.create("1930", "Företagskonto", "asset")
+
+    with pytest.raises(DropzoneUploadError) as err:
+        _drop("Kontoutdrag", name=name, content=CSV)
+
+    assert err.value.code == code
+    assert not (root / "Kontoutdrag").exists() or not list(
+        (root / "Kontoutdrag").iterdir()
+    )
+
+
 def test_disabled_dropzone_refuses_the_upload(test_db, root, monkeypatch):
     monkeypatch.setattr(settings, "dropzone_enabled", False)
     with pytest.raises(DropzoneUploadError) as err:
@@ -119,10 +154,7 @@ def test_disabled_dropzone_refuses_the_upload(test_db, root, monkeypatch):
 
 
 def test_targets_mirror_the_share(test_db, root):
-    if not AccountRepository.exists("1930"):
-        AccountRepository.create("1930", "Företagskonto", "asset")
     (root / "Kontoutdrag" / "1930 Företagskonto").mkdir(parents=True)
-    (root / "Kontoutdrag" / "1631 Okänt").mkdir()
     (root / "Representation").mkdir()
     (root / PROBLEM_DIR_NAME).mkdir()
     (root / ".stfolder").mkdir()
@@ -136,7 +168,7 @@ def test_targets_mirror_the_share(test_db, root):
         ("Utlägg", "voucher_source"),
         ("Övrigt", "voucher_source"),
         ("Representation", "voucher_source"),
-        ("Kontoutdrag/1930 Företagskonto", "bank_input"),
+        ("Kontoutdrag", "bank_input"),
         ("SIE4-import", "sie4_import"),
     ]
 

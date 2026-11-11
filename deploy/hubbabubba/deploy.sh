@@ -135,10 +135,10 @@ fi
 # The folder contract the scanner reads (services/dropzone.py). Creating them is
 # this repo's job, not the file server's: the names ARE the classification.
 # Folder names are matched case- and NFC/NFD-insensitively, so a folder created
-# on a Mac works too. Add more account statement folders the same way —
-# `Kontoutdrag/<account> <label>/`, no code or config change needed.
+# on a Mac works too. Statements need no per-account folder: the file name
+# starts with the account code (`Kontoutdrag/1930 oktober.csv`).
 echo "==> ensuring the dropzone folder contract in $DROPZONE"
-for folder in Kvitton Leverantörsfakturor Kundfakturor Utlägg Övrigt               "Kontoutdrag/1930 Företagskonto" SIE4-import; do
+for folder in Kvitton Leverantörsfakturor Kundfakturor Utlägg Övrigt               Kontoutdrag SIE4-import; do
   mkdir -p "$DROPZONE/$folder"
 done
 

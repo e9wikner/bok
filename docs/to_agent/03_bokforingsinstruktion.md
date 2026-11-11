@@ -462,8 +462,8 @@ preliminärskatt, ränta), bankavgifter och kundinbetalningar. Ett inköp, en
 arbetsgivardeklaration eller en momsredovisning behöver sin faktura, sitt kvitto
 eller sin deklaration; ett kontoutdrag visar bara betalningen.
 
-Kontoutdrag kommer in som CSV, i Dropzone (`Kontoutdrag/<kontokod> …/`) eller i
-tråden. Servern läser in raderna, håller en transaktion per verklig transaktion
+Kontoutdrag kommer in som CSV, i Dropzone (`Kontoutdrag/`, med kontokoden först
+i filnamnet: `1930 oktober.csv`) eller i tråden. Servern läser in raderna, håller en transaktion per verklig transaktion
 även när exporterna överlappar, och kopplar själv varje transaktion som har
 exakt en postad verifikation med samma belopp på samma konto och samma datum.
 Det gäller också en verifikation som postas efter att utdraget kom in. Be aldrig

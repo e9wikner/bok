@@ -475,7 +475,6 @@ export interface DropzoneStatus {
   pending_file_count: number;
   ingested_total: number;
   problem_file_count: number;
-  unknown_account_folders: string[];
   /** Underlag and statement transactions dated outside every fiscal year. */
   date_warnings?: {
     underlag: (IntakeDateWarning & {

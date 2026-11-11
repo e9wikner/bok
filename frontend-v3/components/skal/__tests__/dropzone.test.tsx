@@ -22,7 +22,7 @@ const oversikt = (over: Partial<DropzoneOversikt> = {}): DropzoneOversikt => ({
   max_bytes: 10 * 1024 * 1024,
   targets: [
     { folder: "Kvitton", label: "Kvitton", kind: "voucher_source", source_type: "receipt", account_code: null, account_name: null, pending_count: 0 },
-    { folder: "Kontoutdrag/1930 Företagskonto", label: "1930 Företagskonto", kind: "bank_input", source_type: null, account_code: "1930", account_name: "Företagskonto", pending_count: 0 },
+    { folder: "Kontoutdrag", label: "Kontoutdrag", kind: "bank_input", source_type: null, account_code: null, account_name: null, pending_count: 0 },
     { folder: "SIE4-import", label: "SIE4-import", kind: "sie4_import", source_type: null, account_code: null, account_name: null, pending_count: 0 },
   ],
   pending: [],
@@ -37,7 +37,6 @@ const oversikt = (over: Partial<DropzoneOversikt> = {}): DropzoneOversikt => ({
     pending_file_count: 0,
     ingested_total: 0,
     problem_file_count: 0,
-    unknown_account_folders: [],
     last_error: null,
   },
   ...over,
@@ -119,13 +118,13 @@ describe("släpp", () => {
     expect(container.querySelector("textarea")).toBeNull();
   });
 
-  it("mapparna står som i utdelningen, kontomapparna under Kontoutdrag/", async () => {
+  it("mapparna står som i utdelningen, kontoutdrag utan kontomappar", async () => {
     get.mockResolvedValue({ data: oversikt() });
     visa();
     await screen.findByTestId("dropzone-mal-Kvitton");
     expect(screen.getByText("Kvitton/")).toBeInTheDocument();
     expect(screen.getByText("Kontoutdrag/")).toBeInTheDocument();
-    expect(screen.getByText("1930 Företagskonto/")).toBeInTheDocument();
+    expect(screen.getByText(/kontokoden först i filnamnet/)).toBeInTheDocument();
     expect(screen.getByText("SIE4-import/")).toBeInTheDocument();
   });
 

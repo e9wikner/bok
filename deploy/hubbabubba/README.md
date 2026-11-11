@@ -202,8 +202,8 @@ written into that folder (`POST /api/v1/intake/dropzone/files`,
 `services/dropzone_upload.py`) and read in by the scanner like any other —
 the folder decides what each file becomes, and nothing is ingested by the
 upload itself. Any top-level folder except `_Inläst/`/`_Problem/` can be
-written, plus existing `Kontoutdrag/<konto>/` folders; new statement folders
-are still made on the share.
+written. A statement dropped on `Kontoutdrag/` is refused at once if its name
+does not start with a usable account code.
 
 ### The split with hubbabubba
 
@@ -237,16 +237,21 @@ Leverantörsfakturor/            leverantörsfaktura
 Kundfakturor/                   kundfaktura
 Utlägg/                         utlägg
 Övrigt/                         annat
-Kontoutdrag/1930 Företagskonto/ kontoutdrag för konto 1930
+Kontoutdrag/                    kontoutdrag (CSV), konto ur filnamnet
 SIE4-import/                    hel årsexport, bokförs direkt
 _Inläst/2026-09/                ← inlästa filer flyttas hit
 _Problem/                       ← avvisade filer, med .txt som förklarar
 ```
 
 Names match case- and NFC/NFD-insensitively, so a folder created on a Mac
-works. More statement folders need no code or config change — `mkdir
-"Kontoutdrag/1630 Skattekonto"`, as long as account 1630 is in the chart of
-accounts. A file in the root or an unknown folder is read without a type and
+works.
+
+`Kontoutdrag/` has no per-account subfolders. A statement's file name starts
+with the account code — `1930 oktober.csv`, `1630-2026-10.csv` — and any
+asset or liability account in the chart of accounts works with no code or
+config change. Skatteverket's tax-account export is recognised as 1630 even
+without the code. A file whose name names no usable account, or one left in a
+subfolder, goes to `_Problem/` with the reason. A file in the root or an unknown folder is read without a type and
 classified by the agent; a `.txt` is always sidecar metadata, never a document.
 
 Files are never deleted, only moved. A file still being written is left alone
@@ -262,7 +267,7 @@ curl -fsS -H "Authorization: Bearer $BOKFOERING_API_KEY" \
 ```
 
 Reports when the scan last ran, how many files are waiting, how many are in
-`_Problem/`, and any `Kontoutdrag/` folder whose account code is unknown. The
+and `_Problem/`. The
 same information is on the intake page in the web UI, which warns when the
 scanner has stopped. `deploy.sh` prints it at the end of every deploy.
 

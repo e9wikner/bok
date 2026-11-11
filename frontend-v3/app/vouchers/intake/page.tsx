@@ -605,7 +605,6 @@ function DropzoneStatusLine({
   const staleAfterMs = status.scan_interval_seconds * 3 * 1000;
   const hasStopped =
     !lastScan || checkedAt - lastScan.getTime() > staleAfterMs;
-  const unknownFolders = status.unknown_account_folders;
   // A file can go in fine and still be impossible to book: its date is in no
   // fiscal year. Say so here rather than let it go quiet.
   const dateWarnings = status.date_warnings?.underlag ?? [];
@@ -615,7 +614,6 @@ function DropzoneStatusLine({
     status.date_warnings?.bank_transactions_outside_fiscal_years ?? 0;
   const isWarning =
     hasStopped ||
-    unknownFolders.length > 0 ||
     !!status.last_error ||
     outside.length > 0 ||
     outsideTransactions > 0;
@@ -644,13 +642,6 @@ function DropzoneStatusLine({
                 ? `${status.pending_file_count} fil(er) väntar på nästa hämtning.`
                 : "Inga filer väntar."}{" "}
               {status.ingested_total} inlästa totalt.
-            </p>
-          )}
-
-          {unknownFolders.length > 0 && (
-            <p className="text-destructive">
-              Okänd kontokod i {unknownFolders.join(", ")}. Lägg upp kontot i
-              kontoplanen eller döp om mappen — kontoutdrag som läggs där avvisas.
             </p>
           )}
 

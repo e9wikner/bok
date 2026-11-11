@@ -11,7 +11,9 @@ intake services, and moves it out of the way afterwards:
       Kundfakturor/                -> source_type = customer_invoice
       Utlägg/                      -> source_type = reimbursement
       Övrigt/                      -> source_type = other
-      Kontoutdrag/1930 Företagskonto/  -> account statement for account 1930
+      Kontoutdrag/1930 oktober.csv -> account statement for account 1930: the
+                                      file name starts with the account code,
+                                      Skatteverket's export is 1630 as is
       SIE4-import/                 -> whole-year SIE4 ledger export, imported
       _Inläst/2026-09/             <- ingested files are moved here
       _Problem/                    <- rejected files, with a .txt saying why
@@ -34,12 +36,11 @@ import hashlib
 import logging
 import mimetypes
 import os
-import re
 import shutil
 import threading
 import time
 import unicodedata
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from fnmatch import fnmatch
 from pathlib import Path
@@ -47,13 +48,12 @@ from pathlib import Path
 from config import settings
 from domain.models import IntakeProcessingAttempt, IntakeSource
 from domain.types import IntakeSourceType, IntakeStatus
-from repositories.account_repo import AccountRepository
 from repositories.intake_repo import IntakeRepository
 from services.bank_inputs import (
+    ACCOUNT_REFERENCE_PREFIX,
     BankInputError,
     BankInputService,
     DuplicateBankInputError,
-    is_statement_account,
 )
 from services.intake import DuplicateIntakeSourceError, IntakeError, IntakeService
 
@@ -87,7 +87,9 @@ SOURCE_TYPE_FOLDERS = {
 }
 
 # "Kontoutdrag" covers bank, tax-account, card and payment-provider statements
-# alike. "Bank" stays accepted so an existing folder keeps working.
+# alike. "Bank" stays accepted so an existing folder keeps working. There are no
+# per-account subfolders: the file's own name says which account it is for
+# (``BankInputService.resolve_auto_reference``, the same rule as the chat).
 STATEMENT_FOLDERS = {folder_key("Kontoutdrag"), folder_key("Bank")}
 
 # A whole-year SIE4 export is the one dropzone input that writes vouchers
@@ -128,8 +130,6 @@ MIME_TYPE_BY_EXTENSION = {
     ".heic": "image/heic",
     ".heif": "image/heif",
 }
-
-ACCOUNT_FOLDER_PATTERN = re.compile(r"^(\d{3,6})(?:[\s\-_.].*)?$")
 
 
 class Sie4DropzoneError(Exception):
@@ -398,24 +398,22 @@ class DropzoneScanner:
         return DropzoneRoute(kind="voucher_source")
 
     def _statement_route(self, parts: tuple[str, ...]) -> DropzoneRoute:
-        if len(parts) < 3:
+        """A statement lies directly in ``Kontoutdrag/``.
+
+        The account is read from the file when it is ingested, not from the
+        folder, so a subfolder means nothing and is said so rather than
+        guessed at.
+        """
+        if len(parts) > 2:
             return DropzoneRoute(
                 kind="problem",
                 problem_message=(
-                    f"Kontoutdrag måste ligga i en undermapp som börjar med kontokoden. "
-                    f"Skapa till exempel {parts[0]}/1930 Företagskonto/ och lägg filen där."
+                    f"Kontoutdrag läggs direkt i {parts[0]}/, inte i en undermapp. "
+                    "Börja filnamnet med kontokoden, till exempel "
+                    f'"1930 oktober.csv", och lägg filen i {parts[0]}/.'
                 ),
             )
-        account_code = account_code_from_folder(parts[1])
-        if not account_code:
-            return DropzoneRoute(
-                kind="problem",
-                problem_message=(
-                    f'Mappen "{parts[1]}" börjar inte med en kontokod. Döp om den så att '
-                    'den inleds med kontots nummer, till exempel "1930 Företagskonto".'
-                ),
-            )
-        return DropzoneRoute(kind="bank_input", account_code=account_code)
+        return DropzoneRoute(kind="bank_input")
 
     def _sie4_route(self, path: Path) -> DropzoneRoute:
         """Only recognised SIE extensions are treated as ledger exports.
@@ -454,6 +452,9 @@ class DropzoneScanner:
 
         try:
             if route.kind == "bank_input":
+                route = replace(
+                    route, account_code=statement_account_code(filename, content)
+                )
                 self._ingest_bank_input(filename, mime_type, content, route)
             elif route.kind == "sie4_import":
                 self._ingest_sie4(filename, content)
@@ -816,33 +817,6 @@ class DropzoneScanner:
 
     # --- status --------------------------------------------------------
 
-    def unknown_account_folders(self) -> list[str]:
-        """Statement folders whose account code cannot be used.
-
-        Reported so a mistyped or unseeded folder is visible *before* forty
-        statements are dropped into it and bounce one by one.
-        """
-        unknown: list[str] = []
-        root = self.root
-        if not root.is_dir():
-            return unknown
-
-        for statement_root in sorted(root.iterdir()):
-            if not statement_root.is_dir() or statement_root.is_symlink():
-                continue
-            if folder_key(statement_root.name) not in STATEMENT_FOLDERS:
-                continue
-            for folder in sorted(statement_root.iterdir()):
-                if (
-                    not folder.is_dir()
-                    or folder.is_symlink()
-                    or _is_ignored(folder.name)
-                ):
-                    continue
-                if not _is_usable_statement_folder(folder.name):
-                    unknown.append(f"{statement_root.name}/{folder.name}")
-        return unknown
-
     def status(self) -> dict:
         """Snapshot for the status endpoint."""
         state = self._state
@@ -860,7 +834,6 @@ class DropzoneScanner:
                 self._reserved_dir(PROBLEM_DIR_NAME),
                 exclude_suffix=PROBLEM_NOTE_SUFFIX,
             ),
-            "unknown_account_folders": self.unknown_account_folders(),
             "sources_awaiting_pass": state.sources_awaiting_pass,
             "last_pass_triggered_at": (
                 state.last_pass_triggered_at.isoformat()
@@ -972,14 +945,15 @@ def _date_warnings() -> dict:
         return {"underlag": [], "bank_transactions_outside_fiscal_years": None}
 
 
-def account_code_from_folder(name: str) -> str | None:
-    """Extract the leading account code from a statement folder name.
+def statement_account_code(filename: str, content: bytes) -> str:
+    """The account a statement in ``Kontoutdrag/`` is for.
 
-    ``1930``, ``1930 Företagskonto`` and ``1930-Företagskonto`` are equivalent:
-    the leading token is the account code, the rest is a human label.
+    The leading account code of the file name (``1930 oktober.csv``), or 1630
+    for Skatteverket's tax-account export. Raises ``BankInputValidationError``
+    (``statement_account_unknown``) when neither says.
     """
-    match = ACCOUNT_FOLDER_PATTERN.match(unicodedata.normalize("NFC", name).strip())
-    return match.group(1) if match else None
+    reference = BankInputService().resolve_auto_reference(filename, content)
+    return reference.removeprefix(ACCOUNT_REFERENCE_PREFIX)
 
 
 def mime_type_for(filename: str) -> str:
@@ -1015,27 +989,33 @@ def problem_message_for(
             "Filen är större än 10 MB. Komprimera eller dela upp den och lägg "
             "tillbaka den i mappen."
         )
+    if code == "statement_account_unknown":
+        return (
+            "Filnamnet säger inte vilket konto utdraget gäller. Börja filnamnet "
+            'med kontokoden, till exempel "1930 oktober.csv", och lägg tillbaka '
+            "filen i Kontoutdrag/."
+        )
     if code == "bank_connection_not_found":
         return (
             f"Konto {route.account_code} finns inte i kontoplanen. Lägg upp kontot "
-            "i kontoplanen först, eller flytta filen till en mapp för ett konto "
-            "som finns."
+            "i kontoplanen först, eller döp om filen så att den börjar med ett "
+            "konto som finns."
         )
     if code == "unsupported_statement_account_type":
         return (
             f"Konto {route.account_code} är inte ett tillgångs- eller skuldkonto "
-            "och kan därför inte ta emot kontoutdrag. Flytta filen till en mapp "
-            "för ett bank- eller skuldkonto."
+            "och kan därför inte ta emot kontoutdrag. Döp om filen så att den "
+            "börjar med ett bank- eller skuldkonto."
         )
     if code == "inactive_bank_connection":
         return (
             f"Kontot {route.account_code} är inaktivt. Aktivera kontot i "
-            "kontoplanen, eller flytta filen till en mapp för ett aktivt konto."
+            "kontoplanen, eller döp om filen så att den börjar med ett aktivt konto."
         )
     if code in ("unsupported_bank_input_file", "unsupported_bank_input_mime_type"):
         return (
             "Kontoutdrag måste vara CSV-filer. Exportera utdraget som CSV och "
-            "lägg tillbaka det i mappen."
+            "lägg tillbaka det i Kontoutdrag/."
         )
     if code == "invalid_source_type":
         return (
@@ -1080,14 +1060,6 @@ def _read_sidecar(path: Path | None) -> str | None:
     except OSError:
         return None
     return text or None
-
-
-def _is_usable_statement_folder(name: str) -> bool:
-    code = account_code_from_folder(name)
-    if not code:
-        return False
-    account = AccountRepository.get(code)
-    return bool(account and account.active and is_statement_account(account))
 
 
 def _unique_destination(destination_dir: Path, filename: str) -> Path:
