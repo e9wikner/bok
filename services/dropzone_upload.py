@@ -20,6 +20,7 @@ view shows the share's folders as they are on disk, so what a file becomes
 is decided by where it is dropped, as on the share.
 """
 
+import hashlib
 import logging
 import os
 import unicodedata
@@ -332,6 +333,109 @@ def _file_entry(path: Path, root: Path) -> dict:
     }
 
 
+#: sha256 per archived file, keyed by path, mtime and size: the listing is
+#: polled, and the archive does not change under a file once it is there.
+_HASHES: dict[tuple[str, int, int], str] = {}
+
+
+def _sha256(path: Path) -> str | None:
+    try:
+        stat = path.stat()
+        key = (str(path), stat.st_mtime_ns, stat.st_size)
+        if key not in _HASHES:
+            if len(_HASHES) > 4 * LISTING_LIMIT:
+                _HASHES.clear()
+            _HASHES[key] = hashlib.sha256(path.read_bytes()).hexdigest()
+        return _HASHES[key]
+    except OSError:
+        return None
+
+
+def _ingested_outcome(path: Path) -> dict | None:
+    """What became of a read-in file, so the view can say it.
+
+    The archive is only a folder; the file is found in the books by its
+    sha256, the same way the scanner deduplicates it. An underlag says which
+    vouchers it supports now, or the decision it waits on (a fiscal-year card
+    for an underlag dated outside every year, the agent's abstention); a
+    statement says how many transactions it brought in. ``None`` when the
+    file is in neither (an SIE file, or one read in before the database was
+    reset).
+    """
+    from repositories.bank_input_repo import BankInputRepository
+    from repositories.decision_repo import DecisionRepository
+    from repositories.intake_repo import IntakeRepository
+    from repositories.voucher_repo import VoucherRepository
+    from services.decision_service import (
+        _INTAKE_OPEN_STATUSES,
+        _INTAKE_PREFIX,
+        _SYNTHETIC_VIEW_KEY,
+    )
+    from services.fiscal_year_proposal import FiscalYearProposalService
+
+    sha256 = _sha256(path)
+    if sha256 is None:
+        return None
+    source = IntakeRepository.get_by_sha256(sha256)
+    if source is None:
+        statement = BankInputRepository.get_by_sha256(sha256)
+        if statement is None:
+            return None
+        return {
+            "kind": "statement",
+            "status": statement.status.value,
+            "imported_count": statement.imported_count,
+            "skipped_count": statement.skipped_count,
+            "parse_error": statement.parse_error,
+        }
+
+    vouchers = []
+    for link in IntakeRepository.list_links_for_source(source.id):
+        voucher = VoucherRepository.get(link.voucher_id)
+        if voucher is not None:
+            vouchers.append(
+                {
+                    "id": voucher.id,
+                    "series": voucher.series.value,
+                    "number": voucher.number,
+                    "date": voucher.date.isoformat(),
+                }
+            )
+
+    warning = None
+    decision = None
+    if not vouchers:
+        warning = FiscalYearProposalService.source_date_warning(source.id)
+        decision_id = (warning or {}).get("decision_id")
+        if decision_id is None:
+            open_decisions = DecisionRepository.list_open_for_source(source.id)
+            if open_decisions:
+                decision_id = open_decisions[0].id
+        if decision_id is not None:
+            found = DecisionRepository.get(decision_id)
+            if found is not None and found.status == "open":
+                decision = {
+                    "id": found.id,
+                    "view_key": found.view_key,
+                    "title": found.title,
+                }
+        elif source.status.value in _INTAKE_OPEN_STATUSES:
+            decision = {
+                "id": f"{_INTAKE_PREFIX}{source.id}",
+                "view_key": _SYNTHETIC_VIEW_KEY,
+                "title": source.original_filename,
+            }
+
+    return {
+        "kind": "underlag",
+        "source_id": source.id,
+        "status": source.status.value,
+        "vouchers": vouchers,
+        "decision": decision,
+        "warning": (warning or {}).get("message"),
+    }
+
+
 def _read_note(path: Path) -> str | None:
     try:
         text = path.read_text(encoding="utf-8", errors="replace").strip()
@@ -397,7 +501,11 @@ def dropzone_overview(scanner: DropzoneScanner | None = None) -> dict:
 
     ingested_dir = scanner._reserved_dir(INGESTED_DIR_NAME)
     ingested_files = [p for p in _files_under(ingested_dir) if not _is_sidecar(p)]
-    ingested = [_file_entry(p, root) for p in _newest(ingested_files)]
+    ingested = []
+    for path in _newest(ingested_files):
+        entry = _file_entry(path, root)
+        entry["outcome"] = _ingested_outcome(path)
+        ingested.append(entry)
 
     return {
         "enabled": settings.dropzone_enabled,

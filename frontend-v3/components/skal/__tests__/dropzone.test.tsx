@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DropzoneVy } from "@/components/skal/DropzoneVy";
-import { type DropzoneOversikt, dropzoneStatus } from "@/lib/skal/dropzone";
+import { type DropzoneOversikt, dropzoneStatus, utfallText } from "@/lib/skal/dropzone";
 import { allaVyer } from "@/lib/skal/vyer";
 
 /** Dropzonen i webben: mapparna är släppytor, filen läggs i mappen på servern. */
@@ -159,5 +159,57 @@ describe("släpp", () => {
     visa();
     expect(await screen.findByText("trasig.pdf")).toBeInTheDocument();
     expect(screen.getByText(/Filen kunde inte läsas\./)).toBeInTheDocument();
+  });
+});
+
+describe("senast inlästa", () => {
+  const fil = { folder: "_Inläst/2026-11", filename: "001 - Bankgiroavgift 500kr.pdf", size_bytes: 9, modified_at: "2026-11-08T11:00:00Z" };
+  const underlag = {
+    kind: "underlag" as const,
+    source_id: "s1",
+    status: "pending",
+    vouchers: [],
+    decision: null,
+    warning: null,
+  };
+
+  it("säger vad som blev av filen", () => {
+    expect(utfallText(null).text).toBe("inläst");
+    expect(utfallText(underlag).text).toBe("agenten bokför den");
+    expect(
+      utfallText({ ...underlag, vouchers: [{ id: "v", series: "A", number: 12, date: "2026-01-01" }] })
+    ).toEqual({ text: "bokförd som A12", ton: "klar" });
+    expect(
+      utfallText({ ...underlag, decision: { id: "d", view_key: "bocker.verifikationer", title: "Skapa räkenskapsår 2026?" } })
+    ).toEqual({ text: "väntar på ditt beslut: Skapa räkenskapsår 2026?", ton: "vantar" });
+    expect(
+      utfallText({ kind: "statement", status: "processed", imported_count: 4, skipped_count: 0, parse_error: null }).text
+    ).toBe("kontoutdrag · 4 transaktioner inlästa");
+  });
+
+  it("en fil som väntar på ett beslut leder till beslutet", async () => {
+    const beslut = {
+      id: "d1",
+      view_key: "bocker.verifikationer",
+      kind: "approval",
+      status: "open",
+      title: "Skapa räkenskapsår 2026-01-01 – 2026-12-31?",
+      options: [],
+    };
+    get.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.startsWith("/api/v1/decisions")
+          ? { data: { decisions: [beslut], total: 1 } }
+          : {
+              data: oversikt({
+                ingested: [{ ...fil, outcome: { ...underlag, decision: { id: "d1", view_key: "bocker.verifikationer", title: beslut.title } } }],
+              }),
+            }
+      )
+    );
+    visa();
+
+    expect(await screen.findByText(/väntar på ditt beslut: Skapa räkenskapsår 2026-01-01/)).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "visa beslutet" })).toBeInTheDocument();
   });
 });

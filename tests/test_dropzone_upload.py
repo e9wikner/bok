@@ -4,6 +4,8 @@ An upload is written into the dropzone folder and read in by the scanner,
 exactly like a file copied in over SMB.
 """
 
+import hashlib
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -235,3 +237,65 @@ def test_endpoints(test_db, root, auth_headers):
     ]
 
     assert client.get("/api/v1/intake/dropzone").status_code == 401
+
+
+# --- what became of a read-in file ----------------------------------------
+
+
+def _read_in(root, name: str = "kvitto.pdf", content: bytes = PDF):
+    _drop("Kvitton", name=name, content=content)
+    dropzone_module.get_scanner().scan_once()
+    (entry,) = [e for e in dropzone_overview()["ingested"] if e["filename"] == name]
+    return entry
+
+
+def test_a_read_in_underlag_waiting_for_the_agent_says_so(test_db, root):
+    outcome = _read_in(root)["outcome"]
+
+    source = IntakeRepository.get_by_sha256(hashlib.sha256(PDF).hexdigest())
+    assert outcome == {
+        "kind": "underlag",
+        "source_id": source.id,
+        "status": "pending",
+        "vouchers": [],
+        "decision": None,
+        "warning": None,
+    }
+
+
+def test_a_read_in_underlag_points_at_the_fiscal_year_card(test_db, root):
+    from datetime import date
+
+    from services.agent_tools import execute_tool
+    from services.fiscal_years import FiscalYearService
+    from services.llm import LLMCapabilities
+
+    FiscalYearService().create(date(2025, 1, 1), date(2025, 12, 31), actor="test")
+    _read_in(root)
+    source = IntakeRepository().list_by_status(status=None, limit=1)[0]
+    execute_tool(
+        "foresla_rakenskapsar",
+        {"document_date": "2026-01-01", "source_ids": [source.id]},
+        actor="agent",
+        capabilities=LLMCapabilities(
+            cache_breakpoint=True,
+            pdf_document_blocks=True,
+            refusal_stop_reason=True,
+            streaming=False,
+        ),
+    )
+
+    outcome = dropzone_overview()["ingested"][0]["outcome"]
+
+    assert outcome["vouchers"] == []
+    assert outcome["decision"]["view_key"] == "bocker.verifikationer"
+    assert outcome["decision"]["title"].startswith("Skapa räkenskapsår 2026-01-01")
+    assert "Väntar på räkenskapsår" in outcome["warning"]
+
+
+def test_a_file_not_in_the_books_has_no_outcome(test_db, root):
+    month = root / INGESTED_DIR_NAME / "2026-11"
+    month.mkdir(parents=True)
+    (month / "gammal.pdf").write_bytes(b"%PDF-1.4 ur en annan databas")
+
+    assert dropzone_overview()["ingested"][0]["outcome"] is None

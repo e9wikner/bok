@@ -2,12 +2,16 @@
 
 import { useCallback, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useBeslutFokus } from "@/components/skal/BeslutFokus";
+import { useDetalj } from "@/components/skal/DetaljKontext";
+import { useBeslut } from "@/hooks/useBeslut";
 import { useDropzoneOversikt } from "@/hooks/useDropzone";
 import { VyBanner } from "@/components/skal/VyBanner";
 import { VyHeaderStatus } from "@/components/skal/VyHeaderStatus";
 import { VySektion } from "@/components/skal/VySektion";
 import {
   DROPZONE_NYCKEL,
+  type DropzoneInlast,
   type DropzoneMal,
   type DropzoneOversikt,
   type Mappnod,
@@ -20,8 +24,13 @@ import {
   mapptrad,
   storlek,
   tidpunkt,
+  utfallText,
 } from "@/lib/skal/dropzone";
 import { lageFarg } from "@/lib/skal/lage";
+import type { Vynyckel } from "@/lib/skal/vyer";
+
+/** Tråden bredvid dropzonen (`vyer.ts`): ett beslut där tas upp utan vybyte. */
+const DROPZONENS_TRAD = "bocker.verifikationer";
 
 /**
  * Dropzonen (`bocker.dropzone`): SMB-utdelningens mappar i webben.
@@ -204,12 +213,7 @@ function Innehall({
 
       <VySektion titel="Senast inlästa" antalRader={data.ingested.length} variant={variant}>
         {data.ingested.map((f) => (
-          <Rad
-            key={`${f.folder}/${f.filename}`}
-            titel={f.filename}
-            meta={`${f.folder}/ · ${tidpunkt(f.modified_at)}`}
-            hoger={storlek(f.size_bytes)}
-          />
+          <InlastRad key={`${f.folder}/${f.filename}`} fil={f} />
         ))}
       </VySektion>
 
@@ -236,7 +240,8 @@ function slapptMeta(s: Slappt, data: DropzoneOversikt, vantetid: number): string
   if (data.pending.some((p) => p.folder === s.mapp && p.filename === s.namn)) {
     return `lagd i ${s.mapp}/ · läses in inom ~${vantetid} s`;
   }
-  if (data.ingested.some((p) => p.filename === s.namn)) return `inläst från ${s.mapp}/ · agenten bokför den`;
+  const inlast = data.ingested.find((p) => p.filename === s.namn);
+  if (inlast) return `inläst från ${s.mapp}/ · ${utfallText(inlast.outcome).text}`;
   return `lagd i ${s.mapp}/`;
 }
 
@@ -362,19 +367,69 @@ function MappIkon() {
 const TON = {
   normal: "var(--bok-meta)",
   klar: "var(--bok-klart-meta)",
+  vantar: "var(--bok-vantar-meta)",
   fel: "var(--bok-fel-meta)",
 } as const;
+
+/**
+ * En inläst fil, med vad som blev av den: verifikationerna den står bakom,
+ * eller beslutet den väntar på. Ett tryck på beslutet tar upp kortet i
+ * chatten, ett tryck på verifikationen öppnar den.
+ */
+function InlastRad({ fil }: { fil: DropzoneInlast }) {
+  const utfall = fil.outcome;
+  const { text, ton } = utfallText(utfall);
+  const beslutRef = utfall?.kind === "underlag" ? utfall.decision : null;
+  const uppslag = useBeslut(beslutRef?.view_key);
+  const beslut = beslutRef ? uppslag?.get(beslutRef.id) : undefined;
+  const { valj } = useBeslutFokus();
+  const detalj = useDetalj();
+
+  const lankar: { text: string; titel: string; onTryck: () => void }[] = [];
+  if (beslut && beslut.status === "open") {
+    lankar.push({
+      text: "visa beslutet",
+      titel: "Ta upp i chatten",
+      onTryck: () => {
+        valj(beslut);
+        if (beslut.view_key !== DROPZONENS_TRAD) detalj?.oppna({ typ: "vy", key: beslut.view_key as Vynyckel });
+      },
+    });
+  }
+  if (utfall?.kind === "underlag" && detalj) {
+    for (const v of utfall.vouchers) {
+      if (v.number === null) continue;
+      lankar.push({
+        text: `öppna ${v.series}${v.number}`,
+        titel: "Öppna verifikationen",
+        onTryck: () => detalj.oppna({ typ: "ver", id: v.id }),
+      });
+    }
+  }
+
+  return (
+    <Rad
+      titel={fil.filename}
+      meta={`${text} · ${fil.folder}/ · ${tidpunkt(fil.modified_at)}`}
+      hoger={storlek(fil.size_bytes)}
+      ton={ton}
+      lankar={lankar}
+    />
+  );
+}
 
 function Rad({
   titel,
   meta,
   hoger,
   ton = "normal",
+  lankar = [],
 }: {
   titel: string;
   meta: string;
   hoger?: string;
   ton?: keyof typeof TON;
+  lankar?: { text: string; titel: string; onTryck: () => void }[];
 }) {
   return (
     <div className="-mx-2 flex items-baseline justify-between gap-[14px] rounded-md border-b border-bok-linje-svagast px-2 py-[9px]">
@@ -382,6 +437,19 @@ function Rad({
         <span className="truncate text-[14px] text-bok-text">{titel}</span>
         <span className="bok-mono text-[11px] [text-wrap:pretty]" style={{ color: TON[ton] }}>
           {meta}
+          {lankar.map((l) => (
+            <span key={l.text}>
+              {" · "}
+              <button
+                type="button"
+                title={l.titel}
+                onClick={l.onTryck}
+                className="text-bok-lank underline-offset-2 hover:text-bok-lank-hover hover:underline"
+              >
+                {l.text}
+              </button>
+            </span>
+          ))}
         </span>
       </div>
       {hoger && <span className="bok-mono shrink-0 text-[13px] tabular-nums text-bok-text-2">{hoger}</span>}

@@ -31,6 +31,34 @@ export interface DropzoneFil {
   modified_at: string;
 }
 
+/**
+ * Vad som blev av en inläst fil (`_ingested_outcome` i
+ * `services/dropzone_upload.py`). Filen hittas i böckerna på sin sha256;
+ * `null` när den inte finns där (en SIE-fil, eller inläst före en
+ * nollställning av databasen).
+ */
+export type DropzoneUtfall =
+  | {
+      kind: "underlag";
+      source_id: string;
+      status: string;
+      vouchers: { id: string; series: string; number: number | null; date: string }[];
+      decision: { id: string; view_key: string; title: string } | null;
+      warning: string | null;
+    }
+  | {
+      kind: "statement";
+      status: string;
+      imported_count: number;
+      skipped_count: number;
+      parse_error: string | null;
+    };
+
+export interface DropzoneInlast extends DropzoneFil {
+  /** Saknas från en server från före fältet. */
+  outcome?: DropzoneUtfall | null;
+}
+
 export interface DropzoneProblem extends DropzoneFil {
   reason: string | null;
 }
@@ -43,7 +71,7 @@ export interface DropzoneOversikt {
   targets: DropzoneMal[];
   pending: DropzoneFil[];
   problems: DropzoneProblem[];
-  ingested: DropzoneFil[];
+  ingested: DropzoneInlast[];
   status: DropzoneStatus;
 }
 
@@ -179,4 +207,38 @@ export function tidpunkt(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" });
+}
+
+/**
+ * En inläst fils läge, i en mening: bokförd, väntar på ett beslut, eller
+ * hos agenten. `ton` färgar raden som de andra listorna: grönt bara när det
+ * står i böckerna, gult när det väntar på människan.
+ */
+export function utfallText(utfall: DropzoneUtfall | null | undefined): {
+  text: string;
+  ton: "normal" | "klar" | "vantar" | "fel";
+} {
+  if (!utfall) return { text: "inläst", ton: "normal" };
+  if (utfall.kind === "statement") {
+    if (utfall.parse_error) return { text: `kontoutdraget kunde inte läsas: ${utfall.parse_error}`, ton: "fel" };
+    const hoppade = utfall.skipped_count > 0 ? `, ${utfall.skipped_count} fanns redan` : "";
+    return { text: `kontoutdrag · ${utfall.imported_count} transaktioner inlästa${hoppade}`, ton: "klar" };
+  }
+  if (utfall.vouchers.length > 0) {
+    const nummer = utfall.vouchers.map((v) => (v.number === null ? "utkast" : `${v.series}${v.number}`));
+    return { text: `bokförd som ${nummer.join(", ")}`, ton: "klar" };
+  }
+  if (utfall.decision) return { text: `väntar på ditt beslut: ${utfall.decision.title}`, ton: "vantar" };
+  if (utfall.warning) return { text: utfall.warning, ton: "vantar" };
+  switch (utfall.status) {
+    case "pending":
+    case "processing":
+      return { text: "agenten bokför den", ton: "normal" };
+    case "skipped":
+      return { text: "avfärdad, inte bokförd", ton: "normal" };
+    case "processed":
+      return { text: "behandlad, ingen verifikation", ton: "normal" };
+    default:
+      return { text: utfall.status, ton: "normal" };
+  }
 }
