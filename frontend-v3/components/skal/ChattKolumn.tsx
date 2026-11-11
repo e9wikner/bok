@@ -109,6 +109,23 @@ export function TradYta({
     if (el && langstNer.current) el.scrollTop = el.scrollHeight;
   }, [trad.inlagg, trad.strommande]);
 
+  // Innehåll som växer efter ritningen — ett beslutskort vars alternativ
+  // laddas, typsnitt som byts, en panel som fälls upp och först då får höjd —
+  // ska inte klippa den sista raden under fältet. Den som är längst ner
+  // stannar längst ner; den som skrollat upp lämnas i fred.
+  const innehall = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = yta.current;
+    const inre = innehall.current;
+    if (!el || !inre || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      if (langstNer.current) el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(el);
+    ro.observe(inre);
+    return () => ro.disconnect();
+  }, []);
+
   return (
     <div
       ref={yta}
@@ -132,6 +149,7 @@ export function TradYta({
       aria-label={`Tråd för ${vyTitel}`}
     >
       <div
+        ref={innehall}
         // `min-h-full` + `justify-end`: en kort tråd ligger vid fältet, en
         // lång växer uppåt och skrollar. `[&>*]:shrink-0`: ett kort med
         // `overflow-hidden` krymper annars och klipper sin sista rad — i
