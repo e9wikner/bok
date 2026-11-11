@@ -211,7 +211,7 @@ class TestSRUExportService:
                 return_value=Skatteberakning({}, [], None, "saknas", [], []),
             ),
             patch(
-                "repositories.bokslut_inputs_repo.BokslutInputsRepository.current",
+                "services.bokslut_inputs.BokslutInputsService.current",
                 return_value={},
             ),
         ):

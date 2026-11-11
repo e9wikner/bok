@@ -4,13 +4,20 @@ Varje nyckel har en typ som kontrolleras innan något skrivs. En ändring är en
 ny rad; `None` tar bort uppgiften. Både agenten och en inloggad människa får
 skriva: uppgifterna är underlag till årsredovisningen och deklarationen, inte
 räkenskapsinformation, och varje ändring står kvar med vem som gjorde den.
+
+Ett nytt räkenskapsår ärver uppgifterna i `INHERITED_KEYS` från året före (det
+som slutar dagen före årets början), och det årets medelantal anställda blir
+årets `ar.medeltal_anstallda_fg`. Arvet görs vid läsning, inte genom att
+kopiera rader när året skapas: förra årets bokslut görs oftast efter att det
+nya året lagts upp, och det som fylls i då ska följa med. En egen rad vinner
+alltid, och en egen borttagning (NULL) stoppar arvet för den nyckeln.
 """
 
 from __future__ import annotations
 
 import re
-from datetime import date
-from typing import Any, Callable, Dict, List, Mapping
+from datetime import date, timedelta
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 from domain.validation import ValidationError
 
@@ -109,11 +116,85 @@ KEYS: Dict[str, tuple[str, Callable[[Any], Any]]] = {
 }
 
 
+#: Uppgifter som brukar gälla år efter år. Det som hör till ett visst års
+#: bokslut (datum, utdelning, händelser, belopp, statslåneräntan, stämmans
+#: beslut, jämförelsetal för ett år som saknas i Bok) ärvs inte.
+INHERITED_KEYS = (
+    "ar.verksamhet",
+    "ar.ort",
+    "ar.underskrifter",
+    "ar.intygare",
+    "ar.stallda_sakerheter",
+    "ar.eventualforpliktelser",
+    "ar.flerarsoversikt",
+    "ink2s.ej_avdragsgilla_konton",
+    "ink2s.skattefria_konton",
+    "ink2s.upplysningar",
+)
+
+#: Föregående års värde för en nyckel blir årets värde för en annan.
+CARRIED_KEYS = {"ar.medeltal_anstallda": "ar.medeltal_anstallda_fg"}
+
+
+def _year_label(fiscal_year: Any) -> str:
+    start, end = fiscal_year.start_date, fiscal_year.end_date
+    if start.year == end.year:
+        return str(start.year)
+    return f"{start.year}/{str(end.year)[2:]}"
+
+
 class BokslutInputsService:
     def current(self, fiscal_year_id: str) -> Dict[str, Any]:
-        from repositories.bokslut_inputs_repo import BokslutInputsRepository
+        """Årets uppgifter, med det som ärvs från åren före."""
+        return self.resolve(fiscal_year_id)[0]
 
-        return BokslutInputsRepository.current(fiscal_year_id)
+    def resolve(
+        self, fiscal_year_id: str
+    ) -> Tuple[Dict[str, Any], Dict[str, Dict[str, str]]]:
+        """(värden, ärvda): `ärvda` säger för varje ärvd nyckel vilket år
+        värdet kommer från (`fiscal_year_id`, `label`)."""
+        from repositories.bokslut_inputs_repo import BokslutInputsRepository
+        from repositories.period_repo import PeriodRepository
+
+        years = PeriodRepository.list_fiscal_years()
+        by_end = {y.end_date: y for y in years}
+        fy: Optional[Any] = next((y for y in years if y.id == fiscal_year_id), None)
+        if fy is None:
+            return BokslutInputsRepository.current(fiscal_year_id), {}
+        chain = [fy]
+        while True:
+            prev = by_end.get(chain[-1].start_date - timedelta(days=1))
+            if prev is None or prev in chain:
+                break
+            chain.append(prev)
+
+        values: Dict[str, Any] = {}
+        source: Dict[str, Any] = {}
+        prev_year: Any = None
+        for year in reversed(chain):
+            before, before_source = values, source
+            values, source = {}, {}
+            for key in INHERITED_KEYS:
+                if key in before:
+                    values[key] = before[key]
+                    source[key] = before_source.get(key, prev_year)
+            for key, target in CARRIED_KEYS.items():
+                if key in before:
+                    values[target] = before[key]
+                    source[target] = prev_year
+            for key, value in BokslutInputsRepository.own(year.id).items():
+                source.pop(key, None)
+                if value is None:
+                    values.pop(key, None)
+                else:
+                    values[key] = value
+            prev_year = year
+
+        inherited = {
+            key: {"fiscal_year_id": y.id, "label": _year_label(y)}
+            for key, y in source.items()
+        }
+        return values, inherited
 
     def history(self, fiscal_year_id: str) -> List[Dict[str, Any]]:
         from repositories.bokslut_inputs_repo import BokslutInputsRepository
@@ -154,8 +235,15 @@ class BokslutInputsService:
                 payload={"errors": errors},
             )
 
-        current = BokslutInputsRepository.current(fiscal_year_id)
-        changed = {k: v for k, v in clean.items() if current.get(k) != v}
+        # Mot de gällande värdena, de ärvda medräknade: att spara samma värde
+        # som ärvs skriver ingenting, och att ta bort ett ärvt värde skriver en
+        # NULL-rad som stoppar arvet.
+        current = self.current(fiscal_year_id)
+        changed = {
+            k: v
+            for k, v in clean.items()
+            if current.get(k) != v and (v is not None or k in current)
+        }
         for key, value in changed.items():
             BokslutInputsRepository.append(fiscal_year_id, key, value, actor)
         if changed:
@@ -168,7 +256,7 @@ class BokslutInputsService:
                 _commit=False,
             )
         db.commit()
-        return BokslutInputsRepository.current(fiscal_year_id)
+        return self.current(fiscal_year_id)
 
 
 def schema() -> List[Dict[str, str]]:

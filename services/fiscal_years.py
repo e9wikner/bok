@@ -6,6 +6,10 @@
 periods are written in one transaction, so a failure never leaves a year
 without periods.
 
+A year created directly after another inherits from it: its SRU mappings
+are copied, and its bokslut inputs are inherited on read
+(`services/bokslut_inputs.py`).
+
 The rules (BFL 3 kap.): a fiscal year is at most eighteen months, and years
 follow one another without gap or overlap -- the opening balance of a year is
 derived from the year before it (`services/opening_balance.py`), which only
@@ -160,6 +164,16 @@ class FiscalYearService:
 
     @staticmethod
     def _create(start_date: date, end_date: date, actor: str) -> FiscalYear:
+        from repositories.sru_mapping_repo import SruMappingRepository
+
+        previous = next(
+            (
+                y
+                for y in PeriodRepository.list_fiscal_years()
+                if y.end_date == start_date - timedelta(days=1)
+            ),
+            None,
+        )
         fiscal_year = PeriodRepository.create_fiscal_year(
             start_date, end_date, _commit=False
         )
@@ -180,6 +194,12 @@ class FiscalYearService:
             )
             period_ids.append(period.id)
             current_start = period_end + timedelta(days=1)
+        # Ärvs från året före. Bokslutsuppgifterna ärvs vid läsning
+        # (services/bokslut_inputs.py); SRU-mappningen kopieras, eftersom en
+        # tom årsmappning betyder BAS-standarden (services/sru_export.py).
+        sru_copied = (
+            SruMappingRepository.copy(previous.id, fiscal_year.id) if previous else 0
+        )
         AuditRepository.log(
             entity_type="fiscal_year",
             entity_id=fiscal_year.id,
@@ -188,6 +208,8 @@ class FiscalYearService:
             payload={
                 "fiscal_year": f"{start_date} - {end_date}",
                 "periods": len(period_ids),
+                "inherited_from": previous.id if previous else None,
+                "sru_mappings_copied": sru_copied,
             },
             _commit=False,
         )

@@ -616,6 +616,14 @@ function UppgifterFlik({ b }: { b: Bokslut }) {
     return e ? e.response?.data?.detail?.details ?? "Uppgifterna kunde inte sparas." : null;
   })();
 
+  const ursprung = start();
+  /** "Från 2025" under ett fält vars värde ärvs och inte ändrats här. */
+  const arvd = (key: string, oforandrat: boolean) => {
+    const fran = b.uppgifter_arvda?.[key];
+    if (!fran || !oforandrat) return null;
+    return <span className="bok-mono text-[12px] text-bok-meta">från {fran.label}</span>;
+  };
+
   const falt = (f: Falt) => (
     <label key={f.key} className="flex flex-col gap-1 pt-3">
       <span className="text-[13px] text-bok-text-2">{f.label}</span>
@@ -645,6 +653,7 @@ function UppgifterFlik({ b }: { b: Bokslut }) {
         />
       )}
       {f.hjalp && <span className="text-[12px] text-bok-meta">{f.hjalp}</span>}
+      {arvd(f.key, varden[f.key] === ursprung[f.key])}
     </label>
   );
 
@@ -702,6 +711,7 @@ function UppgifterFlik({ b }: { b: Bokslut }) {
       >
         + Lägg till underskrift
       </button>
+      {arvd("ar.underskrifter", JSON.stringify(underskrifter) === JSON.stringify(b.uppgifter["ar.underskrifter"] ?? null))}
 
       <Rubrik>Inkomstdeklarationen</Rubrik>
       {INK2S_FALT.map(falt)}
@@ -721,6 +731,7 @@ function UppgifterFlik({ b }: { b: Bokslut }) {
         />
         Årsredovisningen har varit föremål för revision
       </label>
+      {arvd("ink2s.upplysningar", JSON.stringify(upplysningar) === JSON.stringify(b.uppgifter["ink2s.upplysningar"] ?? null))}
 
       {felText && (
         <div className="mt-[14px]">
@@ -738,7 +749,8 @@ function UppgifterFlik({ b }: { b: Bokslut }) {
         {sparat && <span className="bok-mono text-[12px] text-bok-klart-meta">sparat</span>}
       </div>
       <div className="pt-4 text-[13px] leading-[1.55] text-bok-text-svag [text-wrap:pretty]">
-        Uppgifterna bokför ingenting. Varje ändring sparas som en ny rad med vem som gjorde den. Ett tomt fält tar bort
+        Uppgifterna bokför ingenting. Varje ändring sparas som en ny rad med vem som gjorde den. Ett värde märkt
+        &quot;från&quot; ett tidigare år följer med det året tills du ändrar det här. Ett tomt fält tar bort
         uppgiften, och ett tomt beloppsfält i inkomstdeklarationen betyder att det beräknade beloppet gäller.
       </div>
     </form>

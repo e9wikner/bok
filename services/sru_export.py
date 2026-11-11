@@ -340,10 +340,10 @@ class SRUExportService:
         # Validate balance sheet
         self._validate_balance_sheet(field_balances, account_balances)
 
-        from repositories.bokslut_inputs_repo import BokslutInputsRepository
+        from services.bokslut_inputs import BokslutInputsService
 
-        upplysningar = BokslutInputsRepository.current(fiscal_year_id).get(
-            "ink2s.upplysningar", {}
+        upplysningar = (
+            BokslutInputsService().current(fiscal_year_id).get("ink2s.upplysningar", {})
         )
 
         return SRUDeclaration(

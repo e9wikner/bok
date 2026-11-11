@@ -63,6 +63,7 @@ class BokslutService:
         from services.vat_report import VatReportService
 
         fy = self._fiscal_year(fiscal_year_id)
+        uppgifter, uppgifter_arvda = BokslutInputsService().resolve(fiscal_year_id)
 
         sru = SRUExportService()
         declaration = sru.calculate_sru_fields(fiscal_year_id)
@@ -119,7 +120,8 @@ class BokslutService:
             "skatt": skatt,
             "moms": vat,
             "arsredovisning": ar,
-            "uppgifter": BokslutInputsService().current(fiscal_year_id),
+            "uppgifter": uppgifter,
+            "uppgifter_arvda": uppgifter_arvda,
             "uppgifter_schema": schema(),
             "nedladdningar": self.downloads(fiscal_year_id),
         }

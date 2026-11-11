@@ -45,8 +45,10 @@ async def get_uppgifter(fiscal_year_id: str):
     from services.bokslut_inputs import BokslutInputsService, schema
 
     service = BokslutInputsService()
+    values, inherited = service.resolve(fiscal_year_id)
     return {
-        "values": service.current(fiscal_year_id),
+        "values": values,
+        "inherited": inherited,
         "history": service.history(fiscal_year_id),
         "schema": schema(),
     }

@@ -12,7 +12,21 @@ class BokslutInputsRepository:
 
     @staticmethod
     def current(fiscal_year_id: str) -> Dict[str, Any]:
-        """The latest value per key. A key whose latest row is NULL is absent."""
+        """The year's own latest value per key. A key whose latest row is NULL
+        is absent. Nothing inherited: `BokslutInputsService.current` is what
+        the bokslut reads."""
+        return {
+            k: v
+            for k, v in BokslutInputsRepository.own(fiscal_year_id).items()
+            if v is not None
+        }
+
+    @staticmethod
+    def own(fiscal_year_id: str) -> Dict[str, Any]:
+        """The latest value per key, removals included as `None`.
+
+        `current` drops a removal; inheritance from the year before needs to
+        see it, since a removed key must not be filled from that year."""
         rows = db.execute(
             """
             SELECT b.key, b.value_json
@@ -26,9 +40,10 @@ class BokslutInputsRepository:
             (fiscal_year_id,),
         ).fetchall()
         return {
-            row["key"]: json.loads(row["value_json"])
+            row["key"]: (
+                None if row["value_json"] is None else json.loads(row["value_json"])
+            )
             for row in rows
-            if row["value_json"] is not None
         }
 
     @staticmethod

@@ -152,7 +152,6 @@ class TaxAdjustmentService:
     """Räknar fram INK2S-justeringarna för ett räkenskapsår."""
 
     def calculate(self, fiscal_year_id: str) -> Skatteberakning:
-        from repositories.bokslut_inputs_repo import BokslutInputsRepository
         from repositories.opening_balance_repo import OpeningBalanceRepository
         from repositories.period_repo import PeriodRepository
         from services.opening_balance import OpeningBalanceService
@@ -161,7 +160,9 @@ class TaxAdjustmentService:
         if not fy:
             raise ValueError(f"Fiscal year {fiscal_year_id} not found")
 
-        inputs = BokslutInputsRepository.current(fiscal_year_id)
+        from services.bokslut_inputs import BokslutInputsService
+
+        inputs = BokslutInputsService().current(fiscal_year_id)
         opening = OpeningBalanceService().balances(fiscal_year_id)
         movements = OpeningBalanceRepository.movements(fiscal_year_id)
         debit_credit = OpeningBalanceRepository.movement_sides(fiscal_year_id)

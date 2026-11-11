@@ -248,8 +248,8 @@ class Arsdata:
 
 class ArsredovisningService:
     def build(self, fiscal_year_id: str) -> Dict[str, Any]:
-        from repositories.bokslut_inputs_repo import BokslutInputsRepository
         from repositories.period_repo import PeriodRepository
+        from services.bokslut_inputs import BokslutInputsService
         from services.pdf_export import CompanyInfo
 
         fy = PeriodRepository.get_fiscal_year(fiscal_year_id)
@@ -271,8 +271,8 @@ class ArsredovisningService:
             if link is not None:
                 earlier.append(link)
 
-        inputs = BokslutInputsRepository.current(fiscal_year_id)
-        carried = BokslutInputsRepository.current(prev.id) if prev else {}
+        # Med det som ärvs från åren före (services/bokslut_inputs.py).
+        inputs = BokslutInputsService().current(fiscal_year_id)
         company = CompanyInfo.load()
 
         cur = self._year(fy.id, fy.start_date, fy.end_date)
@@ -329,8 +329,6 @@ class ArsredovisningService:
         def text(key: str, label: str, required: bool = True) -> Optional[Any]:
             if key in inputs:
                 return inputs[key]
-            if key in carried:
-                return carried[key]
             if required:
                 missing.append({"key": key, "label": label})
             return None
@@ -344,16 +342,9 @@ class ArsredovisningService:
             missing.append(
                 {"key": "ar.medeltal_anstallda", "label": "Medelantal anställda"}
             )
-        anstallda_prior = inputs.get(
-            "ar.medeltal_anstallda_fg", carried.get("ar.medeltal_anstallda")
-        )
+        anstallda_prior = inputs.get("ar.medeltal_anstallda_fg")
         underskrifter = text("ar.underskrifter", "Underskrifter (namn och roll)") or []
-        ort = (
-            inputs.get("ar.ort")
-            or carried.get("ar.ort")
-            or company.seat
-            or company.postort
-        )
+        ort = inputs.get("ar.ort") or company.seat or company.postort
         if not ort:
             missing.append({"key": "ar.ort", "label": "Ort för underskrift"})
         datum = inputs.get("ar.datum")

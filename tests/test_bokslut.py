@@ -486,3 +486,122 @@ class TestOdisponeratIArsredovisningen:
         assert not any(rad["label"] == "Utdelning" for rad in ek)
         ub = next(rad for rad in ek if rad["label"] == "Belopp vid årets utgång")
         assert ub["belopp"][2] == r["resultatrakning"]["arets_resultat"][0]
+
+
+class TestArvFranForegaendeAr:
+    """Ett nytt år ärver bokslutsuppgifterna och SRU-mappningen (fiscal_years)."""
+
+    @pytest.fixture
+    def nytt(self, ar):
+        from datetime import date
+
+        from services.fiscal_years import FiscalYearService
+
+        return (
+            FiscalYearService()
+            .create(date(2026, 1, 1), date(2026, 12, 31), actor="test")
+            .id
+        )
+
+    def test_installningar_arvs_men_inte_arets_uppgifter(self, ar, nytt):
+        from services.bokslut_inputs import BokslutInputsService
+
+        s = BokslutInputsService()
+        # Förra årets bokslut görs efter att det nya året lagts upp.
+        s.set_values(
+            ar,
+            {
+                "ar.verksamhet": "Konsultverksamhet",
+                "ar.ort": "Lund",
+                "ar.underskrifter": [{"namn": "A B", "roll": "Styrelseledamot"}],
+                "ink2s.skattefria_konton": ["8226"],
+                "ar.medeltal_anstallda": 2,
+                "ar.utdelning": 1000,
+                "ar.datum": "2026-03-01",
+            },
+            "test",
+        )
+        values, inherited = s.resolve(nytt)
+        assert values["ar.verksamhet"] == "Konsultverksamhet"
+        assert values["ar.ort"] == "Lund"
+        assert values["ink2s.skattefria_konton"] == ["8226"]
+        assert values["ar.medeltal_anstallda_fg"] == 2
+        for key in ("ar.utdelning", "ar.datum", "ar.medeltal_anstallda"):
+            assert key not in values
+        assert inherited["ar.ort"] == {"fiscal_year_id": ar, "label": "2025"}
+
+    def test_egen_rad_vinner_och_borttagning_stoppar_arvet(self, ar, nytt):
+        from repositories.bokslut_inputs_repo import BokslutInputsRepository
+        from services.bokslut_inputs import BokslutInputsService
+
+        s = BokslutInputsService()
+        s.set_values(ar, {"ar.ort": "Lund", "ar.verksamhet": "X"}, "test")
+        # Samma värde som ärvs skriver ingenting.
+        s.set_values(nytt, {"ar.ort": "Lund"}, "test")
+        assert BokslutInputsRepository.own(nytt) == {}
+
+        s.set_values(nytt, {"ar.ort": "Malmö", "ar.verksamhet": None}, "test")
+        values, inherited = s.resolve(nytt)
+        assert values["ar.ort"] == "Malmö"
+        assert "ar.verksamhet" not in values
+        assert inherited == {}
+
+    def test_arvet_gar_genom_flera_ar(self, ar, nytt):
+        from datetime import date
+
+        from services.bokslut_inputs import BokslutInputsService
+        from services.fiscal_years import FiscalYearService
+
+        tredje = (
+            FiscalYearService()
+            .create(date(2027, 1, 1), date(2027, 12, 31), actor="test")
+            .id
+        )
+        BokslutInputsService().set_values(ar, {"ar.ort": "Lund"}, "test")
+        values, inherited = BokslutInputsService().resolve(tredje)
+        assert values["ar.ort"] == "Lund"
+        assert inherited["ar.ort"]["fiscal_year_id"] == ar
+
+    def test_arsredovisningen_anvander_arvda_uppgifter(self, ar, nytt):
+        from services.arsredovisning import build_arsredovisning
+        from services.bokslut_inputs import BokslutInputsService
+
+        BokslutInputsService().set_values(
+            ar,
+            {"ar.ort": "Lund", "ar.vasentliga_handelser": "Bara 2025"},
+            "test",
+        )
+        doc = build_arsredovisning(nytt)
+        assert doc["underskrifter"]["ort"] == "Lund"
+        assert doc["forvaltningsberattelse"]["vasentliga_handelser"] is None
+
+    def test_sru_mappningen_kopieras_till_nytt_ar(self, ar, test_db):
+        from datetime import date
+
+        from services.fiscal_years import FiscalYearService
+
+        test_db.execute(
+            "INSERT INTO account_sru_mappings (id, fiscal_year_id, account_code, "
+            "sru_field) VALUES ('m1', ?, '1920', '7281')",
+            (ar,),
+        )
+        test_db.commit()
+        nytt = (
+            FiscalYearService()
+            .create(date(2026, 1, 1), date(2026, 12, 31), actor="test")
+            .id
+        )
+        rows = test_db.execute(
+            "SELECT account_code, sru_field FROM account_sru_mappings "
+            "WHERE fiscal_year_id = ?",
+            (nytt,),
+        ).fetchall()
+        assert [tuple(r) for r in rows] == [("1920", "7281")]
+
+    def test_api_visar_vad_som_arvs(self, ar, nytt, client):
+        client.post(
+            f"/api/v1/bokslut/{ar}/uppgifter", json={"values": {"ar.ort": "Lund"}}
+        )
+        got = client.get(f"/api/v1/bokslut/{nytt}/uppgifter").json()
+        assert got["values"]["ar.ort"] == "Lund"
+        assert got["inherited"]["ar.ort"]["label"] == "2025"

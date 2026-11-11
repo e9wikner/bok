@@ -196,6 +196,8 @@ export interface Bokslut {
   moms: Moms;
   arsredovisning: Arsredovisning;
   uppgifter: Uppgifter;
+  /** Uppgifter som ärvs från ett tidigare år: nyckel → året de kommer från. */
+  uppgifter_arvda?: Record<string, { fiscal_year_id: string; label: string }>;
   uppgifter_schema: { key: string; label: string }[];
   nedladdningar: Nedladdning[];
 }
