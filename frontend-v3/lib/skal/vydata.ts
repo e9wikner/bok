@@ -53,6 +53,11 @@ export interface VyRadData {
   kvitto?: { voucherId: string; nummer: string };
   /** Ett underlag agenten avstod från: länken `försök igen` (`POST /intake/{id}/retry`). */
   forsokIgen?: { sourceId: string };
+  /**
+   * Ett lönebesked vars PDF inte är underlag till verifikationen än: länken
+   * `koppla lönebesked till A-11` (`POST /payroll/payslips/{id}/attach`).
+   */
+  kopplaLonebesked?: { payslipId: string; voucherId: string; nummer: string };
   /** Ett öppet beslut: titeln är en knapp som tar upp det i chatten (`BeslutFokus`). */
   beslut?: BeslutSvar;
   /**

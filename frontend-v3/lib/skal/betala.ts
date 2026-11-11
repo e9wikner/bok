@@ -86,6 +86,10 @@ export interface Lonebesked {
   voucher_id: string | null;
   /** Det öppna kortet som bokför lönebeskedet. Valfritt: en äldre server skickar det inte. */
   pending_decision_id?: string | null;
+  /** Lönebeskedets PDF är underlag till verifikationen (migration 050). */
+  underlag_linked?: boolean;
+  /** Verifikationen lönebeskedet ännu kan kopplas till som underlag. */
+  attach_voucher?: { id: string; number: string } | null;
 }
 
 /** Månadens AGI, för månaden lönen betalades ut (`_agi_summary`). */
@@ -487,9 +491,16 @@ const FAKTURERING_VY = "betala.fakturering";
  */
 function lonebeskedRad(p: Lonebesked, manad: string, kort: BeslutSvar | undefined): VyRadData {
   const titel = p.employee_name ?? "Lönebesked";
-  const rad = { id: p.id, titel, hoger: formatBeloppHela(p.net_salary) };
+  const koppla = p.attach_voucher
+    ? { kopplaLonebesked: { payslipId: p.id, voucherId: p.attach_voucher.id, nummer: p.attach_voucher.number } }
+    : {};
+  const rad = { id: p.id, titel, hoger: formatBeloppHela(p.net_salary), ...koppla };
   if (p.voucher_id !== null) {
     return { ...rad, meta: `bokförd · utbetald ${p.payment_date}`, mal: { typ: "ver", id: p.voucher_id } };
+  }
+  if (p.attach_voucher) {
+    // Lönen är redan bokförd från kontoutdraget: lönebeskedet ska bara kopplas.
+    return { ...rad, meta: `bokförd från kontoutdraget · utbetald ${p.payment_date}`, variant: "saknar" };
   }
   if (kort) {
     return {

@@ -271,6 +271,13 @@ class PayrollService:
             actor,
             {"generated_payslips": len(created)},
         )
+        # The payslip is underlag to the salary's voucher (migration 050):
+        # stored now, so it is there when the bank statement is.
+        from services.payslip_underlag import PayslipUnderlagService
+
+        underlag = PayslipUnderlagService()
+        for payslip in created:
+            underlag.try_store(payslip.id, actor=actor)
         return self.payslips.list_for_run(run.id)
 
     def delete_payroll_run(self, payroll_run_id: str, actor: str = "system") -> None:
@@ -394,6 +401,8 @@ class PayrollService:
         bank_transaction_id: str,
         actor: str = "system",
     ) -> Payslip:
+        from services.payslip_underlag import PayslipUnderlagService
+
         self._ensure_payroll_accounts()
         checked = self.check_payslip_booking(payslip_id, bank_transaction_id)
         payslip, tx, period = (
@@ -401,6 +410,10 @@ class PayrollService:
             checked["transaction"],
             checked["period"],
         )
+        # The payslip is the voucher's underlag for gross and tax: no
+        # booking without its stored PDF.
+        underlag = PayslipUnderlagService()
+        underlag.store(payslip.id, actor=actor)
 
         ledger = LedgerService()
         voucher = ledger.create_voucher(
@@ -420,7 +433,11 @@ class PayrollService:
             account_code=SALARY_ACCOUNT,
             confidence=1.0,
         )
-        updated = self.payslips.link_booking(payslip.id, tx.id, voucher.id)
+        linked = self.payslips.link_booking(payslip.id, tx.id, voucher.id)
+        assert linked is not None
+        underlag.link(linked, voucher.id, actor)
+        updated = self.payslips.get(payslip.id)
+        assert updated is not None
         self._update_run_status_if_complete(payslip.payroll_run_id)
         self.audit.log(
             "payslip",

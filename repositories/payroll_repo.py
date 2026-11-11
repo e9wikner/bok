@@ -366,14 +366,36 @@ class PayslipRepository:
 
     @staticmethod
     def link_booking(
-        payslip_id: str, bank_transaction_id: str, voucher_id: str
+        payslip_id: str,
+        bank_transaction_id: Optional[str],
+        voucher_id: str,
+        _commit: bool = True,
     ) -> Optional[Payslip]:
         db.execute(
             "UPDATE payslips SET status = 'booked', bank_transaction_id = ?, voucher_id = ? WHERE id = ?",
             (bank_transaction_id, voucher_id, payslip_id),
         )
-        db.commit()
+        if _commit:
+            db.commit()
         return PayslipRepository.get(payslip_id)
+
+    @staticmethod
+    def store_pdf(payslip_id: str, pdf_path: str, pdf_sha256: str) -> None:
+        """Record the stored PDF. Written once (migration 050's trigger)."""
+        db.execute(
+            "UPDATE payslips SET pdf_path = ?, pdf_sha256 = ? WHERE id = ?",
+            (pdf_path, pdf_sha256, payslip_id),
+        )
+        db.commit()
+
+    @staticmethod
+    def set_intake_source(payslip_id: str, intake_source_id: str) -> None:
+        """The intake source the stored PDF became, inside the caller's
+        transaction. Written once (migration 050's trigger)."""
+        db.execute(
+            "UPDATE payslips SET intake_source_id = ? WHERE id = ?",
+            (intake_source_id, payslip_id),
+        )
 
     @staticmethod
     def _row_to_payslip(row) -> Payslip:
@@ -400,6 +422,9 @@ class PayslipRepository:
             voucher_id=row["voucher_id"],
             created_at=_dt(row["created_at"]),
             employee=employee,
+            pdf_path=row["pdf_path"],
+            pdf_sha256=row["pdf_sha256"],
+            intake_source_id=row["intake_source_id"],
         )
 
 

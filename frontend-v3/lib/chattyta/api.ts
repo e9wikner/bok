@@ -205,6 +205,18 @@ export async function forsokIgenMedUnderlag(
   return data;
 }
 
+/**
+ * `POST /payroll/payslips/{id}/attach`: lönebeskedets lagrade PDF kopplas
+ * som underlag till en bokförd verifikation, den lönen redan bokfördes på
+ * eller en som bokför den från kontoutdraget. Verifikationen ändras inte.
+ * Bara en inloggad människa (API-nyckeln får `403 human_only`).
+ */
+export async function kopplaLonebesked(payslipId: string, voucherId: string): Promise<void> {
+  await apiClient.post(`/api/v1/payroll/payslips/${encodeURIComponent(payslipId)}/attach`, {
+    voucher_id: voucherId,
+  });
+}
+
 /** `GET /intake/{id}/file` för en källa i intagskön. */
 export function underlagsfilSokvag(sourceId: string): string {
   return `/api/v1/intake/${encodeURIComponent(sourceId)}/file`;

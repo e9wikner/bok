@@ -316,6 +316,38 @@ describe("lonerVy", () => {
     expect(vy.lage).toBe("normal");
   });
 
+  it("ett lönebesked som inte är underlag än får länken som kopplar det till verifikationen", () => {
+    const vy = lonerVy({
+      payroll_runs: [
+        korning({
+          payslips: [
+            besked({
+              id: "p-bokford",
+              voucher_id: "v-11",
+              status: "booked",
+              attach_voucher: { id: "v-11", number: "A-11" },
+            }),
+            besked({ id: "p-utdrag", attach_voucher: { id: "v-12", number: "A-12" } }),
+            besked({ id: "p-klar", voucher_id: "v-13", status: "booked", underlag_linked: true }),
+          ],
+        }),
+      ],
+    });
+    const [bokford, utdrag, klar] = vy.sektioner[0].rader;
+    expect(bokford).toMatchObject({
+      meta: "bokförd · utbetald 2026-03-25",
+      mal: { typ: "ver", id: "v-11" },
+      kopplaLonebesked: { payslipId: "p-bokford", voucherId: "v-11", nummer: "A-11" },
+    });
+    expect(utdrag).toMatchObject({
+      meta: "bokförd från kontoutdraget · utbetald 2026-03-25",
+      variant: "saknar",
+      kopplaLonebesked: { payslipId: "p-utdrag", voucherId: "v-12", nummer: "A-12" },
+    });
+    expect(utdrag.fraga).toBeUndefined();
+    expect(klar.kopplaLonebesked).toBeUndefined();
+  });
+
   it("en obokad lön utan kort ber agenten, och en AGI som väntar på lönerna är neutral", () => {
     const vy = lonerVy({
       payroll_runs: [korning({ payslips: [besked({})], agi: agi({ unbooked_payslips: 1 }) })],

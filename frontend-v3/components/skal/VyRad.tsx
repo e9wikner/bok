@@ -7,7 +7,14 @@ import { KOLUMN_BREDD } from "@/components/skal/VySektion";
 import { useBeslutFokus } from "@/components/skal/BeslutFokus";
 import { useDetalj } from "@/components/skal/DetaljKontext";
 import { aldersTon } from "@/lib/chattyta/alder";
-import { BESLUT_NYCKEL, forsokIgenMedUnderlag, type BeslutSvar } from "@/lib/chattyta/api";
+import {
+  BESLUT_NYCKEL,
+  LONER_NYCKEL,
+  VOUCHERS_NYCKEL,
+  forsokIgenMedUnderlag,
+  kopplaLonebesked,
+  type BeslutSvar,
+} from "@/lib/chattyta/api";
 import { oppnaKvitto } from "@/lib/skal/bocker";
 import type { RadMal } from "@/lib/skal/detalj";
 import type { LasData } from "@/lib/skal/las";
@@ -75,6 +82,7 @@ export function VyRad({
   ageDays,
   kvitto,
   forsokIgen,
+  kopplaLonebesked: koppla,
   beslut,
   fraga,
   lankar,
@@ -103,6 +111,8 @@ export function VyRad({
   kvitto?: { voucherId: string; nummer: string };
   /** Ett underlag agenten avstod från: länken `försök igen` i metaraden. */
   forsokIgen?: { sourceId: string };
+  /** Ett lönebesked som inte är underlag än: länken `koppla lönebesked till A-11`. */
+  kopplaLonebesked?: VyRadData["kopplaLonebesked"];
   /** Ett öppet beslut: titeln tar upp det i chatten. */
   beslut?: BeslutSvar;
   /** Ingen kort ännu: `be agenten` i metaraden fyller vyns chattfält. */
@@ -196,7 +206,7 @@ export function VyRad({
             <Markerad text={titel} index={traff?.titel} />
           </span>
         )}
-        {(metaText || kvitto || forsokIgen || fraga || (lankar && detalj)) && (
+        {(metaText || kvitto || forsokIgen || koppla || fraga || (lankar && detalj)) && (
           <span
             className={`bok-mono ${storlek === "desktop" ? "text-[11px]" : "text-[12px]"}`}
             style={{ color: metaFarg(variant, ageDays) }}
@@ -204,11 +214,12 @@ export function VyRad({
             {metaText && <Markerad text={metaText} index={traff?.meta} />}
             {kvitto && <KvittoLank {...kvitto} forsta={!meta} />}
             {forsokIgen && <ForsokIgenLank {...forsokIgen} forsta={!meta && !kvitto} />}
+            {koppla && <KopplaLonebeskedLank {...koppla} forsta={!meta && !kvitto && !forsokIgen} />}
             {fraga && (
               <MetaLank
                 text="be agenten"
                 titel="Fyll i chattfältet"
-                forsta={!meta && !kvitto && !forsokIgen}
+                forsta={!meta && !kvitto && !forsokIgen && !koppla}
                 onTryck={() => fyll(fraga.viewKey, fraga.text)}
               />
             )}
@@ -218,7 +229,7 @@ export function VyRad({
                   key={`${l.text}-${i}`}
                   text={l.text}
                   titel={MAL_TITEL[l.mal.typ]}
-                  forsta={!meta && !kvitto && !forsokIgen && !fraga && i === 0}
+                  forsta={!meta && !kvitto && !forsokIgen && !koppla && !fraga && i === 0}
                   onTryck={() => detalj.oppna(l.mal)}
                 />
               ))}
@@ -376,6 +387,57 @@ function ForsokIgenLank({ sourceId, forsta }: { sourceId: string; forsta: boolea
             .then((svar) => {
               setLage(svar.pass_started ? "skickat" : "vantar");
               return queryClient.invalidateQueries({ queryKey: BESLUT_NYCKEL });
+            })
+            .catch(() => setLage("fel"));
+        }}
+        className="text-bok-lank underline-offset-2 hover:text-bok-lank-hover hover:underline disabled:no-underline disabled:opacity-70"
+      >
+        {text}
+      </button>
+    </>
+  );
+}
+
+/**
+ * `koppla lönebesked till A-11`: lönebeskedets lagrade PDF blir underlag till
+ * verifikationen (`POST /payroll/payslips/{id}/attach`). Lönerna och
+ * verifikationerna hämtas om, så raden och verifikationens underlag visar
+ * kopplingen. Ett fel säger att det inte gick, och länken går att trycka igen.
+ */
+function KopplaLonebeskedLank({
+  payslipId,
+  voucherId,
+  nummer,
+  forsta,
+}: {
+  payslipId: string;
+  voucherId: string;
+  nummer: string;
+  forsta: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const [lage, setLage] = useState<"redo" | "skickar" | "kopplad" | "fel">("redo");
+  const text = {
+    redo: `koppla lönebesked till ${nummer}`,
+    skickar: "kopplar…",
+    kopplad: `kopplat till ${nummer}`,
+    fel: "gick inte, försök igen",
+  }[lage];
+  return (
+    <>
+      {!forsta && " · "}
+      <button
+        type="button"
+        disabled={lage === "skickar" || lage === "kopplad"}
+        onClick={() => {
+          setLage("skickar");
+          kopplaLonebesked(payslipId, voucherId)
+            .then(() => {
+              setLage("kopplad");
+              return Promise.all([
+                queryClient.invalidateQueries({ queryKey: LONER_NYCKEL }),
+                queryClient.invalidateQueries({ queryKey: VOUCHERS_NYCKEL }),
+              ]);
             })
             .catch(() => setLage("fel"));
         }}

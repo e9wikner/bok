@@ -520,7 +520,13 @@ export default function PayrollPage() {
                               </td>
                               <td className="p-4">
                                 <div className="flex justify-end gap-2">
-                                  <Button variant="outline" size="sm" onClick={() => void oppnaFil(`/api/v1/export/pdf/payslip/${payslip.id}`)}>
+                                  <Button variant="outline" size="sm" onClick={() =>
+                                      void oppnaFil(
+                                        payslip.pdf_stored
+                                          ? `/api/v1/payroll/payslips/${payslip.id}/pdf`
+                                          : `/api/v1/export/pdf/payslip/${payslip.id}`
+                                      )
+                                    }>
                                     <FileText className="h-4 w-4" />
                                   </Button>
                                   <Button variant="outline" size="sm" onClick={() => markSent(payslip.id)} disabled={payslip.status !== "generated"}>

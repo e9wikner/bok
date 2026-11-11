@@ -4,6 +4,7 @@ from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from api.deps import get_current_actor, get_fiscal_year_filter, get_human_actor
@@ -19,6 +20,7 @@ from domain.validation import ValidationError
 from services.ledger_bookings import LedgerBookingService
 from services.payroll import PayrollService
 from services.payroll_proposal import PayrollProposalService
+from services.payslip_underlag import PayslipUnderlagService
 
 router = APIRouter(prefix="/api/v1/payroll", tags=["payroll"])
 
@@ -48,6 +50,10 @@ class PayrollRunRequest(BaseModel):
 
 class BookPayslipRequest(BaseModel):
     bank_transaction_id: str
+
+
+class AttachPayslipRequest(BaseModel):
+    voucher_id: str
 
 
 class BookAgiRequest(BaseModel):
@@ -145,6 +151,7 @@ async def list_payroll_runs(
     are the salaries booked outside BokAI paid in the same range."""
     service = PayrollService()
     proposals = PayrollProposalService()
+    underlag = PayslipUnderlagService()
     result = []
     runs = service.runs.list_all(
         date_from=fiscal_year.start_date if fiscal_year else None,
@@ -167,6 +174,13 @@ async def list_payroll_runs(
         for p in payload["payslips"]:
             p["pending_decision_id"] = (
                 None if p["voucher_id"] else proposals.open_card_for_payslip(p["id"])
+            )
+        # The voucher a row's payslip can still be attached to as underlag.
+        for p, payslip in zip(payload["payslips"], payslips):
+            p["attach_voucher"] = (
+                None
+                if p["underlag_linked"] or p["pending_decision_id"]
+                else _attach_voucher(underlag, payslip)
             )
         if payload["agi"] is not None:
             agi = payload["agi"]
@@ -301,6 +315,74 @@ async def book_payslip(
             payslip_id,
             request.bank_transaction_id,
             actor=actor,
+        )
+        return _payslip_to_dict(payslip)
+    except ValidationError as exc:
+        raise _validation_http(exc)
+
+
+@router.get("/payslips/{payslip_id}/pdf")
+async def get_payslip_pdf(payslip_id: str):
+    """The payslip's stored PDF, byte for byte (migration 050). Never
+    renders: `409 pdf_not_stored` with `export_url` for a payslip whose PDF
+    is not stored yet."""
+    try:
+        filename, content = PayslipUnderlagService().stored_pdf(payslip_id)
+    except ValidationError as exc:
+        if exc.code == "payslip_not_found":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Payslip not found"
+            )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": exc.message,
+                "code": exc.code,
+                "details": exc.details,
+                **exc.payload,
+            },
+        )
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@router.get("/payslips/{payslip_id}/voucher-candidates", response_model=dict)
+async def payslip_voucher_candidates(payslip_id: str):
+    """Posted vouchers the payslip can be attached to as underlag: the one
+    it booked, or for an unbooked payslip the ones that book its amounts."""
+    try:
+        vouchers = PayslipUnderlagService().voucher_candidates(payslip_id)
+    except ValidationError as exc:
+        raise _validation_http(exc)
+    return {
+        "vouchers": [
+            {
+                "id": v.id,
+                "number": f"{v.series.value}-{v.number}",
+                "date": v.date,
+                "description": v.description,
+            }
+            for v in vouchers
+        ]
+    }
+
+
+@router.post("/payslips/{payslip_id}/attach", response_model=dict)
+async def attach_payslip(
+    payslip_id: str,
+    request: AttachPayslipRequest,
+    actor: str = Depends(get_human_actor),
+):
+    """Link the payslip's PDF as underlag to a posted voucher afterwards:
+    the voucher it booked, or one that booked the salary from the bank
+    statement. Logged-in users only (JWT); the API key gets `403
+    human_only`. The voucher is not changed."""
+    try:
+        payslip = PayslipUnderlagService().attach(
+            payslip_id, request.voucher_id, actor=actor
         )
         return _payslip_to_dict(payslip)
     except ValidationError as exc:
@@ -448,7 +530,21 @@ def _payslip_to_dict(payslip: Payslip) -> dict:
         "bank_transaction_id": payslip.bank_transaction_id,
         "voucher_id": payslip.voucher_id,
         "created_at": payslip.created_at,
+        "pdf_stored": payslip.pdf_sha256 is not None,
+        "pdf_sha256": payslip.pdf_sha256,
+        "underlag_linked": PayslipUnderlagService.is_linked(payslip),
     }
+
+
+def _attach_voucher(
+    underlag: PayslipUnderlagService, payslip: Payslip
+) -> Optional[dict]:
+    """The closest voucher *payslip* can be attached to, or `None`."""
+    candidates = underlag.voucher_candidates(payslip.id)
+    if not candidates:
+        return None
+    voucher = candidates[0]
+    return {"id": voucher.id, "number": f"{voucher.series.value}-{voucher.number}"}
 
 
 def _validation_http(exc: ValidationError) -> HTTPException:

@@ -122,6 +122,7 @@ export function VyInnehall({
                   ageDays={rad.ageDays}
                   kvitto={rad.kvitto}
                   forsokIgen={rad.forsokIgen}
+                  kopplaLonebesked={rad.kopplaLonebesked}
                   beslut={rad.beslut}
                   fraga={rad.fraga}
                   lankar={rad.lankar}

@@ -311,6 +311,8 @@ export interface Payslip {
   pdf_sent_at?: string | null;
   bank_transaction_id?: string | null;
   voucher_id?: string | null;
+  /** The PDF stored when the payslip was generated (migration 050). */
+  pdf_stored?: boolean;
 }
 
 export interface PayrollRunValidation {

@@ -12,6 +12,25 @@ from repositories.account_repo import AccountRepository
 from services.ledger import LedgerService
 
 
+@pytest.fixture(autouse=True)
+def _payslip_pdf_storage(tmp_path, monkeypatch):
+    """Payslips store their PDF under the intake directory when generated
+    and when booked (migration 050): give every test its own directory, and
+    stand in for the renderer where WeasyPrint's system libraries are
+    missing (local and CI; the Docker image has them). A test that sets
+    `settings.intake_dir` itself overrides this."""
+    from services.payslip_underlag import PayslipUnderlagService
+    from services.pdf_export import WEASYPRINT_AVAILABLE
+
+    monkeypatch.setattr(settings, "intake_dir", str(tmp_path / "intake"))
+    if not WEASYPRINT_AVAILABLE:
+        monkeypatch.setattr(
+            PayslipUnderlagService,
+            "_render",
+            staticmethod(lambda payslip_id: f"%PDF-1.4 payslip {payslip_id}".encode()),
+        )
+
+
 @pytest.fixture
 def auth_headers():
     """Return bearer auth headers for protected API endpoints."""

@@ -71,6 +71,11 @@ class Payslip:
     voucher_id: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
     employee: Optional[Employee] = None
+    #: The stored PDF (migration 050), relative to the intake directory.
+    pdf_path: Optional[str] = None
+    pdf_sha256: Optional[str] = None
+    #: The intake source the stored PDF became when it was linked as underlag.
+    intake_source_id: Optional[str] = None
 
     @property
     def tax_rate_percent(self) -> float:
