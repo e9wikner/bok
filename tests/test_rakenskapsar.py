@@ -642,3 +642,24 @@ def test_the_workspace_item_carries_the_date_warning(
 
     item = next(i for i in response.json()["items"] if i["id"] == source.id)
     assert item["date_warning"]["code"] == "outside_fiscal_years"
+
+
+def test_a_card_for_a_year_that_does_not_exist_waits_in_its_threads_year(
+    year_2026, intake_dir
+):
+    """The underlag's date is in no year, so the card belongs to the year of
+    the thread it stands in -- not to no year, where no list shows it."""
+    from services.decision_service import DecisionService
+
+    source = _upload()
+    _propose(date(2027, 1, 15), [source.id])
+    (card,) = DecisionRepository.list_decisions(status="open", view_key=VOUCHERS_VIEW)
+    assert card.source_date == date(2027, 1, 15)
+
+    service = DecisionService()
+    listed, total = service.list_decisions(
+        status="open", view_key=VOUCHERS_VIEW, fiscal_year=year_2026
+    )
+    assert [d.id for d in listed] == [card.id]
+    assert total == 1
+    assert service.count_waiting(VOUCHERS_VIEW, fiscal_year=year_2026) == 1

@@ -289,11 +289,25 @@ def _decisions_in_year(
     date when the decision names one, else its thread's year. The date wins
     over the thread because threads only followed the year selector from
     2026-11-07 -- every older decision sits in the current year's thread
-    whatever year its underlag is from."""
+    whatever year its underlag is from.
+
+    A date that lies in no fiscal year at all -- the underlag a
+    `foresla_rakenskapsar` card asks a new year for -- falls back to the
+    thread too. Going by the date would put the card in no year, so it
+    would wait in no list and no count while the year it asks for does not
+    exist."""
+    from services.fiscal_years import FiscalYearService
+
     thread_years: Dict[str, Optional[str]] = {}
+    dated_in_a_year: Dict[date, bool] = {}
+
+    def has_a_year(day: date) -> bool:
+        if day not in dated_in_a_year:
+            dated_in_a_year[day] = FiscalYearService.containing(day) is not None
+        return dated_in_a_year[day]
 
     def belongs(decision: Decision) -> bool:
-        if decision.source_date is not None:
+        if decision.source_date is not None and has_a_year(decision.source_date):
             return _in_year(decision.source_date, fiscal_year)
         if decision.thread_id not in thread_years:
             thread = ThreadRepository.get(decision.thread_id)
