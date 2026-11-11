@@ -61,6 +61,8 @@ const config: Config = {
           "text-2": "var(--bok-text-2)",
           "text-dampad": "var(--bok-text-dampad)",
           "text-svag": "var(--bok-text-svag)",
+          "text-varm": "var(--bok-text-varm)",
+          platshallare: "var(--bok-platshallare)",
           meta: "var(--bok-meta)",
           linje: "var(--bok-linje)",
           "linje-svag": "var(--bok-linje-svag)",

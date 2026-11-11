@@ -59,6 +59,30 @@ describe("skalet i drift", () => {
     expect(screen.getAllByText("Balansräkning").length).toBeGreaterThan(0);
   });
 
+  it("sätter egen textfärg, så att inget ärver shadcn-temats `--foreground` (#59)", () => {
+    const { container } = renderaSkal();
+    const rot = container.firstElementChild as HTMLElement;
+    expect(rot).toHaveClass("bg-bok-app", "text-bok-text");
+  });
+
+  it("växlar mörkt läge med samma klass och sparade val som de gamla sidorna", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("darkMode", "false");
+    document.documentElement.classList.remove("dark");
+    renderaSkal();
+
+    const vaxel = await screen.findByRole("button", { name: /Mörkt läge/ });
+    expect(vaxel).toHaveAttribute("aria-pressed", "false");
+    await user.click(vaxel);
+    expect(document.documentElement).toHaveClass("dark");
+    expect(localStorage.getItem("darkMode")).toBe("true");
+    expect(screen.getByRole("button", { name: /Ljust läge/ })).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(screen.getByRole("button", { name: /Ljust läge/ }));
+    expect(document.documentElement).not.toHaveClass("dark");
+    expect(localStorage.getItem("darkMode")).toBe("false");
+  });
+
   it("renderar sidans fyra vyer i svepraden, inte bara den aktiva", () => {
     const { container } = renderaSkal();
     const vyer = container.querySelectorAll("[data-view-key]");

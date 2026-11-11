@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { TemaVaxel, type Tema } from "@/components/skal/TemaVaxel";
 import { SIDOR, type Sidnyckel } from "@/lib/skal/vyer";
 
 /**
@@ -25,12 +26,14 @@ export function SidVaeljare({
   metaPerSida,
   onValj,
   variant,
+  tema,
 }: {
   aktiv: Sidnyckel;
   /** Serverns `waiting`/`meta` per sida. Klienten räknar ingenting. */
   metaPerSida: Partial<Record<Sidnyckel, SidMeta>>;
   onValj: (sida: Sidnyckel) => void;
   variant: "desktop" | "mobil";
+  tema?: Tema;
 }) {
   const [oppen, setOppen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -128,6 +131,11 @@ export function SidVaeljare({
                 </button>
               );
             })}
+            {tema && (
+              <div className="mt-[4px] border-t border-bok-linje-svag pt-[4px]">
+                <TemaVaxel tema={tema} className="min-h-[44px] w-full" />
+              </div>
+            )}
           </div>
         </>
       )}

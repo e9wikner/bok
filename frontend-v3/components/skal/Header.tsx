@@ -3,6 +3,7 @@
 import { AgentStatus } from "@/components/skal/AgentStatus";
 import { PrickNav } from "@/components/skal/PrickNav";
 import { SidVaeljare, type SidMeta } from "@/components/skal/SidVaeljare";
+import type { Tema } from "@/components/skal/TemaVaxel";
 import type { AgentStatus as AgentStatusData } from "@/lib/skal/api";
 import type { Sida, Sidnyckel, Vy } from "@/lib/skal/vyer";
 
@@ -76,6 +77,7 @@ export function Header({
   agent,
   onValjSida,
   onValjVy,
+  tema,
 }: {
   variant: "desktop" | "mobil";
   sida: Sida;
@@ -90,6 +92,8 @@ export function Header({
   agent?: AgentStatusData;
   onValjSida: (s: Sidnyckel) => void;
   onValjVy: (index: number) => void;
+  /** Mobilen har ingen sidonavigering; växeln ligger i sidmenyn. */
+  tema?: Tema;
 }) {
   if (variant === "mobil") {
     return (
@@ -98,7 +102,7 @@ export function Header({
         style={{ position: "relative", zIndex: 6 }}
       >
         <div className="flex min-w-0 items-center gap-3">
-          <SidVaeljare aktiv={sida.key} metaPerSida={metaPerSida} onValj={onValjSida} variant="mobil" />
+          <SidVaeljare aktiv={sida.key} metaPerSida={metaPerSida} onValj={onValjSida} variant="mobil" tema={tema} />
           {/* Mobilen har inte plats för hela årsraden: väljaren visar bara
               året, och listan som öppnas bär periodläget. */}
           {arsval && arsval.alternativ.length > 0 && <ArsValjare arsval={arsval} variant="mobil" />}

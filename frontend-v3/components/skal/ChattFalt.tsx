@@ -297,7 +297,7 @@ export const ChattFalt = forwardRef<
                 laggTill(filer);
               }}
               placeholder={etikett}
-              className="min-w-0 flex-1 bg-transparent text-[15px] text-bok-text outline-none placeholder:text-[#71717a]"
+              className="min-w-0 flex-1 bg-transparent text-[15px] text-bok-text outline-none placeholder:text-bok-platshallare"
             />
             <button
               type="button"

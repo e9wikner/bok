@@ -151,6 +151,9 @@
   --bok-text-dampad: #52525b;
   --bok-text-svag: #6b7280;
   --bok-meta: #9ca3af;
+  /* Agentens motivering i beslutskort och förslag. */
+  --bok-text-varm: #78716c;
+  --bok-platshallare: #71717a;
 
   /* Linjer och kanter */
   --bok-linje: #e5e7eb;
@@ -202,6 +205,62 @@
 
   /* Vikt 500 är den tyngsta vikt som används. Ingen fet text. */
   --bok-vikt-medel: 500;
+}
+
+/* Mörkt läge för skalet: samma tokens, mörka värden. `.dark` sätts av
+ * useDarkMode (och skriptet i layout.tsx) på <html>. Gult och grönt behåller
+ * sin betydelse — bara ljusheten byts. `--bok-black` är den inverterade ytan
+ * (primärknappen) och blir därför ljus, med `--bok-yta` som text på den. */
+.dark {
+  color-scheme: dark;
+
+  --bok-app: #09090b;
+  --bok-yta: #18181b;
+  --bok-yta-svag: #1f1f23;
+  --bok-yta-falt: #1c1c20;
+  --bok-black: #f4f4f5;
+  --bok-black-hover: #d4d4d8;
+
+  --bok-text: #f4f4f5;
+  --bok-text-2: #d4d4d8;
+  --bok-text-dampad: #a1a1aa;
+  --bok-text-svag: #9ca3af;
+  --bok-meta: #7c7c86;
+  --bok-text-varm: #a8a29e;
+  --bok-platshallare: #8b8b94;
+
+  --bok-linje: #2e2e33;
+  --bok-linje-svag: #27272b;
+  --bok-linje-svagast: #232327;
+  --bok-kant: #3f3f46;
+  --bok-kant-streckad: #52525b;
+
+  --bok-lank: #6b9cf5;
+  --bok-lank-hover: #93b7f8;
+
+  --bok-vantar-yta: #2a1f0a;
+  --bok-vantar-kant: #78520f;
+  --bok-vantar-text: #fcd34d;
+  --bok-vantar-meta: #fbbf24;
+  --bok-vantar-prick: #f59e0b;
+
+  --bok-fel-yta: #2a1012;
+  --bok-fel-kant: #7f1d1d;
+  --bok-fel-rubrik: #f87171;
+  --bok-fel-text: #fecaca;
+  --bok-fel-meta: #f87171;
+
+  --bok-klart-yta: #0c2416;
+  --bok-klart-kant: #166534;
+  --bok-klart-text: #86efac;
+  --bok-klart-meta: #4ade80;
+  --bok-klart-prick: #22c55e;
+
+  --bok-bubbla: #27272a;
+
+  --bok-skugga-kort: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --bok-skugga-meny: 0 14px 36px rgba(0, 0, 0, 0.6);
+  --bok-skugga-chattlist: 0 -8px 20px rgba(0, 0, 0, 0.4);
 }
 
 @layer utilities {

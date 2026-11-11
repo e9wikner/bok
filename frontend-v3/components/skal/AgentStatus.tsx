@@ -15,9 +15,9 @@ const LAGEN: Record<
   Exclude<AgentState, "vilande">,
   { text: string; kort: string; prick: string; fg: string }
 > = {
-  arbetar: { text: "Agenten arbetar", kort: "Arbetar", prick: "#16a34a", fg: "#15803d" },
-  postar: { text: "Agenten postar", kort: "Postar", prick: "#2563d9", fg: "#1b49a3" },
-  pausad: { text: "Agenten pausad", kort: "Pausad", prick: "#dc2626", fg: "#b91c1c" },
+  arbetar: { text: "Agenten arbetar", kort: "Arbetar", prick: "var(--bok-klart-prick)", fg: "var(--bok-klart-meta)" },
+  postar: { text: "Agenten postar", kort: "Postar", prick: "var(--bok-lank)", fg: "var(--bok-lank-hover)" },
+  pausad: { text: "Agenten pausad", kort: "Pausad", prick: "var(--bok-fel-meta)", fg: "var(--bok-fel-rubrik)" },
 };
 
 /** Serverns `paused_reason` som en mening. En okänd kod visas som den är. */

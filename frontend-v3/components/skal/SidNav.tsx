@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { SidMeta } from "@/components/skal/SidVaeljare";
+import { TemaVaxel, type Tema } from "@/components/skal/TemaVaxel";
 import type { OverviewAnnatAr } from "@/lib/skal/api";
 import { SIDOR, type Sidnyckel, type ViewKey, type Vynyckel } from "@/lib/skal/vyer";
 
@@ -28,6 +29,7 @@ export function SidNav({
   andraAr = [],
   onValjVy,
   onValjAr,
+  tema,
 }: {
   aktivVy: Vynyckel;
   metaPerSida: Partial<Record<Sidnyckel, SidMeta>>;
@@ -39,6 +41,7 @@ export function SidNav({
   andraAr?: OverviewAnnatAr[];
   onValjVy: (key: Vynyckel) => void;
   onValjAr?: (id: string) => void;
+  tema?: Tema;
 }) {
   return (
     <nav
@@ -164,6 +167,7 @@ export function SidNav({
             {l.titel}
           </Link>
         ))}
+        {tema && <TemaVaxel tema={tema} />}
       </div>
     </nav>
   );

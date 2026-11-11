@@ -19,6 +19,7 @@ import { useVyer } from "@/hooks/useVyer";
 import { useVantandeBeslut } from "@/hooks/useVantandeBeslut";
 import { useLasning } from "@/hooks/useLasning";
 import { useBredSkarm } from "@/hooks/useBredSkarm";
+import { useDarkMode } from "@/hooks/useDarkMode";
 import { bokslutApi } from "@/lib/skal/bokslut";
 import { arsalternativ, arsrad, somOverviewAr } from "@/lib/skal/header";
 import { lageFarg } from "@/lib/skal/lage";
@@ -108,6 +109,7 @@ export function Skal() {
   const lagerOppet = detaljer.length > 0;
 
   const bred = useBredSkarm();
+  const tema = useDarkMode();
   // Årsväljaren. Utan val gäller översiktens år (det aktuella); ett valt år
   // som inte längre finns i listan faller tillbaka dit.
   const { data: arslista } = useQuery({
@@ -179,9 +181,12 @@ export function Skal() {
     // indragen, så chattlisten längst ner hamnade bakom den.
     // `overflow-hidden`: skalet är exakt en skärm. Allt som skrollar gör det
     // i sin egen yta, aldrig dokumentet.
+    //
+    // `text-bok-text`: allt utan egen textfärg ärver skalets, inte shadcn-
+    // temats `--foreground` (#59). Mörkt läge byter värdena på `--bok-*`.
     <BeslutFokusProvider>
     <DetaljProvider value={detalj}>
-    <div className="flex h-screen h-dvh min-h-0 flex-col overflow-hidden bg-bok-app">
+    <div className="flex h-screen h-dvh min-h-0 flex-col overflow-hidden bg-bok-app text-bok-text">
       <Header
         variant={bred ? "desktop" : "mobil"}
         sida={sida}
@@ -202,6 +207,7 @@ export function Skal() {
         agent={agent}
         onValjSida={valjSida}
         onValjVy={setVyIndex}
+        tema={tema}
       />
 
       <div className="flex min-h-0 flex-1">
@@ -214,6 +220,7 @@ export function Skal() {
           andraAr={overview?.other_years ?? []}
           onValjVy={gaTillVy}
           onValjAr={setValtArId}
+          tema={tema}
         />
       )}
       <VySvep

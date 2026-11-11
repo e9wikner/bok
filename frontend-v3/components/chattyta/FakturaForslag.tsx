@@ -95,7 +95,7 @@ export function FakturaForslag({
       {booking_rows && booking_rows.length > 0 && <Kontering rader={booking_rows} rubrik="Bokförs" />}
 
       {footnote && (
-        <p data-testid="forslag-fot" className="px-[18px] pt-[10px] text-[13px] leading-[1.55] text-[#78716c]">
+        <p data-testid="forslag-fot" className="px-[18px] pt-[10px] text-[13px] leading-[1.55] text-bok-text-varm">
           {footnote}
         </p>
       )}

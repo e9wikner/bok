@@ -2,26 +2,38 @@
 
 import { useState, useEffect } from "react";
 
+/**
+ * Mörkt eller ljust läge: klassen `.dark` på <html>, sparad i localStorage
+ * under `darkMode`. Utan sparat val följer läget systemets.
+ *
+ * Skriptet i app/layout.tsx sätter klassen före första målningen. Därför
+ * börjar läget som `null` och rör inte klassen förrän det är läst — annars
+ * tog den första effekten bort klassen och sidan blinkade ljus.
+ */
 export function useDarkMode() {
-  const [isDark, setIsDark] = useState(false);
+  const [isDark, setIsDark] = useState<boolean | null>(null);
 
   useEffect(() => {
-    const stored = localStorage.getItem("darkMode");
-    if (stored !== null) {
-      setIsDark(stored === "true");
-    } else {
-      setIsDark(window.matchMedia("(prefers-color-scheme: dark)").matches);
+    let stored: string | null = null;
+    try {
+      stored = localStorage.getItem("darkMode");
+    } catch {
+      // Blockerad lagring: följ systemet.
     }
+    setIsDark(
+      stored !== null ? stored === "true" : window.matchMedia("(prefers-color-scheme: dark)").matches
+    );
   }, []);
 
   useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
+    if (isDark === null) return;
+    document.documentElement.classList.toggle("dark", isDark);
+    try {
+      localStorage.setItem("darkMode", String(isDark));
+    } catch {
+      // Valet gäller då bara den här sidvisningen.
     }
-    localStorage.setItem("darkMode", String(isDark));
   }, [isDark]);
 
-  return { isDark, toggle: () => setIsDark((v) => !v) };
+  return { isDark: isDark ?? false, toggle: () => setIsDark((v) => !v) };
 }

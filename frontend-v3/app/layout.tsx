@@ -31,6 +31,8 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
+const TEMA_SKRIPT = `try{var s=localStorage.getItem("darkMode");if(s!==null?s==="true":matchMedia("(prefers-color-scheme: dark)").matches)document.documentElement.classList.add("dark")}catch(e){}`;
+
 export default function RootLayout({
   children,
 }: {
@@ -38,6 +40,11 @@ export default function RootLayout({
 }) {
   return (
     <html lang="sv" suppressHydrationWarning>
+      <head>
+        {/* Mörkt läge före första målningen, så att sidan inte blinkar ljus
+            innan useDarkMode har läst valet. Samma regel som hooken. */}
+        <script dangerouslySetInnerHTML={{ __html: TEMA_SKRIPT }} />
+      </head>
       <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}>
         <Providers>
           <AuthGuard>

@@ -685,14 +685,14 @@ function UppgifterFlik({ b }: { b: Bokslut }) {
             placeholder="Namn"
             value={u.namn}
             onChange={(e) => setUnderskrifter(underskrifter.map((x, j) => (j === i ? { ...x, namn: e.target.value } : x)))}
-            className="min-w-0 flex-1 rounded-md border border-bok-linje bg-bok-yta px-3 py-[7px] text-[14px] focus:border-bok-lank focus:outline-none"
+            className="min-w-0 flex-1 rounded-md border border-bok-linje bg-bok-yta px-3 py-[7px] text-[14px] text-bok-text placeholder:text-bok-meta focus:border-bok-lank focus:outline-none"
           />
           <input
             aria-label="Roll"
             placeholder="Roll"
             value={u.roll}
             onChange={(e) => setUnderskrifter(underskrifter.map((x, j) => (j === i ? { ...x, roll: e.target.value } : x)))}
-            className="min-w-0 flex-1 rounded-md border border-bok-linje bg-bok-yta px-3 py-[7px] text-[14px] focus:border-bok-lank focus:outline-none"
+            className="min-w-0 flex-1 rounded-md border border-bok-linje bg-bok-yta px-3 py-[7px] text-[14px] text-bok-text placeholder:text-bok-meta focus:border-bok-lank focus:outline-none"
           />
           <button
             type="button"
@@ -742,7 +742,7 @@ function UppgifterFlik({ b }: { b: Bokslut }) {
         <button
           type="submit"
           disabled={spara.isPending}
-          className="rounded-md bg-bok-black px-4 py-[8px] text-[14px] text-white hover:bg-bok-black-hover disabled:opacity-60"
+          className="rounded-md bg-bok-black px-4 py-[8px] text-[14px] text-bok-yta hover:bg-bok-black-hover disabled:opacity-60"
         >
           {spara.isPending ? "Sparar…" : "Spara uppgifterna"}
         </button>

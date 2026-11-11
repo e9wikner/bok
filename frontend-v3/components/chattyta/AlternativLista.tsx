@@ -252,8 +252,8 @@ function AlternativRad({
           )}
           {alt.recommended && <RekMarke />}
         </span>
-        {/* Motivering 14/1.5 #78716c (ingen token; samma som förslagets fot). */}
-        <span className="text-[14px] leading-[1.5] text-[#78716c]">{alt.rationale}</span>
+        {/* Motivering 14/1.5 --bok-text-varm (samma som förslagets fot). */}
+        <span className="text-[14px] leading-[1.5] text-bok-text-varm">{alt.rationale}</span>
       </span>
 
       {alt.amount_ore !== null && (

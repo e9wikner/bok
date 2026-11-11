@@ -271,7 +271,7 @@ function Kort({ beslut, onStang, onSvara }: { beslut: BeslutSvar; onStang: () =>
             </span>
           )}
         </div>
-        <p className="m-0 whitespace-pre-line text-[14px] leading-[1.55] text-[#78716c]">{beslut.reason}</p>
+        <p className="m-0 whitespace-pre-line text-[14px] leading-[1.55] text-bok-text-varm">{beslut.reason}</p>
       </div>
 
       <p className="bok-mono m-0 text-[12px] text-bok-text-dampad">{beslut.consequence}</p>

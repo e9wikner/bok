@@ -55,11 +55,11 @@ export function VerifikationsForslag({
 
       <Kontering rader={rows} />
 
-      {/* Fot 13/1.55 #78716c: underlag och flaggor. Utgår när servern inte skickar någon. */}
+      {/* Fot 13/1.55 --bok-text-varm: underlag och flaggor. Utgår när servern inte skickar någon. */}
       {footnote && (
         <p
           data-testid="forslag-fot"
-          className="px-[18px] pt-[10px] text-[13px] leading-[1.55] text-[#78716c]"
+          className="px-[18px] pt-[10px] text-[13px] leading-[1.55] text-bok-text-varm"
         >
           {footnote}
         </p>

@@ -178,8 +178,8 @@ export function BeslutKort({
             </span>
           )}
         </div>
-        {/* Förklaring 14/1.55 #78716c (ingen token; samma som förslagets fot). */}
-        <p className="m-0 text-[14px] leading-[1.55] text-[#78716c]">{reason}</p>
+        {/* Förklaring 14/1.55 --bok-text-varm (samma som förslagets fot). */}
+        <p className="m-0 text-[14px] leading-[1.55] text-bok-text-varm">{reason}</p>
       </div>
 
       {/*
