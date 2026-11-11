@@ -30,8 +30,8 @@ describe("kartan (testfall 1)", () => {
     expect(SIDOR.map((s) => s.key)).toEqual(["bocker", "betala", "bokslut"]);
   });
 
-  it("fördelar vyerna 4 / 2 / 6: Bokslut har en vy per bokslutsdel, Böcker har dropzonen", () => {
-    expect(SIDOR.map((s) => s.vyer.length)).toEqual([4, 2, 6]);
+  it("fördelar vyerna 4 / 3 / 6: Bokslut har en vy per bokslutsdel, Böcker har dropzonen, Betala Anställda", () => {
+    expect(SIDOR.map((s) => s.vyer.length)).toEqual([4, 3, 6]);
   });
 
   it("bär designens sidtitlar ordagrant", () => {

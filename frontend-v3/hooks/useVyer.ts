@@ -24,6 +24,7 @@ import {
 import { atgarderVy, bokslutApi, bokslutNyckel, bokslutStatus } from "@/lib/skal/bokslut";
 import { lasApi } from "@/lib/skal/las";
 import { dropzoneStatus } from "@/lib/skal/dropzone";
+import { ANSTALLDA_NYCKEL, anstalldaApi, anstalldaStatus } from "@/lib/skal/anstallda";
 import { sokVy } from "@/lib/skal/sok";
 import { FEL_VY, INGET_AR_VY, LADDAR_VY, type VyData } from "@/lib/skal/vydata";
 import type { Sidnyckel, Vynyckel } from "@/lib/skal/vyer";
@@ -128,6 +129,14 @@ export function useVyer(
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
   // Dropzonen gäller inget år; frågan går när Böcker visas.
   const dropzone = useDropzoneOversikt(sida === "bocker");
+  // De anställda gäller inget år; frågan går när Betala visas. Samma
+  // nyckel som `AnstalldaVy`, så att det är en fråga.
+  const anstallda = useQuery({
+    queryKey: ANSTALLDA_NYCKEL,
+    queryFn: anstalldaApi.lista,
+    enabled: sida === "betala",
+    staleTime: 30 * 1000,
+  });
   const saknar = useQuery({
     queryKey: [...VOUCHERS_NYCKEL, "skal", id, "saknar"],
     queryFn: () => bockerApi.getSaknarUnderlag(id),
@@ -320,6 +329,17 @@ export function useVyer(
         ...LADDAR_VY,
         ...(() => {
           const st = dropzoneStatus(dropzone.data, dropzone.isError, dropzone.dataUpdatedAt);
+          return { status: st.text, lage: st.lage };
+        })(),
+      },
+      laddar: false,
+    },
+    // Anställda har sin egen komponent (`AnstalldaVy`); här bara statusraden.
+    "betala.anstallda": {
+      data: {
+        ...LADDAR_VY,
+        ...(() => {
+          const st = anstalldaStatus(anstallda.data, anstallda.isError);
           return { status: st.text, lage: st.lage };
         })(),
       },

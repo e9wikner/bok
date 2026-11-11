@@ -3,6 +3,7 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
+import { AnstalldaVy } from "@/components/skal/AnstalldaVy";
 import { BeslutFokusProvider } from "@/components/skal/BeslutFokus";
 import { BokslutVy } from "@/components/skal/BokslutVy";
 import { ChattBubbla } from "@/components/skal/ChattBubbla";
@@ -248,6 +249,8 @@ export function Skal() {
             />
           ) : vy.key === "bocker.dropzone" ? (
             <DropzoneVy titel={vy.titel} variant={variant} />
+          ) : vy.key === "betala.anstallda" ? (
+            <AnstalldaVy titel={vy.titel} variant={variant} onGaTill={gaTillVy} />
           ) : null;
           if (bred) {
             // Vyn äger ytan bredvid sidonavigeringen; chatten är en bubbla

@@ -666,7 +666,7 @@ export function lonerVy(lista: Lonekorningar, extra?: LonerExtra): VyData {
         ? "Nettolön per lönebesked"
         : `${antal} · nettolön`,
     sektioner,
-    fot: "Be agenten bokföra lönen eller arbetsgivardeklarationen, så lägger den fram ett kort. Du bokför med ett tryck i kortet.",
+    fot: "Lönerna ställs in och månadens lönebesked skapas under Anställda. Be agenten bokföra lönen eller arbetsgivardeklarationen, så lägger den fram ett kort. Du bokför med ett tryck i kortet.",
   };
 }
 

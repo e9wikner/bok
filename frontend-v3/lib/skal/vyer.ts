@@ -38,8 +38,15 @@ export type BokslutDel = "bokslut.ink2" | "bokslut.moms" | "bokslut.arsredovisni
  */
 export type Dropzonevy = "bocker.dropzone";
 
-/** En vy i navigeringen: en trådvy, en bokslutsdel eller dropzonen. */
-export type Vynyckel = ViewKey | BokslutDel | Dropzonevy;
+/**
+ * Anställda: där lönerna ställs in (anställda, lön, skatt, avgift) och
+ * månadens lönebesked skapas. Ingen egen tråd — den chattar i Löners, där
+ * lönebeskeden bokförs. Servern känner inte nyckeln.
+ */
+export type Anstalldavy = "betala.anstallda";
+
+/** En vy i navigeringen: en trådvy, en bokslutsdel, dropzonen eller Anställda. */
+export type Vynyckel = ViewKey | BokslutDel | Dropzonevy | Anstalldavy;
 
 export interface Vy {
   readonly key: Vynyckel;
@@ -104,6 +111,14 @@ export const SIDOR: readonly Sida[] = Object.freeze([
         lasvy: false,
       },
       { key: "betala.loner", trad: "betala.loner", slug: "loner", titel: "Löner", sida: "betala", lasvy: false },
+      {
+        key: "betala.anstallda",
+        trad: "betala.loner",
+        slug: "anstallda",
+        titel: "Anställda",
+        sida: "betala",
+        lasvy: false,
+      },
     ] as const),
   }),
   Object.freeze({
