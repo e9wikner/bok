@@ -38,3 +38,28 @@ describe("desktopens chatt är en bubbla", () => {
     expect(screen.getByRole("button", { name: /3 väntar på beslut/ })).toBeInTheDocument();
   });
 });
+
+describe("klick utanför stänger chatten", () => {
+  it("ett klick i vyn stänger panelen, ett klick i panelen gör det inte", () => {
+    render(
+      <>
+        <p>Vyn</p>
+        <ChattBubbla vyTitel="Rapporter" viewKey="bokslut.rapporter" vantandeBeslut={0} />
+      </>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Öppna chatten/ }));
+    fireEvent.pointerDown(screen.getByLabelText(/Fråga om en post i rapporter/i));
+    expect(screen.getByRole("dialog")).toBeVisible();
+    fireEvent.pointerDown(screen.getByText("Vyn"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("bubblan räknas inte som utanför: den stänger med ett klick, öppnar inte igen", () => {
+    render(<ChattBubbla vyTitel="Rapporter" viewKey="bokslut.rapporter" vantandeBeslut={0} />);
+    fireEvent.click(screen.getByRole("button", { name: /Öppna chatten/ }));
+    const bubbla = screen.getAllByRole("button", { name: "Stäng chatten" }).at(-1)!;
+    fireEvent.pointerDown(bubbla);
+    fireEvent.click(bubbla);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+});

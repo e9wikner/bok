@@ -13,11 +13,12 @@ import { ChattKolumn } from "@/components/skal/ChattKolumn";
  * den behövs.
  *
  * - Desktop: en panel ovanför bubblan. Den är inte modal: vyn bakom går att
- *   läsa och klicka i medan man frågar om en post. Den står kvar öppen när
+ *   läsa, men ett klick utanför panelen stänger den. Den står kvar öppen när
  *   vyn byts och visar då den nya vyns tråd.
  * - Mobil: ett ark från skärmens nederkant, som listen fälldes upp förut
  *   (tråden 260 px, mobilens fält). Ett vybyte stänger det: den som går
- *   till en ny vy möter vyn, inte förra vyns chatt.
+ *   till en ny vy möter vyn, inte förra vyns chatt. Ett tryck ovanför arket
+ *   stänger det också.
  *
  * Panelen förblir monterad när den är stängd, så att strömmen, skrollen och
  * osänd text står kvar. Ett beslut, ett inlägg eller en förifyllning som tas
@@ -62,6 +63,22 @@ export function ChattBubbla({
   useEffect(() => {
     if (forifyllning && forifyllning.viewKey === viewKey) setOppen(true);
   }, [forifyllning, viewKey]);
+
+  // Ett klick utanför panelen stänger den. Bubblan räknas inte som utanför:
+  // den växlar själv. Ett klick i vyn som tar upp något i chatten (ett
+  // beslut, ett inlägg) stänger först och öppnar sedan igen via effekterna
+  // ovan.
+  useEffect(() => {
+    if (!oppen) return;
+    const vidTryck = (e: PointerEvent) => {
+      const mal = e.target as Node | null;
+      if (!mal || !mal.isConnected) return;
+      if (panel.current?.contains(mal) || bubbla.current?.contains(mal)) return;
+      setOppen(false);
+    };
+    document.addEventListener("pointerdown", vidTryck);
+    return () => document.removeEventListener("pointerdown", vidTryck);
+  }, [oppen]);
 
   // Desktop: fältet får fokus när panelen öppnas. Inte på mobil, där
   // fokus fäller upp tangentbordet över tråden man ville läsa.
