@@ -7,7 +7,10 @@ import type { LasData } from "@/lib/skal/las";
 export const KOLUMN_BREDD = "w-[124px]";
 
 /**
- * `VySektion` (komponenter.md): rubrik mono 10 versalt, padding 20/0/6.
+ * `VySektion`: rubriken är en rubrik — sans 16 (mobil 17), medelvikt, full
+ * textfärg och en linje under — så att den bär listan även på mobilen. Den
+ * versala monoetiketten (10, metafärg) försvann mot raderna. Kolumnernas
+ * rubriker står kvar i mono, på samma rad.
  *
  * "Tom sektion visas inte alls." Det är en regel, inte en stil: en rubrik
  * utan rader är en lögn om att något saknas. Tomt läge i README.md
@@ -32,28 +35,34 @@ export function VySektion({
   las?: LasData;
   /** Texten som står i stället för rader när sektionen är tom. */
   tom?: string;
-  /** Beloppskolumnernas rubriker, i linje med radernas kolumner (bara desktop). */
+  /**
+   * Beloppskolumnernas rubriker, i linje med radernas kolumner. Mobilen har
+   * bara högerkolumnen, så där står bara den sista.
+   */
   kolumner?: string[];
 }) {
   if (antalRader === 0 && !tom) return null;
+  const desktop = variant === "desktop";
 
   return (
     <div className="flex flex-col">
       <div
-        className={`flex items-center justify-between gap-[14px] ${
-          variant === "desktop" ? "pb-[6px] pt-5" : "pb-[6px] pt-[18px]"
+        data-testid="vysektion-rubrik"
+        className={`flex items-end justify-between gap-[14px] border-b border-bok-kant pb-[6px] ${
+          desktop ? "pt-6" : "pt-[22px]"
         }`}
       >
-        <span className="bok-etikett text-[10px] text-bok-meta">{titel}</span>
-        {kolumner && variant === "desktop" && (
+        <h3 className={`min-w-0 font-medium leading-tight text-bok-text ${desktop ? "text-[16px]" : "text-[17px]"}`}>
+          {titel}
+        </h3>
+        {kolumner && desktop && (
           <span className="flex shrink-0">
             {kolumner.map((k) => (
-              <span key={k} className={`bok-etikett text-right text-[10px] text-bok-meta ${KOLUMN_BREDD}`}>
-                {k}
-              </span>
+              <KolumnRubrik key={k} text={k} />
             ))}
           </span>
         )}
+        {kolumner && !desktop && <KolumnRubrik text={kolumner[kolumner.length - 1]} bredd="" />}
         {las && <LasKnapp {...las} />}
       </div>
       {antalRader === 0 ? (
@@ -63,6 +72,27 @@ export function VySektion({
       ) : (
         children
       )}
+    </div>
+  );
+}
+
+function KolumnRubrik({ text, bredd = KOLUMN_BREDD }: { text: string; bredd?: string }) {
+  return <span className={`bok-mono shrink-0 text-right text-[11px] text-bok-text-svag ${bredd}`}>{text}</span>;
+}
+
+/**
+ * En grupp inom sektionen (Kassa och bank, Personalkostnader): en
+ * mellanrubrik, tydlig men ett steg under sektionens.
+ */
+export function VyGrupp({ titel, variant = "desktop" }: { titel: string; variant?: "desktop" | "mobil" }) {
+  return (
+    <div
+      data-testid="vygrupp"
+      className={`pb-[2px] font-medium text-bok-text-dampad ${
+        variant === "desktop" ? "pt-3 text-[12px]" : "pt-[14px] text-[13px]"
+      }`}
+    >
+      {titel}
     </div>
   );
 }

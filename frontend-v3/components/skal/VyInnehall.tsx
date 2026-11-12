@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { Fragment, useEffect, useRef } from "react";
 import { VyBanner } from "@/components/skal/VyBanner";
 import { VyHeaderStatus } from "@/components/skal/VyHeaderStatus";
 import { VyRad, VyRadSkelett } from "@/components/skal/VyRad";
-import { VySektion } from "@/components/skal/VySektion";
+import { VyGrupp, VySektion } from "@/components/skal/VySektion";
 import type { Sortering } from "@/lib/skal/bocker";
 import { lageFarg } from "@/lib/skal/lage";
-import type { VyData } from "@/lib/skal/vydata";
+import type { VyData, VyRadData } from "@/lib/skal/vydata";
 
 /**
  * Läskolumnen: rubrikrad, period, eventuell banner, sektioner med rader och
@@ -121,18 +121,21 @@ export function VyInnehall({
               tom={sektion.tom}
               kolumner={sektion.kolumner}
             >
-              {sektion.rader.map((rad) => (
-                <VyRad
-                  key={rad.id}
+              {medGrupper(sektion.rader).map(({ rad, grupp }) => (
+                <Fragment key={rad.id}>
+                  {grupp && <VyGrupp titel={grupp} variant={variant} />}
+                  <VyRad
                   titel={rad.titel}
                   meta={rad.meta}
+                  // Summorna får en tom nummerkolumn, så att titlarna står i linje.
+                  nummer={rad.nummer ?? (sektion.rader.some((r) => r.nummer) ? "" : undefined)}
                   hoger={rad.hoger}
                   variant={rad.variant}
                   summa={rad.summa}
                   struken={rad.struken}
                   hogerFore={rad.hogerFore}
                   kolumner={rad.kolumner}
-                  kolumnRubriker={sektion.kolumner}
+                  kolumnRubriker={sektion.kortRubriker ?? sektion.kolumner}
                   ageDays={rad.ageDays}
                   kvitto={rad.kvitto}
                   forsokIgen={rad.forsokIgen}
@@ -146,7 +149,8 @@ export function VyInnehall({
                   mal={rad.mal}
                   traff={rad.traff}
                   storlek={variant}
-                />
+                  />
+                </Fragment>
               ))}
             </VySektion>
           ))
@@ -196,6 +200,21 @@ function SorteringsVal({
       </button>
     </>
   );
+}
+
+/**
+ * Varje rad med den mellanrubrik som ska stå före den: där raderna byter
+ * grupp. En sektion med bara en grupp får ingen — rubriken skulle bara
+ * upprepa sektionens. Rader utan grupp (summor) bryter inte gruppen.
+ */
+export function medGrupper(rader: VyRadData[]): { rad: VyRadData; grupp?: string }[] {
+  const grupper = new Set(rader.map((r) => r.grupp).filter(Boolean));
+  let forra: string | undefined;
+  return rader.map((rad) => {
+    if (grupper.size < 2 || !rad.grupp || rad.grupp === forra) return { rad };
+    forra = rad.grupp;
+    return { rad, grupp: rad.grupp };
+  });
 }
 
 /**

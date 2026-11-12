@@ -21,6 +21,16 @@ export interface VyRadData {
   id: string;
   titel: string;
   meta?: string;
+  /**
+   * Kontonumret i en rapport. På desktop står det i en egen smal kolumn
+   * före titeln, så att raden ryms på en rad; på mobilen först i metaraden.
+   */
+  nummer?: string;
+  /**
+   * Gruppen raden hör till inom sektionen (Kassa och bank). En mellanrubrik
+   * ritas där gruppen byter, men bara när sektionen har fler än en grupp.
+   */
+  grupp?: string;
   hoger: string;
   variant?: RadVariant;
   /** Summarad: samma vikt som designens `r.vikt` 500. */
@@ -107,6 +117,11 @@ export interface VySektionData {
    * (t.ex. Ingående · Förändring · Nuvarande).
    */
   kolumner?: string[];
+  /**
+   * Kolumnernas etiketter i mobilens metarad, där bredden är knapp
+   * ("ib"). En tom etikett ger bara talet; utan dem används `kolumner`.
+   */
+  kortRubriker?: string[];
   /** Månadens lås, i rubrikraden (Verifikationer, en sektion per månad). */
   las?: LasData;
   /**
