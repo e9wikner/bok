@@ -37,13 +37,16 @@ from services.intake import IntakeConflictError, IntakeError, IntakeService
 from services.interpretation import (
     DATE_WINDOW_DAYS_AFTER,
     DATE_WINDOW_DAYS_BEFORE,
+    LINE_MAX_DATE_DIFF_DAYS,
     MatchRead,
     amount_window_ore,
     comparison_body,
     comparison_parts,
     confidence,
+    dated_lines,
     expected,
     match_document,
+    match_lines,
     run_checks,
 )
 
@@ -114,6 +117,20 @@ class InterpretationService:
             else []
         )
         matching = match_document(args, rows)
+        if matching.match is None and args.currency == "SEK":
+            # A schedule (a tax decision's due dates) matches no voucher as a
+            # whole; its dated lines are matched one by one, through the
+            # statement row (`match_lines`).
+            dated = [(day, line.amount_ore) for _, line, day in dated_lines(args)]
+            if dated:
+                by_line = match_lines(
+                    args,
+                    VoucherRepository.line_match_candidates(
+                        dated, date_window_days=LINE_MAX_DATE_DIFF_DAYS
+                    ),
+                )
+                if by_line.match is not None:
+                    matching = by_line
         # `None` in another currency (§7.1), even with `expected_voucher_id`.
         compared = expected(args, expected_row, matching) if expected_row else None
 
@@ -309,12 +326,19 @@ def _read(args: MatchRead) -> Dict[str, Any]:
         "currency": args.currency,
         "total_ore": args.total_ore,
         "vat_ore": args.vat_ore,
-        "lines": [
-            {
-                "text": line.text,
-                "amount_ore": line.amount_ore,
-                "vat_rate": line.vat_rate,
-            }
-            for line in args.lines
-        ],
+        "lines": [_read_line(line) for line in args.lines],
     }
+
+
+def _read_line(line: Any) -> Dict[str, Any]:
+    """One line as sent. `date` only when the model gave one, so a line
+    without a date of its own reads as before."""
+    read: Dict[str, Any] = {
+        "text": line.text,
+        "amount_ore": line.amount_ore,
+        "vat_rate": line.vat_rate,
+    }
+    line_date = getattr(line, "date", None)
+    if line_date is not None:
+        read["date"] = line_date.isoformat()
+    return read

@@ -35,7 +35,7 @@ period_id = fu.period_id
 #: `valuta` to `posta_verifikation` and `foresla_verifikation`. Re-taken when
 #: the argument models' docstrings lost their citations of the removed specs.
 _FIRST_TWELVE_SHA256 = (
-    "8de7f4d985c2aea9f22c74ea4cd3f28d10d1db14ae4d93b204cf9bd488bbc4d5"
+    "fdec4526b2a40343cf31f808c76d767cb91f1f56759e4eb67ccf7b3333149575"
 )
 
 

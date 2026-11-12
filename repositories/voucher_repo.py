@@ -700,6 +700,37 @@ class VoucherRepository:
         )
 
     @staticmethod
+    def line_match_candidates(
+        lines: Sequence[Tuple[date, int]], *, date_window_days: int
+    ) -> List[MatchCandidateRow]:
+        """Posted vouchers one dated line of an underlag could belong to, for
+        all *lines* (`(date, amount_ore)`) in one query: the same candidates
+        as `match_candidates` (posted, lacking a document of their own, not
+        `IB`), dated within *date_window_days* of the earliest and latest
+        line, with `voucher_ore` equal to one of the lines' amounts. Which
+        line a row fits is the service's to decide; the window comes from
+        the caller (`services/interpretation.py`)."""
+        if not lines:
+            return []
+        dates = [line_date for line_date, _ in lines]
+        amounts = sorted({amount for _, amount in lines})
+        where = [
+            "vouchers.status = 'posted'",
+            "vouchers.series != 'IB'",
+            MISSING_DOCUMENT_SQL,
+            "vouchers.date BETWEEN ? AND ?",
+        ]
+        params: list = [
+            (min(dates) - timedelta(days=date_window_days)).isoformat(),
+            (max(dates) + timedelta(days=date_window_days)).isoformat(),
+            *amounts,
+        ]
+        placeholders = ", ".join("?" for _ in amounts)
+        return VoucherRepository._candidate_rows(
+            where, params, having=f"voucher_ore IN ({placeholders})"
+        )
+
+    @staticmethod
     def candidate_row(voucher_id: str) -> Optional[MatchCandidateRow]:
         """One posted voucher as a `match_candidates` row -- the same
         fields, joins and bank-transaction choice, in one query -- whatever

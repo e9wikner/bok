@@ -14,6 +14,8 @@ Pure logic: no SQL, no HTTP, no file reading. The caller hands in the
 already extracted text layer and the candidate rows.
 """
 
+import re
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date
 from fractions import Fraction
@@ -34,7 +36,7 @@ from domain.interpretation import (
     VatRateCheck,
     VatShareCheck,
 )
-from repositories.voucher_repo import MatchCandidateRow
+from repositories.voucher_repo import CandidateBankTransaction, MatchCandidateRow
 from services.agent_documents import ReconciliationState, reconciliation_result
 
 # §7.2: the voucher's date in [document_date − 3, document_date + 7] days.
@@ -262,6 +264,128 @@ def match_document(read: MatchRead, rows: Sequence[MatchCandidateRow]) -> Matchi
     if keyed and (len(keyed) == 1 or keyed[0][0] != keyed[1][0]):
         match = build_match(read, keyed[0][1])
     return Matching(match=match, candidates=candidates)
+
+
+# ---------------------------------------------------------------------------
+# One dated line against one voucher
+# ---------------------------------------------------------------------------
+#
+# A tax decision, a payment plan or an instalment schedule is one document
+# behind several transactions: twelve due dates of preliminary tax, each its
+# own draw on the tax account. Its total matches no voucher. A line that
+# carries its own date is matched on its own instead -- and, since nothing
+# but the amount and date would then tie it to the voucher, only through
+# the voucher's statement row: the same amount, a date within the window,
+# and the statement's words in the line's text. That is the check a person
+# makes against the statement before filing the decision with the draw.
+
+#: A due date that falls on a weekend is drawn on the next banking day.
+LINE_MAX_DATE_DIFF_DAYS = 3
+
+# Month names say when, not what; a statement row "Arbetsgivaravgift jan
+# 2026" must not need "jan" in the decision's text.
+_MONTH_WORDS = frozenset(
+    "januari februari mars april maj juni juli augusti september oktober "
+    "november december jan feb mar apr jun jul aug sep sept okt nov dec".split()
+)
+
+
+def _words(text: Optional[str]) -> frozenset:
+    """The words of *text* that say what it is: letters only, casefolded,
+    at least three long, month names left out."""
+    if not text:
+        return frozenset()
+    return frozenset(
+        word
+        for word in re.findall(r"[^\W\d_]+", text.casefold())
+        if len(word) >= 3 and word not in _MONTH_WORDS
+    )
+
+
+def text_agrees(line_text: str, bank: CandidateBankTransaction) -> bool:
+    """The statement row's words all stand in the line's text: its
+    description ("Debiterad preliminärskatt") or, without one, its
+    counterpart. A row with neither agrees with nothing."""
+    line_words = _words(line_text)
+    for statement_text in (bank.description, bank.counterpart_name):
+        statement_words = _words(statement_text)
+        if statement_words:
+            return statement_words <= line_words
+    return False
+
+
+def _line_fits(line: MatchReadLine, line_date: date, row: MatchCandidateRow) -> bool:
+    bank = row.bank_transaction
+    if bank is None:
+        return False
+    return (
+        row.voucher_ore == line.amount_ore
+        and abs(bank.amount_ore) == line.amount_ore
+        and abs((bank.date - line_date).days) <= LINE_MAX_DATE_DIFF_DAYS
+        and abs((row.voucher_date - line_date).days) <= LINE_MAX_DATE_DIFF_DAYS
+        and text_agrees(line.text, bank)
+    )
+
+
+def dated_lines(read: MatchRead) -> List[Tuple[int, MatchReadLine, date]]:
+    """The lines with a date of their own and a positive amount, with their
+    index on the document."""
+    found = []
+    for index, line in enumerate(read.lines):
+        line_date = getattr(line, "date", None)
+        if line_date is not None and line.amount_ore > 0:
+            found.append((index, line, line_date))
+    return found
+
+
+def match_lines(read: MatchRead, rows: Sequence[MatchCandidateRow]) -> Matching:
+    """Each dated line against the rows `line_match_candidates` gave. A line
+    fits a voucher when the amounts, the dates and the statement's text all
+    agree (`_line_fits`). A line that fits two vouchers, or a voucher that
+    two lines fit, decides nothing and is left out. What remains are pairs,
+    each unambiguous; the earliest line is the `match` (`exact`, with its
+    `line`), and every pair is a candidate, earliest first. A document not
+    in SEK is not matched."""
+    if read.currency != "SEK":
+        return Matching(match=None, candidates=[])
+    pairs: List[Tuple[int, date, MatchCandidateRow]] = []
+    for index, line, line_date in dated_lines(read):
+        hits = [row for row in rows if _line_fits(line, line_date, row)]
+        if len(hits) == 1:
+            pairs.append((index, line_date, hits[0]))
+    claims = Counter(row.voucher_id for _, _, row in pairs)
+    pairs = [pair for pair in pairs if claims[pair[2].voucher_id] == 1]
+    pairs.sort(key=lambda pair: (pair[1], pair[0]))
+    if not pairs:
+        return Matching(match=None, candidates=[])
+    candidates = [
+        _compare_line(read.lines[index], line_date, row)
+        for index, line_date, row in pairs
+    ]
+    first_index, _, _ = pairs[0]
+    first = candidates[0]
+    match = Match(**first.to_dict(), kind="exact", line=first_index)
+    return Matching(match=match, candidates=candidates[:MAX_CANDIDATES])
+
+
+def _compare_line(
+    line: MatchReadLine, line_date: date, row: MatchCandidateRow
+) -> Candidate:
+    """One line as §7.4's comparison: the line's amount and date stand in
+    for the document's total and date."""
+    return _compare(_LineRead(total_ore=line.amount_ore, document_date=line_date), row)
+
+
+@dataclass(frozen=True)
+class _LineRead:
+    """One dated line seen as a document of its own, for `_compare`."""
+
+    total_ore: int
+    document_date: Optional[date]
+    vat_ore: Optional[int] = None
+    currency: str = "SEK"
+    vendor: Optional[str] = None
+    lines: Sequence[MatchReadLine] = ()
 
 
 def rank(read: MatchRead, rows: Sequence[MatchCandidateRow]) -> List[Candidate]:

@@ -90,10 +90,17 @@ class Match(Candidate):
 
     kind: MatchKind = "amount_diff"
     hypothesis: Optional[Dict[str, Any]] = None
+    # The index of the document's line the voucher matched, when the match
+    # is one dated line rather than the whole document (a tax decision's
+    # due date, an instalment). Left out of the JSON when `None`, so a
+    # whole-document match reads as before.
+    line: Optional[int] = None
 
     def to_dict(self) -> Dict[str, Any]:
         # §7.4's key order: `kind` first.
         data = asdict(self)
+        if data.get("line") is None:
+            data.pop("line", None)
         return {"kind": data.pop("kind"), **data}
 
     @classmethod

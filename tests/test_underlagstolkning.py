@@ -509,7 +509,7 @@ def _bank_transaction(
     *,
     day: int,
     amount: int,
-    counterpart: str = "ELEKTRONIKHUSET",
+    counterpart: Optional[str] = "ELEKTRONIKHUSET",
     description: str = "Kortköp",
 ) -> str:
     """A bank transaction linked to *voucher_id* through
@@ -1895,7 +1895,12 @@ def test_u6_args_are_section_6_2():
         "lines",
         "expected_voucher_id",
     ]
-    assert list(TolkaUnderlagLine.model_fields) == ["text", "amount_ore", "vat_rate"]
+    assert list(TolkaUnderlagLine.model_fields) == [
+        "text",
+        "amount_ore",
+        "vat_rate",
+        "date",
+    ]
     minimal = TolkaUnderlagArgs.model_validate({"source_id": "s", "total_ore": 0})
     assert (minimal.currency, minimal.lines, minimal.vat_ore) == ("SEK", [], None)
     for bad in (
@@ -2291,7 +2296,9 @@ _TOLKA_UNDERLAG_DESCRIPTION = (
     "Lämna det du läst ur ett underlag (leverantör, datum, belopp, moms, "
     "rader) för kontroll och matchning mot postade verifikationer. "
     "Servern stämmer av momsen och textlagret, letar efter en postad "
-    "verifikation som saknar underlag och räknar differensen. Sparar "
+    "verifikation som saknar underlag och räknar differensen. Har en "
+    "rad ett eget datum (en förfallodag) jämförs raden också för sig "
+    "mot postade verifikationer och deras kontoutdragsrad. Sparar "
     "tolkningen men kopplar ingenting och ändrar ingenting i "
     "bokföringen. Anropa efter hamta_underlagsfil och före "
     "posta_verifikation eller foresla_verifikation för samma underlag."
@@ -3003,7 +3010,7 @@ def test_u11_intake_pass_saves_its_run_id(period_id, purchase_accounts, intake_d
 #: changing the tool's schema -- the schemas are the cached prefix. Re-taken
 #: when the model's docstring lost its spec citation.
 _TOLKA_UNDERLAG_SCHEMA_SHA256 = (
-    "b85a56c97f3a29f7ce9db9bd83bc60bc7eba04b2fff46631f82c70ede06cca17"
+    "685e9f8a507628affc248f05ead9c691add18a7b5f933f6a0b9198f4e4ca0131"
 )
 
 
@@ -3220,3 +3227,211 @@ def test_u15_get_after_post_gives_the_same_interpretation(
     assert body["expected_voucher_id"] == a118
     assert (body["actor"], body["thread_id"]) == ("api", None)
     assert body["superseded_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# A dated line against one voucher and its statement row (a tax decision)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def tax_accounts(test_db):
+    for code, name, acc_type in [
+        ("2518", "Betald F-skatt", "liability"),
+        ("1630", "Skattekonto", "asset"),
+    ]:
+        if not AccountRepository.exists(code):
+            AccountRepository.create(code, name, acc_type)
+
+
+def _tax_draw(
+    period_id: str,
+    *,
+    day: int,
+    amount: int = 1520200,
+    statement_text: Optional[str] = "Debiterad preliminärskatt",
+) -> str:
+    """A posted draw of preliminary tax on 1630, booked from the tax
+    account's statement row of the same day (unless *statement_text* is
+    `None`: then without a statement row)."""
+    ledger = LedgerService()
+    draft = ledger.create_voucher(
+        series="A",
+        date=date(2026, 3, day),
+        period_id=period_id,
+        description="Debiterad preliminärskatt, se kontoutdrag 1630",
+        rows_data=[
+            {"account": "2518", "debit": amount, "credit": 0},
+            {"account": "1630", "debit": 0, "credit": amount},
+        ],
+        created_by="agent",
+    )
+    voucher_id = ledger.post_voucher(draft.id, actor="agent").id
+    if statement_text is not None:
+        _bank_transaction(
+            voucher_id,
+            day=day,
+            amount=-amount,
+            counterpart=None,
+            description=statement_text,
+        )
+    return voucher_id
+
+
+def _decision_lines(*days: int, amount: int = 1520200, text=None) -> list:
+    return [
+        {
+            "text": text or f"Debiterad preliminärskatt {day} mars 2026",
+            "amount_ore": amount,
+            "vat_rate": 0,
+            "date": f"2026-03-{day:02d}",
+        }
+        for day in days
+    ]
+
+
+def _tolka_decision(source_id: str, lines: list) -> dict:
+    return _tolka(
+        source_id,
+        vendor="Skatteverket",
+        document_date="2025-12-10",
+        total_ore=sum(line["amount_ore"] for line in lines) + 1520200 * 10,
+        vat_ore=0,
+        lines=lines,
+    )
+
+
+def test_line_decision_matches_the_draw_through_its_statement_row(
+    period_id, purchase_accounts, tax_accounts, intake_dir
+):
+    """A tax decision's total matches nothing; its line for the due date
+    matches the draw booked from the statement: same amount, same day, and
+    the statement's words in the line's text."""
+    voucher_id = _tax_draw(period_id, day=12)
+    source = _upload(b"%PDF-1.4 beslut", name="beslut.pdf")
+
+    result = _tolka_decision(source.id, _decision_lines(12))
+
+    match = result["match"]
+    assert match is not None
+    assert match["kind"] == "exact"
+    assert match["voucher_id"] == voucher_id
+    assert match["line"] == 0
+    assert match["diff_ore"] == 0
+    assert match["date_diff_days"] == 0
+    assert match["amounts"] == {"document_ore": 1520200, "voucher_ore": 1520200}
+    assert result["read"]["lines"][0]["date"] == "2026-03-12"
+    saved = InterpretationRepository.latest_for_source(source.id)
+    assert saved is not None and saved.match is not None
+    assert saved.match.line == 0
+
+
+def test_line_match_lets_the_pass_link_without_a_decision(
+    period_id, purchase_accounts, tax_accounts, intake_dir
+):
+    from services.intake_link import IntakeLinkService
+
+    voucher_id = _tax_draw(period_id, day=12)
+    source = _upload(b"%PDF-1.4 beslut", name="beslut.pdf")
+    _tolka_decision(source.id, _decision_lines(12))
+
+    result = IntakeLinkService().link(
+        source.id, voucher_id, actor="agent", decisions_allowed=False
+    )
+
+    assert result.to_dict()["basis"] == "exact_match"
+
+
+@pytest.mark.parametrize(
+    "statement_text",
+    ["Arbetsgivaravgift feb 2026", "Avdragen skatt feb 2026", None],
+)
+def test_line_without_agreeing_statement_row_does_not_match(
+    period_id, purchase_accounts, tax_accounts, intake_dir, statement_text
+):
+    """The same amount and day is not enough: the statement row must say
+    what the line says, and there must be a statement row at all."""
+    _tax_draw(period_id, day=12, statement_text=statement_text)
+    source = _upload(b"%PDF-1.4 beslut", name="beslut.pdf")
+
+    result = _tolka_decision(source.id, _decision_lines(12))
+
+    assert result["match"] is None
+
+
+def test_line_outside_the_date_window_does_not_match(
+    period_id, purchase_accounts, tax_accounts, intake_dir
+):
+    _tax_draw(period_id, day=20)
+    source = _upload(b"%PDF-1.4 beslut", name="beslut.pdf")
+
+    result = _tolka_decision(source.id, _decision_lines(12))
+
+    assert result["match"] is None
+
+
+def test_line_with_another_amount_does_not_match(
+    period_id, purchase_accounts, tax_accounts, intake_dir
+):
+    _tax_draw(period_id, day=12, amount=904700)
+    source = _upload(b"%PDF-1.4 beslut", name="beslut.pdf")
+
+    result = _tolka_decision(source.id, _decision_lines(12))
+
+    assert result["match"] is None
+
+
+def test_line_fitting_two_draws_is_ambiguous(
+    period_id, purchase_accounts, tax_accounts, intake_dir
+):
+    _tax_draw(period_id, day=12)
+    _tax_draw(period_id, day=13)
+    source = _upload(b"%PDF-1.4 beslut", name="beslut.pdf")
+
+    result = _tolka_decision(source.id, _decision_lines(12))
+
+    assert result["match"] is None
+
+
+def test_several_lines_match_the_earliest_and_list_every_pair(
+    period_id, purchase_accounts, tax_accounts, intake_dir
+):
+    first = _tax_draw(period_id, day=2)
+    second = _tax_draw(period_id, day=20)
+    source = _upload(b"%PDF-1.4 beslut", name="beslut.pdf")
+
+    result = _tolka_decision(source.id, _decision_lines(20, 2))
+
+    assert result["match"]["voucher_id"] == first
+    assert result["match"]["line"] == 1
+    assert [c["voucher_id"] for c in result["candidates"]] == [first, second]
+
+
+def test_whole_document_match_has_no_line_key(period_id, purchase_accounts, intake_dir):
+    """A receipt matched as a whole reads as before: no `line`."""
+    _a118(period_id)
+    source = _upload(_text_pdf(U6_TEXT_LINES))
+
+    result = _tolka(source.id)
+
+    assert "line" not in result["match"]
+
+
+def test_text_agrees_ignores_months_numbers_and_case():
+    from repositories.voucher_repo import CandidateBankTransaction
+    from services.interpretation import text_agrees
+
+    def bank(description, counterpart=None):
+        return CandidateBankTransaction(
+            id="t",
+            date=date(2026, 2, 12),
+            amount_ore=-1,
+            counterpart_name=counterpart,
+            description=description,
+        )
+
+    line = "Debiterad preliminärskatt 12 februari 2026"
+    assert text_agrees(line, bank("DEBITERAD PRELIMINÄRSKATT"))
+    assert not text_agrees(line, bank("Arbetsgivaravgift jan 2026"))
+    assert text_agrees("Hyra Fastighets AB", bank(None, "Fastighets AB"))
+    assert not text_agrees(line, bank(None, None))

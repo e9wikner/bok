@@ -56,10 +56,18 @@ Därför:
    verktyget `tolka_underlag` gör samma sak med
    `POST /api/v1/intake/{id}/interpretation`, med samma fält utom `source_id`.
    Ingenting kopplas förrän användaren har sagt ja, utom vid exakt match.
+   Anger underlaget ett eget datum per rad, som förfallodagarna i ett beslut
+   om debiterad preliminärskatt eller en betalningsplan, ta med datumet i
+   radens `date` och radens text som den står. Servern jämför då varje rad
+   för sig med postade verifikationer och deras kontoutdragsrad: samma
+   belopp, datum inom tre dagar och kontoutdragets text i radens text.
 3. **`match.kind = "exact"`:** underlaget hör till en redan postad verifikation.
    Koppla det med `koppla_underlag` (utan `decision_id`), i en tråd och i ett
    underlagspass. Posta inte; servern vägrar ändå med
-   `source_matches_posted_voucher`. En session utan verktyget kopplar med
+   `source_matches_posted_voucher`. Har `match` ett `line` är det den raden
+   på underlaget som matchar verifikationen. Koppla då likadant. Att
+   underlagets eget datum ligger i en låst period eller ett låst år spelar
+   ingen roll för en koppling: regel 12 gäller bara när något ska bokföras. En session utan verktyget kopplar med
    `POST /api/v1/intake/{id}/link` och `{"voucher_id": …}`.
 4. **`match.kind = "amount_diff"`:** underlaget hör sannolikt till en redan
    postad verifikation, men beloppen skiljer sig. Posta inte.
@@ -466,6 +474,12 @@ preliminärskatt, ränta), bankavgifter, kundinbetalningar och betalningen av en
 leverantörsfaktura som redan är bokförd. Ett inköp, en
 arbetsgivardeklaration eller en momsredovisning behöver sin faktura, sitt kvitto
 eller sin deklaration; ett kontoutdrag visar bara betalningen.
+
+Skatteverkets beslut om debiterad preliminärskatt är underlag för dragningarna
+det gäller, inte en egen händelse att bokföra. Tolka det med en rad per
+förfallodag, med förfallodagen i radens `date`, så kopplar servern det till den
+bokförda dragningen. Fler dragningar under året styrks av samma beslut med
+`foresla_delat_underlag`.
 
 Skattekontots dragningar för en arbetsgivardeklaration ("Avdragen skatt",
 "Arbetsgivaravgift") bokförs aldrig från kontoutdraget. AGI:n bokförs med

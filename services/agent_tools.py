@@ -733,6 +733,12 @@ class TolkaUnderlagLine(BaseModel):
     text: str = Field(..., min_length=1, max_length=200)
     amount_ore: int
     vat_rate: Optional[Literal[25, 12, 6, 0]] = None
+    date: Optional[DateType] = Field(
+        None,
+        description="Radens eget datum när underlaget anger ett per rad, "
+        "till exempel förfallodagen i ett skattebeslut eller en "
+        "betalningsplan. Utelämna annars.",
+    )
 
 
 class TolkaUnderlagArgs(BaseModel):
@@ -2447,7 +2453,9 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
         "Lämna det du läst ur ett underlag (leverantör, datum, belopp, moms, "
         "rader) för kontroll och matchning mot postade verifikationer. "
         "Servern stämmer av momsen och textlagret, letar efter en postad "
-        "verifikation som saknar underlag och räknar differensen. Sparar "
+        "verifikation som saknar underlag och räknar differensen. Har en "
+        "rad ett eget datum (en förfallodag) jämförs raden också för sig "
+        "mot postade verifikationer och deras kontoutdragsrad. Sparar "
         "tolkningen men kopplar ingenting och ändrar ingenting i "
         "bokföringen. Anropa efter hamta_underlagsfil och före "
         "posta_verifikation eller foresla_verifikation för samma underlag.",
