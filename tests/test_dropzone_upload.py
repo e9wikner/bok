@@ -299,3 +299,21 @@ def test_a_file_not_in_the_books_has_no_outcome(test_db, root):
     (month / "gammal.pdf").write_bytes(b"%PDF-1.4 ur en annan databas")
 
     assert dropzone_overview()["ingested"][0]["outcome"] is None
+
+
+def test_overview_says_why_a_pending_file_was_not_read_in(test_db, root, monkeypatch):
+    _drop("Kvitton")
+    scanner = dropzone_module.get_scanner()
+
+    def trasig(*_args, **_kwargs):
+        raise OSError("Read-only file system")
+
+    monkeypatch.setattr(scanner, "_ingest_source", trasig)
+    scanner.scan_once()
+
+    [entry] = dropzone_overview()["pending"]
+    assert entry["error"] == "OSError: Read-only file system"
+
+    (root / "Kvitton" / "kvitto.pdf").unlink()
+    scanner.scan_once()
+    assert scanner.file_error(root / "Kvitton" / "kvitto.pdf") is None

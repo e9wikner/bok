@@ -168,6 +168,9 @@ class ScanState:
     #: New underlag read in since the agent's intake pass was last started.
     sources_awaiting_pass: int = 0
     last_pass_triggered_at: datetime | None = None
+    #: Why a file that stays in its folder could not be read in, by path.
+    #: Retried every tick; cleared when the file is read in or goes away.
+    file_errors: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -315,6 +318,9 @@ class DropzoneScanner:
                 # understand stays where it is so the next tick can retry it.
                 logger.exception("Dropzone could not process %s", path)
                 result.errors.append(f"{path.name}: {type(exc).__name__}: {exc}")
+                self._state.file_errors[str(path)] = f"{type(exc).__name__}: {exc}"
+            else:
+                self._state.file_errors.pop(str(path), None)
             time.sleep(0)  # yield the GIL between files
 
     def _forget_gone_files(self, candidates: list[Path]) -> None:
@@ -323,6 +329,13 @@ class DropzoneScanner:
         for key in list(self._observations):
             if key not in live:
                 del self._observations[key]
+        for key in list(self._state.file_errors):
+            if key not in live:
+                del self._state.file_errors[key]
+
+    def file_error(self, path: Path) -> str | None:
+        """Why the last tick could not read *path* in, if it tried and failed."""
+        return self._state.file_errors.get(str(path))
 
     def candidate_files(self) -> list[Path]:
         """List files eligible for ingestion, in folder and name order."""

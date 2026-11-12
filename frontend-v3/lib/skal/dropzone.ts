@@ -59,6 +59,12 @@ export interface DropzoneInlast extends DropzoneFil {
   outcome?: DropzoneUtfall | null;
 }
 
+/** En fil som väntar på skannern. */
+export interface DropzoneVantande extends DropzoneFil {
+  /** Felet skannerns senaste försök med filen gav; filen ligger kvar och prövas igen. */
+  error?: string | null;
+}
+
 export interface DropzoneProblem extends DropzoneFil {
   reason: string | null;
 }
@@ -69,7 +75,7 @@ export interface DropzoneOversikt {
   scan_interval_seconds: number;
   max_bytes: number;
   targets: DropzoneMal[];
-  pending: DropzoneFil[];
+  pending: DropzoneVantande[];
   problems: DropzoneProblem[];
   ingested: DropzoneInlast[];
   status: DropzoneStatus;
@@ -148,6 +154,39 @@ export function dropzoneStatus(
     return { text: `${oversikt.pending.length} väntar på hämtning`, lage: "pagaende" };
   }
   return { text: "inget väntar", lage: "normal" };
+}
+
+/**
+ * När en väntande fil läses in. Skannern tar en fil som legat orörd i
+ * `quiet_seconds`, vid nästa varv; har det gått längre än så plus två varv
+ * säger raden det, i stället för att lova en tid som redan passerat.
+ */
+export function vantarText(
+  fil: DropzoneVantande,
+  oversikt: Pick<DropzoneOversikt, "quiet_seconds" | "scan_interval_seconds">,
+  nu: number = Date.now()
+): { text: string; sen: boolean } {
+  if (fil.error) return { text: `kunde inte läsas in, prövas igen · ${fil.error}`, sen: true };
+  const lagd = Date.parse(fil.modified_at);
+  if (Number.isNaN(lagd)) return { text: "väntar på hämtning", sen: false };
+  const vantat = Math.max(0, Math.round((nu - lagd) / 1000));
+  const klar = oversikt.quiet_seconds + oversikt.scan_interval_seconds;
+  if (vantat > klar + oversikt.scan_interval_seconds * 2) {
+    return { text: `har väntat ${langd(vantat)}, längre än väntat`, sen: true };
+  }
+  const kvar = klar - vantat;
+  return {
+    text: `lagd för ${langd(vantat)} sedan · ${kvar > 0 ? `läses in inom ~${langd(kvar)}` : "läses in vid nästa varv"}`,
+    sen: false,
+  };
+}
+
+function langd(sekunder: number): string {
+  if (sekunder < 60) return `${sekunder} s`;
+  const min = Math.round(sekunder / 60);
+  if (min < 60) return `${min} min`;
+  const tim = Math.round(min / 60);
+  return tim < 48 ? `${tim} h` : `${Math.round(tim / 24)} dagar`;
 }
 
 /** Vad mappen gör med en fil, i en mening. */

@@ -12,6 +12,7 @@ import { VySektion } from "@/components/skal/VySektion";
 import {
   DROPZONE_NYCKEL,
   type DropzoneInlast,
+  type DropzoneVantande,
   type DropzoneMal,
   type DropzoneOversikt,
   type Mappnod,
@@ -25,6 +26,7 @@ import {
   storlek,
   tidpunkt,
   utfallText,
+  vantarText,
 } from "@/lib/skal/dropzone";
 import { lageFarg } from "@/lib/skal/lage";
 import type { Vynyckel } from "@/lib/skal/vyer";
@@ -154,7 +156,6 @@ function Innehall({
       : null;
   const avstangd = !data.enabled;
   const noder = mapptrad(data.targets);
-  const vantetid = Math.max(data.quiet_seconds, 0) + data.scan_interval_seconds;
 
   return (
     <>
@@ -167,7 +168,14 @@ function Innehall({
       <VySektion titel="Mappar · släpp en eller flera filer" antalRader={noder.length} variant={variant}>
         <ul aria-label="Mappar i dropzonen" className="flex flex-col pt-1">
           {noder.map((nod) => (
-            <Mapp key={nod.namn} nod={nod} avstangd={avstangd} onSlapp={onSlapp} />
+            <Mapp
+              key={nod.namn}
+              nod={nod}
+              avstangd={avstangd}
+              onSlapp={onSlapp}
+              vantande={(mal) => data.pending.filter((f) => f.folder === mal.folder)}
+              vantarMeta={(f) => vantarText(f, data, nu)}
+            />
           ))}
         </ul>
       </VySektion>
@@ -177,7 +185,7 @@ function Innehall({
           <Rad
             key={s.id}
             titel={s.namn}
-            meta={slapptMeta(s, data, vantetid)}
+            meta={slapptMeta(s, data, nu)}
             ton={
               s.tillstand === "fel" || data.problems.some((p) => p.filename === s.namn)
                 ? "fel"
@@ -190,14 +198,18 @@ function Innehall({
       </VySektion>
 
       <VySektion titel="Väntar på hämtning" antalRader={data.pending.length} variant={variant}>
-        {data.pending.map((f) => (
-          <Rad
-            key={`${f.folder}/${f.filename}`}
-            titel={f.filename}
-            meta={`${f.folder}/ · ${tidpunkt(f.modified_at)}`}
-            hoger={storlek(f.size_bytes)}
-          />
-        ))}
+        {data.pending.map((f) => {
+          const v = vantarText(f, data, nu);
+          return (
+            <Rad
+              key={`${f.folder}/${f.filename}`}
+              titel={f.filename}
+              meta={`${f.folder}/ · ${v.text}`}
+              hoger={storlek(f.size_bytes)}
+              ton={v.sen ? "fel" : "normal"}
+            />
+          );
+        })}
       </VySektion>
 
       <VySektion titel="_Problem" antalRader={data.problems.length} variant={variant}>
@@ -232,14 +244,13 @@ function Innehall({
  * fortfarande, har skannern läst in den, eller avvisat den. Namnet räcker —
  * servern ger aldrig två filer samma namn i en mapp.
  */
-function slapptMeta(s: Slappt, data: DropzoneOversikt, vantetid: number): string {
+function slapptMeta(s: Slappt, data: DropzoneOversikt, nu: number): string {
   if (s.tillstand === "laddar") return `laddar upp till ${s.mapp}/`;
   if (s.tillstand === "fel") return s.text ?? "kunde inte läggas i mappen";
   const problem = data.problems.find((p) => p.filename === s.namn);
   if (problem) return `avvisad, ligger i _Problem/${problem.reason ? ` · ${problem.reason}` : ""}`;
-  if (data.pending.some((p) => p.folder === s.mapp && p.filename === s.namn)) {
-    return `lagd i ${s.mapp}/ · läses in inom ~${vantetid} s`;
-  }
+  const vantar = data.pending.find((p) => p.folder === s.mapp && p.filename === s.namn);
+  if (vantar) return `i ${s.mapp}/ · ${vantarText(vantar, data, nu).text}`;
   const inlast = data.ingested.find((p) => p.filename === s.namn);
   if (inlast) return `inläst från ${s.mapp}/ · ${utfallText(inlast.outcome).text}`;
   return `lagd i ${s.mapp}/`;
@@ -250,15 +261,22 @@ function Mapp({
   nod,
   avstangd,
   onSlapp,
+  vantande,
+  vantarMeta,
 }: {
   nod: Mappnod;
   avstangd: boolean;
   onSlapp: (mal: DropzoneMal, filer: File[]) => void;
+  vantande: (mal: DropzoneMal) => DropzoneVantande[];
+  vantarMeta: (fil: DropzoneVantande) => { text: string; sen: boolean };
 }) {
   return (
     <li className="flex flex-col">
       {nod.mal ? (
-        <MappRad mal={nod.mal} namn={`${nod.namn}/`} avstangd={avstangd} onSlapp={onSlapp} />
+        <>
+          <MappRad mal={nod.mal} namn={`${nod.namn}/`} avstangd={avstangd} onSlapp={onSlapp} />
+          <VantandeFiler filer={vantande(nod.mal)} meta={vantarMeta} />
+        </>
       ) : (
         <div className="flex items-center gap-[10px] border-b border-bok-linje-svagast py-[9px]">
           <MappIkon />
@@ -271,11 +289,44 @@ function Mapp({
           {nod.undermappar.map((u) => (
             <li key={u.mal.folder}>
               <MappRad mal={u.mal} namn={`${u.namn}/`} avstangd={avstangd} onSlapp={onSlapp} />
+              <VantandeFiler filer={vantande(u.mal)} meta={vantarMeta} />
             </li>
           ))}
         </ul>
       )}
     </li>
+  );
+}
+
+/** Filerna som väntar på skannern, direkt under mappen — "1 väntar" säger inte vilken fil. */
+function VantandeFiler({
+  filer,
+  meta,
+}: {
+  filer: DropzoneVantande[];
+  meta: (fil: DropzoneVantande) => { text: string; sen: boolean };
+}) {
+  if (filer.length === 0) return null;
+  return (
+    <ul aria-label="Väntar i mappen" className="flex flex-col gap-[2px] pb-[6px] pl-[38px] pr-2">
+      {filer.map((f) => {
+        const v = meta(f);
+        return (
+          <li key={f.filename} className="flex items-baseline justify-between gap-[14px]">
+            <span className="flex min-w-0 items-baseline gap-2">
+              <span className="truncate text-[13px] text-bok-text-2">{f.filename}</span>
+              <span
+                className="bok-mono shrink-0 text-[11px]"
+                style={{ color: v.sen ? "var(--bok-fel-meta)" : "var(--bok-meta)" }}
+              >
+                {v.text}
+              </span>
+            </span>
+            <span className="bok-mono shrink-0 text-[11px] tabular-nums text-bok-meta">{storlek(f.size_bytes)}</span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

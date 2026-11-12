@@ -480,7 +480,15 @@ def dropzone_overview(scanner: DropzoneScanner | None = None) -> dict:
     scanner = scanner or get_scanner()
     root = scanner.root
     pending_paths = scanner.pending_files() if root.is_dir() else []
-    pending = [_file_entry(p, root) for p in pending_paths if p.exists()]
+    pending = []
+    for path in pending_paths:
+        if not path.exists():
+            continue
+        entry = _file_entry(path, root)
+        # A file the scanner tried and failed on stays put and is retried;
+        # without the reason it looks exactly like one about to be read in.
+        entry["error"] = scanner.file_error(path)
+        pending.append(entry)
 
     counts: dict[str, int] = {}
     for entry in pending:
