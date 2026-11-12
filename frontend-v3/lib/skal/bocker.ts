@@ -13,7 +13,13 @@ import { formatBelopp, formatBeloppHela } from "@/lib/skal/format";
 import { formatVerifikationsnummer } from "@/lib/utils";
 import { parBelopp, type VyData, type VyRadData, type VySektionData } from "@/lib/skal/vydata";
 import type { OverviewFiscalYear } from "@/lib/skal/api";
-import { oppnaFil, underlagsfilSokvag, type BeslutSvar, type ForslagStatusSvar } from "@/lib/chattyta/api";
+import {
+  oppnaFil,
+  underlagsfilSokvag,
+  type BeslutSvar,
+  type ForslagStatusSvar,
+  type UtanUnderlag,
+} from "@/lib/chattyta/api";
 import type { Koppling } from "@/lib/chattyta/kopplingar";
 import type { Postning } from "@/lib/chattyta/postningar";
 import { periodnamn, type LasData, type Period } from "@/lib/skal/las";
@@ -90,12 +96,33 @@ export interface Verifikation {
    */
   referenced_by?: VerifikationRef | null;
   /**
+   * En människas godkännande att stå utan underlag (migration 051), medan
+   * det är det som håller verifikationen ur `Saknar underlag`. Valfri: en
+   * äldre server skickar den inte.
+   */
+  underlag_waiver?: UtanUnderlagGodkannande | null;
+  /**
    * Vad en rättelse gjorde (`api/schemas.py::VoucherCorrectionResponse`):
    * på en rättad verifikation alla dess postade rättelser sammantagna, på
    * en rättelse just den. Valfri: en äldre server skickar den inte.
    */
   correction?: Rattelse | null;
 }
+
+/** `api/schemas.py::UnderlagWaiverResponse`. */
+export interface UtanUnderlagGodkannande {
+  id: string;
+  reason: UtanUnderlag;
+  note?: string | null;
+  waived_by: string;
+  created_at: string;
+}
+
+/** Metans ord för ett godkännande utan underlag. */
+export const UTAN_UNDERLAG_TEXT: Record<UtanUnderlag, string> = {
+  later: "underlag kommer senare",
+  none: "inget underlag behövs",
+};
 
 /** `api/schemas.py::VoucherCorrectionResponse`. Belopp i öre, netto debet − kredit per konto. */
 export interface Rattelse {
@@ -579,10 +606,11 @@ function verifikationsrad(v: Verifikation): VyRadData {
   const rattadAv = v.corrected_by ? ` · rättad av ${nummerAv(v.corrected_by)}` : "";
   const rattar = v.status === "posted" && v.corrects ? ` · rättar ${nummerAv(v.corrects)}` : "";
   const korr = v.status === "posted" ? korrigering(v) : "";
+  const utan = v.status === "posted" && v.underlag_waiver ? ` · ${UTAN_UNDERLAG_TEXT[v.underlag_waiver.reason]}` : "";
   const rad: VyRadData = {
     id: v.id,
     titel: v.description,
-    meta: `${nummer} · ${v.date}${saknar ? " · saknar underlag" : ""}${rattadAv}${rattar}${korr}`,
+    meta: `${nummer} · ${v.date}${saknar ? " · saknar underlag" : ""}${utan}${rattadAv}${rattar}${korr}`,
     hoger: formatBeloppHela(v.total_debit),
     variant: v.status === "draft" ? "vantar" : saknar ? "saknar" : undefined,
     mal: { typ: "ver", id: v.id },
@@ -594,10 +622,13 @@ function verifikationsrad(v: Verifikation): VyRadData {
 /**
  * Raden får kvittolänken (FU23) när den är postad och inte saknar underlag.
  * En rättelse får den inte: dess underlag är originalet (D3). Om underlaget
- * är ett kvitto vet klienten först när länken används.
+ * är ett kvitto vet klienten först när länken används. En verifikation som
+ * godkänts utan underlag har inget att öppna.
  */
-export function harUnderlag(v: Pick<Verifikation, "status" | "missing_attachment" | "corrects">): boolean {
-  return v.status === "posted" && v.missing_attachment === false && !v.corrects;
+export function harUnderlag(
+  v: Pick<Verifikation, "status" | "missing_attachment" | "corrects" | "underlag_waiver">
+): boolean {
+  return v.status === "posted" && v.missing_attachment === false && !v.corrects && !v.underlag_waiver;
 }
 
 /**
@@ -621,6 +652,7 @@ function saknarrad(v: Verifikation): VyRadData {
     variant: framtid ? undefined : "saknar",
     ageDays: framtid ? undefined : v.age_days,
     mal: { typ: "ver", id: v.id },
+    underlagsval: { voucherId: v.id },
   };
 }
 
@@ -902,7 +934,19 @@ function beslutsrad(b: BeslutSvar): VyRadData {
 }
 
 function forslagsrad(f: ForslagStatusSvar, u: Verifikation): VyRadData {
-  const rad = { id: f.draft_id, titel: u.description, hoger: formatBeloppHela(u.total_debit) };
+  // `svara`: chatten skrollar till förslagskortet och fältet får en
+  // inledning som säger vilket förslag svaret gäller. Inget skickas.
+  const rad = {
+    id: f.draft_id,
+    titel: u.description,
+    hoger: formatBeloppHela(u.total_debit),
+    fraga: {
+      viewKey: VY_VERIFIKATIONER,
+      text: `Om förslaget "${u.description}" ${u.date}: `,
+      etikett: "svara",
+      postId: f.post_id,
+    },
+  };
   if (f.last_error_code) {
     // `period_locked` kan sättas av låsningen själv (F16) utan att någon
     // tryckt `Posta` — då har ingen postning misslyckats.

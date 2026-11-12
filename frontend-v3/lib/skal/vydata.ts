@@ -5,7 +5,7 @@
  * `bocker.ts`, `betala.ts` och `bokslut.ts`; skalet har ingen påhittad data.
  */
 
-import type { BeslutSvar } from "@/lib/chattyta/api";
+import type { BeslutSvar, UtanUnderlag } from "@/lib/chattyta/api";
 import type { RadMal } from "@/lib/skal/detalj";
 import type { LasData } from "@/lib/skal/las";
 
@@ -64,7 +64,19 @@ export interface VyRadData {
    * En rad som väntar men inte har något kort: länken `be agenten` fyller
    * vyns chattfält med `text`. Ingenting skickas förrän människan skickar.
    */
-  fraga?: { viewKey: string; text: string };
+  fraga?: {
+    viewKey: string;
+    text: string;
+    /** Länkens text; `be agenten` utan den. */
+    etikett?: string;
+    /** Kortet i vyns tråd som svaret gäller: chatten skrollar dit. */
+    postId?: string;
+  };
+  /**
+   * En postad verifikation utan underlag (migration 051). Utan `godkant`:
+   * länkarna `kommer senare` och `inget underlag`, ett tryck var. Med: `ångra`.
+   */
+  underlagsval?: { voucherId: string; godkant?: UtanUnderlag };
   /**
    * Fler steg i radens kedja, som länkar i metaraden: en betald faktura
    * leder med titeln till verifikationen som bokförde den och med

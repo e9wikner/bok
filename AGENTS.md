@@ -128,6 +128,13 @@ Service-to-service imports are deferred inside methods to avoid import cycles.
   `foresla_agi_bokforing`, `services/payroll_proposal.py`, migration 043);
   answering such a card, and `POST /payroll/payslips/{id}/book` and
   `/payroll/agi/{y}/{m}/book`, get `403 human_only` with the API key.
+- **A voucher without underlag is approved by a human's press.**
+  `POST /vouchers/{id}/underlag-waiver` with `later` (the underlag comes and is
+  still matched then) or `none` (an accrual is its own document) takes it out of
+  `missing_attachment`; the API key gets `403 human_only`. Waivers are
+  append-only (migration 051) and undone by a revocation row
+  (`services/underlag_waiver.py`). The matching reads `MISSING_DOCUMENT_SQL`,
+  which ignores waivers.
 - **A fiscal year is created by a human's press, not by the agent.** An
   underlag dated outside every year gets a `foresla_rakenskapsar` decision card
   (`services/fiscal_year_proposal.py`, migration 041); the create option, answered

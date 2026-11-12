@@ -217,6 +217,23 @@ export async function kopplaLonebesked(payslipId: string, voucherId: string): Pr
   });
 }
 
+/**
+ * Varför en postad verifikation står utan underlag (migration 051):
+ * `later` — underlaget kommer och matchas då; `none` — verifikationen är sitt
+ * eget underlag (en periodisering).
+ */
+export type UtanUnderlag = "later" | "none";
+
+/** `POST /vouchers/{id}/underlag-waiver` — bara en inloggad människa. */
+export async function godkannUtanUnderlag(voucherId: string, reason: UtanUnderlag): Promise<void> {
+  await apiClient.post(`/api/v1/vouchers/${encodeURIComponent(voucherId)}/underlag-waiver`, { reason });
+}
+
+/** `POST /vouchers/{id}/underlag-waiver/revoke` — verifikationen saknar underlag igen. */
+export async function angraUtanUnderlag(voucherId: string): Promise<void> {
+  await apiClient.post(`/api/v1/vouchers/${encodeURIComponent(voucherId)}/underlag-waiver/revoke`);
+}
+
 /** `GET /intake/{id}/file` för en källa i intagskön. */
 export function underlagsfilSokvag(sourceId: string): string {
   return `/api/v1/intake/${encodeURIComponent(sourceId)}/file`;

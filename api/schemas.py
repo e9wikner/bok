@@ -2,9 +2,9 @@
 
 from datetime import date as DateType
 from datetime import datetime as DateTimeType
-from typing import List, Optional
+from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # Voucher Schemas
 
@@ -135,6 +135,34 @@ class VoucherRefResponse(BaseModel):
     number: Optional[int]
 
 
+class UnderlagWaiverResponse(BaseModel):
+    """A human's approval of a voucher without underlag (migration 051)."""
+
+    id: str
+    voucher_id: str
+    reason: str = Field(
+        ...,
+        description=(
+            "later: the underlag arrives after the posting and is still matched;"
+            " none: the voucher is its own document (an accrual, a depreciation)"
+        ),
+    )
+    note: Optional[str] = None
+    waived_by: str
+    created_at: DateTimeType
+    revoked_at: Optional[DateTimeType] = None
+    revoked_by: Optional[str] = None
+
+
+class UnderlagWaiverRequest(BaseModel):
+    """`POST /vouchers/{id}/underlag-waiver`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Literal["later", "none"]
+    note: Optional[str] = Field(None, max_length=500)
+
+
 class CorrectionAccountResponse(BaseModel):
     """One account's net (debit minus credit, öre) before and after."""
 
@@ -231,6 +259,13 @@ class VoucherResponse(BaseModel):
         description=(
             "The posted voucher whose underlag is this one's linked receipt "
             "(voucher_source_references), e.g. a difference booked on its own"
+        ),
+    )
+    underlag_waiver: Optional[UnderlagWaiverResponse] = Field(
+        None,
+        description=(
+            "A logged-in human's current approval to stand without underlag;"
+            " takes the voucher out of missing_attachment"
         ),
     )
     correction: Optional[VoucherCorrectionResponse] = Field(

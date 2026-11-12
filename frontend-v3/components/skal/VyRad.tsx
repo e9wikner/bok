@@ -11,9 +11,12 @@ import {
   BESLUT_NYCKEL,
   LONER_NYCKEL,
   VOUCHERS_NYCKEL,
+  angraUtanUnderlag,
   forsokIgenMedUnderlag,
+  godkannUtanUnderlag,
   kopplaLonebesked,
   type BeslutSvar,
+  type UtanUnderlag,
 } from "@/lib/chattyta/api";
 import { oppnaKvitto } from "@/lib/skal/bocker";
 import type { RadMal } from "@/lib/skal/detalj";
@@ -85,6 +88,7 @@ export function VyRad({
   kopplaLonebesked: koppla,
   beslut,
   fraga,
+  underlagsval,
   lankar,
   inlagg,
   las,
@@ -115,8 +119,10 @@ export function VyRad({
   kopplaLonebesked?: VyRadData["kopplaLonebesked"];
   /** Ett öppet beslut: titeln tar upp det i chatten. */
   beslut?: BeslutSvar;
-  /** Ingen kort ännu: `be agenten` i metaraden fyller vyns chattfält. */
+  /** `be agenten` (eller `etikett`) i metaraden fyller vyns chattfält. */
   fraga?: VyRadData["fraga"];
+  /** Postad utan underlag: `kommer senare` · `inget underlag`, eller `ångra`. */
+  underlagsval?: VyRadData["underlagsval"];
   /** Kedjans andra steg, som länkar i metaraden. */
   lankar?: VyRadData["lankar"];
   /** Inlägget i målvyns tråd som visas när titeln följer `mal`. */
@@ -206,22 +212,34 @@ export function VyRad({
             <Markerad text={titel} index={traff?.titel} />
           </span>
         )}
-        {(metaText || kvitto || forsokIgen || koppla || fraga || (lankar && detalj)) && (
+        {(metaText || kvitto || forsokIgen || koppla || fraga || underlagsval || (lankar && detalj)) && (
           <span
             className={`bok-mono ${storlek === "desktop" ? "text-[11px]" : "text-[12px]"}`}
             style={{ color: metaFarg(variant, ageDays) }}
           >
-            {metaText && <Markerad text={metaText} index={traff?.meta} />}
+            {/* Ett eget element, så att texten går att hitta och färga skild
+                från länkarna efter den. */}
+            {metaText && (
+              <span style={{ color: metaFarg(variant, ageDays) }}>
+                <Markerad text={metaText} index={traff?.meta} />
+              </span>
+            )}
             {kvitto && <KvittoLank {...kvitto} forsta={!meta} />}
             {forsokIgen && <ForsokIgenLank {...forsokIgen} forsta={!meta && !kvitto} />}
             {koppla && <KopplaLonebeskedLank {...koppla} forsta={!meta && !kvitto && !forsokIgen} />}
             {fraga && (
               <MetaLank
-                text="be agenten"
+                text={fraga.etikett ?? "be agenten"}
                 titel="Fyll i chattfältet"
                 forsta={!meta && !kvitto && !forsokIgen && !koppla}
-                onTryck={() => fyll(fraga.viewKey, fraga.text)}
+                onTryck={() => {
+                  if (fraga.postId) visaInlagg(fraga.viewKey, fraga.postId);
+                  fyll(fraga.viewKey, fraga.text);
+                }}
               />
+            )}
+            {underlagsval && (
+              <UnderlagsvalLankar {...underlagsval} forsta={!meta && !kvitto && !forsokIgen && !koppla && !fraga} />
             )}
             {detalj &&
               lankar?.map((l, i) => (
@@ -229,7 +247,7 @@ export function VyRad({
                   key={`${l.text}-${i}`}
                   text={l.text}
                   titel={MAL_TITEL[l.mal.typ]}
-                  forsta={!meta && !kvitto && !forsokIgen && !koppla && !fraga && i === 0}
+                  forsta={!meta && !kvitto && !forsokIgen && !koppla && !fraga && !underlagsval && i === 0}
                   onTryck={() => detalj.oppna(l.mal)}
                 />
               ))}
@@ -444,6 +462,89 @@ function KopplaLonebeskedLank({
         className="text-bok-lank underline-offset-2 hover:text-bok-lank-hover hover:underline disabled:no-underline disabled:opacity-70"
       >
         {text}
+      </button>
+    </>
+  );
+}
+
+/**
+ * En postad verifikation utan underlag, godkänd med ett tryck (migration
+ * 051): `kommer senare` (underlaget matchas när det kommer) eller `inget
+ * underlag` (en periodisering är sitt eget underlag). Ett godkännande ångras
+ * med `ångra`. Verifikationerna hämtas om, så raden flyttar till Postade
+ * eller tillbaka. Bara en inloggad människa kan trycka; servern vägrar
+ * agentens nyckel.
+ */
+function UnderlagsvalLankar({
+  voucherId,
+  godkant,
+  forsta,
+}: {
+  voucherId: string;
+  godkant?: UtanUnderlag;
+  forsta: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const [lage, setLage] = useState<"redo" | "skickar" | "klart" | "fel">("redo");
+  const klass =
+    "text-bok-lank underline-offset-2 hover:text-bok-lank-hover hover:underline disabled:no-underline disabled:opacity-70";
+  const kor = (anrop: () => Promise<void>) => {
+    setLage("skickar");
+    anrop()
+      .then(() => {
+        setLage("klart");
+        return queryClient.invalidateQueries({ queryKey: VOUCHERS_NYCKEL });
+      })
+      .catch(() => setLage("fel"));
+  };
+  const upptagen = lage === "skickar" || lage === "klart";
+  const fore = !forsta && " · ";
+  if (lage === "skickar" || lage === "klart") {
+    return (
+      <>
+        {fore}
+        <span>{lage === "skickar" ? "sparar…" : godkant ? "ångrat" : "godkänt"}</span>
+      </>
+    );
+  }
+  const felText = lage === "fel" ? <>{fore}gick inte · </> : fore;
+  if (godkant) {
+    return (
+      <>
+        {felText}
+        <button
+          type="button"
+          disabled={upptagen}
+          title="Verifikationen saknar underlag igen"
+          onClick={() => kor(() => angraUtanUnderlag(voucherId))}
+          className={klass}
+        >
+          ångra
+        </button>
+      </>
+    );
+  }
+  return (
+    <>
+      {felText}
+      <button
+        type="button"
+        disabled={upptagen}
+        title="Godkänn utan underlag nu; underlaget matchas när det kommer"
+        onClick={() => kor(() => godkannUtanUnderlag(voucherId, "later"))}
+        className={klass}
+      >
+        kommer senare
+      </button>
+      {" · "}
+      <button
+        type="button"
+        disabled={upptagen}
+        title="Godkänn utan underlag: verifikationen är sitt eget underlag (t.ex. en periodisering)"
+        onClick={() => kor(() => godkannUtanUnderlag(voucherId, "none"))}
+        className={klass}
+      >
+        inget underlag
       </button>
     </>
   );

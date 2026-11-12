@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from db.database import db
-from domain.models import Voucher, VoucherRef, VoucherRow
+from domain.models import UnderlagWaiver, Voucher, VoucherRef, VoucherRow
 from domain.statement_coverage import (
     INPUT_VAT_RANGE,
     STATEMENT_ACCOUNT_RANGE,
@@ -143,7 +143,22 @@ MISSING_DOCUMENT_SQL = (
     " AND NOT EXISTS (SELECT 1 FROM voucher_source_references vsr"
     " WHERE vsr.voucher_id = vouchers.id))"
 )
-MISSING_ATTACHMENT_SQL = f"({MISSING_DOCUMENT_SQL} AND NOT {STATEMENT_COVERED_SQL})"
+# A human's current approval to stand without underlag (migration 051). It
+# takes the voucher out of the list, never out of the matching: an underlag
+# that arrives later is still set against it through `MISSING_DOCUMENT_SQL`.
+CURRENT_UNDERLAG_WAIVER_SQL = (
+    "NOT EXISTS (SELECT 1 FROM voucher_underlag_waiver_revocations uwr"
+    " WHERE uwr.waiver_id = {alias}.id)"
+)
+UNDERLAG_WAIVED_SQL = (
+    "EXISTS (SELECT 1 FROM voucher_underlag_waivers uwx"
+    " WHERE uwx.voucher_id = vouchers.id"
+    f" AND {CURRENT_UNDERLAG_WAIVER_SQL.format(alias='uwx')})"
+)
+MISSING_ATTACHMENT_SQL = (
+    f"({MISSING_DOCUMENT_SQL} AND NOT {STATEMENT_COVERED_SQL}"
+    f" AND NOT {UNDERLAG_WAIVED_SQL})"
+)
 # Age of the business event, not of the posting: counted from vouchers.date,
 # in whole days, local time.
 AGE_DAYS_SQL = (
@@ -176,7 +191,15 @@ VOUCHER_SELECT_SQL = f"""
            rb.number AS referenced_by_number,
            (SELECT COUNT(*) FROM vouchers cc
              WHERE cc.correction_of = vouchers.id AND cc.status = 'posted')
-               AS correction_count
+               AS correction_count,
+           uw.id AS underlag_waiver_id,
+           uw.reason AS underlag_waiver_reason,
+           uw.note AS underlag_waiver_note,
+           uw.waived_by AS underlag_waiver_by,
+           uw.created_at AS underlag_waiver_at,
+           CASE WHEN uw.id IS NULL THEN 0
+                ELSE ({MISSING_DOCUMENT_SQL} AND NOT {STATEMENT_COVERED_SQL})
+           END AS underlag_waiver_in_effect
     FROM vouchers
     LEFT JOIN (
         SELECT id, series, number, correction_of,
@@ -197,6 +220,9 @@ VOUCHER_SELECT_SQL = f"""
         JOIN vouchers rv ON rv.id = vsr.voucher_id
         WHERE rv.status = 'posted'
     ) rb ON rb.via_voucher_id = vouchers.id AND rb.rank_in_via = 1
+    LEFT JOIN voucher_underlag_waivers uw
+        ON uw.voucher_id = vouchers.id
+       AND {CURRENT_UNDERLAG_WAIVER_SQL.format(alias='uw')}
 """
 
 
@@ -246,6 +272,28 @@ def _ref(row, prefix: str) -> Optional[VoucherRef]:
     )
 
 
+def _waiver(row, voucher_id: str) -> Optional[UnderlagWaiver]:
+    """The current waiver joined into a `VOUCHER_SELECT_SQL` row, while it is
+    what keeps the voucher out of the list: once an underlag is linked (a
+    `later` that arrived) the voucher has its document and the waiver is
+    moot."""
+    if row["underlag_waiver_id"] is None or not row["underlag_waiver_in_effect"]:
+        return None
+    created_at = row["underlag_waiver_at"]
+    return UnderlagWaiver(
+        id=row["underlag_waiver_id"],
+        voucher_id=voucher_id,
+        reason=row["underlag_waiver_reason"],
+        note=row["underlag_waiver_note"],
+        waived_by=row["underlag_waiver_by"],
+        created_at=(
+            created_at
+            if isinstance(created_at, datetime)
+            else datetime.fromisoformat(created_at)
+        ),
+    )
+
+
 def _voucher_from_row(row, rows: List[VoucherRow]) -> Voucher:
     """A `Voucher` out of one `VOUCHER_SELECT_SQL` row and its rows."""
     posted_at = row["posted_at"]
@@ -277,6 +325,7 @@ def _voucher_from_row(row, rows: List[VoucherRow]) -> Voucher:
         corrects=_ref(row, "corrects"),
         referenced_by=_ref(row, "referenced_by"),
         correction_count=row["correction_count"],
+        underlag_waiver=_waiver(row, row["id"]),
     )
 
 
@@ -553,6 +602,21 @@ class VoucherRepository:
         rows = VoucherRepository._rows_for([row["id"] for row in page])
         vouchers = [_voucher_from_row(row, rows.get(row["id"], [])) for row in page]
         return vouchers, total
+
+    @staticmethod
+    def lacks_underlag(voucher_id: str) -> bool:
+        """The posted voucher has neither a document nor statement cover --
+        `MISSING_ATTACHMENT_SQL` without the waiver, so a human may approve
+        it without underlag (migration 051)."""
+        row = db.execute(
+            f"""
+            SELECT 1 FROM vouchers
+            WHERE vouchers.id = ? AND vouchers.status = 'posted'
+              AND {MISSING_DOCUMENT_SQL} AND NOT {STATEMENT_COVERED_SQL}
+            """,
+            (voucher_id,),
+        ).fetchone()
+        return row is not None
 
     @staticmethod
     def count_missing_attachments(

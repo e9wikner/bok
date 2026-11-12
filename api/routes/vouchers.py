@@ -9,7 +9,12 @@ from fastapi import status as http_status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
-from api.deps import get_current_actor, get_idempotency_key, get_ledger_service
+from api.deps import (
+    get_current_actor,
+    get_human_actor,
+    get_idempotency_key,
+    get_ledger_service,
+)
 from api.schemas import (
     ApproveCorrectionNoteRequest,
     CorrectionDraftRequest,
@@ -20,6 +25,8 @@ from api.schemas import (
     DismissCorrectionNoteRequest,
     RejectCorrectionNoteRequest,
     SuggestCorrectionNoteRequest,
+    UnderlagWaiverRequest,
+    UnderlagWaiverResponse,
     UpdateVoucherRequest,
     VoucherCorrectionResponse,
     VoucherOriginResponse,
@@ -39,6 +46,7 @@ from services.correction_notes import CorrectionNoteError, CorrectionNoteService
 from services.draft_service import DraftService, SourceAlreadyBookedError
 from services.idempotency import IdempotencyOutcome, IdempotencyService
 from services.ledger import LedgerService, run_statement_match_after_posting
+from services.underlag_waiver import UnderlagWaiverError, UnderlagWaiverService
 from services.voucher_origin import voucher_origin
 
 logger = logging.getLogger(__name__)
@@ -967,6 +975,51 @@ async def list_vouchers(
         )
 
 
+def _waiver_error(exc: UnderlagWaiverError) -> HTTPException:
+    return HTTPException(
+        status_code=exc.status, detail={"error": exc.message, "code": exc.code}
+    )
+
+
+@router.post("/{voucher_id}/underlag-waiver", response_model=UnderlagWaiverResponse)
+async def waive_underlag(
+    voucher_id: str,
+    request: UnderlagWaiverRequest,
+    actor: str = Depends(get_human_actor),
+):
+    """Approve a posted voucher without underlag (migration 051): it leaves
+    `missing_attachment`. `later` keeps it matchable when the underlag comes;
+    `none` says the voucher is its own document (an accrual). A logged-in
+    user only: the API key gets `403 human_only`. The voucher is not changed.
+    `200` also on a replay with the same reason; `409 waiver_exists` for
+    another reason, `409 not_missing_underlag` when it has its underlag."""
+    try:
+        waiver = UnderlagWaiverService().waive(
+            voucher_id, reason=request.reason, note=request.note, actor=actor
+        )
+    except UnderlagWaiverError as exc:
+        raise _waiver_error(exc) from exc
+    return UnderlagWaiverResponse(**waiver.__dict__)
+
+
+@router.post(
+    "/{voucher_id}/underlag-waiver/revoke",
+    response_model=Optional[UnderlagWaiverResponse],
+)
+async def revoke_underlag_waiver(
+    voucher_id: str,
+    actor: str = Depends(get_human_actor),
+):
+    """Undo the approval without underlag: the voucher is back in
+    `missing_attachment` unless it has got its underlag. A logged-in user
+    only. `null` when there was nothing to undo."""
+    try:
+        waiver = UnderlagWaiverService().revoke(voucher_id, actor=actor)
+    except UnderlagWaiverError as exc:
+        raise _waiver_error(exc) from exc
+    return UnderlagWaiverResponse(**waiver.__dict__) if waiver else None
+
+
 @router.get("/{voucher_id}/audit", response_model=dict)
 async def get_voucher_audit(
     voucher_id: str,
@@ -1155,6 +1208,11 @@ def _voucher_to_response(voucher, account_names=None) -> VoucherResponse:
         corrected_by=_ref_response(voucher.corrected_by),
         corrects=_ref_response(voucher.corrects),
         referenced_by=_ref_response(voucher.referenced_by),
+        underlag_waiver=(
+            UnderlagWaiverResponse(**voucher.underlag_waiver.__dict__)
+            if voucher.underlag_waiver
+            else None
+        ),
     )
 
 

@@ -13,7 +13,7 @@
 
 import apiClient from "@/lib/api";
 import type { OverviewFiscalYear } from "@/lib/skal/api";
-import { harUnderlag, underlagAlder, type Rattelse, type Verifikation, type VerifikationRef } from "@/lib/skal/bocker";
+import { harUnderlag, underlagAlder, UTAN_UNDERLAG_TEXT, type Rattelse, type Verifikation, type VerifikationRef } from "@/lib/skal/bocker";
 import { formatBeloppHela } from "@/lib/skal/format";
 import type { VyData, VyRadData, VySektionData } from "@/lib/skal/vydata";
 import { allaVyer, type Vynyckel } from "@/lib/skal/vyer";
@@ -279,6 +279,16 @@ export function verifikationVy(v: VerifikationDetalj): VyData {
             hoger: "",
             variant: (v.age_days ?? 0) < 0 ? undefined : "saknar",
             ageDays: (v.age_days ?? 0) < 0 ? undefined : v.age_days,
+            underlagsval: { voucherId: v.id },
+          }
+        : v.underlag_waiver
+        ? // Godkänd utan underlag (migration 051): vem och när, och `ångra`.
+          {
+            id: "underlag",
+            titel: "Underlag",
+            meta: `${UTAN_UNDERLAG_TEXT[v.underlag_waiver.reason]} · godkänt av ${v.underlag_waiver.waived_by} ${v.underlag_waiver.created_at.slice(0, 10)}`,
+            hoger: "",
+            underlagsval: { voucherId: v.id, godkant: v.underlag_waiver.reason },
           }
         : // En rättelses underlag är originalet (SPEC-flode-underlag.md D3).
           { id: "underlag", titel: "Underlag", meta: "originalets", hoger: "" };

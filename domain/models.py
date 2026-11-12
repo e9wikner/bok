@@ -116,6 +116,27 @@ class VoucherRef:
     number: Optional[int]
 
 
+@dataclass(frozen=True)
+class UnderlagWaiver:
+    """A human's approval of a posted voucher without underlag (migration
+    051). `reason` is `later` (the underlag arrives after the posting and is
+    still matched then) or `none` (the voucher is its own document: an
+    accrual, a depreciation). Current while `revoked_at` is None."""
+
+    id: str
+    voucher_id: str
+    reason: str
+    note: Optional[str]
+    waived_by: str
+    created_at: datetime
+    revoked_at: Optional[datetime] = None
+    revoked_by: Optional[str] = None
+
+    @property
+    def is_current(self) -> bool:
+        return self.revoked_at is None
+
+
 @dataclass
 class Voucher:
     """Verifikation (accounting voucher - BFL §5 kap 6)."""
@@ -157,6 +178,10 @@ class Voucher:
     referenced_by: Optional[VoucherRef] = None
     # Derived: how many posted corrections point at this voucher.
     correction_count: int = 0
+    # Derived from voucher_underlag_waivers (migration 051): the current
+    # approval to stand without underlag, which takes the voucher out of
+    # `missing_attachment`.
+    underlag_waiver: Optional[UnderlagWaiver] = None
 
     def is_posted(self) -> bool:
         """Check if voucher is posted (varaktighet - immutable)."""

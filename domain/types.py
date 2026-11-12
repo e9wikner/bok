@@ -51,6 +51,8 @@ class AuditAction(str, Enum):
     STATEMENT_UNLINKED = "statement_unlinked"
     ISSUED = "issued"
     DISMISSED = "dismissed"
+    UNDERLAG_WAIVED = "underlag_waived"
+    UNDERLAG_WAIVER_REVOKED = "underlag_waiver_revoked"
 
 
 class PeriodLockStatus(str, Enum):
