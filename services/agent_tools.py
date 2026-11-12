@@ -335,7 +335,7 @@ class LasUnderlagArgs(BaseModel):
 
 
 class HamtaUnderlagsfilArgs(BaseModel):
-    """Hämta och tolka innehållet i ett underlags fil (SPEC §6.3)."""
+    """Hämta och tolka innehållet i ett underlags fil."""
 
     source_id: str
 
@@ -584,8 +584,7 @@ class PostaVerifikationArgs(BaseModel):
 
 
 class ForeslaVerifikationArgs(BaseModel):
-    """Föreslå en verifikation i tråden, för användaren att posta
-    (SPEC-flode-verifikationer.md §5).
+    """Föreslå en verifikation i tråden, för användaren att posta.
 
     Skapar ett utkast utan nummer och ett kort i tråden. Postar aldrig:
     användarens tryck på `Posta` är godkännandet. `description` blir
@@ -648,8 +647,7 @@ class BeOmBeslutSource(BaseModel):
 
 
 class BeOmBeslutOption(BaseModel):
-    """Ett alternativ i den lista som visas under ett beslut (SPEC-beslut.md
-    §6.3). Servern -- inte klienten -- äger varje fält här: `rationale` och
+    """Ett alternativ i den lista som visas under ett beslut. Servern -- inte klienten -- äger varje fält här: `rationale` och
     `recommended` skrivs ordagrant/exakt som satta, aldrig omräknade."""
 
     title: str
@@ -680,7 +678,7 @@ class BeOmBeslutOption(BaseModel):
 
 class BeOmBeslutArgs(BaseModel):
     """Lägg fram ett beslut för användaren att ta ställning till, mitt i ett
-    samtal (SPEC-beslut.md §6.4).
+    samtal.
 
     Skriver ett `decision`-inlägg (och ett `options`-inlägg när `options`
     är ifyllt) i tråden, en rad i `decisions`, och rader i
@@ -731,9 +729,9 @@ class TolkaUnderlagLine(BaseModel):
 
 
 class TolkaUnderlagArgs(BaseModel):
-    """Det modellen läste ur ett underlag, för kontroll och matchning
-    (SPEC-underlagstolkning.md §6.2). Belopp i öre. Det finns inget fält
-    för `confidence` eller `hypothesis`: dem räknar servern (§12.3)."""
+    """Det modellen läste ur ett underlag, för kontroll och matchning.
+    Belopp i öre. Det finns inget fält för `confidence` eller
+    `hypothesis`: dem räknar servern."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -748,8 +746,7 @@ class TolkaUnderlagArgs(BaseModel):
 
 
 class KopplaUnderlagArgs(BaseModel):
-    """Koppla ett underlag till en redan postad verifikation
-    (SPEC-flode-underlag.md §6.2). Inget fält för belopp, differens eller
+    """Koppla ett underlag till en redan postad verifikation. Inget fält för belopp, differens eller
     motivering: differensen finns i tolkningen, och motiveringen är beslutet
     eller den exakta matchningen."""
 

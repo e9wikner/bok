@@ -851,7 +851,8 @@ _FIRST_TEN = [
 # Re-taken again for the period lock, which rewords `las_perioder` (it said
 # locking was never the agent's).
 # Re-taken for migration 045 (`comment` and `valuta` on posta_verifikation).
-_FIRST_TEN_SHA256 = "2ed8ad7cb947b3b222610a0d0da7f46d89f05abf96ac2c63a0397cc4d7421aef"
+# Re-taken when the argument models' docstrings lost their spec citations.
+_FIRST_TEN_SHA256 = "2b20cd2a66bae6c870863f2ca162770ae62279af50c60f9e62d2fddf661f6b8b"
 
 
 def test_case_22_foresla_verifikation_is_last_and_the_first_ten_are_unchanged():

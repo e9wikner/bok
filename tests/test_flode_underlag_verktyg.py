@@ -32,9 +32,10 @@ period_id = fu.period_id
 #: readability work, which deliberately rewords `be_om_beslut` and `foresla_verifikation`. Re-taken again for the period lock, which rewords
 #: `las_perioder` (it said locking was never the agent's) and appends
 #: `stang_perioder`. Re-taken for migration 045, which adds `comment` and
-#: `valuta` to `posta_verifikation` and `foresla_verifikation`.
+#: `valuta` to `posta_verifikation` and `foresla_verifikation`. Re-taken when
+#: the argument models' docstrings lost their citations of the removed specs.
 _FIRST_TWELVE_SHA256 = (
-    "c7f35e6619cda3719052537e8d30855cb086d30eb3c4bc07d5a7803b641b93d8"
+    "8de7f4d985c2aea9f22c74ea4cd3f28d10d1db14ae4d93b204cf9bd488bbc4d5"
 )
 
 

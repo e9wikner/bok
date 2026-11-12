@@ -2278,9 +2278,10 @@ def test_u6_voucher_candidate_row_is_one_posted_voucher_any_window(
 # prefix. Re-taken for the readability work, which
 # deliberately rewords `be_om_beslut` and `foresla_verifikation`. Re-taken
 # again for the period lock, which rewords `las_perioder`, and for migration
-# 045, which adds `comment` and `valuta` to `posta_verifikation`.
+# 045, which adds `comment` and `valuta` to `posta_verifikation`. Re-taken
+# when the argument models' docstrings lost their spec citations.
 _FIRST_ELEVEN_SHA256 = (
-    "23703392426c577bc096dcfdd9a2dcafb65de68967409dc1f37d1ba83cdf995a"
+    "ba76d70c950cecdb93b10bd2881ea398f41cf27b0676bb2dd6541b855d911fdd"
 )
 
 
@@ -2999,9 +3000,10 @@ def test_u11_intake_pass_saves_its_run_id(period_id, purchase_accounts, intake_d
 
 #: sha256 of `tolka_underlag`'s `input_schema`, taken on `e2ad486` (U14),
 #: before the route: the request body reuses the tool's fields without
-#: changing the tool's schema -- the schemas are the cached prefix.
+#: changing the tool's schema -- the schemas are the cached prefix. Re-taken
+#: when the model's docstring lost its spec citation.
 _TOLKA_UNDERLAG_SCHEMA_SHA256 = (
-    "66d6422366b21fcd9024306cf9b0b8b2e3a4efad0d6ba06d965ab9759492ccfd"
+    "b85a56c97f3a29f7ce9db9bd83bc60bc7eba04b2fff46631f82c70ede06cca17"
 )
 
 

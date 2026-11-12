@@ -28,7 +28,7 @@ from repositories.voucher_repo import VoucherRepository
 def unit_of_work(commit: bool):
     """The transaction a write runs in.
 
-    Repositories never commit (SPEC-fakturering.md §5). With `_commit=True`
+    Repositories never commit. With `_commit=True`
     the service method is its own transaction; with `_commit=False` it runs
     inside the caller's, which commits or rolls back everything together.
     """
