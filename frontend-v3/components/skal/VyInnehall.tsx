@@ -74,7 +74,7 @@ export function VyInnehall({
         className={
           variant === "desktop"
             ? "bok-dold-skroll flex min-h-0 flex-1 flex-col overflow-auto px-6 pb-[136px] pt-1"
-            : "flex flex-col px-[18px] pb-24"
+            : "flex flex-col px-[18px] bok-mobil-botten"
         }
       >
         <div className="bok-mono pt-[14px] text-[12px] text-bok-meta">{data.period}</div>

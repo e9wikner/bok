@@ -98,7 +98,10 @@ export function Header({
   if (variant === "mobil") {
     return (
       <header
-        className="flex h-[56px] shrink-0 items-center justify-between gap-3 border-b border-bok-linje-svag bg-bok-yta px-[14px]"
+        // viewport-fit=cover (app/layout.tsx) lägger sidan under statusraden
+        // och Dynamic Island. Headern tar höjden ovanför sig som padding, så
+        // att bakgrunden fyller ut dit men innehållet börjar under den.
+        className="box-content flex h-[56px] shrink-0 items-center justify-between gap-3 border-b border-bok-linje-svag bg-bok-yta px-[14px] pt-[env(safe-area-inset-top)]"
         style={{ position: "relative", zIndex: 6 }}
       >
         <div className="flex min-w-0 items-center gap-3">
@@ -107,12 +110,10 @@ export function Header({
               året, och listan som öppnas bär periodläget. */}
           {arsval && arsval.alternativ.length > 0 && <ArsValjare arsval={arsval} variant="mobil" />}
         </div>
-        {/* v10:s mobilram har ingen plats för AgentStatus, men komponenter.md
-            är uttrycklig: pausad "ska visas så länge den är pausad, inte bara
-            i felinlägget". Därför visas det ena läget som designen kräver ska
-            synas, och inte de två som den inte säger något om. Avvikelsen
-            står i tasks/skal/todo.md. */}
-        {agent?.state === "pausad" && (
+        {/* v10:s mobilram har ingen plats för AgentStatus. Den visas ändå,
+            kompakt (bara verbet): utan den syns det inte på mobilen att
+            agenten arbetar. Vilande ritas som ingenting. */}
+        {agent?.state && agent.state !== "vilande" && (
           <div className="shrink-0">
             <AgentStatus state={agent.state} pausadOrsak={agent.paused_reason} kompakt />
           </div>

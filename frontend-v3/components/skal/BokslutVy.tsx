@@ -82,7 +82,7 @@ export function BokslutVy({
           variant === "desktop"
             ? `bok-dold-skroll flex min-h-0 flex-1 flex-col overflow-auto pb-[136px] pt-1 ${pad}`
             : // pb: plats under sista raden för chattbubblan (`ChattBubbla`).
-              `flex flex-col pb-24 ${pad}`
+              `flex flex-col bok-mobil-botten ${pad}`
         }
       >
         {arId === null ? (

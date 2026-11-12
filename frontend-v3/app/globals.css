@@ -277,6 +277,13 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
   }
+  /* Luft under sista raden i en mobilvy: chattbubblan (96 px) plus det som
+     Safaris verktygsrad och hemindikatorn täcker. Med viewport-fit=cover
+     ligger vyn ända ner bakom dem, så utan tillägget gick de sista raderna
+     inte att skrolla fram. */
+  .bok-mobil-botten {
+    padding-bottom: calc(6rem + env(safe-area-inset-bottom));
+  }
   .bok-dold-skroll {
     scrollbar-width: none;
   }
