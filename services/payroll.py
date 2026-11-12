@@ -536,6 +536,7 @@ class PayrollService:
         month: int,
         voucher_date: Optional[date] = None,
         actor: str = "system",
+        source_id: Optional[str] = None,
     ) -> AgiDeclaration:
         """Book the month's AGI as one voucher: debit 2710 for the withheld
         tax and 2730 for the employer fees, credit 1630 once per part, since
@@ -548,14 +549,32 @@ class PayrollService:
         account is credited the declared whole kronor; the difference goes to
         öresutjämning (3740). The voucher and a booking row per part are
         written in one transaction, so a part is never posted without the
-        row that stops it from being booked again."""
+        row that stops it from being booked again.
+
+        *source_id* is the AGI's kvittens, the underlag the agent books it
+        from (`bokfor_agi`); it is linked to the voucher in the same
+        transaction."""
         agi, voucher_date, period = self.check_agi_booking(year, month, voucher_date)
+        from services.intake import IntakeService
+
+        intake = IntakeService()
+        if source_id is not None:
+            intake.ensure_source_ready_for_voucher_link(source_id)
         self._ensure_payroll_accounts()
         ledger = LedgerService()
         with db.transaction():
-            self._book_agi_parts(
+            voucher_id = self._book_agi_parts(
                 ledger, agi, agi.unbooked_parts, voucher_date, period.id, actor
             )
+            if source_id is not None:
+                intake.link_existing_voucher(
+                    source_id=source_id,
+                    voucher_id=voucher_id,
+                    actor=actor,
+                    summary=f"Arbetsgivardeklaration {year}-{month:02d}",
+                    link_reason="agi_receipt",
+                    _commit=False,
+                )
         run_statement_match_after_posting()
         return self.get_agi(year, month)
 
@@ -598,9 +617,9 @@ class PayrollService:
         voucher_date: date,
         period_id: str,
         actor: str,
-    ) -> None:
+    ) -> str:
         """The parts' voucher and a booking row per part, inside the
-        caller's transaction."""
+        caller's transaction. Returns the voucher's id."""
         year, month = agi.year, agi.month
         description = f"Arbetsgivardeklaration {year}-{month:02d}"
         if len(kinds) == 1:
@@ -634,6 +653,7 @@ class PayrollService:
                 },
                 _commit=False,
             )
+        return voucher.id
 
     def get_payslip_context(self, payslip_id: str) -> Dict:
         payslip = self.payslips.get(payslip_id)

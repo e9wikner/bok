@@ -1115,9 +1115,10 @@ _EXPECTED_TOOL_NAMES = [
     # in place of the broad history reads.
     "sok_verifikationer",
     # The thirtieth and thirty-first, appended the same way: booking a
-    # payslip or an AGI is proposed as a card; a human's press books it.
+    # payslip is proposed as a card, a human's press books it; an AGI is
+    # booked from its kvittens.
     "foresla_lonebokforing",
-    "foresla_agi_bokforing",
+    "bokfor_agi",
     # The thirty-second (migration 044): an underlag that already supports a
     # voucher is proposed for one more as a card; a human's press links it.
     "foresla_delat_underlag",
@@ -1278,9 +1279,9 @@ class TestAppendOnlyToolSurface:
         `fiscal_year_proposals` row; the human's press creates the year.
         `foresla_bolagsinformation` writes a decision card and a
         `company_info_proposals` row; the human's press writes the details.
-        `foresla_lonebokforing` and `foresla_agi_bokforing` write a decision
-        card and a `payroll_booking_proposals` row; a logged-in human's press
-        books the payslip or the AGI.
+        `foresla_lonebokforing` writes a decision card and a
+        `payroll_booking_proposals` row; a logged-in human's press books the
+        payslip. `bokfor_agi` books the AGI from its kvittens.
         """
         write_tool_names = {
             "posta_verifikation",
@@ -1301,7 +1302,7 @@ class TestAppendOnlyToolSurface:
             "foresla_rakenskapsar",
             "foresla_bolagsinformation",
             "foresla_lonebokforing",
-            "foresla_agi_bokforing",
+            "bokfor_agi",
             "foresla_delat_underlag",
             "foresla_utlaggskontroll",
             "foresla_avtalsbokforing",
@@ -1982,6 +1983,46 @@ class TestSokVerifikationer:
                     actor="agent",
                     capabilities=_capabilities(True),
                 )
+
+
+class TestSessionAgiBookingEndsTheSession:
+    """`bokfor_agi` is the AGI kvittens's posting: like `posta_verifikation`
+    it ends the pass over the kvittens as `posted`."""
+
+    def test_bokfor_agi_ends_the_session_as_posted(self, tmp_path, monkeypatch):
+        import services.agent_tools as agent_tools
+
+        source = _agent_tool_intake_source(tmp_path)
+        period = _agent_tool_period()
+        args_model, _handler = agent_tools._TOOL_HANDLERS["bokfor_agi"]
+        monkeypatch.setitem(
+            agent_tools._TOOL_HANDLERS,
+            "bokfor_agi",
+            (args_model, lambda *a, **k: {"id": "agi-voucher", "status": "posted"}),
+        )
+        agi_call = ToolCall(
+            id="call-1",
+            name="bokfor_agi",
+            arguments={"year": 2026, "month": 3, "source_id": source.id},
+        )
+        harmless_call = ToolCall(id="call-2", name="las_bankhandelser", arguments={})
+        client = FakeLLMClient(
+            [
+                LLMTurn(
+                    text="",
+                    tool_calls=[agi_call, harmless_call],
+                    stop="tool_calls",
+                    usage=Usage(1, 1, 0),
+                )
+            ],
+            capabilities=_capabilities(True),
+        )
+
+        outcome = _run_test_session(client, source, open_periods=[period])
+
+        assert outcome.kind == "posted"
+        assert outcome.voucher_id == "agi-voucher"
+        assert len(outcome.turns[0].executed_tool_calls) == 1
 
 
 class TestSessionPostingEndsImmediately:

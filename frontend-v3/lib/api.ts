@@ -823,12 +823,6 @@ export const api = {
     const { data } = await apiClient.get(`/api/v1/payroll/agi/${year}/${month}`);
     return data;
   },
-  bookAgi: async (year: number, month: number, voucherDate?: string): Promise<AgiDeclaration> => {
-    const { data } = await apiClient.post(`/api/v1/payroll/agi/${year}/${month}/book`, {
-      voucher_date: voucherDate || null,
-    });
-    return data;
-  },
 
   // Reports
   getIncomeStatement: async (year?: number, month?: number, fiscalYearId?: string) => {

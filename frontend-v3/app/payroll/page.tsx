@@ -42,30 +42,14 @@ function agiPeriod(paymentDate: string) {
 
 /**
  * The month's arbetsgivardeklaration: the fields to type into Skatteverket's
- * e-tjänst, and the booking that moves 2710 and 2730 to the tax account
- * (1630) -- one voucher, with a 1630 row per debit on the tax account.
+ * e-tjänst, and whether it is booked. The agent books it -- 2710 and 2730
+ * to the tax account (1630) -- when the kvittens comes in (`bokfor_agi`);
+ * there is no button here.
  */
 function AgiPanel({ year, month }: { year: number; month: number }) {
-  const queryClient = useQueryClient();
   const agiQuery = useAgi(year, month);
-  const [voucherDate, setVoucherDate] = useState("");
-  const [booking, setBooking] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const agi = agiQuery.data;
   if (!agi || agi.individuals.length === 0) return null;
-
-  const book = async () => {
-    setBooking(true);
-    setError(null);
-    try {
-      const updated = await api.bookAgi(year, month, voucherDate || undefined);
-      queryClient.setQueryData(["payroll-agi", year, month], updated);
-    } catch (err: any) {
-      setError(err?.response?.data?.detail?.error || "Kunde inte bokföra arbetsgivardeklarationen.");
-    } finally {
-      setBooking(false);
-    }
-  };
 
   return (
     <div className="space-y-3 border-b p-4 text-sm">
@@ -103,7 +87,6 @@ function AgiPanel({ year, month }: { year: number; month: number }) {
         <div><span className="text-muted-foreground">Summa skatteavdrag (497)</span><br />{sek(agi.total_preliminary_tax)}</div>
         <div><span className="text-muted-foreground">Att betala</span><br />{sek(agi.total_to_pay)}</div>
       </div>
-      {error && <p className="text-red-700 dark:text-red-300">{error}</p>}
       {agi.booked ? (
         <p className="text-muted-foreground">
           Bokförd mot skattekontot: 2710 och 2730 mot 1630, en rad per dragning.
@@ -111,15 +94,9 @@ function AgiPanel({ year, month }: { year: number; month: number }) {
       ) : agi.unbooked_payslips > 0 ? (
         <p className="text-muted-foreground">Bokför månadens löner först, sedan arbetsgivardeklarationen.</p>
       ) : (
-        <div className="flex flex-col gap-2 md:flex-row md:items-end">
-          <label className="font-medium">
-            Dragningsdag på skattekontot
-            <input className={`${inputClass} mt-1`} type="date" value={voucherDate} placeholder={agi.due_date} onChange={(e) => setVoucherDate(e.target.value)} />
-          </label>
-          <Button onClick={book} disabled={booking}>
-            {booking ? "Bokför..." : "Bokför arbetsgivardeklarationen"}
-          </Button>
-        </div>
+        <p className="text-muted-foreground">
+          Bokförs när kvittensen från Skatteverket kommer in. Lägg den i Dropzone eller i tråden.
+        </p>
       )}
     </div>
   );

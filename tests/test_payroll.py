@@ -600,19 +600,8 @@ def test_agi_api(ledger_service, auth_headers):
     assert body["total_to_pay"] == 3071000
     assert body["individuals"][0]["gross_salary"] == 5000000
 
-    # Booking is a human's: the agent's API key proposes it instead.
-    response = client.post(
-        "/api/v1/payroll/agi/2026/3/book", json={}, headers=auth_headers
-    )
-    assert response.status_code == 403
-    assert response.json()["detail"]["code"] == "human_only"
-
+    # No route books an AGI: the agent books it from its kvittens
+    # (`bokfor_agi`), and that is the only way.
     human = {"Authorization": f"Bearer {AuthService().create_jwt('stefan')}"}
     response = client.post("/api/v1/payroll/agi/2026/3/book", json={}, headers=human)
-    assert response.status_code == 200
-    assert response.json()["booked"] is True
-    assert set(response.json()["voucher_ids"]) == {"tax", "employer_fee"}
-
-    response = client.post("/api/v1/payroll/agi/2026/3/book", json={}, headers=human)
-    assert response.status_code == 400
-    assert response.json()["detail"]["code"] == "agi_already_booked"
+    assert response.status_code in (404, 405)

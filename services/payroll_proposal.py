@@ -1,19 +1,21 @@
-"""`foresla_lonebokforing` and `foresla_agi_bokforing`: a payslip's or an AGI
-month's booking proposed as a decision card.
+"""`foresla_lonebokforing`: a payslip's booking proposed as a decision card.
 
-A salary is booked against the bank transaction that paid it, and the month's
-AGI against the tax account (`PayrollService`). Neither is booked by the
-agent. It proposes the booking as a decision card in the thread, with the
-server's own checks already run, and a logged-in human's press books it. The
-payslip and the transaction, or the month and the date, are stored with the
-card (migration 043), so what is booked is exactly what the human saw.
+A salary is booked against the bank transaction that paid it
+(`PayrollService`), not by the agent. It proposes the booking as a decision
+card in the thread, with the server's own checks already run, and a
+logged-in human's press books it. The payslip and the transaction are stored
+with the card (migration 043), so what is booked is exactly what the human
+saw.
+
+A month's AGI has no card: the agent books it from its kvittens
+(`bokfor_agi`). Migration 043's `agi` kind is no longer raised.
 
 The agent may name the transaction. Without one, the server looks for it: a
 payment out equal to the net salary, near the payment date, not booked or
 linked yet. Exactly one candidate is proposed. None or several is refused
 with the candidates in the payload, and the agent asks the user.
 
-A new card for the same payslip or month supersedes a pending one; the same
+A new card for the same payslip supersedes a pending one; the same
 card asked for again is joined.
 
 The press (`on_decision_answered`, called by `POST /decisions/{id}/answer`
@@ -31,12 +33,10 @@ Layering (AGENTS.md): no SQL here, no HTTP.
 """
 
 import logging
-from datetime import date
 from typing import Any, Dict, List, Optional
 
 from db.database import db
 from domain.models import Decision, PayrollBookingProposal, Thread, ThreadPost
-from domain.payroll_models import AGI_PARTS, AgiDeclaration
 from domain.validation import ValidationError
 from repositories.account_repo import AccountRepository
 from repositories.decision_repo import DecisionRepository
@@ -50,7 +50,6 @@ from services.payroll import PAYROLL_ACCOUNTS, PayrollService
 logger = logging.getLogger(__name__)
 
 BOOK_PAYSLIP_OPTION_TITLE = "Bokför lönen"
-BOOK_AGI_OPTION_TITLE = "Bokför arbetsgivardeklarationen"
 DECLINE_OPTION_TITLE = "Inte nu"
 
 _MANAD = [
@@ -115,36 +114,6 @@ class PayrollProposalService:
         )
         return self._result(proposal, existing_card=False)
 
-    def propose_agi(
-        self,
-        thread: Thread,
-        *,
-        year: int,
-        month: int,
-        voucher_date: Optional[date] = None,
-        actor: str,
-    ) -> Dict[str, Any]:
-        """Raise the card for booking the month's AGI."""
-        agi, booked_on, _period = self.payroll.check_agi_booking(
-            year, month, voucher_date
-        )
-        for pending in PayrollBookingProposalRepository.pending_for_agi(year, month):
-            if pending.voucher_date == voucher_date and _is_open(pending):
-                return self._result(pending, existing_card=True)
-            self._supersede(pending, actor)
-
-        decision = self._raise_agi_card(thread, agi, booked_on, actor)
-        proposal = self._store(
-            decision,
-            thread,
-            kind="agi",
-            agi_year=year,
-            agi_month=month,
-            voucher_date=voucher_date,
-            actor=actor,
-        )
-        return self._result(proposal, existing_card=False)
-
     # -- what the view reads -----------------------------------------------
 
     @staticmethod
@@ -152,14 +121,6 @@ class PayrollProposalService:
         """The decision id of the payslip's open card, if it has one. The
         `/v4` row opens that card, so a row that waits always leads somewhere."""
         for pending in PayrollBookingProposalRepository.pending_for_payslip(payslip_id):
-            if _is_open(pending):
-                return pending.decision_id
-        return None
-
-    @staticmethod
-    def open_card_for_agi(year: int, month: int) -> Optional[str]:
-        """The decision id of the month's open AGI card, if it has one."""
-        for pending in PayrollBookingProposalRepository.pending_for_agi(year, month):
             if _is_open(pending):
                 return pending.decision_id
         return None
@@ -187,11 +148,10 @@ class PayrollProposalService:
                 proposal.id, "declined", actor=actor
             )
             return None
+        if proposal.kind != "payslip":
+            return None  # an AGI card from before `bokfor_agi`: books nothing
         try:
-            if proposal.kind == "payslip":
-                voucher_ids = self._book_payslip(proposal, actor)
-            else:
-                voucher_ids = self._book_agi(proposal, actor)
+            voucher_ids = self._book_payslip(proposal, actor)
         except ValidationError as exc:
             return self._failed(proposal, exc, actor)
 
@@ -222,33 +182,12 @@ class PayrollProposalService:
         assert payslip.voucher_id is not None
         return [payslip.voucher_id]
 
-    def _book_agi(self, proposal: PayrollBookingProposal, actor: str) -> List[str]:
-        assert proposal.agi_year is not None and proposal.agi_month is not None
-        before = self.payroll.get_agi(proposal.agi_year, proposal.agi_month)
-        agi = self.payroll.book_agi(
-            proposal.agi_year,
-            proposal.agi_month,
-            voucher_date=proposal.voucher_date,
-            actor=actor,
-        )
-        return list(
-            dict.fromkeys(
-                agi.voucher_ids[kind]
-                for kind in AGI_PARTS
-                if kind in agi.voucher_ids and kind not in before.voucher_ids
-            )
-        )
-
     def _failed(
         self, proposal: PayrollBookingProposal, exc: ValidationError, actor: str
     ) -> ThreadPost:
         """The books changed since the card was raised. Nothing was booked;
         the agent can propose again from the books as they are now."""
-        what = (
-            "Lönen kunde inte bokföras"
-            if proposal.kind == "payslip"
-            else "Arbetsgivardeklarationen kunde inte bokföras"
-        )
+        what = "Lönen kunde inte bokföras"
         with db.transaction():
             PayrollBookingProposalRepository.resolve(
                 proposal.id, "failed", actor=actor, _commit=False
@@ -363,49 +302,6 @@ class PayrollProposalService:
                 {
                     "title": BOOK_PAYSLIP_OPTION_TITLE,
                     "rationale": "Bokför lönen mot utbetalningen.",
-                    "recommended": True,
-                },
-                {
-                    "title": DECLINE_OPTION_TITLE,
-                    "rationale": "Ingenting bokförs.",
-                    "is_exit": True,
-                },
-            ],
-            actor=actor,
-        )
-
-    @staticmethod
-    def _raise_agi_card(
-        thread: Thread, agi: AgiDeclaration, booked_on: date, actor: str
-    ) -> Decision:
-        from services.decision_service import DecisionService
-
-        parts = [
-            f"{label} {_kr(agi.amount(kind))}"
-            for kind, (_account, label) in AGI_PARTS.items()
-            if kind in agi.unbooked_parts
-        ]
-        return DecisionService().create(
-            thread,
-            title=f"Bokför arbetsgivardeklaration {_month(agi.year, agi.month)}",
-            reason=(
-                f"Lämnas och betalas senast {agi.due_date.isoformat()}. "
-                f"Skatteavdrag (497) {_kr(agi.total_preliminary_tax)}, "
-                f"arbetsgivaravgifter (487) {_kr(agi.total_employer_fee)}, att "
-                f"betala {_kr(agi.total_to_pay)}. Uppgifterna lämnas i "
-                "Skatteverkets e-tjänst."
-            ),
-            consequence=(
-                f"Bokförs som en verifikation daterad {booked_on.isoformat()} "
-                f"mot skattekontot (1630): {', '.join(parts)}."
-            ),
-            kind="approval",
-            amount_ore=agi.total_to_pay,
-            rows=_card_rows(PayrollService.agi_voucher_rows(agi, agi.unbooked_parts)),
-            options=[
-                {
-                    "title": BOOK_AGI_OPTION_TITLE,
-                    "rationale": "Flyttar skulderna 2710 och 2730 till skattekontot.",
                     "recommended": True,
                 },
                 {

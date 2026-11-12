@@ -1719,7 +1719,7 @@ class TestBeOmBeslutIsLastInAgentToolDefinitions:
             "foresla_bolagsinformation",
             "sok_verifikationer",
             "foresla_lonebokforing",
-            "foresla_agi_bokforing",
+            "bokfor_agi",
             "foresla_delat_underlag",
             "hamta_valutakurs",
             "kontrollera_utlagg",

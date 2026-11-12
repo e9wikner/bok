@@ -112,7 +112,7 @@ def test_36_koppla_underlag_is_last_and_the_first_twelve_are_unchanged():
         "foresla_bolagsinformation",
         "sok_verifikationer",
         "foresla_lonebokforing",
-        "foresla_agi_bokforing",
+        "bokfor_agi",
         "foresla_delat_underlag",
         "hamta_valutakurs",
         "kontrollera_utlagg",

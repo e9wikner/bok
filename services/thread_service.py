@@ -130,7 +130,7 @@ _TRACE_LABELS = {
     "foresla_bolagsinformation": "bolagsuppgifter föreslagna",
     "sok_verifikationer": "verifikationer sökta",
     "foresla_lonebokforing": "lönebokföring föreslagen",
-    "foresla_agi_bokforing": "AGI-bokföring föreslagen",
+    "bokfor_agi": "AGI bokförd",
     "foresla_delat_underlag": "delat underlag föreslaget",
     "hamta_valutakurs": "valutakurs hämtad",
     "kontrollera_utlagg": "utlägg kontrollerat mot kontoutdragen",

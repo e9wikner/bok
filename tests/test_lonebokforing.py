@@ -1,7 +1,7 @@
-"""`foresla_lonebokforing` and `foresla_agi_bokforing`: a payslip's or an AGI
-month's booking proposed as a decision card (migration 043,
-`services/payroll_proposal.py`). The agent proposes; a logged-in human's
-press books."""
+"""`foresla_lonebokforing`: a payslip's booking proposed as a decision card
+(migration 043, `services/payroll_proposal.py`); the agent proposes, a
+logged-in human's press books. And `bokfor_agi`: the month's AGI, booked by
+the agent from its kvittens, with no card."""
 
 from datetime import date
 
@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from db.database import db
 from domain.validation import ValidationError
 from repositories.decision_repo import DecisionRepository
+from repositories.intake_repo import IntakeRepository
 from repositories.payroll_booking_proposal_repo import (
     PayrollBookingProposalRepository,
 )
@@ -309,53 +310,68 @@ def test_a_press_after_the_books_changed_books_nothing(
     assert error.body["cause"].startswith("Lönen kunde inte bokföras")
 
 
-# -- the AGI card -----------------------------------------------------------
+# -- the AGI, from its kvittens ---------------------------------------------
 
 
-def test_the_agi_waits_for_the_month_s_salaries(thread, payslip):
-    with pytest.raises(ValidationError) as error:
-        _tool("foresla_agi_bokforing", thread, year=2026, month=3)
-    assert error.value.code == "agi_payslips_not_booked"
+def _kvittens(name: str = "agi-kvittens-202603"):
+    return IntakeRepository.create_source(
+        source_id=name,
+        original_filename=f"{name}.pdf",
+        mime_type="application/pdf",
+        size_bytes=10,
+        sha256=f"sha-{name}",
+        stored_path=f"/dev/null/{name}",
+        uploaded_by="test",
+    )
 
 
-def test_the_human_press_books_the_agi_in_one_voucher(
-    client, human_headers, thread, payslip
-):
+def _book_salary(payslip) -> None:
     PayrollService().match_bank_transaction_and_book(
         payslip.id, _payment(payslip.net_salary)
     )
     db.commit()
 
-    result = _tool("foresla_agi_bokforing", thread, year=2026, month=3)
-    decision = DecisionRepository.get(result["decision_id"])
-    assert decision.title == "Bokför arbetsgivardeklaration mars 2026"
-    assert [o.title for o in decision.options] == [
-        "Bokför arbetsgivardeklarationen",
-        "Inte nu",
-    ]
-    assert decision.amount_ore == 3071000
-    assert "2026-04-13" in decision.consequence
-    [card] = [
-        p
-        for p in ThreadRepository.list_posts(thread.id)
-        if p.type == "decision" and p.body["decision_id"] == decision.id
-    ]
-    debit = {r["account"]: r["debit_ore"] for r in card.body["rows"] if r["debit_ore"]}
-    assert set(debit) == {"2710", "2730"}
-    assert all(
-        r["account"] in {"2710", "2730", "1630", "3740"} for r in card.body["rows"]
-    )
 
+def test_the_agi_waits_for_the_month_s_salaries(payslip):
+    kvittens = _kvittens()
+    with pytest.raises(ValidationError) as error:
+        _tool("bokfor_agi", None, year=2026, month=3, source_id=kvittens.id)
+    assert error.value.code == "agi_payslips_not_booked"
+
+
+def test_the_agent_books_the_agi_from_its_kvittens(thread, payslip):
+    _book_salary(payslip)
+    kvittens = _kvittens()
     before = _voucher_count()
-    response = _answer(client, human_headers, result["decision_id"], 0)
 
-    assert response.status_code == 202
+    # No thread: the kvittens usually comes in through the intake pass.
+    voucher = _tool("bokfor_agi", None, year=2026, month=3, source_id=kvittens.id)
+
     assert _voucher_count() == before + 1
-    assert PayrollService().get_agi(2026, 3).booked is True
-    [receipt] = [
-        p for p in ThreadRepository.list_posts(thread.id) if p.type == "receipt"
+    assert voucher["status"] == "posted"
+    assert voucher["date"] == "2026-04-13"
+    assert {r["account"] for r in voucher["rows"]} <= {"2710", "2730", "1630", "3740"}
+    agi = PayrollService().get_agi(2026, 3)
+    assert agi.booked is True
+    assert agi.voucher_ids == {"tax": voucher["id"], "employer_fee": voucher["id"]}
+    [link] = IntakeRepository.list_links_for_source(kvittens.id)
+    assert link.voucher_id == voucher["id"]
+    # No card was raised: nothing waits for a human.
+    assert not [
+        p for p in ThreadRepository.list_posts(thread.id) if p.type == "decision"
     ]
-    assert "Arbetsgivardeklaration 2026-03" in receipt.body["title"]
+
+
+def test_a_second_kvittens_for_the_month_books_nothing(payslip):
+    _book_salary(payslip)
+    _tool("bokfor_agi", None, year=2026, month=3, source_id=_kvittens("a").id)
+    before = _voucher_count()
+
+    with pytest.raises(ValidationError) as error:
+        _tool("bokfor_agi", None, year=2026, month=3, source_id=_kvittens("b").id)
+
+    assert error.value.code == "agi_already_booked"
+    assert _voucher_count() == before
 
 
 def test_the_runs_list_carries_the_month_s_agi(client, human_headers, payslip):
@@ -380,13 +396,10 @@ def test_the_runs_list_points_each_row_at_its_open_card(
     _payment(payslip.net_salary)
     result = _tool("foresla_lonebokforing", thread, payslip_id=payslip.id)
     assert first_run()["payslips"][0]["pending_decision_id"] == result["decision_id"]
-    assert first_run()["agi"]["pending_decision_id"] is None
 
     _answer(client, human_headers, result["decision_id"], 0)
     assert first_run()["payslips"][0]["pending_decision_id"] is None
-
-    agi = _tool("foresla_agi_bokforing", thread, year=2026, month=3)
-    assert first_run()["agi"]["pending_decision_id"] == agi["decision_id"]
+    assert "pending_decision_id" not in first_run()["agi"]
 
 
 def test_the_booked_voucher_says_what_it_books(client, human_headers, thread, payslip):
@@ -403,8 +416,7 @@ def test_the_booked_voucher_says_what_it_books(client, human_headers, thread, pa
         "view_key": "betala.loner",
     }
 
-    agi = _tool("foresla_agi_bokforing", thread, year=2026, month=3)
-    _answer(client, human_headers, agi["decision_id"], 0)
+    _tool("bokfor_agi", None, year=2026, month=3, source_id=_kvittens().id)
     tax_voucher = PayrollService().get_agi(2026, 3).voucher_ids["tax"]
     origin = client.get(f"/api/v1/vouchers/{tax_voucher}", headers=human_headers)
     assert origin.json()["origin"] == {

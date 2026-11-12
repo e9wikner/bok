@@ -360,8 +360,8 @@ async def answer_decision(
     # A company-info card (`foresla_bolagsinformation`): the press on a fill
     # or overwrite option writes the details. Any other decision: nothing.
     CompanyInfoProposalService().on_decision_answered(decision, actor=actor)
-    # A payroll card (`foresla_lonebokforing`, `foresla_agi_bokforing`): the
-    # press on its book option books the payslip or the AGI before the turn
+    # A payroll card (`foresla_lonebokforing`): the
+    # press on its book option books the payslip before the turn
     # starts, so the agent's turn sees it booked. Any other decision: nothing.
     PayrollProposalService().on_decision_answered(decision, actor=actor)
     # A shared-underlag card (`foresla_delat_underlag`): the press on a yes

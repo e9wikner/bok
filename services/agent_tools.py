@@ -79,8 +79,8 @@ The twenty-third to twenty-sixth are payroll, appended after
 ``skapa_lonekorning``. They call ``PayrollService``, the same code as
 /payroll, and write employees, salary settings, payroll runs and payslips --
 never a voucher. The three that write refuse outside a thread. Booking a
-payslip or an AGI is proposed, never done (the thirtieth and thirty-first,
-below).
+payslip is proposed, never done (the thirtieth, below); an AGI is booked
+from its kvittens (the thirty-first).
 
 A twenty-seventh, ``foresla_rakenskapsar``, is appended after
 ``skapa_lonekorning`` for the same reason. When an underlag is dated outside
@@ -102,12 +102,17 @@ more (``services/intake_reuse.py``, migration 044); a logged-in human's press
 links it once, or links it and approves the underlag for further vouchers in
 the fiscal year. It refuses outside a thread.
 
-A thirtieth and thirty-first, ``foresla_lonebokforing`` and
-``foresla_agi_bokforing``, are appended after ``sok_verifikationer`` for the
-same reason. They propose booking a payslip against the bank transaction
-that paid it, and a month's AGI against the tax account, as decision cards
+A thirtieth, ``foresla_lonebokforing``, is appended after
+``sok_verifikationer`` for the same reason. It proposes booking a payslip
+against the bank transaction that paid it as a decision card
 (``services/payroll_proposal.py``, migration 043); a logged-in human's press
-books it. They refuse outside a thread and post nothing themselves.
+books it. It refuses outside a thread and posts nothing itself.
+
+The thirty-first, ``bokfor_agi``, books a month's AGI against the tax
+account when its kvittens arrives, with the kvittens as underlag
+(``PayrollService.book_agi``). The kvittens is the one thing that books an
+AGI: no card, no button, no statement row. Like ``posta_verifikation`` it
+ends a pass.
 
 The thirty-third to thirty-fifth, ``hamta_valutakurs``,
 ``kontrollera_utlagg`` and ``foresla_utlaggskontroll``, are appended last for
@@ -119,7 +124,9 @@ looks in the company's statements for a purchase like an utlägg (an underlag
 in ``Utlägg/``); the third asks the human, as a decision card, whether the
 company paid it (``services/reimbursement_check.py``). None of them posts.
 
-``posta_verifikation`` is the only tool that posts to the general ledger,
+``posta_verifikation`` is the only tool that posts a voucher the agent
+composes itself (``bokfor_agi`` posts the AGI's, whose rows the server
+computes),
 and it goes through the exact same code as ``POST /api/v1/agent/vouchers``
 (``services/voucher_posting.post_agent_voucher``, A1) -- same
 ``VoucherValidator``, same transaction, same idempotency key.
@@ -827,12 +834,15 @@ class ForeslaDelatUnderlagArgs(BaseModel):
     )
 
 
-class ForeslaAgiBokforingArgs(BaseModel):
-    """Föreslå att månadens arbetsgivardeklaration bokförs mot skattekontot.
-    Servern lägger ett beslutskort; användaren bokför med ett tryck."""
+class BokforAgiArgs(BaseModel):
+    """Bokför månadens arbetsgivardeklaration mot skattekontot, med
+    kvittensen som underlag."""
 
     year: int = Field(..., ge=2000, le=2100)
     month: int = Field(..., ge=1, le=12, description="Månaden lönerna betalades ut")
+    source_id: str = Field(
+        ..., description="Underlaget: AGI-kvittensen från Skatteverket"
+    )
     voucher_date: Optional[DateType] = Field(
         None,
         description="Bara om skattekontot drogs en annan dag; utelämnad blir "
@@ -2144,26 +2154,36 @@ def _run_foresla_lonebokforing(
     )
 
 
-def _run_foresla_agi_bokforing(
-    args: ForeslaAgiBokforingArgs,
+def _run_bokfor_agi(
+    args: BokforAgiArgs,
     *,
     actor: str,
     capabilities: LLMCapabilities,
     idempotency_key: Optional[str] = None,
     tool_context: Optional[Mapping[str, Any]] = None,
 ) -> dict:
-    """Not terminal. Needs the ``thread``: the card goes in it. Books
-    nothing itself -- a logged-in human's press does."""
-    _require_thread_for_payroll(tool_context, "foresla_agi_bokforing")
-    from services.payroll_proposal import PayrollProposalService
+    """Terminal, like ``posta_verifikation``: the kvittens is the AGI's
+    underlag, and booking it is the pass's outcome. Books through
+    ``PayrollService.book_agi`` -- the parts not yet booked, the rows the
+    server computes -- and links the kvittens in the same transaction. Works
+    with or without a thread: the kvittens usually arrives in the intake
+    pass. The result is the voucher, with its ``id``."""
+    from api.routes.vouchers import _voucher_to_response
+    from services.payroll import PayrollService
 
-    return PayrollProposalService().propose_agi(
-        (tool_context or {})["thread"],
-        year=args.year,
-        month=args.month,
+    service = PayrollService()
+    before = service.get_agi(args.year, args.month).voucher_ids
+    agi = service.book_agi(
+        args.year,
+        args.month,
         voucher_date=args.voucher_date,
         actor=actor,
+        source_id=args.source_id,
     )
+    voucher_id = next(v for kind, v in agi.voucher_ids.items() if before.get(kind) != v)
+    voucher = VoucherRepository.get(voucher_id)
+    assert voucher is not None  # just posted
+    return _voucher_to_response(voucher).model_dump(mode="json")
 
 
 def _run_foresla_delat_underlag(
@@ -2581,7 +2601,8 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
         "med aktiv lön. Utbetalningsdagen ska ligga i månaden. En månad har "
         "högst en lönekörning. Bokför ingenting: lönen bokförs mot "
         "banktransaktionen som betalade ut den (foresla_lonebokforing), och "
-        "AGI:n mot skattekontot (foresla_agi_bokforing). Bara i ett samtal.",
+        "AGI:n mot skattekontot när kvittensen kommer (bokfor_agi). Bara i "
+        "ett samtal.",
         SkapaLonekorningArgs,
         _run_skapa_lonekorning,
     ),
@@ -2635,15 +2656,16 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
         _run_foresla_lonebokforing,
     ),
     (
-        "foresla_agi_bokforing",
-        "Föreslå att månadens arbetsgivardeklaration bokförs: skatteavdraget "
-        "och arbetsgivaravgifterna flyttas från 2710 och 2730 till "
-        "skattekontot (1630), en verifikation per del. Månaden är den då "
-        "lönerna betalades ut, och alla dess lönebesked måste vara bokförda. "
-        "Lägger ett beslutskort i tråden; användaren bokför med ett tryck. "
-        "Bokför ingenting själv. Bara i ett samtal.",
-        ForeslaAgiBokforingArgs,
-        _run_foresla_agi_bokforing,
+        "bokfor_agi",
+        "Bokför månadens arbetsgivardeklaration när AGI-kvittensen har kommit "
+        "in, med kvittensen som underlag (source_id). Skatteavdraget och "
+        "arbetsgivaravgifterna flyttas från 2710 och 2730 till skattekontot "
+        "(1630) i en verifikation; servern räknar ut raderna från lönebeskeden. "
+        "Månaden är den då lönerna betalades ut, och alla dess lönebesked måste "
+        "vara bokförda. Det enda sättet att bokföra en AGI: aldrig med "
+        "posta_verifikation, och aldrig från en rad på skattekontot.",
+        BokforAgiArgs,
+        _run_bokfor_agi,
     ),
     (
         "foresla_delat_underlag",
@@ -2752,7 +2774,7 @@ def execute_tool(
     ``foresla_avtalsbokforing`` (the thirty-fifth ``foresla_utlaggskontroll``,
     the thirty-third and thirty-fourth
     ``hamta_valutakurs`` and ``kontrollera_utlagg``, the thirty-second
-    ``foresla_delat_underlag``, the thirty-first ``foresla_agi_bokforing``,
+    ``foresla_delat_underlag``, the thirty-first ``bokfor_agi``,
     the thirtieth ``foresla_lonebokforing``, the
     twenty-eighth ``foresla_bolagsinformation``, the twenty-seventh
     ``foresla_rakenskapsar``,

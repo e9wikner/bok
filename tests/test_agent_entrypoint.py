@@ -765,10 +765,18 @@ def test_be_om_beslut_fields_state_their_length():
 
 
 def test_accounting_instruction_says_a_salary_is_proposed_not_posted():
-    """A payslip and an AGI are booked by a human's press on a card
+    """A payslip is booked by a human's press on a card
     (`services/payroll_proposal.py`); the agent proposes, never posts."""
     text = _flat(ACCOUNTING_DOC_PATH.read_text(encoding="utf-8"))
     assert "Lönen bokförs inte med `posta_verifikation`" in text
     assert "`foresla_lonebokforing` bokför ett lönebesked mot utbetalningen" in text
-    assert "`foresla_agi_bokforing` bokför månadens AGI mot skattekontot" in text
     assert "fråga användaren vilken det är" in text
+
+
+def test_accounting_instruction_says_the_kvittens_books_the_agi():
+    """An AGI is booked by the agent from its kvittens (`bokfor_agi`), and
+    never from the tax account's statement row: one trigger, one voucher."""
+    text = _flat(ACCOUNTING_DOC_PATH.read_text(encoding="utf-8"))
+    assert "Kvittensen är det enda som startar AGI:ns bokföring" in text
+    assert "bokförs aldrig från kontoutdraget" in text
+    assert "`bokfor_agi` med år, månad och kvittensen som `source_id`" in text

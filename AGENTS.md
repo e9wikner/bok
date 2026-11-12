@@ -123,11 +123,15 @@ Service-to-service imports are deferred inside methods to avoid import cycles.
   code (25 %: 3011/2610). Payment registration creates a second voucher:
   debit the bank account statements are imported for (else 1930), credit
   1510 (`services/invoice.py::payment_bank_account`).
-- **A salary or an AGI is booked by a human's press, not by the agent.** The
-  agent proposes it as a decision card (`foresla_lonebokforing`,
-  `foresla_agi_bokforing`, `services/payroll_proposal.py`, migration 043);
-  answering such a card, and `POST /payroll/payslips/{id}/book` and
-  `/payroll/agi/{y}/{m}/book`, get `403 human_only` with the API key.
+- **A salary is booked by a human's press, not by the agent.** The agent
+  proposes it as a decision card (`foresla_lonebokforing`,
+  `services/payroll_proposal.py`, migration 043); answering such a card, and
+  `POST /payroll/payslips/{id}/book`, get `403 human_only` with the API key.
+- **An AGI is booked by the agent from its kvittens, and only so.**
+  `bokfor_agi` books the month through `PayrollService.book_agi` with the
+  kvittens linked as underlag, and ends the pass like a posting. There is no
+  AGI card and no book route or button; a skattekonto row never books an AGI
+  (the server links the draws to the voucher).
 - **A voucher without underlag is approved by a human's press.**
   `POST /vouchers/{id}/underlag-waiver` with `later` (the underlag comes and is
   still matched then) or `none` (an accrual is its own document) takes it out of

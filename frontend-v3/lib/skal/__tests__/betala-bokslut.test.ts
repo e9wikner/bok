@@ -361,24 +361,24 @@ describe("lonerVy", () => {
     expect(deklaration.fraga).toBeUndefined();
   });
 
-  it("en lön och en AGI med ett öppet kort tar upp kortet", () => {
+  it("en lön med ett öppet kort tar upp kortet; en AGI har inget kort", () => {
     const lonekort = beslut({});
-    const agikort = beslut({ id: "d2", title: "Bokför arbetsgivardeklaration mars 2026" });
     const vy = lonerVy(
       {
         payroll_runs: [
           korning({
             payslips: [besked({ pending_decision_id: "d1" })],
-            agi: agi({ pending_decision_id: "d2" }),
+            agi: agi({}),
           }),
         ],
       },
-      { beslut: [lonekort, agikort] }
+      { beslut: [lonekort] }
     );
     const [lon, deklaration] = vy.sektioner[1].rader;
     expect(lon).toMatchObject({ meta: "förslag väntar · utbetalning 2026-03-25", beslut: lonekort, ageDays: 2 });
     expect(lon.fraga).toBeUndefined();
-    expect(deklaration).toMatchObject({ meta: "förslag väntar · senast 2026-04-13", beslut: agikort });
+    expect(deklaration).toMatchObject({ meta: "väntar på kvittensen · senast 2026-04-13" });
+    expect(deklaration.beslut).toBeUndefined();
   });
 
   it("ett kort som inte längre är öppet leder inte dit", () => {
@@ -401,7 +401,7 @@ describe("lonerVy", () => {
         }),
       ],
     });
-    expect(vy.sektioner[0].rader[1].meta).toBe("att bokföra · senast 2026-04-13");
+    expect(vy.sektioner[0].rader[1].meta).toBe("väntar på kvittensen · senast 2026-04-13");
     expect(vy.sektioner[0].rader[1].fraga?.text).toBe("Om arbetsgivardeklarationen för mars 2026: ");
     expect(vy.status).toBe("1 ej bokförd");
   });

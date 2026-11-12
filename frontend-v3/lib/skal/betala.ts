@@ -4,9 +4,9 @@
  * Fakturering är en skrivvy sedan fakturering F1:
  * agenten lägger fram fakturan i tråden och människan utfärdar den i
  * kortet. Löner skriver på samma sätt: agenten lägger fram bokföringen av ett
- * lönebesked eller en AGI som ett beslutskort (`foresla_lonebokforing`,
- * `foresla_agi_bokforing`), och människan bokför med ett tryck i kortet.
- * Vyn själv har ingen knapp.
+ * lönebesked som ett beslutskort (`foresla_lonebokforing`), och människan
+ * bokför med ett tryck i kortet. En AGI bokför agenten själv när kvittensen
+ * kommer in (`bokfor_agi`). Vyn själv har ingen knapp.
  */
 
 import apiClient from "@/lib/api";
@@ -102,8 +102,6 @@ export interface LoneAgi {
   /** Delarnas verifikationer: `tax` och `employer_fee`. */
   voucher_ids: Record<string, string>;
   booked: boolean;
-  /** Det öppna kortet som bokför AGI:n. */
-  pending_decision_id?: string | null;
 }
 
 export interface Lonekorning {
@@ -519,25 +517,17 @@ function lonebeskedRad(p: Lonebesked, manad: string, kort: BeslutSvar | undefine
   };
 }
 
-function agiRad(k: Lonekorning, agi: LoneAgi, kort: BeslutSvar | undefined): VyRadData {
+function agiRad(k: Lonekorning, agi: LoneAgi): VyRadData {
   const ver = agi.voucher_ids.tax ?? agi.voucher_ids.employer_fee;
   const manad = `${MANAD[agi.month - 1]} ${agi.year}`;
   const rad = { id: `agi:${k.id}`, titel: "Arbetsgivardeklaration", hoger: formatBeloppHela(agi.total_to_pay) };
   if (agi.booked) return { ...rad, meta: `bokförd · ${manad}`, mal: ver ? { typ: "ver", id: ver } : undefined };
   // Väntar på lönerna, inte på människan: raden är neutral tills de är bokförda.
   if (agi.unbooked_payslips > 0) return { ...rad, meta: `väntar på lönerna · senast ${agi.due_date}` };
-  if (kort) {
-    return {
-      ...rad,
-      meta: `förslag väntar · senast ${agi.due_date}`,
-      variant: "vantar",
-      ageDays: kort.age_days,
-      beslut: kort,
-    };
-  }
+  // Bokförs av agenten när kvittensen kommer in (`bokfor_agi`).
   return {
     ...rad,
-    meta: `att bokföra · senast ${agi.due_date}`,
+    meta: `väntar på kvittensen · senast ${agi.due_date}`,
     variant: "vantar",
     fraga: { viewKey: LONER_VY, text: `Om arbetsgivardeklarationen för ${manad}: ` },
   };
@@ -645,7 +635,7 @@ export function lonerVy(lista: Lonekorningar, extra?: LonerExtra): VyData {
     const manad = `${MANAD[k.month - 1] ?? k.month} ${k.year}`;
     const rader =
       besked.length > 0 ? besked.map((p) => lonebeskedRad(p, manad, kort(p.pending_decision_id))) : [korningRad(k)];
-    if (k.agi) rader.push(agiRad(k, k.agi, kort(k.agi.pending_decision_id)));
+    if (k.agi) rader.push(agiRad(k, k.agi));
     sektioner.push({ titel: `${MANAD[k.month - 1] ?? k.month} ${k.year}`, rader });
   }
   // Löner från ett annat lönesystem, bokförda som verifikationer. Ett år har
@@ -677,7 +667,7 @@ export function lonerVy(lista: Lonekorningar, extra?: LonerExtra): VyData {
         ? "Nettolön per lönebesked"
         : `${antal} · nettolön`,
     sektioner,
-    fot: "Lönerna ställs in och månadens lönebesked skapas under Anställda. Be agenten bokföra lönen eller arbetsgivardeklarationen, så lägger den fram ett kort. Du bokför med ett tryck i kortet.",
+    fot: "Lönerna ställs in och månadens lönebesked skapas under Anställda. Be agenten bokföra lönen, så lägger den fram ett kort. Du bokför med ett tryck i kortet. Arbetsgivardeklarationen bokför agenten själv när kvittensen kommer in.",
   };
 }
 

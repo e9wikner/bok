@@ -56,10 +56,6 @@ class AttachPayslipRequest(BaseModel):
     voucher_id: str
 
 
-class BookAgiRequest(BaseModel):
-    voucher_date: Optional[date] = None
-
-
 @router.get("/employees", response_model=dict)
 async def list_employees(
     active_only: bool = False,
@@ -181,13 +177,6 @@ async def list_payroll_runs(
                 None
                 if p["underlag_linked"] or p["pending_decision_id"]
                 else _attach_voucher(underlag, payslip)
-            )
-        if payload["agi"] is not None:
-            agi = payload["agi"]
-            agi["pending_decision_id"] = (
-                None
-                if agi["booked"]
-                else proposals.open_card_for_agi(agi["year"], agi["month"])
             )
         result.append(payload)
     # Salaries paid outside BokAI, booked here only as vouchers
@@ -393,26 +382,6 @@ async def attach_payslip(
 async def get_agi(year: int, month: int):
     try:
         return _agi_to_dict(PayrollService().get_agi(year, month))
-    except ValidationError as exc:
-        raise _validation_http(exc)
-
-
-@router.post("/agi/{year}/{month}/book", response_model=dict)
-async def book_agi(
-    year: int,
-    month: int,
-    request: BookAgiRequest,
-    actor: str = Depends(get_human_actor),
-):
-    """Book the month's AGI against the tax account. Logged-in users only
-    (JWT): the agent proposes it with `foresla_agi_bokforing` instead."""
-    try:
-        service = PayrollService()
-        return _agi_to_dict(
-            service.book_agi(
-                year, month, voucher_date=request.voucher_date, actor=actor
-            )
-        )
     except ValidationError as exc:
         raise _validation_http(exc)
 

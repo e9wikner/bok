@@ -696,10 +696,10 @@ class CompanyInfoProposal:
 @dataclass
 class PayrollBookingProposal:
     """A payslip's or an AGI month's booking proposed as a decision card in a
-    thread (`foresla_lonebokforing`, `foresla_agi_bokforing`, migration 043).
+    thread (`foresla_lonebokforing`, migration 043).
     A `payslip` proposal carries the payslip and the bank transaction that
-    paid it; an `agi` one the month and the vouchers' date (`None`: the due
-    date). `status` moves only out of `pending`: `booked` on the book option,
+    paid it; an `agi` one (no longer raised: the agent books an AGI from its
+    kvittens with `bokfor_agi`) the month and the vouchers' date. `status` moves only out of `pending`: `booked` on the book option,
     `declined` on any other, `superseded` by a new card for the same thing,
     `failed` when the books changed under the card before the press."""
 

@@ -434,9 +434,10 @@ def _assistant_message(turn: LLMTurn) -> dict:
 # ---------------------------------------------------------------------------
 
 
-#: Tool names that end a session outright on success: the
-#: only two ways a pass over one intake source is allowed to conclude.
-_POSTING_TOOL = "posta_verifikation"
+#: Tool names that end a session outright on success: a posting
+#: (`posta_verifikation`, or `bokfor_agi` from an AGI's kvittens) or an
+#: abstention are the only ways a pass over one intake source concludes.
+_POSTING_TOOLS = frozenset({"posta_verifikation", "bokfor_agi"})
 _ABSTENTION_TOOL = "registrera_avstaende"
 
 
@@ -659,7 +660,7 @@ def run_tool_loop(
                     ExecutedToolCall(tool_call=tool_call, ok=True, result=result)
                 )
 
-                if tool_call.name == _POSTING_TOOL and not (
+                if tool_call.name in _POSTING_TOOLS and not (
                     isinstance(result, dict) and result.get("pass_continues")
                 ):
                     # Immediately -- no further tool calls in this turn (or

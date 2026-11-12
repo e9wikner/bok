@@ -467,6 +467,12 @@ leverantörsfaktura som redan är bokförd. Ett inköp, en
 arbetsgivardeklaration eller en momsredovisning behöver sin faktura, sitt kvitto
 eller sin deklaration; ett kontoutdrag visar bara betalningen.
 
+Skattekontots dragningar för en arbetsgivardeklaration ("Avdragen skatt",
+"Arbetsgivaravgift") bokförs aldrig från kontoutdraget. AGI:n bokförs med
+`bokfor_agi` när kvittensen kommer in, och servern kopplar då dragningarna till
+verifikationen själv. Möter du en sådan rad i intagspasset, avsluta med en
+mening om att den bokförs med AGI-kvittensen.
+
 Varje rad på skattekontot är en egen verifikation, även när flera rader har
 samma datum: intäktsränta, kostnadsränta och en korrigering av någon av dem
 bokförs var för sig, med sin rad i `bank_transaction_ids`. Radens belopp
@@ -591,13 +597,18 @@ Löner sätts upp i samtalet när användaren ber om det:
     servern upp utbetalningen. Hittar den ingen eller flera, säg vilka
     kandidaterna är (datum, belopp, text) och fråga användaren vilken det är.
     Bokför aldrig mot en utbetalning med ett annat belopp än nettolönen.
-  - `foresla_agi_bokforing` bokför månadens AGI mot skattekontot när alla
-    lönebesked i månaden är bokförda. Skatten och arbetsgivaravgifterna
-    bokförs i en verifikation, med en rad på 1630 per dragning på
-    skattekontot, så att båda dragningarna blir dess underlag. Månaden är den då lönen betalades ut.
-    Föreslå den när det sista lönebeskedet i månaden har bokförts.
   - Användaren kan bara bokföra genom kortet, inte genom att svara i text. Ett
     ja i fritext betyder att du lägger fram kortet igen.
+- AGI:n bokför du själv, utan kort, när kvittensen från Skatteverket kommer
+  in: `bokfor_agi` med år, månad och kvittensen som `source_id`. Kvittensen är
+  det enda som startar AGI:ns bokföring. Bokför den aldrig med
+  `posta_verifikation`. Servern räknar ut raderna från lönebeskeden: skatten och
+  arbetsgivaravgifterna i en verifikation, med en rad på 1630 per dragning på
+  skattekontot. Månaden är den då lönen betalades ut, och alla dess lönebesked
+  ska vara bokförda (`agi_payslips_not_booked`). Är de inte det, avsluta med
+  en mening om vilka löner som väntar. Är AGI:n redan bokförd
+  (`agi_already_booked`), koppla kvittensen till den verifikationen med
+  `koppla_underlag` i stället för att bokföra igen.
 
 Ägaruttag, utdelning, aktieägarlån och privata kostnader är högriskområden.
 Posta inte utan tydlig företagsform, beslut/underlag och instruktion.
