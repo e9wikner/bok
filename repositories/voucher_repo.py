@@ -123,7 +123,12 @@ MISSING_STATEMENT_ACCOUNTS_SQL = (
     f" {_UNCOVERED_STATEMENT_ROWS_SQL}) END"
 )
 
-MISSING_ATTACHMENT_SQL = (
+# A voucher without a document of its own: the predicate below without the
+# statement coverage. A statement row documents the payment, not the business
+# event, so an invoice, a receipt or a deposit slip that arrives after the
+# statement still belongs to the voucher -- the interpretation sets it against
+# the voucher, and an exact match links it without a decision.
+MISSING_DOCUMENT_SQL = (
     "(NOT EXISTS (SELECT 1 FROM attachments a WHERE a.voucher_id = vouchers.id)"
     " AND NOT EXISTS (SELECT 1 FROM voucher_intake_sources vis"
     " WHERE vis.voucher_id = vouchers.id"
@@ -132,9 +137,9 @@ MISSING_ATTACHMENT_SQL = (
     " AND vouchers.correction_of IS NULL"
     f" AND NOT {CANCELLED_SQL}"
     " AND NOT EXISTS (SELECT 1 FROM voucher_source_references vsr"
-    " WHERE vsr.voucher_id = vouchers.id)"
-    f" AND NOT {STATEMENT_COVERED_SQL})"
+    " WHERE vsr.voucher_id = vouchers.id))"
 )
+MISSING_ATTACHMENT_SQL = f"({MISSING_DOCUMENT_SQL} AND NOT {STATEMENT_COVERED_SQL})"
 # Age of the business event, not of the posting: counted from vouchers.date,
 # in whole days, local time.
 AGE_DAYS_SQL = (
@@ -587,8 +592,9 @@ class VoucherRepository:
         """Posted vouchers an underlag could belong to
         (SPEC-underlagstolkning.md §7.1-§7.2), in one query.
 
-        Candidates are posted, lack underlag by the shared predicate (so no
-        SIE4 import, §12.5), and are not in series `IB`. *date_window* is
+        Candidates are posted, lack a document of their own
+        (`MISSING_DOCUMENT_SQL`: a statement row alone does not shut a
+        voucher out; so no SIE4 import, §12.5), and are not in series `IB`. *date_window* is
         `(days_before, days_after)` around *document_date*, both ends
         included; *amount_window_ore* bounds `|total_ore − voucher_ore|`.
         Both come from the caller (`services/interpretation.py`); there are
@@ -606,7 +612,7 @@ class VoucherRepository:
         where = [
             "vouchers.status = 'posted'",
             "vouchers.series != 'IB'",
-            MISSING_ATTACHMENT_SQL,
+            MISSING_DOCUMENT_SQL,
         ]
         params: list = []
         if document_date is not None:
@@ -641,14 +647,14 @@ class VoucherRepository:
     @staticmethod
     def match_still_open(voucher_id: str, intake_source_id: str) -> bool:
         """`match.still_open` (SPEC-underlagstolkning.md §8), at read time:
-        the voucher still lacks underlag by the shared predicate **and** the
-        source has no current row in `voucher_intake_sources` (linked to
+        the voucher still lacks a document of its own
+        (`MISSING_DOCUMENT_SQL`) **and** the source has no current row in `voucher_intake_sources` (linked to
         neither this voucher nor another). Reads only."""
         row = db.execute(
             f"""
             SELECT EXISTS (
                        SELECT 1 FROM vouchers
-                       WHERE vouchers.id = ? AND {MISSING_ATTACHMENT_SQL}
+                       WHERE vouchers.id = ? AND {MISSING_DOCUMENT_SQL}
                    )
                AND NOT EXISTS (
                        SELECT 1 FROM voucher_intake_sources vis

@@ -123,7 +123,10 @@ Därför:
     över, och ett underlag kan täcka flera transaktioner. Ett sådant underlag
     får kopplas till fler än en verifikation, men aldrig på ditt eget ord.
     Samma kvitto bokförs inte två gånger, så ett nytt kvitto kopplas alltid
-    till en verifikation som saknar underlag. Ska ett redan kopplat underlag
+    till en verifikation som saknar underlag. En kontoutdragsrad räknas inte
+    här: en faktura, ett kvitto eller en insättningsuppgift som kommer efter
+    kontoutdraget kopplas till verifikationen med `koppla_underlag`, utan
+    beslut, när tolkningen matchar den exakt. Ska ett redan kopplat underlag
     styrka en postad verifikation till: tolka det om det inte är tolkat och
     anropa `foresla_delat_underlag` med verifikationen och skälet i en mening.
     Användaren väljer på kortet om underlaget kopplas den här gången eller

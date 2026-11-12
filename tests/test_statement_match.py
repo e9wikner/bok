@@ -849,3 +849,43 @@ def test_agent_tool_names_the_purchase_that_covers_a_transaction(books):
     [item] = result["items"]
     assert item["match"] == "none"
     assert item["covered_by_purchase"] == [f"A-{purchase.number}"]
+
+
+# --- a document that arrives after the statement ------------------------------
+
+
+def test_a_document_after_the_statement_links_without_a_decision(books):
+    """A customer payment covered by its statement row still lacks a
+    document of its own: a deposit slip read afterwards matches it exactly
+    and links without a decision. The statement documents the payment, the
+    slip the business event; neither stops the other."""
+    from tests.test_flode_underlag import interpret, link, make_source
+
+    if AccountRepository.get("1510") is None:
+        AccountRepository.create("1510", "Kundfordringar", "asset")
+    payment = _post(
+        books,
+        date(2026, 4, 8),
+        "Inbetalning faktura #101276",
+        [
+            {"account": "1930", "debit": 9_200_000, "credit": 0},
+            {"account": "1510", "debit": 0, "credit": 9_200_000},
+        ],
+    )
+    _import("1930", BANK_HEADER + "2026-04-08;92000,00;QRTECH AKTIEBOLAG\n")
+    assert _voucher(payment.id).missing_attachment is False
+
+    source_id = make_source()
+    result = interpret(
+        source_id,
+        vendor="QRTECH AKTIEBOLAG",
+        document_date="2026-04-08",
+        total_ore=9_200_000,
+        vat_ore=0,
+        lines=[{"text": "Faktura #101276", "amount_ore": 9_200_000, "vat_rate": 0}],
+    )
+    assert result["match"]["voucher_id"] == payment.id
+    assert result["match"]["kind"] == "exact"
+
+    assert link(source_id, payment.id).basis == "exact_match"
+    assert VoucherRepository.match_still_open(payment.id, make_source()) is False
