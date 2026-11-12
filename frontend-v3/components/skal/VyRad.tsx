@@ -42,6 +42,9 @@ import type { RadVariant, VyRadData } from "@/lib/skal/vydata";
  */
 export const NY_MARKERING_MS = 6000;
 
+/** Radens luft på desktop, samma i skelettraden så att listan inte hoppar. */
+export const RAD_PY = "py-[8px]";
+
 const MAL_TITEL: Record<RadMal["typ"], string> = {
   konto: "Öppna huvudboken",
   ver: "Öppna verifikationen",
@@ -74,6 +77,7 @@ function metaFarg(variant: RadVariant, ageDays: number | undefined): string {
 export function VyRad({
   titel,
   meta,
+  nummer,
   hoger,
   variant = "normal",
   summa = false,
@@ -97,6 +101,8 @@ export function VyRad({
 }: {
   titel: string;
   meta?: string;
+  /** Kontonumret: en egen kolumn före titeln på desktop, först i metaraden på mobilen. */
+  nummer?: string;
   hoger: string;
   variant?: RadVariant;
   summa?: boolean;
@@ -106,7 +112,7 @@ export function VyRad({
   hogerFore?: string;
   /** Beloppskolumner före `hoger` (Balansräkningen). */
   kolumner?: string[];
-  /** Sektionens rubriker för kolumnerna; på mobilen står de i metaraden. */
+  /** Kolumnernas etiketter i mobilens metarad; en tom etikett ger bara talet. */
   kolumnRubriker?: string[];
   storlek?: "desktop" | "mobil";
   /** Serverns `age_days`; färgar metaraden för `saknar`/`vantar` (§10). */
@@ -154,23 +160,32 @@ export function VyRad({
   const textFarg = pagaende || struken ? "var(--bok-meta)" : undefined;
   const streck = struken ? "line-through" : undefined;
   const iKolumner = !!kolumner && storlek === "desktop";
+  // En rapportrad (kontonummer eller beloppskolumner) står på en rad och kan
+  // packas tätare; en rad med metarad behöver luften.
+  const nummerKolumn = storlek === "desktop" && nummer !== undefined;
+  const tabell = nummerKolumn || iKolumner;
   // Mobilen har inte bredd för kolumnerna: de står i metaraden i stället.
   const kolumnMeta =
     kolumner && storlek === "mobil"
-      ? kolumner.map((k, i) => `${(kolumnRubriker?.[i] ?? "").toLowerCase()} ${k}`.trim()).join(" · ")
+      ? kolumner.map((k, i) => `${kolumnRubriker?.[i] ?? ""} ${k}`.trim()).join(" · ")
       : undefined;
-  const metaText = [meta, kolumnMeta].filter(Boolean).join(" · ") || undefined;
+  const metaText = [nummerKolumn ? undefined : nummer, meta, kolumnMeta].filter(Boolean).join(" · ") || undefined;
 
   return (
     <div
       data-variant={variant}
       data-ny={nyAktiv ? "true" : undefined}
       className={`flex items-baseline justify-between gap-[14px] border-b border-bok-linje-svagast ${
-        storlek === "desktop" ? "-mx-2 rounded-md px-2 py-[9px]" : "py-[11px]"
+        storlek === "desktop" ? `-mx-2 rounded-md px-2 ${tabell ? "py-[6px]" : RAD_PY}` : "py-[10px]"
       }`}
       style={{ background: yta }}
     >
-      <span className={`flex min-w-0 flex-col gap-[2px] ${iKolumner ? "flex-1" : ""}`}>
+      {nummerKolumn && (
+        <span data-testid="vyrad-nummer" className="bok-mono bok-tal -mr-1 w-[38px] shrink-0 text-[11px] text-bok-meta">
+          {nummer}
+        </span>
+      )}
+      <span className={`flex min-w-0 flex-col gap-[2px] ${tabell ? "flex-1" : ""}`}>
         {beslut ? (
           <button
             type="button"
@@ -561,7 +576,7 @@ export function VyRadSkelett({ antal = 4 }: { antal?: number }) {
       {Array.from({ length: antal }).map((_, i) => (
         <div
           key={i}
-          className="-mx-2 flex items-baseline justify-between gap-[14px] border-b border-bok-linje-svagast px-2 py-[9px]"
+          className={`-mx-2 flex items-baseline justify-between gap-[14px] border-b border-bok-linje-svagast px-2 ${RAD_PY}`}
         >
           <span className="flex min-w-0 flex-col gap-[2px]">
             <span className="block h-[14px] w-[160px] rounded bg-bok-linje-svagast" />

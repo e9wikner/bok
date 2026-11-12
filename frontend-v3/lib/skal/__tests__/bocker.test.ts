@@ -8,6 +8,7 @@ import {
   BANK_TITEL,
   FOT_UNDERLAG,
   balansVy,
+  basGrupp,
   resultatVy,
   verifikationerVy,
 } from "@/lib/skal/bocker";
@@ -94,6 +95,15 @@ describe("balansVy", () => {
     // Årets resultat räknas med i förändringen för eget kapital och skulder.
     expect(r.get("arets-resultat")?.kolumner).toEqual(["0", `+${formatBeloppHela(50000)}`]);
     expect(r.get("sum-s")?.kolumner).toEqual(["0", `+${formatBeloppHela(150000)}`]);
+  });
+
+  it("bär kontonumret som eget fält och grupperar kontona efter BAS", () => {
+    const vy = balansVy(AR, BALANS, RESULTAT, "2026-11-07");
+    const r = new Map(rader(vy).map((x) => [x.id, x]));
+    expect(r.get("1930")).toMatchObject({ nummer: "1930", grupp: "Kassa och bank" });
+    expect(r.get("1930")?.meta).toBeUndefined();
+    expect(r.get("arets-resultat")?.grupp).toBe("Eget kapital");
+    expect(vy.sektioner[0].kortRubriker).toEqual(["ib", ""]);
   });
 
   it("säger Utgående när året är slut", () => {
@@ -617,5 +627,20 @@ describe("banksektion: avstämningen", () => {
     }).sektioner.find((x) => x.titel === BANK_TITEL)!;
     expect(s.rader[0].meta).toBe("2026-11-03 · stämmer med bokföringen");
     expect(s.rader[0].variant).toBeUndefined();
+  });
+});
+
+describe("basGrupp", () => {
+  it("ger kontots grupp i BAS, med längre prefix före kortare", () => {
+    expect(basGrupp("1510")).toBe("Kortfristiga fordringar");
+    expect(basGrupp("1942")).toBe("Kassa och bank");
+    expect(basGrupp("2099")).toBe("Eget kapital");
+    expect(basGrupp("2440")).toBe("Kortfristiga skulder");
+    expect(basGrupp("3011")).toBe("Nettoomsättning");
+    expect(basGrupp("3960")).toBe("Övriga rörelseintäkter");
+    expect(basGrupp("7210")).toBe("Personalkostnader");
+    expect(basGrupp("7832")).toBe("Av- och nedskrivningar");
+    expect(basGrupp("8910")).toBe("Skatt");
+    expect(basGrupp("X1")).toBeUndefined();
   });
 });

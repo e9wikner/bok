@@ -347,11 +347,52 @@ function arsrubrik(ar: OverviewFiscalYear): string {
   return `${ar.start} – ${ar.end}`;
 }
 
+/**
+ * BAS-kontoplanens grupper, som balans- och resultaträkningen ställs upp i
+ * (ÅRL:s scheman, förkortade). Första träffen vinner: längre prefix först.
+ */
+const BAS_GRUPPER: [string, string][] = [
+  ["10", "Immateriella anläggningstillgångar"],
+  ["11", "Materiella anläggningstillgångar"],
+  ["12", "Materiella anläggningstillgångar"],
+  ["13", "Finansiella anläggningstillgångar"],
+  ["14", "Varulager"],
+  ["15", "Kortfristiga fordringar"],
+  ["16", "Kortfristiga fordringar"],
+  ["17", "Kortfristiga fordringar"],
+  ["18", "Kortfristiga placeringar"],
+  ["19", "Kassa och bank"],
+  ["20", "Eget kapital"],
+  ["21", "Obeskattade reserver"],
+  ["22", "Avsättningar"],
+  ["23", "Långfristiga skulder"],
+  ["2", "Kortfristiga skulder"],
+  ["38", "Aktiverat arbete"],
+  ["39", "Övriga rörelseintäkter"],
+  ["3", "Nettoomsättning"],
+  ["4", "Varor, material och tjänster"],
+  ["5", "Övriga externa kostnader"],
+  ["6", "Övriga externa kostnader"],
+  ["77", "Av- och nedskrivningar"],
+  ["78", "Av- och nedskrivningar"],
+  ["79", "Övriga rörelsekostnader"],
+  ["7", "Personalkostnader"],
+  ["88", "Bokslutsdispositioner"],
+  ["89", "Skatt"],
+  ["8", "Finansiella poster"],
+];
+
+/** Kontots grupp i BAS, eller ingen för ett nummer utanför planen. */
+export function basGrupp(kod: string): string | undefined {
+  return BAS_GRUPPER.find(([prefix]) => kod.startsWith(prefix))?.[1];
+}
+
 export function kontorad(k: { code: string; name: string }, belopp: number): VyRadData {
   return {
     id: k.code,
     titel: k.name,
-    meta: k.code,
+    nummer: k.code,
+    grupp: basGrupp(k.code),
     hoger: formatBeloppHela(belopp),
     mal: { typ: "konto", kod: k.code },
   };
@@ -434,6 +475,8 @@ export function balansVy(
 
   const pagaende = idag <= ar.end;
   const kolumner = ["Ingående", "Förändring", pagaende ? "Nuvarande" : "Utgående"];
+  // Mobilens metarad: förändringen bär sitt tecken och behöver ingen etikett.
+  const kortRubriker = ["ib", ""];
 
   const skuldrader = skulder.map(balansrad);
   if (r.profit !== 0) {
@@ -443,6 +486,7 @@ export function balansVy(
       id: "arets-resultat",
       titel: "Årets resultat, ej bokfört",
       meta: "resultaträkningen",
+      grupp: "Eget kapital",
       hoger: formatBeloppHela(r.profit),
       kolumner: [formatBeloppHela(0), formatForandring(r.profit)],
       mal: { typ: "vy", key: "bocker.resultat" },
@@ -458,6 +502,7 @@ export function balansVy(
       {
         titel: "Tillgångar",
         kolumner,
+        kortRubriker,
         rader: [
           ...tillgangar.map(balansrad),
           balanssumma(
@@ -472,6 +517,7 @@ export function balansVy(
       {
         titel: "Eget kapital och skulder",
         kolumner,
+        kortRubriker,
         rader: [
           ...skuldrader,
           balanssumma(
