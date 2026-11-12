@@ -11,6 +11,7 @@ profile = "black"
 skip_glob = ["venv/*", "frontend-v3/node_modules/*"]
 
 [tool.mypy]
+python_version = "3.14"
 plugins = ["pydantic.mypy"]
 ignore_missing_imports = true
 exclude = "^(venv|frontend-v3)/"

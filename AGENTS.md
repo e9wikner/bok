@@ -204,7 +204,10 @@ scanner. Server state lives in `/srv/appdata/bok/{data,dropzone,bok.env}`.
 
 ## CI
 
-`.github/workflows/tests.yml` (pytest + black + isort + flake8 + mypy) and
-`docker-build.yml` (build, health check, Trivy scan). Every step is
-`continue-on-error: true`, so a green tick does not mean the checks passed —
-read the job output.
+`.github/workflows/tests.yml` (pytest + black + isort + flake8 + mypy, then the
+frontend's vitest) and `docker-build.yml` (build, health check, pytest in the
+container, Trivy scan). These fail the build; only the coverage upload, the
+frontend lint, the Trivy scan and `docker-build.yml`'s duplicate lint job are
+`continue-on-error`. Python is 3.14 everywhere: the image, CI and mypy's
+`python_version`. `requirements.txt` pins exact versions — raise one on purpose
+and run the suite in the rebuilt image.

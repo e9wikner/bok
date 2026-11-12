@@ -1,42 +1,38 @@
+# Direkta beroenden, låsta till exakta versioner. Utan lås drar varje ombygge
+# av imagen in de senaste versionerna, nya huvudversioner inräknade. Lyft en
+# version med avsikt: ändra raden, bygg imagen och kör testsviten i den.
+# Transitiva beroenden (starlette, pydantic-core, ...) låses av sina föräldrar.
+
 # Core API
-fastapi>=0.109.0
-uvicorn>=0.27.0
-pydantic>=2.6.0
-pydantic-settings>=2.1.0
-
-# Database
-sqlalchemy>=2.0.23
-
-# Utilities
-python-dotenv==1.0.0
-python-dateutil==2.8.2
-requests>=2.31.0
-
-# Testing
-pytest==7.4.3
-pytest-asyncio==0.21.1
-httpx==0.25.1
+fastapi==0.141.1
+uvicorn==0.53.0
+pydantic==2.13.5
+pydantic-settings==2.15.0
+# pydantic-settings läser .env (config.py, env_file) genom python-dotenv
+python-dotenv==1.2.4
 
 # Form data support (required by FastAPI)
-python-multipart>=0.0.6
+python-multipart==0.0.32
 
 # PDF Export
-weasyprint>=68.0
-jinja2>=3.1.0
-qrcode>=7.4
-pillow>=10.0
+weasyprint==70.0
+jinja2==3.1.6
+qrcode==8.2
+pillow==12.3.0
 
 # Auth
-PyJWT>=2.8.0
+PyJWT==2.14.0
 
 # Agent runtime: Anthropic Messages protocol adapter (services/llm/messages.py)
-anthropic>=1.0
+anthropic==1.8.0
 
 # Agent runtime: OpenAI Chat Completions protocol adapter (services/llm/chat.py)
-openai>=2.0
+openai==3.18.0
 
 # Agent runtime: PDF text-layer extraction (services/agent_documents.py)
-pypdf>=5.0
+pypdf==6.19.0
 
-# Optional: Production Features
-# For PostgreSQL support: psycopg2-binary==2.9.9
+# Testing
+pytest==9.2.0
+pytest-asyncio==1.5.0
+httpx==0.28.1
