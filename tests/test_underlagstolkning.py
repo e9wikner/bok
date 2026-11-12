@@ -637,6 +637,66 @@ def test_u4_candidate_without_vat_or_bank_transaction_has_none(
     assert candidate.bank_transaction is None
 
 
+def _posted_rows(period_id: str, rows) -> str:
+    """A posted A-series voucher on 15 March with *rows* as
+    `(account, debit, credit)`; the accounts are created as needed."""
+    for code, name, acc_type in [
+        ("2710", "Personalskatt", "liability"),
+        ("2730", "Avräkning arbetsgivaravgifter", "liability"),
+        ("1630", "Skattekonto", "asset"),
+        ("3740", "Öres- och kronutjämning", "revenue"),
+    ]:
+        if not AccountRepository.exists(code):
+            AccountRepository.create(code, name, acc_type)
+    ledger = LedgerService()
+    draft = ledger.create_voucher(
+        series="A",
+        date=date(2026, 3, 15),
+        period_id=period_id,
+        description=f"Verifikation {uuid.uuid4().hex[:6]}",
+        rows_data=[
+            {"account": account, "debit": debit, "credit": credit}
+            for account, debit, credit in rows
+        ],
+        created_by="agent",
+    )
+    return ledger.post_voucher(draft.id, actor="agent").id
+
+
+def test_u4_amount_leaves_out_ore_credited_to_rounding(period_id, purchase_accounts):
+    """An AGI booked from a payslip with öre: 2730 cleared at 16 338,40 kr,
+    the tax account drawn 16 338 kr, 40 öre to 3740. The kvittens says
+    29 338 kr, which is the voucher's amount -- exact, not 40 öre off."""
+    voucher_id = _posted_rows(
+        period_id,
+        [
+            ("2710", 1300000, 0),
+            ("1630", 0, 1300000),
+            ("2730", 1633840, 0),
+            ("1630", 0, 1633800),
+            ("3740", 0, 40),
+        ],
+    )
+
+    [candidate] = _candidates(None, 2933800)
+
+    assert candidate.voucher_id == voucher_id
+    assert candidate.voucher_ore == 2933800
+
+
+def test_u4_rounding_debited_to_3740_stays_in_the_amount(period_id, purchase_accounts):
+    """A receipt of 99,92 kr paid with 100 kr: the 8 öre debited to 3740
+    are part of what was paid, so the amount is 100 kr."""
+    voucher_id = _posted_rows(
+        period_id, [("5410", 9992, 0), ("3740", 8, 0), ("1930", 0, 10000)]
+    )
+
+    [candidate] = _candidates(None, 10000)
+
+    assert candidate.voucher_id == voucher_id
+    assert candidate.voucher_ore == 10000
+
+
 def test_u4_several_bank_transactions_give_one_row_the_earliest(
     period_id, purchase_accounts
 ):

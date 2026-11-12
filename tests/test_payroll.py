@@ -3,9 +3,12 @@ from datetime import date
 import pytest
 
 from domain.payroll_models import (
+    AgiDeclaration,
+    AgiIndividual,
     Payslip,
     agi_due_date,
     declared_employer_fee,
+    employer_fee_on,
     employer_fee_rate_bp,
     whole_kronor,
 )
@@ -411,7 +414,21 @@ def test_whole_kronor_drops_the_ore():
     assert whole_kronor(-150) == -100
 
 
+def test_employer_fee_on_drops_the_ore_of_salary_and_fee():
+    """SKV 401: the rate on the salary in whole kronor, öre dropped."""
+    assert employer_fee_on(5200000, 3142) == 1633800  # 16 338,40
+    assert employer_fee_on(3333333, 3142) == 1047300  # 33 333 kr: 10 473,22
+    assert employer_fee_on(1000300, 3142) == 314200  # 3 142,94
+    assert employer_fee_on(5000000, 3142) == 1571000
+
+
 def test_employer_fee_rate_is_read_back_from_the_payslip():
+    # In whole kronor, as payslips are booked now.
+    assert employer_fee_rate_bp(5200000, 1633800) == 3142
+    assert employer_fee_rate_bp(3333333, 1047300) == 3142
+    assert employer_fee_rate_bp(1000300, 314200) == 3142
+    # Rounded to the öre, as payslips were booked before.
+    assert employer_fee_rate_bp(5200000, 1633840) == 3142
     assert employer_fee_rate_bp(3333333, 1047333) == 3142
     assert employer_fee_rate_bp(1000000, 102100) == 1021
     assert employer_fee_rate_bp(1000000, 12345) is None  # set as an amount
@@ -447,11 +464,21 @@ def test_declared_employer_fee_per_rate_with_ore_dropped():
     assert declared_employer_fee(payslips) == 628500 + 102100 + 12300
 
 
+def test_declared_employer_fee_groups_whole_kronor_payslips_by_rate():
+    """Payslips that book the fee in whole kronor (3 142 kr each) are still
+    read back to their rate, so the AGI computes 31,42 % on 20 006 kr
+    together -- 6 285 kr, one krona more than the payslips booked. That
+    krona goes to öresutjämning when the AGI is booked."""
+    payslips = [_payslip("a", 1000300, 314200), _payslip("b", 1000300, 314200)]
+    assert declared_employer_fee(payslips) == 628500
+
+
 def test_book_agi_in_whole_kronor_with_ore_to_rounding(ledger_service):
     """33 333,33 kr gross and 10 000,50 kr tax: the AGI declares 33 333 and
-    10 000 kr; the liability is cleared in öre and the rest is 3740."""
+    10 000 kr. The payslip already books the fee as the AGI computes it, so
+    only the tax's öre go to 3740."""
     payroll, payslip = _setup_payslip(ledger_service, gross=3333333, tax=1000050)
-    assert payslip.employer_fee == 1047333
+    assert payslip.employer_fee == 1047300  # 33 333 kr x 31,42 % = 10 473,22
     _april_period(ledger_service)
     _book_salary(payroll, payslip)
 
@@ -459,7 +486,7 @@ def test_book_agi_in_whole_kronor_with_ore_to_rounding(ledger_service):
     assert agi.individuals[0].gross_salary == 3333300
     assert agi.individuals[0].preliminary_tax == 1000000
     assert agi.total_preliminary_tax == 1000000
-    assert agi.total_employer_fee == 1047300  # 33 333 kr x 31,42 % = 10 473,22
+    assert agi.total_employer_fee == 1047300
     assert agi.total_to_pay == 2047300
 
     agi = payroll.book_agi(2026, 3)
@@ -468,10 +495,54 @@ def test_book_agi_in_whole_kronor_with_ore_to_rounding(ledger_service):
         ("2710", 1000050, 0),
         ("1630", 0, 1000000),
         ("3740", 0, 50),
-        ("2730", 1047333, 0),
+        ("2730", 1047300, 0),
         ("1630", 0, 1047300),
-        ("3740", 0, 33),
     ]
+
+
+def test_agi_of_a_payslip_whose_fee_has_ore_clears_them_to_rounding():
+    """A payslip from before the fee was in whole kronor booked 16 338,40
+    kr on 2730; the AGI declares 16 338 kr and the 40 öre go to 3740."""
+    agi = AgiDeclaration(
+        year=2026,
+        month=10,
+        due_date=date(2026, 11, 12),
+        individuals=[AgiIndividual("e", "Anna", None, 5200000, 1300000, 1633840)],
+        employer_fee=declared_employer_fee([_payslip("e", 5200000, 1633840)]),
+        liabilities={"tax": 1300000, "employer_fee": 1633840},
+    )
+    assert agi.total_employer_fee == 1633800
+    assert PayrollService.agi_part_rows(agi, "employer_fee") == [
+        {
+            "account": "2730",
+            "debit": 1633840,
+            "credit": 0,
+            "description": "Arbetsgivaravgifter",
+        },
+        {
+            "account": "1630",
+            "debit": 0,
+            "credit": 1633800,
+            "description": "Arbetsgivaravgifter",
+        },
+        {"account": "3740", "debit": 0, "credit": 40, "description": "Öresutjämning"},
+    ]
+
+
+def test_payslip_fee_in_whole_kronor_is_what_the_agi_declares(ledger_service):
+    """52 000 kr at 31,42 % is 16 338,40 kr; the payslip books 16 338 kr,
+    the AGI declares 16 338 kr, and its voucher needs no öresutjämning --
+    so the kvittens's 29 338 kr is the voucher's amount."""
+    payroll, payslip = _setup_payslip(ledger_service, gross=5200000, tax=1300000)
+    assert payslip.employer_fee == 1633800
+    _april_period(ledger_service)
+    _book_salary(payroll, payslip)
+
+    agi = payroll.book_agi(2026, 3)
+    assert agi.total_to_pay == 2933800
+    voucher, rows = _row_list(ledger_service, agi.voucher_ids["tax"])
+    assert "3740" not in {account for account, _, _ in rows}
+    assert voucher.get_total_debit() == 2933800
 
 
 def test_book_agi_writes_nothing_when_a_part_fails(ledger_service, monkeypatch):

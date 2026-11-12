@@ -14,6 +14,10 @@ from domain.statement_coverage import (
 )
 from domain.types import VoucherSeries, VoucherStatus
 
+#: Öres- och kronutjämning. What is credited here is left out of a
+#: voucher's amount when it is matched against an underlag (`_candidate_rows`).
+ROUNDING_ACCOUNT = "3740"
+
 # Derived voucher fields (SPEC-oversikt.md §3). Never stored: migration 014
 # aborts every UPDATE on a posted voucher, so a flag column could not be kept
 # in sync without softening the trigger. Both fragments reference the table by
@@ -601,7 +605,8 @@ class VoucherRepository:
         no defaults here. Without *document_date* neither window applies:
         no date filter, and only `voucher_ore == total_ore` matches.
 
-        The debit sum, the `vat_in` sum and the bank transaction are joined
+        The amount (debit sum less öresutjämning, see `_candidate_rows`),
+        the `vat_in` sum and the bank transaction are joined
         in, so the query count does not grow with the candidates. A voucher
         linked to several bank transactions is still one row: it carries
         the **earliest** (`transaction_date`, then `id` for a tie).
@@ -629,7 +634,7 @@ class VoucherRepository:
             window = 0
         params.extend([total_ore, window])
         return VoucherRepository._candidate_rows(
-            where, params, having="ABS(SUM(vr.debit) - ?) <= ?"
+            where, params, having="ABS(voucher_ore - ?) <= ?"
         )
 
     @staticmethod
@@ -672,8 +677,15 @@ class VoucherRepository:
     ) -> List[MatchCandidateRow]:
         """The candidate query behind `match_candidates` and
         `candidate_row`: *where* filters `vouchers` (unaliased, for the
-        shared predicate), *having* optionally bounds the debit sum; the
-        `?`s of both are in *params*, in that order."""
+        shared predicate), *having* optionally bounds `voucher_ore`; the
+        `?`s of both are in *params*, in that order.
+
+        `voucher_ore` is the debit sum less what is credited to
+        öresutjämning (`ROUNDING_ACCOUNT`): the amount actually charged or
+        paid. An AGI voucher clears 2730 in öre and credits the öre to 3740,
+        a receipt rounded down to whole kronor does the same, and the
+        underlag states the rounded amount. A rounding debited to 3740 is
+        already in the debit sum on the paid side."""
         having_sql = f"HAVING {having}" if having else ""
         sql = f"""
             WITH totals AS (
@@ -682,7 +694,9 @@ class VoucherRepository:
                        vouchers.number AS number,
                        vouchers.date AS date,
                        vouchers.description AS description,
-                       SUM(vr.debit) AS voucher_ore,
+                       SUM(vr.debit) - SUM(CASE WHEN vr.account_code = ?
+                                                THEN vr.credit ELSE 0 END)
+                           AS voucher_ore,
                        SUM(CASE WHEN a.account_type = 'vat_in'
                                 THEN vr.debit - vr.credit END) AS vat_ore
                 FROM vouchers
@@ -718,7 +732,7 @@ class VoucherRepository:
                 ON bank.voucher_id = totals.id AND bank.rank_in_voucher = 1
             ORDER BY totals.date, totals.series, totals.number
         """
-        rows = db.execute(sql, tuple(params)).fetchall()
+        rows = db.execute(sql, (ROUNDING_ACCOUNT, *params)).fetchall()
         return [
             MatchCandidateRow(
                 voucher_id=row["id"],

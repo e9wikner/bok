@@ -36,7 +36,7 @@ class EmployeeSalarySetting:
         if self.employer_fee_amount is not None:
             return self.employer_fee_amount
         if self.employer_fee_rate_bp is not None:
-            return round(self.gross_monthly_salary * self.employer_fee_rate_bp / 10000)
+            return employer_fee_on(self.gross_monthly_salary, self.employer_fee_rate_bp)
         return 0
 
 
@@ -149,17 +149,41 @@ def whole_kronor(ore: int) -> int:
     return ore - ore % 100
 
 
+def employer_fee_on(gross_salary: int, rate_bp: int) -> int:
+    """The employer fee at *rate_bp* on *gross_salary*, as the AGI computes
+    it: the rate on the salary in whole kronor, öre dropped (SKV 401,
+    Avrundning). A payslip books this, so for one individual at one rate
+    the liability on 2730 is exactly what ruta 487 declares and the tax
+    account draws -- no öresutjämning, and the AGI voucher's amount is the
+    kvittens's."""
+    return whole_kronor(whole_kronor(gross_salary) * rate_bp // 10000)
+
+
 def employer_fee_rate_bp(gross_salary: int, employer_fee: int) -> Optional[int]:
     """The rate, in basis points, that gives *employer_fee* on
-    *gross_salary* the way `calculate_employer_fee` computes it, or None for
-    a fee that is no such rate (set as an amount). A payslip does not store
-    its rate; above a few hundred kronor the rate is unique."""
+    *gross_salary* the way `employer_fee_on` computes it -- or, for a
+    payslip from before that, rounded to the öre -- or None for a fee that
+    is no such rate (set as an amount). A payslip does not store its rate;
+    above ten thousand kronor the rate is unique, below it an ambiguous fee
+    counts as an amount."""
     if gross_salary <= 0 or employer_fee <= 0:
         return None
     rate_bp = round(employer_fee * 10000 / gross_salary)
-    if round(gross_salary * rate_bp / 10000) != employer_fee:
+    if round(gross_salary * rate_bp / 10000) == employer_fee:
+        return rate_bp
+    # Whole kronor, öre dropped: the rate on the salary lands in
+    # [fee, fee + 1 kr), so the rate lies in that interval over the salary.
+    reported = whole_kronor(gross_salary)
+    if reported <= 0:
         return None
-    return rate_bp
+    low = -(-employer_fee * 10000 // reported)
+    high = (employer_fee + 100) * 10000 // reported
+    rates = [
+        r
+        for r in range(low, high + 1)
+        if employer_fee_on(gross_salary, r) == employer_fee
+    ]
+    return rates[0] if len(rates) == 1 else None
 
 
 def declared_employer_fee(payslips: List["Payslip"]) -> int:
