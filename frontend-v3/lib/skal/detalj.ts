@@ -55,6 +55,12 @@ export interface Huvudbok {
     debit: number;
     credit: number;
     balance: number;
+    /**
+     * Rättelsen verifikationen hör till, som i verifikationslistan
+     * (`services/correction_view.py`): på originalet alla dess postade
+     * rättelser, på rättelsen den ena. Valfri: en äldre server skickar den inte.
+     */
+    correction?: Rattelse | null;
   }>;
 }
 
@@ -131,18 +137,23 @@ export function huvudbokVy(ar: OverviewFiscalYear, h: Huvudbok): VyData {
   if (balans) {
     rader.push({ id: "ib", titel: "Ingående balans", meta: ar.start, hoger: formatBeloppHela(h.opening_balance) });
   }
+  const verifikationer = new Set(h.transactions.map((t) => t.voucher_id));
+  const sedda = new Set<string>();
   h.transactions.forEach((t, i) => {
     // Titeln säger vad affären var (verifikationens text). Radens egen text
     // — på ett bankkonto ofta bankens, "Kortbetalning Visa" — står i metan.
     const titel = t.voucher_description ?? t.description;
     const radtext = t.row_description && t.row_description !== titel ? ` · ${t.row_description}` : "";
-    rader.push({
+    const rad: VyRadData = {
       id: `${t.voucher_id}:${i}`,
       titel,
       meta: `${nummerAv(t)} · ${t.date}${radtext} · saldo ${formatBeloppHela(t.balance)}`,
       hoger: formatBeloppHela(t.debit - t.credit),
       mal: { typ: "ver", id: t.voucher_id },
-    });
+    };
+    const forsta = !sedda.has(t.voucher_id);
+    sedda.add(t.voucher_id);
+    rader.push(t.correction ? rattadHuvudboksrad(rad, t, t.correction, h.account_code, forsta, verifikationer) : rad);
   });
   rader.push({ id: "ub", titel: "Utgående saldo", hoger: formatBeloppHela(h.closing_balance), summa: true });
 
@@ -156,6 +167,44 @@ export function huvudbokVy(ar: OverviewFiscalYear, h: Huvudbok): VyData {
       ? "Debet positivt, kredit negativt. Saldot börjar i årets ingående balans."
       : "Debet positivt, kredit negativt. Ett resultatkonto börjar räkenskapsåret på noll.",
   };
+}
+
+/**
+ * En rättad verifikation och dess rättelse i huvudboken läses som ett par,
+ * som i verifikationslistan (§7.5), men per konto: vad rättelsen gjorde med
+ * just det här kontot. En kontering rättelsen tog bort stryks över, en
+ * ändrad visar beloppet före överstruket och beloppet efter — på originalets
+ * första rad på kontot; dess övriga rader stryks, nettot står på den första.
+ * Rättelsens rader säger vad de gjorde med vad och upprepar inte beloppen
+ * när originalet står i samma huvudbok. Saldot är det bokförda, rad för rad.
+ */
+function rattadHuvudboksrad(
+  rad: VyRadData,
+  t: Huvudbok["transactions"][number],
+  r: Rattelse,
+  kod: string,
+  forsta: boolean,
+  verifikationer: ReadonlySet<string>
+): VyRadData {
+  const konto = r.accounts.find((a) => a.account_code === kod);
+  if (t.voucher_id !== r.original.id) {
+    const vad = r.kind === "makulering" ? "Makulering" : "Ändring";
+    const varfor = r.reason ? ` · ${r.reason}` : "";
+    // Utan rad på kontot i originalet (eller originalet i ett annat år) är
+    // rättelsens belopp det enda som visar rörelsen.
+    const parad = verifikationer.has(r.original.id) && (konto?.before ?? 0) !== 0;
+    return {
+      ...rad,
+      titel: `${vad} av ${nummerAv(r.original)}`,
+      meta: `${rad.meta}${varfor}`,
+      hoger: parad ? "" : rad.hoger,
+    };
+  }
+  const vad = r.kind === "makulering" ? "makulerad" : "ändrad";
+  const meta = `${rad.meta} · ${vad} av ${nummerAv(r.correction)} ${r.correction_date}`;
+  if (!konto || konto.before === konto.after) return { ...rad, meta };
+  if (konto.after === 0 || !forsta) return { ...rad, meta, struken: true };
+  return { ...rad, meta, hoger: formatBeloppHela(konto.after), hogerFore: formatBeloppHela(konto.before) };
 }
 
 function hanvisning(id: string, titel: string, ref: VerifikationRef): VyRadData {

@@ -232,3 +232,29 @@ def test_the_list_carries_correction_and_a_plain_voucher_has_none(
     assert listed[original]["correction"]["kind"] == "makulering"
     assert listed[correction]["correction"]["kind"] == "makulering"
     assert listed[plain]["correction"] is None
+
+
+def test_the_general_ledger_carries_correction_on_both_vouchers(
+    client, auth_headers, period_id, today
+):
+    """The ledger reads the pair as the list does, so the client can strike
+    out the makulerad voucher's row."""
+    original = _agi(period_id)
+    correction = _correct(original, [])
+    plain = _agi(period_id, day=14)
+
+    report = client.get("/api/v1/reports/general-ledger/1630", headers=auth_headers)
+    assert report.status_code == 200, report.text
+    by_voucher = {t["voucher_id"]: t for t in report.json()["transactions"]}
+
+    for voucher in (original, correction):
+        summary = by_voucher[voucher]["correction"]
+        assert summary["kind"] == "makulering"
+        assert summary["original"]["id"] == original
+        assert summary["correction"]["id"] == correction
+        accounts = {a["account_code"]: a for a in summary["accounts"]}
+        assert (accounts["1630"]["before"], accounts["1630"]["after"]) == (
+            -1300000,
+            0,
+        )
+    assert by_voucher[plain]["correction"] is None

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { balansVy, resultatVy, verifikationerVy, type Balansrakning, type Resultatrakning } from "@/lib/skal/bocker";
 import { formatBeloppHela } from "@/lib/skal/format";
+import type { Rattelse } from "@/lib/skal/bocker";
 import { huvudbokVy, verifikationVy, type Huvudbok, type VerifikationDetalj } from "@/lib/skal/detalj";
 import { lasDetalj, positionsUrl } from "@/lib/skal/rutt";
 import type { VyData, VyRadData } from "@/lib/skal/vydata";
@@ -104,6 +105,61 @@ describe("huvudboken", () => {
     const vy = huvudbokVy(AR, huvudbok({ opening_balance: 0, closing_balance: 0, transactions: [], transaction_count: 0 }));
     expect(vy.lage).toBe("tomt");
     expect(vy.status).toBe("inga transaktioner");
+  });
+
+  describe("rättelser", () => {
+    const A17 = { id: "a17", series: "A", number: 17 };
+    const B1 = { id: "b1", series: "B", number: 1 };
+    const rattelse = (accounts: Rattelse["accounts"], kind: Rattelse["kind"] = "makulering"): Rattelse => ({
+      kind,
+      title: "Makulering av A-17: Avdragen skatt",
+      original: A17,
+      original_description: "Avdragen skatt",
+      correction: B1,
+      correction_date: "2026-02-28",
+      correction_status: "posted",
+      reason: "Dubbelbokad",
+      before_total: 1300000,
+      after_total: kind === "makulering" ? 0 : 1300000,
+      accounts,
+    });
+    const rad = (voucher: typeof A17, debit: number, credit: number, correction: Rattelse) => ({
+      date: voucher === A17 ? "2026-02-12" : "2026-02-28",
+      voucher_id: voucher.id,
+      series: voucher.series,
+      number: voucher.number,
+      description: voucher === A17 ? "Avdragen skatt" : "Återföring",
+      debit,
+      credit,
+      balance: 0,
+      correction,
+    });
+
+    it("en makulerad verifikation stryks över och rättelsen upprepar inte beloppet", () => {
+      const r = rattelse([{ account_code: "1930", before: -1300000, after: 0 }]);
+      const vy = huvudbokVy(AR, huvudbok({ transactions: [rad(A17, 0, 1300000, r), rad(B1, 1300000, 0, r)] }));
+      const [, original, b1] = rader(vy);
+      expect(original).toMatchObject({ struken: true, hoger: formatBeloppHela(-1300000) });
+      expect(original.meta).toContain("makulerad av B-1 2026-02-28");
+      expect(b1).toMatchObject({ titel: "Makulering av A-17", hoger: "" });
+      expect(b1.struken).toBeUndefined();
+      expect(b1.meta).toContain("Dubbelbokad");
+    });
+
+    it("en ändrad kontering visar beloppet före överstruket och beloppet efter", () => {
+      const r = rattelse([{ account_code: "1930", before: -1300000, after: -1000000 }], "andring");
+      const vy = huvudbokVy(AR, huvudbok({ transactions: [rad(A17, 0, 1300000, r), rad(B1, 300000, 0, r)] }));
+      const [, original, b1] = rader(vy);
+      expect(original).toMatchObject({ hoger: formatBeloppHela(-1000000), hogerFore: formatBeloppHela(-1300000) });
+      expect(original.struken).toBeUndefined();
+      expect(b1).toMatchObject({ titel: "Ändring av A-17", hoger: "" });
+    });
+
+    it("utan originalet i huvudboken visar rättelsen sitt belopp", () => {
+      const r = rattelse([{ account_code: "1930", before: -1300000, after: 0 }]);
+      const vy = huvudbokVy(AR, huvudbok({ transactions: [rad(B1, 1300000, 0, r)] }));
+      expect(rader(vy)[1]).toMatchObject({ titel: "Makulering av A-17", hoger: formatBeloppHela(1300000) });
+    });
   });
 });
 

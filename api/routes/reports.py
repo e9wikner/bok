@@ -509,6 +509,12 @@ async def get_general_ledger(
 
     opening_balance = _ledger_opening(account_code, fiscal_year_id, year, month)
 
+    # A corrected voucher and its correction read as a pair, as in the
+    # voucher list: the client strikes out what the correction removed.
+    from services.correction_view import correction_summaries
+
+    corrections = correction_summaries(vouchers, all_accounts)
+
     # Collect transactions for this account
     transactions = []
     running_balance = opening_balance
@@ -535,6 +541,7 @@ async def get_general_ledger(
                         "debit": debit,
                         "credit": credit,
                         "balance": running_balance,
+                        "correction": corrections.get(voucher.id),
                     }
                 )
 
