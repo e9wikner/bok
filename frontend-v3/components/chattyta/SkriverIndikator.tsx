@@ -2,8 +2,7 @@ import { AgentMeta } from "@/components/chattyta/TradInlagg";
 import { skriverText } from "@/lib/chattyta/etiketter";
 
 /**
- * `SkriverIndikator` (komponenter.md §Chatten, SPEC-chattyta.md §5,
- * testfall 11): det strömmande agentinlägget innan texten kommit.
+ * `SkriverIndikator` (komponenter.md §Chatten): det strömmande agentinlägget innan texten kommit.
  *
  * Texten är vad agenten gör just nu — senaste `message.delta {activity}`
  * översatt med samma etiketter som spåren (`lib/chattyta/etiketter.ts`).
@@ -12,7 +11,7 @@ import { skriverText } from "@/lib/chattyta/etiketter";
  * komponenter.md: metarad `AGENTEN` ovanför; tre prickar 5×5 (#a1a1aa,
  * #c4c4c8, #e0e0e4, gap 4) + text 15 #52525b.
  *
- * Ingen egen live-region: SPEC §11 lägger annonseringen av indikatorbyten
+ * Ingen egen live-region: annonseringen av indikatorbyten
  * i EN dold region, `TradAnnons` i `TradRenderare.tsx` (C14). Två regioner
  * vore samma ord två gånger.
  */

@@ -1,7 +1,7 @@
 """`flode-underlag` over HTTP: `POST /api/v1/intake/{id}/link` (FU6) and
 `existing_id` in `409 duplicate_intake_source` (FU15).
 
-Test case numbers refer to SPEC-flode-underlag.md §14. The route calls the
+The route calls the
 same `IntakeLinkService.link` as the tool (§7), with neither thread nor
 agent run.
 """

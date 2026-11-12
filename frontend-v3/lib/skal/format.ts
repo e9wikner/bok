@@ -9,7 +9,6 @@
  *
  * `lib/utils.ts::formatCurrency` gör något annat (Intl med style: "currency",
  * alltså "−400 720,00 kr") och anropas av 24 befintliga sidor. Den rörs inte.
- * SPEC-skal.md §7.
  */
 
 const MINUS = "−"; // U+2212 MINUS SIGN

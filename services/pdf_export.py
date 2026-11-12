@@ -67,7 +67,7 @@ class CompanyInfo:
 
     @classmethod
     def load(cls) -> "CompanyInfo":
-        """Read the seller's details from `company_info` (SPEC-fakturering.md §6).
+        """Read the seller's details from `company_info`.
 
         The keys are the field names. `f_skatt` is stored as the string
         `"true"`; anything else, or no key, is False. Older rows name the
@@ -112,7 +112,7 @@ class CompanyInfo:
 
 
 # Momsregistreringsnummer: SE + organisationsnumrets 10 siffror + 01, utan
-# bindestreck eller mellanslag (SPEC-fakturering.md §6).
+# bindestreck eller mellanslag.
 VAT_NUMBER_RE = re.compile(r"SE\d{10}01")
 
 
@@ -151,7 +151,7 @@ def vat_label(code: str) -> str:
     return VAT_LABELS.get(code, code)
 
 
-# --- Invoice template (SPEC-fakturering.md §6.1) ---
+# --- Invoice template ---
 
 # A no-break space, so "22 400,00 kr" never wraps. Courier Prime has U+00A0
 # but no narrow no-break space.
@@ -221,8 +221,8 @@ def delivery_text(
     delivery_month: Optional[str],
 ) -> str:
     """`format_delivery` as plain text on one line (`2026-06-29 --> 2026-07-02`,
-    `2026-07-01`, `juli 2026`), for the invoice proposal card
-    (SPEC-fakturering-f1.md §6.1): the same words the PDF will print."""
+    `2026-07-01`, `juli 2026`), for the invoice proposal card:
+    the same words the PDF will print."""
     return str(format_delivery(delivery_from, delivery_to, delivery_month)).replace(
         "<br>--&gt;<br>", " --> "
     )
@@ -332,7 +332,7 @@ class PDFExportService:
         return self.engine.render_pdf("invoice.html", self._invoice_context(invoice_id))
 
     def _invoice_context(self, invoice_id: str) -> Dict[str, Any]:
-        """What `invoice.html` shows (SPEC-fakturering.md §6.1).
+        """What `invoice.html` shows.
 
         A row without its own delivery takes the draft's (§4.2). Old invoices
         have neither, and their KOMMENTAR is empty.

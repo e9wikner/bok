@@ -1,5 +1,5 @@
 """Repositories for `intake_link_basis` and `voucher_source_references`
-(migration 032, SPEC-flode-underlag.md §5) and `voucher_intake_unlinks`
+(migration 032) and `voucher_intake_unlinks`
 (migration 035, underlag-ersatt).
 
 All SQL for the two tables lives here -- see AGENTS.md's layering rule.

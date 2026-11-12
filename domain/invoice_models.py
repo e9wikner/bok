@@ -32,7 +32,7 @@ class InvoiceRow:
     amount_inc_vat: int  # amount_ex_vat + vat_amount
     revenue_account: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
-    # SPEC-fakturering.md §4.2 (migration 038). Old rows have quantity * 100
+    # Migration 038. Old rows have quantity * 100
     # and 'st', and no delivery.
     quantity_centi: Optional[int] = None
     unit: str = "st"
@@ -64,7 +64,7 @@ class Invoice:
     created_at: datetime = field(default_factory=datetime.now)
     created_by: str = "system"
     sent_at: Optional[datetime] = None
-    # SPEC-fakturering.md §4.3–4.4 (migration 038). Empty on old invoices.
+    # Migration 038. Empty on old invoices.
     customer_address: Optional[str] = None
     customer_reference: Optional[str] = None  # Er referens
     payment_terms_days: Optional[int] = None

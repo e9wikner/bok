@@ -173,7 +173,7 @@ describe("oppnaStrom", () => {
     expect(init.signal).toBe(styrning.signal);
   });
 
-  it("med ett räkenskapsår öppnas det årets tråd (SPEC-tradar.md §12.3)", async () => {
+  it("med ett räkenskapsår öppnas det årets tråd", async () => {
     const hamta = vi.fn(async () => {
       styrning.abort();
       return svar(200, stromAv([]));

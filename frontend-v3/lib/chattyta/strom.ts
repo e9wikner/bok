@@ -1,5 +1,5 @@
 /**
- * Trådens ström (modul `chattyta`, SPEC-chattyta.md §6).
+ * Trådens ström (modul `chattyta`).
  *
  * `fetch` + `ReadableStream`, inte `EventSource`: `EventSource` kan inte
  * skicka en `Authorization`-header, och API:t autentiserar med bearer.

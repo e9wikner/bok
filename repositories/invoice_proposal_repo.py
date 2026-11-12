@@ -1,5 +1,4 @@
-"""Repository for `thread_invoice_drafts` (migration 039,
-docs/redesign/SPEC-fakturering-f1.md §4).
+"""Repository for `thread_invoice_drafts` (migration 039).
 
 All SQL for `thread_invoice_drafts` lives here (AGENTS.md's layering rule),
 in the same `@staticmethod` / `_commit` form as `thread_draft_repo.py`.

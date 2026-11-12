@@ -1,4 +1,4 @@
-"""Invoice drafts proposed in a thread (docs/redesign/SPEC-fakturering-f1.md).
+"""Invoice drafts proposed in a thread.
 
 `foresla_faktura` and `andra_fakturautkast` land here, as do the issue's
 thread hooks and the agent's two read tools. A proposal is three writes that

@@ -49,7 +49,7 @@ const config: Config = {
         },
 
         // Skalets tokens (modul `skal`). Ligger BREDVID shadcn-paletten
-        // ovan — ingen av dess variabler omdefinieras. SPEC-skal.md §7.
+        // ovan — ingen av dess variabler omdefinieras.
         bok: {
           app: "var(--bok-app)",
           yta: "var(--bok-yta)",

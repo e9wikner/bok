@@ -1,4 +1,4 @@
-"""What a correction did to the voucher it corrects (SPEC-flode-verifikationer §7).
+"""What a correction did to the voucher it corrects.
 
 A B-series correction is stored as the mechanical reversal of the original
 followed by the rows it should have had (§7.1). Read row by row that is

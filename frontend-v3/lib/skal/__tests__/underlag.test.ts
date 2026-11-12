@@ -12,7 +12,7 @@ import type { VyData, VyRadData } from "@/lib/skal/vydata";
 
 /**
  * FU21 — sektionen `Saknar underlag`, `Nyss kopplad` och foten
- * (SPEC-flode-underlag.md §10.4; testfall 49b och 49c).
+ * (testfall 49b och 49c).
  */
 
 const AR = { id: "fy", label: "2026", start: "2026-01-01", end: "2026-12-31" };

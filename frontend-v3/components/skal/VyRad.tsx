@@ -29,7 +29,6 @@ import type { RadVariant, VyRadData } from "@/lib/skal/vydata";
  * Höger mono 14 tabular.
  *
  * OBS namnkrock: det här är EN RAD I VYN. Raden AV VYER heter `VySvep`.
- * Mappningen står i SPEC-skal.md §6.
  */
 
 /**
@@ -37,8 +36,7 @@ import type { RadVariant, VyRadData } from "@/lib/skal/vydata";
  * grönt slutar betyda "postat och låst" — en av de två toner som bär
  * betydelse. Varaktigheten står på ETT ställe.
  *
- * Talet självt är inte taget: designen säger "kortvarig" och inget mer
- * (SPEC-skal.md öppen fråga 3).
+ * Talet självt är inte taget: designen säger "kortvarig" och inget mer.
  */
 export const NY_MARKERING_MS = 6000;
 
@@ -63,7 +61,7 @@ const META_FARG: Record<RadVariant, string> = {
 
 /**
  * `saknar` och `vantar` är de två raderna som väntar på människan; bara de
- * blir röda med åldern (SPEC-chattyta.md §10). Utan `ageDays` gäller
+ * blir röda med åldern. Utan `ageDays` gäller
  * tabellen ovan, så en rad som inte vet sin ålder aldrig gissas röd.
  */
 const ALDRANDE = new Set<RadVariant>(["saknar", "vantar"]);
@@ -117,7 +115,7 @@ export function VyRad({
   storlek?: "desktop" | "mobil";
   /** Serverns `age_days`; färgar metaraden för `saknar`/`vantar` (§10). */
   ageDays?: number;
-  /** Länken till verifikationens kvitto (SPEC-flode-underlag.md §10.4, FU23). */
+  /** Länken till verifikationens kvitto (FU23). */
   kvitto?: { voucherId: string; nummer: string };
   /** Ett underlag agenten avstod från: länken `försök igen` i metaraden. */
   forsokIgen?: { sourceId: string };

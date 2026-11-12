@@ -129,7 +129,6 @@
  * avsedda, inte ungefärliga. Prefixet --bok- finns för att de ska kunna
  * ligga BREDVID shadcn-variablerna ovan utan att röra dem: de 24 gamla
  * sidorna står på dem, och modulen `skal` får inte ändra en enda av dem.
- * Se docs/redesign/SPEC-skal.md §7.
  *
  * TVÅ TONER BÄR BETYDELSE OCH FÅR INTE DEKORERA:
  *   gult (--bok-vantar-*) = något väntar på människan

@@ -290,7 +290,7 @@ export function verifikationVy(v: VerifikationDetalj): VyData {
             hoger: "",
             underlagsval: { voucherId: v.id, godkant: v.underlag_waiver.reason },
           }
-        : // En rättelses underlag är originalet (SPEC-flode-underlag.md D3).
+        : // En rättelses underlag är originalet.
           { id: "underlag", titel: "Underlag", meta: "originalets", hoger: "" };
     sektioner.push({ titel: "Underlag", rader: [underlag] });
   }

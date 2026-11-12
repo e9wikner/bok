@@ -147,18 +147,7 @@ Service-to-service imports are deferred inside methods to avoid import cycles.
   served to agents by `repositories/system_instructions.py` and asserted on by
   `tests/test_agent_entrypoint.py`. Editing it changes system behaviour.
 
-## Design history
-
-The `/v4` redesign was built module by module from specs (`docs/redesign/SPEC-*.md`)
-and task lists (`tasks/*/`). Both were removed from the tree after the build. Code
-comments still cite them as `SPEC-<module>.md §n`; read them in git history:
-
-```bash
-git show 1a7a7b7:docs/redesign/SPEC-flode-underlag.md
-git show 1a7a7b7:tasks/flode-underlag/todo.md
-git show e313c5f:docs/redesign/SPEC-fakturering.md   # fakturering F0
-git show 392250d:docs/redesign/SPEC-fakturering-f1.md   # fakturering F1
-```
+## Design
 
 What still needs deciding is in `docs/oppna-beslut.md`. The design source (v10 and
 the flow panels) is `BokAI App Redesign.zip`.

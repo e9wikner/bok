@@ -1,4 +1,4 @@
-"""Domain types for `flode-underlag` (SPEC-flode-underlag.md §5, §6).
+"""Domain types for `flode-underlag`.
 
 `IntakeLinkBasis` is one row of `intake_link_basis` (migration 032): why an
 underlag was linked to an already posted voucher after the fact -- the

@@ -1,4 +1,4 @@
-"""Repository for decisions and their options (migration 026, SPEC-beslut.md §4).
+"""Repository for decisions and their options (migration 026).
 
 All SQL for `decisions` / `decision_options` lives here — see AGENTS.md's
 layering rule. Same `@staticmethod` form as `repositories/thread_repo.py`,
@@ -49,7 +49,7 @@ class DecisionRepository:
         `decisions.post_id` is a plain foreign key into `thread_posts`, so
         the `decision` post must be written before this row exists, and that
         post has to carry the decision's id in its body. A post is never
-        rewritten (`SPEC-tradar.md` §8.4), so there is no patching it in
+        rewritten, so there is no patching it in
         afterwards — the id is minted before either write or it cannot be in
         both.
         """
@@ -189,7 +189,7 @@ class DecisionRepository:
         offset: Optional[int] = None,
     ) -> List[Decision]:
         """Decisions oldest first (`created_at ASC`, `id ASC` as a stable
-        tie-breaker) — SPEC §6.1: "Äldst först."
+        tie-breaker): "Äldst först."
 
         `status` is `None` (all statuses), a single status, or a sequence of
         them. `options` is filled in with a single second `SELECT ...

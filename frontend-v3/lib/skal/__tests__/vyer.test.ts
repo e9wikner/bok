@@ -11,11 +11,11 @@ import {
 } from "@/lib/skal/vyer";
 
 /**
- * Hårdkodad kopia av SPEC-tradar.md §5, i specens ordning. Den finns för att
- * kartan ska jämföras mot specen och inte mot sig själv — servern svarar 404
+ * Hårdkodad kopia av serverns vy-nycklar, i dess ordning. Den finns för att
+ * kartan ska jämföras mot servern och inte mot sig själv — servern svarar 404
  * på allt utanför den här listan.
  */
-const VIEW_KEYS_I_SPEC_TRADAR = [
+const SERVERNS_VIEW_KEYS = [
   "bocker.balans",
   "bocker.resultat",
   "bocker.verifikationer",
@@ -39,9 +39,9 @@ describe("kartan (testfall 1)", () => {
   });
 });
 
-describe("view_key mot SPEC-tradar.md §5 (testfall 2)", () => {
+describe("view_key mot serverns lista (testfall 2)", () => {
   it("chattar bara i de sju nycklarna servern validerar mot, i samma ordning", () => {
-    expect(Array.from(new Set(allaVyer().map((v) => v.trad)))).toEqual(VIEW_KEYS_I_SPEC_TRADAR);
+    expect(Array.from(new Set(allaVyer().map((v) => v.trad)))).toEqual(SERVERNS_VIEW_KEYS);
   });
 
   it("ger varje vy en egen nyckel", () => {

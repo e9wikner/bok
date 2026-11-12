@@ -1,7 +1,7 @@
 """`flode-underlag`: a message without text (FU14, D8) and the page count of
 a pdf in `user_file` (FU17, §10.4).
 
-Test case numbers refer to SPEC-flode-underlag.md §14. The turn is not
+The turn is not
 run here: `ThreadTurnRunner.start` is captured, so the test sees which post
 it hangs on and what the model is told.
 """

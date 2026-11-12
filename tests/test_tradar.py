@@ -1,10 +1,8 @@
-"""Tests for the `tradar` module (docs/redesign/SPEC-tradar.md).
+"""Tests for the `tradar` module.
 
-Grows across tasks T1-T14 of `tasks/tradar/todo.md`; each task gets its own
-section so the file stays navigable. Test case numbers refer to the table in
-SPEC-tradar.md §9.
+Each task (T1-T14) gets its own section so the file stays navigable.
 
-Per SPEC §9 no LLM is ever called from a test. The double is
+No LLM is ever called from a test. The double is
 `FakeLLMClient`, the same pattern as `tests/test_agent_runtime.py:1420`: a
 queue of ready-made `LLMTurn`s, `self.calls` to inspect what was actually
 sent, injected through a factory argument — never a monkeypatch. Its one new
@@ -170,7 +168,7 @@ def _raw_insert_post(thread_id: str, seq: int, post_type: str) -> None:
     db.commit()
 
 
-# --- T1: migration 025 (SPEC §4, test case 5) -------------------------------
+# --- T1: migration 025 -------------------------------
 
 
 class TestMigration025:
@@ -222,7 +220,7 @@ class TestMigration025:
         assert count == 2
 
     def test_case_5_a_ninth_post_type_is_rejected_by_the_check_constraint(self):
-        """SPEC §4: the eight post types are a contract against the client. A
+        """The eight post types are a contract against the client. A
         ninth one must fail in the schema, not merely in Python."""
         fy = _fiscal_year()
         thread = ThreadRepository.get_or_create(
@@ -278,7 +276,7 @@ class TestMigration025:
         db.rollback()
 
 
-# --- T2: ThreadRepository (SPEC §4, test cases 1, 2, 3) ---------------------
+# --- T2: ThreadRepository (2, 3) ---------------------
 
 
 class TestThreadRepositoryGetOrCreate:
@@ -555,11 +553,11 @@ class TestThreadRepositoryGet:
         assert ThreadRepository.get(thread.id).model == "opencode/gpt-5.5"
 
 
-# --- T3: since_seq on list_events (SPEC §2, test case 6) --------------------
+# --- T3: since_seq on list_events --------------------
 
 
 class TestListEventsSinceSeq:
-    """SPEC §2: `agent_run_events.seq` is the marker form SSE follows, and
+    """`agent_run_events.seq` is the marker form SSE follows, and
     `list_events` had no cursor at all before this."""
 
     @staticmethod
@@ -605,7 +603,7 @@ class TestListEventsSinceSeq:
         assert first.id not in {event.run_id for event in events}
 
 
-# --- T4: the generic tool loop (SPEC §11, test cases 7, 8) ------------------
+# --- T4: the generic tool loop (8) ------------------
 
 
 def _usage(output_tokens: int = 0) -> Usage:
@@ -631,7 +629,7 @@ def _turn(
 
 
 class FakeLLMClient:
-    """Structural `LLMClient` double (SPEC §9), the pattern from
+    """Structural `LLMClient` double, the pattern from
     `tests/test_agent_runtime.py`: a queue of ready-made `LLMTurn`s, never a
     network call. `self.calls` records what was actually sent.
 
@@ -852,7 +850,7 @@ class TestRunSessionStillDelegates:
         assert client.calls == []
 
 
-# --- T5: streaming hooks on LLMClient (SPEC §12.1, test cases 9, 10, 11) ----
+# --- T5: streaming hooks on LLMClient (10, 11) ----
 
 
 class TestAdapterWithoutStreaming:
@@ -954,7 +952,7 @@ class TestCurrentActivityCarriesTheToolName:
         assert worker.current_activity is None
 
 
-# --- T6: the thread session (SPEC §6.1/§6.3/§6.4, cases 12-15, 29, 30) ------
+# --- T6: the thread session (cases 12-15, 29, 30) ------
 
 
 def _thread_with_posts(*texts: str, model: str = "opencode/claude-opus-5"):
@@ -990,7 +988,7 @@ def _run_thread(client, thread, trigger_post, message="Hur ligger mars till?", *
 
 class TestSystemPromptIsShared:
     """Test case 12 — the cache breakpoint must not move for the thread's
-    sake (SPEC-agentruntime §6.6)."""
+    sake."""
 
     def test_case_12_thread_turn_sends_the_identical_system_prompt(self, tmp_path):
         _ensure_accounts()
@@ -1051,7 +1049,7 @@ class TestSystemPromptIsShared:
 
 class TestThreadWindow:
     """Test case 13 — clipped at the budget, and what fell away is *left
-    out*, never summarized (SPEC §6.3)."""
+    out*, never summarized."""
 
     @staticmethod
     def _posts(count: int, text: str = "x" * 300):
@@ -1129,9 +1127,8 @@ class TestThreadToolSurface:
         """The thread gets `AGENT_TOOL_DEFINITIONS` and nothing of its own.
 
         The assertion is equality with that list, not a count: the surface
-        grew to ten with `beslut`'s `be_om_beslut` (SPEC-beslut.md §11.3)
-        and to eleven with `foresla_verifikation` (SPEC-flode-verifikationer
-        §5.7),
+        grew to ten with `beslut`'s `be_om_beslut`
+        and to eleven with `foresla_verifikation`,
         and what this test exists to catch is a tool the *thread path* hands
         out that the document path does not — which a hardcoded number would
         miss the day the shared list changes for a legitimate reason.
@@ -1166,7 +1163,7 @@ class TestThreadToolSurface:
             "remove",
         ]
         # `andra_fakturautkast` changes an invoice draft by replacing it --
-        # never anything issued or posted (SPEC-fakturering-f1.md §5.4).
+        # never anything issued or posted.
         exceptions = {"andra_fakturautkast": {"andra"}}
         for tool in client.calls[0]["tools"]:
             lowered = tool["name"].lower()
@@ -1188,7 +1185,7 @@ class TestThreadToolSurface:
 
     def test_the_tool_order_is_not_reordered_for_the_threads_sake(self):
         """`_TOOL_SPECS`' order is part of the cached prefix — an accidental
-        reorder is a silent cache-buster (SPEC-agentruntime §6.6)."""
+        reorder is a silent cache-buster."""
         _ensure_accounts()
         thread, posts = _thread_with_posts("hej")
         client = FakeLLMClient([_turn(text="Svar.")])
@@ -1513,7 +1510,7 @@ class TestThreadCapsBetweenTurns:
         assert outcome.kind == "posted"
 
 
-# --- T7: runtime events → posts (SPEC §6.2, test cases 16, 17) -------------
+# --- T7: runtime events → posts (17) -------------
 
 
 def _run_with_tool_calls(*calls) -> str:
@@ -1619,7 +1616,7 @@ class TestTracesAreChipsNotPosts:
         assert post.traces is None
 
     def test_every_agent_tool_has_a_trace_label(self):
-        """SPEC-lasbarhet §4.3: the client no longer renders traces, but the
+        """The client no longer renders traces, but the
         stored ones stay readable in the audit trail -- no tool's trace may
         fall back to its technical name. The client's present-tense table
         (`SKRIVER_ETIKETTER`) is checked against the same tool list in
@@ -1777,7 +1774,7 @@ class TestOutcomeRendering:
         assert post.body["text"] == "Verifikationen är postad."
 
     def test_a_silent_posting_names_the_voucher_number_when_it_is_known(self):
-        """SPEC-lasbarhet §4.1: with the trace chips gone from the client,
+        """With the trace chips gone from the client,
         the fallback is the only place the number shows without the agent
         writing it."""
         thread, _ = _thread_with_posts()
@@ -1941,7 +1938,7 @@ class TestUserPosts:
 
 
 class TestRuntimeKnowsNothingOfThreads:
-    """SPEC §8.1 — the boundary, checked structurally so it breaks loudly if
+    """The boundary, checked structurally so it breaks loudly if
     a `thread_id` is ever threaded down into the runtime.
 
     Checked against the parsed code, not the file's text: a docstring may
@@ -1979,7 +1976,7 @@ class TestRuntimeKnowsNothingOfThreads:
                 for name in names:
                     assert "thread" not in name.lower(), (
                         f"{module}:{node.name} takes {name!r} -- the runtime "
-                        "must not know what a thread is (SPEC §8.1)"
+                        "must not know what a thread is"
                     )
 
     def test_no_runtime_module_imports_thread_storage_or_the_thread_session(self):
@@ -2020,7 +2017,7 @@ class TestRuntimeKnowsNothingOfThreads:
                     ), f"{module} references .{node.attr}"
 
 
-# --- T8: the HTTP routes (SPEC §1, §5, test cases 4, 18) -------------------
+# --- T8: the HTTP routes (18) -------------------
 
 
 THREADS_URL = "/api/v1/threads"
@@ -2508,7 +2505,7 @@ class TestTheAgentIsToldWhichYear:
         assert "avslutat" not in turn[0]["content"][0]["text"]
 
 
-# --- T9: the stream (SPEC §6.5, test cases 19, 20, 21, 22) ----------------
+# --- T9: the stream (20, 21, 22) ----------------
 
 
 @pytest.fixture
@@ -3167,7 +3164,7 @@ class TestFlockGuardsTheIntakePassOnly:
 
 class TestStreamNeverLeaksTheKey:
     """Test case 28's stream half — `LLM_API_KEY` in no SSE frame and no
-    post (SPEC-agentruntime §12.6)."""
+    post."""
 
     def test_case_28_the_key_is_in_no_frame_and_no_post(
         self, agent_enabled, monkeypatch
@@ -3252,7 +3249,7 @@ class TestTurnFailuresBecomeErrorPosts:
     def test_the_daily_budget_refuses_before_a_run_row_exists(
         self, agent_enabled, monkeypatch
     ):
-        """Same shape as the intake pass's refusal (SPEC-agentruntime §9 #8):
+        """Same shape as the intake pass's refusal:
         no `agent_runs` row, and the refusal is visible."""
         _ensure_accounts()
         monkeypatch.setattr(settings, "agent_daily_budget_ore", 5000)
@@ -3344,7 +3341,7 @@ class TestSseFraming:
             loop.close()
 
         # An activity ends the paragraph, as it does in the client's reducer
-        # (SPEC-lasbarhet §4.1): the snapshot carries only what came after
+        #: the snapshot carries only what came after
         # the latest tool call.
         assert snapshot == {
             "id": "streaming-r1",
@@ -3424,7 +3421,7 @@ class TestSseFraming:
             loop.close()
 
 
-# --- T10: view.changed (SPEC §6.6, test case 23) ---------------------------
+# --- T10: view.changed ---------------------------
 
 
 def _posting_thread(tmp_path):
@@ -3576,7 +3573,7 @@ class TestViewChanged:
                 }, f"thread_stream schedules with .{node.attr}"
 
 
-# --- T11: model per thread (SPEC §12.4, test cases 24, 25) -----------------
+# --- T11: model per thread (25) -----------------
 
 
 class TestModelPerThread:
@@ -3638,7 +3635,7 @@ class TestModelPerThread:
         )
 
     def test_a_model_without_a_price_row_never_starts_a_run(self, agent_enabled):
-        """SPEC-agentruntime §2: an unpriced model is an error, not a
+        """An unpriced model is an error, not a
         default — and a cap that cannot compute a cost must not spend."""
         _ensure_accounts()
         thread, posts = _thread_with_posts("Hej", model="opencode/ingen-prisrad")
@@ -3762,7 +3759,7 @@ class TestModelEndpoint:
         assert response.status_code == 404
 
 
-# --- T12: GET /agent/status (SPEC §7, test cases 26, 27, 28) ---------------
+# --- T12: GET /agent/status (27, 28) ---------------
 
 
 STATUS_URL = "/api/v1/agent/status"
@@ -3940,7 +3937,7 @@ class TestStatusNeverLeaksTheKey:
 
 
 class TestOnlyTheFinalAnswerIsStored:
-    """SPEC-lasbarhet M1 (§4.1): an agent post holds the turn's answer, never
+    """An agent post holds the turn's answer, never
     the text the agent writes between its tool calls."""
 
     def test_text_tool_text_stores_only_the_last_paragraph(self, agent_enabled):

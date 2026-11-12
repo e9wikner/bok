@@ -1,5 +1,5 @@
 """How a corrected voucher reads, and what a correction does to the
-underlag queue (SPEC-flode-verifikationer §7).
+underlag queue.
 
 - A makulerad voucher (it nets to zero with its posted corrections) leaves
   "Saknar underlag": B-1 documents it, and no statement row can ever match.

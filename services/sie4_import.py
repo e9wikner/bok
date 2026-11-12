@@ -862,7 +862,7 @@ class SIE4Importer:
                 created_by="sie4_import",
             )
             # The file's number is kept; a draft cannot carry one, so it is
-            # set at posting (SPEC flode-verifikationer §4.3).
+            # set at posting.
             ledger.post_voucher(created.id, actor="sie4_import", number=voucher.number)
             return True
         except ValidationError as e:

@@ -90,7 +90,7 @@ class CorrectionNoteRepository:
     def list_by_statuses(statuses: Sequence[str]) -> List[CorrectionNote]:
         """Every note whose status is in `statuses`, oldest `created_at`
         first with `id` as a stable tie-breaker -- added for
-        `DecisionService.list_decisions` (SPEC-beslut.md §5, §6.1, B7),
+        `DecisionService.list_decisions`,
         which unions `correction_notes` (`pending`/`suggested`) with two
         other sources and sorts and paginates the merged result itself.
         Unlike `list_pending`, this takes several statuses in one query and

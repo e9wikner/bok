@@ -131,7 +131,7 @@ export interface Invoice {
   rows: InvoiceRow[];
   created_at: string;
   voucher_id?: string | null;
-  // SPEC-fakturering.md §4.3–4.4. Empty on invoices from before F0.
+  // Empty on invoices from before fakturering F0.
   issued_at?: string | null;
   issued_by?: string | null;
   /** The stored PDF; null for an invoice not issued in Bok. */
@@ -719,7 +719,7 @@ export const api = {
     return data;
   },
   /**
-   * Issue the draft (SPEC-fakturering.md §5): the invoice, its posted voucher
+   * Issue the draft: the invoice, its posted voucher
    * and the stored PDF, all or nothing. Logged-in users only; errors come as
    * `detail.code` (`number_taken`, `period_locked`, `company_info_incomplete`,
    * `human_only`, ...) with their payload.

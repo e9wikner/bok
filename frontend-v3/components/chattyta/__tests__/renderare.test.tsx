@@ -95,12 +95,12 @@ beforeEach(() => {
 
 // ─── Switchen ─────────────────────────────────────────────────────────────
 
-describe("TradRenderare väljer komponent per type (SPEC §5)", () => {
+describe("TradRenderare väljer komponent per type", () => {
   it("agent_text → TradInlagg/agent med metarad, utan spår-chip", () => {
     rendera([typad(FIXTUR_AGENT_TEXT)]);
     expect(screen.getByText(/Jag postar elnätsfakturan från Nordkraft/)).toBeInTheDocument();
     expect(screen.getByText(/^agenten · \d\d:\d\d$/)).toBeInTheDocument();
-    // Fixturen bär två spår; klienten ritar dem inte (SPEC-lasbarhet M4).
+    // Fixturen bär två spår; klienten ritar dem inte.
     expect(screen.queryAllByTestId("sparchip")).toHaveLength(0);
     expect(screen.queryByTestId("jamforelse-rad")).toBeNull();
   });
@@ -209,7 +209,7 @@ describe("TradRenderare väljer komponent per type (SPEC §5)", () => {
   });
 });
 
-describe("det strömmande inlägget (SPEC §6.3, testfall 11)", () => {
+describe("det strömmande inlägget", () => {
   it("ingen platshållare → ingen indikator", () => {
     rendera([typad(FIXTUR_AGENT_TEXT)]);
     expect(screen.queryByTestId("skriver-text")).toBeNull();
@@ -236,7 +236,7 @@ describe("det strömmande inlägget (SPEC §6.3, testfall 11)", () => {
 });
 
 // ─── Testfall 31: live-regionen ───────────────────────────────────────────
-// SPEC §11: deltan annonseras inte en och en — det blir ett ord i taget i
+// Deltan annonseras inte en och en — det blir ett ord i taget i
 // skärmläsaren. En dold region säger indikatorns text när den byts och hela
 // inlägget när det är färdigt.
 
@@ -331,7 +331,7 @@ describe("live-regionen annonserar indikatorbyte och färdigt inlägg, inte varj
   });
 });
 
-// ─── Träffytor (SPEC §11) ─────────────────────────────────────────────────
+// ─── Träffytor ─────────────────────────────────────────────────
 
 describe("kortens knappar har träffyta ≥ 46 — mobilens krav, som också täcker desktopens 44 (§11)", () => {
   it("Posta, Ändra och Försök igen", () => {
@@ -459,7 +459,7 @@ describe("ChattKolumn skickar genom tråden", () => {
     expect(fel.textContent).not.toBe("");
   });
 
-  it("ett valt räkenskapsår läser och skriver i det årets tråd, och ett årsbyte läser om (SPEC-tradar.md §12.3)", async () => {
+  it("ett valt räkenskapsår läser och skriver i det årets tråd, och ett årsbyte läser om", async () => {
     hamtaTrad.mockResolvedValue(tomTradSvar({ posts: [agent], cursor: 1 }));
     skickaMeddelande.mockReturnValue(uppskjutet<MeddelandeSvar>().lofte);
     const { rerender } = render(

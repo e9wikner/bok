@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * Förslagens status i en vy (SPEC-flode-verifikationer.md §10).
+ * Förslagens status i en vy.
  *
- * Samma mönster som besluten (`useBeslut`, SPEC-chattyta.md §7): `draft`-
+ * Samma mönster som besluten (`useBeslut`): `draft`-
  * inlägget ändras aldrig, så om förslaget redan är postat eller ersatt vet
  * bara `GET /drafts`. Klienten läser vyns hela lista EN gång (`status=all`)
  * och slår upp `draft_id` lokalt. Varje förslagskort anropar hooken, men

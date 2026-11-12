@@ -4,8 +4,7 @@ D2, §9.2).
 When a thread proposal is posted whose `decision_id` based a link, the
 server writes a row in `voucher_source_references`: the difference voucher
 (A-121) refers to the receipt through the voucher that carries the link
-(A-118). The agent states nothing; the server looks it up. Test case
-numbers refer to SPEC-flode-underlag.md §14.
+(A-118). The agent states nothing; the server looks it up.
 """
 
 from repositories.intake_link_repo import VoucherSourceReferenceRepository

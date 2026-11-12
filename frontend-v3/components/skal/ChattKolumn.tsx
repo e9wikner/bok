@@ -15,7 +15,7 @@ import { useTrad, type UseTrad, type UseTradAlternativ } from "@/hooks/useTrad";
  * 54ch, kort max-bredd 560.
  *
  * Skalet äger layouten; innehållet är `chattyta`s. Tråden kommer ur
- * `useTrad` och ritas av `TradRenderare` (SPEC-chattyta.md §5, §6), som bär
+ * `useTrad` och ritas av `TradRenderare`, som bär
  * kortens kontrakt: ingen förvald rekommendation, alltid en väg ut, alltid
  * båda talen. Skalet ritar inga inlägg själv.
  */
@@ -69,7 +69,7 @@ export function TradYta({
   variant = "desktop",
 }: {
   vyTitel: string;
-  /** Beslutskortens status läses per vy (SPEC-chattyta.md §7). */
+  /** Beslutskortens status läses per vy. */
   viewKey: string;
   trad: TradData;
   variant?: "desktop" | "mobil" | "panel";
@@ -143,8 +143,8 @@ export function TradYta({
           : "min-h-0 flex-1 overflow-y-auto"
       }
       // INTE en live-region: då lästes varje text-delta upp ord för ord.
-      // Annonseringen bor i `TradRenderare`s dolda region (SPEC-chattyta
-      // §11, testfall 31) — indikatorbyten och färdiga inlägg, inget annat.
+      // Annonseringen bor i `TradRenderare`s dolda region
+      // — indikatorbyten och färdiga inlägg, inget annat.
       role="region"
       aria-label={`Tråd för ${vyTitel}`}
     >
@@ -189,7 +189,7 @@ const NARA_BOTTEN_PX = 48;
  * Desktopkolumnen: tråden och fältet.
  *
  * `aktiv` styr om tråden läses alls. Svepraden renderar sidans alla vyer,
- * men SPEC-chattyta.md §6.2 punkt 5 säger en ström per flik — den aktiva
+ * men det ska vara en ström per flik — den aktiva
  * vyns. Hooken kan inte anropas villkorligt, så läsningen bor i en egen
  * komponent som bara monteras för den aktiva vyn.
  */
@@ -262,8 +262,7 @@ function KolumnLayout({
   // Förslagskortets `Ändra` ska till DEN HÄR kolumnens fält (chattyta C12).
   const falt = useRef<HTMLInputElement>(null);
   const fokuseraFalt = useCallback(() => falt.current?.focus(), []);
-  // Hela kolumnen tar emot en släppt fil, inte bara fältet
-  // (SPEC-flode-underlag.md §10.1).
+  // Hela kolumnen tar emot en släppt fil, inte bara fältet.
   const kolumn = useRef<HTMLDivElement>(null);
   const { forifyllning } = useBeslutFokus();
   return (

@@ -1,6 +1,5 @@
 /**
- * Verktygsnamn → svensk presensetikett för `SkriverIndikator`
- * (SPEC-chattyta.md §5, SPEC-lasbarhet §4.3).
+ * Verktygsnamn → svensk presensetikett för `SkriverIndikator`.
  *
  * Medan agenten arbetar skickar servern `message.delta {activity}` med bara
  * verktygets NAMN (`services/thread_stream.py::_on_tool_call`). Indikatorn
@@ -62,7 +61,7 @@ export const SKRIVER_ETIKETTER: Readonly<Record<string, string>> = {
 export const SKRIVER_FORVAL = "Läser…";
 
 /**
- * Indikatorns text ur senaste `activity`. Aldrig tom (SPEC §5).
+ * Indikatorns text ur senaste `activity`. Aldrig tom.
  *
  * Ett okänt verktyg visas med sitt namn — samma fallback som
  * `_TRACE_LABELS.get(name, name)` på servern. Ett tekniskt namn är sämre än

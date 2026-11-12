@@ -593,7 +593,7 @@ def test_auto_account_unknown_is_refused(books):
 
 
 def test_koppla_banktransaktion_is_the_seventeenth_tool():
-    # Fakturering F1 appended four after it (SPEC-fakturering-f1.md §5).
+    # Fakturering F1 appended four after it.
     assert AGENT_TOOL_DEFINITIONS[16]["name"] == "koppla_banktransaktion"
 
 

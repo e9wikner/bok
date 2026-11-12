@@ -71,7 +71,7 @@ class UpdateAgentGuidanceRequest(BaseModel):
 
 class LinkRequest(BaseModel):
     """`koppla_underlag`'s arguments without `source_id`, which the path
-    carries (SPEC-flode-underlag.md §7). Nothing else: the basis is the
+    carries. Nothing else: the basis is the
     interpretation or the decision, never something the caller states."""
 
     model_config = ConfigDict(extra="forbid")
@@ -100,7 +100,7 @@ class UnlinkRequest(BaseModel):
 
 
 # `tolka_underlag`'s arguments without `source_id`, which the path carries
-# (SPEC-underlagstolkning.md §8, §12.6 f). Built from the tool's own fields
+# (§12.6 f). Built from the tool's own fields
 # so the two cannot drift, and without touching the tool's model: its
 # schema is the cached prefix. `extra="forbid"` as the tool's, so a
 # `confidence`, `hypothesis` or `source_id` in the body is a 422. A model
@@ -345,7 +345,7 @@ async def get_intake_interpretation(
     source_id: str,
     actor: str = Depends(get_current_actor),
 ):
-    """The latest interpretation of a source (SPEC-underlagstolkning.md §8).
+    """The latest interpretation of a source.
 
     Read-only: the interpretation is made by the agent's `tolka_underlag`
     or the `POST` below, and `match.still_open` is derived at read time.
@@ -367,7 +367,7 @@ async def create_intake_interpretation(
     actor: str = Depends(get_current_actor),
 ):
     """Interpret a source as `tolka_underlag` does, for a session without
-    the tool (SPEC-underlagstolkning.md §8, §12.6 f).
+    the tool (§12.6 f).
 
     Adds one interpretation row and answers in §6.5's form; nothing in the
     books changes and no model is called -- the read is the caller's. No
@@ -401,7 +401,7 @@ async def link_intake_source(
     actor: str = Depends(get_current_actor),
 ):
     """Link a source to an already posted voucher, as `koppla_underlag`
-    does, for a session without the tool (SPEC-flode-underlag.md §7).
+    does, for a session without the tool.
 
     The same service and the same rules: an exact, still open match, or an
     answered decision about the source from a thread. `201` when linked,
@@ -758,7 +758,7 @@ def _bank_input_link_to_dict(link) -> dict:
 
 def _http_error(exc: IntakeError) -> HTTPException:
     status_code = http_status.HTTP_400_BAD_REQUEST
-    # The link's three groups (SPEC-flode-underlag.md §7), on type.
+    # The link's three groups, on type.
     if isinstance(exc, LinkNotFoundError):
         status_code = http_status.HTTP_404_NOT_FOUND
     elif isinstance(exc, LinkConflictError):
@@ -782,7 +782,7 @@ def _http_error(exc: IntakeError) -> HTTPException:
 
     detail = {"error": exc.message, "code": exc.code, "details": exc.details}
     if isinstance(exc, DuplicateIntakeSourceError) and exc.existing_id:
-        # SPEC-flode-underlag.md §7, §10.2: the client drops the same
+        # The client drops the same
         # receipt again by using the existing source -- as a field, not
         # parsed out of `details`.
         detail["existing_id"] = exc.existing_id

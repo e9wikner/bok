@@ -1,4 +1,4 @@
-"""Fakturering F1: agenten och tråden (docs/redesign/SPEC-fakturering-f1.md §13).
+"""Fakturering F1: agenten och tråden.
 
 Backendens testfall: 1–32 och 39–40. Klientens (33–38) ligger i vitest.
 Verktygen körs genom `execute_tool` med en riktig tråd i `tool_context`, som

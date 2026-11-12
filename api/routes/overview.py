@@ -1,4 +1,4 @@
-"""API route for the page overview (SPEC-oversikt.md §5)."""
+"""API route for the page overview."""
 
 from typing import Optional
 

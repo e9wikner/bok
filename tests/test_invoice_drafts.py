@@ -30,7 +30,7 @@ def _human_headers():
 @pytest.fixture
 def issuable(test_db, tmp_path, monkeypatch):
     """What issuing needs besides the draft: complete `company_info` and a
-    data directory for the PDF (SPEC-fakturering.md §5–6)."""
+    data directory for the PDF."""
     monkeypatch.setattr(settings, "intake_dir", str(tmp_path / "intake"))
     for key, value in {
         "name": "Testbolaget AB",

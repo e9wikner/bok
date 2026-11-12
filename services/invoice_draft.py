@@ -23,7 +23,7 @@ from services.invoice import unit_of_work
 
 def _refuse_issued(draft) -> None:
     """An issued draft is history: it has become an invoice
-    (SPEC-fakturering.md §5) and changes no more."""
+    and changes no more."""
     if draft.status == "issued":
         raise ValidationError(
             "draft_already_issued",
@@ -33,7 +33,7 @@ def _refuse_issued(draft) -> None:
 
 
 def _refuse_in_thread(draft) -> None:
-    """SPEC-fakturering-f1.md §4.3 (beslut 2): a draft behind a pending card
+    """A draft behind a pending card
     in a thread changes only by being replaced there, never in place -- or
     the card would no longer show what `Utfärda` issues."""
     from repositories.invoice_proposal_repo import InvoiceProposalRepository

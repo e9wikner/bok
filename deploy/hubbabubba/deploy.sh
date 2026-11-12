@@ -166,7 +166,7 @@ fi
 echo "==> source: $(git -C "$SRC" branch --show-current) at $(git -C "$SRC" rev-parse --short HEAD)"
 
 # ── build ───────────────────────────────────────────────────────────────
-# NEXT_PUBLIC_SKAL turns on the new shell at /v4 (SPEC-skal.md §3). Next.js
+# NEXT_PUBLIC_SKAL turns on the new shell at /v4. Next.js
 # inlines NEXT_PUBLIC_* at build time, so it is a build arg, not a runtime env
 # var, and changing it in bok.env must trigger a frontend rebuild. The image
 # carries the value it was built with as a label to compare against.

@@ -13,7 +13,7 @@ import type { DraftKropp, Inlagg, RaInlagg } from "@/lib/chattyta/typer";
 import { FIXTUR_DRAFT, kropp } from "@/lib/chattyta/__fixtures__/inlagg";
 
 /**
- * Postningsknappen och dess sju utfall (SPEC-chattyta.md §8, C12).
+ * Postningsknappen och dess sju utfall.
  *
  * Nätet mockas, inte `postaUtkast`: utfallen hänger på hur FastAPI formar
  * ett `409`/`422` (`{detail: {...}}`) och på `Idempotent-Replay`-headern,
@@ -97,7 +97,7 @@ const redanPostad = (nummer = 118) =>
     voucher: verifikation({ number: nummer }),
   });
 
-/** Samma, `period_locked`. `locked_by` kan vara `null` (SPEC-idempotens.md testfall 9). */
+/** Samma, `period_locked`. `locked_by` kan vara `null`. */
 const periodLast = (lockedBy: string | null = "stefan") =>
   axiosFel(409, {
     error: "Period per-2026-09 is locked - cannot post vouchers",
@@ -108,7 +108,7 @@ const periodLast = (lockedBy: string | null = "stefan") =>
     locked_by: lockedBy,
   });
 
-/** SPEC-idempotens.md §6, felsvarstabellen. */
+/** Felsvarstabellen. */
 const iFlykt = (ms = 800) =>
   axiosFel(409, {
     error: "A request with this Idempotency-Key is in flight",
@@ -166,7 +166,7 @@ afterEach(() => {
 
 // ─── postaUtkast: anropet och tolkningen ──────────────────────────────────
 
-describe("postaUtkast — anropet (SPEC §8 steg 1, §15.1)", () => {
+describe("postaUtkast — anropet", () => {
   it("POST /vouchers/{draft_id}/post med Idempotency-Key = nyckelForUtkast(draft_id)", async () => {
     post.mockResolvedValue(svar200());
     await postaUtkast(DRAFT_ID);
@@ -243,7 +243,7 @@ describe("postaUtkast — anropet (SPEC §8 steg 1, §15.1)", () => {
 
 // ─── Knapparna ────────────────────────────────────────────────────────────
 
-describe("VerifikationsForslag har Posta och Ändra (SPEC §8)", () => {
+describe("VerifikationsForslag har Posta och Ändra", () => {
   it("primär Posta, sekundär Ändra, notisen kvar — inga knappar före ett tryck gör något", () => {
     rendera();
     const rad = screen.getByTestId("forslag-knapprad");

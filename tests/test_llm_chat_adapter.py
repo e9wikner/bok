@@ -6,13 +6,13 @@ fixture-heavy (`tests/fixtures/llm_chat/*.json`) and none of them touch the
 DB (`test_db` fixture) the rest of that file uses. `pytest tests/ -v` picks
 this file up automatically like any other `test_*.py` module.
 
-Per SPEC §9: no real network call anywhere in this file. Fixtures are loaded
+No real network call anywhere in this file. Fixtures are loaded
 and validated into the real `openai.types.chat.ChatCompletion` type so the
 normalization tests run against the SDK's actual response schema rather than
 a guess at its shape; `TestRunTurnWiring`/`TestRunTurnErrorTranslation` stub
 the OpenAI client instance directly instead of hitting the network.
 
-SPEC §9 test case 18 ("samma pass, en gång per adapter") is covered here as
+Test case 18 ("samma pass, en gång per adapter") is covered here as
 `TestCase18ProtocolParity`: the Messages-protocol fixture
 (`tests/fixtures/llm_messages/tool_use_stop.json`) and this file's
 `tool_calls_stop.json` encode the *same* `posta_verifikation` call (same
@@ -373,7 +373,7 @@ class TestTranslateMessages:
 
 
 class TestUnsupportedContentBlocks:
-    """SPEC §2: a `document` block "finns inte" on this protocol. Reaching
+    """A `document` block "finns inte" on this protocol. Reaching
     this translator at all should be unreachable in normal operation (see
     `UnsupportedContentBlockError`'s docstring) -- these tests only prove
     the defensive check fires rather than silently dropping or mis-sending
@@ -470,7 +470,7 @@ class TestCapabilities:
             cache_breakpoint=False,
             pdf_document_blocks=False,
             refusal_stop_reason=False,
-            # SPEC-tradar.md §12.1 / task T5: both adapters stream, each
+            # Both adapters stream, each
             # through its own SDK's streaming helper.
             streaming=True,
         )
@@ -504,7 +504,7 @@ class TestNormalizeResponse:
         assert turn.tool_calls == []
 
     def test_refusal_shaped_prose_still_normalizes_to_end_not_a_refusal_category(self):
-        """Locks down the "no heuristic" decision (SPEC §2/§9): this
+        """Locks down the "no heuristic" decision: this
         protocol has no dedicated refusal outcome. Text that reads like a
         refusal in prose, with finish_reason == "stop", must still come back
         as an ordinary "end" -- never scanned for refusal-shaped language.
@@ -555,7 +555,7 @@ class TestNormalizeResponse:
     ):
         """`tool_calls_stop.json` deliberately carries a non-zero
         `usage.prompt_tokens_details.cached_tokens` (900) to prove this
-        adapter never reads it -- SPEC §2/§6.6: no cache accounting this
+        adapter never reads it: no cache accounting this
         protocol can verify, so this must be a hard 0, never inferred.
         """
         response = _load_completion("tool_calls_stop.json")
@@ -643,10 +643,10 @@ class TestRunTurnWiring:
         assert turn.tool_calls[0].name == "posta_verifikation"
 
 
-# --- Error translation (SPEC §6.7) -------------------------------------------
+# --- Error translation -------------------------------------------
 #
 # Real `openai` SDK exception types must never leak past this adapter --
-# `services/agent_runtime.py` isn't allowed to import `openai` (SPEC §4/§10).
+# `services/agent_runtime.py` isn't allowed to import `openai`.
 # These stub the SDK client to raise the *real* exception types (constructed
 # directly, no network) and assert `run_turn` translates them into the
 # protocol-agnostic `LLMConnectionError`/`LLMRateLimitError`, exactly
@@ -713,7 +713,7 @@ class TestRunTurnErrorTranslation:
         assert exc_info.value.retry_after_seconds is None
 
 
-# --- SPEC §9 test case 18: protocol parity -----------------------------------
+# --- test case 18: protocol parity ------------------------------------------
 
 
 class TestCase18ProtocolParity:
@@ -759,12 +759,12 @@ class TestCase18ProtocolParity:
         assert isinstance(chat_call, ToolCall)
 
 
-# --- SPEC §4/§10: import boundary --------------------------------------------
+# --- import boundary --------------------------------------------------------
 
 
 class TestOpenaiImportBoundary:
     def test_openai_is_imported_only_in_services_llm_chat_and_its_own_tests(self):
-        """SPEC §4/§10: "anthropic/openai importeras bara i services/llm/".
+        """ "anthropic/openai importeras bara i services/llm/".
         A structural regression check, mirroring test case 17's own
         reasoning: this should break loudly if a future change adds an
         `import openai`/`from openai` anywhere it doesn't belong.
@@ -795,11 +795,11 @@ class TestOpenaiImportBoundary:
         assert offenders == []
 
 
-# --- T5 (SPEC-tradar.md §12.1): streaming hooks ------------------------------
+# --- T5: streaming hooks ------------------------------
 #
 # `on_text`/`on_tool_call` on `run_turn`, and the pure dispatcher behind
 # them. These live here rather than in `tests/test_tradar.py` because they
-# assert against this SDK's own event types, and SPEC §4/§10's import
+# assert against this SDK's own event types, and the import
 # boundary allows that in this file alone (see `TestOpenaiImportBoundary`
 # for the check that enforces it).
 

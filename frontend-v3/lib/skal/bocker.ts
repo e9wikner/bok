@@ -91,7 +91,7 @@ export interface Verifikation {
   corrects?: VerifikationRef | null;
   /**
    * Den postade verifikation som hänvisar till den här verifikationens
-   * kvitto (SPEC-flode-underlag.md §5, D2): A-121 för A-118. Valfri: en
+   * kvitto: A-121 för A-118. Valfri: en
    * server från före FU16 skickar den inte.
    */
   referenced_by?: VerifikationRef | null;
@@ -209,7 +209,7 @@ export function oppnaKvitto(voucherId: string): Promise<boolean> {
   return oppnaFil(async () => underlagsfil(await bockerApi.getKallkontext(voucherId)));
 }
 
-/** Postade hämtas så många i taget; nästa sida när listans slut syns (SPEC-lasbarhet.md §4.5). */
+/** Postade hämtas så många i taget; nästa sida när listans slut syns. */
 export const VERIFIKATIONER_ANTAL = 50;
 
 /**
@@ -289,9 +289,9 @@ export const bockerApi = {
   },
 
   /**
-   * `missingAttachment` (SPEC-flode-underlag.md §10.4): `false` ger Postade
+   * `missingAttachment`: `false` ger Postade
    * utan dem som saknar underlag, så att en verifikation står på ett ställe.
-   * Utelämnad skickas den inte. `offset` sidar Postade (SPEC-lasbarhet.md §4.5).
+   * Utelämnad skickas den inte. `offset` sidar Postade.
    */
   getVerifikationer: async (
     fiscalYearId: string,
@@ -754,8 +754,8 @@ export interface VantarUnderlag {
   /** §11.2, ur `POSTNINGAR_NYCKEL`. */
   postningar?: readonly Postning[];
   /**
-   * `GET /vouchers?missing_attachment=true&sort_by=age` (SPEC-flode-underlag.md
-   * §10.4). Utelämnad: ingen sektion, och Postade märker `saknar` som förut.
+   * `GET /vouchers?missing_attachment=true&sort_by=age`.
+   * Utelämnad: ingen sektion, och Postade märker `saknar` som förut.
    */
   saknar?: Verifikationslista;
   /** `Nyss kopplad`, ur `KOPPLINGAR_NYCKEL` (§10.4). */
@@ -937,7 +937,7 @@ export function banksektion(
   return { titel: BANK_TITEL, rader: [...avstamning.map(avstamningsrad), ...sorterade.map(bankrad)] };
 }
 
-/** Vyns fot, panelens ord (SPEC-flode-underlag.md §10.4). */
+/** Vyns fot, panelens ord. */
 export const FOT_UNDERLAG =
   "Underlag kan släppas i chatten när som helst. Agenten kopplar det till rätt verifikation och säger till om något inte stämmer.";
 

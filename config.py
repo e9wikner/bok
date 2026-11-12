@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     debug: bool = os.getenv("DEBUG", "False").lower() == "true"
     cors_origins: str = os.getenv("CORS_ORIGINS", "*")
 
-    # Agent runtime (docs/redesign/SPEC-agentruntime.md) -- off by default, like
+    # Agent runtime -- off by default, like
     # the dropzone: running `python main.py` should never accidentally start a
     # paid LLM loop against a developer's test database.
     agent_runtime_enabled: bool = (
@@ -77,7 +77,7 @@ class Settings(BaseSettings):
         "LLM_DEFAULT_MODEL", "opencode-go/deepseek-v4.1-flash"
     )
 
-    # The caps (SPEC §6.5). Checked between source documents and between
+    # The caps. Checked between source documents and between
     # tool turns, never inside a `with db.transaction():`.
     agent_max_tool_turns_per_item: int = int(
         os.getenv("AGENT_MAX_TOOL_TURNS_PER_ITEM", "25")
@@ -96,7 +96,7 @@ class Settings(BaseSettings):
     agent_daily_budget_ore: Optional[int] = None
     agent_max_items_per_pass: int = int(os.getenv("AGENT_MAX_ITEMS_PER_PASS", "20"))
 
-    # The thread window (SPEC-tradar.md §6.3, open question 1). A token
+    # The thread window (open question 1). A token
     # budget, not a number of posts: a `draft` post and an `agent_text`
     # differ by an order of magnitude in size, so counting posts would give
     # two very different context sizes the same name. What does not fit is

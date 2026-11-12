@@ -284,7 +284,7 @@ async def lock_period(
     All draft vouchers must be posted or deleted before locking
     (`400 draft_vouchers_exist`) -- except a thread's pending proposals: the
     lock goes through and marks them `period_locked`, with an error post in
-    their thread (SPEC-flode-verifikationer §9, F16). Only a human can open
+    their thread. Only a human can open
     the period again (`/unlock`).
     """
     try:

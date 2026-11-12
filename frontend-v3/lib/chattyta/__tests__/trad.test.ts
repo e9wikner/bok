@@ -163,7 +163,7 @@ describe("tradReducer — strömmen (§6.3)", () => {
 
   it("message.created med text och activity (en tur som redan pågick) blir platshållaren som den är", () => {
     // Servern skickar det en sen prenumerant missat som ett `created` med
-    // det som sagts hittills (SPEC-chattyta §15, fråga 5).
+    // det som sagts hittills (fråga 5).
     const t = kor(
       h("message.created", {
         id: "streaming-r-1",
@@ -198,7 +198,7 @@ describe("tradReducer — strömmen (§6.3)", () => {
   it("delta {activity} nollställer den strömmande texten och byter indikatorn (testfall 11, lasbarhet M2)", () => {
     let t = kor(skapad("r-1"), delta("r-1", "Jag tittar"));
     expect(t.strommande?.activity).toBeNull();
-    // Mellantexten syns bara till nästa verktygsanrop (SPEC-lasbarhet §4.1).
+    // Mellantexten syns bara till nästa verktygsanrop.
     t = tradReducer(t, aktivitet("r-1", "las_bankhandelser"));
     expect(t.strommande).toMatchObject({ text: "", activity: "las_bankhandelser" });
     t = tradReducer(t, delta("r-1", "Mellan"));

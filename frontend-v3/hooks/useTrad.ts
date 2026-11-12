@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * En vys tråd: läs, prenumerera, skicka (SPEC-chattyta.md §6.2–6.3).
+ * En vys tråd: läs, prenumerera, skicka.
  *
  * Tillståndet är reducerns (`lib/chattyta/trad.ts`); här bor bara
  * livscykeln — när strömmen öppnas, när den stängs, och vilka frågor en
@@ -125,7 +125,7 @@ export interface UseTrad {
 let lopnummer = 0;
 
 /**
- * `fiscalYearId` är årsväljarens år (SPEC-tradar.md §12.3: en tråd per vy och
+ * `fiscalYearId` är årsväljarens år (en tråd per vy och
  * räkenskapsår). `null` = innevarande år, som servern löser själv. Byte av år
  * byter tråd precis som byte av vy: strömmen stängs, den nya tråden läses.
  */
@@ -178,7 +178,7 @@ export function useTrad(
         void qc.invalidateQueries({ queryKey: BESLUT_NYCKEL });
         void qc.invalidateQueries({ queryKey: DRAFTS_NYCKEL });
         void qc.invalidateQueries({ queryKey: VOUCHERS_NYCKEL });
-        // Ett utfärdande (SPEC-fakturering-f1.md §7.4): Fakturerings listor.
+        // Ett utfärdande: Fakturerings listor.
         void qc.invalidateQueries({ queryKey: FAKTUROR_NYCKEL });
         // En bokförd lön eller AGI: Löners körningar.
         void qc.invalidateQueries({ queryKey: LONER_NYCKEL });
@@ -267,7 +267,7 @@ export function useTrad(
       if (!vy || vy.avbryt.signal.aborted) return false;
       const lokaltId = `${LOKALT_PREFIX}${++lopnummer}`;
       // Utan text finns inget att visa i förväg: servern skriver då bara
-      // `user_file`-inläggen (SPEC-flode-underlag.md D8), och klienten hittar
+      // `user_file`-inläggen, och klienten hittar
       // inte på en text åt människan. Filkorten kommer med POST-svaret.
       if (text !== "") {
         dispatch({ typ: "optimistisk", id: lokaltId, text, skapad: new Date().toISOString() });

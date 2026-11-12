@@ -32,7 +32,7 @@ describe("/v4 finns inte utan flaggan (testfall 5)", () => {
 
 /**
  * Testfall 18. Modulen `skal` lovar att de 24 gamla sidorna inte märker att
- * den har funnits (SPEC-skal.md §3). Två vakter, för att en av dem alltid
+ * den har funnits. Två vakter, för att en av dem alltid
  * ska kunna köras: en statisk som håller i CI utan git-historik, och en
  * git-baserad som är exakt när `main` finns.
  */
@@ -60,7 +60,7 @@ describe("skalet håller sig innanför sin gräns (testfall 18)", () => {
   });
 
   it("AppShellClient är den enda komponenten utanför skalet som rör det", () => {
-    // `chattyta` är skalets egen tråd (SPEC-chattyta.md §1: beror på `skal`),
+    // `chattyta` är skalets egen tråd (beror på `skal`),
     // inte en av de 24 gamla sidorna som vakten skyddar.
     const traffar = filerUnder(path.join(ROT, "components"))
       .filter((f) => !f.includes(`${path.sep}skal${path.sep}`))
@@ -84,8 +84,7 @@ describe("skalet håller sig innanför sin gräns (testfall 18)", () => {
       // Grunt klonad CI-checkout utan main: den statiska vakten ovan gäller.
       return;
     }
-    // Undantag, inte skalets: `flode-verifikationer` F4 (SPEC-flode-verifikationer.md
-    // §4.3) låter utkast sakna nummer, och de gamla sidor som visar ett
+    // Undantag, inte skalets: `flode-verifikationer` F4 låter utkast sakna nummer, och de gamla sidor som visar ett
     // verifikationsnummer måste då visa `Utkast` i stället för `A-null`. Exakt de här.
     const numreringen = [
       "frontend-v3/app/page.tsx",
@@ -94,7 +93,7 @@ describe("skalet håller sig innanför sin gräns (testfall 18)", () => {
       "frontend-v3/app/vouchers/page.tsx",
       "frontend-v3/app/vouchers/[id]/page.tsx",
     ];
-    // Undantag, inte skalets: fakturering F0 (SPEC-fakturering.md §7) ger de
+    // Undantag, inte skalets: fakturering F0 ger de
     // gamla fakturasidorna nummer, adress, leverans och `/issue`. Exakt de här.
     const faktureringen = [
       "frontend-v3/app/invoices/new/page.tsx",

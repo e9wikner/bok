@@ -108,8 +108,7 @@ class VoucherRow:
 
 @dataclass(frozen=True)
 class VoucherRef:
-    """Another voucher as the list names it: `B-7` (SPEC-flode-verifikationer
-    §7.5). Derived by the repository, never stored."""
+    """Another voucher as the list names it: `B-7`. Derived by the repository, never stored."""
 
     id: str
     series: str
@@ -143,7 +142,7 @@ class Voucher:
 
     id: str
     series: VoucherSeries  # A or B (B for corrections)
-    number: Optional[int]  # None until posted (SPEC flode-verifikationer §4.3)
+    number: Optional[int]  # None until posted
     date: date
     period_id: str
     description: str
@@ -160,7 +159,7 @@ class Voucher:
     # reader to know, e.g. the exchange rate a foreign amount was converted
     # at. Written at creation; a posted voucher's never changes.
     comment: Optional[str] = None
-    # Derived by the repository, never stored (SPEC-oversikt.md §3). None on a
+    # Derived by the repository, never stored. None on a
     # voucher that was built in memory rather than read back.
     missing_attachment: Optional[bool] = None
     age_days: Optional[int] = None
@@ -168,11 +167,11 @@ class Voucher:
     # 1900-1989 -- whose rows still lack a linked bank transaction, while the
     # voucher lacks underlag. Empty for a purchase: its underlag is a receipt.
     missing_statement_accounts: List[str] = field(default_factory=list)
-    # Derived from vouchers.correction_of (SPEC-flode-verifikationer §7.5):
+    # Derived from vouchers.correction_of:
     # the posted correction of this voucher, and the voucher this one corrects.
     corrected_by: Optional[VoucherRef] = None
     corrects: Optional[VoucherRef] = None
-    # Derived from voucher_source_references (SPEC-flode-underlag.md §10.4):
+    # Derived from voucher_source_references:
     # the posted voucher that has its underlag through this one's link --
     # A-121 on A-118.
     referenced_by: Optional[VoucherRef] = None
@@ -407,7 +406,7 @@ class AgentRun:
 
     Mirrors `agent_runs` (migration 024). `model` and `protocol` travel with
     the run rather than living in config, because model selection is per
-    conversation (SPEC-agentruntime.md §2/§5).
+    conversation.
     """
 
     id: str
@@ -448,7 +447,7 @@ class AgentRunEvent:
 
 @dataclass
 class Thread:
-    """One conversation, bound to a view and a fiscal year (SPEC-tradar.md §4).
+    """One conversation, bound to a view and a fiscal year.
 
     `README.md`: "Chatten hör till vyn, inte till appen." `view_key` is the
     view and nothing else — no company prefix (decision §12.2, single-tenant).
@@ -477,7 +476,7 @@ class Thread:
 class ThreadPost:
     """One post in a thread — what the human saw, in the order she saw it.
 
-    Not the audit trail: `audit_log` is (SPEC-tradar.md antagande 5). Nothing
+    Not the audit trail: `audit_log` is. Nothing
     here is ever modified or deleted; a correction is a new post. A streaming
     `agent_text` is written once, when the turn is done — the deltas along the
     way only travel over SSE and are never stored per character (§4).
@@ -500,7 +499,7 @@ class ThreadPost:
 
 @dataclass
 class DecisionOption:
-    """One row an agent laid out under a decision (SPEC-beslut.md §4).
+    """One row an agent laid out under a decision.
 
     `decision_options` is its own table, not JSON packed onto `decisions`:
     the `option_id` an answer names must check against what was actually
@@ -520,7 +519,7 @@ class DecisionOption:
 
     @property
     def changes_the_books(self) -> bool:
-        """SPEC §6.3: whether choosing this option would write a ledger row.
+        """Whether choosing this option would write a ledger row.
 
         `account` set **and** `amount_ore` non-zero. This is derived from
         the option's own fields, not a second flag the agent has to
@@ -537,10 +536,9 @@ class DecisionOption:
 
 @dataclass
 class Decision:
-    """A question the agent stopped to ask, tracked from open to closed
-    (SPEC-beslut.md §4).
+    """A question the agent stopped to ask, tracked from open to closed.
 
-    `thread_posts` are never modified (SPEC-tradar.md §8.4), so "answered"
+    `thread_posts` are never modified, so "answered"
     cannot live as a column on the post that showed the question — that's
     the entire reason this table, and this class, exist. `options` is filled
     in by `DecisionRepository.get`/`.list_decisions`, sorted by `position`;
@@ -586,7 +584,7 @@ class Decision:
 @dataclass
 class ThreadDraft:
     """A draft voucher proposed in a thread, tracked until it is posted or
-    replaced (SPEC-flode-verifikationer.md §6).
+    replaced.
 
     `voucher_id` is the draft's `vouchers.id`, but not a foreign key: a
     superseded draft is deleted while this row stays (§6.2). `status` moves
@@ -624,7 +622,7 @@ class ThreadDraft:
 @dataclass
 class InvoiceProposal:
     """An invoice draft proposed in a thread, tracked until it is issued,
-    replaced or rejected (docs/redesign/SPEC-fakturering-f1.md §4).
+    replaced or rejected.
 
     One row per `invoice_drafts.id`: a change is a new draft that replaces
     this one (`replaced_by`), never an edit in place. `status` moves only out

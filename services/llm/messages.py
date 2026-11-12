@@ -1,11 +1,11 @@
-"""Anthropic Messages protocol adapter (docs/redesign/SPEC-agentruntime.md §2, §4, §6.6).
+"""Anthropic Messages protocol adapter.
 
 This is the only module in the codebase -- besides its own tests and
-fixtures -- allowed to `import anthropic` (SPEC §4, §10). Everything else
+fixtures -- allowed to `import anthropic`. Everything else
 sees `MessagesClient` only through the structural `services.llm.LLMClient`
 Protocol: `run_turn(system, messages, tools, model, max_tokens) -> LLMTurn`.
 
-Per the architectural decision in SPEC §4/§10 (see `services/llm/__init__.py`),
+Per the architectural decision (see `services/llm/__init__.py`),
 `messages`/`tools` are already Anthropic's own Messages API wire shapes --
 that is the protocol-agnostic lingua franca used everywhere above this
 package -- so this adapter passes them through essentially unchanged. The
@@ -13,7 +13,7 @@ package -- so this adapter passes them through essentially unchanged. The
 cost, in the other direction, down to OpenAI's shapes.
 
 Two responsibilities are split into pure, independently testable functions
-so the adapter tests never need a network call (SPEC §9):
+so the adapter tests never need a network call:
 
 - `build_request_kwargs` -- builds the `messages.stream(...)` kwargs dict.
   Tested directly against the built dict: cache_control placement, the
@@ -54,8 +54,8 @@ from services.llm import (
 # Anthropic's Messages API can return more stop_reason values than this
 # table covers ("pause_turn", "model_context_window_exceeded" as of this
 # SDK version) -- those are deliberately left out. `normalize_message` raises
-# on anything not in this table rather than guessing a mapping, per SPEC
-# §6.7's "ett osäkert utfall är ett avstående, aldrig en postning": a stop
+# on anything not in this table rather than guessing a mapping, per
+# "ett osäkert utfall är ett avstående, aldrig en postning": a stop
 # reason nobody has looked at yet must never silently pass as "end" or
 # "tool_calls".
 _STOP_REASON_MAP: dict[str, StopReason] = {
@@ -65,7 +65,7 @@ _STOP_REASON_MAP: dict[str, StopReason] = {
     "max_tokens": "max_tokens",
     # Confirmed against the installed `anthropic` SDK (anthropic.types.StopReason,
     # anthropic.types.RefusalStopDetails): the literal really is "refusal",
-    # exactly as SPEC §2/§6.7 assumes -- not a guess.
+    # -- not a guess.
     "refusal": "refusal",
 }
 
@@ -77,7 +77,7 @@ class UnrecognizedStopReasonError(Exception):
     Deliberately fatal rather than swallowed: a new or unhandled stop reason
     (e.g. "pause_turn", "model_context_window_exceeded") must surface as a
     loud failure, not quietly become `"end"` or `"tool_calls"` and risk a
-    posting on an outcome nobody has categorized (SPEC §6.7).
+    posting on an outcome nobody has categorized.
     """
 
     def __init__(self, stop_reason: str | None) -> None:
@@ -105,15 +105,15 @@ def messages_sdk_base_url(gateway_base_url: str) -> str:
 
 
 class MessagesClient:
-    """`LLMClient` adapter for Anthropic's Messages API (SPEC §2).
+    """`LLMClient` adapter for Anthropic's Messages API.
 
     Structurally satisfies `services.llm.LLMClient` -- no inheritance, per
     A4's Protocol design (see that module's docstring on why that matters
     for testability).
     """
 
-    #: SPEC §2's capability table for the Messages protocol: explicit cache
-    #: breakpoint, PDF `document` blocks as the §6.3 fallback, and its own
+    #: The capabilities of the Messages protocol: explicit cache
+    #: breakpoint, PDF `document` blocks as the fallback, and its own
     #: stop reason for a refusal.
     capabilities = LLMCapabilities(
         cache_breakpoint=True,
@@ -152,7 +152,7 @@ class MessagesClient:
         This adapter has always streamed -- `.stream()` is the call A5 wrote
         -- and always thrown every increment away, because
         `get_final_message()` on its own silently drains the iterator. The
-        hooks (SPEC-tradar.md §12.1, task T5) pick up what was already
+        hooks (task T5) pick up what was already
         passing through: with either one given, the events are iterated
         first and dispatched through `dispatch_stream_event`, and
         `get_final_message()` then returns the same assembled message it
@@ -177,14 +177,14 @@ class MessagesClient:
             # APIStatusError (a real HTTP response came back, just a 429),
             # a wholly separate branch of the SDK's exception hierarchy from
             # APIConnectionError -- but ordering it first here keeps the
-            # more specific SPEC §6.7 row ("429") visibly distinct from the
+            # more specific "429" case visibly distinct from the
             # generic connectivity row it's checked alongside.
             raise LLMRateLimitError(
                 f"Rate limited by the Messages API (429): {exc.message}",
                 retry_after_seconds=_retry_after_seconds(exc),
             ) from exc
         except anthropic.APIConnectionError as exc:
-            # SPEC §6.7: "Gateway nere, timeout, 5xx" -- after the SDK's own
+            # "Gateway nere, timeout, 5xx" -- after the SDK's own
             # retry policy (httpx-level) is exhausted, this is what surfaces.
             raise LLMConnectionError(
                 f"Connection error talking to the Messages API: {exc.message}"
@@ -209,7 +209,7 @@ class MessagesClient:
         # form: a one-block system content list with `cache_control` on its
         # last (here, only) block. This is what makes the systemprompt
         # (instructions + kontoplan + corrections, built by A8) cacheable
-        # per SPEC §6.6 -- the breakpoint has to be a content block, a bare
+        # -- the breakpoint has to be a content block, a bare
         # string can't carry one.
         system_blocks: list[dict[str, Any]] = [
             {
@@ -229,10 +229,8 @@ class MessagesClient:
             "system": system_blocks,
             "messages": messages,
             "tools": tools,
-            # Adaptive thinking + high effort, per SPEC §2/§6.3's table
-            # ("Tänkande / effort"). Deliberately no `budget_tokens` key
-            # anywhere in this dict: SPEC-agentruntime.md §2 states plainly
-            # that it "ger 400 på Opus 5" (a 400 error) -- it is not a style
+            # Adaptive thinking + high effort. Deliberately no `budget_tokens` key
+            # anywhere in this dict: it "ger 400 på Opus 5" (a 400 error) -- it is not a style
             # choice one could "helpfully" add back for finer cost control,
             # it breaks the call outright. If you're reading this because
             # you were about to add one back: don't.
@@ -257,8 +255,8 @@ class MessagesClient:
                 tool_calls.append(
                     ToolCall(id=block.id, name=block.name, arguments=dict(block.input))
                 )
-            # `thinking` and `redacted_thinking` blocks (adaptive thinking,
-            # SPEC §2) are deliberately not concatenated into `text` -- they
+            # `thinking` and `redacted_thinking` blocks (adaptive thinking)
+            # are deliberately not concatenated into `text` -- they
             # are the model's internal reasoning, not its answer. Any other
             # block type (server tool use/results, container uploads, ...)
             # is likewise ignored here; none of those are part of the
@@ -276,7 +274,7 @@ class MessagesClient:
             # type (None, not 0, when the request had no cache hit at all --
             # e.g. the very first call in a pass, before anything is cached).
             # Treated as 0 here, never as an error -- but this is exactly
-            # the field SPEC §6.6/test case 15 checks is > 0 from the second
+            # the field a test checks is > 0 from the second
             # document onward, so a silent cache invalidator would show up
             # as this staying 0 past the first call.
             cache_read_input_tokens=usage.cache_read_input_tokens or 0,
@@ -301,8 +299,7 @@ def dispatch_stream_event(
     Pure in the sense that matters here -- it touches no network and holds
     no state -- so it can be tested against recorded raw events built with
     `model_validate(...)`, the same way `normalize_message` is tested
-    against recorded messages (SPEC-tradar.md §9: "adaptertester mot
-    inspelade råsvar").
+    against recorded messages.
 
     Two of the SDK's event types carry what the thread needs, confirmed
     against the installed `anthropic` SDK:

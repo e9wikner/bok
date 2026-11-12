@@ -22,7 +22,7 @@ import {
 export const UTFARDAR_FORTFARANDE_MS = 3000;
 
 /**
- * `Utfärda` för ett fakturaförslag (SPEC-fakturering-f1.md §7.1).
+ * `Utfärda` för ett fakturaförslag.
  *
  * - `redo`: inget tryck än.
  * - `utfardar`: i flykt. Knappen är borta (panelen: en dubbel faktura är ett

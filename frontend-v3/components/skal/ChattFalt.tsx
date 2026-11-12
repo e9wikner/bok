@@ -25,13 +25,13 @@ import type { Forifyllning } from "@/components/skal/BeslutFokus";
  * REN TEXTINMATNING — INGA FÖRSLAGSCHIPS. README.md och komponenter.md
  * säger det båda ordagrant; v10-prototypen har en påslagen växel som visar
  * två chips, och beställaren avgjorde 2026-09-21 att texten gäller.
- * SPEC-skal.md §2.1. Lägg inte tillbaka dem: ett chip är ett förvalt
+ * Lägg inte tillbaka dem: ett chip är ett förvalt
  * yttrande, och designens egen regel är att ingenting förväljs. Filchipen
  * nedan är inga förslag — de är filer människan själv släppt.
  *
  * Varianten `drop` (komponenter.md: *"tar emot filer via drag och släpp,
- * kamera och urklipp. Ingen separat uppladdningssida."*,
- * SPEC-flode-underlag.md §10): en knapp i fältet öppnar filväljaren (på
+ * kamera och urklipp. Ingen separat uppladdningssida."*):
+ * en knapp i fältet öppnar filväljaren (på
  * mobil kameran), en fil i urklippet klistras in som fil, och en fil som
  * släpps var som helst på `slappYta` (tråden) hamnar här. Varje fil laddas
  * upp direkt (`POST /intake`) och blir ett chip; `↵` skickar texten och de
@@ -39,7 +39,7 @@ import type { Forifyllning } from "@/components/skal/BeslutFokus";
  * uppladdning gör en källa i intagskön, och vad den hör till avgörs i tråden.
  *
  * `ref` går till textfältet, så att förslagskortets `Ändra` kan lägga fokus
- * här utan att skicka något (SPEC-chattyta.md §8 steg 4, chattyta C12).
+ * här utan att skicka något.
  */
 
 /** Filväljarens typer på desktop: serverns, speglade i `uppladdning.ts`, och kontoutdrag som CSV. */
@@ -59,7 +59,7 @@ const harFiler = (dt: DataTransfer | null): boolean =>
 
 /**
  * Vyer där fältet börjar något annat än en fråga. Fakturering börjar med en
- * mening om vad som ska faktureras (SPEC-fakturering-f1.md §10.2).
+ * mening om vad som ska faktureras.
  */
 const FALTETIKETTER: Readonly<Record<string, string>> = {
   Fakturering: "Beskriv vad som ska faktureras",
@@ -75,7 +75,7 @@ export const ChattFalt = forwardRef<
      * `useTrad().skicka` (chattyta C5): POST /threads/{view_key}/messages.
      * Fältet töms bara när den svarar `true` — servern har då lagrat texten.
      * `false` (POST misslyckades) eller `void` lämnar texten kvar, så att
-     * människan inte behöver skriva om den (tasks/chattyta/todo.md, C3).
+     * människan inte behöver skriva om den (C3).
      *
      * `attachments` skickas bara när det finns klara chip; ett meddelande
      * utan bilagor anropas med texten ensam, som förut.

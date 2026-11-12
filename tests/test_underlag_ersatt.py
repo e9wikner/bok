@@ -2,7 +2,7 @@
 
 Flöde 4's panel: "Fel verifikation vald: vägen tillbaka måste vara lika lätt
 som vägen fram" and "Ersätta ett felaktigt kopplat underlag ska vara möjligt
-och lämna spår" (D10 in SPEC-flode-underlag.md). Migration 035 moves the
+och lämna spår" (D10). Migration 035 moves the
 guard against a receipt booked twice from `UNIQUE(intake_source_id)` to a
 trigger over *current* links, and `voucher_intake_unlinks` records an
 unlink without removing the link row.

@@ -7,8 +7,8 @@ import type { DecisionInlagg } from "@/lib/chattyta/typer";
 import { formatBelopp } from "@/lib/skal/format";
 
 /**
- * `BeslutKort` och `GodkannKort` (komponenter.md §Kort i tråden,
- * SPEC-chattyta.md §5, §7): ett `decision`-inlägg, och vad servern i dag
+ * `BeslutKort` och `GodkannKort` (komponenter.md §Kort i tråden):
+ * ett `decision`-inlägg, och vad servern i dag
  * säger om beslutet.
  *
  * Två källor, med var sin roll:
@@ -26,7 +26,7 @@ import { formatBelopp } from "@/lib/skal/format";
  * och kortet påstår inte något servern inte sagt.
  *
  * Inga svarsknappar. Kroppen säger inte vad en primär- eller
- * sekundärknapp skulle göra (tasks/chattyta/todo.md C6, obs); alternativen
+ * sekundärknapp skulle göra (obs); alternativen
  * är ett eget `options`-inlägg (C7), och fritexten i `ChattFalt` är alltid
  * en väg (§7, README.md: primärknappen är aldrig den enda vägen). Den enda
  * knappen är `Avfärda`, och bara när servern sagt att beslutet är öppet.

@@ -7,7 +7,7 @@ import type { Sida, Vy } from "@/lib/skal/vyer";
  * Raden AV vyer — designens horisontella scroll-snap-rad.
  *
  * OBS namnkrock: `komponenter.md`:s `VyRad` är en rad INNE i vyn. Den här
- * heter `VySvep` för att det bara ska finnas ett `VyRad`. SPEC-skal.md §6.
+ * heter `VySvep` för att det bara ska finnas ett `VyRad`.
  *
  * "Horisontell scroll-snap-rad, svep eller prickar. INGET KARUSELLBIBLIOTEK.
  * Positionen läses av för att markera rätt prick." Riktningen spelar roll:

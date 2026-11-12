@@ -5,11 +5,11 @@
  * ordning (design_handoff_bokai/README.md §Informationsarkitektur).
  *
  * `view_key` är samma sju nycklar som servern validerar mot i
- * SPEC-tradar.md §5. Listan är SLUTEN: en okänd nyckel ger 404 på servern,
+ * Listan är SLUTEN: en okänd nyckel ger 404 på servern,
  * inte en tom tråd. En åttonde vy kräver att specen ändras först.
  *
  * Kartan ligger som data, inte utspridd i JSX, så att ett stavfel blir ett
- * typfel. SPEC-skal.md §5.
+ * typfel.
  */
 
 export type Sidnyckel = "bocker" | "betala" | "bokslut";
@@ -57,7 +57,7 @@ export interface Vy {
   readonly titel: string;
   readonly sida: Sidnyckel;
   /**
-   * Läsvy utan skrivflöde (SPEC-skal.md §11): rader och tråd, ingen
+   * Läsvy utan skrivflöde: rader och tråd, ingen
    * primärknapp, inget godkännandekort och ingen avstängd knapp. Ingen vy är
    * det längre: Fakturering skriver sedan fakturering F1 och Löner sedan
    * lönebokföringen i tråden. Fältet står kvar för en vy som kommer utan
@@ -107,7 +107,7 @@ export const SIDOR: readonly Sida[] = Object.freeze([
         slug: "fakturering",
         titel: "Fakturering",
         sida: "betala",
-        // Skrivvy sedan fakturering F1 (SPEC-fakturering-f1.md §10.2).
+        // Skrivvy sedan fakturering F1.
         lasvy: false,
       },
       { key: "betala.loner", trad: "betala.loner", slug: "loner", titel: "Löner", sida: "betala", lasvy: false },

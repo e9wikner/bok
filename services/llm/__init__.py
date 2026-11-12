@@ -1,7 +1,7 @@
-"""LLM protocol boundary (docs/redesign/SPEC-agentruntime.md §4).
+"""LLM protocol boundary.
 
 `services/llm/` is the only package in this codebase allowed to import
-`anthropic` or `openai` (SPEC §4). Everything above it -- the session, the
+`anthropic` or `openai`. Everything above it -- the session, the
 tools, the worker, the status endpoint -- only ever sees the small,
 provider-agnostic surface defined here: `LLMClient`, `LLMTurn`,
 `LLMCapabilities`, and the model registry. That boundary is what keeps a
@@ -14,22 +14,22 @@ sibling modules: `services/llm/messages.py` (A5) and `services/llm/chat.py`
 (A12).
 
 No network calls happen here, and none of this module's tests may perform
-one (SPEC §9).
+one.
 """
 
 from dataclasses import dataclass
 from typing import Any, Callable, Literal, Optional, Protocol, cast
 
 # ---------------------------------------------------------------------------
-# Value types (SPEC §4)
+# Value types
 # ---------------------------------------------------------------------------
 
-#: Normalized stop reason. `refusal` only exists on the Messages protocol
-#: (SPEC §2); the Chat Completions adapter never produces it -- a refusal
+#: Normalized stop reason. `refusal` only exists on the Messages protocol;
+#: the Chat Completions adapter never produces it -- a refusal
 #: there just comes back as ordinary text with `stop == "end"`.
 StopReason = Literal["tool_calls", "end", "refusal", "max_tokens"]
 
-#: Which wire protocol a model speaks on its gateway (SPEC §2).
+#: Which wire protocol a model speaks on its gateway.
 ProtocolName = Literal["messages", "chat"]
 
 #: Which OpenCode gateway serves a model: Zen (pay per token) or Go (the
@@ -54,7 +54,7 @@ class Usage:
 
     `cache_read_input_tokens` is always present on the type so callers don't
     need to branch on protocol, but it is only ever non-zero on the Messages
-    protocol (SPEC §2, §6.6) -- the Chat Completions adapter reports 0 because
+    protocol -- the Chat Completions adapter reports 0 because
     it has no explicit, verifiable cache breakpoint.
     """
 
@@ -73,12 +73,12 @@ class LLMTurn:
     usage: Usage
 
 
-#: Called with each text increment as the model produces it
-#: (SPEC-tradar.md §12.1). What becomes a `message.delta` on the stream.
+#: Called with each text increment as the model produces it.
+#: What becomes a `message.delta` on the stream.
 StreamTextHook = Callable[[str], None]
 
-#: Called with a tool's name as the model starts asking for it
-#: (SPEC-tradar.md §12.1). What lets `SkriverIndikator` say "Postar
+#: Called with a tool's name as the model starts asking for it.
+#: What lets `SkriverIndikator` say "Postar
 #: verifikation A-118..." instead of being "en anonym spinner", and what
 #: gives `AgentWorker.current_activity` something better than "processing".
 StreamToolCallHook = Callable[[str], None]
@@ -86,7 +86,7 @@ StreamToolCallHook = Callable[[str], None]
 
 @dataclass(frozen=True)
 class LLMCapabilities:
-    """What an adapter can and cannot do (SPEC §2, §4).
+    """What an adapter can and cannot do.
 
     The session (A8) and cost/cache logic (A9) consult this instead of
     branching on protocol name, so a missing capability becomes an explicit
@@ -94,17 +94,17 @@ class LLMCapabilities:
     """
 
     #: Explicit cache breakpoint whose savings show up in
-    #: `Usage.cache_read_input_tokens` (Messages only; SPEC §6.6).
+    #: `Usage.cache_read_input_tokens` (Messages only).
     cache_breakpoint: bool
     #: Can send a PDF as a `document` block (Messages only; used only as a
-    #: fallback per SPEC §6.3 -- extracted text is preferred everywhere).
+    #: fallback -- extracted text is preferred everywhere).
     pdf_document_blocks: bool
-    #: Has its own `stop`/`stop_reason` value for a refusal (Messages only;
-    #: SPEC §6.7). Without it, a refusal is indistinguishable from ordinary
+    #: Has its own `stop`/`stop_reason` value for a refusal (Messages only).
+    #: Without it, a refusal is indistinguishable from ordinary
     #: text and must be treated as an uncategorized abstention.
     refusal_stop_reason: bool
     #: Delivers text/tool-call increments through `run_turn`'s `on_text` /
-    #: `on_tool_call` hooks (SPEC-tradar.md §12.1). Both shipped adapters
+    #: `on_tool_call` hooks. Both shipped adapters
     #: can, each through its own SDK's streaming helper. Defaulted to
     #: `False` so an adapter that has not been taught to stream says so by
     #: omission rather than by silently accepting hooks it never calls: a
@@ -115,7 +115,7 @@ class LLMCapabilities:
 
 
 class LLMClient(Protocol):
-    """Structural protocol every adapter satisfies independently (SPEC §4).
+    """Structural protocol every adapter satisfies independently.
 
     Deliberately narrow, and deliberately *not* a base class: `messages.py`
     and `chat.py` each implement this shape on their own terms -- neither
@@ -138,14 +138,14 @@ class LLMClient(Protocol):
 
 
 # ---------------------------------------------------------------------------
-# Protocol-agnostic errors (SPEC §6.7, task A10)
+# Protocol-agnostic errors (task A10)
 # ---------------------------------------------------------------------------
 #
 # Real API connection failures and rate limits come back from each adapter's
 # own SDK as SDK-specific exception types (`anthropic.APIConnectionError`,
 # `anthropic.RateLimitError`, ...). Those types must never leak past
 # `services/llm/` -- `services/agent_runtime.py` is not allowed to import
-# `anthropic`/`openai` (SPEC §4/§10), so every adapter translates its own
+# `anthropic`/`openai`, so every adapter translates its own
 # SDK's connectivity/rate-limit errors into these two, protocol-agnostic
 # types before they leave this package. See `services/llm/messages.py`'s
 # `run_turn` for the Messages-protocol translation.
@@ -154,7 +154,7 @@ class LLMClient(Protocol):
 class LLMConnectionError(Exception):
     """A transient network/connectivity failure talking to the LLM gateway.
 
-    SPEC §6.7's "Gateway nere, timeout, 5xx" row, after the SDK's own retry
+    The "Gateway nere, timeout, 5xx" case, after the SDK's own retry
     policy has been exhausted. A10's worker catches this, marks the
     `agent_runs` row `status='failed'`, and stops the pass -- it never
     retries within the same pass ("håller det i sig ... passet 'failed'").
@@ -164,7 +164,7 @@ class LLMConnectionError(Exception):
 class LLMRateLimitError(Exception):
     """A 429 from the LLM gateway.
 
-    SPEC §6.7's "429" row: "Respektera retry-after, avsluta passet, ta om
+    The "429" case: "Respektera retry-after, avsluta passet, ta om
     vid nästa start" -- no in-pass retry/sleep. `retry_after_seconds` is the
     value read off the real SDK exception's `retry-after` header/attribute,
     when the gateway sent one; `None` when it did not, which a caller must
@@ -182,7 +182,7 @@ class LLMRateLimitError(Exception):
 
 
 # ---------------------------------------------------------------------------
-# Model registry: model id -> protocol + price (SPEC §2, §5)
+# Model registry: model id -> protocol + price
 # ---------------------------------------------------------------------------
 #
 # Table-driven on purpose -- adding a model is one dict entry, in either
@@ -192,7 +192,7 @@ class LLMRateLimitError(Exception):
 class UnknownModelError(Exception):
     """Raised when a model has no price row.
 
-    SPEC §2: "En modell utan prisrad är ett fel, inte ett standardvärde" --
+    "En modell utan prisrad är ett fel, inte ett standardvärde" --
     an unpriced model is a bug, not something that falls back to a default
     price. A9's budget code and A10's worker startup call `get_model_info`
     and let this propagate: the pass must refuse to start rather than run
@@ -301,7 +301,7 @@ def gateway_headers(session_id: Optional[str]) -> dict[str, str]:
 # cost per run either way.
 #
 # `opencode/claude-sonnet-5`'s USD reference ($2 in / $10 out per million
-# tokens) is the one figure SPEC-agentruntime.md §12.5 actually states.
+# tokens) is the one figure the design actually states.
 _MODELS: dict[str, tuple[ProtocolName, ModelPrice]] = {
     # --- OpenCode Zen -----------------------------------------------------
     "opencode/claude-opus-5": (
@@ -476,7 +476,7 @@ def get_model_info(model: str) -> ModelInfo:
     """Resolve a model id to its gateway, protocol and price row.
 
     Raises `UnknownModelError` if the model has no row -- that is a hard
-    error by design (SPEC §2), not a fallback to a default price.
+    error by design, not a fallback to a default price.
     """
     row = _MODELS.get(model)
     if row is None:

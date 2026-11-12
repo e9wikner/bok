@@ -1,12 +1,12 @@
 /**
- * Trådens kontrakt i klienten (modul `chattyta`, SPEC-chattyta.md §4).
+ * Trådens kontrakt i klienten (modul `chattyta`).
  *
  * En diskriminerad union över `type`, med kroppen typad per typ. Formen är
  * serverns, ordagrant: fältnamnen i `body` översätts inte, eftersom agenten
  * formulerar och klienten inte skriver om (antagande 3). Källorna är
  * `api/schemas.py::ThreadPostResponse`, `services/thread_service.py` och
- * `services/decision_service.py` — tabellen i SPEC §2. `draft` och
- * `receipt` har ingen producent än; deras form spikas i SPEC §4.3 och är
+ * `services/decision_service.py`. `draft` och
+ * `receipt` har ingen producent än; deras form är spikad och är
  * kontraktet `flode-verifikationer` skriver mot.
  *
  * Belopp är alltid i öre. Klienten formaterar, räknar aldrig (regel 2).
@@ -28,7 +28,7 @@ export interface RaInlagg {
 
 /**
  * Ett spår: vad agenten läste, räknade och gjorde (`build_trace`). Servern
- * skickar dem; klienten ritar dem inte (SPEC-lasbarhet §4.3).
+ * skickar dem; klienten ritar dem inte.
  */
 export interface Spar {
   tool: string;
@@ -102,7 +102,7 @@ export interface Alternativ {
   account: string | null;
   amount_ore: number | null;
   rationale: string;
-  /** Ett märke, inte ett val (SPEC §4.2). */
+  /** Ett märke, inte ett val. */
   recommended: boolean;
   is_exit: boolean;
 }
@@ -141,7 +141,7 @@ export interface VerifikationKropp {
   decision_id: string | null;
 }
 
-/** En rad i fakturaförslaget (SPEC-fakturering-f1.md §6.1). Öre ex moms. */
+/** En rad i fakturaförslaget. Öre ex moms. */
 export interface FakturaRadData {
   text: string;
   article_number: string | null;
@@ -161,8 +161,8 @@ export interface FakturaSumma {
 }
 
 /**
- * `draft` med `kind: "invoice"` — `FakturaForslag` (SPEC-fakturering-f1.md
- * §6.1). Allt utom `footnote` är serverns.
+ * `draft` med `kind: "invoice"` — `FakturaForslag`.
+ * Allt utom `footnote` är serverns.
  */
 export interface FakturaKropp {
   /** `invoice_drafts.id`. Klienten utfärdar aldrig utan det (regel 3). */
@@ -186,7 +186,7 @@ export type DraftKropp = VerifikationKropp | FakturaKropp;
 export interface ErrorKropp {
   cause: string;
   consequence: string;
-  /** `null` i allt backenden skriver i dag — då finns ingen `Försök igen` (SPEC §9). */
+  /** `null` i allt backenden skriver i dag — då finns ingen `Försök igen`. */
   retry_draft_id: string | null;
 }
 
@@ -204,13 +204,12 @@ export interface ReceiptKropp {
   labels: [string, string];
   rows: JamforelseRad[];
   voucher_id: string | null;
-  /** Fakturan ett utfärdande gav (SPEC-fakturering-f1.md §8.1). Valfri. */
+  /** Fakturan ett utfärdande gav. Valfri. */
   invoice_id?: string;
   /** Den sparade PDF:en; hämtas med auth, aldrig som en vanlig länk. Valfri. */
   pdf_url?: string;
   /**
-   * Serverns hypotes om skillnaden, ordagrant (SPEC-flode-underlag.md §9.1,
-   * D7). Bara serverns: agentens förklaring står i agentens text. Valfri —
+   * Serverns hypotes om skillnaden, ordagrant (* D7). Bara serverns: agentens förklaring står i agentens text. Valfri —
    * utan hypotes finns inget fält.
    */
   note?: string;
@@ -230,7 +229,7 @@ export type ErrorInlagg = Kuvert & { type: "error"; body: ErrorKropp };
 export type ReceiptInlagg = Kuvert & { type: "receipt"; body: ReceiptKropp };
 
 /**
- * Ett kort som inte kan visas ärligt (SPEC §4.4). Säger att något finns
+ * Ett kort som inte kan visas ärligt. Säger att något finns
  * utan att låtsas veta vad — och bär `id`/`seq` så att raden kan peka ut
  * vilket inlägg det gäller.
  */

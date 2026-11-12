@@ -55,8 +55,8 @@ def invoice_booking_rows(invoice_number, amount_inc_vat: int, rows) -> List[Dict
     code. `rows` need `vat_code`, `revenue_account`, `amount_ex_vat` and
     `vat_amount`, as attributes or keys.
 
-    Shared by the booking and the invoice proposal card's consequence line
-    (SPEC-fakturering-f1.md §6.1), so the card and the voucher cannot
+    Shared by the booking and the invoice proposal card's consequence line,
+    so the card and the voucher cannot
     differ."""
 
     def get(row, name):
@@ -168,7 +168,7 @@ class InvoiceService:
                     details="valid codes: MP1, MP2, MP3, MF",
                 )
 
-            # Same arithmetic as a saved draft row (SPEC-fakturering.md §4.2).
+            # Same arithmetic as a saved draft row.
             quantity_centi = parse_quantity_centi(row_data["quantity"])
             unit_price = int(row_data["unit_price"])
             amount_ex_vat = amount_ex_vat_from_centi(quantity_centi, unit_price)
@@ -350,7 +350,7 @@ class InvoiceService:
         """Auto-book invoice to accounting system (creates voucher).
 
         *description* is the voucher's text; the issue path passes
-        "Faktura {nr} {kund}" (SPEC-fakturering.md §5)."""
+        "Faktura {nr} {kund}"."""
         with unit_of_work(_commit):
             invoice = self.invoices.get(invoice_id)
             if not invoice:

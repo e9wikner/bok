@@ -1,4 +1,4 @@
-"""`tolka_underlag`'s orchestration (SPEC-underlagstolkning.md §6, §7).
+"""`tolka_underlag`'s orchestration.
 
 `InterpretationService.interpret` takes what the model read from an
 underlag, runs the checks (§6.3-§6.4), matches it against the ledger
@@ -8,8 +8,8 @@ underlag, runs the checks (§6.3-§6.4), matches it against the ledger
 its `POST`, for a session without the tool (§12.6 f).
 Read-only against the books: nothing here writes to `vouchers`,
 `voucher_intake_sources`, `attachments` or `intake_sources` (testfall 33).
-In a thread it also writes the comparison post(s) of
-SPEC-flode-underlag.md §9.1 -- a post in the thread, not the books.
+In a thread it also writes the comparison post(s) -- a post in the
+thread, not the books.
 
 The pure logic -- checks, confidence, ranking, `expected`, hypothesis --
 is `services/interpretation.py`, which reads no file and has no database.
@@ -136,7 +136,7 @@ class InterpretationService:
             agent_run_id=agent_run_id,
             thread_id=thread_id,
         )
-        # SPEC-flode-underlag.md §9.1 (D6): in a thread, the comparison is
+        # In a thread, the comparison is
         # the server's post, in the same transaction as the interpretation
         # it shows, and published after the commit.
         posts: List[ThreadPost] = []

@@ -1,25 +1,22 @@
-"""The agent's tool surface (docs/redesign/SPEC-agentruntime.md §6.4).
+"""The agent's tool surface.
 
 The original nine tools, each a specific, typed action -- never a generic bash, SQL,
-filesystem, or HTTP tool (SPEC §10's "Aldrig" list). Every allowed action a
+filesystem, or HTTP tool. Every allowed action a
 model can take is its own function with its own Pydantic argument schema, so
 each one can be validated, logged, and rendered independently, and so that
 the append-only guarantee (CLAUDE.md) can be checked *structurally*: test
 case 17 asserts directly against ``AGENT_TOOL_DEFINITIONS`` that no tool
 name or description implies the ability to edit or delete a posted voucher.
 
-A tenth, ``be_om_beslut``, was added by the ``beslut`` module
-(``docs/redesign/SPEC-beslut.md`` §6.4, §8, §11.3) -- the one exception
-SPEC-tradar.md §8.2 asks for a question first about, asked and answered
-there. It is appended last in ``_TOOL_SPECS`` rather than inserted among
+A tenth, ``be_om_beslut``, was added by the ``beslut`` module: the agent
+puts a decision to the human mid-conversation. It is appended last in ``_TOOL_SPECS`` rather than inserted among
 the nine above, since that order is part of the cached system-prompt
-prefix (SPEC-agentruntime §6.6), and it writes only to ``decisions`` /
+prefix, and it writes only to ``decisions`` /
 ``decision_options`` / ``thread_posts`` -- test case 17 above still passes
-unchanged against the extended list (SPEC-beslut.md §8, testfall 26).
+unchanged against the extended list.
 
 An eleventh, ``foresla_verifikation``, was added by ``flode-verifikationer``
-(``docs/redesign/SPEC-flode-verifikationer.md`` §5, §12.1) and appended after
-``be_om_beslut`` for the same reason (§5.7, testfall 22). It writes a draft
+and appended after ``be_om_beslut`` for the same reason. It writes a draft
 voucher -- no number, never posted -- with its ``thread_drafts`` row and
 ``draft`` post; the human posts it. A correction of a posted voucher always
 goes through it with ``correction_of`` (§12.5), never through
@@ -27,16 +24,14 @@ goes through it with ``correction_of`` (§12.5), never through
 while the branch itself answers ``not_implemented`` until F11 builds it.
 
 A twelfth, ``tolka_underlag``, was added by ``underlagstolkning``
-(``docs/redesign/SPEC-underlagstolkning.md`` §6) and appended after
-``foresla_verifikation`` for the same reason (§6.6, testfall 34): the eleven
+and appended after ``foresla_verifikation`` for the same reason: the eleven
 before it are unchanged byte for byte. It hands the server what the model
 read from an underlag for checks and a match against posted vouchers, and
 writes one ``intake_interpretations`` row -- it links nothing and changes
 nothing in the books. It is not terminal.
 
 A thirteenth, ``koppla_underlag``, was added by ``flode-underlag``
-(``docs/redesign/SPEC-flode-underlag.md`` §6) and appended after
-``tolka_underlag`` for the same reason (§6.7, testfall 36): the twelve
+and appended after ``tolka_underlag`` for the same reason: the twelve
 before it are unchanged byte for byte. It links an underlag in the intake
 queue to an already posted voucher, with a basis the server checks (an
 exact match, or an answered decision about the underlag) -- it creates no
@@ -65,7 +60,7 @@ voucher and changes none.
 
 An eighteenth to twenty-first, ``las_kunder``, ``las_fakturor``,
 ``foresla_faktura`` and ``andra_fakturautkast``, were added by fakturering
-F1 (``docs/redesign/SPEC-fakturering-f1.md`` §5) and appended after
+F1 and appended after
 ``koppla_banktransaktion`` for the same reason: the seventeen before them are
 unchanged byte for byte. The first two read. The last two write an invoice
 draft, its ``draft`` card and its ``thread_invoice_drafts`` row in
@@ -132,9 +127,9 @@ and it goes through the exact same code as ``POST /api/v1/agent/vouchers``
 Layering (CLAUDE.md): this module is pure ``services/`` -- no SQL of its own
 (everything here calls a repository or another service), no HTTP concepts
 (no ``fastapi``, no ``HTTPException``), and no ``anthropic``/``openai``
-import (SPEC §4, §10 -- that boundary is ``services/llm/`` alone).
+import (§10 -- that boundary is ``services/llm/`` alone).
 
-What this module deliberately does *not* do (SPEC §6.3, §6.7 -- A8's job):
+What this module deliberately does *not* do (§6.7 -- A8's job):
 gate a tool call before it runs, write an ``agent_run_events`` row, or wrap a
 raised exception into an Anthropic ``tool_result`` with ``is_error: true``.
 ``execute_tool`` either returns a JSON-serializable result or raises -- the
@@ -175,7 +170,7 @@ from services.llm import LLMCapabilities
 from services.voucher_posting import VoucherPostingRequest, post_agent_voucher
 
 # ---------------------------------------------------------------------------
-# Idempotency key derivation (SPEC §6.4)
+# Idempotency key derivation
 # ---------------------------------------------------------------------------
 #
 # A fixed, hardcoded namespace UUID -- generated once (uuid4), never
@@ -195,7 +190,7 @@ _POSTA_VERIFIKATION_ENDPOINT = "TOOL posta_verifikation"
 
 
 def derive_posting_idempotency_key(source_id: str) -> str:
-    """``uuid5(BOK_NAMESPACE, f"intake:{source_id}")`` -- SPEC §6.4.
+    """``uuid5(BOK_NAMESPACE, f"intake:{source_id}")``.
 
     "Ett underlag, en avsikt, en nyckel": deterministic per intake source id,
     so re-processing the same source after a crash produces the *same* key
@@ -206,7 +201,6 @@ def derive_posting_idempotency_key(source_id: str) -> str:
 
 def derive_thread_posting_idempotency_key(thread_id: str, post_id: str) -> str:
     """``uuid5(BOK_NAMESPACE, f"thread:{thread_id}:{post_id}")`` --
-    SPEC-tradar.md §6.4.
 
     The second namespace beside ``intake:{source_id}``, and the same idea:
     one intent, one key. The key hangs on the **triggering user post**, never
@@ -219,7 +213,6 @@ def derive_thread_posting_idempotency_key(thread_id: str, post_id: str) -> str:
 
 def derive_thread_proposal_idempotency_key(thread_id: str, post_id: str, n: int) -> str:
     """``uuid5(BOK_NAMESPACE, f"thread:{thread_id}:{post_id}:{n}")`` --
-    SPEC-flode-verifikationer.md §5.5.
 
     ``n`` is the proposal's place among the turn's ``foresla_verifikation``
     calls, so two proposals in one turn get two keys, and a turn run again
@@ -231,8 +224,7 @@ def derive_thread_proposal_idempotency_key(thread_id: str, post_id: str, n: int)
 
 
 class ProposalSequence:
-    """``n`` in ``thread:{thread_id}:{post_id}:{n}`` for one thread turn
-    (SPEC-flode-verifikationer.md §5.5).
+    """``n`` in ``thread:{thread_id}:{post_id}:{n}`` for one thread turn.
 
     The thread entry point (``services/thread_session.py``) puts a fresh one
     in ``tool_context["proposals"]`` per turn, for the user post that
@@ -263,10 +255,10 @@ class ProposalSequence:
 
 class PostingConflictError(Exception):
     """Raised when ``posta_verifikation``'s idempotency key is already
-    claimed (SPEC §6.7).
+    claimed.
 
     Two cases: ``request_in_flight`` (another worker/request holds the same
-    key right now -- SPEC's answer is "leave the source, move on", which is
+    key right now -- the answer is "leave the source, move on", which is
     a session-level (A8) decision this module only makes possible by raising
     a typed, inspectable error), and ``idempotency_key_reuse`` (the stored
     fingerprint doesn't match -- for a key derived purely from a source id
@@ -372,7 +364,7 @@ class KopplaBanktransaktionArgs(BaseModel):
     voucher_id: str
 
 
-# --- fakturering F1 (SPEC-fakturering-f1.md §5) -----------------------------
+# --- fakturering F1 -----------------------------
 
 
 class LasKunderArgs(BaseModel):
@@ -727,11 +719,10 @@ class BeOmBeslutArgs(BaseModel):
 class TolkaUnderlagLine(BaseModel):
     """En rad på underlaget, inklusive moms; negativ för en rabatt."""
 
-    # The only tool models with `extra="forbid"` (SPEC-underlagstolkning
-    # §6.2, testfall 15): a `confidence` or `hypothesis` from the model is
+    # The only tool models with `extra="forbid"`: a `confidence` or `hypothesis` from the model is
     # refused, not silently dropped. Not added to any other tool's model --
     # it puts `additionalProperties: false` in the schema, and the schemas
-    # are the cached prefix (SPEC-agentruntime §6.6).
+    # are the cached prefix.
     model_config = ConfigDict(extra="forbid")
 
     text: str = Field(..., min_length=1, max_length=200)
@@ -907,8 +898,8 @@ def _voucher_dict(voucher: Voucher) -> dict:
         "created_by": voucher.created_by,
         "created_at": voucher.created_at.isoformat(),
         "posted_at": voucher.posted_at.isoformat() if voucher.posted_at else None,
-        # SPEC-flode-underlag.md §11.1: the same derived values as
-        # `VoucherResponse` (SPEC-oversikt.md §3), so the agent can ask for
+        # The same derived values as
+        # `VoucherResponse`, so the agent can ask for
         # the underlag a posted voucher lacks. Only the answer grows; the
         # tool's arguments and description are the cached prefix.
         "missing_attachment": voucher.missing_attachment,
@@ -963,8 +954,8 @@ def _intake_attempt_dict(attempt: IntakeProcessingAttempt) -> dict:
 
 def _decision_dict(decision: Decision) -> dict:
     """`be_om_beslut`'s result -- includes each option's `option_id` so the
-    agent's own text (its reply after the tool call) can refer to one
-    (SPEC-beslut.md §6.4)."""
+    agent's own text (its reply after the tool call) can refer to one.
+    """
     return {
         "decision_id": decision.id,
         "status": decision.status,
@@ -1091,8 +1082,8 @@ def _run_las_korrigeringar(
 
     With `voucher_id` the answer also carries the voucher's open correction
     notes (`pending`/`suggested`) with id and text, so the agent can bind a
-    correction to one with `foresla_verifikation`'s `correction_note_id`
-    (SPEC-flode-verifikationer §7.3, F12). Only the answer grew: the
+    correction to one with `foresla_verifikation`'s `correction_note_id`.
+    Only the answer grew: the
     arguments, and so the cached tool definitions, are unchanged.
     """
     entries = AccountingCorrectionRepository.list(
@@ -1151,7 +1142,7 @@ def _run_hamta_underlagsfil(
     source = intake.get_source(args.source_id)
     file_path = intake.resolve_source_file(source)
     file_bytes = file_path.read_bytes()
-    # DocumentUnreadableError propagates uncaught -- SPEC §6.3 step 3 is an
+    # DocumentUnreadableError propagates uncaught -- it is an
     # abstention, and this module's contract is "raise the specific domain
     # exception", not swallow it into a generic result (A8 decides what an
     # unreadable source means for the pass).
@@ -1193,7 +1184,7 @@ def _post_voucher(
     )
 
     if idempotency_key is None and args.intake_source_ids:
-        # SPEC §6.4's uuid5 formula assumes exactly one primary intake
+        # The uuid5 formula assumes exactly one primary intake
         # source per posting ("En post i taget", §6.2): the first id drives
         # the key even when more are listed for traceability (e.g. a
         # multi-source posting). Each intake source can only ever be linked
@@ -1203,7 +1194,7 @@ def _post_voucher(
         # its anchor.
         idempotency_key = derive_posting_idempotency_key(args.intake_source_ids[0])
     # An explicit key wins over the derived one: a thread posting's key is
-    # `thread:{thread_id}:{post_id}` (SPEC-tradar.md §6.4), hung on the user
+    # `thread:{thread_id}:{post_id}`, hung on the user
     # post that triggered it, and that is the tighter guarantee -- it holds
     # whether or not the model happened to list an intake source. The
     # source-level protection is not lost by it: an intake source can only
@@ -1365,16 +1356,15 @@ def _run_be_om_beslut(
     idempotency_key: Optional[str] = None,
     tool_context: Optional[Mapping[str, Any]] = None,
 ) -> dict:
-    """SPEC-beslut.md §6.4, §7 gräns 6 ("fråga först": a decision without a
-    `thread_id`). `tool_context` is the opaque mapping `run_tool_loop` and
+    """ "Fråga först": a decision without a `thread_id` is refused. `tool_context` is the opaque mapping `run_tool_loop` and
     `execute_tool` hand to every handler without reading it; this is the
     one handler that opens it, because a decision literally cannot exist
     without the thread it was raised in.
 
     The thread lives in a mapping rather than in an argument of its own
-    precisely so the runtime can carry it without naming it: SPEC-tradar.md
-    §8.1 forbids `services/agent_session.py` from knowing what a thread is,
-    and SPEC-beslut.md §7.6 draws the same line for a decision. The
+    precisely so the runtime can carry it without naming it:
+    `services/agent_session.py` must not know what a thread is, nor what
+    a decision is. The
     knowledge stops here, in the tool layer, which is where it belongs.
 
     A missing thread (the document path, or a bare `execute_tool` call) is
@@ -1388,7 +1378,7 @@ def _run_be_om_beslut(
             code="decision_requires_thread",
             message="be_om_beslut can only be called from a thread turn",
             details=(
-                "This tool belongs to a thread turn (SPEC-beslut.md §7: a "
+                "This tool belongs to a thread turn (a "
                 "decision without a thread_id is exactly the silent "
                 "'fråga först' case the module must not allow). The "
                 "document path's equivalent is registrera_avstaende."
@@ -1424,7 +1414,7 @@ def _run_foresla_verifikation(
     idempotency_key: Optional[str] = None,
     tool_context: Optional[Mapping[str, Any]] = None,
 ) -> dict:
-    """SPEC-flode-verifikationer.md §5. Not terminal: like ``be_om_beslut``
+    """Not terminal: like ``be_om_beslut``
     it writes a card in the thread and the turn goes on to its answer.
 
     Opens ``tool_context`` for two things: the ``thread`` (a draft card
@@ -1442,8 +1432,8 @@ def _run_foresla_verifikation(
             code="draft_requires_thread",
             message="foresla_verifikation can only be called from a thread turn",
             details=(
-                "A proposal is a card in a thread for a human to post "
-                "(SPEC-flode-verifikationer.md §5.3). The document path's "
+                "A proposal is a card in a thread for a human to post. "
+                "The document path's "
                 "equivalents are posta_verifikation and registrera_avstaende."
             ),
         )
@@ -1490,7 +1480,7 @@ def _run_tolka_underlag(
     idempotency_key: Optional[str] = None,
     tool_context: Optional[Mapping[str, Any]] = None,
 ) -> dict:
-    """SPEC-underlagstolkning.md §6. Not terminal, and read-only against
+    """Not terminal, and read-only against
     the books: it saves one `intake_interpretations` row and answers with
     the checks and the match (§6.5).
 
@@ -1527,7 +1517,7 @@ def _run_koppla_underlag(
     idempotency_key: Optional[str] = None,
     tool_context: Optional[Mapping[str, Any]] = None,
 ) -> dict:
-    """SPEC-flode-underlag.md §6. Not terminal: the turn goes on after the
+    """Not terminal: the turn goes on after the
     answer (§6.6).
 
     Opens ``tool_context`` for the ``thread`` (-> ``thread_id``: a decision
@@ -1694,7 +1684,7 @@ def _run_koppla_banktransaktion(
     )
 
 
-# --- fakturering F1 (SPEC-fakturering-f1.md §5) -----------------------------
+# --- fakturering F1 -----------------------------
 
 
 def _invoice_thread(tool: str, tool_context: Optional[Mapping[str, Any]]):
@@ -1705,7 +1695,7 @@ def _invoice_thread(tool: str, tool_context: Optional[Mapping[str, Any]]):
             message=f"{tool} can only be called from a thread turn",
             details=(
                 "An invoice proposal is a card in Fakturering's thread for a "
-                "human to issue (SPEC-fakturering-f1.md §5.3)."
+                "human to issue."
             ),
         )
     return thread
@@ -2073,12 +2063,12 @@ def _run_skapa_lonekorning(
 
 
 # ---------------------------------------------------------------------------
-# Tool definitions and dispatcher (SPEC §6.4, §6.6)
+# Tool definitions and dispatcher
 # ---------------------------------------------------------------------------
 #
 # A literal, ordered tuple -- never a dict iterated for its values, never
 # built from a set -- so AGENT_TOOL_DEFINITIONS' order is the same in every
-# process run. SPEC §6.6: the tool list is part of the cached system prompt
+# process run. The tool list is part of the cached system prompt
 # prefix, and an accidental reorder is a silent cache-buster.
 
 
@@ -2776,7 +2766,7 @@ def execute_tool(
 
     ``idempotency_key`` is the caller's own key for a posting made during
     this session, and only ``posta_verifikation`` reads it -- the thread
-    path passes ``thread:{thread_id}:{post_id}`` (SPEC-tradar.md §6.4), the
+    path passes ``thread:{thread_id}:{post_id}``, the
     document path passes nothing and lets the key be derived from the intake
     source. It is handed to every handler rather than branched on here, so
     that the dispatcher stays a table lookup with no special case in it.
@@ -2790,22 +2780,21 @@ def execute_tool(
     without the thread it is a card in; ``foresla_verifikation`` also reads
     the turn's ``proposals`` sequence from it, which the thread path always
     sets. ``tolka_underlag`` opens it too, but only for traceability
-    (``thread`` and ``agent_run_id``, SPEC-underlagstolkning.md §6.6) and
+    (``thread`` and ``agent_run_id``) and
     works without it. ``koppla_underlag`` opens the same two: the thread
-    binds a decision to it, and without one only an exact match links
-    (SPEC-flode-underlag.md §6.7). ``koppla_bort_underlag`` opens the
+    binds a decision to it, and without one only an exact match links.
+    ``koppla_bort_underlag`` opens the
     same two, and needs the thread for its decision. It is handed to every handler rather than branched on here, for
     the same reason ``idempotency_key`` is: the dispatcher stays a table
     lookup with no special case in it.
 
     It is a mapping rather than a typed argument so that the layer above
-    can forward it without naming what is inside: SPEC-tradar.md §8.1 keeps
-    ``services/agent_session.py`` ignorant of what a thread is, and
-    SPEC-beslut.md §7.6 keeps it ignorant of what a decision is. Both
-    survive because the knowledge stops here.
+    can forward it without naming what is inside: it keeps
+    ``services/agent_session.py`` ignorant of what a thread is, and of
+    what a decision is. Both survive because the knowledge stops here.
 
     **This adds no tool.** ``AGENT_TOOL_DEFINITIONS`` is unchanged, byte for
-    byte, including ``_TOOL_SPECS``' order (SPEC-agentruntime §6.6: the tool
+    byte, including ``_TOOL_SPECS``' order (the tool
     list is part of the cached prefix). The key is how the *caller*
     identifies its posting intent; it is not something a model can ask for,
     and it is not in any tool's ``input_schema``. Neither is

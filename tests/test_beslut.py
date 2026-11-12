@@ -1,10 +1,8 @@
-"""Tests for the `beslut` module (docs/redesign/SPEC-beslut.md).
+"""Tests for the `beslut` module.
 
-Grows across tasks B1-B12 of `tasks/beslut/todo.md`; each task gets its own
-section so the file stays navigable. Test case numbers refer to the table in
-SPEC-beslut.md §9.
+Each task (B1-B12) gets its own section so the file stays navigable.
 
-Per SPEC §9 no LLM is ever called from a test.
+No LLM is ever called from a test.
 """
 
 import itertools
@@ -138,7 +136,7 @@ def _insert_option(**columns) -> None:
     db.commit()
 
 
-# --- B1: migration 026 (SPEC §4, testfall 1-4) -------------------------------
+# --- B1: migration 026 (testfall 1-4) -------------------------------
 
 
 class TestMigration026:
@@ -173,7 +171,7 @@ class TestMigration026:
         assert len(options) == 2
 
     def test_case_1_two_decisions_on_the_same_post_are_rejected(self):
-        """SPEC §4: `UNIQUE (post_id)` — one `decision` post carries exactly
+        """`UNIQUE (post_id)` — one `decision` post carries exactly
         one decision row."""
         thread, post = _thread_and_post()
         _insert_decision(**_decision_row(thread.id, post.id, thread.view_key))
@@ -183,7 +181,7 @@ class TestMigration026:
         db.rollback()
 
     def test_case_2_answered_without_answered_at_is_rejected(self):
-        """SPEC §4: `CHECK (status != 'answered' OR answered_at IS NOT NULL)`."""
+        """`CHECK (status != 'answered' OR answered_at IS NOT NULL)`."""
         thread, post = _thread_and_post()
 
         with pytest.raises(sqlite3.IntegrityError):
@@ -200,7 +198,7 @@ class TestMigration026:
         db.rollback()
 
     def test_case_3_answered_without_an_option_or_free_text_is_rejected(self):
-        """SPEC §4: `CHECK (status != 'answered' OR answer_option_id IS NOT
+        """`CHECK (status != 'answered' OR answer_option_id IS NOT
         NULL OR answer_text IS NOT NULL)` — an `answered_at` alone is not an
         answer."""
         thread, post = _thread_and_post()
@@ -238,7 +236,7 @@ class TestMigration026:
         db.rollback()
 
     def test_duplicate_position_on_the_same_decision_is_rejected(self):
-        """SPEC §4: `UNIQUE (decision_id, position)` — the order options were
+        """`UNIQUE (decision_id, position)` — the order options were
         laid out in is part of the contract (last option is always a way
         out)."""
         thread, post = _thread_and_post()
@@ -269,7 +267,7 @@ class TestMigration026:
         db.rollback()
 
 
-# --- B2: DecisionRepository och domänmodellerna (SPEC §4, testfall 5, 10) ---
+# --- B2: DecisionRepository och domänmodellerna (10) ---
 
 #: A distinct fiscal year per call, for tests that need more than one
 #: thread: `fiscal_years` has a `UNIQUE (start_date, end_date)`, so two
@@ -377,7 +375,7 @@ class TestDecisionRepositoryCreateAndOptions:
 
 class TestDecisionRepositoryListDecisions:
     def test_case_5_open_decisions_come_back_oldest_first(self):
-        """SPEC §9 testfall 5. `created_at` is set explicitly via a direct
+        """Testfall 5. `created_at` is set explicitly via a direct
         `UPDATE`, per the brief, since the repository always stamps "now"
         and the point here is the ordering, not the clock."""
         rows = []
@@ -571,7 +569,7 @@ class TestDecisionRepositorySetAnswerAndSetStatus:
 
         assert updated is not None
         assert updated.status == "superseded"
-        # The post the human saw is untouched — SPEC §4: superseded leaves
+        # The post the human saw is untouched: superseded leaves
         # the card in the thread and only takes it out of the queue.
         stored_post = ThreadRepository.get_post(post.id)
         assert stored_post is not None
@@ -707,7 +705,7 @@ class TestDecisionRepositoryCommitFalse:
 
 
 class TestDecisionOptionChangesTheBooks:
-    """SPEC §6.3: `changes_the_books` is `account` set **and** `amount_ore`
+    """`changes_the_books` is `account` set **and** `amount_ore`
     non-zero — checked here with no database at all, four cases."""
 
     @staticmethod
@@ -738,7 +736,7 @@ class TestDecisionOptionChangesTheBooks:
 
 
 class TestDecisionAgeDays:
-    """SPEC §9 testfall 10. `age_days` is a `Decision` method, checked here
+    """Testfall 10. `age_days` is a `Decision` method, checked here
     both without a database (the whole point of keeping the rule in the
     domain) and through the repository's round trip."""
 
@@ -800,7 +798,7 @@ class TestDecisionAgeDays:
         assert fetched.age_days() == 0
 
 
-# --- B3: DecisionService, livscykeln (SPEC §6.2, testfall 15, 17, 18, 32) ---
+# --- B3: DecisionService, livscykeln (17, 18, 32) ---
 
 
 def _new_thread(view_key: str = "bocker.verifikationer"):
@@ -1009,7 +1007,7 @@ class TestDecisionServiceCreateWithOptions:
 
 
 class TestDecisionServiceCreateVerbatimText:
-    """SPEC §7.4, testfall 34 (the create() half): `reason`, `consequence`
+    """Testfall 34 (the create() half): `reason`, `consequence`
     and each option's `rationale` come back byte for byte, quotes,
     newlines and Swedish characters included -- no rewording, no
     truncation, no normalisation."""
@@ -1202,9 +1200,9 @@ class TestDecisionServiceAnswer:
     def test_case_17_a_rolled_back_transaction_leaves_no_post_and_status_open(
         self, monkeypatch
     ):
-        """SPEC §6.2 steps 4-5 share one transaction: if anything inside it
+        """Answering's steps 4-5 share one transaction: if anything inside it
         fails, neither the reply post nor the status change survives. This
-        is not an LLM monkeypatch (SPEC §9's rule is about faking the LLM
+        is not an LLM monkeypatch (the rule is about faking the LLM
         client) -- it patches `DecisionRepository.set_answer` directly to
         simulate a failure between the two writes."""
         thread, post = _new_thread_and_post()
@@ -1288,7 +1286,7 @@ class TestDecisionNotAnswerableIsDefined:
         assert error.details == "POST /intake/abc123/retry"
 
 
-# --- B4: eskaleringsinvarianten och alternativens kontraktsregler (SPEC §6.3, §11.1, testfall 19-23) ---
+# --- B4: eskaleringsinvarianten och alternativens kontraktsregler (testfall 19-23) ---
 
 
 def _exit_option(**overrides) -> dict:
@@ -1312,7 +1310,7 @@ def _count_rows(table: str) -> int:
 
 
 class TestValidateOptionsTableSection11_1:
-    """SPEC §11.1's table is the contract for the escalation invariant --
+    """The escalation invariant, case by case --
     one test per row, each citing its own row and testfall number."""
 
     def test_flow1_step2_5410_mot_1250_open_decision_changes_the_books_is_allowed(
@@ -1339,7 +1337,7 @@ class TestValidateOptionsTableSection11_1:
         """§11.1 row 2: "Flöde 4 -- exakt match | nej | nej | hoppas över |
         'Exakt match ska hoppa över det här steget'". No `options` list is
         ever produced for this case; `create()` never calls
-        `validate_options` for an empty one (SPEC §6.3: "En tom lista
+        `validate_options` for an empty one ("En tom lista
         valideras inte"). Checked directly here: an empty list raises
         nothing, under either an open or a closed decision."""
         service = DecisionService()
@@ -1419,7 +1417,7 @@ class TestValidateOptionsAtMostOneRecommended:
 
 class TestValidateOptionsLastOptionIsExit:
     """Testfall 23: sista alternativet saknar `is_exit` -> avvisas. Ett
-    `is_exit` på en tidigare rad är **medvetet tillåtet**: SPEC §6.3
+    `is_exit` på en tidigare rad är **medvetet tillåtet**: regeln
     säger bara att den sista alltid är en väg ut, aldrig att bara den
     sista får vara det -- en lista får erbjuda mer än en dörr."""
 
@@ -1579,11 +1577,11 @@ class TestValidateOptionsEnforcedThroughCreate:
         assert ThreadRepository.list_posts(thread.id) == []
 
 
-# --- B5: verktyget be_om_beslut (SPEC §6.4, §8, testfall 24-27) ------------
+# --- B5: verktyget be_om_beslut (testfall 24-27) ------------
 #
 # `be_om_beslut` is the redesign's one new tool -- a "fråga först" question
-# already asked and answered (SPEC §11.3): a tenth entry in `_TOOL_SPECS`,
-# appended last so the cached system-prompt prefix (SPEC-agentruntime §6.6)
+# already asked and answered: a tenth entry in `_TOOL_SPECS`,
+# appended last so the cached system-prompt prefix
 # stays byte-identical for the first nine. Every test below drives it
 # through `services.agent_tools.execute_tool`, exactly the entry point
 # `run_tool_loop` uses -- never the handler function directly -- so a test
@@ -1674,13 +1672,13 @@ class TestBeOmBeslutIsLastInAgentToolDefinitions:
     order -- a list that only checked "last" would miss a reorder hidden
     among the first nine.
 
-    Since `flode-verifikationer` appended `foresla_verifikation` after it
-    (SPEC-flode-verifikationer.md §5.7), `be_om_beslut` is tenth rather than
+    Since `flode-verifikationer` appended `foresla_verifikation` after it,
+    `be_om_beslut` is tenth rather than
     last. What this test protects is unchanged: its position, and the nine
     before it. Everything after it is testfall 22's
     (`tests/test_flode_verifikationer.py`), which also pins the first ten
-    byte for byte. `underlagstolkning` appended `tolka_underlag` after that
-    (SPEC-underlagstolkning.md §6.6, testfall 34), the twelfth."""
+    byte for byte. `underlagstolkning` appended `tolka_underlag` after that,
+    the twelfth."""
 
     _EXPECTED_FIRST_NINE = [
         "las_kontoplan",
@@ -1735,7 +1733,7 @@ class TestCaseTwentySixAppendOnlyToolSurfaceExtended:
     (`TestAppendOnlyToolSurface`), run against the extended surface -- ten
     tools with `beslut`, eleven since `flode-verifikationer` (its §5.7 asks
     for this test to run against that list too) --
-    SPEC-beslut.md §8: "Testfall 17 ... körs mot den utökade listan och ska
+    "Testfall 17 ... körs mot den utökade listan och ska
     passera oförändrat." The two checks below are copied from that class
     rather than imported, since they assert against module-level constants,
     not a shared fixture. `test_case_26_be_om_beslut_never_touches_vouchers`
@@ -1771,8 +1769,7 @@ class TestCaseTwentySixAppendOnlyToolSurfaceExtended:
     ]
 
     #: As in `tests/test_agent_runtime.py`: `andra_fakturautkast` changes an
-    #: invoice draft by replacing it, never anything issued or posted
-    #: (SPEC-fakturering-f1.md §5.4).
+    #: invoice draft by replacing it, never anything issued or posted.
     _NAME_FRAGMENT_EXCEPTIONS = {"andra_fakturautkast": {"andra"}}
 
     def test_case_26_no_tool_name_contains_a_mutate_or_delete_verb(self):
@@ -1897,7 +1894,7 @@ class TestCaseTwentySevenRegistreraAvstaendeIsUnchanged:
 class TestBeOmBeslutRequiresAThread:
     """`thread=None` (the document path's shape, or a bare `execute_tool`
     call with nothing passed) raises `ValidationError(code=
-    "decision_requires_thread")` and writes nothing -- SPEC §7 gräns:
+    "decision_requires_thread")` and writes nothing --
     "en decisions-rad utan thread_id" is exactly the silent "fråga först"
     case the module must refuse to let happen."""
 
@@ -2002,8 +1999,7 @@ class TestBeOmBeslutEnforcesTheEscalationInvariantThroughTheTool:
     def test_options_that_change_the_books_without_being_a_decision_first_is_impossible(
         self,
     ):
-        """The tool always raises the `decisions` row first (SPEC §11.1's
-        first table row): `be_om_beslut`'s own call writes `decision` then
+        """The tool always raises the `decisions` row first: `be_om_beslut`'s own call writes `decision` then
         `options` inside one `create()` transaction, so there is no way to
         call it with `options` and *not* have an open decision under them
         -- `validate_options`'s `options_require_open_decision` branch is
@@ -2043,7 +2039,7 @@ class TestBeOmBeslutStoresAgentTextVerbatim:
     """Testfall 34 (the tool's part): `reason`, `consequence` and each
     option's `rationale` reach `decisions`/`decision_options` exactly as
     the agent wrote them -- no rewording, no truncation, no
-    normalisation (SPEC §7.4)."""
+    normalisation."""
 
     def test_reason_consequence_and_rationale_survive_the_whole_tool_path(self):
         thread = _new_thread()
@@ -2112,7 +2108,7 @@ def _turn(
 
 
 class _FakeLLMClient:
-    """Structural `LLMClient` double (SPEC §9) -- a queue of ready-made
+    """Structural `LLMClient` double -- a queue of ready-made
     `LLMTurn`s, never a network call. Same pattern as
     `tests/test_tradar.py::FakeLLMClient`, reimplemented locally rather than
     imported, per BRIEF.md's rule to keep this module's own fixtures."""
@@ -2211,7 +2207,7 @@ class TestDocumentPathUnchangedByBeOmBeslut:
         assert isinstance(result, list)
 
 
-# --- B6: avståendet i tråden blir ett spårat beslut (SPEC §2, testfall 34) ---
+# --- B6: avståendet i tråden blir ett spårat beslut ---
 
 
 def _intake_source_for_abstention(tmp_path):
@@ -2278,10 +2274,10 @@ def _run_abstention_turn(
 
 
 class TestAbstentionInThreadGetsATrackedDecision:
-    """B6 (`tasks/beslut/todo.md`): a `registrera_avstaende` call inside a
+    """B6: a `registrera_avstaende` call inside a
     real thread turn already produced a `decision` post (`tradar`, B1).
     Before this task the post had no row behind it -- exactly the orphaned
-    card SPEC-beslut.md §2 describes: visible in the thread, but impossible
+    card: visible in the thread, but impossible
     to list, age or answer. `ThreadService.record_outcome` now binds the
     post to a fresh `decisions` row, in the same transaction."""
 
@@ -2345,7 +2341,7 @@ class TestAbstentionInThreadGetsATrackedDecision:
     def test_case_34_reason_and_consequence_survive_verbatim_in_post_and_row(
         self, tmp_path
     ):
-        """Testfall 34 (SPEC §7.4): the agent's own wording -- quotes, a
+        """Testfall 34: the agent's own wording -- quotes, a
         line break, Swedish characters -- reaches both the post and the row
         unchanged, and the two agree exactly: `DecisionService.create`
         (called with `post=` already written) does not re-derive or
@@ -2442,7 +2438,7 @@ class TestAbstentionInThreadGetsATrackedDecision:
         assert _count_rows("decisions") == before
 
 
-# --- B7: GET /decisions och GET /decisions/{id} (SPEC §5, §6.1, testfall 6–10) ---
+# --- B7: GET /decisions och GET /decisions/{id} (testfall 6–10) ---
 
 
 DECISIONS_URL = "/api/v1/decisions"
@@ -2535,7 +2531,7 @@ def _insert_intake_attempt(source_id: str, **overrides) -> str:
 def _insert_correction_note(voucher_id: str, **overrides) -> str:
     """A raw `correction_notes` row -- same reasoning as
     `_insert_intake_source`. `note_text` is the human's own words, never
-    the agent's (SPEC §5) -- kept as plain, ordinary test text here since
+    the agent's -- kept as plain, ordinary test text here since
     no test in this section asserts anything about its wording beyond "is
     exactly what was written"."""
     note_id = overrides.pop("id", None) or str(uuid.uuid4())
@@ -3107,7 +3103,7 @@ class TestDecisionsRouteRequiresAuthentication:
         assert response.status_code == 401
 
 
-# --- B8: POST /decisions/{id}/answer (SPEC §6.2, testfall 11–16, 28–30) ------
+# --- B8: POST /decisions/{id}/answer (testfall 11–16, 28–30) ------
 
 
 def _answer_url(decision_id: str) -> str:
@@ -3185,7 +3181,7 @@ class TestCaseElevenAnsweringWithAnOptionId:
         post = ThreadRepository.get_post(body["answer_post_id"])
         assert post is not None
         assert post.type == "user_text"
-        # SPEC §6.2 step 4: the option's title and account, as the human's
+        # The option's title and account, as the human's
         # own reply in the thread.
         assert option.title in post.body["text"]
         assert option.account in post.body["text"]
@@ -3193,8 +3189,7 @@ class TestCaseElevenAnsweringWithAnOptionId:
     def test_the_reply_stands_in_the_thread_before_the_agent_says_anything(
         self, client, auth_headers
     ):
-        """§6.2 step 4, the same rule `SPEC-tradar.md` §6.1 step 2 states
-        for a message: the human's reply is in the thread before any turn
+        """The same rule as for a message: the human's reply is in the thread before any turn
         has produced a word. With the runtime off, no turn runs at all —
         so the last post in the thread is hers, and nothing follows it."""
         thread, decision = _open_decision_with_options()
@@ -3408,7 +3403,7 @@ class TestCaseFourteenOptionIdFromAnotherDecision:
 class TestCaseFifteenASecondAnswerIsA409:
     """Testfall 15 — `409` with the existing answer, never a second post.
 
-    `409` rather than `400` on purpose (SPEC §6.2 step 2): the client
+    `409` rather than `400` on purpose: the client
     should be able to render the finished state instead of an error, which
     is the same rule `datakontrakt.md` §3 puts on a posting.
     """
@@ -3464,7 +3459,7 @@ class TestCaseFifteenASecondAnswerIsA409:
 
 class TestCaseSixteenSyntheticIdsAreNotAnswerableHere:
     """Testfall 16 — `409 decision_not_answerable`, pointing at the path
-    that does exist (SPEC §5).
+    that does exist.
 
     Not `404`: the id is perfectly real and `GET /decisions/{id}` returns
     it. It is this *route* that cannot answer it, and saying so with a
@@ -3487,7 +3482,7 @@ class TestCaseSixteenSyntheticIdsAreNotAnswerableHere:
         assert f"/intake/{source_id}/retry" in detail["details"]
 
     def test_a_correction_id_is_409_pointing_at_the_chat(self, client, auth_headers):
-        """SPEC-flode-verifikationer §7.3 (F12): the pointer is Verifikationer's
+        """The pointer is Verifikationer's
         chat, no longer `…/suggest`."""
         voucher_id = _voucher_for_correction()
         note_id = _insert_correction_note(voucher_id, status="pending")
@@ -3621,8 +3616,8 @@ class TestCaseTwentyEightTheTurnsPostingKeyHangsOnTheAnswerPost:
     """Testfall 28 — a posting made in a turn started by an answer carries
     `thread:{thread_id}:{post_id}`, derived from the **answer post**.
 
-    No third namespace (SPEC §2): an answer post is a user post, and it
-    inherits `SPEC-tradar.md` §6.4's rule unchanged. That is also what lets
+    No third namespace: an answer post is a user post, and it
+    inherits the user posts' rule unchanged. That is also what lets
     testfall 29 hold — two answers cannot become two vouchers if the key
     hangs on the post rather than on the clock.
     """
@@ -3799,7 +3794,7 @@ class TestCaseThirtyAFailedTurnLeavesTheDecisionAnswered:
         assert "bokförde" in error_posts[0].body["consequence"].lower()
 
 
-# --- B9: open_decisions byter uträkning (SPEC §6.6, testfall 33) -------------
+# --- B9: open_decisions byter uträkning -------------
 
 
 def _legacy_open_decisions_approximation() -> int:
@@ -3826,7 +3821,7 @@ class TestCaseThirtyThreeTheNumberDoesNotJump:
     """Testfall 33 — `open_decisions` gives the same number before and
     after the calculation is swapped.
 
-    SPEC §11.2's whole argument for the union: a clean table would have
+    The whole argument for the union: a clean table would have
     taken the counter from its current value to zero on deployment day and
     made the backlog invisible until every source had been reprocessed —
     "en räknare som ljuger den dag modulen som ska göra den sann
@@ -3903,7 +3898,7 @@ class TestCountOpenAgreesWithTheList:
 
 
 class TestOverviewReadsTheUnion:
-    """SPEC §6.6: the field did not change, the arithmetic behind it did."""
+    """The field did not change, the arithmetic behind it did."""
 
     def test_overview_open_decisions_matches_decision_service(self):
         from services.overview import OverviewService
@@ -3959,7 +3954,7 @@ class TestOverviewReadsTheUnion:
         assert after_count == before_count + 1
 
 
-# --- B10: påminnelsen vid sju dagar (SPEC §6.5, testfall 31) ---------------
+# --- B10: påminnelsen vid sju dagar ---------------
 
 #: A fixed reference date, not `date.today()`, for every test below except
 #: the one that has to go through `AgentWorker.run_pass_once` itself (which
@@ -4001,7 +3996,7 @@ def _agent_text_posts(thread_id: str):
 class TestCaseThirtyOneReminderFiresOnceAtSevenDays:
     """Testfall 31, both halves: the reminder is written at seven days, and
     **not** a second time -- `reminded_at` is what makes the second check a
-    no-op (SPEC §6.5: "Utan kolumnen påminner varje körning")."""
+    no-op ("Utan kolumnen påminner varje körning")."""
 
     def test_reminder_is_written_once_not_twice_across_two_checks(self):
         thread, decision = _decision_created_days_ago(7, _REMINDER_TODAY)
@@ -4103,7 +4098,7 @@ class TestReminderLandsInTheDecisionsOwnThread:
 
 
 class TestReminderDoesNotRewriteTheAgentsOriginalText:
-    """SPEC §7.4, testfall 34's promise extended to the reminder: it points
+    """Testfall 34's promise extended to the reminder: it points
     at the decision, it does not speak for it. The decision's own row and
     its `decision` post are read back unchanged."""
 
@@ -4136,8 +4131,8 @@ class TestReminderDoesNotRewriteTheAgentsOriginalText:
 
 class TestReminderRunsInTheIntakePassEvenWithAnEmptyQueue:
     """The test that fails the naive placement: `run_pass_once` must run
-    the reminder check before its empty-queue early return (SPEC §9 test
-    case 9's `None` is unaffected; the reminder still has to fire)."""
+    the reminder check before its empty-queue early return (test case 9's `None` is unaffected; the reminder still has to fire).
+    """
 
     def test_run_pass_once_still_sends_the_reminder_with_an_empty_queue(self):
         thread, decision = _decision_created_days_ago(7, date.today())
@@ -4149,7 +4144,7 @@ class TestReminderRunsInTheIntakePassEvenWithAnEmptyQueue:
 
         run = AgentWorker().run_pass_once(client_factory=_factory)
 
-        assert run is None  # SPEC §9 test case 9, unaffected by B10
+        assert run is None  # test case 9, unaffected by B10
 
         stored = DecisionRepository.get(decision.id)
         assert stored is not None

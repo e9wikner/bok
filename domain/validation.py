@@ -24,8 +24,7 @@ class ValidationError(Exception):
 
 
 def period_lock_payload(period: Period) -> Dict[str, Any]:
-    """Who locked *period* and when, for a `period_locked` error
-    (SPEC-fakturering.md §5)."""
+    """Who locked *period* and when, for a `period_locked` error."""
     return {
         "period_id": period.id,
         "locked_by": period.locked_by,

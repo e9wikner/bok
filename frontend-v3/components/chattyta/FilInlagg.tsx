@@ -5,7 +5,7 @@ import { oppnaUnderlag } from "@/lib/chattyta/api";
 import type { UserFileInlagg } from "@/lib/chattyta/typer";
 
 /**
- * `FilInlagg` (komponenter.md §Chatten, SPEC-chattyta.md §5): en bilaga
+ * `FilInlagg` (komponenter.md §Chatten): en bilaga
  * människan skickat. Läsbar — filnamn och filmeta — men ingen
  * förhandsvisning: filen är ett underlag, och att visa den är
  * `flode-underlag`s sak, inte tråden.
@@ -18,7 +18,7 @@ import type { UserFileInlagg } from "@/lib/chattyta/typer";
  * designens "valfria textbubbla under" ritas inte — en fil med en fråga
  * skickas som två inlägg och blir två inlägg.
  *
- * Kortet har en länk som öppnar filen (SPEC-flode-underlag.md §10.4). Inte
+ * Kortet har en länk som öppnar filen. Inte
  * en vanlig `href`: `GET /intake/{id}/file` kräver bearer, så filen hämtas
  * som blob genom `apiClient` (`oppnaUnderlag`, `lib/chattyta/api.ts`).
  */

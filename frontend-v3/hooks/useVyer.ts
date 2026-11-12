@@ -101,9 +101,9 @@ export function useVyer(
   // Under `VOUCHERS_NYCKEL`, så att `view.changed` (`useTrad`) och en
   // postning (`usePostaUtkast`) når listorna utan att känna till vyn.
   // Postade utan dem som saknar underlag: de står i sin egen sektion, och
-  // en verifikation visas på ett ställe (SPEC-flode-underlag.md §10.4).
+  // en verifikation visas på ett ställe.
   //
-  // Sida för sida (SPEC-lasbarhet.md §4.5): nästa sida när listans slut syns.
+  // Sida för sida: nästa sida när listans slut syns.
   // En invalidering hämtar om alla hämtade sidor, från offset 0.
   const postadeSidor = useInfiniteQuery({
     queryKey: [...VOUCHERS_NYCKEL, "skal", id, "posted"],
@@ -207,7 +207,7 @@ export function useVyer(
     staleTime: Infinity,
   });
   // Under `FAKTUROR_NYCKEL`, så att ett utfärdande och `view.changed` når
-  // dem (SPEC-fakturering-f1.md §10.2).
+  // dem.
   const fakturor = useQuery({
     queryKey: [...FAKTUROR_NYCKEL, "skal", id],
     queryFn: () => betalaApi.getFakturor(id),

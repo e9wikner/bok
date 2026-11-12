@@ -1,6 +1,5 @@
 /**
- * Hur gammalt ett väntande ärende får bli innan det blir rött
- * (SPEC-chattyta.md §10, §12.2).
+ * Hur gammalt ett väntande ärende får bli innan det blir rött.
  *
  * Två toner, inte en skala: `vantar` (bärnsten) säger "det här väntar på
  * dig", `forfallen` (rött) säger "det här har väntat för länge". Rött är
@@ -10,9 +9,9 @@
  */
 
 /**
- * Samma dag som beslutspåminnelsen går (SPEC-beslut.md §6.5): när agenten
+ * Samma dag som beslutspåminnelsen går: när agenten
  * påminner har ärendet också bytt färg, så att texten och tonen inte säger
- * olika saker. Beslutat 2026-09-23, SPEC-chattyta.md §12.2.
+ * olika saker. Beslutat 2026-09-23.
  */
 export const ROD_FRAN_DAGAR = 7;
 

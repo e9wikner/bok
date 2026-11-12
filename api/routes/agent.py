@@ -307,7 +307,7 @@ def _intake_http_error(exc: IntakeError) -> HTTPException:
         "intake_not_processable",
         "intake_already_linked",
         "voucher_not_posted",
-        # SPEC-flode-underlag.md §8: link it instead of posting it.
+        # Link it instead of posting it.
         "source_matches_posted_voucher",
     }:
         status_code = status.HTTP_409_CONFLICT
@@ -342,7 +342,7 @@ def _bank_input_http_error(exc: BankInputError) -> HTTPException:
 
 
 def _run_core_fields(run: AgentRun) -> dict:
-    """Fields shared between `current_run` and `last_run` (SPEC §8)."""
+    """Fields shared between `current_run` and `last_run`."""
     return {
         "id": run.id,
         "started_at": run.started_at.isoformat(),
@@ -359,7 +359,7 @@ def _run_core_fields(run: AgentRun) -> dict:
 async def get_agent_status(
     actor: str = Depends(get_current_actor),
 ):
-    """`GET /api/v1/agent/status` (SPEC-agentruntime.md §8).
+    """`GET /api/v1/agent/status`.
 
     Replaces the old `GET /agent/operations/log` stub, which always
     returned an empty list. Read-only aggregation of independent sources --
@@ -371,21 +371,21 @@ async def get_agent_status(
     - `current_run` is `AgentRunRepository.get_current()`'s row (`None` if
       no pass is in progress) plus `current_source_id`/`current_activity`
       from the process-wide `AgentWorker`. That worker tracks exactly which
-      source it is on (`current_source_id`), and since SPEC-tradar.md's T5
+      source it is on (`current_source_id`), and since the thread work
       `current_activity` is the **live tool name** (`"las_kontoplan"`,
       `"posta_verifikation"`) rather than the coarse `"processing"` A11 had
       to settle for -- the tool loop had no per-call hook then, and now it
       does (`on_tool_call`). See `AgentWorker.__init__`'s docstring for the
       same note from the producer's side.
     - `state`, `since`, `current_task` and `paused_reason` are
-      `datakontrakt.md` §7's four fields, added by SPEC-tradar.md T12.
+      `datakontrakt.md` §7's four fields, added with the threads.
       `state` is one of the three named modes in `komponenter.md`'s
       `AgentStatus` plus `vilande` for nothing-happening;
       `services.agent_runtime.agent_state` decides it. `paused_reason` is
       recomputed from current state on every call, so it stays put for as
       long as the agent is paused rather than appearing once in an error and
-      then vanishing (SPEC-tradar.md §7).
-    - The agent mode is **global, not per view** (SPEC-tradar.md §7): one
+      then vanishing.
+    - The agent mode is **global, not per view**: one
       worker, one flock, one budget. A mode per page would be an invention
       in the interface with nothing behind it in the system.
     - The fields that were already here are untouched -- this endpoint has a
@@ -406,7 +406,7 @@ async def get_agent_status(
       finished run's own column) cannot show. Both are surfaced: neither is
       dropped in favor of the other.
 
-    SPEC §12.6: the LLM gateway's API key setting is never read anywhere in
+    The LLM gateway's API key setting is never read anywhere in
     this function or in `AgentStatusResponse`/`AgentCurrentRunResponse`/
     `AgentLastRunResponse` (`api/schemas.py`) -- `TestAgentStatusEndpoint` in
     `tests/test_agent_runtime.py` pins this with a monkeypatched key value

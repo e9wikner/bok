@@ -24,7 +24,7 @@ import type {
 } from "@/lib/chattyta/typer";
 
 /**
- * Trådens renderare (SPEC-chattyta.md §5): ett inlägg in, en komponent ut.
+ * Trådens renderare: ett inlägg in, en komponent ut.
  *
  * En `switch` på `type`, en rad per typ, och ingenting annat. Allt som avgör
  * OM ett inlägg kan visas är redan avgjort i `parseInlagg` (§4.1) — hit kommer
@@ -43,8 +43,8 @@ import type {
  */
 
 /**
- * Lägger fokus i SAMMA kolumns `ChattFalt` — förslagskortets `Ändra`
- * (SPEC-chattyta.md §8 steg 4). Ges av `ChattKolumn`/`ChattList`, som äger
+ * Lägger fokus i SAMMA kolumns `ChattFalt` — förslagskortets `Ändra`.
+ * Ges av `ChattKolumn`/`ChattList`, som äger
  * både tråden och fältet. Ett kontext och inte ett `id`-uppslag: svepraden
  * ritar en sidas alla vyer, var och en med ett fält med samma `id`, och
  * `getElementById` skulle hitta den första, inte kortets. `null` = inget
@@ -73,7 +73,7 @@ export function TradRenderare({
 }
 
 /**
- * Den dolda live-regionen (SPEC-chattyta.md §11, testfall 31).
+ * Den dolda live-regionen.
  *
  * Trådytan är INTE en live-region: då läste skärmläsaren varje
  * `message.delta {text}` som ett nytt ord. Här sägs två saker, och bara de:
@@ -153,12 +153,12 @@ export function InlaggRenderare({ inlagg, viewKey }: { inlagg: Inlagg; viewKey?:
     case "user_file":
       return <FilInlagg inlagg={inlagg} />;
     case "receipt":
-      // Kvittots `traces[]` ritas inte (SPEC-lasbarhet §4.3); titeln bär
+      // Kvittots `traces[]` ritas inte; titeln bär
       // numret och det som rättas (`B-7 postad · rättar A-118`).
       return (
         <div className="flex max-w-[560px] flex-col gap-2">
           <JamforelseRader kropp={inlagg.body} />
-          {/* Ett fakturakvitto öppnar den sparade PDF:en (SPEC-fakturering-f1.md §8.2). */}
+          {/* Ett fakturakvitto öppnar den sparade PDF:en. */}
           {inlagg.body.pdf_url && <OppnaPdf pdfUrl={inlagg.body.pdf_url} />}
         </div>
       );
@@ -213,7 +213,7 @@ function ForslagInlagg({ inlagg, viewKey }: { inlagg: DraftInlagg; viewKey?: str
   const forslag = useForslag(viewKey)?.get(inlagg.body.draft_id);
   const body = inlagg.body;
   if (body.kind === "invoice") {
-    // Fakturaförslaget (SPEC-fakturering-f1.md §6).
+    // Fakturaförslaget.
     const faktura = { ...inlagg, body } as FakturaDraftInlagg;
     return (
       <FakturaForslag
@@ -244,7 +244,7 @@ function ForslagInlagg({ inlagg, viewKey }: { inlagg: DraftInlagg; viewKey?: str
   );
 }
 
-/** `Öppna PDF` under ett fakturakvitto (SPEC-fakturering-f1.md §8.2). */
+/** `Öppna PDF` under ett fakturakvitto. */
 function OppnaPdf({ pdfUrl }: { pdfUrl: string }) {
   return (
     <button

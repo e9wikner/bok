@@ -248,14 +248,14 @@ def test_agent_process_doc_describes_the_internal_runtime_path():
         in text
     )
     # The external, human-started path is still explicitly documented as
-    # working exactly as before (SPEC-agentruntime.md §12.5b) -- this note
+    # working exactly as before -- this note
     # must not read as if it replaced that path.
     assert "En människa kan fortfarande starta en" in text
     assert "scripts/bok-curl" in text
 
 
 def test_agent_process_doc_distinguishes_a_thread_reply_from_an_abstention():
-    """SPEC-tradar.md §11/T13: the one thing the thread path changed about
+    """The one thing the thread path changed about
     what the agent *does*.
 
     A turn that ends with no tool call is an unresolved outcome for a
@@ -281,7 +281,7 @@ def test_agent_process_doc_distinguishes_a_thread_reply_from_an_abstention():
 def test_agent_process_doc_keeps_the_ledger_rules_identical_on_both_paths():
     """The threshold for posting does not move because a human asked.
 
-    SPEC-tradar.md antagande 4: "En agent som postar från ett chattsvar går
+    "En agent som postar från ett chattsvar går
     samma väg som en agent som postar från ett underlag." If this ever reads
     as two different standards, the thread has become a softer way into the
     general ledger.
@@ -357,7 +357,7 @@ async def test_placeholder_agent_routes_are_removed(async_client):
 
 
 def test_agent_process_doc_describes_be_om_beslut_and_when_to_use_it():
-    """SPEC-beslut.md §6.4, §8: the tool exists, and the distinction from
+    """The tool exists, and the distinction from
     ``registrera_avstaende`` this task builds on -- a decision arising in a
     conversation in a view versus a `failed` attempt on a queued source.
     """
@@ -373,7 +373,7 @@ def test_agent_process_doc_describes_be_om_beslut_and_when_to_use_it():
 
 
 def test_agent_process_doc_states_the_decision_options_threshold():
-    """SPEC-beslut.md §11.1: the rule the agent needs to be able to follow --
+    """The rule the agent needs to be able to follow --
     an options list that changes the books without an open decision behind
     it is rejected by the server.
     """
@@ -388,7 +388,7 @@ def test_agent_process_doc_states_the_decision_options_threshold():
 
 
 def test_agent_process_doc_states_the_options_list_contract_rules():
-    """SPEC-beslut.md §6.3/§11.1: the two server-enforced rules on the
+    """The two server-enforced rules on the
     alternative list, not a client styling choice.
     """
     text = PROCESS_DOC_PATH.read_text(encoding="utf-8")
@@ -399,7 +399,7 @@ def test_agent_process_doc_states_the_options_list_contract_rules():
 
 
 def test_agent_process_doc_says_the_agents_own_text_is_stored_verbatim():
-    """SPEC-beslut.md §6.4/plan.md: `reason`, `consequence` and each
+    """`reason`, `consequence` and each
     option's `rationale` are shown to the human exactly as written -- a
     reason to write them for a reader, not a log.
     """
@@ -418,7 +418,7 @@ def _process_doc_flat() -> str:
 
 
 def test_agent_process_doc_describes_foresla_verifikation():
-    """SPEC-flode-verifikationer.md §5.1, §5.7: the eleventh tool exists,
+    """The eleventh tool exists,
     it never posts, the human does, and the number comes with the posting.
     """
     text = _process_doc_flat()
@@ -430,7 +430,7 @@ def test_agent_process_doc_describes_foresla_verifikation():
 
 
 def test_agent_process_doc_says_when_to_propose_and_when_to_post_directly():
-    """SPEC-flode-verifikationer.md §12.2 with SPEC-beslut.md §11.1: a
+    """A
     proposal after an answered decision carries `decision_id`, direct
     posting stays for what the agent is sure of -- and a proposal is not a
     softer way around the abstention list.
@@ -448,7 +448,7 @@ def test_agent_process_doc_says_when_to_propose_and_when_to_post_directly():
 
 
 def test_agent_process_doc_says_a_correction_is_always_a_proposal():
-    """SPEC-flode-verifikationer.md §12.5: the agent may post directly, but
+    """The agent may post directly, but
     never a correction. It goes through a proposal the human posts, with
     `correction_of` -- and if that cannot be made, the agent says so rather
     than posting the correction itself.
@@ -468,8 +468,7 @@ def _flat(text: str) -> str:
 
 
 def _assert_interpretation_rules(text: str) -> None:
-    """The rules of SPEC-underlagstolkning.md §9, as SPEC-flode-underlag.md
-    §11.2 rewrote them, as the agent reads them. Tool names are the ones in
+    """The interpretation rules, as the agent reads them. Tool names are the ones in
     ``services.agent_tools._TOOL_SPECS``."""
     # The rules sit in the accounting instruction, not somewhere else.
     instruction = text[text.index("# Bokföringsinstruktion för svensk redovisning") :]
@@ -544,7 +543,7 @@ def _assert_no_queue_driving(text: str) -> None:
 
 
 def _assert_linking_rules(text: str) -> None:
-    """SPEC-flode-underlag.md §11.2's nine points (test case 43)."""
+    """The nine linking rules (test case 43)."""
     instruction = text[text.index("# Bokföringsinstruktion för svensk redovisning") :]
     section = instruction[
         instruction.index("## Tolka underlaget innan du bokför") : instruction.index(
@@ -553,7 +552,7 @@ def _assert_linking_rules(text: str) -> None:
     ]
 
     # 1. The agent does not drive the queue of vouchers missing an underlag
-    # (SPEC-lasbarhet.md §4.2, L7): it answers when asked, from
+    #: it answers when asked, from
     # las_verifikationer, with the reason per voucher.
     assert "be inte om underlag på eget initiativ" in section
     assert "Frågar användaren vilka som saknar underlag" in section
@@ -564,7 +563,7 @@ def _assert_linking_rules(text: str) -> None:
     _assert_no_queue_driving(section)
 
     # 2. Nothing linked without a yes but the exact. The old "say you read
-    # the file" is gone: SPEC-lasbarhet.md §4.2, the agent does not narrate
+    # the file" is gone: the agent does not narrate
     # its tools.
     assert "säg att du läser den" not in section
     assert (
@@ -611,7 +610,7 @@ def _assert_linking_rules(text: str) -> None:
     assert "gissa inte fram ett belopp och koppla inte" in section
 
     # 9. After a link: one sentence about the link, nothing about the next
-    # voucher (SPEC-lasbarhet.md §4.2, L7).
+    # voucher.
     rule_9 = section[section.index("**Efter en koppling:**") :]
     assert "en mening om kopplingen" in rule_9
     assert "ålder" not in rule_9
@@ -625,7 +624,7 @@ def _assert_linking_rules(text: str) -> None:
 async def test_accounting_instruction_as_served_requires_tolka_underlag(
     test_db, async_client
 ):
-    """SPEC-underlagstolkning.md §9/§10 test case 38: the instruction as the
+    """Test case 38: the instruction as the
     accounting endpoint serves it -- the one an external agent reads at step
     three of its startup sequence -- carries the new rules."""
     response = await async_client.get(
@@ -658,7 +657,7 @@ ACCOUNTING_DOC_PATH = Path("docs/to_agent/03_bokforingsinstruktion.md")
 
 
 def _thread_writing_section(text: str) -> str:
-    """The section "Att skriva i en tråd" (SPEC-lasbarhet.md §4.2, M3),
+    """The section "Att skriva i en tråd",
     sliced out of the accounting instruction."""
     instruction = text[text.index("# Bokföringsinstruktion för svensk redovisning") :]
     heading = "## Att skriva i en tråd"
@@ -712,7 +711,7 @@ def _assert_thread_writing_rules(text: str) -> None:
 
 
 def test_accounting_instruction_has_the_thread_writing_section():
-    """SPEC-lasbarhet.md M3: the file itself carries the section."""
+    """The file itself carries the section."""
     _assert_thread_writing_rules(ACCOUNTING_DOC_PATH.read_text(encoding="utf-8"))
 
 
@@ -724,7 +723,7 @@ def test_runtime_system_prompt_has_the_thread_writing_section(test_db):
 
 
 def test_accounting_instruction_does_not_drive_the_underlag_queue():
-    """SPEC-lasbarhet.md §4.2 L7: the list in Böcker → Verifikationer shows
+    """The list in Böcker → Verifikationer shows
     what is missing, and the user picks what to upload next. Nowhere in 03
     does the agent ask for an underlag on its own or name the next one."""
     _assert_no_queue_driving(ACCOUNTING_DOC_PATH.read_text(encoding="utf-8"))
@@ -736,7 +735,7 @@ _MANNISKAN_PROHIBITION = 'Kalla aldrig användaren "människan"'
 
 
 def test_agent_reads_anvandaren_not_manniskan():
-    """SPEC-lasbarhet.md §4.2, L6: the agent repeats what it reads, so
+    """The agent repeats what it reads, so
     neither the tool schema the model gets nor ``docs/to_agent/*.md`` calls
     the user "människan" -- save the quoted rule that forbids it."""
     from services.agent_tools import AGENT_TOOL_DEFINITIONS
@@ -751,7 +750,7 @@ def test_agent_reads_anvandaren_not_manniskan():
 
 
 def test_be_om_beslut_fields_state_their_length():
-    """SPEC-lasbarhet.md §4.2, L6: the lengths from "Att skriva i en tråd"
+    """The lengths from "Att skriva i en tråd"
     are in the schema, on the fields themselves."""
     from services.agent_tools import AGENT_TOOL_DEFINITIONS
 

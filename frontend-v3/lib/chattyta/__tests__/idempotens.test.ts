@@ -6,7 +6,7 @@ import { BOK_KLIENT_NS, nyckelForUtkast, uuidV5 } from "@/lib/chattyta/idempoten
 const UUID_V5 = /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 // Serverns namnrymd i `services/agent_tools.py`. Klientens får aldrig vara
-// densamma (SPEC-chattyta.md §8 steg 1).
+// densamma.
 const SERVERNS_BOK_NAMESPACE = "8f2b6e6c-8a2b-4a9a-9f7c-3a0b6f7f0b1a";
 
 describe("nyckelForUtkast — nyckelns härledning (testfall 26)", () => {
@@ -34,7 +34,7 @@ describe("nyckelForUtkast — kända testvektorer ur Pythons uuid.uuid5", () => 
   //     [print(repr(n), uuid.uuid5(ns, n)) for n in ['draft:d-1', 'draft:d-2', 'draft:å-1', 'draft:']]"
   //
   // Samma värden ur båda sidor betyder att klient och server kan jämföra
-  // nycklar om de någon gång behöver det (tasks/chattyta/todo.md, C11).
+  // nycklar om de någon gång behöver det (C11).
   it.each([
     ["d-1", "6b8fce5b-d4b0-5eac-8283-ba8fb25e1c87"],
     ["d-2", "3d95018e-9389-5fe0-9cc9-5068e1aec57c"],

@@ -9,7 +9,7 @@ import type { VyData } from "@/lib/skal/vydata";
 import { sidan } from "@/lib/skal/vyer";
 
 /**
- * L5 (SPEC-lasbarhet.md §4.5, M6): Postade hämtas sida för sida, och nästa
+ * L5: Postade hämtas sida för sida, och nästa
  * sida hämtas när vaktelementet sist i vyns skrollyta syns.
  */
 

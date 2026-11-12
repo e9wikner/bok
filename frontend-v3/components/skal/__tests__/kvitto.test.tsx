@@ -10,8 +10,7 @@ import {
 } from "@/lib/skal/bocker";
 
 /**
- * FU23 — kvittot från verifikationen (SPEC-flode-underlag.md §10.4,
- * klientdelen av testfall 49d). `/v4` har ingen raddetalj (avvikelse 6):
+ * FU23 — kvittot från verifikationen (* klientdelen av testfall 49d). `/v4` har ingen raddetalj (avvikelse 6):
  * raden får en länk, och källan hämtas ur `GET /vouchers/{id}/source-context`
  * först när länken används.
  */

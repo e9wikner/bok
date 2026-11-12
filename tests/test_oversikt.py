@@ -1,10 +1,8 @@
-"""Tests for the `oversikt` module (SPEC-oversikt.md).
+"""Tests for the `oversikt` module.
 
 Covers the repaired attachment compliance check (O1), the derived
 `missing_attachment` / `age_days` fields (O2), the voucher filter and
 sorting (O3) and `GET /api/v1/overview` (O4).
-
-Test case numbers refer to the table in SPEC-oversikt.md §7.
 """
 
 import sqlite3

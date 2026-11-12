@@ -46,7 +46,7 @@ import {
  * Vyn är ett skrolläge och sidan är en navigering. Vypositionen skrivs med
  * history.replaceState så att ett svep inte kostar en post i historiken och
  * bakåtknappen förblir användbar; sidbytet går genom samma mekanism men är
- * ett riktigt byte som landar på sidans FÖRSTA vy. SPEC-skal.md §4, §5.
+ * ett riktigt byte som landar på sidans FÖRSTA vy.
  */
 export function Skal() {
   const params = useSearchParams();
@@ -136,12 +136,12 @@ export function Skal() {
   // som väntar i ett annat år står i `other_years`.
   const { data: overview } = useOverview(valtAr?.id ?? null);
   const ar = valtAr ? somOverviewAr(valtAr) : overview === undefined ? undefined : overview.fiscal_year;
-  // Chatten följer årsväljaren (SPEC-tradar.md §12.3: en tråd per vy och år).
+  // Chatten följer årsväljaren: en tråd per vy och år.
   // Utan val löser servern innevarande år själv, så tråden laddas inte om
   // när översikten kommer.
   const tradensAr = valtAr?.id ?? null;
   const { data: agent } = useAgentStatus();
-  // Märket läses för den aktiva vyn, på chattbubblan (SPEC-chattyta.md §10). Inte beroende av om chatten är
+  // Märket läses för den aktiva vyn, på chattbubblan. Inte beroende av om chatten är
   // minimerad: det är då märket behövs (komponenter.md). Grannvyerna i
   // svepraden får 0, som de får en oläst tråd (C5) — de ligger utanför skärmen.
   // Bara årets beslut, som vyn visar.
@@ -248,7 +248,7 @@ export function Skal() {
         renderVy={(vy, i) => {
           const { data: innehall, laddar } = vyer[vy.key];
           // Bara den aktiva vyns tråd läses och strömmas: svepraden renderar
-          // sidans alla vyer, och SPEC-chattyta.md §6.2 punkt 5 säger en
+          // sidans alla vyer, och det ska vara en
           // ström per flik.
           const aktiv = i === vyIndex;
           const variant = bred ? "desktop" : "mobil";

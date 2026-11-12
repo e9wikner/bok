@@ -8,7 +8,7 @@ import { skalApi } from "@/lib/skal/api";
  *
  * Ett anrop, inte fyra. Dagens Översikt (`app/page.tsx`) avfyrar åtta
  * parallella hookar och räknar i klienten — det är precis problemet
- * SPEC-oversikt.md §1 beskriver och som den här hooken stänger.
+ * den här hooken stänger.
  */
 /**
  * Sidornas och flikarnas räknare för årsväljarens år (`null`: innevarande).
@@ -26,7 +26,7 @@ export function useOverview(arId: string | null = null) {
 }
 
 /**
- * Agentläget är globalt, inte per sida (SPEC-tradar.md §7, §12.5).
+ * Agentläget är globalt, inte per sida.
  *
  * `retry: false`: går anropet inte fram ska `AgentStatus` visa ingenting —
  * aldrig "pausad". Pausad är ett riktigt läge med en orsak, och att gissa

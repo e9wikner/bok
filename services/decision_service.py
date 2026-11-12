@@ -1,23 +1,21 @@
-"""Decision lifecycle orchestration (SPEC-beslut.md §6.2, §4).
+"""Decision lifecycle orchestration.
 
 `DecisionService` is the API surface B4-B10 build on -- fixed once in
 BRIEF.md §2 so later tasks don't each invent their own. This module
 implements the lifecycle B3 owns (`create`, `answer`, `count_open`,
 `supersede`), the escalation invariant (`validate_options`, B4), and the
-three-source union B7 owns (`list_decisions` / `get_decision`, SPEC §5,
-§6.1, §11.2). `answer()` also carries B8's synthetic-id guard (SPEC §5,
-§6.2 step 1) -- `api/routes/decisions.py::answer_decision` calls it and
+three-source union B7 owns (`list_decisions` / `get_decision`). `answer()` also carries B8's synthetic-id guard (§6.2 step 1) -- `api/routes/decisions.py::answer_decision` calls it and
 maps its typed errors to status codes, then starts the turn itself once
 the transaction inside `answer()` has committed; this module never
 imports `ThreadTurnRunner` or starts one (§7.2's boundary: a decision
 answer writes a post and stops, it does not itself drive a turn). The
 seven-day reminder (`due_reminders` / `send_reminders` / `mark_reminded`,
-B10, SPEC §6.5) lives at the bottom of the class: an open decision at
+B10) lives at the bottom of the class: an open decision at
 least `REMINDER_THRESHOLD_DAYS` old that has never been reminded gets one
 `agent_text` post in its own thread and `reminded_at` set, once, per
 decision -- never from a schedule of its own. `services/agent_runtime.py`
-calls `DecisionService().send_reminders()` once per intake pass (SPEC
-§6.5: "Kontrollen sker i intagspassets befintliga cykel").
+calls `DecisionService().send_reminders()` once per intake pass
+("Kontrollen sker i intagspassets befintliga cykel").
 
 No `fastapi` import, no `HTTPException` (AGENTS.md's layering rule --
 `api/routes/decisions.py` maps these to status codes). Domain errors are
@@ -66,10 +64,10 @@ OptionInput = Union[DecisionOption, Mapping[str, Any]]
 
 
 # ---------------------------------------------------------------------------
-# B7: the union of the three sources (SPEC §5, §6.1, §11.2)
+# B7: the union of the three sources
 # ---------------------------------------------------------------------------
 
-#: The two synthetic sources' own "open" statuses (SPEC §5's table). Neither
+#: The two synthetic sources' own "open" statuses. Neither
 #: has an `answered` counterpart in this module -- `list_decisions`'s
 #: docstring says what that means for `status=answered` / `status=all`.
 _INTAKE_OPEN_STATUSES: Tuple[str, ...] = ("failed", "needs_attention")
@@ -78,17 +76,17 @@ _CORRECTION_OPEN_STATUSES: Tuple[str, ...] = ("pending", "suggested")
 _INTAKE_PREFIX = "intake:"
 _CORRECTION_PREFIX = "correction:"
 
-#: There is no `underlag` view among the seven `ThreadViewKey`s
-#: (SPEC-tradar.md §5). Both synthetic sources are pinned to
+#: There is no `underlag` view among the seven `ThreadViewKey`s.
+#: Both synthetic sources are pinned to
 #: `bocker.verifikationer` -- the view where vouchers and the material
 #: behind them live -- rather than inventing an eighth view for two sources
-#: that are meant to be temporary in the first place (SPEC §11.2: "Unionen
+#: that are meant to be temporary in the first place ("Unionen
 #: är övergående").
 _SYNTHETIC_VIEW_KEY = ThreadViewKey.BOCKER_VERIFIKATIONER.value
 
 #: `intake_sources` / `intake_processing_attempts` has nothing that plays
 #: the role `decisions.consequence` plays for an abstention -- unlike
-#: `reason` (SPEC §5: the agent's own words from the latest attempt), there
+#: `reason` (the agent's own words from the latest attempt), there
 #: is no agent-authored consequence text to draw on here. This is system
 #: wording, said plainly, not invented text passed off as the agent's own.
 _INTAKE_CONSEQUENCE = (
@@ -115,7 +113,7 @@ _INTAKE_NO_ATTEMPT_REASON = (
 class DecisionSource:
     """`source` in the §6.1 response shape -- what grounds the decision,
     when there is one. `None` is legitimate (an abstention raised
-    mid-conversation has none, SPEC §2 antagande 5)."""
+    mid-conversation has none)."""
 
     kind: str
     id: str
@@ -124,12 +122,12 @@ class DecisionSource:
 
 @dataclass
 class DecisionView:
-    """One row of `GET /decisions`'s union (SPEC §5, §6.1) -- a response
+    """One row of `GET /decisions`'s union -- a response
     shape spanning three sources, not a domain thing in its own right,
     which is why it lives here and not in `domain/models.py` next to
     `Decision`.
 
-    Fields are exactly SPEC §6.1's JSON sample, plus `created_at`: the
+    Fields are the JSON shape of `GET /decisions`, plus `created_at`: the
     union's own sort key ("Äldst först" over *all three* sources at once,
     not per source) -- `api/schemas.py`'s `DecisionResponse` leaves it out
     of what actually goes over the wire.
@@ -151,7 +149,7 @@ class DecisionView:
     created_at: datetime
     # How it was answered, when it was (chattyta open question 3). `None`
     # for an open or superseded decision, and always for the two synthetic
-    # sources -- they are never answered through this module (SPEC §11.2).
+    # sources -- they are never answered through this module.
     answered_at: Optional[datetime] = None
     answered_by: Optional[str] = None
     answer_option_id: Optional[str] = None
@@ -167,7 +165,7 @@ def _age_days(created_at: datetime, today: Optional[date]) -> int:
 
 
 def _decision_to_view(decision: Decision, *, today: Optional[date]) -> DecisionView:
-    """SPEC §5's `abstention` row: a straight read of `decisions`, `reason`
+    """The `abstention` row: a straight read of `decisions`, `reason`
     verbatim as the agent wrote it."""
     source = None
     if decision.source_kind is not None and decision.source_id is not None:
@@ -199,7 +197,7 @@ def _decision_to_view(decision: Decision, *, today: Optional[date]) -> DecisionV
 
 
 def _intake_reason(attempt: Optional[IntakeProcessingAttempt]) -> str:
-    """SPEC §5, testfall 8: the agent's own text from the **latest**
+    """The agent's own text from the **latest**
     attempt -- `error_detail` when that attempt recorded one (the sharper,
     specific explanation `IntakeService.record_failed` requires for a
     failed attempt), else `summary`. Never the filename.
@@ -223,7 +221,7 @@ def _intake_to_view(
     *,
     today: Optional[date],
 ) -> DecisionView:
-    """SPEC §5's `intake` row. `title` is the filename -- identification,
+    """The `intake` row. `title` is the filename -- identification,
     not a formulation -- while `reason` is the agent's own text; testfall 8
     is precisely about not blurring those two."""
     return DecisionView(
@@ -247,7 +245,7 @@ def _intake_to_view(
 
 
 def _correction_to_view(note: CorrectionNote, *, today: Optional[date]) -> DecisionView:
-    """SPEC §5's `correction` row -- the one source whose text is **not**
+    """The `correction` row -- the one source whose text is **not**
     the agent's. `reason` is set to `note.note_text` anyway, because that
     is the only text this source has; `kind="correction"` is what tells a
     reader not to mistake it for the agent's own formulation (§11.2: "hela
@@ -335,7 +333,7 @@ def _notes_in_year(
 
 def _decode_synthetic_id(decision_id: str) -> Optional[Tuple[str, str]]:
     """`(source_kind, raw_id)` for a prefixed id, `None` for a plain one --
-    SPEC §5's `intake:{id}` / `correction:{id}` / raw `decisions.id`
+    `intake:{id}` / `correction:{id}` / raw `decisions.id`
     (testfall 7: "prefixade id:n som inte kolliderar")."""
     if decision_id.startswith(_INTAKE_PREFIX):
         return "intake", decision_id[len(_INTAKE_PREFIX) :]
@@ -345,23 +343,23 @@ def _decode_synthetic_id(decision_id: str) -> Optional[Tuple[str, str]]:
 
 
 def _existing_path_for_synthetic_source(source_kind: str, raw_id: str) -> str:
-    """SPEC §5: where a synthetic-id answer is pointed instead of
+    """Where a synthetic-id answer is pointed instead of
     `POST /decisions/{id}/answer` -- `POST /intake/{id}/retry` for an
     `intake:` id, which takes optional guidance and puts the source back in
     the intake pass's queue (`PUT .../agent-guidance` refuses a `failed`
-    source, so it was a dead end here). For a `correction:` id it is no path but the chat
-    (SPEC-flode-verifikationer §7.3, F12): the answer to a note is a posted
+    source, so it was a dead end here). For a `correction:` id it is no path but the chat:
+    the answer to a note is a posted
     correction, proposed in Verifikationer's thread with `correction_of`
     and `correction_note_id`, not a click.
 
     The voucher id the second form needs is looked up on
     `correction_notes` -- a different table from the `decisions` lookup
-    SPEC §6.2 / testfall 16 forbids running before this check, so reading
+    that must not run before this check, so reading
     it here does not fall into that trap (B7's final report is what names
     it: check the prefix *before* `DecisionRepository.get`, not after).
     A `note_id` that resolves to no row still gets a path -- the prefix
     alone is what makes an id unanswerable here, not whether the source
-    row happens to still exist (SPEC §5 draws no such distinction).
+    row happens to still exist.
     """
     if source_kind == "intake":
         return f"POST /intake/{raw_id}/retry"
@@ -413,7 +411,7 @@ class DecisionNotFound(DecisionError):
 
 
 class DecisionNotAnswerable(DecisionError):
-    """A synthetic id (`intake:...` / `correction:...`, SPEC §5) that has no
+    """A synthetic id (`intake:...` / `correction:...`) that has no
     row in `decisions` -- B8's `409 decision_not_answerable`, pointing at
     the source's own existing path (`POST /intake/{id}/retry`) or,
     for a correction note, at Verifikationer's chat (F12).
@@ -422,8 +420,7 @@ class DecisionNotAnswerable(DecisionError):
     it only ever looked a `decision_id` up in `decisions` directly
     (`DecisionRepository.get`), so it never saw a synthetic id. B8 is what
     raises it: `answer()` now decodes the prefix (`_decode_synthetic_id`)
-    and raises this *before* that `decisions` lookup runs at all (SPEC
-    §6.2, testfall 16) -- checking after would answer `404` instead, since
+    and raises this *before* that `decisions` lookup runs at all -- checking after would answer `404` instead, since
     a prefixed string is never a real `decisions.id`.
     """
 
@@ -437,8 +434,8 @@ class DecisionNotAnswerable(DecisionError):
 
 
 class DecisionAlreadyAnswered(DecisionError):
-    """A second answer to a decision that has already left `open` (SPEC
-    §6.2 step 2: "Inte 400: klienten ska kunna visa klart-läget").
+    """A second answer to a decision that has already left `open`
+    ("Inte 400: klienten ska kunna visa klart-läget").
 
     Carries the whole `Decision` so a caller can show `answered_at`,
     `answer_post_id` and the answer that was given instead of just an
@@ -494,7 +491,7 @@ def _decision_post_body(
     response.
 
     `reason` and `consequence` are stored exactly as given -- no
-    rewording, no truncation (SPEC §7.4, testfall 34; `_decision_body`'s
+    rewording, no truncation (`_decision_body`'s
     own comment makes the same promise for the abstention path).
 
     `rows` is there only for a decision that posts: the card then shows the
@@ -518,9 +515,9 @@ def _decision_post_body(
 def _options_post_body(
     decision_id: str, options: Sequence[DecisionOption], footnote: Optional[str]
 ) -> dict:
-    """`AlternativLista`'s body, exactly the shape SPEC-beslut.md §4 gives:
+    """`AlternativLista`'s body, exactly this shape:
     ``{"decision_id", "options": [...], "footnote"}``. `rationale` and
-    `footnote` are the agent's own words, stored verbatim (SPEC §7.4).
+    `footnote` are the agent's own words, stored verbatim.
     """
     return {
         "decision_id": decision_id,
@@ -541,7 +538,7 @@ def _options_post_body(
 
 
 def _option_answer_text(option: DecisionOption) -> str:
-    """SPEC §6.2 step 4: "alternativets titel och konto" -- the reply
+    """ "Alternativets titel och konto" -- the reply
     written into the thread when a decision is answered by picking an
     option. Matches the style already fixed by `tests/test_beslut.py`'s
     B2 fixtures (`"Förbrukningsinventarier, 5410."`).
@@ -556,8 +553,7 @@ def _split_source(
 ) -> Tuple[Optional[str], Optional[str], Optional[date]]:
     """`decisions.source_kind` / `.source_id` / `.source_date` from the
     `source` argument's `kind` / `id` / `date` keys. `None` throughout when
-    no source was given -- a decision raised mid-conversation has none
-    (SPEC §2 antagande 5)."""
+    no source was given -- a decision raised mid-conversation has none."""
     if not source:
         return None, None, None
     return source.get("kind"), source.get("id"), source.get("date")
@@ -582,7 +578,7 @@ def _option_field(item: OptionInput, name: str, *, default: Any = None) -> Any:
 
 
 def _option_changes_the_books(item: OptionInput) -> bool:
-    """SPEC §6.3's predicate -- `account` set **and** `amount_ore != 0` --
+    """The predicate -- `account` set **and** `amount_ore != 0` --
     evaluated on a plain `OptionInput` instead of a `DecisionOption`.
 
     `DecisionOption.changes_the_books` (`domain/models.py`) is reused
@@ -599,7 +595,7 @@ def _option_changes_the_books(item: OptionInput) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# B10: the seven-day reminder (SPEC §6.5)
+# B10: the seven-day reminder
 # ---------------------------------------------------------------------------
 
 #: Flöde 1 steg 1: "Ett beslut som legat mer än sju dagar påminner agenten
@@ -609,7 +605,7 @@ REMINDER_THRESHOLD_DAYS = 7
 
 
 def _reminder_text(decision: Decision, age_days: int) -> str:
-    """SPEC §6.5's tone (flöde 4 steg 1): "Mycket gamla kompletteringar hör
+    """The tone: "Mycket gamla kompletteringar hör
     hemma i en påminnelse, inte i samma neutrala ton som färska." Names the
     decision's own title and how long it has sat, and says plainly what has
     *not* happened -- the same "ingenting är bokfört" stance
@@ -618,7 +614,7 @@ def _reminder_text(decision: Decision, age_days: int) -> str:
 
     Deliberately does **not** restate `decision.reason` in different words:
     the `decision` post one row above this one in the same thread already
-    carries the agent's own formulation verbatim (SPEC §7.4, testfall 34),
+    carries the agent's own formulation verbatim,
     and a paraphrase here would be exactly the rewording that rule
     forbids. This reminder points at the decision; it does not speak for
     it. Kept in its own function so the wording is readable -- and
@@ -684,7 +680,7 @@ class DecisionService:
            post is bound to a new row instead of a second post being
            written).
         2. a `decisions` row, via `DecisionRepository.create`, with
-           `view_key` taken from `thread.view_key` (SPEC §2: the thread
+           `view_key` taken from `thread.view_key` (the thread
            already knows its view; the column exists only so the list can
            filter without a join).
         3. when `options` is given: rows via `DecisionRepository.add_options`
@@ -694,7 +690,7 @@ class DecisionService:
         order looks like it forbids that: `decisions.post_id` is a plain
         (non-deferred) foreign key into `thread_posts(id)`, so the
         `decision` post has to exist before the row does -- and a post is
-        never rewritten afterwards (`SPEC-tradar.md` §8.4), so there is no
+        never rewritten afterwards, so there is no
         patching the id in later. The id is therefore **minted here**,
         before either write, and handed to `DecisionRepository.create`.
         That is the whole reason that parameter exists. Letting the row
@@ -706,11 +702,10 @@ class DecisionService:
         post carrying the same minted id, and no second post is written.
 
         `reason`, `consequence`, and each option's `rationale` are stored
-        exactly as given -- no rewording, no truncation, no normalisation
-        (SPEC §7.4, testfall 34).
+        exactly as given -- no rewording, no truncation, no normalisation.
 
         A non-empty `options` is checked against `validate_options`
-        (SPEC §6.3, §11.1) immediately before `DecisionRepository.add_options`
+        immediately before `DecisionRepository.add_options`
         runs below, inside this same transaction -- a broken list raises
         before either the options rows or the `options` post are written,
         so a rejected list leaves no partial trace (testfall 19, 23). An
@@ -757,7 +752,7 @@ class DecisionService:
             )
 
             if options:
-                # SPEC §11.1: the `decisions` row above always lands with
+                # The `decisions` row above always lands with
                 # `status='open'` (DecisionRepository.create's column
                 # default), so a list written here is always the "Flöde 1
                 # steg 2" row of the table in validate_options's docstring
@@ -789,20 +784,19 @@ class DecisionService:
         free_text: Optional[str] = None,
         actor: str,
     ) -> Tuple[Decision, ThreadPost]:
-        """SPEC §6.2 steps 3-5: validate, write the reply, flip status.
+        """Validate, write the reply, flip status.
 
         Exactly one of `option_id` / `free_text` is required -- both or
         neither is `ValidationError(code="invalid_answer")`, mapped to
         `400` by B8.
 
         Lookup and validation happen before any write: a synthetic id
-        (`intake:...` / `correction:...`, SPEC §5) is `DecisionNotAnswerable`
+        (`intake:...` / `correction:...`) is `DecisionNotAnswerable`
         -- decoded and raised **before** `DecisionRepository.get` runs,
         because that repository only ever looks inside `decisions`, and a
         prefixed string is never a row id there. Checking the other way
         round -- look up first, decode on a miss -- would answer `404` for
-        a synthetic id instead of the `409` SPEC §6.2 / testfall 16 ask
-        for; B7's final report names this exact trap. An unknown *plain*
+        a synthetic id instead of the `409` a client needs; B7's final report names this exact trap. An unknown *plain*
         id is `DecisionNotFound`; a decision that has already left `open`
         is `DecisionAlreadyAnswered`, carrying the existing answer, so a
         second press never produces a second post -- that check also runs
@@ -811,7 +805,7 @@ class DecisionService:
         another decision is `ValidationError`, never a silent lookup that
         happens to match.
 
-        Steps 4 and 5 of SPEC §6.2 -- the `user_text` post with the answer
+        Steps 4 and 5 -- the `user_text` post with the answer
         and the status change (`status='open' -> 'answered'`, plus the
         answer columns) -- happen in **one** `with db.transaction():`,
         each repository call with `_commit=False`. That is what makes a
@@ -826,13 +820,13 @@ class DecisionService:
 
         The reply text is the option's title and account when `option_id`
         was given, or `free_text` **verbatim** when it was -- never
-        reworded (SPEC §7.4).
+        reworded.
 
         Never starts a turn. `ThreadTurnRunner.start(thread,
         trigger_post=answer_post, message=...)` is B8's job, called after
         this method returns and its transaction has already committed.
 
-        No `Idempotency-Key` here (SPEC §11.4) -- `decisions.status` is
+        No `Idempotency-Key` here -- `decisions.status` is
         already the one resource that can only move `open -> answered`
         once; the posting a turn may go on to make keeps the usual
         `thread:{thread_id}:{post_id}` key, derived from the answer post
@@ -901,7 +895,7 @@ class DecisionService:
 
     def count_open(self) -> int:
         """How many open decisions there are, across **all three** sources
-        (SPEC §6.6, §11.2) -- the number `GET /overview`'s `open_decisions`
+        -- the number `GET /overview`'s `open_decisions`
         shows.
 
         Deliberately the same three sources, with the same status sets, as
@@ -936,7 +930,7 @@ class DecisionService:
         fiscal_year: Optional[FiscalYear] = None,
     ) -> int:
         """Everything that waits on the human, each thing once
-        (SPEC-flode-verifikationer.md §11.3) -- the number `GET /overview`'s
+        -- the number `GET /overview`'s
         `open_decisions`, the view header and the receipt's `{n} kvar` chip
         all read.
 
@@ -994,7 +988,7 @@ class DecisionService:
             open_note_statuses=_CORRECTION_OPEN_STATUSES,
             notes_counted=include_synthetic,
         )
-        # Invoice proposals, by the same rule (SPEC-fakturering-f1.md §10.3).
+        # Invoice proposals, by the same rule.
         return waiting + InvoiceProposalRepository.count_pending_not_yet_counted(
             view_key=view_key
         )
@@ -1022,12 +1016,11 @@ class DecisionService:
 
     def supersede(self, decision_id: str) -> Decision:
         """`status='superseded'` -- out of the queue, post left untouched
-        in the thread (SPEC §4: "lämnar kortet i tråden och tar bort det
+        in the thread ("lämnar kortet i tråden och tar bort det
         ur kön").
 
         Unknown id -> `DecisionNotFound`. *Who* calls this and *when* is
-        an open question the SPEC leaves for `flode-verifikationer`
-        (§12.2) -- B3 only provides the mechanism.
+        an open question left for `flode-verifikationer` -- B3 only provides the mechanism.
         """
         decision = DecisionRepository.get(decision_id)
         if decision is None:
@@ -1134,7 +1127,7 @@ class DecisionService:
         under_open_decision: bool,
     ) -> None:
         """The escalation invariant plus `AlternativLista`'s two contract
-        rules (SPEC §6.3, §11.1) -- server rules, not client rules: a
+        rules -- server rules, not client rules: a
         client that skipped them, or got them wrong, must not be able to
         put a bad list into `decision_options` by calling the API
         directly. `create()` is this module's only caller today, but the
@@ -1143,14 +1136,14 @@ class DecisionService:
 
         Called only for a non-empty `options` -- an empty list has no
         alternative to carry a `recommended` mark or an exit row, so
-        `create()` never calls this for one (SPEC §6.3: "En tom lista
+        `create()` never calls this for one ("En tom lista
         valideras inte").
 
         Three rules, checked in this order:
 
         1. **The escalation invariant** (§11.1). If any option
            `changes_the_books` (`DecisionOption.changes_the_books` /
-           `_option_changes_the_books`, SPEC §6.3: `account` set and
+           `_option_changes_the_books`: `account` set and
            `amount_ore != 0`) and this list is not `under_open_decision`,
            the whole list is rejected with
            `code="options_require_open_decision"`. This runs first
@@ -1175,7 +1168,7 @@ class DecisionService:
            already wrong for either reason above does not need a second,
            unrelated complaint about its last row.
 
-           SPEC §6.3 only asserts that the *last* option is a way out; it
+           The rule only asserts that the *last* option is a way out; it
            never says a way out may not also appear earlier (a list can
            reasonably offer more than one door -- e.g. "Annat konto" and,
            after it, "Det är inte alls detta köp"). This method therefore
@@ -1187,13 +1180,12 @@ class DecisionService:
         the same transaction) `open`. `create()` always passes
         `decision.status == "open"` -- true unconditionally there, since
         `DecisionRepository.create` always returns a fresh row with
-        `status='open'` -- which is precisely SPEC §11.1's first table
-        row: "Flöde 1 steg 2 -- 5410 mot 1250: öppet beslut ja, ändrar
+        `status='open'` -- which is precisely the first case: "Flöde 1 steg 2 -- 5410 mot 1250: öppet beslut ja, ändrar
         böckerna ja -> `options`, tillåtet". The parameter stays public,
         rather than this method hardcoding `True` for its only caller
         today, because a future caller may lay out options with no open
         decision behind them at all (flöde 4's "koppla utan att ändra" --
-        SPEC §11.1's third row, `options` allowed precisely because
+        `options` allowed precisely because
         nothing there changes the books) and needs to ask this rule
         without first writing anything to find out which world it is in.
 
@@ -1221,8 +1213,7 @@ class DecisionService:
                     message=(
                         "An options list with an option that changes the "
                         "books must be laid out under an already-open "
-                        "decision -- raise the decision first "
-                        "(SPEC-beslut.md §11.1)."
+                        "decision -- raise the decision first."
                     ),
                     details=f"option_count={len(options)}",
                 )
@@ -1249,7 +1240,7 @@ class DecisionService:
                 details=f"option_count={len(options)}",
             )
 
-    # -- B7: the union of the three sources (SPEC §5, §6.1, §11.2) --------
+    # -- B7: the union of the three sources --------
 
     def list_decisions(
         self,
@@ -1261,7 +1252,7 @@ class DecisionService:
         today: Optional[date] = None,
         fiscal_year: Optional[FiscalYear] = None,
     ) -> Tuple[List[DecisionView], int]:
-        """SPEC §6.1: the union of `decisions`, `intake_sources`
+        """The union of `decisions`, `intake_sources`
         (`failed`/`needs_attention`) and `correction_notes`
         (`pending`/`suggested`), oldest first **over the whole union** --
         Flöde 1 steg 1: "en i taget i tråden, äldst först".
@@ -1272,8 +1263,8 @@ class DecisionService:
         maps every other `ValidationError` (see `services/agent_tools.py`'s
         route, `api/routes/agent.py`).
 
-        The two synthetic sources have no `answered` counterpart -- SPEC
-        §5's table lists no such column for them, and there is no path in
+        The two synthetic sources have no `answered` counterpart --
+        there is no such column for them, and there is no path in
         this module that could set one (§5: "läsbara men inte besvarbara").
         They are therefore **always `open`**, and:
 
@@ -1374,7 +1365,7 @@ class DecisionService:
         self, decision_id: str, *, today: Optional[date] = None
     ) -> Optional[DecisionView]:
         """One row of the same union `list_decisions` returns, looked up by
-        its (possibly prefixed) id -- SPEC §5.
+        its (possibly prefixed) id.
 
         A synthetic id decodes to `(kind, raw_id)` via
         `_decode_synthetic_id` and is looked up in its own source; a plain
@@ -1411,13 +1402,13 @@ class DecisionService:
             return None
         return _decision_to_view(decision, today=today)
 
-    # -- B10: the seven-day reminder (SPEC §6.5) ---------------------------
+    # -- B10: the seven-day reminder ---------------------------
 
     def due_reminders(
         self, *, today: Optional[date] = None, limit: Optional[int] = None
     ) -> List[Decision]:
         """Open decisions with `age_days(today) >= REMINDER_THRESHOLD_DAYS`
-        and `reminded_at IS NULL`, oldest first (SPEC §6.5, testfall 31).
+        and `reminded_at IS NULL`, oldest first.
 
         `Decision.age_days` (`domain/models.py`) counts whole calendar days
         from `created_at.date()`, ignoring the time of day `created_at`
@@ -1446,7 +1437,7 @@ class DecisionService:
         self, *, today: Optional[date] = None, actor: str = "agent"
     ) -> List[Decision]:
         """Write the seven-day reminder for every decision `due_reminders`
-        returns, and set `reminded_at` on each one (SPEC §6.5, testfall
+        returns, and set `reminded_at` on each one (testfall
         31). Called once per intake pass by
         `services.agent_runtime.AgentWorker.run_pass_once`, regardless of
         whether that pass has any intake items to process.
@@ -1454,8 +1445,8 @@ class DecisionService:
         **One `with db.transaction():` per decision**, not one for the
         whole batch: the reminder post and `reminded_at` belong together
         -- a half failure that wrote the post but left `reminded_at` NULL
-        would remind again on the very next pass, exactly the repeat SPEC
-        §6.5 forbids ("Utan kolumnen påminner varje körning"). Batching
+        would remind again on the very next pass, exactly the repeat
+        to avoid ("Utan kolumnen påminner varje körning"). Batching
         every decision into a single transaction would also mean one
         decision's failure rolls back reminders that had already
         succeeded for the others, which is its own version of the same
@@ -1493,7 +1484,7 @@ class DecisionService:
             except Exception:
                 logger.exception(
                     "Could not send the seven-day reminder for decision "
-                    "%s -- continuing with the rest (SPEC §6.5)",
+                    "%s -- continuing with the rest",
                     decision.id,
                 )
                 continue

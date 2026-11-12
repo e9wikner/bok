@@ -13,7 +13,7 @@ import type { VyData, VyRadData } from "@/lib/skal/vydata";
  * Läskolumnen: rubrikrad, period, eventuell banner, sektioner med rader och
  * en fottext som säger vad agenten gör härnäst.
  *
- * Fakturering och Löner är LÄSVYER UTAN SKRIVFLÖDE (SPEC-skal.md §11).
+ * Fakturering och Löner är LÄSVYER UTAN SKRIVFLÖDE.
  * De får ingen primärknapp i foten — och ingen avstängd knapp och ingen
  * "kommer snart"-text heller. En yta som lovar en funktion som inte finns
  * är sämre än en yta som inte lovar den. Skrivning sker tills vidare via
@@ -218,7 +218,7 @@ export function medGrupper(rader: VyRadData[]): { rad: VyRadData; grupp?: string
 }
 
 /**
- * Vakten sist i listan (SPEC-lasbarhet.md §4.5): när raden syns hämtas
+ * Vakten sist i listan: när raden syns hämtas
  * nästa sida. Observatören görs om när `hamtaFler` byts — efter varje
  * hämtad sida — så att en vakt som fortfarande syns ber om nästa.
  */

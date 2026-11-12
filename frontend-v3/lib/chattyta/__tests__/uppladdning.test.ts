@@ -15,7 +15,7 @@ import {
 } from "@/lib/chattyta/uppladdning";
 
 /**
- * FU19 (SPEC-flode-underlag.md §10.1–§10.3, testfall 46 och 47): filchipets
+ * FU19 (testfall 46 och 47): filchipets
  * logik och de två anropen. Axios-instansen är mockad; det är den riktiga
  * `lib/chattyta/api.ts` som tolkar svaren.
  */
@@ -287,7 +287,7 @@ describe("skickaMeddelande — med och utan bilagor", () => {
     });
   });
 
-  it("med ett valt räkenskapsår går meddelandet till det årets tråd (SPEC-tradar.md §12.3)", async () => {
+  it("med ett valt räkenskapsår går meddelandet till det årets tråd", async () => {
     post.mockResolvedValue({ data: svar });
     await skickaMeddelande("bokslut.atgarder", "bokslut", [], "fy-2025");
     expect(post).toHaveBeenCalledWith(

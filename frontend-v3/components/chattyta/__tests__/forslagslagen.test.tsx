@@ -11,8 +11,7 @@ import type { DraftKropp, Inlagg, RaInlagg } from "@/lib/chattyta/typer";
 import { FIXTUR_DRAFT, FIXTUR_RECEIPT, kropp } from "@/lib/chattyta/__fixtures__/inlagg";
 
 /**
- * Förslagskortets lägen ur `GET /drafts` (SPEC-flode-verifikationer.md §10,
- * testfall 44), de nya postningsfelen (§9) och kvittots chip (§8.2). Som
+ * Förslagskortets lägen ur `GET /drafts` (* testfall 44), de nya postningsfelen (§9) och kvittots chip (§8.2). Som
  * `posta.test.tsx`: nätet mockas, inte `lib/chattyta/api.ts`, och korten
  * ritas i skalets `ChattKolumn` med `useTrad` ersatt.
  */
@@ -284,7 +283,7 @@ describe("nya postningsfel vid Posta (§9): inline, ingen Försök igen", () => 
   });
 });
 
-describe("kvittots spår ritas inte (SPEC-lasbarhet M4)", () => {
+describe("kvittots spår ritas inte", () => {
   it("traces[] finns men inga sparchip; titeln bär numret och rättelsen", () => {
     servern([]);
     tradInlagg = [

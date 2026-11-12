@@ -251,7 +251,7 @@ describe("kind=approval → GodkannKort-rubriken (testfall 18)", () => {
 
 // ─── Kroppen: belopp, källrad, åldern ─────────────────────────────────────
 
-describe("kroppen (komponenter.md §BeslutKort, SPEC §10)", () => {
+describe("kroppen (komponenter.md §BeslutKort)", () => {
   it("beloppet är inläggets öre via formatBelopp, mono tabulärt", () => {
     renderaKort(beslut());
     const belopp = screen.getByTestId("beslut-belopp");

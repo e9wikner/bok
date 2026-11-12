@@ -3,7 +3,7 @@
  *
  * Hela skalet är EN rutt, `/v4`, med två sökparametrar: ?sida=&vy=.
  * Skälet är scroll-snap: vyn är ett skrolläge, sidan är en navigering.
- * Ett svep får inte kosta en post i historiken. SPEC-skal.md §4.
+ * Ett svep får inte kosta en post i historiken.
  */
 
 import type { Detalj } from "@/lib/skal/detalj";
@@ -37,7 +37,7 @@ export interface Position {
  *
  * Asymmetrin mot servern är avsiktlig: en trasig länk ska landa någonstans,
  * medan en okänd view_key mot servern ger 404 så att en trasig klient inte
- * tyst skapar en tråd ingen hittar tillbaka till (SPEC-tradar.md §5).
+ * tyst skapar en tråd ingen hittar tillbaka till.
  */
 export function lasPosition(
   sidaParam?: string | null,

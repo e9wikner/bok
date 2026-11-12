@@ -21,7 +21,7 @@ import {
 import { faktureringVy } from "@/lib/skal/betala";
 
 /**
- * Fakturaförslaget i tråden (SPEC-fakturering-f1.md §13.3, testfall 33–37).
+ * Fakturaförslaget i tråden (testfall 33–37).
  * Nätet mockas, inte `utfardaFaktura`: utfallen hänger på hur FastAPI
  * formar `409`/`422`, och det ska vara den riktiga `lib/chattyta/api.ts` som
  * tolkar dem.

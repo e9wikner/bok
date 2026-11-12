@@ -12,7 +12,7 @@ from repositories.agreement_booking_repo import NOT_WAITING_FOR_AGREEMENT_SQL
 from repositories.fiscal_year_proposal_repo import NOT_WAITING_FOR_FISCAL_YEAR_SQL
 from repositories.reimbursement_check_repo import NOT_WAITING_FOR_REIMBURSEMENT_SQL
 
-# SPEC-flode-underlag.md §11.3 (D4): a file dropped in a thread is the
+# A file dropped in a thread is the
 # thread's -- the turn reads and interprets it, and the human decides there.
 # The intake pass must not abstain from it mid-conversation, so the pass's
 # queue (`list_pending`/`count_pending`, and through them `las_underlag`,
@@ -160,7 +160,7 @@ class IntakeRepository:
     def list_by_statuses(statuses: Sequence[str]) -> List[IntakeSource]:
         """Every source whose status is in `statuses`, oldest `uploaded_at`
         first with `id` as a stable tie-breaker -- added for
-        `DecisionService.list_decisions` (SPEC-beslut.md §5, §6.1, B7),
+        `DecisionService.list_decisions`,
         which unions `intake_sources` (`failed`/`needs_attention`) with two
         other sources and sorts and paginates the merged, sorted result
         itself. Unlike `list_by_status`, this takes several statuses at
@@ -203,7 +203,7 @@ class IntakeRepository:
     ) -> Dict[str, IntakeProcessingAttempt]:
         """The most recent `intake_processing_attempts` row per source id,
         in one query -- added for `DecisionService.list_decisions` /
-        `.get_decision` (SPEC-beslut.md §5): an `intake` row's `reason` is
+        `.get_decision`: an `intake` row's `reason` is
         "agentens egen text ur senaste `intake_processing_attempts.summary`
         / `.error_detail`", and finding "latest" with one call to
         `list_attempts_for_source` per source would turn a list endpoint

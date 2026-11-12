@@ -6,7 +6,7 @@ import { felText, usePostaUtkast } from "@/hooks/usePostaUtkast";
 import type { ErrorInlagg } from "@/lib/chattyta/typer";
 
 /**
- * `FelKort` (komponenter.md §FelKort, SPEC-chattyta.md §5, §9, §11; C13):
+ * `FelKort` (komponenter.md §FelKort):
  * en tur som inte slutade i ett beslut eller en verifikation.
  *
  * Kortet visar serverns `cause` och `consequence` ordagrant (antagande 3).
@@ -26,8 +26,8 @@ import type { ErrorInlagg } from "@/lib/chattyta/typer";
  * härledda nyckel som förslagskortets `Posta` (§8 steg 1), så ett omförsök
  * kan aldrig ge en andra verifikation.
  *
- * Kortet ritar inte `traces[]` och har ingen `Visa vad som hände`
- * (SPEC-lasbarhet §4.3): knappen fällde bara ut spår-chippen, och de är
+ * Kortet ritar inte `traces[]` och har ingen `Visa vad som hände`:
+ * knappen fällde bara ut spår-chippen, och de är
  * borta ur klienten. Servern lagrar spåren fortfarande, för revisionen.
  */
 
@@ -91,7 +91,7 @@ export function FelKort({ inlagg }: { inlagg: ErrorInlagg }) {
 
 // ─── Försök igen ──────────────────────────────────────────────────────────
 
-// Träffyta 46: mobilens krav (SPEC-chattyta §11), som också täcker desktopens 44.
+// Träffyta 46: mobilens krav, som också täcker desktopens 44.
 const PRIMAR =
   "min-h-[46px] rounded-[8px] bg-bok-black px-[16px] text-[14px] font-medium text-bok-yta hover:bg-bok-black-hover aria-disabled:cursor-default aria-disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bok-lank";
 

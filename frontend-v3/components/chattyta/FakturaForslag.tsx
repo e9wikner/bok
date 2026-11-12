@@ -11,7 +11,7 @@ import { formatBelopp } from "@/lib/skal/format";
 
 /**
  * `FakturaForslag` (komponenter.md: *"`FakturaForslag` (Rad / Antal /
- * Belopp)"*, SPEC-fakturering-f1.md §6.2): fakturan som kunden kommer att se
+ * Belopp)"*): fakturan som kunden kommer att se
  * den. Samma skal som `VerifikationsForslag`, eftersom det är samma sorts
  * beslut.
  *

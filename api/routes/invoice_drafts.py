@@ -180,7 +180,7 @@ async def issue_invoice_draft(
     actor: str = Depends(get_human_actor),
 ):
     """
-    Issue the draft (utfärda, SPEC-fakturering.md §5): the invoice with the
+    Issue the draft (utfärda): the invoice with the
     draft's number, a posted A-series voucher (1510 / 30xx / 26xx), the PDF
     stored and linked as underlag, and the draft marked `issued`, in one
     transaction -- all of it or none of it.
@@ -205,7 +205,7 @@ async def issue_invoice_draft(
     try:
         result = InvoiceIssueService().issue(draft_id, actor=actor)
     except ValidationError as exc:
-        # SPEC-fakturering-f1.md §7.4, §9: the thread hears of it after the
+        # The thread hears of it after the
         # rollback. A repeated press resumes a receipt that is missing.
         if exc.code == "draft_already_issued":
             _thread_hook(proposals.on_issued, draft_id, actor)
@@ -254,7 +254,7 @@ async def reject_invoice_draft(
 
 def _change_error(exc: ValidationError) -> HTTPException:
     """A refused PUT or reject. `draft_in_thread` is a conflict with the
-    pending card in the thread (SPEC-fakturering-f1.md §4.3) and carries
+    pending card in the thread and carries
     where it is; everything else is the old `400`."""
     if exc.code == "draft_in_thread":
         return HTTPException(

@@ -45,7 +45,7 @@ describe("ChattFalt är ren text — inga förslagschips (spec §2.1)", () => {
     expect(within(form).getByRole("textbox")).toBeInTheDocument();
     // Ett chip är ett förvalt yttrande. Designens egen regel är att
     // ingenting förväljs — lägg inte tillbaka dem. Den enda knappen är
-    // `drop`-variantens filväljare (SPEC-flode-underlag.md §10.1).
+    // `drop`-variantens filväljare.
     const knappar = within(form).queryAllByRole("button");
     expect(knappar).toHaveLength(1);
     expect(knappar[0]).toHaveAccessibleName("Bifoga underlag");
@@ -72,14 +72,14 @@ describe("tråden kommer ur useTrad och ritas av chattytans renderare", () => {
   it("annonserar genom trådens dolda live-region, inte hela ytan (chattyta testfall 31)", () => {
     render(<ChattKolumn vyTitel="Balansräkning" viewKey="bocker.balans" />);
     const trad = screen.getByLabelText("Tråd för Balansräkning");
-    // Ytan som live-region läste upp varje delta ord för ord (SPEC-chattyta §11).
+    // Ytan som live-region läste upp varje delta ord för ord.
     expect(trad).not.toHaveAttribute("aria-live");
     expect(within(trad).getByTestId("trad-annons")).toHaveAttribute("aria-live", "polite");
   });
 
   it("skalet bygger inga kort själv — ett kontraktsbrott blir okant_kontrakt, inte ett halvt kort", () => {
     // Alla åtta typer har en renderare i `chattyta` sedan C13; raden återstår
-    // bara för brott (SPEC-chattyta.md §4.4). Här: ett `options` med två
+    // bara för brott. Här: ett `options` med två
     // rekommenderade, som `parseInlagg` vägrar (§4.1).
     const tvaRekommenderade = typad({
       ...FIXTUR_OPTIONS,

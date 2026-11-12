@@ -1,7 +1,7 @@
 """`flode-underlag`: `koppla_underlag` in the tool list (FU5) and
 `missing_attachment`/`age_days` in `las_verifikationer` (FU12).
 
-Test case numbers refer to SPEC-flode-underlag.md §14. The tools run
+The tools run
 through `execute_tool` with a real thread in `tool_context`, as the thread
 turn puts it there; no LLM.
 """
@@ -28,8 +28,8 @@ period_id = fu.period_id
 #: sha256 of `json.dumps(AGENT_TOOL_DEFINITIONS[:12])`, taken on `a326fdf`
 #: (FU4), before FU5 touched `_TOOL_SPECS`. No `sort_keys`: the key order
 #: inside each definition is part of the bytes the model is sent, and so of
-#: the cached prefix (SPEC-agentruntime §6.6). Re-taken for SPEC-lasbarhet
-#: L6, which deliberately rewords `be_om_beslut` and `foresla_verifikation`. Re-taken again for the period lock, which rewords
+#: the cached prefix. Re-taken for the
+#: readability work, which deliberately rewords `be_om_beslut` and `foresla_verifikation`. Re-taken again for the period lock, which rewords
 #: `las_perioder` (it said locking was never the agent's) and appends
 #: `stang_perioder`. Re-taken for migration 045, which adds `comment` and
 #: `valuta` to `posta_verifikation` and `foresla_verifikation`.
@@ -130,7 +130,7 @@ def test_36_the_description_is_section_6_2_verbatim():
 
     expected = _KOPPLA_UNDERLAG_DESCRIPTION
     assert AGENT_TOOL_DEFINITIONS[12]["description"] == expected
-    # §6.2, SPEC-underlagstolkning §12.6 c: it does not name the ledger.
+    # It does not name the ledger.
     assert "huvudbok" not in expected.lower()
 
 
@@ -281,8 +281,8 @@ _LAS_VERIFIKATIONER_SHA256 = (
 
 
 def test_37_las_verifikationer_answers_missing_attachment_and_age_days(period_id):
-    """Testfall 37: the same derived values as `VoucherResponse`
-    (SPEC-oversikt.md §3), read from the voucher."""
+    """Testfall 37: the same derived values as `VoucherResponse`,
+    read from the voucher."""
     from repositories.voucher_repo import VoucherRepository
     from tests.test_flode_underlag import attach
 

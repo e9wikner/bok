@@ -245,7 +245,7 @@ class AgentRunRepository:
 
         `since_seq` is exclusive: it returns only what came after that
         marker. `agent_run_events.seq` is the cursor form `tradar` follows
-        (SPEC-tradar.md §2) -- a caller that has already seen up to `n` asks
+        -- a caller that has already seen up to `n` asks
         for `since_seq=n` and gets what it missed, nothing it already has.
         Omitting it returns the whole run, exactly as before.
         """

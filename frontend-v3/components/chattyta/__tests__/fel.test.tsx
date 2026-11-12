@@ -12,7 +12,7 @@ import type { DraftKropp, ErrorInlagg, Inlagg, RaInlagg, Spar } from "@/lib/chat
 import { FIXTUR_DRAFT, FIXTUR_ERROR, kropp } from "@/lib/chattyta/__fixtures__/inlagg";
 
 /**
- * `FelKort` (SPEC-chattyta.md §5, §9, §11; komponenter.md §FelKort; C13).
+ * `FelKort` (komponenter.md §FelKort; C13).
  *
  * Nätet mockas, inte `postaUtkast` eller `usePostaUtkast`: testfall 30 kräver
  * att `Försök igen` bär SAMMA `Idempotency-Key` som `Posta`, och det kan bara
@@ -159,11 +159,11 @@ describe("FelKort — rubrik, orsak och konsekvens (komponenter.md, antagande 3)
 
 // ─── Försök igen ──────────────────────────────────────────────────────────
 
-describe("FelKort — Försök igen (SPEC §9)", () => {
+describe("FelKort — Försök igen", () => {
   it("testfall 29: utan retry_draft_id har kortet ingen knapp alls", () => {
     // Renderas UTAN QueryClientProvider: utan utkast finns ingen postning,
     // och kortet får då inte kräva en (ChattKolumn-testerna ritar det så).
-    // `Visa vad som hände` är borta med spår-chippen (SPEC-lasbarhet §4.3).
+    // `Visa vad som hände` är borta med spår-chippen.
     render(<FelKort inlagg={felUtanOmforsok()} />);
     expect(screen.queryByRole("button", { name: /Försök igen/ })).toBeNull();
     expect(screen.queryAllByRole("button")).toHaveLength(0);
@@ -261,9 +261,9 @@ describe("FelKort — Försök igen (SPEC §9)", () => {
   });
 });
 
-// ─── Inga spår (SPEC-lasbarhet §4.3) ──────────────────────────────────────
+// ─── Inga spår ──────────────────────────────────────
 
-describe("FelKort ritar inga spår (SPEC-lasbarhet M4)", () => {
+describe("FelKort ritar inga spår", () => {
   it("med traces[]: ingen Visa vad som hände, inga sparchip, ingen spåryta", () => {
     render(<FelKort inlagg={{ ...felUtanOmforsok(), traces: SPAR }} />);
     expect(screen.queryByRole("button", { name: "Visa vad som hände" })).toBeNull();

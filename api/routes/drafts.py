@@ -1,4 +1,4 @@
-"""API route for a view's thread drafts (SPEC-flode-verifikationer.md §10).
+"""API route for a view's thread drafts.
 
 A `draft` post is never rewritten, so whether its card is posted, replaced or
 still waiting has to be asked for: one call per view, looked up locally in the

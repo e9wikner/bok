@@ -1,10 +1,8 @@
-"""Tests for the `flode-verifikationer` module
-(docs/redesign/SPEC-flode-verifikationer.md).
+"""Tests for the `flode-verifikationer` module.
 
-Grows across tasks F5-F12 of `tasks/flode-verifikationer/todo.md`; each task
-gets its own section. Numbering (F1-F3) lives in `tests/test_numrering.py`.
+Each task (F5-F12) gets its own section. Numbering (F1-F3) lives in `tests/test_numrering.py`.
 
-Per the spec no LLM is ever called from a test.
+No LLM is ever called from a test.
 """
 
 import hashlib
@@ -847,8 +845,8 @@ _FIRST_TEN = [
 # sha256 of `json.dumps(AGENT_TOOL_DEFINITIONS[:10], ensure_ascii=False)`,
 # taken on `cc47e5c`, before F7 touched `_TOOL_SPECS`. No `sort_keys`: the key
 # order inside each definition is part of the bytes the model is sent, and
-# so of the cached prefix (SPEC-agentruntime §6.6). Re-taken for
-# SPEC-lasbarhet L6, which deliberately rewords `be_om_beslut` ("användaren",
+# so of the cached prefix. Re-taken for
+# the readability work, which deliberately rewords `be_om_beslut` ("användaren",
 # field lengths).
 # Re-taken again for the period lock, which rewords `las_perioder` (it said
 # locking was never the agent's).
@@ -857,13 +855,13 @@ _FIRST_TEN_SHA256 = "2ed8ad7cb947b3b222610a0d0da7f46d89f05abf96ac2c63a0397cc4d74
 
 
 def test_case_22_foresla_verifikation_is_last_and_the_first_ten_are_unchanged():
-    """SPEC §5.7: appended last, the one change that moves none of the ten
+    """Appended last, the one change that moves none of the ten
     before it. The names catch a reorder; the hash catches an edit to a
     description or a schema that leaves the names where they were.
 
-    `underlagstolkning` has since appended `tolka_underlag` after it
-    (SPEC-underlagstolkning.md §6.6), and `flode-underlag` `koppla_underlag`
-    after that (SPEC-flode-underlag.md §6.7), so it is eleventh rather than
+    `underlagstolkning` has since appended `tolka_underlag` after it,
+    and `flode-underlag` `koppla_underlag`
+    after that, so it is eleventh rather than
     last; what comes after it is those modules' testfall 34 and 36."""
     names = [tool["name"] for tool in AGENT_TOOL_DEFINITIONS]
 
@@ -1747,8 +1745,7 @@ def test_case_30_get_drafts_gives_status_and_voucher_only_when_posted(auth_heade
         waiting["draft_id"],
     ]
     for draft in payload["drafts"]:
-        # `kind` and `invoice` since fakturering F1 (SPEC-fakturering-f1.md
-        # §10.1): a voucher row is `kind="voucher"` with `invoice` null.
+        # `kind` and `invoice` since fakturering F1: a voucher row is `kind="voucher"` with `invoice` null.
         assert draft["kind"] == "voucher" and draft["invoice"] is None
         assert set(draft) == {
             "kind",
@@ -2846,7 +2843,7 @@ def test_case_42_a_waiting_correction_is_not_corrected_by(today, auth_headers):
 
 
 def test_case_42_the_list_does_not_query_per_row(today, monkeypatch, auth_headers):
-    """No N+1 (SPEC-oversikt §3): the number of statements a page costs does
+    """No N+1: the number of statements a page costs does
     not grow with the number of vouchers on it."""
     thread, september, trigger = _books()
     original = _original(september)

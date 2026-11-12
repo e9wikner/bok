@@ -4,19 +4,18 @@ import remarkGfm from "remark-gfm";
 import type { AgentTextInlagg, UserTextInlagg } from "@/lib/chattyta/typer";
 
 /**
- * `TradInlagg/agent` och `TradInlagg/du` (komponenter.md §Chatten,
- * SPEC-chattyta.md §5).
+ * `TradInlagg/agent` och `TradInlagg/du` (komponenter.md §Chatten).
  *
  * Markupen är skalets (`components/skal/ChattKolumn.tsx`) flyttad hit, så
  * att tråden ser likadan ut före och efter att C5 byter renderaren. Det som
  * är nytt är att metaraden räknas ur `created_at` i stället för att vara en
  * färdig mocksträng.
  *
- * Agentens `traces[]` ritas inte (SPEC-lasbarhet §4.3): spåren gav inget
+ * Agentens `traces[]` ritas inte: spåren gav inget
  * för beslutet. Servern skickar och lagrar dem fortfarande — de är
  * revisionsspår — men klienten visar bara texten.
  *
- * Agentens text ritas som markdown (SPEC-lasbarhet §4.4): `react-markdown`
+ * Agentens text ritas som markdown: `react-markdown`
  * + `remark-gfm` för tabeller. Ingen rå HTML — utan `rehype-raw` blir
  * `<script>` och andra taggar aldrig element. Användarens inlägg och
  * beslutskortets fält är fortfarande ren text.
@@ -25,11 +24,11 @@ import type { AgentTextInlagg, UserTextInlagg } from "@/lib/chattyta/typer";
 // ─── Metaraden ────────────────────────────────────────────────────────────
 
 /**
- * `HH:MM` i webbläsarens lokala tid (SPEC §5). Servern lagrar UTC; en
+ * `HH:MM` i webbläsarens lokala tid. Servern lagrar UTC; en
  * människa i Sverige som skrev 08:41 ska inte se 06:41.
  *
  * Ett oläsbart datum ger `null`, inte `NaN:NaN` — metaraden säger då bara
- * `agenten`. Hellre mindre än fel (SPEC §4.4:s hållning, i litet format).
+ * `agenten`. Hellre mindre än fel.
  */
 export function klockslag(createdAt: string): string | null {
   const d = new Date(createdAt);
@@ -128,7 +127,7 @@ export function TradInlagg({
   if (inlagg.type === "user_text") {
     // `TradInlagg/du`: högerställd, max 74 %, #eef0f3, radius 14 14 4 14,
     // padding 12/16, 15/1.55. Optimistiska inlägg ser likadana ut; de
-    // ersätts på `id` när servern svarat (SPEC §6.3), inte här.
+    // ersätts på `id` när servern svarat, inte här.
     return (
       <div className="flex justify-end">
         <div className="max-w-[74%] rounded-[14px_14px_4px_14px] bg-bok-bubbla px-4 py-3 text-[15px] leading-[1.55] [text-wrap:pretty]">

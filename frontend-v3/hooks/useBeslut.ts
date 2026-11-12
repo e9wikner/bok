@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Beslutens status i en vy (SPEC-chattyta.md §7).
+ * Beslutens status i en vy.
  *
  * Inlägget säger inte om beslutet är besvarat — inlägg ändras aldrig
  * (antagande 2). Statusen finns bara i `GET /decisions`, så klienten läser

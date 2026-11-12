@@ -1,5 +1,4 @@
-"""API routes for the union of the three decision sources (SPEC-beslut.md
-§5, §6.1) and for answering one (§6.2, B8).
+"""API routes for the union of the three decision sources and for answering one (§6.2, B8).
 
 HTTP only, per AGENTS.md's layering rule: parse, authenticate, validate
 `view_key` against the closed list of seven, map domain errors to status
@@ -55,7 +54,7 @@ router = APIRouter(prefix="/api/v1/decisions", tags=["decisions"])
 
 def _validate_view_key(view_key: str) -> str:
     """Same rule, same error shape, as
-    `api/routes/threads.py::_validate_view_key` (SPEC-tradar.md §5): an
+    `api/routes/threads.py::_validate_view_key`: an
     unknown key is `404`, not an empty result -- otherwise a typo in a
     client would silently ask for a view whose backlog it can never find.
 
@@ -140,7 +139,7 @@ async def list_decisions(
     ),
     actor: str = Depends(get_current_actor),
 ):
-    """`GET /decisions` -- the union of the three sources (SPEC §5, §6.1),
+    """`GET /decisions` -- the union of the three sources,
     oldest first **over the whole union**. `limit`/`offset` page the
     sorted union, not each source separately -- see
     `DecisionService.list_decisions`'s docstring for why a per-source
@@ -186,7 +185,7 @@ async def get_decision(
 ):
     """`GET /decisions/{id}` -- one row of the same union, looked up by its
     (possibly prefixed) id. Unknown id, or a synthetic id whose source has
-    since moved on (reprocessed, applied, dismissed), is `404` (SPEC §5).
+    since moved on (reprocessed, applied, dismissed), is `404`.
     """
     view = DecisionService().get_decision(decision_id)
     if view is None:
@@ -244,7 +243,7 @@ async def answer_decision(
     request: DecisionAnswerRequest,
     caller: Caller = Depends(get_caller),
 ):
-    """`POST /decisions/{id}/answer` -- SPEC §6.2's seven steps.
+    """`POST /decisions/{id}/answer` in seven steps.
 
     Steps 1-5 (lookup, the synthetic-id guard, the already-answered guard,
     `option_id` ownership, and the `user_text` post plus the status flip in
@@ -268,7 +267,7 @@ async def answer_decision(
     body -- `answered_at`, `answer_post_id`, and whichever of
     `answer_option_id`/`answer_text` was actually given -- rather than
     just a code, so a client can render the already-answered state instead
-    of a bare error (SPEC §6.2 step 2, testfall 15).
+    of a bare error.
     """
     # A payroll card's press books a salary or an AGI: logged-in users only
     # (JWT), refused before the answer is written. Every other decision can
@@ -346,7 +345,7 @@ async def answer_decision(
             detail={"error": exc.message, "code": exc.code, "details": exc.details},
         )
 
-    # Step 6 (SPEC §6.2): started only after the transaction inside
+    # Step 6: started only after the transaction inside
     # `answer()` above has already committed -- the reply post and the
     # status flip are both durable before any turn is even considered.
     # Same gate, same logged-not-erred behaviour when the switch is off,

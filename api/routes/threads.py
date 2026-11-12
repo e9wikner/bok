@@ -1,4 +1,4 @@
-"""API routes for the per-view thread (docs/redesign/SPEC-tradar.md §1, §5).
+"""API routes for the per-view thread.
 
 HTTP only, per AGENTS.md's layering rule: parse, authenticate, resolve the
 view and the fiscal year, and map domain outcomes to status codes. Every
@@ -53,7 +53,7 @@ router = APIRouter(prefix="/api/v1/threads", tags=["threads"])
 
 
 def _validate_view_key(view_key: str) -> str:
-    """SPEC §5: the list of seven is closed and validated.
+    """The list of seven is closed and validated.
 
     An unknown key gives `404`, **not an empty thread** -- otherwise a typo
     in the client silently creates a thread nobody ever finds their way back
@@ -158,7 +158,7 @@ async def get_thread(
     fiscal_year_id: Optional[str] = _fiscal_year_query(),
     actor: str = Depends(get_current_actor),
 ):
-    """The view's thread, oldest post first (SPEC §1).
+    """The view's thread, oldest post first.
 
     A pure read: it creates nothing. A view that has not been written in
     this year answers `200` with an empty `posts` and a `thread_id` of
@@ -222,8 +222,8 @@ async def post_message(
                 "error": "No fiscal year exists to hang a thread off",
                 "code": "no_fiscal_year",
                 "details": (
-                    "A thread belongs to a view and a fiscal year "
-                    "(SPEC-tradar.md §12.3). Create a fiscal year first."
+                    "A thread belongs to a view and a fiscal year. "
+                    "Create a fiscal year first."
                 ),
             },
         )
@@ -234,7 +234,7 @@ async def post_message(
         model=settings.llm_default_model,
     )
 
-    # D8 (SPEC-flode-underlag.md): without text, no `user_text` post -- only
+    # D8: without text, no `user_text` post -- only
     # the files, and the turn hangs on the first of them. The model is told
     # what happened; the thread shows no text the human did not write.
     posts: list[ThreadPost] = []
@@ -283,7 +283,7 @@ async def reset_thread(
 ):
     """Reset the view's conversation: the next turn starts without context.
 
-    Nothing is deleted. Posts are append-only (SPEC-tradar.md §8.2 p.4), so
+    Nothing is deleted. Posts are append-only, so
     the reset moves a boundary (migration 034): every post up to now stays
     in the thread and in `GET`, but none of them goes into the agent's
     context again. Audit-logged.
@@ -362,7 +362,7 @@ def _attachment_posts(
 
 
 def _pdf_pages(source: IntakeSource) -> Optional[int]:
-    """`pages` for the file card (SPEC-flode-underlag.md §10.4, avvikelse
+    """`pages` for the file card (avvikelse
     4): a pdf's page count, `None` for an image, and `None` -- not an error
     -- for a pdf that cannot be found or read. The file is read through
     `IntakeService.resolve_source_file`, inside the intake root."""
@@ -391,7 +391,7 @@ async def stream_thread(
     fiscal_year_id: Optional[str] = _fiscal_year_query(),
     actor: str = Depends(get_current_actor),
 ):
-    """`text/event-stream` for one view's thread (SPEC §6.5).
+    """`text/event-stream` for one view's thread.
 
     Four event types: `message.created`, `message.delta`,
     `message.completed` and `view.changed`. `StreamingResponse` and one
@@ -422,7 +422,7 @@ async def stream_thread(
         try:
             # A turn already under way: what it has said so far, first. If it
             # finished before `missed` was read, its stored post follows and
-            # replaces the placeholder (SPEC-chattyta §15, question 5).
+            # replaces the placeholder (question 5).
             if in_progress is not None:
                 yield format_sse(EVENT_MESSAGE_CREATED, in_progress)
             for post in missed:
@@ -473,7 +473,7 @@ def _model_capabilities(thread: Thread) -> ThreadModelResponse:
     info = get_model_info(thread.model)
     # The adapter imports are deferred, and each one is bound to its own
     # name: `services/llm/` is the only package allowed to import
-    # `anthropic`/`openai` (SPEC-agentruntime §4), so importing at module
+    # `anthropic`/`openai`, so importing at module
     # level here would drag both SDKs into every request that touches a
     # thread.
     if info.protocol == "messages":
@@ -533,7 +533,7 @@ async def set_thread_model(
     Takes effect from the next turn; the turns already run keep their own
     `agent_runs.model`, which is exactly what makes the switch visible
     afterwards. A model with no price row is refused here rather than at the
-    first turn -- SPEC-agentruntime §2: "En modell utan prisrad är ett fel,
+    first turn: "En modell utan prisrad är ett fel,
     inte ett standardvärde", and the honest moment to say so is when it is
     chosen.
     """

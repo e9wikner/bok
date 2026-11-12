@@ -1,7 +1,7 @@
-"""Content selection for one intake source (docs/redesign/SPEC-agentruntime.md §6.3).
+"""Content selection for one intake source.
 
 This module decides what an `IntakeSource` actually costs to send an LLM, and
-implements SPEC §6.3's three-step order:
+implements a three-step order:
 
 1. A PDF with a readable text layer whose own numbers reconcile -> only the
    extracted text, as a `text` content block (a few hundred tokens).
@@ -24,16 +24,16 @@ parameters instead of reading `IntakeService` internals itself. The future
 
 Layering (see CLAUDE.md): no SQL, no `db.execute`, no HTTP exceptions here --
 this sits in `services/` next to other modules with no DB access of their
-own. It also never imports `anthropic` or `openai` (SPEC §4, §10): it
+own. It also never imports `anthropic` or `openai`: it
 produces protocol-agnostic content-block dicts (the same Anthropic-native
-shapes already used in `services/llm/messages.py`, per SPEC §4's decision
+shapes already used in `services/llm/messages.py`, per the decision
 that `messages`/`tools` are Anthropic wire shapes throughout), it never calls
 an SDK.
 
 `pdf2image` (poppler in the container) and PyMuPDF/`fitz` (AGPL) are
 deliberately not used anywhere in this module -- `pypdf` is the only PDF
 dependency, precisely so runtime PDF handling never needs poppler in the
-image or an AGPL dependency in the tree (SPEC §2).
+image or an AGPL dependency in the tree.
 """
 
 from __future__ import annotations
@@ -69,7 +69,7 @@ _PDF_MIME_TYPE = "application/pdf"
 class DocumentUnreadableError(Exception):
     """Raised when a source cannot be turned into any content block.
 
-    This is step 3 of SPEC §6.3: the extracted text was missing or didn't
+    This is step 3: the extracted text was missing or didn't
     reconcile, and the adapter in use has no `document` block fallback
     (`capabilities.pdf_document_blocks is False` -- the Chat Completions
     path). `reason` is written to be usable, verbatim or near-verbatim, as
@@ -96,7 +96,7 @@ def extract_pdf_text(file_bytes: bytes) -> str:
     raising (a malformed or unusual PDF `pypdf` can't parse), or every page
     returning only whitespace (a scanned/rasterized PDF with no text
     operators at all). Callers never need to distinguish the two -- both
-    mean "fall through to step 2 of SPEC §6.3".
+    mean "fall through to step 2".
     """
     try:
         reader = PdfReader(io.BytesIO(file_bytes))
@@ -110,7 +110,7 @@ def extract_pdf_text(file_bytes: bytes) -> str:
 def count_pdf_pages(file_bytes: bytes) -> int | None:
     """How many pages a PDF has, or `None` when `pypdf` cannot read it.
 
-    For the file card's "218 kB · 1 sida" (SPEC-flode-underlag.md §10.4):
+    For the file card's "218 kB · 1 sida":
     a `user_file` post carries `pages`, and a file the server cannot count
     gets none rather than an error -- the card still stands."""
     try:
@@ -120,7 +120,7 @@ def count_pdf_pages(file_bytes: bytes) -> int | None:
 
 
 # ---------------------------------------------------------------------------
-# Step 1b: the reconciliation heuristic (SPEC §6.3, "Avstämningen...")
+# Step 1b: the reconciliation heuristic ("Avstämningen...")
 # ---------------------------------------------------------------------------
 #
 # This is a label-based regex heuristic over free-form Swedish invoice text,
@@ -128,7 +128,7 @@ def count_pdf_pages(file_bytes: bytes) -> int | None:
 # amount regex below, and both are a deliberately small, common set rather
 # than an exhaustive one. Its job is narrow: decide whether the *extracted
 # text itself* is internally consistent enough to send as-is, before any LLM
-# sees it. It is NOT the full SPEC §6.3 rule ("beloppen den postar ska finnas
+# sees it. It is NOT the full rule ("beloppen den postar ska finnas
 # ordagrant i den extraherade texten, och netto + moms ska gå ihop med
 # totalen") -- that full rule also requires checking the amounts the *agent
 # proposes to post* against this text, which is a session-level concern for
@@ -145,7 +145,7 @@ class ReconciliationState(Enum):
     net/VAT/total layout, or a foreign document, gives us nothing to
     cross-check, but that is not evidence the text extraction is corrupted.
     Only a *found* breakdown that fails to add up (DOES_NOT_RECONCILE) is
-    evidence of the "columns got scrambled" failure mode SPEC §6.3 warns
+    evidence of the "columns got scrambled" failure mode the design warns
     about, and only that state should trigger escalation to step 2.
     """
 
@@ -184,12 +184,12 @@ class ReconciliationResult:
         return self.state is ReconciliationState.RECONCILES
 
 
-#: Rounding tolerance for net + vat == total, in öre (SPEC §6.3: "±1 öre").
+#: Rounding tolerance for net + vat == total, in öre ("±1 öre").
 _RECONCILIATION_TOLERANCE_ORE = 1
 
 # Common Swedish invoice labels for each role. Matched case-insensitively,
 # word-boundary-anchored on the left so e.g. "moms" doesn't match inside an
-# unrelated word. This list is intentionally small -- SPEC's task note says
+# unrelated word. This list is intentionally small -- the task note says
 # a "reasonably small set of common labels is fine" -- and is expected to
 # grow only if a real invoice format is seen that isn't covered.
 _NET_LABELS = (
@@ -400,7 +400,7 @@ def _unreadable_reason(
 
 
 # ---------------------------------------------------------------------------
-# Orchestration (SPEC §6.3's three-step order)
+# Orchestration (the three-step order)
 # ---------------------------------------------------------------------------
 
 
@@ -409,7 +409,7 @@ def select_content_for_source(
     file_bytes: bytes,
     capabilities: LLMCapabilities,
 ) -> ContentBlock:
-    """Decide what to send the LLM for one intake source (SPEC §6.3).
+    """Decide what to send the LLM for one intake source.
 
     Returns exactly one content block -- image, text, or document -- or
     raises `DocumentUnreadableError` when the source cannot be read at all

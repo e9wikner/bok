@@ -1,5 +1,4 @@
-"""Draft vouchers proposed in a thread (docs/redesign/SPEC-flode-verifikationer.md
-§5, §6).
+"""Draft vouchers proposed in a thread.
 
 `foresla_verifikation` lands here. A proposal is three writes that only make
 sense together -- the draft voucher (no number), the `draft` post
@@ -227,7 +226,7 @@ def draft_body(
     correction: Optional[str] = None,
     comment: Optional[str] = None,
 ) -> dict:
-    """The `draft` post's body -- exactly SPEC-chattyta.md §4.3's keys, which
+    """The `draft` post's body -- exactly the client's keys, which
     `tests/test_flode_verifikationer.py` reads out of the client's fixture.
     `correction` is `correction_line`'s text for a correction proposal."""
     return {
@@ -262,7 +261,7 @@ def receipt_body(
     accounts: Mapping[str, Account],
     corrects: Optional[Voucher] = None,
 ) -> dict:
-    """The `receipt` post's body -- SPEC-chattyta.md §4.3, which
+    """The `receipt` post's body, which
     `tests/test_flode_verifikationer.py` reads out of the client's fixture.
 
     One row per account, in the voucher's order, both numbers always: the
@@ -313,8 +312,8 @@ def receipt_traces(
                 "voucher_id": corrects.id,
             }
         )
-    # Derived, like SPEC-oversikt.md §3: `MISSING_ATTACHMENT_SQL` in
-    # repositories/voucher_repo.py (SPEC-underlagstolkning.md §2.1).
+    # Derived, like `MISSING_ATTACHMENT_SQL` in
+    # repositories/voucher_repo.py.
     if voucher.missing_attachment:
         traces.append({"tool": RECEIPT_FLAG_TOOL, "label": "kompletteringsflagga satt"})
     traces.append({"tool": RECEIPT_WAITING_TOOL, "label": f"{waiting} kvar"})
@@ -433,8 +432,8 @@ def _account_code(details: Optional[str]) -> Optional[str]:
 #: `GET /drafts?status=` (§10): the table's three states, or every one.
 DRAFT_LIST_STATUSES = ("pending", "posted", "superseded", "all")
 
-#: Statuses `GET /drafts` accepts once invoice proposals are in it
-#: (SPEC-fakturering-f1.md §10.1): `posted` is vouchers only, `issued` and
+#: Statuses `GET /drafts` accepts once invoice proposals are in it:
+#: `posted` is vouchers only, `issued` and
 #: `rejected` invoices only.
 VIEW_DRAFT_STATUSES = ("pending", "posted", "superseded", "issued", "rejected", "all")
 
@@ -491,7 +490,7 @@ class DraftService:
     def list_view_drafts(
         self, *, view_key: str, status: str = "all", limit: Optional[int] = None
     ) -> Tuple[List[Tuple[str, Any]], int]:
-        """`GET /drafts` with both kinds (SPEC-fakturering-f1.md §10.1):
+        """`GET /drafts` with both kinds:
         `("voucher", DraftListItem)` and `("invoice", (InvoiceProposal,
         invoice block))`, oldest first over both, and the total before
         `limit`."""
@@ -558,7 +557,7 @@ class DraftService:
             self._record_correction(draft, voucher, actor)
         # 3. Traceability, as a direct posting links it.
         self._link_traceability(draft, voucher, actor)
-        # 3b. SPEC-flode-underlag.md §5 (D2): a difference proposed on a
+        # 3b. A difference proposed on a
         #     decision that based a link refers to the receipt through the
         #     linked voucher -- the server's lookup, never the agent's claim.
         self._record_source_reference(draft, voucher)
@@ -840,8 +839,8 @@ class DraftService:
     @staticmethod
     def _record_source_reference(draft: ThreadDraft, voucher: Voucher) -> None:
         """A row in `voucher_source_references` when the draft's
-        `decision_id` is an `intake_link_basis.decision_id`
-        (SPEC-flode-underlag.md §5, §9.2): *voucher* has its underlag through
+        `decision_id` is an `intake_link_basis.decision_id`:
+        *voucher* has its underlag through
         the voucher that carries the link. Uncommitted, in the posting's
         transaction -- a failure rolls the posting back with it."""
         if draft.decision_id is None:
@@ -1346,7 +1345,7 @@ class DraftService:
                 continue
             intake.ensure_source_ready_for_voucher_link(source_id)
             fresh.append(source_id)
-        # SPEC-flode-underlag.md §8: the posting's stop, for the proposal
+        # The posting's stop, for the proposal
         # too. Not run again when the proposal is posted.
         IntakeLinkService.ensure_not_matching_posted(fresh)
         BankInputService().ensure_transactions_available(

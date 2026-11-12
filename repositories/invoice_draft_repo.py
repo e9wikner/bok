@@ -1,7 +1,7 @@
 """Repository for agent-created invoice drafts.
 
 Nothing here commits. The caller owns the transaction, so that issuing an
-invoice can run in one `with db.transaction():` (SPEC-fakturering.md §5).
+invoice can run in one `with db.transaction():`.
 """
 
 import uuid
@@ -295,7 +295,7 @@ class InvoiceDraftRepository:
 
     @staticmethod
     def mark_issued(draft_id: str, invoice_id: str, voucher_id: str) -> None:
-        """SPEC-fakturering.md §5 step 6. Only a draft that is not yet
+        """Issuing, last step. Only a draft that is not yet
         issued changes."""
         db.execute(
             """

@@ -1,4 +1,4 @@
-"""Utfärda en faktura från ett utkast (SPEC-fakturering.md §5).
+"""Utfärda en faktura från ett utkast.
 
 One step that is either wholly done or not at all: the invoice and its rows,
 a posted A-series voucher, the rendered PDF stored and linked as underlag to
@@ -149,8 +149,8 @@ class InvoiceIssueService:
         return f"faktura_{invoice.invoice_number}.pdf", path.read_bytes()
 
     def check(self, draft) -> str:
-        """Every check `issue` runs before it writes, without writing
-        (SPEC-fakturering-f1.md §5.3): the draft's own, `company_info`, the
+        """Every check `issue` runs before it writes, without writing:
+        the draft's own, `company_info`, the
         period of the invoice date and the number's uniqueness. A proposal
         runs it so that a card with `Utfärda` can be issued when it is shown;
         `issue` runs the same checks again. Returns the invoice number."""

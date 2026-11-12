@@ -1,5 +1,5 @@
 /**
- * Idempotensnyckeln för `Posta` (SPEC-chattyta.md §8 steg 1).
+ * Idempotensnyckeln för `Posta`.
  *
  * Append-only betyder att en dubbelpostning inte kan städas bort — den kräver
  * en korrigeringsverifikation. Därför byggs idempotensen FÖRE något skrivflöde
@@ -9,12 +9,12 @@
  * Nyckeln är HÄRLEDD, inte slumpad: `uuid5(BOK_KLIENT_NS, "draft:" + draft_id)`.
  * Ett andra tryck, en omladdning, en annan flik och `FelKort`s `Försök igen`
  * ger alla samma nyckel och därmed samma verifikation. En slumpad UUIDv4 per
- * tryck (SPEC-idempotens.md antagande 3) skyddar bara inom ett och samma
+ * tryck skyddar bara inom ett och samma
  * minne; en härledd nyckel överlever omladdningen. Servern kräver bara att
  * nyckeln är en UUID (`api/deps.py`), så v5 duger lika bra som v4.
  *
- * SHA-1 räknas här i filen, inte med `crypto.subtle` — inga beroenden
- * (SPEC-chattyta.md §3). `crypto.subtle` finns bara i en säker kontext (https
+ * SHA-1 räknas här i filen, inte med `crypto.subtle` — inga beroenden.
+ * `crypto.subtle` finns bara i en säker kontext (https
  * eller localhost); på `http://hubbabubba:3000` är det `undefined`, och då föll
  * varje `Posta` på ett TypeError innan något anrop gick iväg (`okänt fel`).
  * SHA-1 är här ingen säkerhetsfunktion utan det RFC 4122 föreskriver för v5.

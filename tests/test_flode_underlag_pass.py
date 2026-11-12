@@ -1,7 +1,7 @@
 """`flode-underlag` and the intake pass: the thread owns its files (FU11,
 D4, §11.3) and the scripted flows (FU18, testfall 39-42).
 
-Test case numbers refer to SPEC-flode-underlag.md §14. No real LLM: the
+No real LLM: the
 pass and the thread turns run with `agentruntime`'s scripted client.
 """
 

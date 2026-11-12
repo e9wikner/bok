@@ -1,4 +1,4 @@
-"""The thread entry point to the session (docs/redesign/SPEC-tradar.md §6.1, §6.3).
+"""The thread entry point to the session.
 
 The second way into the same engine: a *message* instead of a document.
 Everything that decides what the agent may do is shared with the document
@@ -53,11 +53,11 @@ from services.llm import LLMClient, StreamTextHook, StreamToolCallHook
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# The thread window (SPEC §6.3)
+# The thread window
 # ---------------------------------------------------------------------------
 
 #: Characters per token, for budgeting only. No tokenizer is used or added:
-#: SPEC §3 is explicit that this module takes no new dependency, and the two
+#: this module takes no new dependency, and the two
 #: providers tokenize differently anyway, so an exact count for one would be
 #: wrong for the other. 3 is deliberately pessimistic -- Swedish prose runs
 #: closer to 4 characters per token, and JSON-ish `draft` bodies closer to 3
@@ -99,7 +99,7 @@ def build_thread_window(
 ) -> list[ThreadPost]:
     """The most recent posts that fit inside `budget_tokens`, oldest first.
 
-    SPEC §6.3: within the fiscal year's thread, the whole thread does **not**
+    Within the fiscal year's thread, the whole thread does **not**
     go into the context -- that would let the cost grow unbounded until the
     daily cap stopped it by itself, which looks like a bug rather than a
     budget.
@@ -163,12 +163,12 @@ def build_thread_user_turn(
     reset_posts: int = 0,
     fiscal_year: Optional[FiscalYear] = None,
 ) -> list[dict]:
-    """Build the volatile user turn for a thread reply (SPEC §6.1 step 4).
+    """Build the volatile user turn for a thread reply.
 
     Everything here sits *after* the cache breakpoint, exactly as
     `build_user_turn` does for a document: today's date is in here and never
     in the system prompt, so the cached prefix stays byte-identical between a
-    document turn and a thread turn (test case 12, SPEC-agentruntime §6.6).
+    document turn and a thread turn (test case 12).
 
     When the window left posts out, that is stated plainly rather than
     hidden. The model is told the conversation is older than what it can see
@@ -248,7 +248,7 @@ def run_thread_session(
     agent_run_id: Optional[str] = None,
     fiscal_year: Optional[FiscalYear] = None,
 ) -> SessionOutcome:
-    """Run one LLM session for one message in one thread (SPEC §6.1).
+    """Run one LLM session for one message in one thread.
 
     `trigger_post` is the human's own post -- the one already written to the
     thread before this was called, per §6.1 step 2 -- and it is what the
@@ -262,7 +262,7 @@ def run_thread_session(
     caller puts the daily budget -- checked between tool turns, never inside
     a transaction (§6.1, test case 30). `agent_run_id` is the caller's
     `agent_runs` row, carried in `tool_context` for `tolka_underlag`'s
-    traceability (SPEC-underlagstolkning.md §6.6, §12.6 a).
+    traceability (§12.6 a).
 
     Returns a `SessionOutcome`, which for this path may also be `"answered"`
     (§11). Writing any of it to the thread is the caller's job.
@@ -279,7 +279,7 @@ def run_thread_session(
         client,
         # Byte for byte the document path's prompt: the cache breakpoint sits
         # at the end of it, and moving it for the thread's sake would throw
-        # away the cache economy for both paths (SPEC-agentruntime §6.6).
+        # away the cache economy for both paths.
         system_prompt=build_system_prompt(),
         messages=build_thread_user_turn(
             thread,
@@ -293,7 +293,7 @@ def run_thread_session(
         ),
         # Unchanged, in `_TOOL_SPECS`' unchanged order -- the tool list is
         # part of the cached prefix, and the thread gets no tool of its own
-        # (SPEC §6.4, §8.2; test case 14).
+        # (test case 14).
         tools=AGENT_TOOL_DEFINITIONS,
         model=model,
         actor=actor,
@@ -308,21 +308,19 @@ def run_thread_session(
         ),
         check_between_turns=check_between_turns,
         # `be_om_beslut` cannot exist without knowing which thread it was
-        # raised in (SPEC-beslut.md §6.4). It travels in an unread mapping,
+        # raised in. It travels in an unread mapping,
         # the same opaque handoff `posting_idempotency_key` already makes
         # above: `run_tool_loop` forwards it without looking inside, so
-        # SPEC-tradar.md §8.1's boundary -- the runtime does not know what a
+        # the boundary -- the runtime does not know what a
         # thread is -- survives the tenth tool. Only `execute_tool` ->
         # `be_om_beslut` opens it.
         #
-        # `proposals` is `foresla_verifikation`'s (SPEC-flode-verifikationer
-        # §5.5): the `{post_id}:{n}` of its key, fresh per turn and hung on
+        # `proposals` is `foresla_verifikation`'s: the `{post_id}:{n}` of its key, fresh per turn and hung on
         # the same trigger post as the posting key. It rides in the same
         # unread mapping for the same reason, and only
         # `_run_foresla_verifikation` opens it.
         #
-        # `agent_run_id` is `tolka_underlag`'s (SPEC-underlagstolkning.md
-        # §6.6): only `_run_tolka_underlag` opens it.
+        # `agent_run_id` is `tolka_underlag`'s: only `_run_tolka_underlag` opens it.
         tool_context={
             "thread": thread,
             "proposals": ProposalSequence(thread.id, trigger_post.id),
@@ -333,7 +331,7 @@ def run_thread_session(
 
 
 def _final_paragraph_only(outcome: SessionOutcome) -> SessionOutcome:
-    """Keep `outcome.text` to the turn's answer (SPEC-lasbarhet §4.1).
+    """Keep `outcome.text` to the turn's answer.
 
     `run_tool_loop` sets `text` to the last LLM turn's text. For `answered`
     that turn made no tool call, so its text is the final paragraph. For

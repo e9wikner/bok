@@ -25,7 +25,7 @@ import { useTrad, type UseTrad } from "@/hooks/useTrad";
  *
  * Tråden läses HÄR, en gång, och ges till både märket och `TradYta`. Läste
  * ytan den själv vore det två strömmar mot samma vy. Som i `ChattKolumn`
- * läses den bara för den aktiva vyn (SPEC-chattyta.md §6.2 punkt 5).
+ * läses den bara för den aktiva vyn.
  */
 export function ChattList({
   vyTitel,
@@ -98,7 +98,7 @@ function ListLayout({
   // Förslagskortets `Ändra` ska till listens eget fält (chattyta C12).
   const falt = useRef<HTMLInputElement>(null);
   const fokuseraFalt = useCallback(() => falt.current?.focus(), []);
-  // Listen tar emot en släppt fil, inte bara fältet (SPEC-flode-underlag.md §10.1).
+  // Listen tar emot en släppt fil, inte bara fältet.
   const list = useRef<HTMLDivElement>(null);
 
   const marke =

@@ -1,4 +1,4 @@
-"""Tests for the idempotency module (docs/redesign/SPEC-idempotens.md).
+"""Tests for the idempotency module.
 
 Covers T1-T5: migration, repository, service, header dependency and
 POST /api/v1/agent/vouchers. The point of the module is that an irreversible

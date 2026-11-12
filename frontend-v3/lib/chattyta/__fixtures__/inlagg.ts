@@ -1,8 +1,8 @@
 /**
- * Ett råinlägg per typ, i serverns form (SPEC-chattyta.md §2).
+ * Ett råinlägg per typ, i serverns form.
  *
  * `FIXTUR_DRAFT.body` och `FIXTUR_RECEIPT.body` är kontraktet servern skriver
- * mot (ursprungligen SPEC-chattyta.md §4.3, i git-historiken). Ändras
+ * mot. Ändras
  * serverns kropp ska fixturen ändras i samma commit. Platshållar-id:na
  * (`<vouchers.id, …>`) är avsiktliga.
  *
@@ -126,7 +126,7 @@ export const FIXTUR_OPTIONS: RaInlagg = {
   run_id: "r-2",
 };
 
-/** SPEC-chattyta.md §4.3, ordagrant. */
+/** Ett verifikationsförslag. */
 export const FIXTUR_DRAFT: RaInlagg = {
   id: "p-6",
   seq: 6,
@@ -167,7 +167,7 @@ export const FIXTUR_ERROR: RaInlagg = {
   run_id: "r-3",
 };
 
-/** SPEC-chattyta.md §4.3, ordagrant. */
+/** Kvittot efter en postning. */
 export const FIXTUR_RECEIPT: RaInlagg = {
   id: "p-8",
   seq: 8,
@@ -184,7 +184,7 @@ export const FIXTUR_RECEIPT: RaInlagg = {
   run_id: "r-3",
 };
 
-/** SPEC-fakturering-f1.md §6.1, ordagrant. */
+/** Ett fakturaförslag. */
 export const FIXTUR_FAKTURA_DRAFT: RaInlagg = {
   id: "p-9",
   seq: 9,
@@ -220,7 +220,7 @@ export const FIXTUR_FAKTURA_DRAFT: RaInlagg = {
   run_id: "r-4",
 };
 
-/** SPEC-fakturering-f1.md §8.1: kvittot efter ett utfärdande. */
+/** Kvittot efter ett utfärdande. */
 export const FIXTUR_FAKTURA_RECEIPT: RaInlagg = {
   id: "p-10",
   seq: 10,

@@ -22,7 +22,7 @@ import {
 } from "@/lib/chattyta/__fixtures__/inlagg";
 import type { RaInlagg } from "@/lib/chattyta/typer";
 
-// Renderarna tar bara det `parseInlagg` släppt igenom (SPEC §4.1) — testerna
+// Renderarna tar bara det `parseInlagg` släppt igenom — testerna
 // går därför samma väg i stället för att bygga typade inlägg för hand.
 function typad<T extends Inlagg>(raw: RaInlagg): T {
   const inlagg = parseInlagg(raw);
@@ -36,7 +36,7 @@ const fil = () => typad<UserFileInlagg>(FIXTUR_USER_FILE);
 
 // ─── TradInlagg/agent ─────────────────────────────────────────────────────
 
-describe("TradInlagg/agent (komponenter.md, SPEC §5)", () => {
+describe("TradInlagg/agent (komponenter.md)", () => {
   it("metaraden är `agenten · HH:MM` i lokal tid", () => {
     // Utan tidszon tolkas ISO-strängen som lokal tid (ECMAScript), så
     // testet håller oavsett maskinens TZ.
@@ -73,7 +73,7 @@ describe("TradInlagg/agent (komponenter.md, SPEC §5)", () => {
     expect(text).toHaveClass("text-[15px]", "leading-[1.6]", "max-w-[54ch]", "[text-wrap:pretty]");
   });
 
-  it("`traces[]` ritas inte — inga spår-chip (SPEC-lasbarhet M4)", () => {
+  it("`traces[]` ritas inte — inga spår-chip", () => {
     // Fixturen bär två spår; servern skickar dem, klienten visar dem inte.
     expect(agent().traces).toHaveLength(2);
     const { container } = render(<TradInlagg inlagg={agent()} />);
@@ -118,7 +118,7 @@ describe("TradInlagg/du (komponenter.md)", () => {
 
 // ─── FilInlagg ────────────────────────────────────────────────────────────
 
-describe("FilInlagg (komponenter.md, SPEC §5)", () => {
+describe("FilInlagg (komponenter.md)", () => {
   it("visar filnamnet och `218 kB · 1 sida`", () => {
     render(<FilInlagg inlagg={fil()} />);
     expect(screen.getByText("kvitto-clas-ohlson.pdf")).toBeInTheDocument();
@@ -258,7 +258,7 @@ function serverVerktyg(): string[] {
   return Array.from(kalla.slice(start, slut).matchAll(/^ {8}"([a-z_]+)",$/gm), (m) => m[1]);
 }
 
-describe("varje agentverktyg har en presensetikett (SPEC-lasbarhet §4.3)", () => {
+describe("varje agentverktyg har en presensetikett", () => {
   it("SKRIVER_ETIKETTER täcker exakt verktygen i agent_tools.py", () => {
     const verktyg = serverVerktyg();
     // Ett trasigt mönster ska inte ge ett tomt, trivialt grönt test.

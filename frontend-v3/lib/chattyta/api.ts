@@ -1,5 +1,5 @@
 /**
- * Trådens anrop (modul `chattyta`, SPEC-chattyta.md §2, §6.2).
+ * Trådens anrop (modul `chattyta`).
  *
  * Via axios-instansen i `lib/api.ts`, så att bearer-headern kommer ur samma
  * interceptor som resten av appen. Strömmen går inte hit: den är `fetch`
@@ -46,7 +46,7 @@ export interface NollstallSvar {
 
 /**
  * `api/schemas.py::ThreadMessageResponse`. Bär bara människans egna
- * inlägg — agentens svar kommer över strömmen (SPEC-tradar.md §6.1).
+ * inlägg — agentens svar kommer över strömmen.
  */
 export interface MeddelandeSvar {
   thread_id: string;
@@ -59,7 +59,7 @@ export interface MeddelandeSvar {
 const tradUrl = (viewKey: string) => `/api/v1/threads/${encodeURIComponent(viewKey)}`;
 
 /**
- * En tråd per vy OCH räkenskapsår (SPEC-tradar.md §12.3), och varje års tråd
+ * En tråd per vy OCH räkenskapsår, och varje års tråd
  * går att skriva i: bokslutet för ett år görs efter att året slutat. Utan år
  * menar servern innevarande år. Samma frågesträng på varje anrop — läsning,
  * meddelande, nollställning och ström — så att de aldrig hamnar i olika
@@ -99,8 +99,8 @@ export async function nollstallTrad(
  * texten är ett svar på ett beslut — agenten tolkar den.
  *
  * `attachments` är id:n för källor som redan laddats upp med
- * `laddaUppUnderlag`, aldrig filinnehåll (SPEC-tradar.md §6.2). Med bilagor
- * får `text` vara tom (SPEC-flode-underlag.md D8); servern skriver då inget
+ * `laddaUppUnderlag`, aldrig filinnehåll. Med bilagor
+ * får `text` vara tom; servern skriver då inget
  * `user_text`, bara `user_file`-inläggen.
  */
 export async function skickaMeddelande(
@@ -116,7 +116,7 @@ export async function skickaMeddelande(
   return data;
 }
 
-// ─── Underlag (SPEC-flode-underlag.md §10.2) ─────────────────────────────
+// ─── Underlag ─────────────────────────────
 
 /** `api/routes/intake.py::_source_to_dict`, de fält klienten läser. */
 export interface UnderlagSvar {
@@ -171,8 +171,7 @@ export async function laddaUppKontoutdrag(fil: File): Promise<KontoutdragSvar> {
 const BLOB_LIVSTID_MS = 60_000;
 
 /**
- * Öppna en källa i intagskön i ett nytt fönster (SPEC-flode-underlag.md
- * §10.4). `GET /intake/{id}/file` kräver bearer, så filen hämtas som blob
+ * Öppna en källa i intagskön i ett nytt fönster. `GET /intake/{id}/file` kräver bearer, så filen hämtas som blob
  * genom `apiClient` — aldrig en vanlig `href`.
  *
  * Fönstret öppnas i trycket, INNAN något hämtas: ett `window.open` efter en
@@ -266,12 +265,12 @@ export async function oppnaFil(sokvag: string | (() => Promise<string | null>)):
   }
 }
 
-// ─── Beslut (SPEC-beslut.md §6.1, SPEC-chattyta.md §7, §10) ──────────────
+// ─── Beslut ──────────────
 
 /**
  * `abstention` och `approval` är riktiga beslut (`decisions.kind`, migration
  * 026); `intake` och `correction` är de två syntetiska källorna, vars `id`
- * bär prefixet `intake:`/`correction:` (SPEC-beslut.md §5). Servern typar
+ * bär prefixet `intake:`/`correction:`. Servern typar
  * fältet som `str`; värdena här är de fyra den kan ge.
  */
 export type BeslutSort = "abstention" | "approval" | "intake" | "correction";
@@ -316,7 +315,7 @@ export interface BeslutSvar {
   /** För `correction` är det människans text, inte agentens (schemats docstring). */
   reason: string;
   consequence: string;
-  /** `null` för ett beslut som togs upp mitt i samtalet (SPEC-beslut.md §2 antagande 5). */
+  /** `null` för ett beslut som togs upp mitt i samtalet. */
   source: BeslutKallaSvar | null;
   /** Serverns tal; färgas med `aldersTon` (`lib/chattyta/alder.ts`). */
   age_days: number;
@@ -370,7 +369,7 @@ export async function hamtaBeslut({
   return data;
 }
 
-// ─── Svar på beslut (SPEC-beslut.md §6.2, SPEC-chattyta.md §7) ──────────
+// ─── Svar på beslut ──────────
 
 /** `api/schemas.py::DecisionAnswerResponse` — kroppen i `202`. */
 export interface BeslutSvarSvar {
@@ -461,7 +460,7 @@ export async function avfardaBeslut(decisionId: string): Promise<void> {
   }
 }
 
-// ─── Postning (SPEC-chattyta.md §8, SPEC-idempotens.md §6) ───────────────
+// ─── Postning ───────────────
 
 /**
  * `api/schemas.py::VoucherResponse`, de fält klienten läser. Kortets klara
@@ -609,7 +608,7 @@ export async function postaUtkast(draftId: string): Promise<PostaUtfall> {
   }
 }
 
-// ─── Utfärda ett fakturaförslag (SPEC-fakturering-f1.md §7.1) ────────────
+// ─── Utfärda ett fakturaförslag ────────────
 
 /** `201` ur `POST /invoice-drafts/{id}/issue`. */
 export interface UtfardadFaktura {
@@ -691,8 +690,8 @@ export const VOUCHERS_NYCKEL = ["vouchers"] as const;
 export const DRAFTS_NYCKEL = ["drafts"] as const;
 
 /**
- * Fakturorna och fakturautkasten i vyn Fakturering (SPEC-fakturering-f1.md
- * §10.2). Invalideras av ett utfärdande och av `view.changed`.
+ * Fakturorna och fakturautkasten i vyn Fakturering.
+ * Invalideras av ett utfärdande och av `view.changed`.
  */
 export const FAKTUROR_NYCKEL = ["invoices"] as const;
 
@@ -705,15 +704,15 @@ export const LONER_NYCKEL = ["payroll"] as const;
 // ─── Förslagens status (flode-verifikationer §10, F13) ───────────────────
 
 /**
- * `thread_drafts.status`, och för fakturaförslag `thread_invoice_drafts.status`
- * (SPEC-fakturering-f1.md §10.1): `issued` och `rejected` finns bara där.
+ * `thread_drafts.status`, och för fakturaförslag `thread_invoice_drafts.status`:
+ * `issued` och `rejected` finns bara där.
  */
 export type ForslagStatus = "pending" | "posted" | "superseded" | "issued" | "rejected";
 
 /** Frågans filter; `all` är inget läge ett förslag kan ha. */
 export type ForslagFilter = ForslagStatus | "all";
 
-/** Vad ett utfärdat fakturaförslag blev (SPEC-fakturering-f1.md §10.1). */
+/** Vad ett utfärdat fakturaförslag blev. */
 export interface ForslagFaktura {
   invoice_id: string;
   invoice_number: string;
@@ -726,7 +725,7 @@ export interface ForslagFaktura {
 /** En rad ur `GET /drafts`, fält för fält (`api/routes/drafts.py`). */
 export interface ForslagStatusSvar {
   /**
-   * `voucher` eller `invoice` (SPEC-fakturering-f1.md §10.1). Valfri: en
+   * `voucher` eller `invoice`. Valfri: en
    * server från före F1 skickar den inte, och då är raden en verifikation.
    */
   kind?: "voucher" | "invoice";

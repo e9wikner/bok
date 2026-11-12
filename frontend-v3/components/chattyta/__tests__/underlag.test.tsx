@@ -7,7 +7,7 @@ import { FIXTUR_RECEIPT, FIXTUR_USER_FILE } from "@/lib/chattyta/__fixtures__/in
 import type { RaInlagg, ReceiptKropp, UserFileInlagg } from "@/lib/chattyta/typer";
 
 /**
- * FU22 (SPEC-flode-underlag.md D7, §10.4; testfall 50): `note` i `receipt`,
+ * FU22 (testfall 50): `note` i `receipt`,
  * och `FilInlagg`s länk till filen.
  */
 

@@ -1,4 +1,4 @@
-"""Domain types for `underlagstolkning` (SPEC-underlagstolkning.md §5-§7).
+"""Domain types for `underlagstolkning`.
 
 An `Interpretation` is one row of `intake_interpretations` (migrations 030,
 031): what the model read from an underlag (`vendor` … `lines`, claims) and

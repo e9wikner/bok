@@ -6,7 +6,7 @@ import { ChattList } from "@/components/skal/ChattList";
 import type { UseTrad } from "@/hooks/useTrad";
 
 /**
- * FU20 — `ChattFalt/drop` (SPEC-flode-underlag.md §10.1–§10.2; testfall 45,
+ * FU20 — `ChattFalt/drop` (testfall 45,
  * 46, 48, 49 och D8). Axios-instansen är mockad; uppladdningens logik är
  * den riktiga (`lib/chattyta/uppladdning.ts`).
  */

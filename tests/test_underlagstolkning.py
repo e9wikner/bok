@@ -1,10 +1,8 @@
-"""Tests for the `underlagstolkning` module
-(docs/redesign/SPEC-underlagstolkning.md).
+"""Tests for the `underlagstolkning` module.
 
-Grows across tasks U1-U10 of `tasks/underlagstolkning/todo.md`; each task
-gets its own section. Test case numbers refer to the tables in spec §10.
+Each task (U1-U10) gets its own section.
 
-Per the spec no LLM is ever called from a test.
+No LLM is ever called from a test.
 """
 
 import hashlib
@@ -2269,15 +2267,15 @@ def test_u6_voucher_candidate_row_is_one_posted_voucher_any_window(
 
 # ---------------------------------------------------------------------------
 # U7 — the tool list: `tolka_underlag` twelfth (§6.2, §6.6; testfall 34).
-# It was last until `flode-underlag` appended `koppla_underlag` after it
-# (SPEC-flode-underlag.md §6.7); what comes after it is that module's
+# It was last until `flode-underlag` appended `koppla_underlag` after it;
+# what comes after it is that module's
 # testfall 36.
 # ---------------------------------------------------------------------------
 
 # sha256 of `json.dumps(AGENT_TOOL_DEFINITIONS[:11])`, taken on `9523c81`,
 # before U7 touched `_TOOL_SPECS`. No `sort_keys`: the key order inside each
 # definition is part of the bytes the model is sent, and so of the cached
-# prefix (SPEC-agentruntime §6.6). Re-taken for SPEC-lasbarhet L6, which
+# prefix. Re-taken for the readability work, which
 # deliberately rewords `be_om_beslut` and `foresla_verifikation`. Re-taken
 # again for the period lock, which rewords `las_perioder`, and for migration
 # 045, which adds `comment` and `valuta` to `posta_verifikation`.

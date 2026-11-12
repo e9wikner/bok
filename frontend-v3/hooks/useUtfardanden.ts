@@ -5,7 +5,7 @@ import { UTFARDANDEN_NYCKEL, type Utfardande } from "@/lib/chattyta/utfardanden"
 
 const INGA: readonly Utfardande[] = [];
 
-/** De optimistiska utfärdandena (SPEC-fakturering-f1.md §10.2). Ingen fråga går. */
+/** De optimistiska utfärdandena. Ingen fråga går. */
 export function useUtfardanden(): readonly Utfardande[] {
   const { data } = useQuery<Utfardande[]>({
     queryKey: UTFARDANDEN_NYCKEL,

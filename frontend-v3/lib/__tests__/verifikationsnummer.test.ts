@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { formatVerifikationsnummer } from "@/lib/utils";
 
-// SPEC-flode-verifikationer.md §4.3 och §14.1 testfall 13 (klientdelen):
-// ett utkast har inget nummer, och klienten visar `Utkast` i stället.
+// Testfall 13 (klientdelen): ett utkast har inget nummer, och klienten visar `Utkast` i stället.
 describe("formatVerifikationsnummer (testfall 13)", () => {
   it("visar serie och nummer för en postad verifikation", () => {
     expect(formatVerifikationsnummer(12, "A")).toBe("A12");

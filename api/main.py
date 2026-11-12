@@ -166,10 +166,10 @@ app.include_router(overview.router, dependencies=AUTHENTICATED)
 # Tråd per vy (chatten hör till vyn, inte till appen)
 app.include_router(threads.router, dependencies=AUTHENTICATED)
 
-# Beslut: unionen av tre källor (SPEC-beslut.md §5, §6.1)
+# Beslut: unionen av tre källor
 app.include_router(decisions.router, dependencies=AUTHENTICATED)
 
-# Trådens förslag och vad som hände med dem (SPEC-flode-verifikationer.md §10)
+# Trådens förslag och vad som hände med dem
 app.include_router(drafts.router, dependencies=AUTHENTICATED)
 
 

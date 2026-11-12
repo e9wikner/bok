@@ -1,7 +1,6 @@
 """Voucher posting orchestration — the single path into the general ledger.
 
-Extracted from ``api/routes/agent.py::_create_and_post_voucher`` (see
-``docs/redesign/SPEC-agentruntime.md`` §7) so that the HTTP route and the
+Extracted from ``api/routes/agent.py::_create_and_post_voucher`` so that the HTTP route and the
 agent-runtime tool (``services/agent_tools.py::posta_verifikation``, A7)
 share exactly the same posting code. This is pure orchestration: it raises
 domain exceptions (``ValidationError``, ``IntakeError``, ``BankInputError``)
@@ -86,7 +85,7 @@ def post_agent_voucher(
     for source_id in intake_source_ids:
         if source_id not in shared:
             intake.ensure_source_ready_for_voucher_link(source_id)
-    # SPEC-flode-underlag.md §8: an underlag that matches a posted voucher
+    # An underlag that matches a posted voucher
     # exactly is linked, not posted again. Before anything is written; the
     # caller releases its idempotency key when this raises.
     from services.intake_link import IntakeLinkService

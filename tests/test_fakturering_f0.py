@@ -1,9 +1,8 @@
-"""Fakturering F0: utfärda en faktura från ett utkast (SPEC-fakturering.md §9).
+"""Fakturering F0: utfärda en faktura från ett utkast.
 
-Testfall 1–15 ur §9. Varje fall är märkt med den uppgift i
-`tasks/fakturering/todo.md` som gör det grönt.
+Testfall 1–15, vart och ett märkt med den uppgift som gjorde det grönt.
 
-Gränssnitt som testerna förutsätter där specen inte namnger dem:
+Gränssnitt som testerna förutsätter:
 
 - `services.invoice_issue.InvoiceIssueService().issue(draft_id, actor=...)`
   returnerar samma fält som 201-svaret i §5 (`invoice_id`, `invoice_number`,

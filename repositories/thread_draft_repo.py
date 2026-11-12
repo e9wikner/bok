@@ -1,5 +1,4 @@
-"""Repository for `thread_drafts` (migration 028,
-SPEC-flode-verifikationer.md §6).
+"""Repository for `thread_drafts` (migration 028).
 
 All SQL for `thread_drafts` lives here — see AGENTS.md's layering rule. Same
 `@staticmethod` form and `_commit: bool = True` convention as

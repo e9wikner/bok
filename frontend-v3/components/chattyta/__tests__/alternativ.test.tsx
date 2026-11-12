@@ -111,7 +111,7 @@ beforeEach(() => {
 
 // ─── Testfall 14: ingenting förväljs ──────────────────────────────────────
 
-describe("AlternativLista renderas utan förval (testfall 14, SPEC §4.2)", () => {
+describe("AlternativLista renderas utan förval (testfall 14)", () => {
   it("testfall 14: en knapp per alternativ, i en grupp — inte en radiogrupp (§11)", () => {
     rendera();
     expect(screen.getByRole("group")).toBeInTheDocument();

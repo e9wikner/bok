@@ -12,7 +12,7 @@ describe("aldersTon — age_days-tröskeln (testfall 22)", () => {
     expect(aldersTon(30)).toBe("forfallen");
   });
 
-  it("tröskeln är sju dagar, samma dag som påminnelsen (SPEC-chattyta.md §12.2)", () => {
+  it("tröskeln är sju dagar, samma dag som påminnelsen", () => {
     expect(ROD_FRAN_DAGAR).toBe(7);
     expect(aldersTon(ROD_FRAN_DAGAR - 1)).toBe("vantar");
     expect(aldersTon(ROD_FRAN_DAGAR)).toBe("forfallen");

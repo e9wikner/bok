@@ -1,5 +1,5 @@
 /**
- * Trådens tillstånd (modul `chattyta`, SPEC-chattyta.md §6.3).
+ * Trådens tillstånd (modul `chattyta`).
  *
  * En ren reducer, inte en hook: tillståndet har tre sätt att få en dubblett
  * — återuppspelning vid återanslutning, det optimistiska inlägget och den
@@ -15,7 +15,7 @@
  *    (testfall 7).
  * 3. Det lagrade inlägget vinner över den ihopsamlade deltatexten vid
  *    `message.completed` (testfall 10). Deltan är en leverans, inte
- *    sanningen (SPEC-tradar.md §8.5).
+ *    sanningen.
  */
 
 import { parseInlagg } from "@/lib/chattyta/parse";
@@ -144,7 +144,7 @@ function handelse(t: TradTillstand, { event, data }: SseHandelse): TradTillstand
         return { ...t, strommande: { ...nu, text: nu.text + data.text } };
       }
       // Ett verktygsanrop avslutar stycket: mellantexten syns bara till
-      // nästa anrop och sparas aldrig (SPEC-lasbarhet §4.1). Tom text låter
+      // nästa anrop och sparas aldrig. Tom text låter
       // `SkriverIndikator` visa verktygets presensetikett igen.
       if (typeof data.activity === "string") {
         return { ...t, strommande: { ...nu, text: "", activity: data.activity } };

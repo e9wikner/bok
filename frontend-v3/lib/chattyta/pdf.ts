@@ -1,5 +1,5 @@
 /**
- * Den sparade faktura-PDF:en (SPEC-fakturering-f1.md §8.2). Routen kräver
+ * Den sparade faktura-PDF:en. Routen kräver
  * auth, så en vanlig länk fungerar inte: filen hämtas som blob med
  * `apiClient` och öppnas i en ny flik. Byte för byte den sparade filen —
  * klienten renderar ingenting.

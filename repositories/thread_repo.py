@@ -1,4 +1,4 @@
-"""Repository for threads and their posts (migration 025, SPEC-tradar.md §4).
+"""Repository for threads and their posts (migration 025).
 
 All SQL for `threads` / `thread_posts` lives here — see AGENTS.md's layering
 rule. Same `@staticmethod` form as `repositories/agent_run_repo.py`, which
@@ -6,8 +6,8 @@ this file deliberately mirrors: the two tables are read by the same layer,
 for the same endpoint, and a second shape would be one more thing to hold in
 your head while following a post from `agent_run_events` to the client.
 
-Nothing here updates or deletes a post. A correction is a new post
-(SPEC §8.4), exactly as a correction in the ledger is a new voucher.
+Nothing here updates or deletes a post. A correction is a new post,
+exactly as a correction in the ledger is a new voucher.
 """
 
 import json
@@ -21,7 +21,7 @@ from domain.models import Thread, ThreadPost
 #: The eight post types `datakontrakt.md` §1 lists, in the order it lists
 #: them. Mirrors the `CHECK` constraint in migration 025 — the schema is the
 #: enforcement, this tuple is what lets a caller (and test case 5) name the
-#: contract without reading SQL. A ninth type is a "fråga först" (SPEC §8).
+#: contract without reading SQL. A ninth type is a "fråga först".
 THREAD_POST_TYPES: tuple[str, ...] = (
     "agent_text",
     "user_text",
@@ -157,7 +157,7 @@ class ThreadRepository:
         Read-then-insert, the same shape and the same premise as
         `AgentRunRepository.add_event`: one thread-local connection per
         writer, and `UNIQUE (thread_id, seq)` as a backstop that should never
-        actually fire. The premise that matters here is SPEC §6.5's "en
+        actually fire. The premise that matters here is "en
         skrivare per `run_id`" — a thread run is its own `agent_runs` row and
         its own writer, so two runs never interleave on the same thread's
         `seq` allocation from two directions at once.
@@ -240,7 +240,7 @@ class ThreadRepository:
         thread_id: str, source_id: str, voucher_id: Optional[str] = None
     ) -> Optional[ThreadPost]:
         """The `receipt` post in *thread_id* that acknowledges the link of
-        *source_id* (SPEC-flode-underlag.md §9.3) -- to *voucher_id* when
+        *source_id* -- to *voucher_id* when
         given, since an underlag may support several vouchers (migration
         044) -- or `None`. One query, on the body's ids: the receipt is
         written after the link's commit, and a replay writes it only when

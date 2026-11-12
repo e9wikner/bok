@@ -1,13 +1,12 @@
-"""OpenAI Chat Completions protocol adapter (docs/redesign/SPEC-agentruntime.md §2, §4, §9).
+"""OpenAI Chat Completions protocol adapter.
 
 This is the only module in the codebase -- besides its own tests -- allowed
-to `import openai` (SPEC §4, §10). Everything else sees `ChatClient` only
+to `import openai`. Everything else sees `ChatClient` only
 through the structural `services.llm.LLMClient` Protocol:
 `run_turn(system, messages, tools, model, max_tokens) -> LLMTurn`.
 
 Unlike `services/llm/messages.py`, this adapter is where the real translation
-cost sits (SPEC §4's architectural decision, restated in that module's
-docstring): `messages`/`tools` arriving here are already Anthropic's own
+cost sits (the architectural decision in that module's docstring): `messages`/`tools` arriving here are already Anthropic's own
 Messages API wire shapes (content blocks: `text`/`image`/`document`/
 `tool_use`/`tool_result`; tools: `{"name", "description", "input_schema"}`),
 because that is the protocol-agnostic lingua franca used everywhere above
@@ -15,8 +14,7 @@ because that is the protocol-agnostic lingua franca used everywhere above
 `services/agent_documents.py`). This module translates that shape DOWN into
 OpenAI's Chat Completions shape, in the direction `messages.py` never has to.
 
-Per SPEC §2's protocol-differences table, this protocol lacks, relative to
-Messages:
+This protocol lacks, relative to Messages:
 
 - **Cache breakpoint**: none we control or can verify (`capabilities.
   cache_breakpoint=False`) -- `Usage.cache_read_input_tokens` is always `0`
@@ -26,7 +24,7 @@ Messages:
   (`capabilities.pdf_document_blocks=False`) -- `services.agent_documents.
   select_content_for_source` already routes around this by raising
   `DocumentUnreadableError` before a `document` block would ever reach an
-  adapter with this capability set to `False` (SPEC §6.3 step 3). A
+  adapter with this capability set to `False`. A
   `document` block reaching `_translate_messages` anyway is therefore a
   defensive check on a path that should be unreachable in normal operation,
   not an expected branch -- see `UnsupportedContentBlockError`.
@@ -37,20 +35,20 @@ Messages:
   knob, which is out of this task's scope to wire up.
 - **Tool loop**: `finish_reason == "tool_calls"`, and each tool call's
   `function.arguments` is a JSON *string* that must be parsed with
-  `json.loads` -- never string matching (SPEC §2, §9's explicit wording).
+  `json.loads` -- never string matching (§9's explicit wording).
   See `_normalize_response`/`MalformedToolArgumentsError`.
 - **Refusal as its own outcome**: no dedicated code. A model refusal on
   Chat Completions comes back as ordinary text with `finish_reason ==
   "stop"`, which normalizes to `"end"`, exactly like any other completed
   response. No heuristic (e.g. scanning `content` for refusal-shaped
-  prose) is implemented here to detect one -- SPEC is explicit this
+  prose) is implemented here to detect one -- this
   protocol has no dedicated code for it, and guessing would manufacture a
   false positive/negative rate nobody asked for. `ChatCompletionMessage`
   does carry its own `refusal: Optional[str]` field (confirmed against the
   installed `openai>=2.0` SDK -- a *structured-output* refusal field, used
   by the JSON-schema/structured-outputs feature this codebase's tool-calling
   loop does not use), which is deliberately not read here either, for the
-  same reason: it is a different mechanism than SPEC's Messages-protocol
+  same reason: it is a different mechanism than the Messages protocol's
   `stop_reason == "refusal"`, and treating it as equivalent would be a
   second, undocumented refusal path this adapter's `capabilities.
   refusal_stop_reason=False` explicitly says doesn't exist.
@@ -96,7 +94,7 @@ logger = logging.getLogger(__name__)
 # `Literal["stop", "length", "tool_calls", "content_filter", "function_call"]`.
 # "content_filter" and the legacy "function_call" (pre-tools API) are
 # deliberately left out of this table -- there is no Messages-protocol
-# equivalent to map either onto, and SPEC §6.7/§10's "ett osäkert utfall är
+# equivalent to map either onto, and "ett osäkert utfall är
 # ett avstående, aldrig en postning" means an unhandled finish reason must
 # raise, not silently become "end" or "tool_calls". See
 # `UnrecognizedFinishReasonError`.
@@ -121,7 +119,7 @@ class UnrecognizedFinishReasonError(Exception):
     messages.UnrecognizedStopReasonError`'s reasoning exactly: a new or
     unhandled finish reason must surface as a loud failure, never quietly
     become `"end"` or `"tool_calls"` and risk a posting on an outcome nobody
-    has categorized (SPEC §6.7).
+    has categorized.
     """
 
     def __init__(self, finish_reason: Optional[str]) -> None:
@@ -156,13 +154,12 @@ class UnsupportedContentBlockError(Exception):
 
     Two cases, both defensive rather than expected (see module docstring):
 
-    - A `document` block reaches `_translate_messages`. SPEC §2: "Finns
+    - A `document` block reaches `_translate_messages`. "Finns
       inte" -- PDF `document` blocks don't exist on this protocol at all.
       This should never happen in practice: `services.agent_documents.
       select_content_for_source`, called with `ChatClient.capabilities`
       (`pdf_document_blocks=False`), already raises `DocumentUnreadableError`
-      instead of ever producing a `document` block for this adapter (SPEC
-      §6.3 step 3).
+      instead of ever producing a `document` block for this adapter.
     - A `tool_result` block whose content is only an `image`/`document`
       block, with no plain text to fall back to (e.g. `hamta_underlagsfil`'s
       image/document passthrough, per `services.agent_session.
@@ -187,8 +184,8 @@ class UnsupportedToolCallTypeError(Exception):
     """Raised when a tool call in the response is not a function-tool call.
 
     Defensive, and expected to be unreachable: `ChatClient.translate_tools`
-    only ever emits `{"type": "function", ...}` tool declarations (SPEC's
-    nine-tool surface, `services.agent_tools.AGENT_TOOL_DEFINITIONS`), so a
+    only ever emits `{"type": "function", ...}` tool declarations (the
+    tool surface, `services.agent_tools.AGENT_TOOL_DEFINITIONS`), so a
     model returning the installed SDK's other tool-call shape (a "custom",
     freeform-input tool call -- a feature this codebase's tools never
     declare) would be answering with a tool call for a tool it was never
@@ -207,11 +204,11 @@ class UnsupportedToolCallTypeError(Exception):
 class MalformedToolArgumentsError(Exception):
     """Raised when a tool call's `function.arguments` string is not valid JSON.
 
-    SPEC §9: "JSON-strängargument parsas med json.loads -- aldrig
+    "JSON-strängargument parsas med json.loads -- aldrig
     strängmatchning." A model that returns malformed JSON in a tool call's
     arguments is a real, if rare, failure mode -- this adapter raises rather
     than silently passing the raw string through as if it were a valid
-    arguments dict, or swallowing the error (SPEC §10: "ett osäkert utfall är
+    arguments dict, or swallowing the error ("ett osäkert utfall är
     ett avstående, aldrig en postning"). `services/agent_session.py` (A8) is
     not touched by this task, so there is no path today that turns this into
     an `is_error` tool_result and lets the model retry -- it is simply an
@@ -230,20 +227,20 @@ class MalformedToolArgumentsError(Exception):
 
 
 class ChatClient:
-    """`LLMClient` adapter for OpenAI's Chat Completions API (SPEC §2).
+    """`LLMClient` adapter for OpenAI's Chat Completions API.
 
     Structurally satisfies `services.llm.LLMClient` -- no inheritance, same
     as `services.llm.messages.MessagesClient` (see A4's Protocol design).
     """
 
-    #: SPEC §2's capability table for the Chat Completions protocol: no
+    #: The capabilities of the Chat Completions protocol: no
     #: verifiable cache breakpoint, no `document` blocks, no dedicated
-    #: refusal outcome. All three `False`, exactly as SPEC §2 states.
+    #: refusal outcome. All three `False`.
     capabilities = LLMCapabilities(
         cache_breakpoint=False,
         pdf_document_blocks=False,
         refusal_stop_reason=False,
-        # This one it *can* do (SPEC-tradar.md §12.1): the SDK's own
+        # This one it *can* do: the SDK's own
         # `chat.completions.stream(...)` helper yields the raw chunks, and
         # a chunk carries both the content delta and -- on the first chunk
         # of each tool call -- that call's name. See `run_turn`.
@@ -313,7 +310,7 @@ class ChatClient:
             # -- `max_tokens`'s own docstring there states it "is now
             # deprecated in favor of max_completion_tokens, and is not
             # compatible with o-series [reasoning] models". OpenCode Zen's
-            # Chat-protocol model families (SPEC §2: GPT, Grok, Qwen,
+            # Chat-protocol model families (GPT, Grok, Qwen,
             # DeepSeek, Kimi, GLM, MiniMax) include reasoning models, so the
             # deprecated parameter is the wrong default to reach for here
             # even though both still exist on the installed SDK.
@@ -356,14 +353,14 @@ class ChatClient:
             # `MessagesClient.run_turn`: RateLimitError is an
             # APIStatusError (a real HTTP response came back, just a 429),
             # a wholly separate branch of the SDK's exception hierarchy from
-            # APIConnectionError -- ordering it first keeps SPEC §6.7's
-            # "429" row visibly distinct from the generic connectivity row.
+            # APIConnectionError -- ordering it first keeps the
+            # "429" case visibly distinct from the generic connectivity row.
             raise LLMRateLimitError(
                 f"Rate limited by the Chat Completions API (429): {exc.message}",
                 retry_after_seconds=_retry_after_seconds(exc),
             ) from exc
         except openai.APIConnectionError as exc:
-            # SPEC §6.7: "Gateway nere, timeout, 5xx" -- after the SDK's own
+            # "Gateway nere, timeout, 5xx" -- after the SDK's own
             # retry policy (httpx-level) is exhausted, this is what surfaces.
             raise LLMConnectionError(
                 f"Connection error talking to the Chat Completions API: {exc.message}"
@@ -497,7 +494,7 @@ class ChatClient:
                 # function-tool and "custom" (freeform-input) tool calls
                 # (`ChatCompletionMessageCustomToolCall`). `translate_tools`
                 # above only ever emits `{"type": "function", ...}`
-                # declarations (SPEC's tool surface, `AGENT_TOOL_DEFINITIONS`,
+                # declarations (the tool surface, `AGENT_TOOL_DEFINITIONS`,
                 # has none of OpenAI's newer custom-tool shape), so a model
                 # returning a custom-tool call back would be responding to a
                 # tool it was never offered -- an adapter-level failure, not
@@ -528,7 +525,7 @@ class ChatClient:
             input_tokens=usage.prompt_tokens if usage else 0,
             output_tokens=usage.completion_tokens if usage else 0,
             # Always exactly 0 on this protocol -- capabilities.
-            # cache_breakpoint is False (SPEC §2/§6.6: no cache accounting
+            # cache_breakpoint is False (no cache accounting
             # we can verify on the Chat path). Deliberately NOT read from
             # `usage.prompt_tokens_details.cached_tokens`, which does exist
             # on the installed SDK's `CompletionUsage` type: that field is
@@ -536,8 +533,8 @@ class ChatClient:
             # explicit cache-breakpoint mechanism (whether it reflects a
             # provider-side implicit prefix cache at all is
             # provider-dependent and unverifiable through this gateway), so
-            # wiring it up here would be exactly the "guess" SPEC §6.6 rules
-            # out. If this is ever revisited, it needs its own SPEC decision
+            # wiring it up here would be exactly the "guess" ruled
+            # out. If this is ever revisited, it needs its own decision
             # first, not a quiet field mapping.
             cache_read_input_tokens=0,
         )
@@ -677,8 +674,7 @@ def _translate_assistant_message(content: list[dict[str, Any]]) -> dict[str, Any
                         "name": block["name"],
                         # OpenAI wants the arguments as a JSON *string*,
                         # unlike Anthropic's tool_use.input, which is
-                        # already a dict (SPEC's own wording on this
-                        # asymmetry).
+                        # already a dict.
                         "arguments": json.dumps(block["input"], ensure_ascii=False),
                     },
                 }

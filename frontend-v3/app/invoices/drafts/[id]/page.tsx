@@ -248,7 +248,7 @@ export default function InvoiceDraftPage() {
     }
   };
 
-  // Utfärda (SPEC-fakturering.md §5): save what is on screen, then issue.
+  // Utfärda: save what is on screen, then issue.
   // Issuing posts the voucher and locks the invoice; all or nothing.
   const issue = async () => {
     setWorking("issue");

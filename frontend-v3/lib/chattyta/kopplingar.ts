@@ -1,5 +1,5 @@
 /**
- * `Nyss kopplad` (SPEC-flode-underlag.md §10.4, FU21).
+ * `Nyss kopplad` (FU21).
  *
  * När servern kopplat ett underlag till en postad verifikation skickar den
  * `view.changed` med `{voucher_id, source_id, kind: "source_linked"}` (§9.3).

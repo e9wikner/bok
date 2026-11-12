@@ -8,7 +8,7 @@ import type { VerifikationDraftInlagg } from "@/lib/chattyta/typer";
 /**
  * `VerifikationsForslag` utan knapp (C10). Fixturen går genom
  * `parseInlagg` så att testet läser samma form som tråden får — inte en
- * handbyggd kopia som kan glida isär från kontraktet i SPEC §4.3.
+ * handbyggd kopia som kan glida isär från kontraktet.
  */
 function draft(): VerifikationDraftInlagg {
   const inlagg = parseInlagg(FIXTUR_DRAFT);

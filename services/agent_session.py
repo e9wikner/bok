@@ -1,12 +1,11 @@
-"""One LLM session for one intake source (docs/redesign/SPEC-agentruntime.md §6.3, task A8).
+"""One LLM session for one intake source (task A8).
 
 "Ett anrop per underlag, inte en session som lever över hela passet" -- the
 caller (A9's budget/cap logic, A10's worker) constructs one `LLMClient`, one
 intake source and its bytes, and gets back exactly one `SessionOutcome`: a
 posted voucher, a documented abstention, or (only for a case the manual loop
 below cannot make sense of) a hard failure. This module never persists
-anything itself -- no `AgentRunRepository` import here on purpose (see
-`tasks/agentruntime/todo.md`'s A8 file list) -- it only returns enough
+anything itself -- no `AgentRunRepository` import here on purpose -- it only returns enough
 structure (`SessionOutcome.turns`) for the caller to write `agent_run_events`
 rows later.
 
@@ -17,12 +16,12 @@ Three things this module is deliberately *not*:
 - Not the tool executor. `services.agent_tools.execute_tool` decides what a
   tool call does and raises on failure; this module decides what a raised
   exception, or a successful `posta_verifikation`/`registrera_avstaende`
-  call, means for the *session's outcome* (SPEC §6.7).
-- Mostly not a cap enforcer. `max_tool_turns` is the cap A8 owns (SPEC §6.5's
+  call, means for the *session's outcome*.
+- Mostly not a cap enforcer. `max_tool_turns` is the cap A8 owns (the
   "verktygsvarv per underlag", default
   `config.settings.agent_max_tool_turns_per_item`). A9 adds the one other cap
-  that has to live in this loop -- cumulative *output* tokens per item (SPEC
-  §6.5's "ut-token per underlag", default
+  that has to live in this loop -- cumulative *output* tokens per item (the
+  "ut-token per underlag", default
   `config.settings.agent_max_output_tokens_per_item`), since it can only be
   measured turn by turn, right here. The remaining two caps (daily cost,
   items per pass) are checked *between* sessions/items by A9/A10 in
@@ -72,7 +71,7 @@ from services.llm import (
 )
 
 # ---------------------------------------------------------------------------
-# System prompt (SPEC §6.3, stable/cacheable -- see SPEC §6.6)
+# System prompt (stable/cacheable)
 # ---------------------------------------------------------------------------
 #
 # This function returns a plain string. It knows nothing about cache
@@ -82,7 +81,7 @@ from services.llm import (
 # protocol-agnostic is what makes test case 14 ("call it twice, assert
 # byte-identical strings") meaningful: there is only one shape to compare.
 #
-# SPEC §6.6's three cache traps, and how this function avoids each:
+# The three cache traps, and how this function avoids each:
 #   - No timestamp anywhere in here or anything it calls. Today's date lives
 #     in `build_user_turn`, which sits *after* the cache breakpoint.
 #   - Deterministic ordering: the kontoplan is sorted by account code and the
@@ -92,7 +91,7 @@ from services.llm import (
 #   - Nothing here is "verify, don't guess" on its own; that half of §6.6 is
 #     test case 15, driven against a fake client in the test file.
 
-#: How many of the most recent corrections to include (SPEC §6.3 point 4).
+#: How many of the most recent corrections to include.
 #: "Vad människan senast rättade är den starkaste signalen som finns" --
 #: recent, not exhaustive; 20 is a small, fixed number so the section's size
 #: doesn't grow unboundedly as correction history accumulates.
@@ -119,7 +118,7 @@ def _render_corrections(corrections: list[CorrectionHistory]) -> str:
     DESC`, but that column has no tiebreaker for two rows created in the
     same instant -- so this re-sorts explicitly by `(created_at, id)`
     descending, a stable order for identical underlying data regardless of
-    what order SQLite happened to return rows in (SPEC §6.6).
+    what order SQLite happened to return rows in.
     """
     lines = ["## Senaste korrigeringarna"]
     if not corrections:
@@ -139,7 +138,7 @@ def _render_corrections(corrections: list[CorrectionHistory]) -> str:
 
 
 def build_system_prompt() -> str:
-    """Assemble the stable, cacheable system prompt (SPEC §6.3), in order:
+    """Assemble the stable, cacheable system prompt, in order:
 
     1. `repositories.system_instructions.get_system_instructions()` --
        the same four read-only files served to a human-run external agent.
@@ -170,7 +169,7 @@ def build_system_prompt() -> str:
 
 
 # ---------------------------------------------------------------------------
-# User turn (SPEC §6.3, volatile -- after the cache breakpoint)
+# User turn (volatile -- after the cache breakpoint)
 # ---------------------------------------------------------------------------
 
 
@@ -226,7 +225,7 @@ def build_user_turn(
     open_periods: list[Period],
     extra_text: Optional[str] = None,
 ) -> list[dict]:
-    """Build the volatile user turn (SPEC §6.3): today's date, a compact open-
+    """Build the volatile user turn: today's date, a compact open-
     periods summary, this source's own metadata, and finally `content_block`
     itself -- the text/image/document block A6's `select_content_for_source`
     produced for it.
@@ -329,10 +328,10 @@ class SessionOutcome:
     set on a successful posting; `tool_result` is also set when the outcome
     came from a successful `registrera_avstaende` call. `usage` is
     accumulated across every LLM turn actually made in this session (zero if
-    content selection aborted before any call -- SPEC §6.3 step 3).
+    content selection aborted before any call).
 
-    "answered" only ever comes from the thread entry point
-    (SPEC-tradar.md §11): a turn that ends with no tool call is a *reply*
+    "answered" only ever comes from the thread entry point:
+    a turn that ends with no tool call is a *reply*
     there, and an unresolved outcome on the document path. `text` is that
     reply, and is empty on every other kind -- the document path's own
     assistant text lives in `turns`, where it always did.
@@ -354,7 +353,7 @@ class SessionOutcome:
 
 def _format_tool_error(exc: Exception) -> str:
     """Render any tool-call exception as a human-readable message for an
-    Anthropic `tool_result` block with `is_error: true` (SPEC §6.7: "får
+    Anthropic `tool_result` block with `is_error: true` ("får
     rätta sig själv inom varvtaket").
 
     Most domain exceptions raised through `execute_tool`
@@ -435,7 +434,7 @@ def _assistant_message(turn: LLMTurn) -> dict:
 # ---------------------------------------------------------------------------
 
 
-#: Tool names that end a session outright on success (SPEC §6.3/§6.7): the
+#: Tool names that end a session outright on success: the
 #: only two ways a pass over one intake source is allowed to conclude.
 _POSTING_TOOL = "posta_verifikation"
 _ABSTENTION_TOOL = "registrera_avstaende"
@@ -443,7 +442,7 @@ _ABSTENTION_TOOL = "registrera_avstaende"
 
 @dataclass(frozen=True)
 class TerminalPolicy:
-    """What a turn that reached no tool call *means* (SPEC-tradar.md §11).
+    """What a turn that reached no tool call *means*.
 
     The loop below is shared by both entry points, and this is the only
     thing that differs between them. Five of §11's six rows are identical on
@@ -452,8 +451,7 @@ class TerminalPolicy:
     started the session -- so they are not in here. The sixth is:
 
         `stop == "end"` with no tool calls
-          - document path: `abstained: agent_no_outcome`. SPEC-agentruntime
-            §1 requires every pass over an item to end in a posting or a
+          - document path: `abstained: agent_no_outcome`. Every pass over an item to end in a posting or a
             documented abstention, so a bare "end" is an unresolved outcome.
           - thread path: an **answer**. A bare "end" is precisely what an
             ordinary conversational reply looks like.
@@ -470,10 +468,10 @@ class TerminalPolicy:
 
 
 #: The document path's policy -- byte for byte the behaviour `run_session`
-#: had before the loop was extracted (SPEC-tradar.md T4: a pure refactoring).
+#: had before the loop was extracted (a pure refactoring).
 DOCUMENT_POLICY = TerminalPolicy(name="document", bare_end="abstain")
 
-#: The thread path's policy (SPEC-tradar.md §11). A bare `end` is a reply.
+#: The thread path's policy. A bare `end` is a reply.
 THREAD_POLICY = TerminalPolicy(name="thread", bare_end="answer")
 
 
@@ -497,13 +495,12 @@ def run_tool_loop(
 ) -> SessionOutcome:
     """The manual tool loop, shared by both entry points.
 
-    Extracted from `run_session` unchanged (SPEC-tradar.md §11, task T4):
+    Extracted from `run_session` unchanged (task T4):
     every branch below is the one that was inline there, with `policy`
     deciding the single row of §11's table where the two paths differ. Never
     the SDK's own tool runner -- every tool call passes through
     `services.agent_tools.execute_tool`, where it can be logged and its
-    result or error turned into an explicit `tool_result` block
-    (SPEC-agentruntime §6.3).
+    result or error turned into an explicit `tool_result` block.
 
     `messages` is mutated as the conversation grows, exactly as before; the
     caller owns the list it passes in.
@@ -518,7 +515,7 @@ def run_tool_loop(
     and never inside a `with db.transaction():`.
 
     `on_text`/`on_tool_call` are forwarded to the adapter only when it says
-    it can stream (`LLMCapabilities.streaming`, SPEC-tradar.md §12.1). An
+    it can stream (`LLMCapabilities.streaming`). An
     adapter that cannot is never handed a callback it would silently drop:
     the turn comes back complete, just without deltas (test case 10). The
     hooks are passed as keyword arguments only when they exist, so an
@@ -527,9 +524,9 @@ def run_tool_loop(
 
     `posting_idempotency_key` is handed to `execute_tool` and read only by
     `posta_verifikation` -- the thread path names its own key
-    (`thread:{thread_id}:{post_id}`, SPEC-tradar.md §6.4), the document path
+    (`thread:{thread_id}:{post_id}`), the document path
     passes nothing and lets the key be derived from the intake source. No
-    tool is added by it (SPEC-tradar.md §8.2).
+    tool is added by it.
 
     `check_between_turns` is called between tool turns and returns a reason
     to stop, or `None` to continue. It exists so a caller can enforce a cap
@@ -538,15 +535,14 @@ def run_tool_loop(
     plain string rather than an exception type so that this module stays
     ignorant of `services.agent_runtime`, which imports *it*. There is no
     `with db.transaction():` anywhere in this module, so "between turns" is
-    never inside one (SPEC-agentruntime §6.5, test case 30).
+    never inside one.
 
     `tool_context` travels the same way `posting_idempotency_key` does, and
     for the same reason: a tool may need something only its caller can know.
     It is handed to `execute_tool` unread and unopened -- this module never
     looks inside it, never branches on it, and has no idea what any key in
-    it means. That opacity is the point. SPEC-tradar.md §8.1 says the
-    runtime must not know what a thread is, and SPEC-beslut.md §7.6 draws
-    the same line for a decision; a mapping this loop only forwards keeps
+    it means. That opacity is the point. The
+    runtime must not know what a thread is, nor what a decision is; a mapping this loop only forwards keeps
     both, where a typed argument named after what happens to be inside it
     would quietly break the first.
     """
@@ -640,7 +636,7 @@ def run_tool_loop(
                         idempotency_key=posting_idempotency_key,
                         tool_context=tool_context,
                     )
-                except Exception as exc:  # noqa: BLE001 -- SPEC §6.7: any
+                except Exception as exc:  # noqa: BLE001 -- any
                     # tool exception becomes an is_error tool_result and the
                     # model gets to retry within the remaining turn budget;
                     # it never aborts the session outright.
@@ -718,7 +714,7 @@ def run_tool_loop(
                 output_token_limit is not None
                 and usage.output_tokens > output_token_limit
             ):
-                # SPEC §6.5's "ut-token per underlag" cap: this turn didn't
+                # The "ut-token per underlag" cap: this turn didn't
                 # itself post or abstain (handled above, before this point),
                 # so nothing is overridden -- the cap only prevents the next
                 # run_turn call from happening at all.
@@ -747,7 +743,7 @@ def run_tool_loop(
 
         # Defensive: no other `stop` value should exist given `StopReason`'s
         # definition, but an unrecognized one must never be treated as a
-        # silent success (SPEC §10: never post on an outcome the model
+        # silent success (never post on an outcome the model
         # hasn't actually reached).
         turns.append(SessionTurnRecord(turn=turn))
         return SessionOutcome(
@@ -779,13 +775,13 @@ def run_session(
     agent_run_id: Optional[str] = None,
     extra_text: Optional[str] = None,
 ) -> SessionOutcome:
-    """Run one LLM session for one intake source (SPEC §6.3, §6.7).
+    """Run one LLM session for one intake source.
 
     `extra_text` is added to the user turn: the follow-up of an agreement
     (migration 048), an underlag already booked that has new statement
     transactions to book.
 
-    A thin wrapper around `run_tool_loop` since SPEC-tradar.md T4: this
+    A thin wrapper around `run_tool_loop`: this
     function owns what is specific to a *document* -- selecting the content
     block for the source, building the user turn out of its metadata, and
     the `DOCUMENT_POLICY` that makes a bare `end` an `agent_no_outcome`
@@ -793,13 +789,13 @@ def run_session(
     The behaviour is unchanged by that extraction (test case 7).
 
     `max_tool_turns` defaults to `config.settings.agent_max_tool_turns_per_item`
-    (SPEC §6.5's "verktygsvarv per underlag" cap), `max_output_tokens` to
+    (the "verktygsvarv per underlag" cap), `max_output_tokens` to
     `config.settings.agent_max_output_tokens_per_item` ("ut-token per
     underlag", checked between turns by the loop).
 
     `agent_run_id` is the pass's `agent_runs` row. It is the only thing the
     document path puts in `tool_context` -- there is no thread here -- and
-    only `tolka_underlag` reads it (SPEC-underlagstolkning.md §6.6, §12.6 a).
+    only `tolka_underlag` reads it (§12.6 a).
     """
     turn_limit = (
         max_tool_turns
@@ -812,8 +808,8 @@ def run_session(
             source, file_bytes, capabilities=client.capabilities
         )
     except DocumentUnreadableError as exc:
-        # SPEC §6.3 step 3: genuinely no LLM call happens here -- zero usage,
-        # not a discarded call. See §2/§6.3's cost table.
+        # Genuinely no LLM call happens here -- zero usage,
+        # not a discarded call.
         return SessionOutcome(kind="abstained", reason=exc.reason, usage=_zero_usage())
 
     return run_tool_loop(

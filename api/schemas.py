@@ -173,7 +173,7 @@ class CorrectionAccountResponse(BaseModel):
 
 
 class VoucherCorrectionResponse(BaseModel):
-    """What a correction did (SPEC-flode-verifikationer §7.5), derived on
+    """What a correction did, derived on
     read: on a corrected voucher the effect of all its posted corrections,
     on a correction the effect of that one."""
 
@@ -305,7 +305,7 @@ class OverviewPeriodState(BaseModel):
 
 
 class OverviewCounters(BaseModel):
-    """The same counters on every page (SPEC-oversikt.md §5)."""
+    """The same counters on every page."""
 
     open_decisions: int = 0
     overdue_invoices: int = 0
@@ -536,11 +536,11 @@ class AuditHistoryResponse(BaseModel):
     entries: List[AuditLogEntryResponse]
 
 
-# Agent Runtime Schemas (GET /api/v1/agent/status, docs/redesign/SPEC-agentruntime.md §8)
+# Agent Runtime Schemas (GET /api/v1/agent/status)
 
 
 class AgentCurrentRunResponse(BaseModel):
-    """The in-progress `agent_runs` row, if any (SPEC §8's `current_run`).
+    """The in-progress `agent_runs` row, if any (`current_run`).
 
     `current_source_id`/`current_activity` come from the process-wide
     `AgentWorker`, not from the `agent_runs` row itself -- see
@@ -561,7 +561,7 @@ class AgentCurrentRunResponse(BaseModel):
 
 
 class AgentLastRunResponse(BaseModel):
-    """The most recently finished `agent_runs` row (SPEC §8's `last_run`).
+    """The most recently finished `agent_runs` row (`last_run`).
 
     `last_error` here is this specific run's own `agent_runs.last_error`
     column (e.g. why it failed) -- distinct from the response's top-level
@@ -585,20 +585,19 @@ class AgentLastRunResponse(BaseModel):
 
 
 class AgentStatusResponse(BaseModel):
-    """`GET /api/v1/agent/status` (SPEC-agentruntime §8, SPEC-tradar.md §7).
+    """`GET /api/v1/agent/status`.
 
-    Never carries the LLM gateway's API key setting (SPEC-agentruntime
-    §12.6) -- see the route's docstring for the guarantee and the test that
+    Never carries the LLM gateway's API key setting -- see the route's docstring for the guarantee and the test that
     pins it.
 
     The four fields `datakontrakt.md` §7 asks for -- `state`, `since`,
-    `current_task`, `paused_reason` -- were added by SPEC-tradar.md T12.
+    `current_task`, `paused_reason` -- were added with the threads.
     The pre-existing fields were **not** removed alongside them: this
     endpoint already has a consumer, and `enabled`/`running` answer a
     different question than `state` does (is the machinery on, versus what
     is it doing).
 
-    The mode is **global, not per view** (SPEC-tradar.md §7): one worker,
+    The mode is **global, not per view**: one worker,
     one flock, one budget.
     """
 
@@ -628,7 +627,7 @@ class AgentStatusResponse(BaseModel):
     last_error: Optional[str] = None
 
 
-# Thread Schemas (SPEC-tradar.md §1, §6.2 — `datakontrakt.md` §1)
+# Thread Schemas (§6.2 — `datakontrakt.md` §1)
 
 
 class ThreadPostResponse(BaseModel):
@@ -638,8 +637,7 @@ class ThreadPostResponse(BaseModel):
 
     `seq` is the cursor a client passes back as `?since=` — dense and
     ascending per thread, so "what I missed" is a comparison, not a guess.
-    `body` is the type's own payload; the eight shapes are SPEC-tradar.md
-    §6.2's table and are deliberately not eight Pydantic models here, since
+    `body` is the type's own payload; the eight shapes are deliberately not eight Pydantic models here, since
     the client renders one component per `type` and the server would gain
     nothing but a second place to keep them in step.
     """
@@ -731,7 +729,7 @@ class ThreadMessageRequest(BaseModel):
     `attachments` are ids of intake sources already uploaded through
     `POST /api/v1/intake`, never the bytes themselves: the file already has a
     path, a hash and an audit trail there, and a second copy inside a thread
-    post would have none of those (SPEC-tradar.md §6.2, "Base64 kommer
+    post would have none of those ("Base64 kommer
     aldrig in i ett inlägg").
 
     This is also the **decision channel**. `README.md`: "Beslutskortets
@@ -739,7 +737,7 @@ class ThreadMessageRequest(BaseModel):
     text i chattfältet."
 
     `text` may be empty -- or only whitespace, which is the same -- when
-    `attachments` is not (SPEC-flode-underlag.md D8): dropping a receipt
+    `attachments` is not: dropping a receipt
     without writing anything is the common case on a phone, and the client
     must not put words in the human's mouth. Without either it is a `422`,
     as before.
@@ -761,7 +759,7 @@ class ThreadMessageRequest(BaseModel):
 
 class ThreadMessageResponse(BaseModel):
     """What `POST .../messages` answers with, **before** the agent has said
-    anything (SPEC-tradar.md §6.1 step 2).
+    anything.
 
     The human's own reply must stand in the thread before the agent has
     begun; the answer arrives over the stream. `cursor` is where a client
@@ -776,13 +774,13 @@ class ThreadMessageResponse(BaseModel):
     cursor: int
 
 
-# Decision Schemas (SPEC-beslut.md §5, §6.1 -- the three-source union, B7)
+# Decision Schemas (§6.1 -- the three-source union, B7)
 
 
 class DecisionOptionResponse(BaseModel):
     """One row of `DecisionResponse.options` -- `decision_options`, in the
     order they were laid out (`position`). Always `[]` for the two
-    synthetic sources (`kind` `intake` / `correction`, SPEC §5): neither
+    synthetic sources (`kind` `intake` / `correction`): neither
     has an alternatives list of its own.
     """
 
@@ -798,8 +796,7 @@ class DecisionOptionResponse(BaseModel):
 
 class DecisionSourceResponse(BaseModel):
     """`DecisionResponse.source` -- what grounds the decision, when there
-    is one. `None` for an abstention raised mid-conversation (SPEC §2
-    antagande 5)."""
+    is one. `None` for an abstention raised mid-conversation."""
 
     kind: str
     id: str
@@ -807,20 +804,20 @@ class DecisionSourceResponse(BaseModel):
 
 
 class DecisionResponse(BaseModel):
-    """One row of `GET /decisions`'s union, exactly SPEC §6.1's JSON shape
+    """One row of `GET /decisions`'s union, exactly this JSON shape
     -- `services/decision_service.py::DecisionView` with `created_at` (the
     union's own sort key) left off, since a client never needs it.
 
     `id` is raw `decisions.id` for `kind="abstention"`, and prefixed
     (`intake:{id}` / `correction:{id}`) for the two synthetic sources
-    (SPEC §5) -- the three id spaces don't collide, so a client and
+    -- the three id spaces don't collide, so a client and
     `GET /decisions/{id}` can tell them apart from the id alone.
 
     `reason` is the agent's own words for `abstention` and `intake`, but
     **not** for `correction`: there `note_text` is the human's text, and
     `kind="correction"` is the tell a reader has to use instead of a
     different field name (`services/decision_service.py`'s
-    `_correction_to_view` docstring, SPEC §11.2 -- "hela priset").
+    `_correction_to_view` docstring -- "hela priset").
     """
 
     id: str
@@ -837,7 +834,7 @@ class DecisionResponse(BaseModel):
     post_id: Optional[str] = None
     options: List[DecisionOptionResponse] = Field(default_factory=list)
     # How it was answered -- so a reloaded card can say when and mark the
-    # chosen option, not just `Besvarat` (SPEC-chattyta §15, question 3).
+    # chosen option, not just `Besvarat` (question 3).
     # `answer_text` is the human's words verbatim; `None` throughout for an
     # unanswered row and for the two synthetic sources.
     answered_at: Optional[DateTimeType] = None
@@ -847,15 +844,14 @@ class DecisionResponse(BaseModel):
 
 
 class DraftVoucherNumber(BaseModel):
-    """The number a posted thread draft got (SPEC-flode-verifikationer §10)."""
+    """The number a posted thread draft got."""
 
     series: str
     number: int
 
 
 class DraftInvoice(BaseModel):
-    """What an issued invoice proposal became (SPEC-fakturering-f1.md
-    §10.1)."""
+    """What an issued invoice proposal became."""
 
     invoice_id: str
     invoice_number: str
@@ -865,11 +861,11 @@ class DraftInvoice(BaseModel):
 
 
 class ThreadDraftResponse(BaseModel):
-    """One row of `GET /drafts` (SPEC-flode-verifikationer §10). `voucher`
+    """One row of `GET /drafts`. `voucher`
     is set only when `status='posted'` -- the one place the client gets a
     number from."""
 
-    # "voucher" or "invoice" (SPEC-fakturering-f1.md §10.1).
+    # "voucher" or "invoice".
     kind: str = "voucher"
     draft_id: str
     post_id: str
@@ -897,7 +893,7 @@ class ThreadDraftListResponse(BaseModel):
 
 class DecisionListResponse(BaseModel):
     """`GET /decisions` -- oldest first **over the whole union**, not per
-    source (SPEC §6.1, §11.2). `total` is the union's count before
+    source. `total` is the union's count before
     `limit`/`offset` slice it, so a client can page correctly even though
     `len(decisions)` on any one page may be smaller than `limit`.
     """
@@ -906,14 +902,14 @@ class DecisionListResponse(BaseModel):
     total: int
 
 
-# Decision answer schemas (SPEC-beslut.md §6.2 -- B8)
+# Decision answer schemas
 
 
 class DecisionAnswerRequest(BaseModel):
     """`POST /decisions/{id}/answer` -- `{ option_id }` **or**
     `{ free_text }`, exactly one. Both fields stay optional here: which
     one (or whether both, or neither) is a body-shape error is a rule on
-    the answer itself (SPEC §6.2), not on the request's shape, so it is
+    the answer itself, not on the request's shape, so it is
     `DecisionService.answer()` that raises `400`
     (`ValidationError(code="invalid_answer")`), not a Pydantic validator
     here -- the same "no business rule in the route" split this router

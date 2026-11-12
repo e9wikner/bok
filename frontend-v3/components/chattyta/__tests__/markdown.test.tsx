@@ -5,7 +5,7 @@ import { parseInlagg } from "@/lib/chattyta/parse";
 import type { AgentTextInlagg, RaInlagg, UserTextInlagg } from "@/lib/chattyta/typer";
 import { FIXTUR_AGENT_TEXT, FIXTUR_USER_TEXT, medKropp } from "@/lib/chattyta/__fixtures__/inlagg";
 
-// SPEC-lasbarhet §4.4, M5: agentens text ritas som markdown (react-markdown
+// Agentens text ritas som markdown (react-markdown
 // + remark-gfm), utan rå HTML. Användarens inlägg förblir ren text.
 
 function agentMed(text: string): AgentTextInlagg {
@@ -27,7 +27,7 @@ const TABELL = [
   "| 2440 | -1 250,00 |",
 ].join("\n");
 
-describe("TradInlagg/agent — markdown (SPEC-lasbarhet §4.4, M5)", () => {
+describe("TradInlagg/agent — markdown", () => {
   it("en GFM-tabell blir en <table>, inte tecken", () => {
     const { container } = render(<TradInlagg inlagg={agentMed(TABELL)} />);
     const tabell = container.querySelector("table");
@@ -105,7 +105,7 @@ describe("TradInlagg/agent — markdown (SPEC-lasbarhet §4.4, M5)", () => {
   });
 });
 
-describe("TradInlagg/du — förblir ren text (SPEC-lasbarhet §4.4)", () => {
+describe("TradInlagg/du — förblir ren text", () => {
   it("markdown i användarens inlägg visas som tecken", () => {
     const { container } = render(<TradInlagg inlagg={duMed("Är det **fel** | eller?\n\n- a")} />);
     expect(container.querySelector("strong, table, li, ul, p")).toBeNull();

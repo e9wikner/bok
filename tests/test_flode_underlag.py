@@ -1,4 +1,4 @@
-"""Tests for `flode-underlag` (docs/redesign/SPEC-flode-underlag.md).
+"""Tests for `flode-underlag`.
 
 This file holds the module's shared helpers (FU1) -- the other
 `tests/test_flode_underlag_*.py` files import them from here, one file per
@@ -176,7 +176,7 @@ def make_source(
 
 
 #: What the model reads from flöde 4's receipt, per match kind against
-#: A-118 (`SPEC-underlagstolkning.md` §7.4).
+#: A-118.
 _READS: Dict[str, Dict[str, Any]] = {
     "exact": {
         "vendor": "Elektronikhuset",

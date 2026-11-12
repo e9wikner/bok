@@ -8,7 +8,7 @@ import { kopplingKlar } from "@/lib/chattyta/kopplingar";
 import { sidan } from "@/lib/skal/vyer";
 
 /**
- * FU21 genom `useVyer` (SPEC-flode-underlag.md §10.4; testfall 49b, 49c):
+ * FU21 genom `useVyer` (testfall 49b, 49c):
  * frågorna som vyn ställer, och en koppling som når vyn så som `useTrad`
  * lämnar den — `kopplingKlar`, sedan invalideringen av `vouchers`.
  */

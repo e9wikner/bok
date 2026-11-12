@@ -1,6 +1,5 @@
 /**
- * Filchipets logik för `ChattFalt/drop` (modul `flode-underlag`, FU19,
- * SPEC-flode-underlag.md §10.1–§10.3).
+ * Filchipets logik för `ChattFalt/drop` (modul `flode-underlag`, FU19).
  *
  * Ren logik: ett chip per släppt fil, i tre lägen — `laddar` (`laddar
  * upp…`), `klar` och `fel` med orsak. Komponenten (`ChattFalt`) håller

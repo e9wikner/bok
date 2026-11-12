@@ -8,8 +8,7 @@ import type { Alternativ, OptionsInlagg } from "@/lib/chattyta/typer";
 import { formatBelopp } from "@/lib/skal/format";
 
 /**
- * `AlternativLista` (komponenter.md §AlternativLista, SPEC-chattyta.md §4.2,
- * §5, §7, §11): agentens alternativ till ett beslut. Tryck på en rad = svaret.
+ * `AlternativLista` (komponenter.md §AlternativLista): agentens alternativ till ett beslut. Tryck på en rad = svaret.
  *
  * **Ingenting förväljs** (§4.2, testfall 14). Det finns ingen state som
  * börjar på ett alternativ; `recommended` ger `RekMarke` och ingenting annat

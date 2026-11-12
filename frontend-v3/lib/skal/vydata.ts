@@ -57,7 +57,7 @@ export interface VyRadData {
   /** Serverns `age_days`; färgar metan för `vantar`/`saknar` med `aldersTon`. */
   ageDays?: number;
   /**
-   * Radens länk till kvittot (SPEC-flode-underlag.md §10.4, FU23). Källan
+   * Radens länk till kvittot (FU23). Källan
    * slås upp först när länken används, inte per rad.
    */
   kvitto?: { voucherId: string; nummer: string };
@@ -142,7 +142,7 @@ export interface VyData {
   /** Fottexten säger vad agenten gör härnäst. Inget mer. */
   fot: string;
   /**
-   * Listan har fler rader på servern (SPEC-lasbarhet.md §4.5). Då står
+   * Listan har fler rader på servern. Då står
    * "Laddar fler…" sist, och `hamtaFler` anropas när raden syns. En vy
    * utan dem är hel.
    */

@@ -26,8 +26,7 @@ export function formatDate(dateStr: string): string {
 
 /**
  * Verifikationsnummer för visning: `A12`, eller `A-12` med `avgransare`.
- * Ett utkast har inget nummer — det sätts vid postning (SPEC-flode-verifikationer
- * §4.3) — och visas då som `Utkast`. Aldrig `A-null`, `NaN` eller tomt.
+ * Ett utkast har inget nummer — det sätts vid postning — och visas då som `Utkast`. Aldrig `A-null`, `NaN` eller tomt.
  */
 export function formatVerifikationsnummer(
   nummer: number | null | undefined,

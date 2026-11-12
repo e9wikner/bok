@@ -1,7 +1,7 @@
 """`flode-underlag` in the thread: the comparison post (FU8, §9.1, D6) and
 the receipt after a link (FU9, §9.3).
 
-Test case numbers refer to SPEC-flode-underlag.md §14. The tools run
+The tools run
 through `execute_tool` with a real thread in `tool_context`; events are
 captured from the process-wide broker.
 """

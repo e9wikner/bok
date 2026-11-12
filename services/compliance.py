@@ -255,7 +255,7 @@ class ComplianceService:
 
         # Numbers restart at 1 each fiscal year, so the series is only
         # contiguous within a year: grouped on series alone, one year's
-        # vouchers hide another year's gap (SPEC-flode-verifikationer §4.5).
+        # vouchers hide another year's gap.
         rows = db.execute("""
             SELECT v.series, v.fiscal_year_id, fy.start_date, fy.end_date,
                    MIN(v.number) as min_num, MAX(v.number) as max_num,
@@ -436,7 +436,7 @@ class ComplianceService:
         issues = []
 
         # Posted vouchers over 500 SEK (a row over 50000 öre) that lack a
-        # document, by the shared predicate (SPEC-underlagstolkning.md §2.1),
+        # document, by the shared predicate,
         # the one GET /overview and GET /vouchers?missing_attachment use too.
         # A broken schema must surface, not be swallowed — this check was
         # silent for its entire life.

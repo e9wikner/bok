@@ -1,4 +1,4 @@
-"""SSE for a thread: the bridge from a worker thread to a client (SPEC §3, §6.5).
+"""SSE for a thread: the bridge from a worker thread to a client.
 
 Three constraints shape every line here, and none of them is negotiable:
 
@@ -44,7 +44,7 @@ from services.thread_service import ThreadService
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# The four event types (SPEC §6.5)
+# The four event types
 # ---------------------------------------------------------------------------
 
 EVENT_MESSAGE_CREATED = "message.created"
@@ -72,7 +72,7 @@ def post_event_payload(post: ThreadPost) -> dict:
 
     The same fields `GET /threads/{view_key}` returns, so a client can
     replace an optimistic row with this one without a second shape to
-    handle (SPEC §4).
+    handle.
     """
     return {
         "id": post.id,
@@ -87,7 +87,7 @@ def post_event_payload(post: ThreadPost) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# One writer per run_id (SPEC §6.5, test case 21)
+# One writer per run_id
 # ---------------------------------------------------------------------------
 
 
@@ -96,15 +96,14 @@ class ConcurrentRunWriterError(Exception):
     flight.
 
     `UNIQUE (run_id, seq)` would catch the breach eventually, but as an
-    IntegrityError in the middle of somebody's answer -- SPEC §6.5 is
-    explicit that this is "inte en acceptabel upptäcktsmekanism". This is the
+    IntegrityError in the middle of somebody's answer -- "inte en
+    acceptabel upptäcktsmekanism". This is the
     same guarantee, raised before a single event is written.
     """
 
     def __init__(self, run_id: str) -> None:
         super().__init__(
-            f"Agent run {run_id!r} already has a live writer. "
-            "One writer per run_id (SPEC-tradar.md §6.5)."
+            f"Agent run {run_id!r} already has a live writer. " "One writer per run_id."
         )
         self.run_id = run_id
 
@@ -156,8 +155,7 @@ class ThreadBroker:
         # `message.created` payload plus the accumulated `text` and the
         # latest `activity`. The turn starts inside `POST .../messages` and
         # the client subscribes after the response, so without this the
-        # first frames of the first answer went to nobody (SPEC-chattyta
-        # §15, question 5).
+        # first frames of the first answer went to nobody.
         self._inflight: dict[str, dict] = {}
         self._guard = threading.Lock()
 
@@ -230,7 +228,7 @@ class ThreadBroker:
                 current["text"] += data["text"]
             if isinstance(data.get("activity"), str):
                 # A tool call ends the paragraph, exactly as the client's
-                # reducer does (SPEC-lasbarhet §4.1): a reconnect mid-turn
+                # reducer does: a reconnect mid-turn
                 # must not bring back text the live stream already cleared.
                 current["text"] = ""
                 current["activity"] = data["activity"]
@@ -304,7 +302,7 @@ class ThreadTurnRunner:
         Sequencing, and why each step is where it is:
 
         1. Resolve the model and its protocol -- `UnknownModelError` before
-           any `agent_runs` row exists (SPEC-agentruntime §2).
+           any `agent_runs` row exists.
         2. Create this turn's **own** `agent_runs` row with
            `trigger='thread'` and claim sole writership of it (§6.5).
            `agent_runs.trigger` already lists `'thread'` and carries no
@@ -344,7 +342,7 @@ class ThreadTurnRunner:
             ensure_daily_budget_available()
         except DailyBudgetExhaustedError as exc:
             # Before any `agent_runs` row exists, exactly as the intake pass
-            # refuses to start (SPEC-agentruntime §9 test case 8).
+            # refuses to start.
             self._publish_error(
                 thread,
                 f"budget_exhausted: spent {exc.spent_ore} of {exc.budget_ore} öre",
@@ -359,7 +357,7 @@ class ThreadTurnRunner:
         # A placeholder id for the post being streamed: `message.created`
         # has to name something before the post exists, and the client
         # swaps its optimistic row for the stored post at
-        # `message.completed` (SPEC §4).
+        # `message.completed`.
         streaming_id = f"streaming-{run.id}"
         self.broker.publish(
             thread.id,
@@ -374,7 +372,7 @@ class ThreadTurnRunner:
 
         # The current paragraph: the text since the latest tool call. Only
         # the last one is the turn's answer; what the agent writes between
-        # tool calls is lead-in, and is never stored (SPEC-lasbarhet §4.1).
+        # tool calls is lead-in, and is never stored.
         paragraph: list[str] = []
 
         def _on_text(increment: str) -> None:

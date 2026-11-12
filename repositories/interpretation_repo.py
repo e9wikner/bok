@@ -1,5 +1,4 @@
-"""Repository for `intake_interpretations` (migrations 030 and 031,
-SPEC-underlagstolkning.md §5).
+"""Repository for `intake_interpretations` (migrations 030 and 031).
 
 All SQL for `intake_interpretations` lives here — see AGENTS.md's layering
 rule. Same `@staticmethod` form and `_commit: bool = True` convention as

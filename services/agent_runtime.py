@@ -1,7 +1,7 @@
 """Budget, cost, cap, and worker/runner primitives for the agent runtime
-(SPEC §6.5/§6.1/§6.2, tasks A9/A10).
+(tasks A9/A10).
 
-SPEC §6.5 lists four caps. Task A8 already implemented the first one --
+There are four caps. Task A8 already implemented the first one --
 verktygsvarv per underlag (tool turns per item) -- directly inside
 `services/agent_session.py`'s `run_session` loop, and A9 added the second one
 (ut-token per underlag / output tokens per item) to that same loop, since
@@ -13,16 +13,15 @@ This module holds:
   a `Usage` to an integer öre amount, using the price table in
   `services/llm/__init__.py`.
 - The daily budget cap / "dygnstaket" (`ensure_daily_budget_available`,
-  `DailyBudgetExhaustedError`): SPEC §6.5's "kostnad per dygn" cap. "Vid
+  `DailyBudgetExhaustedError`): the "kostnad per dygn" cap. "Vid
   dygnstaket: stanna, aldrig nedgradera modell" (§6.5, §12.5) -- this module
   never adjusts the model; it only decides whether a pass, or the next item
   in one, is allowed to spend more today.
 - The fourth cap -- "underlag per pass" (items per pass, default
   `config.settings.agent_max_items_per_pass`) -- applied in `AgentWorker.
-  run_pass_once` as a plain slice/limit on the queue fetch (SPEC §9's table
-  describes it as a loop bound: "stop after N items, leave the rest
+  run_pass_once` as a plain slice/limit on the queue fetch (a loop bound: "stop after N items, leave the rest
   queued").
-- `AgentWorker` (SPEC §6.2's pass algorithm) and `AgentRunner` (SPEC §6.1's
+- `AgentWorker` (the pass algorithm) and `AgentRunner` (the
   thread/flock lifecycle wrapper, task A10) -- see their own docstrings
   below.
 
@@ -30,7 +29,7 @@ This module never imports `anthropic`/`openai`, has no HTTP concepts, and
 does no SQL of its own -- it only reads through `AgentRunRepository`'s
 existing methods. The reaping/budget/queue checks in `AgentWorker` never run
 inside a `with db.transaction():` block; there is none anywhere in this
-module, matching `services/agent_session.py` (SPEC §6.5: "aldrig inuti
+module, matching `services/agent_session.py` ("aldrig inuti
 `with db.transaction():`") -- the item-level posting transaction lives
 entirely inside `services/voucher_posting.py`, several layers below.
 """
@@ -67,7 +66,7 @@ from services.llm import (
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Cost calculation (SPEC §5: "cost_ore beräknas ur usage och prislistan")
+# Cost calculation ("cost_ore beräknas ur usage och prislistan")
 # ---------------------------------------------------------------------------
 
 
@@ -84,11 +83,10 @@ def compute_cost_ore(model: str, usage: Usage) -> int:
     Critically, `usage.cache_read_input_tokens` is priced at
     `price.cache_read_ore_per_million_tokens`, *not*
     `price.input_ore_per_million_tokens` -- conflating the two would silently
-    misprice every cached turn from the second item in a pass onward
-    (SPEC §6.6).
+    misprice every cached turn from the second item in a pass onward.
 
     Raises `services.llm.UnknownModelError` unhandled if `model` has no price
-    row -- SPEC §2: "en modell utan prisrad är ett fel, inte ett
+    row: "en modell utan prisrad är ett fel, inte ett
     standardvärde." A pass on an unpriced model is a hard stop; it is not
     this function's job to catch that and fall back to a cost of 0.
     """
@@ -108,7 +106,7 @@ def compute_cost_ore(model: str, usage: Usage) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Daily budget cap / "dygnstaket" (SPEC §6.5, §9 test case 8)
+# Daily budget cap / "dygnstaket" (§9 test case 8)
 # ---------------------------------------------------------------------------
 
 
@@ -116,7 +114,7 @@ class DailyBudgetExhaustedError(Exception):
     """Raised when today's spend already meets or exceeds the daily budget.
 
     Carries `spent_ore` and `budget_ore` so a caller can log or report the
-    refusal (SPEC §9 test case 8: "passet startar inte" -- and that refusal
+    refusal ("passet startar inte" -- and that refusal
     must be logged, never silently swallowed). Never carries anything from
     `Usage` or the LLM response itself -- just the two öre amounts needed to
     explain the refusal.
@@ -135,7 +133,7 @@ def ensure_daily_budget_available(
     agent_run_repo: type[AgentRunRepository] = AgentRunRepository,
 ) -> None:
     """Raise `DailyBudgetExhaustedError` if today's spend already meets or
-    exceeds `config.settings.agent_daily_budget_ore` (SPEC §6.5's "kostnad
+    exceeds `config.settings.agent_daily_budget_ore` (the "kostnad
     per dygn" cap). Does nothing when no budget is configured.
 
     `agent_run_repo` accepts `AgentRunRepository` itself (all of its methods
@@ -149,22 +147,22 @@ def ensure_daily_budget_available(
     worker's pass loop around `services/agent_runtime.py`:
 
     1. **Before a pass starts, before the `agent_runs` row is created.**
-       SPEC §9 test case 8: "Dygnstaket redan nått" -> "Passet startar inte,
+       "Dygnstaket redan nått" -> "Passet startar inte,
        ingen agent_runs-rad, loggat." A10's worker calls this first thing
-       inside its "passet startas" step (SPEC §6.2), before
+       inside its "passet startas" step, before
        `AgentRunRepository.create(...)`, and logs the refusal (this
        exception's `spent_ore`/`budget_ore`) rather than swallowing it.
     2. **Between items, after finishing each one, for the rest of the
-       pass.** SPEC §6.5's table: "Kostnad per dygn -> Avsluta passet,
+       pass.** "Kostnad per dygn -> Avsluta passet,
        status='completed', logga budget_exhausted." A10's per-item loop
-       (SPEC §6.2's "för varje post, en i taget") calls this again after each
+       ("för varje post, en i taget") calls this again after each
        item's session finishes (and its cost has been added via
        `AgentRunRepository.add_usage`), and on this exception ends the pass
        cleanly with `status='completed'` -- never mid-item, never inside the
        item's own `with db.transaction():`.
 
     Comparison is `>=`, not `>`: a spend exactly equal to the budget has
-    exhausted it, matching SPEC §6.5's "redan nått" framing in test case 8.
+    exhausted it, matching the "redan nått" framing.
     """
     budget_ore = settings.agent_daily_budget_ore
     if budget_ore is None:
@@ -188,8 +186,8 @@ class UnsupportedProtocolError(Exception):
     wired up in `build_llm_client` below (`"messages"` ->
     `services.llm.messages.MessagesClient`, task A5; `"chat"` ->
     `services.llm.chat.ChatClient`, task A12) -- this now only ever fires for
-    a genuinely unhandled third protocol (e.g. the Google/Gemini path SPEC
-    §2 explicitly says is out of scope for this module).
+    a genuinely unhandled third protocol (e.g. the Google/Gemini path that is
+    explicitly out of scope for this module).
     """
 
     def __init__(self, protocol: str) -> None:
@@ -206,7 +204,7 @@ def build_llm_client(model: str, session_id: Optional[str] = None) -> LLMClient:
     """Resolve `model` to its protocol and construct the matching adapter.
 
     Called once per pass by `AgentWorker.run_pass_once` (not once per item --
-    SPEC doesn't require a fresh client per item, and building one client per
+    nothing requires a fresh client per item, and building one client per
     pass is cheaper and behaves identically since neither adapter carries
     per-call state).
 
@@ -216,7 +214,7 @@ def build_llm_client(model: str, session_id: Optional[str] = None) -> LLMClient:
     `openai` -- only actually resolving a model on that protocol does. This
     is what keeps
     `grep -r "^import anthropic\\|^from anthropic\\|^import openai\\|^from openai" services/agent_runtime.py`
-    empty, per SPEC §4/§10's "anthropic/openai importeras bara i
+    empty: "anthropic/openai importeras bara i
     services/llm/".
 
     `session_id` becomes the `x-opencode-session` header: stable for one
@@ -238,7 +236,7 @@ def build_llm_client(model: str, session_id: Optional[str] = None) -> LLMClient:
 
 
 # ---------------------------------------------------------------------------
-# agent_run_events payload helpers (SPEC §5)
+# agent_run_events payload helpers
 # ---------------------------------------------------------------------------
 
 
@@ -246,8 +244,8 @@ def _compact_tool_result(result: Any) -> Any:
     """Compact a tool result before it goes into an `agent_run_events` row.
 
     `hamta_underlagsfil` can return a `document`/`image` content block whose
-    payload is a base64-encoded PDF or image -- easily hundreds of KB. SPEC
-    §8 wants `agent_run_events` readable by a human via `GET /agent/status`
+    payload is a base64-encoded PDF or image -- easily hundreds of KB.
+    `agent_run_events` should be readable by a human via `GET /agent/status`
     (A11), not a second copy of every underlag's raw bytes, so this keeps
     only the block's `type` for those two, and passes everything else
     (`text` blocks, the plain dicts every other tool returns) through
@@ -267,21 +265,21 @@ def _event_payload(**fields: Any) -> str:
 
 
 # ---------------------------------------------------------------------------
-# AgentWorker: one pass (SPEC §6.2)
+# AgentWorker: one pass
 # ---------------------------------------------------------------------------
 
-#: Outcome-to-event-kind mapping for a session's *final* event (SPEC §5's
+#: Outcome-to-event-kind mapping for a session's *final* event (the
 #: documented `agent_run_events.kind` values). `SessionOutcome.kind ==
 #: "failed"` is `run_session`'s own defensive branch for a stop reason no
 #: adapter should ever produce (see that module's docstring) -- logged as
 #: an "error" event here rather than a new fourth item-outcome bucket, since
-#: SPEC §5's `items_seen/items_posted/items_abstained` counters only have
+#: the `items_seen/items_posted/items_abstained` counters only have
 #: room for two dispositions besides "seen".
 _OUTCOME_EVENT_KIND = {"posted": "posted", "abstained": "abstained", "failed": "error"}
 
 
 class AgentWorker:
-    """Run one pass over the pending intake queue (SPEC §6.2).
+    """Run one pass over the pending intake queue.
 
     Fully synchronous and directly callable -- no threading here. The
     thread/flock lifecycle lives one layer up, in `AgentRunner`, so this
@@ -291,12 +289,12 @@ class AgentWorker:
 
     def __init__(self) -> None:
         #: "What is this pass doing right now" for `GET /agent/status`
-        #: (SPEC §8, task A11). `current_activity` starts out as the coarse
+        #: (task A11). `current_activity` starts out as the coarse
         #: `"processing"` when an item's session begins and is then replaced
         #: by the literal tool name as each tool call starts -- exactly the
-        #: `"las_kontoplan"` SPEC §8's example shows. A11 could not do that:
+        #: `"las_kontoplan"`. A11 could not do that:
         #: the loop had no per-tool-call hook to thread a callback through.
-        #: SPEC-tradar.md T5 added one (`on_tool_call`), and
+        #: The thread work added one (`on_tool_call`), and
         #: `run_pass_once` passes it straight into `run_session` below.
         #: `current_source_id` was always exact -- it is set and cleared one
         #: layer above `run_session`. Both are `None` between items.
@@ -304,20 +302,19 @@ class AgentWorker:
         self.current_activity: Optional[str] = None
 
     def _reap_abandoned_runs(self) -> None:
-        """SPEC §6.2 step 1: any `agent_runs` row still `'running'` when a
+        """Step 1: any `agent_runs` row still `'running'` when a
         new pass begins is definitionally stale.
 
         This worker only ever runs one pass at a time synchronously --
         enforced one layer up by `AgentRunner`'s flock, and by this method
         never being re-entrant within a process -- so a row still `'running'`
         here can only be left over from a crashed process or a thread that
-        died mid-pass without reaching its own `update_status` call (SPEC
-        §9 test case 12).
+        died mid-pass without reaching its own `update_status` call.
         """
         for run in AgentRunRepository.find_running():
             logger.warning(
                 "Agent run %s is still 'running' with no live pass behind it -- "
-                "marking abandoned (crashed process or thread, SPEC §6.1/§9#12)",
+                "marking abandoned (crashed process or thread)",
                 run.id,
             )
             AgentRunRepository.update_status(
@@ -332,31 +329,31 @@ class AgentWorker:
         trigger: str = "manual",
         client_factory: Optional[Callable[[str], LLMClient]] = None,
     ) -> Optional[AgentRun]:
-        """Run exactly one pass over the pending intake queue (SPEC §6.2).
+        """Run exactly one pass over the pending intake queue.
 
         `client_factory` defaults to the real `build_llm_client` (with the
         run's id as the gateway session) and exists
         purely for tests to inject a fake `LLMClient` without monkeypatching
         module state -- every test in this file except the lock/enabled
-        ones (SPEC §9 test cases 13, 16) calls this method directly with a
+        ones calls this method directly with a
         `FakeLLMClient`-returning factory.
 
         Returns `None` if the pending queue was empty (no `agent_runs` row
-        written, no LLM call made -- SPEC §9 test case 9). Otherwise returns
+        written, no LLM call made). Otherwise returns
         the finished `AgentRun` (`status` one of `'completed'`/`'failed'`).
 
-        Sequencing, exactly as SPEC §6.2 orders it:
+        Sequencing:
 
         1. Reap abandoned runs (`_reap_abandoned_runs`).
-        2. Send decision reminders (SPEC-beslut.md §6.5) -- see the comment
+        2. Send decision reminders -- see the comment
            at that call site below for why it sits here, before step 5's
            empty-queue return.
         3. Resolve the model and look it up -- `UnknownModelError` propagates
-           unhandled, before any `agent_runs` row exists (SPEC §2).
+           unhandled, before any `agent_runs` row exists.
         4. Check the daily budget -- `DailyBudgetExhaustedError` propagates
-           unhandled, before any `agent_runs` row exists (SPEC §9 test case 8).
+           unhandled, before any `agent_runs` row exists.
         5. Fetch the queue, capped at `settings.agent_max_items_per_pass`
-           (the fourth cap, SPEC §6.5).
+           (the fourth cap).
         6. Empty queue -> return `None`.
         7. Create the `agent_runs` row.
         8. One item at a time: re-check the daily budget; optionally log a
@@ -368,14 +365,14 @@ class AgentWorker:
         """
         self._reap_abandoned_runs()
 
-        # SPEC-beslut.md §6.5: "Ett beslut som legat mer än sju dagar
+        # "Ett beslut som legat mer än sju dagar
         # påminner agenten om en gång, inte varje körning" -- checked "in
         # the intake pass's existing cycle", not gated on that pass having
         # anything to process. This call sits here, before the model is
         # resolved and before step 6's `if not sources: return None` below,
         # specifically so an empty pending queue can never make it skip: a
         # reminder that only fires when there happens to be intake to
-        # process is not the rule SPEC-beslut.md describes, and a test
+        # process is not the rule for decisions, and a test
         # proves exactly that by calling this method with an empty queue.
         # Wrapped so a reminder failure is logged and this pass continues
         # regardless -- a decision that could not be reminded about is not
@@ -453,7 +450,7 @@ class AgentWorker:
                 )
                 return AgentRunRepository.get(run.id)
 
-            # `current_source_id`/`current_activity` (SPEC §8, task A11):
+            # `current_source_id`/`current_activity` (task A11):
             # set for the duration of this item's processing, cleared in the
             # `finally` no matter how this iteration ends (posted, abstained,
             # a connection/rate-limit error that ends the whole pass, or an
@@ -806,7 +803,7 @@ class AgentWorker:
         source: Optional[IntakeSource],
         outcome: SessionOutcome,
     ) -> None:
-        """SPEC §6.2 step 7e/f: accumulate usage/cost, item counters, and
+        """Accumulate usage/cost, item counters, and
         write `agent_run_events` rows for one finished session."""
         AgentRunRepository.add_usage(
             run_id,
@@ -910,14 +907,14 @@ def _has_agreement_followups() -> bool:
 
 
 # ---------------------------------------------------------------------------
-# AgentRunner: thread/flock lifecycle (SPEC §6.1, task A10)
+# AgentRunner: thread/flock lifecycle (task A10)
 # ---------------------------------------------------------------------------
 #
-# Exact same form as `services.dropzone.DropzoneRunner`, on purpose (SPEC
-# §6.1: "mönstret är redan i drift på hubbabubba och dess fallgropar är redan
+# Exact same form as `services.dropzone.DropzoneRunner`, on purpose
+# ("mönstret är redan i drift på hubbabubba och dess fallgropar är redan
 # lösta där") -- background thread started from `lifespan`, off by default,
 # `flock` on a lock file rather than a PID file, `stop()` sets an `Event` and
-# joins with a timeout. The one deliberate difference: SPEC §12.3 says no
+# joins with a timeout. The one deliberate difference: no
 # timer drives a pass yet, so `_run` waits idle on a second `Event`
 # (`_trigger`) instead of looping on a fixed scan interval like
 # `DropzoneRunner._run` does. The wait's timeout below is not a scan
@@ -927,14 +924,14 @@ def _has_agreement_followups() -> bool:
 
 LOCK_FILENAME = ".agent_runtime.lock"
 
-#: Purely a responsiveness knob for `stop()`, not a scan interval (SPEC
-#: §12.3: this module runs no schedule of its own yet).
+#: Purely a responsiveness knob for `stop()`, not a scan interval
+#: (this module runs no schedule of its own yet).
 _TRIGGER_POLL_TIMEOUT_SECONDS = 5.0
 
 
 def _lock_path() -> Path:
     """A dedicated lock file, deliberately not `services.dropzone`'s own
-    (SPEC §6.1's flock guards one subsystem at a time; sharing a lock file
+    (the flock guards one subsystem at a time; sharing a lock file
     between the dropzone scanner and the agent runtime would make an
     unrelated change to one able to break exclusivity for the other).
     Lives alongside `settings.intake_dir`, which -- unlike
@@ -989,7 +986,7 @@ def _acquire_lock(lock_path: Path) -> Optional["_AgentRuntimeLock"]:
     by the kernel the moment the holding process exits or its fd closes,
     regardless of what PID gets reused afterwards. Two agent workers
     bookkeeping the same queue in parallel is worse than no worker at all
-    (SPEC §6.1, §10: "Två workers mot samma databas" is in the "Aldrig"
+    (§10: "Två workers mot samma databas" is in the "Aldrig"
     list).
     """
     key = os.path.abspath(lock_path)
@@ -1032,9 +1029,9 @@ def _release_lock(lock: Optional["_AgentRuntimeLock"]) -> None:
 
 
 class AgentRunner:
-    """Run `AgentWorker` passes in a background thread (SPEC §6.1).
+    """Run `AgentWorker` passes in a background thread.
 
-    Manual start only (SPEC §12.3): the background thread, once started,
+    Manual start only: the background thread, once started,
     waits idle until `trigger_pass_now` is called -- nothing loops on a
     timer here yet. Whoever adds scheduling later only needs to call
     `trigger_pass_now` on an interval and change `trigger='manual'` to
@@ -1058,10 +1055,9 @@ class AgentRunner:
 
     def start(self) -> bool:
         """Start the idle background thread. Returns `False`, and does
-        nothing else, if the runtime is disabled (SPEC §9 test case 16,
-        mirroring `dropzone.start_background_scanner`'s own
+        nothing else, if the runtime is disabled (mirroring `dropzone.start_background_scanner`'s own
         `if not settings.dropzone_enabled` guard exactly) or if the lock
-        could not be taken (SPEC §9 test case 13).
+        could not be taken.
         """
         if not settings.agent_runtime_enabled:
             logger.info("Agent runtime disabled (AGENT_RUNTIME_ENABLED=false)")
@@ -1103,7 +1099,7 @@ class AgentRunner:
         A pass already in flight is never interrupted mid-item: `_stop`
         is only checked between the idle wait's timeouts, and
         `AgentWorker.run_pass_once` itself has no cooperative-cancellation
-        point -- it runs to completion or fails on its own (SPEC §6.1: "En
+        point -- it runs to completion or fails on its own ("En
         pågående LLM-tur avbryts inte mitt i en postning").
         """
         self._stop.set()
@@ -1122,8 +1118,7 @@ class AgentRunner:
         `AgentRun`. Nearly every test in this module calls `AgentWorker.
         run_pass_once` directly instead, precisely to get a synchronous,
         deterministic result without going through a thread -- only the
-        lock-exclusivity and disabled-runtime tests (SPEC §9 test cases 13,
-        16) need the actual thread/lock machinery this class provides.
+        lock-exclusivity and disabled-runtime tests need the actual thread/lock machinery this class provides.
         """
         self._pending_model = model
         self._trigger.set()
@@ -1156,7 +1151,7 @@ class AgentRunner:
                 self._pass_in_progress = False
 
     def status(self) -> dict:
-        """Snapshot for the status endpoint (SPEC-agentruntime §8).
+        """Snapshot for the status endpoint.
 
         `api/routes/agent.py` composes the full `GET /agent/status` payload
         on top of this plus `AgentRunRepository.get_current()`/
@@ -1167,7 +1162,7 @@ class AgentRunner:
         `paused_reason` is here rather than derived at the endpoint because
         `AgentRunner` is the only thing that knows *why* it is not running:
         whether the switch is off, or the flock is held by another process.
-        SPEC-tradar.md §7 requires it to stay put for as long as the agent
+        It has to stay put for as long as the agent
         is paused, "inte bara i felinlägget" -- so it is computed from
         current state on every call, never remembered from an event that has
         already scrolled past.
@@ -1247,7 +1242,7 @@ def agent_runtime_status() -> dict:
 
 
 #: The three named modes `komponenter.md`'s `AgentStatus` shows, and the only
-#: values `AgentStatusResponse.state` ever takes (SPEC-tradar.md §7).
+#: values `AgentStatusResponse.state` ever takes.
 AGENT_STATE_WORKING = "arbetar"
 AGENT_STATE_POSTING = "postar"
 AGENT_STATE_PAUSED = "pausad"

@@ -3,7 +3,7 @@
  *
  * Två anrop, båda rena läsningar. Skalet skriver ingenting och räknar
  * ingenting — `waiting` och `meta` kommer färdigformulerade från servern
- * (datakontraktets regel 2, SPEC-oversikt.md §5).
+ * (datakontraktets regel 2).
  *
  * Återanvänder den befintliga axios-instansen i `lib/api.ts` med dess
  * token-interceptor. Den filen ändras inte.

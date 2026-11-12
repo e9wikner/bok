@@ -1,5 +1,5 @@
 /**
- * Fakturering F0 in the old pages (SPEC-fakturering.md §7): the error codes
+ * Fakturering F0 in the old pages: the error codes
  * from `/invoice-drafts` and `/issue` in Swedish, decimal quantities and the
  * download of an invoice's PDF.
  */
@@ -54,7 +54,7 @@ export function describeInvoiceError(err: unknown, fallback: string): string {
     case "draft_not_found":
       return "Fakturautkastet hittades inte.";
     case "draft_in_thread":
-      // SPEC-fakturering-f1.md §4.3: the draft behind a pending card changes
+      // The draft behind a pending card changes
       // only through the thread.
       return "Förslaget väntar i Fakturerings chatt. Be agenten ändra det där.";
     case "invoice_number_missing":

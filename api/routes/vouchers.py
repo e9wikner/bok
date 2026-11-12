@@ -288,7 +288,7 @@ async def create_voucher(
     try:
         rows_data = [r.model_dump() for r in request.rows]
 
-        # A draft has no number (SPEC flode-verifikationer §4.3), so an
+        # A draft has no number, so an
         # explicit one can only be honoured when the voucher is posted now.
         if request.number is not None and not request.auto_post:
             raise ValidationError(
@@ -355,7 +355,7 @@ async def get_voucher_source_context(
             if attempt.voucher_id == voucher_id
         )
 
-    # SPEC-flode-underlag.md §10.4 (D2): a voucher that refers to a receipt
+    # A voucher that refers to a receipt
     # through another voucher's link (A-121 via A-118) lists that receipt,
     # named with the voucher it is linked to, so the receipt can be opened
     # from it too.
@@ -528,7 +528,7 @@ async def post_voucher(
     Once posted, a voucher can only be corrected via a correction voucher (B-series),
     never edited directly.
 
-    The key is what the chat's Posta button sends (SPEC-chattyta §8). Posting
+    The key is what the chat's Posta button sends. Posting
     only flips the draft's own status, so a second request cannot make a
     second voucher -- but two requests arriving at the same instant could both
     pass validation and both write a `posted` audit row. Under a key the
@@ -539,7 +539,7 @@ async def post_voucher(
     replay = _begin_idempotent(idempotency, idempotency_key, endpoint, {}, actor)
     if replay is not None:
         # A replay of a completed posting: the receipt may be what the first
-        # request never got to (SPEC-flode-verifikationer §8.1).
+        # request never got to.
         _after_posting(voucher_id, actor)
         return replay
 
@@ -575,8 +575,7 @@ def _post_and_record(
 ) -> VoucherResponse:
     """The posting, a thread draft's hooks and the key row, in one transaction.
 
-    `DraftService.on_posting` is steps 1-3 of SPEC-flode-verifikationer
-    §8.1: a thread draft's row goes `posted` and its underlag and bank
+    `DraftService.on_posting` is steps 1-3 of posting a thread draft: its row goes `posted` and its underlag and bank
     transactions are linked. Anything it raises -- `source_already_booked`
     included -- rolls the whole posting back: no number is taken. Steps 4-5
     (receipt, publication) run after the commit, in `_after_posting`.
@@ -617,7 +616,7 @@ def _post_and_record(
 
 
 def _after_posting(voucher_id: str, actor: str) -> None:
-    """Steps 4-5 of SPEC-flode-verifikationer §8.1 for a thread draft: the
+    """Steps 4-5 of posting a thread draft: the
     `receipt` post and its publication. A no-op for any other voucher, and
     for one whose receipt is already written, so it is called after every
     posting and on every replay of one.
@@ -636,7 +635,7 @@ def _after_posting(voucher_id: str, actor: str) -> None:
 
 
 def _after_failed_posting(voucher_id: str, error: ValidationError, actor: str) -> None:
-    """SPEC-flode-verifikationer §9 for a thread draft: one `error` post per
+    """A failed posting of a thread draft: one `error` post per
     draft and code, in its own transaction, after the posting's rollback. A
     no-op for any other voucher.
 
@@ -658,7 +657,7 @@ def _begin_idempotent(
     body: dict,
     actor: str,
 ) -> Optional[JSONResponse]:
-    """Reserve the key, or answer for it (SPEC-idempotens §6).
+    """Reserve the key, or answer for it.
 
     Returns the stored response to replay, raises for a mismatch or a request
     still in flight, and returns `None` when the caller should go ahead --
@@ -703,7 +702,7 @@ def _posting_http_error(
     ledger: LedgerService,
     voucher_id: str,
 ) -> HTTPException:
-    """Map a posting failure onto a status code (SPEC-idempotens §6).
+    """Map a posting failure onto a status code.
 
     Two of them are conflicts, not bad requests: the request was valid and the
     ledger is simply already in a state that settles it. A client retrying
@@ -760,7 +759,7 @@ async def correct_voucher(
     """Correct a posted voucher by creating and posting a B-series correction.
 
     A correction is exactly what a caller repeats after a timeout, so the same
-    key twice must leave one B-series voucher behind (SPEC-idempotens §12.4).
+    key twice must leave one B-series voucher behind.
     """
     idempotency = IdempotencyService()
     endpoint = _correct_endpoint(voucher_id)
@@ -959,7 +958,7 @@ async def list_vouchers(
                 missing_attachment=missing_attachment,
             )
 
-        # Read once for the page, not once per voucher (SPEC-oversikt §3).
+        # Read once for the page, not once per voucher.
         account_names = AccountRepository.get_all_as_dict()
         responses = [_voucher_to_response(v, account_names) for v in vouchers]
         _attach_corrections(vouchers, responses, account_names)
@@ -1156,7 +1155,7 @@ def _voucher_to_response(voucher, account_names=None) -> VoucherResponse:
     total_debit = sum(row.debit for row in voucher.rows)
     total_credit = sum(row.credit for row in voucher.rows)
 
-    # Derived, never stored (SPEC-oversikt.md §3). A voucher read back from the
+    # Derived, never stored. A voucher read back from the
     # repository carries both; one just built in memory does not, and a voucher
     # that has only just been created has no attachment and no age.
     missing_attachment = (

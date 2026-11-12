@@ -29,7 +29,7 @@ _PAYROLL_UNBOOKED = ("draft", "generated")
 
 # The intake statuses that used to be summed here live on as
 # `_INTAKE_OPEN_STATUSES` in `services/decision_service.py`, which owns the
-# union `open_decisions` is counted from now (SPEC-beslut.md §5).
+# union `open_decisions` is counted from now.
 
 
 @dataclass
@@ -185,8 +185,8 @@ class OverviewService:
 
     def _views_waiting(self, fiscal_year) -> List[ViewWaiting]:
         """`DecisionService.count_waiting` per view, in the year: open
-        decisions plus pending proposals, each thing once
-        (SPEC-flode-verifikationer.md §11.3). A page's `open_decisions` is
+        decisions plus pending proposals, each thing once.
+        A page's `open_decisions` is
         the sum of its views, so the number by the page and the numbers by
         its tabs always add up. Without any fiscal year, every year.
 

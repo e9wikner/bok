@@ -32,8 +32,8 @@ def run_statement_match_after_posting() -> None:
 
 
 def _today() -> date:
-    """The server's date, for where a correction is booked
-    (SPEC-flode-verifikationer §7.2). A function so tests can fix it."""
+    """The server's date, for where a correction is booked.
+    A function so tests can fix it."""
     return date.today()
 
 
@@ -62,8 +62,7 @@ class LedgerService:
         Validates all business rules before persisting to ensure
         no invalid data is written to the database.
 
-        A draft has no number; `post_voucher` sets it (SPEC
-        flode-verifikationer §4.3). An explicit number, as in the SIE4
+        A draft has no number; `post_voucher` sets it. An explicit number, as in the SIE4
         import, is passed to `post_voucher`.
         """
         # IB is opening state, not a voucher (services/opening_balance.py).
@@ -234,7 +233,7 @@ class LedgerService:
     ) -> Voucher:
         """Create correction voucher (B-series) for an original voucher.
 
-        Booked where SPEC-flode-verifikationer §7.2 says: the original's
+        Booked in the original's
         period if open, otherwise the latest open period in the same fiscal
         year. `voucher_date` defaults to the date `correction_target` derives
         for today -- never the original's date, which lies outside the target
@@ -325,7 +324,7 @@ class LedgerService:
 
         The posted correction contains reversal rows for the original voucher
         followed by the corrected rows supplied by the caller, dated and
-        booked by `correction_target` (SPEC-flode-verifikationer §7.2).
+        booked by `correction_target`.
 
         The voucher, its number and the correction history are one unit: a
         failure writing the history rolls the correction back (F12). With
@@ -475,7 +474,7 @@ class LedgerService:
     def reversal_rows(original: Voucher) -> List[Dict]:
         """The reversal of `original`: each of its rows, debit and credit
         swapped. Mechanical, so that it cannot be wrong because a model
-        counted (SPEC-flode-verifikationer §7.1); `/correct` and a thread's
+        counted; `/correct` and a thread's
         correction proposal both build it here."""
         return [
             {
@@ -488,8 +487,8 @@ class LedgerService:
         ]
 
     def correction_target(self, original: Voucher, today: date) -> Tuple[Period, date]:
-        """Where a correction of `original` is booked, and on which date
-        (SPEC-flode-verifikationer §7.2): the original's period if open,
+        """Where a correction of `original` is booked, and on which date:
+        the original's period if open,
         otherwise the latest open period in the same fiscal year; `today` if
         it lies in that period, otherwise its last day -- and never before
         the original's own date: an AGI booked on its due date the 12th and
@@ -568,7 +567,7 @@ class LedgerService:
 
         Raises on failure. It used to swallow every exception, which let a
         correction be posted without its history; the posting's transaction
-        now rolls back instead (SPEC-flode-verifikationer §8.1, F12).
+        now rolls back instead.
         """
         from repositories.accounting_correction_repo import (
             AccountingCorrectionRepository,
@@ -767,7 +766,7 @@ class LedgerService:
         from repositories.thread_draft_repo import ThreadDraftRepository
         from services.draft_service import DraftService
 
-        # Lock first, recording who did it (SPEC-idempotens §5): the
+        # Lock first, recording who did it: the
         # write lock is then held, so the drafts read below are the ones
         # the lock applies to.
         self.periods.lock_period(period.id, actor=actor, _commit=False)

@@ -4,7 +4,6 @@
 D3: a correction's underlag is the original and `accounting_corrections`,
 so a posted correction does not lack underlag. D2: a voucher with a row in
 `voucher_source_references` has its underlag through the reference.
-Test case numbers refer to SPEC-flode-underlag.md §14.
 """
 
 import re

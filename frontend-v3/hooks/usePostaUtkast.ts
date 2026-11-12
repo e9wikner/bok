@@ -18,7 +18,7 @@ import { postningKlar, startaPostning, taBortPostning } from "@/lib/chattyta/pos
 export const POSTAR_FORTFARANDE_MS = 3000;
 
 /**
- * Postningens tillstånd för ett utkast (SPEC-chattyta.md §8, C12). Delas av
+ * Postningens tillstånd för ett utkast. Delas av
  * `VerifikationsForslag`s `Posta` och `FelKort`s `Försök igen` (C13, §9) —
  * båda går genom `postaUtkast`, alltså med samma härledda nyckel.
  *
@@ -153,7 +153,7 @@ export function usePostaUtkast(draftId: string): UsePostaUtkast {
         while (utfall.utfall === "pagar") {
           // Ett annat anrop med samma nyckel håller på (en annan flik, eller
           // vårt eget förra). Fråga igen med SAMMA nyckel; svaret blir den
-          // lagrade postningen (SPEC-idempotens.md §6). Knappen står kvar i
+          // lagrade postningen. Knappen står kvar i
           // `Postar…` hela tiden (§8).
           if (!monterad.current) return taBortPostning(qc, draftId);
           await vanta(utfall.retry_after_ms);
@@ -193,7 +193,7 @@ export function usePostaUtkast(draftId: string): UsePostaUtkast {
   return { lage, langsam: postar && langsam, posta };
 }
 
-// ─── Utfallens text (SPEC-chattyta.md §8) ─────────────────────────────────
+// ─── Utfallens text ─────────────────────────────────
 // På ett ställe: `PostaKnappar` och `FelKort`s `Försök igen` visar samma utfall,
 // och nätverksfelets mening får aldrig glida till `Ingenting är bokfört` i
 // den ena kopian men inte den andra.

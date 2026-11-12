@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { type Verifikation, VERIFIKATIONER_ANTAL, nastaSida, slaSamman } from "@/lib/skal/bocker";
 
-/** L5 (SPEC-lasbarhet.md §4.5): Postades sidor och hur de läggs ihop. */
+/** L5: Postades sidor och hur de läggs ihop. */
 
 const v = (id: string): Verifikation => ({
   id,

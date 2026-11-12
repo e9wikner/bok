@@ -1,5 +1,5 @@
 """`underlagstolkning`: the server's reading of what the model read from an
-underlag (docs/redesign/SPEC-underlagstolkning.md).
+underlag.
 
 The matching windows (§7.2), the checks and confidence (§6.3-§6.4), and
 the ranking, `match`, `expected` and the hypothesis (§7.3-§7.5). The
@@ -442,11 +442,11 @@ def _format_kr(value_ore: int) -> str:
 
 
 # ---------------------------------------------------------------------------
-# The comparison in the thread (SPEC-flode-underlag.md §9.1, §9.3, D6, D7)
+# The comparison in the thread
 # ---------------------------------------------------------------------------
 
-#: `JamforelseRader`'s labels for a receipt against a voucher
-#: (SPEC-chattyta.md §4.3): the document on the left, the voucher right.
+#: `JamforelseRader`'s labels for a receipt against a voucher:
+#: the document on the left, the voucher right.
 COMPARISON_DOCUMENT_LABEL = "kvitto"
 
 

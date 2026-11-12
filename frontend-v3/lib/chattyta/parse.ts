@@ -1,11 +1,11 @@
 /**
  * `parseInlagg` — det enda stället där ett råinlägg från servern blir en
- * typad sak (SPEC-chattyta.md §4.1).
+ * typad sak.
  *
  * Den vägrar det som bryter kontraktet i stället för att rendera det halvt:
- * ett kort som ser rätt ut men bryter kontraktet är värre än inget kort
- * (SPEC-skal.md §13). Servern garanterar redan flera av reglerna
- * (SPEC-beslut.md §6.3); klienten kontrollerar ändå, av samma skäl som
+ * ett kort som ser rätt ut men bryter kontraktet är värre än inget kort.
+ * Servern garanterar redan flera av reglerna;
+ * klienten kontrollerar ändå, av samma skäl som
  * append-only vaktas på tre ställen.
  *
  * Kroppen släpps igenom ORDAGRANT när den håller. Ingen text trimmas,
@@ -62,7 +62,7 @@ function konteringFel(rows: unknown, falt: string): string | null {
   return null;
 }
 
-/** `draft` med `kind: "invoice"` (SPEC-fakturering-f1.md §6.1). */
+/** `draft` med `kind: "invoice"`. */
 function fakturaFel(b: Rad): string | null {
   const fel = saknar(b, { terms: arStrang });
   if (fel) return fel;
@@ -181,8 +181,8 @@ const KONTROLLER: Record<InlaggsTyp, Kontroll> = {
       decision_id: strangEllerNull,
     });
     if (fel) return fel;
-    // Fakturaförslaget (SPEC-fakturering-f1.md §6.1). Löneförslag är
-    // fortfarande ur scope (ANALYS.md §2, SPEC §4.3).
+    // Fakturaförslaget. Löneförslag är
+    // fortfarande ur scope (ANALYS.md §2).
     if (b.kind === "invoice") return fakturaFel(b);
     if (b.kind !== "voucher") return `kind ${String(b.kind)} renderas inte`;
     return konteringFel(b.rows, "rows");
@@ -197,7 +197,7 @@ const KONTROLLER: Record<InlaggsTyp, Kontroll> = {
       title: arStrang,
       voucher_id: strangEllerNull,
       note: valfriStrang,
-      // Ett fakturakvitto (SPEC-fakturering-f1.md §8.1).
+      // Ett fakturakvitto.
       invoice_id: valfriStrang,
       pdf_url: valfriStrang,
     });

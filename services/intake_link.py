@@ -1,4 +1,4 @@
-"""Link an underlag to an already posted voucher (SPEC-flode-underlag.md §6).
+"""Link an underlag to an already posted voucher.
 
 `IntakeLinkService.link` is behind both `koppla_underlag` (the agent's
 thirteenth tool) and `POST /api/v1/intake/{id}/link`: the same checks, in
@@ -728,7 +728,7 @@ class IntakeLinkService:
     ) -> LinkBasis:
         """Check 9 without a decision (§6.4): the latest interpretation's
         match is `exact`, it is this voucher, and it is still open now.
-        `exact_no_date` is not enough (`SPEC-underlagstolkning.md` §12.6 d).
+        `exact_no_date` is not enough.
         Otherwise `link_requires_decision`, with the match kind, so the
         agent knows to lay out a decision."""
         match = interpretation.match

@@ -1,5 +1,5 @@
 /**
- * Den optimistiska raden för ett utfärdande (SPEC-fakturering-f1.md §10.2).
+ * Den optimistiska raden för ett utfärdande.
  *
  * Samma mönster som postningarna (`postningar.ts`): fakturakortets `Utfärda`
  * (i tråden) och vyn Fakturering (i läskolumnen) delar vilka förslag som

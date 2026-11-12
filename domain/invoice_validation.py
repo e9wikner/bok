@@ -176,7 +176,7 @@ class VATCalculator:
         return vat_code in VATCalculator.VAT_RATES
 
 
-# --- SPEC-fakturering.md §4.1–4.2: nummer, antal och leverans ---------------
+# --- nummer, antal och leverans ---------------------------------------------
 
 _QUANTITY_RE = re.compile(r"^\d+(?:[.,]\d{1,2})?$")
 _INVOICE_NUMBER_RE = re.compile(r"^[A-Za-z0-9-]{1,32}$")

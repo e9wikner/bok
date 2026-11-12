@@ -3,7 +3,7 @@
 Redesignen (`/v4`, bakom `NEXT_PUBLIC_SKAL`) är byggd: idempotens, översikt,
 agentruntime, trådar, beslut, skal, chattyta, flöde 1 (verifikationer), underlagstolkning,
 flöde 4 (underlag), läsbarhet, underlag-ersatt och fakturering F0–F1. Modulspecarna och uppgiftslistorna är
-borttagna ur trädet. De finns i git-historiken, se `AGENTS.md`.
+borttagna och används inte längre.
 
 Här står bara det som fortfarande väntar på ett beslut eller en kontroll. Stryk en punkt när
 den är avgjord och skriv beslutet i koden eller i commit-meddelandet, inte här.
@@ -129,7 +129,7 @@ Det här är kontroller, inte beslut. De kräver en människa, och den första e
 
 ## Fakturering
 
-F0 och F1 är byggda. Specarna står i git-historiken (se `AGENTS.md`).
+F0 och F1 är byggda.
 
 ### F1: frågor som står öppna
 

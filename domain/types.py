@@ -93,7 +93,7 @@ class BankInputStatus(str, Enum):
 
 
 class ThreadViewKey(str, Enum):
-    """The seven views a thread can belong to (SPEC-tradar.md §5).
+    """The seven views a thread can belong to.
 
     `README.md`: "Chatten hör till vyn, inte till appen. Varje vy har sin
     egen tråd." The list is **closed and validated** — an unknown key gives

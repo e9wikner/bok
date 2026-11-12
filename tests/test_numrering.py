@@ -1,7 +1,6 @@
-"""Tests for voucher numbering (docs/redesign/SPEC-flode-verifikationer.md §4).
+"""Tests for voucher numbering.
 
-Grows across tasks F1–F3 of `tasks/flode-verifikationer/todo.md`. Test case
-numbers refer to the table in SPEC §14.1.
+Each task (F1–F3) gets its own section.
 
 F1 (cases 1–4) is migration 027: `vouchers` is rebuilt so that `number` is
 nullable, a draft has no number and a posted voucher always has one. Each case
@@ -459,7 +458,7 @@ def test_4_triggers_still_guard_posted_vouchers_and_rows(v26_db):
 #
 # A draft has no number; `post_voucher` takes MAX(number) + 1 over *posted*
 # vouchers in the same series and fiscal year — or an explicit number, for the
-# SIE4 import — in the same UPDATE that flips the status (SPEC §4.3).
+# SIE4 import — in the same UPDATE that flips the status.
 
 ROWS = [
     {"account": "1510", "debit": 10000, "credit": 0},
@@ -692,7 +691,7 @@ def test_10b_api_explicit_number_only_with_auto_post(
 
 # --- F3: a number may be None, and the gap check runs per fiscal year --------
 #
-# Case 12 is the gap check (SPEC §4.5): numbers restart at 1 each fiscal year,
+# Case 12 is the gap check: numbers restart at 1 each fiscal year,
 # so grouping on `series` alone lets a gap hide behind the other year's
 # vouchers. Case 13 is the backend half of "API and old pages": a draft reads
 # as `number: null` everywhere, and nothing answers 500 for one.

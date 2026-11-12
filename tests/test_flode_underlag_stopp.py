@@ -3,8 +3,7 @@
 `posta_verifikation`, `POST /agent/vouchers` and `foresla_verifikation`
 refuse an underlag whose latest interpretation is an exact match that is
 still open: it belongs to an already posted voucher and is linked with
-`koppla_underlag` instead. Test case numbers refer to
-SPEC-flode-underlag.md §14.
+`koppla_underlag` instead.
 """
 
 from datetime import date

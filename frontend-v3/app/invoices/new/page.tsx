@@ -272,7 +272,7 @@ export default function NewInvoicePage() {
     }
   };
 
-  // Utfärda (SPEC-fakturering.md §5): save the draft, then issue it. The
+  // Utfärda: save the draft, then issue it. The
   // voucher is posted and the invoice locked; all or nothing.
   const handleIssue = async () => {
     if (!validate()) return;

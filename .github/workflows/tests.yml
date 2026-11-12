@@ -86,10 +86,8 @@ jobs:
     - name: Type check with mypy
       run: mypy .
 
-  # Frontenden hade noll tester före modulen `skal` (ANALYS.md §5 i git-historiken, se AGENTS.md).
-  # Till skillnad från jobben ovan är det här steget INTE continue-on-error:
-  # ett testnät som inte kan fälla ett bygge är inte ett testnät.
-  # Se SPEC-skal.md §12 i git-historiken.
+  # Ett testnät som inte kan fälla ett bygge är inte ett testnät. Bara
+  # coverage-uppladdningen och frontendens lint får misslyckas utan att fälla.
   frontend:
     runs-on: ubuntu-latest
 

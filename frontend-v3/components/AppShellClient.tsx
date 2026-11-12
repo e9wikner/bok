@@ -15,7 +15,6 @@ export default function AppShellClient({ children }: { children: React.ReactNode
 
   // Det nya skalet (modul `skal`) har sin egen header och ingen sidomeny.
   // Den här raden är modulens ENDA ändring utanför sin egen katalog —
-  // SPEC-skal.md §3 och testfall 18.
   if ((pathname ?? "").startsWith(SKAL_RUTT)) {
     return <>{children}</>;
   }

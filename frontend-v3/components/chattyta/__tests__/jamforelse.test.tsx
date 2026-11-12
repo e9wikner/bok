@@ -6,7 +6,7 @@ import { FIXTUR_RECEIPT } from "@/lib/chattyta/__fixtures__/inlagg";
 import type { ReceiptKropp } from "@/lib/chattyta/typer";
 
 /**
- * C9 (SPEC-chattyta.md §5, testfall 23). Kroppen går genom `parseInlagg`
+ * C9. Kroppen går genom `parseInlagg`
  * först — komponenten får aldrig något annat än en typad kropp, och
  * fixturen är §4.3:s JSON ordagrant.
  */

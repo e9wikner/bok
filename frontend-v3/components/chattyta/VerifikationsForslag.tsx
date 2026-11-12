@@ -7,8 +7,7 @@ import { Kontering } from "@/components/chattyta/Kontering";
 import type { VerifikationDraftInlagg } from "@/lib/chattyta/typer";
 
 /**
- * `VerifikationsForslag` (komponenter.md §Kort i tråden, SPEC-chattyta.md
- * §4.3, §5, §8): utkastet som det blir i böckerna.
+ * `VerifikationsForslag` (komponenter.md §Kort i tråden): utkastet som det blir i böckerna.
  *
  * Kortet visar serverns rader ordagrant. Agenten formulerar, servern räknar
  * (antagande 3): `title`, `meta`, `footnote` och `consequence` skrivs inte om,
@@ -81,7 +80,7 @@ export function VerifikationsForslag({
        * utan knappar — varningen gäller förslaget, inte knappen.
        *
        * Notisen är INTE metatext (komponenter.md): den bär varningen och ska
-       * ha läsbar kontrast, ≥ 4.5:1 (SPEC §11). Därför `text-bok-text-dampad`
+       * ha läsbar kontrast, ≥ 4.5:1. Därför `text-bok-text-dampad`
        * (#52525b) och aldrig `text-bok-meta` (#9ca3af). Testfall 24.
        */}
       <div
@@ -112,9 +111,9 @@ export function VerifikationsForslag({
   );
 }
 
-// ─── Postningsknapparna (SPEC-chattyta.md §8, C12) ────────────────────────
+// ─── Postningsknapparna ────────────────────────
 
-// Träffyta 46: mobilens krav (SPEC-chattyta §11), som också täcker desktopens 44.
+// Träffyta 46: mobilens krav, som också täcker desktopens 44.
 const PRIMAR =
   "min-h-[46px] rounded-[8px] bg-bok-black px-[16px] text-[14px] font-medium text-bok-yta hover:bg-bok-black-hover aria-disabled:cursor-default aria-disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bok-lank";
 const SEKUNDAR =
@@ -131,7 +130,7 @@ const SEKUNDAR =
  * ingen `Ändra` — en knapp som inte kan göra något är värre än ingen.
  * `Ändra` skickar aldrig något och skriver inget i fältet (§8 steg 4): en
  * knapp som skickar en färdig mening är ett förvalt yttrande, samma sak som
- * förslagschipsen som togs bort (SPEC-skal.md §2.1).
+ * förslagschipsen som togs bort.
  */
 /** Klartonens `Postad · A-118`. Delas av klickets utfall och `posted` ur `GET /drafts`. */
 const PostadEtikett = ({ text, etikettRef }: { text: string; etikettRef?: (el: HTMLElement | null) => void }) => (

@@ -1,5 +1,5 @@
 /**
- * Den optimistiska raden (SPEC-flode-verifikationer.md §11.2, F14).
+ * Den optimistiska raden.
  *
  * Förslagskortets `Posta` (`usePostaUtkast`, i tråden) och vyn Verifikationer
  * (`useVyer`, i läskolumnen) är olika komponenter som delar en sak: vilka

@@ -119,7 +119,7 @@ async def get_idempotency_key(
 ) -> Optional[str]:
     """Read the optional Idempotency-Key header.
 
-    Transition rule (c) in SPEC-idempotens §8: the header is optional for now.
+    Transition rule: the header is optional for now.
     A call without one runs the old way and is logged, so the gap is visible
     before the key becomes mandatory.
     """

@@ -18,18 +18,18 @@ from domain.types import VoucherSeries, VoucherStatus
 #: voucher's amount when it is matched against an underlag (`_candidate_rows`).
 ROUNDING_ACCOUNT = "3740"
 
-# Derived voucher fields (SPEC-oversikt.md §3). Never stored: migration 014
+# Derived voucher fields. Never stored: migration 014
 # aborts every UPDATE on a posted voucher, so a flag column could not be kept
 # in sync without softening the trigger. Both fragments reference the table by
 # name, so they only work in queries where `vouchers` is unaliased.
 #
-# "Saknar underlag" (SPEC-underlagstolkning.md §2.1): no row in `attachments`
+# "Saknar underlag": no row in `attachments`
 # (manual upload), no row in `voucher_intake_sources` (the agent's posting and
 # a posted thread draft link their source there), and not imported from SIE4
 # -- those vouchers' documents live in the old system and can never be linked
 # here (§12.5). `created_by` is NOT NULL (027), so `!=` never yields NULL.
 #
-# Two more (SPEC-flode-underlag.md §3.1, §5): not a correction -- a B-series
+# Two more: not a correction -- a B-series
 # correction's underlag is the original and `accounting_corrections`, and
 # there is no receipt to ask for (D3) -- and no row in
 # `voucher_source_references` -- a difference booked as its own voucher has
@@ -64,8 +64,7 @@ _HAS_INPUT_VAT_SQL = (
     f" AND vat_r.account_code BETWEEN '{INPUT_VAT_RANGE[0]}'"
     f" AND '{INPUT_VAT_RANGE[1]}')"
 )
-# A voucher and the posted corrections that point at it (SPEC-flode-
-# verifikationer §7): what the ledger holds for the business event once a
+# A voucher and the posted corrections that point at it: what the ledger holds for the business event once a
 # correction has been posted. `{v}` is an alias of `vouchers`.
 _FAMILY_SQL = (
     "({v}.id = vouchers.id"
@@ -167,10 +166,9 @@ AGE_DAYS_SQL = (
 
 
 # Every voucher read selects through this: the voucher's own columns, the two
-# derived fields above, and the two correction references (SPEC-flode-
-# verifikationer §7.5) joined in -- `corrected_by` is the latest *posted*
+# derived fields above, and the two correction references joined in -- `corrected_by` is the latest *posted*
 # voucher whose correction_of points here; `corrects` is the voucher this one
-# points at. `referenced_by` (SPEC-flode-underlag.md §10.4, D2) is joined the
+# points at. `referenced_by` is joined the
 # same way: the latest *posted* voucher whose `voucher_source_references` row
 # refers to its underlag through this one -- A-121 on A-118. `vouchers` stays
 # unaliased for the fragments above; a caller's WHERE must qualify its
@@ -232,7 +230,7 @@ _IN_CHUNK = 500
 @dataclass(frozen=True)
 class CandidateBankTransaction:
     """The bank transaction linked to a candidate voucher through
-    `voucher_bank_transactions` (SPEC-underlagstolkning.md §7.1). Amount in
+    `voucher_bank_transactions`. Amount in
     öre, negative for money out."""
 
     id: str
@@ -436,7 +434,7 @@ class VoucherRepository:
         original_ids: Sequence[str],
     ) -> Dict[str, List[Voucher]]:
         """`{original_id: [posted corrections]}` for every id, oldest posting
-        first (SPEC-flode-verifikationer §7.5) -- one query for the vouchers
+        first -- one query for the vouchers
         and one for their rows, however many originals a page holds."""
         ids = list(dict.fromkeys(original_ids))
         if not ids:
@@ -529,7 +527,7 @@ class VoucherRepository:
         Returns (vouchers, total_count) to support pagination.
         When *search* is given, filters on description (LIKE) or voucher number.
         *missing_attachment* selects posted vouchers with (False) or without
-        (True) a linked attachment; a draft is neither (SPEC-oversikt.md §6.4).
+        (True) a linked attachment; a draft is neither.
         *sort_order* defaults to descending, except for ``sort_by="age"`` where
         oldest first is what the caller asked for.
         """
@@ -579,7 +577,7 @@ class VoucherRepository:
             sort_order = "asc" if sort_col == "age" else "desc"
         sort_dir = "ASC" if sort_order == "asc" else "DESC"
         if sort_col == "number":
-            # A draft has no number (SPEC-flode-verifikationer §4.3). SQLite
+            # A draft has no number. SQLite
             # puts NULL first in ASC and last in DESC; drafts go last in both
             # directions, after the posted series they have not joined yet.
             order_clause = (
@@ -590,7 +588,7 @@ class VoucherRepository:
             order_clause = f"vouchers.date {sort_dir}, vouchers.series, vouchers.number"
 
         # Fetch the page in one query, derived fields joined in, then every
-        # row of the page in one more (SPEC-oversikt §3: no query per row).
+        # row of the page in one more: no query per row.
         sql = f"{VOUCHER_SELECT_SQL}{where_sql} ORDER BY {order_clause}"
         page_params = list(params)
 
@@ -622,8 +620,8 @@ class VoucherRepository:
     def count_missing_attachments(
         min_row_ore: Optional[int] = None, fiscal_year_id: Optional[str] = None
     ) -> int:
-        """Posted vouchers that lack a document (SPEC-oversikt.md §3, the
-        predicate per SPEC-underlagstolkning.md §2.1).
+        """Posted vouchers that lack a document (the
+        predicate).
 
         With *min_row_ore*, only vouchers with a row whose debit or credit
         exceeds it: the compliance check's 500 kr threshold is
@@ -657,8 +655,8 @@ class VoucherRepository:
         date_window: Tuple[int, int],
         amount_window_ore: int,
     ) -> List[MatchCandidateRow]:
-        """Posted vouchers an underlag could belong to
-        (SPEC-underlagstolkning.md §7.1-§7.2), in one query.
+        """Posted vouchers an underlag could belong to,
+        in one query.
 
         Candidates are posted, lack a document of their own
         (`MISSING_DOCUMENT_SQL`: a statement row alone does not shut a
@@ -705,8 +703,7 @@ class VoucherRepository:
     def candidate_row(voucher_id: str) -> Optional[MatchCandidateRow]:
         """One posted voucher as a `match_candidates` row -- the same
         fields, joins and bank-transaction choice, in one query -- whatever
-        its date, amount or underlag. For `expected` (SPEC-underlagstolkning
-        §7.3), which is counted against the voucher the agent named even
+        its date, amount or underlag. For `expected`, which is counted against the voucher the agent named even
         outside the windows. `None` for a draft or an unknown id."""
         rows = VoucherRepository._candidate_rows(
             ["vouchers.status = 'posted'", "vouchers.id = ?"], [voucher_id]
@@ -715,7 +712,7 @@ class VoucherRepository:
 
     @staticmethod
     def match_still_open(voucher_id: str, intake_source_id: str) -> bool:
-        """`match.still_open` (SPEC-underlagstolkning.md §8), at read time:
+        """`match.still_open`, at read time:
         the voucher still lacks a document of its own
         (`MISSING_DOCUMENT_SQL`) **and** the source has no current row in `voucher_intake_sources` (linked to
         neither this voucher nor another). Reads only."""
@@ -824,7 +821,7 @@ class VoucherRepository:
     def numbers_for(voucher_ids: Sequence[str]) -> Dict[str, Tuple[str, int]]:
         """`{id: (series, number)}` for those of `voucher_ids` that are
         posted, in one query -- a list of drafts asks once, not once per
-        row (SPEC-flode-verifikationer §10). Drafts have no number and are
+        row. Drafts have no number and are
         left out, as are ids with no voucher (a superseded draft's voucher
         is deleted)."""
         ids = list(dict.fromkeys(voucher_ids))
@@ -843,7 +840,7 @@ class VoucherRepository:
         """Each account a posted voucher touches, once, in the order its rows
         first name it, with the account's balance (debit - credit, öre) in
         the voucher's fiscal year before and after the voucher
-        (SPEC-flode-verifikationer §8.2, the receipt).
+        (the receipt).
 
         *Before* sums the posted rows of vouchers in the same fiscal year
         that were posted earlier than this one (`posted_at`, then `rowid`
@@ -918,8 +915,7 @@ class VoucherRepository:
     ) -> int:
         """Post a draft voucher (make immutable - BFL varaktighet requirement).
 
-        The number is set in the same UPDATE as the status change (SPEC
-        flode-verifikationer §4.3): *number* when given (SIE4 import keeps the
+        The number is set in the same UPDATE as the status change: *number* when given (SIE4 import keeps the
         file's numbers), otherwise MAX(number) + 1 over posted vouchers in the
         same series and fiscal year. One statement, so the read and the write
         cannot land in different transactions; UNIQUE(series, number,
@@ -1032,7 +1028,7 @@ class VoucherRepository:
         """Delete draft voucher (before posting).
 
         `_commit=False` lets a caller replace a draft inside its own
-        transaction (`DraftService.propose`, SPEC-flode-verifikationer §6.2).
+        transaction (`DraftService.propose`).
         """
         voucher = VoucherRepository.get(voucher_id)
         if not voucher or voucher.is_posted():

@@ -44,7 +44,7 @@ export function AgentStatus({
   /**
    * `undefined` när statusanropet inte gick fram. Då visas INGENTING —
    * aldrig "pausad". Pausad är ett riktigt läge med en orsak, och att gissa
-   * det ur ett nätverksfel vore en lögn i produkttonen. SPEC-skal.md §8.
+   * det ur ett nätverksfel vore en lögn i produkttonen.
    */
   state?: AgentState;
   pausadOrsak?: string | null;

@@ -4,7 +4,7 @@ import type { RadListaRad, ReceiptKropp } from "@/lib/chattyta/typer";
 
 /**
  * `JamforelseRader` (`receipt`) och `RadLista/i-tråd` (`agent_text` med
- * `rows[]`) — SPEC-chattyta.md §5, komponenter.md §RadLista/i-tråd och
+ * `rows[]`) — komponenter.md §RadLista/i-tråd och
  * §JamforelseRader.
  *
  * komponenter.md säger att de är SAMMA komponent. Därför en fil och en
@@ -20,7 +20,7 @@ import type { RadListaRad, ReceiptKropp } from "@/lib/chattyta/typer";
 /**
  * Talkolumnernas bredd. Fast, så att `var` och `blir` står i linje rad för
  * rad och etiketten står över sitt tal. Samma 92 px som
- * `VerifikationsForslag`s beloppskolumner (SPEC §5, C10).
+ * `VerifikationsForslag`s beloppskolumner.
  */
 const TALKOLUMN = "w-[92px] shrink-0 text-right";
 
@@ -68,7 +68,7 @@ function Ram({ children }: { children: ReactNode }) {
  * Kvittot efter en handling. **Båda talen visas alltid** — också när de är
  * lika. En ensam ny summa är fel (komponenter.md), eftersom läsaren då
  * inte kan se vad som ändrades. `parseInlagg` har redan vägrat en rad som
- * saknar något av talen (SPEC §4.1), så här finns alltid två.
+ * saknar något av talen, så här finns alltid två.
  *
  * Etiketterna är serverns (`labels`), inte komponentens: `var`/`blir` och
  * `kvitto`/`A-118` är olika jämförelser, och det är agenten som vet vilken.
@@ -95,7 +95,7 @@ export function JamforelseRader({ kropp }: { kropp: ReceiptKropp }) {
         </Ram>
       )}
       {kropp.note !== undefined && (
-        // Serverns hypotes (SPEC-flode-underlag.md D7): mono 12 #52525b, som
+        // Serverns hypotes: mono 12 #52525b, som
         // förslagskortets konsekvensnotis — läsbar, inte metatext.
         <p data-testid="jamforelse-not" className="bok-mono m-0 text-[12px] text-bok-text-dampad">
           {kropp.note}

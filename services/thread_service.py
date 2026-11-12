@@ -1,6 +1,6 @@
-"""Runtime events and outcomes rendered as thread posts (SPEC-tradar.md §6.2).
+"""Runtime events and outcomes rendered as thread posts.
 
-The boundary from `SPEC-agentruntime.md` §1, restated in SPEC-tradar.md §8.1:
+The boundary between the runtime and the threads:
 **the runtime produces events and outcomes; `tradar` decides how they are
 shown.** This module is that decision, and it is the only place that knows
 both shapes. Nothing here is imported by `services/agent_runtime.py` or
@@ -94,7 +94,7 @@ def compact(
 # ---------------------------------------------------------------------------
 
 #: What each tool did, in the human's words, stored as the trace's label.
-#: The client no longer renders traces (SPEC-lasbarhet §4.3); the labels keep
+#: The client no longer renders traces; the labels keep
 #: stored traces readable in the audit trail. Every tool in
 #: ``services/agent_tools.py`` has one (``tests/test_tradar.py`` checks).
 #: `komponenter.md`'s examples are of this shape: "16 händelser lästa",
@@ -256,11 +256,11 @@ def _decision_body(outcome: SessionOutcome, decision_id: str) -> dict:
     wording is the point -- `datakontrakt.md` §2: "`reason` är agentens text
     om varför den inte gissade". It is never rewritten here.
 
-    `decision_id` (B6, SPEC §2) is minted by `record_outcome` before this
+    `decision_id` (B6) is minted by `record_outcome` before this
     runs and before the post is written -- `decisions.post_id` is a plain
     foreign key into `thread_posts(id)`, so the row can only be created once
-    the post exists, and a post is never rewritten afterwards to add one in
-    (`SPEC-tradar.md` §8.4). This function's only job regarding it is to
+    the post exists, and a post is never rewritten afterwards to add one in.
+    This function's only job regarding it is to
     carry it in the body it already builds -- nothing else about it
     changes. Same shape as `_decision_post_body`
     (`services/decision_service.py`), which takes the same id the same way
@@ -306,9 +306,9 @@ class ThreadService:
         `answer_text` overrides the outcome's own text -- the stream
         passes the last paragraph it sent, the text after the turn's final
         tool call, so the post matches what the human was left reading
-        (SPEC §4: the client replaces its optimistic rows with this post at
+        (the client replaces its optimistic rows with this post at
         `message.completed`). What the agent wrote between tool calls is
-        never stored (SPEC-lasbarhet §4.1).
+        never stored.
 
         Returns the post. The mapping, per §6.2 and §11:
 
@@ -320,7 +320,7 @@ class ThreadService:
         | `abstained` for any other reason | `error`      |
         | `failed`                         | `error`      |
 
-        B6 (SPEC-beslut.md §2): a `decision` post alone is not the whole
+        B6: a `decision` post alone is not the whole
         story -- without a row in `decisions` bound to it, it is the
         orphaned card the module exists to close: visible in the thread,
         but impossible to list, age or answer. So when `_render` produces a
@@ -412,8 +412,8 @@ class ThreadService:
         if outcome.kind == "posted":
             # The post is the agent's own words about the posting; where it
             # said nothing, a plain statement of fact rather than a
-            # fabricated explanation. The client no longer shows trace chips
-            # (SPEC-lasbarhet §4.3), so the fact names the voucher's number
+            # fabricated explanation. The client no longer shows trace chips,
+            # so the fact names the voucher's number
             # whenever the posting's result carries it.
             return "agent_text", {
                 "text": text or _posted_fallback(outcome.tool_result),

@@ -1,8 +1,8 @@
 /**
  * Fakturering och Löner ur riktiga data (modul `skal`).
  *
- * Fakturering är en skrivvy sedan fakturering F1 (SPEC-fakturering-f1.md
- * §10): agenten lägger fram fakturan i tråden och människan utfärdar den i
+ * Fakturering är en skrivvy sedan fakturering F1:
+ * agenten lägger fram fakturan i tråden och människan utfärdar den i
  * kortet. Löner skriver på samma sätt: agenten lägger fram bokföringen av ett
  * lönebesked eller en AGI som ett beslutskort (`foresla_lonebokforing`,
  * `foresla_agi_bokforing`), och människan bokför med ett tryck i kortet.
@@ -247,7 +247,7 @@ function betalningslankar(ids: string[]): VyRadData["lankar"] {
 }
 
 /**
- * Det som vyn läser utöver fakturorna (SPEC-fakturering-f1.md §10.2). Utan
+ * Det som vyn läser utöver fakturorna. Utan
  * det är vyn den gamla läsvyn, som i skalets tester.
  */
 export interface FaktureringExtra {

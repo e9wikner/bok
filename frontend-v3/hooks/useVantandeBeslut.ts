@@ -1,12 +1,11 @@
 "use client";
 
 /**
- * Märket på mobilens `ChattList`: hur många beslut som väntar i en vy
- * (SPEC-chattyta.md §10).
+ * Märket på mobilens `ChattList`: hur många beslut som väntar i en vy.
  *
  * Talet är serverns `total` ur `GET /decisions?view_key&status=open&limit=1`
  * — unionen, alltså även de syntetiska besluten (`intake`, `correction`),
- * samma tal som headerns `open_decisions` (SPEC-beslut.md §6.6). Klienten
+ * samma tal som headerns `open_decisions`. Klienten
  * räknar inte själv och filtrerar ingenting: ett tal som räknats på två
  * ställen visar förr eller senare två olika tal. `limit=1` för att raderna
  * inte behövs, bara `total`, som är unionens antal före sidningen.

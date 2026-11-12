@@ -1,19 +1,18 @@
-"""Tests for the agent runtime module (docs/redesign/SPEC-agentruntime.md).
+"""Tests for the agent runtime module.
 
-This file grows across tasks A3-A13 of tasks/agentruntime/todo.md. Each task
-gets its own section/class so the file stays navigable as it grows:
+Each task (A3-A13) gets its own section/class so the file stays navigable as it grows:
 
 - A3: AgentRunRepository (this file, first pass)
 - A4: services/llm/ protocol layer, model registry, config
 - A6: services/agent_documents.py -- underlagsläsning, textlager, avstämning
 - A7: services/agent_tools.py -- verktygsytan, dispatcher, idempotensnyckel
 - A8: services/agent_session.py -- systemprompt, användartur, manuell
-  verktygsloop, avståenden (SPEC §9 testfall 4, 5, 7, 14, 15)
-- A9: services/agent_runtime.py -- budget/cost/cap primitives (SPEC §9 #8)
+  verktygsloop, avståenden
+- A9: services/agent_runtime.py -- budget/cost/cap primitives
 - A10: services/agent_runtime.py -- AgentWorker/AgentRunner, the pass
-  algorithm and its thread/flock lifecycle (SPEC §9 #9, 10, 11, 12, 13, 16, 24)
+  algorithm and its thread/flock lifecycle
 
-Per SPEC §9: no LLM is ever called from a test. A3 covers the storage layer
+No LLM is ever called from a test. A3 covers the storage layer
 only — creating a run, sequencing events, and the "running with no live
 thread" query the worker (A10) will later use to detect abandoned runs. The
 liveness decision itself is out of scope here; find_running() only needs to
@@ -25,7 +24,7 @@ with no price row must refuse to start) is proven here only at the registry
 level: `get_model_info` raises. The full "the pass refuses to start, no
 agent_runs row" behavior is A10's job.
 
-A6 covers SPEC §9 test cases 20-23 at the content-selection level: whether
+A6 covers test cases 20-23 at the content-selection level: whether
 `select_content_for_source` picks text, a document block, or abstains, and
 the reconciliation heuristic that decides it, all against synthetic PDFs
 built in-process (no fixture files) so the tests don't depend on any
@@ -584,7 +583,7 @@ class TestAgentRuntimeConfig:
 
     def test_llm_default_model_is_a_priced_go_model(self):
         # The default must itself resolve via get_model_info -- a default
-        # that isn't priced would violate SPEC §2 on day one.
+        # that isn't priced would violate the price rule on day one.
         info = get_model_info(Settings().llm_default_model)
         assert info.model == "opencode-go/deepseek-v4.1-flash"
         assert info.provider == "opencode-go"
@@ -663,7 +662,7 @@ class TestAgentRuntimeConfig:
             assert "super-secret-key-should-never-leak" not in str(e)
 
 
-# --- A6: services/agent_documents.py -- underlagsläsning (SPEC §6.3) -------
+# --- A6: services/agent_documents.py -- underlagsläsning -------
 #
 # Synthetic PDFs are built in-process with `pypdf` alone -- no fixture files,
 # no external renderer (WeasyPrint needs system libraries not guaranteed to
@@ -738,7 +737,7 @@ _SCRAMBLED_INVOICE_LINES = [
     "Nettobelopp: 1 000,00 kr",
     "Moms 25%: 250,00 kr",
     # A two-column table read out of order: this total doesn't match
-    # net + vat, exactly the failure mode SPEC §6.3 warns about.
+    # net + vat, exactly the failure mode the heuristic guards against.
     "Att betala: 5 000,00 kr",
 ]
 
@@ -794,7 +793,7 @@ class TestPdfTextExtraction:
 
 
 class TestReconciliationHeuristic:
-    """SPEC §6.3's "Avstämningen": a labeled net/VAT/total breakdown must be
+    """ "Avstämningen": a labeled net/VAT/total breakdown must be
     found *and* add up before extracted text is trusted -- absence of a
     recognizable breakdown is not itself a failure (see
     `ReconciliationState.NOT_APPLICABLE`'s docstring in
@@ -872,7 +871,7 @@ class TestReconciliationHeuristic:
 
 
 class TestSelectContentForSource:
-    """SPEC §9 test cases 20-23, at this module's level."""
+    """Test cases 20-23, at this module's level."""
 
     @pytest.mark.parametrize(
         "mime_type", ["image/jpeg", "image/png", "image/gif", "image/webp"]
@@ -999,7 +998,7 @@ class TestSelectContentForSource:
             select_content_for_source(source, pdf_bytes, ChatClient.capabilities)
 
 
-# --- A7: services/agent_tools.py -- verktygsytan (SPEC §6.4, §9 #1/3/6/17) -
+# --- A7: services/agent_tools.py -- verktygsytan (§9 #1/3/6/17) -
 
 
 def _ensure_agent_tool_accounts():
@@ -1073,19 +1072,16 @@ _EXPECTED_TOOL_NAMES = [
     "las_bankhandelser",
     "posta_verifikation",
     "registrera_avstaende",
-    # The tenth, added last on purpose (SPEC-beslut.md §11.3, task B5).
+    # The tenth, added last on purpose (task B5).
     # Appended here rather than inserted: the nine above keep their exact
     # positions, because this list is the cached prompt prefix's order and a
-    # reorder is a silent cache-buster (SPEC §6.6).
+    # reorder is a silent cache-buster.
     "be_om_beslut",
-    # The eleventh, appended the same way (SPEC-flode-verifikationer.md
-    # §5.7, §12.1, task F7): the ten above keep their positions.
+    # The eleventh, appended the same way (task F7): the ten above keep their positions.
     "foresla_verifikation",
-    # The twelfth, appended the same way (SPEC-underlagstolkning.md §6.6,
-    # task U7): the eleven above keep their positions.
+    # The twelfth, appended the same way (# task U7): the eleven above keep their positions.
     "tolka_underlag",
-    # The thirteenth, appended the same way (SPEC-flode-underlag.md §6.7,
-    # task FU5): the twelve above keep their positions.
+    # The thirteenth, appended the same way (# task FU5): the twelve above keep their positions.
     "koppla_underlag",
     # The fourteenth, appended the same way (the period lock): it can only
     # lock -- opening a period again is a human's, with no tool for it.
@@ -1097,8 +1093,8 @@ _EXPECTED_TOOL_NAMES = [
     # as underlag -- read the unlinked transactions, link one after a decision.
     "las_okopplade_banktransaktioner",
     "koppla_banktransaktion",
-    # The eighteenth to twenty-first, appended the same way (fakturering F1,
-    # SPEC-fakturering-f1.md §5): two read, two write an invoice draft and
+    # The eighteenth to twenty-first, appended the same way (fakturering
+    # F1): two read, two write an invoice draft and
     # its card in Fakturering's thread. None of them issues an invoice.
     "las_kunder",
     "las_fakturor",
@@ -1140,13 +1136,13 @@ _EXPECTED_TOOL_NAMES = [
 #: edit the fragment guards against. `andra_fakturautkast` changes an
 #: invoice *draft* -- never an issued invoice or a posted voucher -- and even
 #: then by creating a new draft that replaces the old one
-#: (SPEC-fakturering-f1.md §5.4, beslut 1). The name is the one the spec
+#: (beslut 1). The name is the one the spec
 #: and the user chose.
 _NAME_FRAGMENT_EXCEPTIONS = {"andra_fakturautkast": {"andra"}}
 
 
 class TestToolDefinitionsOrder:
-    """SPEC §6.6: the tool list is built in a fixed order because it sits in
+    """The tool list is built in a fixed order because it sits in
     the cached system-prompt prefix -- a reorder is a silent cache-buster.
     """
 
@@ -1171,13 +1167,13 @@ class TestToolDefinitionsOrder:
 
 
 class TestAppendOnlyToolSurface:
-    """SPEC §9 test case 17 -- the only automatic check that the append-only
+    """Test case 17 -- the only automatic check that the append-only
     guarantee survives the agent's tool surface. This must break if someone
     adds a "convenient" tool that can edit or delete a posted voucher.
     """
 
     def test_tool_names_are_exactly_the_allowed_tools(self):
-        """Fifteen since underlag-ersatt (SPEC §6.6). The count is asserted
+        """Fifteen since underlag-ersatt. The count is asserted
         against the expected list rather than a literal, so adding a tool
         without adding it there still fails -- which is the point: this is
         the append-only rule's only automatic check through the agent's
@@ -1233,28 +1229,28 @@ class TestAppendOnlyToolSurface:
     def test_only_the_writing_tools_are_undocumented_as_read_only(self):
         """Five write, and each one names what it writes.
 
-        `be_om_beslut` joined them with `beslut` (SPEC-beslut.md §11.3). It
+        `be_om_beslut` joined them with `beslut`. It
         writes to `decisions`, `decision_options` and `thread_posts` and to
         nothing else — never `vouchers`, `voucher_rows`, `periods` or
-        `fiscal_years` (SPEC-beslut.md §8), which is why testfall 26 in
+        `fiscal_years`, which is why testfall 26 in
         `tests/test_beslut.py` counts ledger rows around a call to it.
         Calling it read-only here would be the lie this test exists to
         catch.
 
-        `foresla_verifikation` joined them with `flode-verifikationer`
-        (SPEC-flode-verifikationer.md §5.1). It writes a draft voucher --
+        `foresla_verifikation` joined them with `flode-verifikationer`.
+        It writes a draft voucher --
         no number, never posted -- a `thread_drafts` row and a `draft` post.
         It is not read-only, so it is not allowed to say it is; and like
         `be_om_beslut` it must not name the general ledger, which the next
         test keeps for `posta_verifikation` alone.
 
-        `tolka_underlag` joined them with `underlagstolkning`
-        (SPEC-underlagstolkning.md §6.1): read-only against the books, but
+        `tolka_underlag` joined them with `underlagstolkning`:
+        read-only against the books, but
         it writes an `intake_interpretations` row, so it does not say
         "Skrivskyddat" either.
 
-        `koppla_underlag` joined them with `flode-underlag`
-        (SPEC-flode-underlag.md §6.1): it creates and changes no voucher,
+        `koppla_underlag` joined them with `flode-underlag`:
+        it creates and changes no voucher,
         but it writes the link, an attempt, the source's status and an
         `intake_link_basis` row -- not read-only, and it does not name the
         general ledger (§6.2).
@@ -1330,7 +1326,7 @@ class TestAppendOnlyToolSurface:
 
 
 class TestIdempotencyKeyDerivation:
-    """SPEC §6.4: uuid5(BOK_NAMESPACE, f"intake:{source_id}"), fixed and
+    """uuid5(BOK_NAMESPACE, f"intake:{source_id}"), fixed and
     deterministic -- the whole point is that a worker retry after a crash
     reproduces the exact same key for the exact same intake source.
     """
@@ -1355,7 +1351,7 @@ class TestIdempotencyKeyDerivation:
 
 @pytest.mark.usefixtures("test_db")
 class TestPostaVerifikationTool:
-    """SPEC §9 test case 1, plus the worker-retry-after-a-crash story behind
+    """Test case 1, plus the worker-retry-after-a-crash story behind
     case 2: repeated calls for the same source_id must derive the identical
     idempotency key and replay rather than double-post.
     """
@@ -1428,7 +1424,7 @@ class TestPostaVerifikationTool:
 
 @pytest.mark.usefixtures("test_db")
 class TestRegistreraAvstaendeTool:
-    """SPEC §9 test case 3: an abstention is recorded with a motivation and
+    """Test case 3: an abstention is recorded with a motivation and
     never creates a voucher."""
 
     def test_records_the_abstention_without_creating_a_voucher(self, tmp_path):
@@ -1461,7 +1457,7 @@ class TestRegistreraAvstaendeTool:
 
 @pytest.mark.usefixtures("test_db")
 class TestToolArgumentValidation:
-    """SPEC §9 test case 6: a malformed tool call raises a validation error
+    """Test case 6: a malformed tool call raises a validation error
     instead of proceeding."""
 
     def test_missing_required_field_raises_validation_error(self):
@@ -1670,11 +1666,11 @@ class TestReadOnlyTools:
         assert "total" in result
 
 
-# --- A8: services/agent_session.py -- sessionen (SPEC §6.3, §6.7, §9 #4/5/7/14/15)
+# --- A8: services/agent_session.py -- sessionen (§9 #4/5/7/14/15)
 
 
 class FakeLLMClient:
-    """Structural `LLMClient` test double (SPEC §9): returns pre-programmed
+    """Structural `LLMClient` test double: returns pre-programmed
     `LLMTurn`s from a queue, never touching a network.
 
     If more than one turn is queued, each call pops the next one off the
@@ -1698,7 +1694,7 @@ class FakeLLMClient:
         on_text: Optional[Callable[[str], None]] = None,
         on_tool_call: Optional[Callable[[str], None]] = None,
     ) -> LLMTurn:
-        # `on_text`/`on_tool_call` are SPEC-tradar.md T5's streaming hooks.
+        # `on_text`/`on_tool_call` are the streaming hooks.
         # This double accepts them so it still satisfies `LLMClient`
         # structurally, and calls `on_tool_call` because `AgentWorker` now
         # reports the live tool name through it -- but it never streams
@@ -1739,7 +1735,7 @@ def _run_test_session(
 
 
 class TestBuildSystemPrompt:
-    """SPEC §9 test case 14, plus the deterministic-ordering half of §6.6."""
+    """Test case 14, plus the deterministic-ordering half."""
 
     def test_case_14_identical_across_two_calls(self):
         _ensure_agent_tool_accounts()
@@ -1762,7 +1758,7 @@ class TestBuildSystemPrompt:
 
         # The company's editable accounting instructions (default content,
         # AgentInstructionRepository) and the read-only system instructions
-        # both land in the prompt, in that fixed order (SPEC §6.3).
+        # both land in the prompt, in that fixed order.
         assert "Bokföringsinstruktioner" in prompt
         system_pos = prompt.find("Bokföringsprocess")
         company_pos = prompt.find("Bokföringsinstruktioner")
@@ -1789,7 +1785,7 @@ class TestBuildUserTurn:
 
 
 class TestSessionRefusal:
-    """SPEC §9 test case 4."""
+    """Test case 4."""
 
     def test_case_4_refusal_is_abstained_with_no_voucher(self, tmp_path):
         _ensure_agent_tool_accounts()
@@ -1819,7 +1815,7 @@ class TestSessionRefusal:
 
 
 class TestSessionMaxTokens:
-    """SPEC §9 test case 5."""
+    """Test case 5."""
 
     def test_case_5_truncated_turn_is_abstained_with_no_voucher(self, tmp_path):
         _ensure_agent_tool_accounts()
@@ -1847,7 +1843,7 @@ class TestSessionMaxTokens:
 
 class TestSessionNoOutcome:
     """`stop == "end"` with no tool calls -- the model finished without ever
-    posting or abstaining. SPEC §1 requires every pass to end in one of
+    posting or abstaining. Every pass has to end in one of
     those two outcomes, so this must be its own explicit abstention, never a
     silent no-op.
     """
@@ -1868,7 +1864,7 @@ class TestSessionNoOutcome:
 
 
 class TestSessionTurnLimit:
-    """SPEC §9 test case 7."""
+    """Test case 7."""
 
     def test_case_7_turn_limit_reached_without_an_outcome(self, tmp_path):
         _ensure_agent_tool_accounts()
@@ -2036,7 +2032,7 @@ class TestSessionPostingEndsImmediately:
 
 class TestSessionToolErrorRetriesWithinBudget:
     """A tool error is fed back as `is_error: true` and the loop continues --
-    confirms retries work within budget, per SPEC §6.7's "får rätta sig
+    confirms retries work within budget, per "får rätta sig
     själv inom varvtaket".
     """
 
@@ -2115,7 +2111,7 @@ class TestSessionToolErrorRetriesWithinBudget:
 
 class TestSessionDocumentUnreadableShortCircuits:
     """`DocumentUnreadableError` from content selection must short-circuit
-    before any `run_turn` call -- SPEC §6.3 step 3 costs zero tokens because
+    before any `run_turn` call -- it costs zero tokens because
     there is genuinely no API call, not a discarded one.
     """
 
@@ -2146,7 +2142,7 @@ class TestSessionDocumentUnreadableShortCircuits:
 
 
 class TestSessionUsageAccumulationAndCachePrompt:
-    """SPEC §9 test case 15, at the session level: the exact same system
+    """Test case 15, at the session level: the exact same system
     string must be sent on every call given the same underlying data, and
     `usage.cache_read_input_tokens` must be reported/accumulated verbatim,
     never recomputed or discarded.
@@ -2203,7 +2199,7 @@ class TestSessionUsageAccumulationAndCachePrompt:
 
 
 class TestSessionOutputTokenCap:
-    """SPEC §6.5's "ut-token per underlag" cap (task A9), enforced *between*
+    """The "ut-token per underlag" cap (task A9), enforced *between*
     turns inside `run_session` -- the same loop `TestSessionTurnLimit`
     exercises for the tool-turn cap, but tripped by cumulative
     `usage.output_tokens` instead of a turn count.
@@ -2346,7 +2342,7 @@ class TestComputeCostOre:
 
 
 class TestEnsureDailyBudgetAvailable:
-    """SPEC §9 test case 8: when the daily budget is already exhausted, the
+    """Test case 8: when the daily budget is already exhausted, the
     check must raise -- called directly against a repository state seeded
     through `AgentRunRepository`'s real `create`/`add_usage` methods, since
     no worker exists yet to call this before a pass (that wiring is A10's
@@ -2404,7 +2400,7 @@ class TestEnsureDailyBudgetAvailable:
             ensure_daily_budget_available()
 
 
-# --- A10: AgentWorker / AgentRunner (SPEC §6.1/§6.2, §9 #9/10/11/12/13/16/24) -
+# --- A10: AgentWorker / AgentRunner (§9 #9/10/11/12/13/16/24) -
 
 
 @pytest.fixture
@@ -2451,7 +2447,7 @@ def _posting_turn(
 
 
 class TestAgentWorkerEmptyQueue:
-    """SPEC §9 test case 9."""
+    """Test case 9."""
 
     def test_case_9_empty_queue_returns_none_and_writes_no_row_or_llm_call(self):
         calls: list[str] = []
@@ -2473,7 +2469,7 @@ class TestAgentWorkerEmptyQueue:
 
 
 class TestAgentWorkerConnectionError:
-    """SPEC §9 test case 10."""
+    """Test case 10."""
 
     def test_case_10_connection_error_fails_the_run_and_leaves_source_pending(
         self, agent_intake_dir, tmp_path
@@ -2535,7 +2531,7 @@ class TestAgentWorkerUnexpectedError:
 
 
 class TestAgentWorkerRateLimitError:
-    """SPEC §9 test case 11."""
+    """Test case 11."""
 
     def test_case_11_rate_limit_error_fails_the_run_and_stops_the_pass(
         self, agent_intake_dir, tmp_path
@@ -2569,7 +2565,7 @@ class TestAgentWorkerRateLimitError:
 
 
 class TestAgentWorkerAbandonedRunReaping:
-    """SPEC §9 test case 12."""
+    """Test case 12."""
 
     def test_case_12_stale_running_row_is_abandoned_and_the_new_pass_posts_normally(
         self, agent_intake_dir, tmp_path
@@ -2601,7 +2597,7 @@ class TestAgentWorkerAbandonedRunReaping:
         # posted), so a second run_pass_once() call sees an empty queue --
         # but replaying the *exact same* posta_verifikation call directly
         # (as would happen if a worker crashed after posting but before
-        # updating the queue, SPEC §6.4) must replay, not double-post.
+        # updating the queue) must replay, not double-post.
         replay = execute_tool(
             "posta_verifikation",
             _posta_verifikation_args(period.id, source.id),
@@ -2621,7 +2617,7 @@ class TestAgentWorkerAbandonedRunReaping:
 
 
 class TestAgentWorkerModelSelection:
-    """SPEC §9 test case 24."""
+    """Test case 24."""
 
     def test_case_24_model_argument_overrides_the_default(
         self, agent_intake_dir, tmp_path, monkeypatch
@@ -2684,7 +2680,7 @@ class TestBuildLlmClient:
         # raises at construction time on a falsy `api_key` with no
         # `OPENAI_API_KEY` env var set (confirmed against the installed
         # `openai>=2.0` package) -- `settings.llm_api_key` defaults to ""
-        # in tests (SPEC §4's key-never-logged config, A4), so this test
+        # in tests (the key-never-logged config, A4), so this test
         # needs a non-empty dummy key, same as the real gateway would
         # require one.
         monkeypatch.setattr(settings, "llm_api_key", "dummy-test-key")
@@ -2733,11 +2729,11 @@ class TestBuildLlmClient:
 
     def test_unsupported_protocol_raises_unsupported_protocol_error(self, monkeypatch):
         # Every real model registered in services/llm/__init__.py resolves
-        # to "messages" or "chat" (SPEC §2's two built adapters) -- there is
+        # to "messages" or "chat" (the two built adapters) -- there is
         # no real model id left to reach the fallback branch through
         # get_model_info alone. Monkeypatching get_model_info to return a
         # third, genuinely unhandled protocol (e.g. the Google/Gemini path
-        # SPEC §2 says is out of scope for this module) is the only way to
+        # that is out of scope for this module) is the only way to
         # exercise that branch.
         import services.agent_runtime as agent_runtime_module
 
@@ -2759,7 +2755,7 @@ class TestBuildLlmClient:
 
 
 class TestAgentRunnerLockExclusivity:
-    """SPEC §9 test case 13 -- mirrors
+    """Test case 13 -- mirrors
     `tests.test_dropzone.test_only_one_scanner_thread_takes_the_lock`.
     """
 
@@ -2783,7 +2779,7 @@ class TestAgentRunnerLockExclusivity:
 
 
 class TestAgentRuntimeDisabledByDefault:
-    """SPEC §9 test case 16."""
+    """Test case 16."""
 
     def test_case_16_disabled_runtime_never_starts_or_calls_the_llm(
         self, agent_lock_dir, monkeypatch
@@ -2855,7 +2851,7 @@ class TestAgentWorkerProgressTracking:
         assert worker.current_activity is None
 
 
-# --- A11: GET /api/v1/agent/status (SPEC §8) --------------------------------
+# --- A11: GET /api/v1/agent/status --------------------------------
 
 
 @pytest_asyncio.fixture
@@ -2867,7 +2863,7 @@ async def async_client():
 
 def _seed_pending_intake_source(suffix: str) -> IntakeSource:
     """A minimal `intake_sources` row with `status='pending'` -- enough for
-    `IntakeRepository.count_pending()` (SPEC §8's `queue_depth`); no actual
+    `IntakeRepository.count_pending()` (`queue_depth`); no actual
     file on disk is needed since the status endpoint never reads one.
     """
     return IntakeRepository.create_source(
@@ -2885,7 +2881,7 @@ STATUS_URL = "/api/v1/agent/status"
 
 
 class TestAgentStatusEndpoint:
-    """SPEC §8, task A11."""
+    """Task A11."""
 
     @pytest.mark.asyncio
     async def test_no_pass_has_ever_run(self, async_client, auth_headers):

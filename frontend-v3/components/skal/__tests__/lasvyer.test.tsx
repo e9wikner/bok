@@ -64,7 +64,7 @@ describe("Fakturering och Löner har ingen knapp i vyn (testfall 17)", () => {
     expect(screen.getByText(/Du bokför med ett tryck i kortet/)).toBeInTheDocument();
   });
 
-  it("ingen vy är längre märkt som läsvy (SPEC-fakturering-f1.md testfall 38)", () => {
+  it("ingen vy är längre märkt som läsvy", () => {
     // Fakturering skriver sedan F1 och Löner sedan lönebokföringen — i
     // tråden, genom kortet, inte med knappar i vyn. Vyn själv har
     // fortfarande ingen knapp (ovan).

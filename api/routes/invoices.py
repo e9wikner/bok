@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api/v1/invoices", tags=["invoices"])
 
 
 class PreviewInvoiceRowRequest(BaseModel):
-    """A preview row, computed like a draft row (SPEC-fakturering.md §4.2)."""
+    """A preview row, computed like a draft row."""
 
     description: str
     quantity: Union[int, float, str] = Field(
@@ -157,7 +157,7 @@ def _invoice_to_list_item(inv, payments: list) -> dict:
         "is_overdue": inv.is_overdue(),
         "row_count": len(inv.rows),
         "created_at": inv.created_at,
-        # SPEC-fakturering.md §4.3–4.4. Empty on invoices from before F0.
+        # Empty on invoices from before fakturering F0.
         "issued_at": inv.issued_at,
         "pdf_url": _pdf_url(inv),
         "customer_address": inv.customer_address,
@@ -249,8 +249,8 @@ async def get_invoice(invoice_id: str):
 @router.get("/{invoice_id}/pdf")
 async def get_invoice_pdf(invoice_id: str):
     """
-    The PDF stored when the invoice was issued, byte for byte
-    (SPEC-fakturering.md §3.6). It is never rendered again.
+    The PDF stored when the invoice was issued, byte for byte.
+    It is never rendered again.
 
     - `404 invoice_not_found`
     - `404 pdf_not_stored`: an invoice from before F0, not issued in Bok.

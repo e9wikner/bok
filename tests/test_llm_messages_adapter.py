@@ -7,7 +7,7 @@ avoids diluting that file's per-task section structure with a chunk of
 tests that don't share its setup. `pytest tests/ -v` picks this file up
 automatically like any other `test_*.py` module; no registration needed.
 
-Per SPEC §9: no real network call anywhere in this file. Fixtures are
+No real network call anywhere in this file. Fixtures are
 loaded and validated into the real `anthropic.types.Message` type so the
 normalization tests run against the SDK's actual response schema rather
 than a guess at its shape; `TestRunTurnWiring` stubs the Anthropic client
@@ -212,7 +212,7 @@ class TestCapabilities:
             cache_breakpoint=True,
             pdf_document_blocks=True,
             refusal_stop_reason=True,
-            # SPEC-tradar.md §12.1 / task T5: both adapters stream, each
+            # Both adapters stream, each
             # through its own SDK's streaming helper.
             streaming=True,
         )
@@ -274,11 +274,11 @@ class TestRunTurnWiring:
         assert turn.tool_calls[0].name == "posta_verifikation"
 
 
-# --- Error translation (SPEC §6.7, task A10) --------------------------------
+# --- Error translation (task A10) --------------------------------
 #
 # Real `anthropic` SDK exception types must never leak past this adapter --
-# `services/agent_runtime.py` isn't allowed to import `anthropic` (SPEC
-# §4/§10). These stub the SDK client to raise the *real* exception types
+# `services/agent_runtime.py` isn't allowed to import `anthropic`.
+# These stub the SDK client to raise the *real* exception types
 # (constructed directly, no network) and assert `run_turn` translates them
 # into the protocol-agnostic `LLMConnectionError`/`LLMRateLimitError`.
 
@@ -337,11 +337,11 @@ class TestRunTurnErrorTranslation:
         assert exc_info.value.retry_after_seconds is None
 
 
-# --- T5 (SPEC-tradar.md §12.1): streaming hooks ------------------------------
+# --- T5: streaming hooks ------------------------------
 #
 # `on_text`/`on_tool_call` on `run_turn`, and the pure dispatcher behind
 # them. These live here rather than in `tests/test_tradar.py` because they
-# assert against this SDK's own event types, and SPEC §4/§10's import
+# assert against this SDK's own event types, and the import
 # boundary allows that in this file alone (see `TestOpenaiImportBoundary`
 # for the check that enforces it).
 
@@ -349,7 +349,7 @@ class TestRunTurnErrorTranslation:
 class TestMessagesAdapterStreamDispatch:
     """Test case 9 — against recorded raw events, validated through the real
     SDK's own schema, so the fixtures are checked rather than guessed. No
-    network call (SPEC §9)."""
+    network call."""
 
     @staticmethod
     def _text_event(text: str, snapshot: str):

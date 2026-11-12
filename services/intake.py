@@ -440,7 +440,7 @@ class IntakeService:
 
         `link_existing_voucher` calls this after `_ensure_can_record_outcome`
         (the posting's check: `pending`/`processing` only). The only other
-        caller is `IntakeLinkService` (SPEC-flode-underlag.md §3.3, D9),
+        caller is `IntakeLinkService`,
         which makes its own check that also lets `failed` and
         `needs_attention` through -- so the posting keeps refusing an
         abstained source while a link after the fact does not."""

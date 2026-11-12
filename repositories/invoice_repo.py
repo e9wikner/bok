@@ -1,7 +1,7 @@
 """Invoice repository - data access for invoices (Fas 2).
 
 Nothing here commits. The caller owns the transaction, so that issuing an
-invoice can run in one `with db.transaction():` (SPEC-fakturering.md §5).
+invoice can run in one `with db.transaction():`.
 """
 
 import uuid
@@ -299,7 +299,7 @@ class InvoiceRepository:
         db.execute(sql, (ex_vat, vat, inc_vat, invoice_id))
         return True
 
-    # --- Utfärdande (SPEC-fakturering.md §5) --------------------------------
+    # --- Utfärdande --------------------------------
     #
     # Migration 038 locks every column but status and paid_amount once
     # issued_at is set. The issue path therefore inserts the invoice with
@@ -436,8 +436,7 @@ class InvoiceRepository:
     @staticmethod
     def latest_numbers(limit: int = 5) -> List[str]:
         """The numbers of the most recently created invoices: issued in Bok
-        by `issued_at`, older ones by `created_at` (SPEC-fakturering-f1.md
-        §5.2, `latest_numbers`)."""
+        by `issued_at`, older ones by `created_at` (`latest_numbers`)."""
         rows = db.execute(
             "SELECT invoice_number FROM invoices "
             "ORDER BY COALESCE(issued_at, created_at) DESC, rowid DESC LIMIT ?",

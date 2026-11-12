@@ -9,7 +9,7 @@ import { SIDOR, type Sidnyckel } from "@/lib/skal/vyer";
  *
  * `SidTabbar` byggs inte. Omgång 10 har väljaren på båda breddarna, och
  * kapabilitetskartan (ANALYS.md §8) räknar upp `SidVaeljare` men inte
- * tabbarna. Se SPEC-skal.md §2.2 — beslutet togs en gång, där.
+ * tabbarna. Beslutet togs en gång.
  *
  * Knappen bär bara sidtiteln, så att headerraden hålls låg, och en
  * väntar-prick när något väntar på den aktiva sidan. Sidornas metarader

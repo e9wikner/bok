@@ -1,4 +1,4 @@
-"""How a corrected voucher reads (SPEC-flode-verifikationer §7.5).
+"""How a corrected voucher reads.
 
 For a voucher with a posted correction, and for a correction itself: what
 kind of correction it is (makulering or ändring), the net per account before
