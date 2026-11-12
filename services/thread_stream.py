@@ -191,6 +191,22 @@ class ThreadBroker:
         with self._guard:
             return thread_id in self._inflight
 
+    def live_activity(self) -> Optional[str]:
+        """What a turn in any thread is doing right now, or None.
+
+        `GET /agent/status` is global (§7), and a thread turn is the agent
+        working just as much as an intake pass is. Without this the header
+        said nothing while a chat answer was being written, and with the
+        chat minimised nothing at all showed that the agent was at work.
+        The latest tool name if the turn has called one, else
+        `"processing"` -- the same coarse word the intake pass starts with.
+        """
+        with self._guard:
+            for turn in self._inflight.values():
+                activity = turn.get("activity")
+                return activity if isinstance(activity, str) else "processing"
+            return None
+
     def subscriber_count(self, thread_id: str) -> int:
         with self._guard:
             return len(self._subscribers.get(thread_id, []))

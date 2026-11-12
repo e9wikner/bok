@@ -3843,6 +3843,29 @@ class TestAgentStatusState:
         assert body["state"] == "postar"
         assert body["paused_reason"] is None
 
+    def test_a_turn_in_a_thread_is_the_agent_working(
+        self, client, auth_headers, monkeypatch
+    ):
+        """A chat answer being written is the agent at work, also with the
+        chat minimised and nobody subscribed to the thread's stream."""
+        monkeypatch.setattr(settings, "agent_runtime_enabled", True)
+        monkeypatch.setattr(type(get_runner()), "running", property(lambda self: True))
+        broker = ThreadBroker()
+        monkeypatch.setattr("api.routes.agent.get_broker", lambda: broker)
+
+        broker.publish("t1", EVENT_MESSAGE_CREATED, {"id": "s1", "run_id": "r1"})
+        body = client.get(STATUS_URL, headers=auth_headers).json()
+        assert body["state"] == "arbetar"
+        assert body["current_task"] == "processing"
+
+        broker.publish(
+            "t1", EVENT_MESSAGE_DELTA, {"id": "s1", "activity": "posta_verifikation"}
+        )
+        assert client.get(STATUS_URL, headers=auth_headers).json()["state"] == "postar"
+
+        broker.publish("t1", EVENT_MESSAGE_COMPLETED, {"id": "p1", "run_id": "r1"})
+        assert client.get(STATUS_URL, headers=auth_headers).json()["state"] == "vilande"
+
     def test_the_mode_is_global_not_per_view(self, client, auth_headers):
         """§7, answering the design's own open question 2: one worker, one
         flock, one budget. The payload has no per-view dimension at all."""

@@ -32,6 +32,7 @@ from services.bank_inputs import BankInputError, BankInputService
 from services.exchange_rates import Valuta
 from services.idempotency import IdempotencyOutcome, IdempotencyService
 from services.intake import IntakeError, IntakeService
+from services.thread_stream import get_broker
 from services.voucher_posting import VoucherPostingRequest, post_agent_voucher
 
 AGENT_VOUCHER_ENDPOINT = "POST /api/v1/agent/vouchers"
@@ -440,10 +441,13 @@ async def get_agent_status(
         )
 
     paused_reason = runner_status["paused_reason"] or rate_limit_pause(last_run_row)
+    # The intake pass first, then a turn in any thread: both are the agent
+    # at work, and the mode is global.
+    activity = worker.current_activity or get_broker().live_activity()
     return AgentStatusResponse(
-        state=agent_state(worker.current_activity, paused_reason),
+        state=agent_state(activity, paused_reason),
         since=current_run_row.started_at if current_run_row else None,
-        current_task=worker.current_activity,
+        current_task=activity,
         paused_reason=paused_reason,
         enabled=runner_status["enabled"],
         running=runner_status["running"],
