@@ -9,7 +9,7 @@ transaction, each with the mandate and its statement row.
 
 import uuid
 from datetime import date
-from typing import Callable, Optional
+from typing import Callable, Optional, cast
 
 import pytest
 from fastapi.testclient import TestClient
@@ -32,7 +32,7 @@ from services.auth import AuthService
 from services.bank_inputs import BankInputService
 from services.fiscal_years import FiscalYearService
 from services.intake import IntakeService
-from services.llm import LLMCapabilities, LLMTurn, ToolCall, Usage
+from services.llm import LLMCapabilities, LLMClient, LLMTurn, ToolCall, Usage
 
 VOUCHERS_VIEW = "bocker.verifikationer"
 LYSA = "Autogiro - Lysa Spar"
@@ -147,6 +147,7 @@ def _propose(source_id: str, transaction_ids: list, counter: str = "1387"):
 
 def _answer(client, headers, decision_id: str, option_index: int):
     decision = DecisionRepository.get(decision_id)
+    assert decision is not None
     return client.post(
         f"/api/v1/decisions/{decision_id}/answer",
         json={"option_id": decision.options[option_index].id},
@@ -156,7 +157,10 @@ def _answer(client, headers, decision_id: str, option_index: int):
 
 def _period_id(day: str) -> str:
     year = FiscalYearService.containing(date.fromisoformat(day))
-    return PeriodRepository.get_period_by_date(year.id, date.fromisoformat(day)).id
+    assert year is not None
+    period = PeriodRepository.get_period_by_date(year.id, date.fromisoformat(day))
+    assert period is not None
+    return period.id
 
 
 def _post(source_id: str, transaction: dict, rows: Optional[list] = None, thread=None):
@@ -536,7 +540,9 @@ def _run_pass(turns_for: Callable[[], list]):
     from services.agent_runtime import AgentWorker
 
     fake = _FakeClient(turns_for())
-    run = AgentWorker().run_pass_once(client_factory=lambda model: fake)
+    run = AgentWorker().run_pass_once(
+        client_factory=lambda model: cast(LLMClient, fake)
+    )
     return run, fake
 
 

@@ -66,8 +66,7 @@ def _closing_line(rows: list[list[str]]) -> Optional[StatementBalance]:
             match = _CLOSING.search(cell)
             if not match:
                 continue
-            amounts = [_ore(c) for c in row[index + 1 :]]
-            amounts = [a for a in amounts if a is not None]
+            amounts = [a for a in (_ore(c) for c in row[index + 1 :]) if a is not None]
             if amounts:
                 return StatementBalance(date.fromisoformat(match.group(1)), amounts[-1])
     return None

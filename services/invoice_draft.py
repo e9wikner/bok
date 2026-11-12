@@ -325,9 +325,10 @@ class InvoiceDraftService:
         delivery_from, delivery_to, delivery_month = normalize_delivery(
             row.get("delivery_from"), row.get("delivery_to"), row.get("delivery_month")
         )
+        given_price = row.get("unit_price")
         unit_price = int(
-            row.get("unit_price")
-            if row.get("unit_price") is not None
+            given_price
+            if given_price is not None
             else (article.unit_price if article else 0)
         )
         vat_code = row.get("vat_code") or (article.vat_code if article else "MP1")

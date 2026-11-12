@@ -9,7 +9,7 @@ import zipfile
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from db.database import get_db
 
@@ -363,7 +363,7 @@ class SRUExportService:
             revision=bool(upplysningar.get("revision", False)),
         )
 
-    def _get_company_info(self, db) -> Optional[Dict[str, str]]:
+    def _get_company_info(self, db) -> Optional[Dict[str, Any]]:
         """Get company info from the key/value table, with legacy row fallback."""
         try:
             rows = db.execute("SELECT key, value FROM company_info").fetchall()

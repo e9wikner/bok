@@ -1,7 +1,7 @@
 """API routes for simple payroll."""
 
 from datetime import date
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
@@ -458,7 +458,7 @@ def _agi_summary(agi: AgiDeclaration) -> dict:
 def _employee_to_dict(
     employee: Employee, setting: Optional[EmployeeSalarySetting]
 ) -> dict:
-    payload = {
+    payload: dict[str, Any] = {
         "id": employee.id,
         "name": employee.name,
         "personal_number": employee.personal_number,

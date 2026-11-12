@@ -44,6 +44,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from fnmatch import fnmatch
 from pathlib import Path
+from typing import TextIO
 
 from config import settings
 from domain.models import IntakeProcessingAttempt, IntakeSource
@@ -1116,7 +1117,7 @@ class _DropzoneLock:
     """An open handle holding the ``flock`` — closing it releases the lock."""
 
     path: Path
-    handle: object
+    handle: TextIO
 
 
 def _acquire_lock(root: Path) -> "_DropzoneLock | None":

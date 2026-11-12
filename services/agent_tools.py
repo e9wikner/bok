@@ -1644,9 +1644,8 @@ def _run_las_okopplade_banktransaktioner(
     not here."""
     # Deferred import (AGENTS.md: service-to-service imports wait until the
     # method runs).
-    from services.statement_match import StatementMatchService
-
     from repositories.bank_input_repo import BankInputRepository
+    from services.statement_match import StatementMatchService
 
     service = StatementMatchService()
     items = []

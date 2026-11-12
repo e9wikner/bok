@@ -48,7 +48,7 @@ jobs:
     
     - name: Run pytest tests
       run: |
-        docker compose exec -T bokfoering-api python -m pytest tests/ -v || true
+        docker compose exec -T bokfoering-api python -m pytest tests/ -v
     
     - name: Stop containers
       if: always()

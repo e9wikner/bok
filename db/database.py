@@ -10,6 +10,7 @@ import sqlite3
 import threading
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Optional
 
 from config import settings
 
@@ -21,7 +22,7 @@ class Database:
     This is required because SQLite connections cannot be shared across threads.
     """
 
-    def __init__(self, db_path: str = None):
+    def __init__(self, db_path: Optional[str] = None):
         if db_path is None:
             db_path = settings.database_url.replace("sqlite:///", "")
         self.db_path = db_path

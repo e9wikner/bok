@@ -341,8 +341,8 @@ async def get_voucher_source_context(
 
     intake_repo = IntakeRepository()
     bank_repo = BankInputRepository()
-    source_material = []
-    processing_notes = []
+    source_material: list[dict[str, Any]] = []
+    processing_notes: list[dict[str, Any]] = []
 
     for link in intake_repo.list_links_for_voucher(voucher_id):
         source = intake_repo.get_source(link.intake_source_id)
@@ -382,8 +382,8 @@ async def get_voucher_source_context(
             )
 
     voucher_transaction_links = bank_repo.list_transactions_for_voucher(voucher_id)
-    for link in bank_repo.list_inputs_for_voucher(voucher_id):
-        bank_input = bank_repo.get_bank_input(link.bank_input_id)
+    for input_link in bank_repo.list_inputs_for_voucher(voucher_id):
+        bank_input = bank_repo.get_bank_input(input_link.bank_input_id)
         if not bank_input:
             continue
         transaction_ids_for_input = set(
@@ -407,8 +407,8 @@ async def get_voucher_source_context(
                 "uploaded_by": bank_input.uploaded_by,
                 "uploaded_at": bank_input.uploaded_at.isoformat(),
                 "download_url": f"/api/v1/bank-inputs/{bank_input.id}/file",
-                "linked_at": link.linked_at.isoformat(),
-                "linked_by": link.linked_by,
+                "linked_at": input_link.linked_at.isoformat(),
+                "linked_by": input_link.linked_by,
                 "link_reason": None,
                 "imported_count": bank_input.imported_count,
                 "skipped_count": bank_input.skipped_count,

@@ -17,7 +17,7 @@ import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 from db.database import db
 from domain.validation import ValidationError
@@ -247,7 +247,7 @@ class BankIntegrationService:
     ) -> List[BankTransaction]:
         """Query bank transactions with filters."""
         sql = "SELECT * FROM bank_transactions WHERE 1=1"
-        params = []
+        params: list[object] = []
 
         if connection_id:
             sql += " AND bank_connection_id = ?"
@@ -292,7 +292,7 @@ class BankIntegrationService:
     ) -> None:
         """Update transaction processing status."""
         updates = ["status = ?", "categorized_at = ?"]
-        params = [status, datetime.now().isoformat()]
+        params: list[object] = [status, datetime.now().isoformat()]
 
         if voucher_id:
             updates.append("matched_voucher_id = ?")
@@ -411,12 +411,13 @@ class BankIntegrationService:
                 }
             )
 
-        imported, skipped, imported_ids, skipped_external_ids = (
+        imported, skipped, imported_ids, skipped_external_ids = cast(
+            Tuple[int, int, list[str], list[str]],
             self.import_transactions(
                 connection_id,
                 transactions,
                 return_details=True,
-            )
+            ),
         )
         return CsvImportResult(
             imported_count=imported,
@@ -472,7 +473,7 @@ class BankIntegrationService:
                     ),
                 }
 
-        known_formats = [
+        known_formats: list[dict[str, Any]] = [
             {
                 "format": "swedish_standard_semicolon",
                 "delimiter": ";",

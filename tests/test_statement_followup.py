@@ -10,6 +10,7 @@ and does not pay for one it left open again.
 
 import uuid
 from datetime import date
+from typing import cast
 
 import pytest
 
@@ -22,7 +23,7 @@ from services.agent_tools import execute_tool
 from services.bank_inputs import BankInputService
 from services.fiscal_years import FiscalYearService
 from services.intake import IntakeService
-from services.llm import LLMCapabilities, LLMTurn, ToolCall, Usage
+from services.llm import LLMCapabilities, LLMClient, LLMTurn, ToolCall, Usage
 from services.statement_followup import StatementFollowupService
 
 FELLO = "Betalning - FELLO"
@@ -83,7 +84,10 @@ def _transaction(text: str) -> dict:
 
 def _period_id(day: str) -> str:
     year = FiscalYearService.containing(date.fromisoformat(day))
-    return PeriodRepository.get_period_by_date(year.id, date.fromisoformat(day)).id
+    assert year is not None
+    period = PeriodRepository.get_period_by_date(year.id, date.fromisoformat(day))
+    assert period is not None
+    return period.id
 
 
 def _post(day: str, rows: list, description: str):
@@ -194,7 +198,9 @@ def _run_pass(turns: list):
     from services.agent_runtime import AgentWorker
 
     fake = _FakeClient(turns)
-    run = AgentWorker().run_pass_once(client_factory=lambda model: fake)
+    run = AgentWorker().run_pass_once(
+        client_factory=lambda model: cast(LLMClient, fake)
+    )
     return run, fake
 
 

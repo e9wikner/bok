@@ -1,5 +1,7 @@
 """API routes for K2 annual reports (Fas 3)."""
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from api.deps import get_current_actor
@@ -13,10 +15,10 @@ router = APIRouter(prefix="/api/v1/reports", tags=["reports-k2"])
 async def generate_k2_report(
     fiscal_year_id: str,
     company_name: str,
-    org_number: str = None,
-    managing_director: str = None,
-    average_employees: int = None,
-    significant_events: str = None,
+    org_number: Optional[str] = None,
+    managing_director: Optional[str] = None,
+    average_employees: Optional[int] = None,
+    significant_events: Optional[str] = None,
     actor: str = Depends(get_current_actor),
 ):
     """

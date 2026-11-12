@@ -158,7 +158,7 @@ async def list_intake_workspace(
 
     include_sources = kind in (None, "voucher_source")
     include_bank_inputs = kind in (None, "bank_input")
-    items = []
+    items: list[dict[str, Any]] = []
     total = 0
 
     if include_sources:

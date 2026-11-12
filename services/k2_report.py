@@ -48,12 +48,13 @@ class K2ReportService:
         cash_flow = self._calculate_cash_flow(income_stmt, balance_sheet)
 
         # Compile report
+        report_date = datetime.now()
         report = {
             "id": report_id,
             "fiscal_year_id": fiscal_year.id,
             "company_name": company_name,
             "org_number": org_number,
-            "report_date": datetime.now(),
+            "report_date": report_date,
             "managing_director": managing_director,
             "average_employees": average_employees,
             "significant_events": significant_events,
@@ -72,7 +73,7 @@ class K2ReportService:
             payload={
                 "fiscal_year": fiscal_year.id,
                 "company": company_name,
-                "report_date": report["report_date"].isoformat(),
+                "report_date": report_date.isoformat(),
             },
         )
 

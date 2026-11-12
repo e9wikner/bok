@@ -1,6 +1,7 @@
 """API routes for periods and fiscal years."""
 
 from datetime import date
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
@@ -125,7 +126,7 @@ async def create_period(
 
 @router.get("/periods", response_model=dict)
 async def list_periods(
-    fiscal_year_id: str = None,
+    fiscal_year_id: Optional[str] = None,
     ledger: LedgerService = Depends(get_ledger_service),
 ):
     """List periods, optionally filtered by fiscal year. If no fiscal_year_id, returns all periods."""

@@ -82,7 +82,9 @@ class InvoiceDraftRepository:
                 delivery_month,
             ),
         )
-        return InvoiceDraftRepository.get(draft_id)
+        draft = InvoiceDraftRepository.get(draft_id)
+        assert draft is not None  # written just above
+        return draft
 
     @staticmethod
     def add_row(

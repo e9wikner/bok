@@ -80,6 +80,7 @@ def _post(day: date, text: str, rows: list) -> str:
         f for f in PeriodRepository.list_fiscal_years() if f.start_date.year == day.year
     )
     period = PeriodRepository.get_period_by_date(fy.id, day)
+    assert period is not None
     draft = ledger.create_voucher(
         series="A",
         date=day,

@@ -253,7 +253,7 @@ class ThreadRepository:
         if voucher_id is not None:
             sql += "AND json_extract(body_json, '$.voucher_id') = ? "
             params.append(voucher_id)
-        row = db.execute(sql + "ORDER BY seq LIMIT 1", params).fetchone()
+        row = db.execute(sql + "ORDER BY seq LIMIT 1", tuple(params)).fetchone()
         return ThreadRepository._row_to_post(row) if row else None
 
     @staticmethod

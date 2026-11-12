@@ -30,7 +30,6 @@ jobs:
     - name: Run tests
       run: |
         pytest tests/ -v --tb=short --cov=. --cov-report=xml
-      continue-on-error: true
     
     - name: Upload coverage
       uses: codecov/codecov-action@v4
@@ -59,16 +58,13 @@ jobs:
     
     - name: Check formatting with black
       run: black --check .
-      continue-on-error: true
     
     - name: Check import sorting with isort
       run: isort --check-only .
-      continue-on-error: true
     
     - name: Lint with flake8
       run: |
         flake8
-      continue-on-error: true
 
   type-check:
     runs-on: ubuntu-latest
@@ -89,7 +85,6 @@ jobs:
     
     - name: Type check with mypy
       run: mypy .
-      continue-on-error: true
 
   # Frontenden hade noll tester före modulen `skal` (ANALYS.md §5 i git-historiken, se AGENTS.md).
   # Till skillnad från jobben ovan är det här steget INTE continue-on-error:

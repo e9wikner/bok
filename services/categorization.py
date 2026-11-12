@@ -13,7 +13,7 @@ import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from db.database import db
 from services.bank_integration import BankIntegrationService, BankTransaction
@@ -147,7 +147,7 @@ class CategorizationService:
         """
         pending = self.bank_service.get_transactions(status="pending")
 
-        results = {
+        results: Dict[str, Any] = {
             "total": len(pending),
             "categorized": 0,
             "high_confidence": 0,

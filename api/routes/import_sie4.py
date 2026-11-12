@@ -76,7 +76,9 @@ async def import_sie4(
                 },
             )
         try:
-            importer.resolve_fiscal_year(preview_data, target_fiscal_year_id)
+            resolved_fiscal_year_id = importer.resolve_fiscal_year(
+                preview_data, target_fiscal_year_id
+            )
         except ValidationError as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -108,7 +110,7 @@ async def import_sie4(
             None,
             importer.import_content,
             text_content,
-            importer.fiscal_year_resolution["id"],
+            resolved_fiscal_year_id,
         )
 
         return {

@@ -227,6 +227,7 @@ class CompanyInfoProposalService:
                 for k, v in overwrite.items()
             )
             parts.append(f"Ersätter det som står: {replaced}.")
+        options: List[Dict[str, Any]]
         if fill and overwrite:
             options = [
                 {

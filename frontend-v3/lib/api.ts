@@ -911,14 +911,6 @@ export const api = {
     });
     return data;
   },
-  importCsv: async (file: File) => {
-    const formData = new FormData();
-    formData.append("file", file);
-    const { data } = await apiClient.post("/api/v1/import/csv", formData, {
-      headers: { "Content-Type": "multipart/form-data" },
-    });
-    return data;
-  },
 
   // Intake workspace
   getIntakeWorkspace: async (params?: {

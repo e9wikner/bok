@@ -588,7 +588,7 @@ class TestRunTurnWiring:
             received_kwargs.update(kwargs)
             return _load_completion("tool_calls_stop.json")
 
-        client._client.chat.completions.create = fake_create  # type: ignore[method-assign]
+        client._client.chat.completions.create = fake_create  # type: ignore[method-assign, assignment]
         client.run_turn(
             system="systemprompt",
             messages=[{"role": "user", "content": [{"type": "text", "text": "hej"}]}],

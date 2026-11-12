@@ -953,7 +953,7 @@ class VoucherRepository:
         original_voucher_id: str,
         series: str = "B",
         created_by: str = "system",
-        period_id_override: str = None,
+        period_id_override: Optional[str] = None,
         _commit: bool = True,
         voucher_date: Optional[date] = None,
         description: Optional[str] = None,

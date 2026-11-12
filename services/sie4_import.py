@@ -10,7 +10,7 @@ Documentation: https://www.sie.se/sie4_format.pdf
 import re
 import uuid
 from calendar import monthrange
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Dict, List, Optional
@@ -68,26 +68,16 @@ class SIEData:
     format_version: str  # "4" for SIE4
     program: Optional[str] = None
     company: Optional[SIECompany] = None
-    accounts: List[SIEAccount] = None
-    vouchers: List[SIEVoucher] = None
+    accounts: List[SIEAccount] = field(default_factory=list)
+    vouchers: List[SIEVoucher] = field(default_factory=list)
     fiscal_year_start: Optional[date] = None
     fiscal_year_end: Optional[date] = None
     # Opening balances: {account_code: amount_in_öre}
     # Positive = debit, negative = credit (SIE convention)
-    opening_balances: Dict[str, int] = None
+    opening_balances: Dict[str, int] = field(default_factory=dict)
     # SRU mappings: {account_code: sru_field}
     # Maps accounts to Swedish tax declaration (INK2) fields
-    sru_mappings: Dict[str, str] = None
-
-    def __post_init__(self):
-        if self.accounts is None:
-            self.accounts = []
-        if self.vouchers is None:
-            self.vouchers = []
-        if self.opening_balances is None:
-            self.opening_balances = {}
-        if self.sru_mappings is None:
-            self.sru_mappings = {}
+    sru_mappings: Dict[str, str] = field(default_factory=dict)
 
 
 class SIE4Parser:
@@ -136,7 +126,7 @@ class SIE4Parser:
     @staticmethod
     def has_c1_control_characters(text: Optional[str]) -> bool:
         """Return True when text contains U+0080-U+009F control codepoints."""
-        return bool(text) and any(0x80 <= ord(char) <= 0x9F for char in text)
+        return any(0x80 <= ord(char) <= 0x9F for char in text or "")
 
     @staticmethod
     def _text_issue(label: str, text: Optional[str]) -> Optional[str]:
@@ -602,7 +592,7 @@ class SIE4Importer:
             fiscal_year = requested
             resolution = "matched_requested"
         else:
-            fiscal_year = next(
+            existing = next(
                 (
                     year
                     for year in PeriodRepository.list_fiscal_years()
@@ -611,7 +601,8 @@ class SIE4Importer:
                 ),
                 None,
             )
-            if fiscal_year:
+            if existing:
+                fiscal_year = existing
                 resolution = "matched_existing"
             else:
                 fiscal_year = PeriodRepository.create_fiscal_year(

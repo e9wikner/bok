@@ -127,9 +127,9 @@ async def get_income_statement(
     costs = 0  # Kostnader (4000-7999) - normally debited
     financial = 0  # Finansiella poster (8000-8999)
 
-    revenue_details = {}  # Per-account breakdown
-    cost_details = {}
-    financial_details = {}
+    revenue_details: dict[str, int] = {}  # Per-account breakdown
+    cost_details: dict[str, int] = {}
+    financial_details: dict[str, int] = {}
 
     for voucher in vouchers:
         for row in voucher.rows:

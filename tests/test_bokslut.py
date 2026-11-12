@@ -236,6 +236,7 @@ def _importera(sie: str) -> str:
 
     importer = SIE4Importer("", "")
     assert importer.import_content(sie), importer.errors
+    assert importer.fiscal_year_resolution is not None
     return importer.fiscal_year_resolution["id"]
 
 

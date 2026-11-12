@@ -96,6 +96,7 @@ def _tool(name: str, thread, **arguments) -> dict:
 
 def _answer(client, headers, decision_id: str, option_index: int):
     decision = DecisionRepository.get(decision_id)
+    assert decision is not None
     return client.post(
         f"/api/v1/decisions/{decision_id}/answer",
         json={"option_id": decision.options[option_index].id},

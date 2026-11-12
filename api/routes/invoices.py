@@ -69,7 +69,7 @@ async def preview_invoice(
 
 @router.get("", response_model=dict)
 async def list_invoices(
-    status_filter: str = None,
+    status_filter: Optional[str] = None,
     search: str = Query(None, description="Search customer name or invoice number"),
     limit: int = Query(None, description="Max invoices to return"),
     offset: int = Query(0, description="Number of invoices to skip"),

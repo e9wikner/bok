@@ -31,7 +31,6 @@ from api.routes import (
     export_pdf,
     export_sie4,
     export_sru,
-    import_csv,
     import_sie4,
     intake,
     invoice_drafts,
@@ -117,7 +116,6 @@ app.include_router(agent_instructions.router)
 
 # Import/Export
 app.include_router(import_sie4.router, dependencies=AUTHENTICATED)
-app.include_router(import_csv.router, dependencies=AUTHENTICATED)
 app.include_router(export_sie4.router, dependencies=AUTHENTICATED)
 
 # PDF Export

@@ -338,12 +338,6 @@ export default function SettingsPage() {
         accept=".se,.si,.sie"
         onUpload={api.importSie4}
       />
-      <FileImportCard
-        title="Importera CSV"
-        description="Importera banktransaktioner från CSV-fil"
-        accept=".csv"
-        onUpload={api.importCsv}
-      />
 
       {/* Export */}
       <Card>

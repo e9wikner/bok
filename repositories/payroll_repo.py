@@ -152,7 +152,9 @@ class SalarySettingRepository:
                 ),
             )
         db.commit()
-        return SalarySettingRepository.get_for_employee(employee_id)
+        setting = SalarySettingRepository.get_for_employee(employee_id)
+        assert setting is not None  # written just above
+        return setting
 
     @staticmethod
     def get_for_employee(employee_id: str) -> Optional[EmployeeSalarySetting]:
@@ -312,7 +314,9 @@ class PayslipRepository:
             ),
         )
         db.commit()
-        return PayslipRepository.get(payslip_id)
+        payslip = PayslipRepository.get(payslip_id)
+        assert payslip is not None  # written just above
+        return payslip
 
     @staticmethod
     def get(payslip_id: str) -> Optional[Payslip]:

@@ -40,7 +40,7 @@ class ComplianceIssue:
     description: str = ""
     recommendation: str = ""
     deadline: Optional[date] = None
-    created_at: datetime = None
+    created_at: Optional[datetime] = None
 
 
 class ComplianceService:
