@@ -467,6 +467,17 @@ leverantörsfaktura som redan är bokförd. Ett inköp, en
 arbetsgivardeklaration eller en momsredovisning behöver sin faktura, sitt kvitto
 eller sin deklaration; ett kontoutdrag visar bara betalningen.
 
+Varje rad på skattekontot är en egen verifikation, även när flera rader har
+samma datum: intäktsränta, kostnadsränta och en korrigering av någon av dem
+bokförs var för sig, med sin rad i `bank_transaction_ids`. Radens belopp
+avgör riktningen på `1630`: ett positivt belopp är debet `1630`, ett negativt
+kredit `1630`, oavsett vad texten säger. En "Korrigerad kostnadsränta" på
+−457 är alltså kredit `1630`, debet `8423`; en "Korrigerad intäktsränta" på
+−453 är kredit `1630`, debet `8314`. Servern vägrar en verifikation vars
+belopp på kontot inte är radens (`bank_transaction_amount_mismatch`) och
+flera skattekontorader på samma verifikation
+(`one_tax_account_transaction_per_voucher`).
+
 Betalningen av en bokförd leverantörsfaktura: hitta fakturans verifikation med
 `sok_verifikationer` (leverantörens namn eller fakturanumret i radens text) och
 kontrollera att skulden på `2440` är samma belopp. Bokför debet `2440`, kredit

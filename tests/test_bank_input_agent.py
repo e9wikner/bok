@@ -1214,3 +1214,114 @@ async def test_agent_rejects_unlinked_bank_transaction_before_voucher_creation(
     assert exc_info.value.detail["code"] == "bank_transaction_not_linked"
     _, after_count = VoucherRepository.list_all()
     assert after_count == before_count
+
+
+def _tax_account_input(content: bytes):
+    for code, name, kind in (
+        ("1630", "Skattekonto", "asset"),
+        ("8314", "Ränteintäkt Skattemyndigheten", "revenue"),
+        ("8423", "Räntekostnad Skattemyndigheten", "expense"),
+    ):
+        if not AccountRepository.exists(code):
+            AccountRepository.create(code, name, kind)
+    conn = BankIntegrationService().create_connection(
+        provider="manual",
+        bank_name="Skatteverket",
+        account_number="1630",
+        currency="SEK",
+    )
+    bank_input = BankInputService().create_from_upload_content(
+        filename="1630.csv",
+        content_type="text/csv",
+        content=content,
+        bank_connection_id=conn.id,
+        actor="api",
+    )
+    return bank_input, BankInputRepository.list_transaction_ids_for_input(bank_input.id)
+
+
+def _interest_request(period_id: str, rows: list, bank_input_id: str, tx_ids: list):
+    return AgentVoucherRequest(
+        date=date(2026, 3, 1),
+        period_id=period_id,
+        description="Ränta skattekontot",
+        reasoning_summary="Kontoutdraget är underlaget",
+        rows=[VoucherRowRequest(**row) for row in rows],
+        bank_input_ids=[bank_input_id],
+        bank_transaction_ids=tx_ids,
+    )
+
+
+@pytest.mark.asyncio
+async def test_posting_refuses_a_statement_row_booked_the_wrong_way(
+    test_period, bank_input_dir
+):
+    bank_input, tx_ids = _tax_account_input(
+        "Datum;Belopp;Text\n2026-03-01;-457,00;Korrigerad kostnadsränta".encode()
+    )
+    _, before = VoucherRepository.list_all()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_and_post_agent_voucher(
+            _interest_request(
+                test_period.id,
+                [
+                    {"account": "1630", "debit": 45700, "credit": 0},
+                    {"account": "8423", "debit": 0, "credit": 45700},
+                ],
+                bank_input.id,
+                tx_ids,
+            ),
+            actor="api",
+            idempotency_key=None,
+        )
+
+    assert exc_info.value.detail["code"] == "bank_transaction_amount_mismatch"
+    assert VoucherRepository.list_all()[1] == before
+
+    response = await create_and_post_agent_voucher(
+        _interest_request(
+            test_period.id,
+            [
+                {"account": "8423", "debit": 45700, "credit": 0},
+                {"account": "1630", "debit": 0, "credit": 45700},
+            ],
+            bank_input.id,
+            tx_ids,
+        ),
+        actor="api",
+        idempotency_key=None,
+    )
+    # The statement row is the voucher's underlag once the sign is right.
+    assert VoucherRepository.get(response["id"]).missing_attachment is False
+
+
+@pytest.mark.asyncio
+async def test_posting_refuses_several_tax_account_rows_on_one_voucher(
+    test_period, bank_input_dir
+):
+    bank_input, tx_ids = _tax_account_input(
+        (
+            "Datum;Belopp;Text\n2026-03-01;176,00;Intäktsränta\n"
+            "2026-03-01;-453,00;Korrigerad intäktsränta"
+        ).encode()
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_and_post_agent_voucher(
+            _interest_request(
+                test_period.id,
+                [
+                    {"account": "1630", "debit": 17600, "credit": 0},
+                    {"account": "8314", "debit": 45300, "credit": 0},
+                    {"account": "1630", "debit": 0, "credit": 45300},
+                    {"account": "8314", "debit": 0, "credit": 17600},
+                ],
+                bank_input.id,
+                tx_ids,
+            ),
+            actor="api",
+            idempotency_key=None,
+        )
+
+    assert exc_info.value.detail["code"] == "one_tax_account_transaction_per_voucher"

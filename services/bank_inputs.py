@@ -383,6 +383,58 @@ class BankInputService:
                     f"bank_transaction_id={transaction_id}, voucher_id={transaction.matched_voucher_id}",
                 )
 
+    def ensure_transactions_agree(
+        self, rows: list[dict], bank_transaction_ids: list[str]
+    ) -> None:
+        """Refuse statement transactions that do not agree with the voucher's
+        rows on their account, before anything is written.
+
+        A transaction posted with a voucher becomes its underlag on that
+        account (`domain/statement_coverage.py`). When the transactions on
+        an account do not add up to the voucher's net there, the voucher
+        stands as missing its underlag for good -- the statement says one
+        thing and the ledger another. A sign turned the wrong way (a
+        "Korrigerad kostnadsränta" of -457 booked as +457) is caught here.
+
+        On the tax account each transaction is its own voucher: the 1630
+        ledger is read line by line against Skatteverket's, and several
+        events netted into one voucher cannot be followed there. Salary
+        and AGI, booked through their own cards, are not posted this way.
+
+        An account the voucher has no row on is left alone: the
+        transaction is traceability, not underlag for a row."""
+        by_account: dict[str, list[dict]] = {}
+        for transaction_id in _unique_preserve_order(bank_transaction_ids):
+            tx = self.inputs.get_transaction_with_account(transaction_id)
+            if tx is None:
+                raise BankTransactionNotFoundError(transaction_id)
+            by_account.setdefault(tx["account_code"] or "", []).append(tx)
+
+        for account_code, transactions in by_account.items():
+            on_account = [r for r in rows if str(r.get("account")) == account_code]
+            if not on_account:
+                continue
+            if account_code == "1630" and len(transactions) > 1:
+                raise BankInputConflictError(
+                    "one_tax_account_transaction_per_voucher",
+                    "Each tax account transaction is booked as a voucher of its "
+                    "own; book one voucher per statement row",
+                    "bank_transaction_ids="
+                    + ",".join(f"{tx['id']} ({tx['amount']})" for tx in transactions),
+                )
+            net = sum(
+                int(r.get("debit") or 0) - int(r.get("credit") or 0) for r in on_account
+            )
+            statement = sum(int(tx["amount"]) for tx in transactions)
+            if net != statement:
+                raise BankInputConflictError(
+                    "bank_transaction_amount_mismatch",
+                    "The voucher's net on the account differs from its statement "
+                    "transactions (debit is money in, credit money out)",
+                    f"account_code={account_code}, voucher_net_ore={net}, "
+                    f"transactions_ore={statement}",
+                )
+
     def link_posted_voucher(
         self,
         voucher_id: str,

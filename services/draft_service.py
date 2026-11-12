@@ -1348,9 +1348,13 @@ class DraftService:
         # The posting's stop, for the proposal
         # too. Not run again when the proposal is posted.
         IntakeLinkService.ensure_not_matching_posted(fresh)
-        BankInputService().ensure_transactions_available(
+        bank_inputs = BankInputService()
+        bank_inputs.ensure_transactions_available(
             _unique(request["bank_input_ids"]),
             _unique(request["bank_transaction_ids"]),
+        )
+        bank_inputs.ensure_transactions_agree(
+            list(request["rows"]), _unique(request["bank_transaction_ids"])
         )
         return shared
 

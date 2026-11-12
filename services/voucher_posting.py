@@ -98,6 +98,7 @@ def post_agent_voucher(
         bank_input_ids,
         bank_transaction_ids,
     )
+    bank_inputs.ensure_transactions_agree(request.rows, bank_transaction_ids)
     # Migration 045: the rate is the server's, and the settlement row must
     # carry exactly the converted amount. An utlägg credits 2820 and is not
     # booked while a statement transaction looks like the same purchase.
