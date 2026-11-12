@@ -932,32 +932,79 @@ class TestChatAdapterStreamDispatch:
         assert seen == []
 
 
+def _chunk(delta: dict, finish_reason=None, usage=None) -> ChatCompletionChunk:
+    return ChatCompletionChunk.model_validate(
+        {
+            "id": "chatcmpl-1",
+            "object": "chat.completion.chunk",
+            "created": 1,
+            "model": "deepseek-v4.1-flash",
+            "choices": (
+                []
+                if usage is not None
+                else [{"index": 0, "delta": delta, "finish_reason": finish_reason}]
+            ),
+            "usage": usage,
+        }
+    )
+
+
+def _chunks_of(completion: ChatCompletion) -> list[ChatCompletionChunk]:
+    """The chunks a gateway would stream for `completion`: its text, each
+    tool call as one fragment, the finish reason, then the usage chunk."""
+    message = completion.choices[0].message
+    delta: dict[str, Any] = {"role": "assistant"}
+    if message.content:
+        delta["content"] = message.content
+    if message.tool_calls:
+        delta["tool_calls"] = [
+            {"index": i, **call.model_dump()}
+            for i, call in enumerate(message.tool_calls)
+        ]
+    chunks = [_chunk(delta, completion.choices[0].finish_reason)]
+    if completion.usage is not None:
+        chunks.append(_chunk({}, usage=completion.usage.model_dump()))
+    return chunks
+
+
+class _RawStream:
+    """Stands in for the `Stream[ChatCompletionChunk]` that
+    `.create(stream=True)` returns: a context manager over chunks."""
+
+    def __init__(self, chunks: list[ChatCompletionChunk]) -> None:
+        self._chunks = chunks
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        return None
+
+    def __iter__(self):
+        return iter(self._chunks)
+
+
+def _streaming_client(streams: list[list[ChatCompletionChunk]]) -> tuple:
+    client = ChatClient(api_key="dummy-test-key", base_url="http://127.0.0.1:0")
+    calls: list = []
+
+    def fake_create(**kwargs: Any):
+        calls.append(kwargs)
+        return _RawStream(streams[len(calls) - 1])
+
+    client._client.chat.completions.create = fake_create  # type: ignore[method-assign]
+    return client, calls
+
+
 class TestStreamedLengthFinish:
-    """The streaming helper raises `LengthFinishReasonError` on a
+    """The SDK raises `LengthFinishReasonError` on a
     `finish_reason == "length"` completion instead of returning it. That
     must still come out as a `max_tokens` turn, not an exception.
     """
 
     def test_truncated_streamed_turn_is_max_tokens_not_an_error(self):
-        client = ChatClient(api_key="dummy-test-key", base_url="http://127.0.0.1:0")
         truncated = _load_completion("length_finish.json")
-
-        class _Stream:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *exc: Any) -> None:
-                return None
-
-            def __iter__(self):
-                return iter(())
-
-            def get_final_completion(self) -> ChatCompletion:
-                raise openai.LengthFinishReasonError(completion=truncated)
-
-        client._client.chat.completions.stream = (  # type: ignore[method-assign]
-            lambda **kwargs: _Stream()
-        )
+        client, calls = _streaming_client([_chunks_of(truncated)])
 
         turn = client.run_turn(
             system="systemprompt",
@@ -970,6 +1017,59 @@ class TestStreamedLengthFinish:
 
         assert turn.stop == "max_tokens"
         assert turn.usage.output_tokens == truncated.usage.completion_tokens
+        assert calls[0]["stream"] is True
+        assert calls[0]["stream_options"] == {"include_usage": True}
+
+
+class TestToolCallTypeOnContinuationChunks:
+    """A gateway that repeats `"type": null` on a tool call's continuation
+    chunks. The SDK's accumulator overwrites the call's type with it and
+    then asserts `type == "function"`. Seen in production:
+    `opencode-go/deepseek-v4.1-flash`, the first turn of an intake pass,
+    which killed the pass with a bare `AssertionError`."""
+
+    def test_null_type_on_a_continuation_chunk_still_yields_the_tool_call(self):
+        first = {
+            "index": 0,
+            "id": "call_1",
+            "type": "function",
+            "function": {"name": "las_kontoplan", "arguments": ""},
+        }
+        rest = {"index": 0, "type": None, "function": {"arguments": "{}"}}
+        client, _calls = _streaming_client(
+            [
+                [
+                    _chunk({"role": "assistant", "tool_calls": [first]}),
+                    _chunk({"tool_calls": [rest]}),
+                    _chunk({}, finish_reason="tool_calls"),
+                    _chunk(
+                        {},
+                        usage={
+                            "prompt_tokens": 10,
+                            "completion_tokens": 2,
+                            "total_tokens": 12,
+                        },
+                    ),
+                ]
+            ]
+        )
+        announced: list[str] = []
+
+        turn = client.run_turn(
+            system="s",
+            messages=[{"role": "user", "content": [{"type": "text", "text": "hej"}]}],
+            tools=[],
+            model="opencode-go/deepseek-v4.1-flash",
+            max_tokens=None,
+            on_tool_call=announced.append,
+        )
+
+        assert turn.stop == "tool_calls"
+        assert [(c.id, c.name, c.arguments) for c in turn.tool_calls] == [
+            ("call_1", "las_kontoplan", {})
+        ]
+        assert announced == ["las_kontoplan"]
+        assert turn.usage.output_tokens == 2
 
 
 class TestMissingFinishReason:
@@ -985,31 +1085,7 @@ class TestMissingFinishReason:
         return response
 
     def _client_streaming(self, completions: list) -> tuple:
-        client = ChatClient(api_key="dummy-test-key", base_url="http://127.0.0.1:0")
-        calls: list = []
-
-        class _Stream:
-            def __init__(self, completion):
-                self.completion = completion
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *exc: Any) -> None:
-                return None
-
-            def __iter__(self):
-                return iter(())
-
-            def get_final_completion(self) -> ChatCompletion:
-                return self.completion
-
-        def fake_stream(**kwargs: Any):
-            calls.append(kwargs)
-            return _Stream(completions[len(calls) - 1])
-
-        client._client.chat.completions.stream = fake_stream  # type: ignore[method-assign]
-        return client, calls
+        return _streaming_client([_chunks_of(c) for c in completions])
 
     def _turn(self, client, **hooks):
         return client.run_turn(

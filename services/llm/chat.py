@@ -65,7 +65,8 @@ import logging
 from typing import Any, Optional
 
 import openai
-from openai.types.chat import ChatCompletion
+from openai.lib.streaming.chat import ChatCompletionStreamState
+from openai.types.chat import ChatCompletion, ChatCompletionChunk
 from openai.types.chat.chat_completion_message_function_tool_call import (
     ChatCompletionMessageFunctionToolCall,
 )
@@ -372,8 +373,7 @@ class ChatClient:
         on_text: Optional[StreamTextHook],
         on_tool_call: Optional[StreamToolCallHook],
     ) -> ChatCompletion:
-        """Run the request through the SDK's streaming helper and return the
-        assembled `ChatCompletion`.
+        """Stream the request and return the assembled `ChatCompletion`.
 
         `stream_options={"include_usage": True}` is what keeps
         `response.usage` populated: on this protocol a streamed completion
@@ -386,23 +386,34 @@ class ChatClient:
         call arrives: `_ChatStreamDispatcher` keeps the small amount of
         per-turn state that requires, since a name repeats across the
         argument chunks that follow it.
+
+        The raw chunks are read from `.create(stream=True)` and fed to the
+        SDK's own `ChatCompletionStreamState` here, rather than through the
+        `.stream(...)` helper, so that each chunk passes `_normalize_chunk`
+        first: a gateway that repeats `"type": null` on a tool call's
+        continuation chunks otherwise trips the SDK's
+        `assert new_tool.type == "function"` and kills the pass (seen in
+        production with `opencode-go/deepseek-v4.1-flash`).
         """
         dispatcher = _ChatStreamDispatcher(on_text=on_text, on_tool_call=on_tool_call)
         stream_kwargs = dict(kwargs)
         stream_kwargs["stream_options"] = {"include_usage": True}
-        with self._client.chat.completions.stream(**stream_kwargs) as stream:
-            for event in stream:
-                dispatcher.dispatch(event)
-            try:
-                return stream.get_final_completion()
-            except openai.LengthFinishReasonError as exc:
-                # The helper refuses to hand back a completion cut off by
-                # `finish_reason == "length"`, but the exception carries it.
-                # Returned as is, it normalizes to `stop="max_tokens"` -- a
-                # truncated turn the session abstains on -- exactly as the
-                # unstreamed `.create(...)` path already does, and its usage
-                # still reaches the daily cap.
-                return exc.completion
+        stream_kwargs["stream"] = True
+        state: ChatCompletionStreamState[None] = ChatCompletionStreamState()
+        with self._client.chat.completions.create(**stream_kwargs) as stream:
+            for chunk in stream:
+                for event in state.handle_chunk(_normalize_chunk(chunk)):
+                    dispatcher.dispatch(event)
+        try:
+            return state.get_final_completion()
+        except openai.LengthFinishReasonError as exc:
+            # The SDK refuses to hand back a completion cut off by
+            # `finish_reason == "length"`, but the exception carries it.
+            # Returned as is, it normalizes to `stop="max_tokens"` -- a
+            # truncated turn the session abstains on -- exactly as the
+            # unstreamed `.create(...)` path already does, and its usage
+            # still reaches the daily cap.
+            return exc.completion
 
     # -----------------------------------------------------------------
     # Translation: Anthropic tool-definition shape -> OpenAI function-tool
@@ -550,6 +561,23 @@ class ChatClient:
 # ---------------------------------------------------------------------------
 # Message translation helpers (module-level, pure)
 # ---------------------------------------------------------------------------
+
+
+def _normalize_chunk(chunk: ChatCompletionChunk) -> ChatCompletionChunk:
+    """Give every tool-call delta the type the SDK's accumulator expects.
+
+    The accumulator overwrites a tool call's `type` with whatever each
+    later delta says, so a continuation chunk carrying `"type": null` (or
+    any value but `"function"`) leaves the snapshot with a non-function
+    tool call and the SDK asserts. Only function tools are ever sent
+    (`translate_tools`), so a type that is present is set to `"function"`;
+    one that is absent is left absent and the accumulated value stands.
+    """
+    for choice in chunk.choices:
+        for tool_call in (choice.delta.tool_calls if choice.delta else None) or []:
+            if "type" in tool_call.model_fields_set and tool_call.type != "function":
+                tool_call.type = "function"
+    return chunk
 
 
 class _ChatStreamDispatcher:
