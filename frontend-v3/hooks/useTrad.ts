@@ -289,6 +289,13 @@ export function useTrad(
         if (vy.avbryt.signal.aborted) return true;
         vy.maxSeq = Math.max(vy.maxSeq, svar.cursor);
         dispatch({ typ: "skickad", lokaltId, posts: svar.posts, cursor: svar.cursor });
+        // Ett bifogat underlag öppnas om på servern (`reopen_for_thread`) och
+        // beslutet om det lämnar kön. Utan omläsning står kortet kvar tills
+        // nästa `view.changed`, och det ser ut som att svaret saknas.
+        if (attachments.length > 0) {
+          void qc.invalidateQueries({ queryKey: BESLUT_NYCKEL });
+          void qc.invalidateQueries({ queryKey: OVERVIEW_NYCKEL });
+        }
         setFel(null);
         oppna(vy, svar.cursor);
         return true;
@@ -305,7 +312,7 @@ export function useTrad(
         return false;
       }
     },
-    [oppna]
+    [oppna, qc]
   );
 
   const nollstall = useCallback(async (): Promise<boolean> => {
