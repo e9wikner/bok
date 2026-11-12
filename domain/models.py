@@ -587,8 +587,9 @@ class ThreadDraft:
     replaced.
 
     `voucher_id` is the draft's `vouchers.id`, but not a foreign key: a
-    superseded draft is deleted while this row stays (§6.2). `status` moves
-    only `pending -> posted` or `pending -> superseded`, which
+    superseded or rejected draft is deleted while this row stays (§6.2).
+    `status` moves only from `pending` to `posted`, `superseded` or
+    `rejected` (migration 052), which
     `ThreadDraftRepository` enforces; nothing outside
     `repositories/thread_draft_repo.py` writes SQL against `thread_drafts`.
     """
@@ -597,11 +598,13 @@ class ThreadDraft:
     thread_id: str
     post_id: str
     view_key: str
-    status: str = "pending"  # 'pending' | 'posted' | 'superseded'
+    status: str = "pending"  # 'pending' | 'posted' | 'superseded' | 'rejected'
     decision_id: Optional[str] = None
     correction_of: Optional[str] = None
     correction_note_id: Optional[str] = None
     replaced_by: Optional[str] = None
+    rejected_at: Optional[datetime] = None
+    rejected_by: Optional[str] = None
     posted_at: Optional[datetime] = None
     receipt_post_id: Optional[str] = None
     last_error_code: Optional[str] = None

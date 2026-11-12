@@ -13,7 +13,7 @@ codes. The list and the voucher numbers come from
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status as http_status
 
-from api.deps import get_current_actor
+from api.deps import get_current_actor, get_human_actor
 from api.schemas import (
     DraftInvoice,
     DraftVoucherNumber,
@@ -22,7 +22,7 @@ from api.schemas import (
 )
 from domain.types import ThreadViewKey
 from domain.validation import ValidationError
-from services.draft_service import DraftListItem, DraftService
+from services.draft_service import DraftError, DraftListItem, DraftService
 
 router = APIRouter(prefix="/api/v1/drafts", tags=["drafts"])
 
@@ -86,8 +86,8 @@ async def list_drafts(
     view_key: str = Query(..., description="One of the seven views; unknown is 404."),
     status: str = Query(
         "all",
-        description="`pending`, `posted` (vouchers), `superseded`, `issued` "
-        "and `rejected` (invoices) or `all` (default) -- unknown value is 400.",
+        description="`pending`, `posted` (vouchers), `superseded`, `rejected`, "
+        "`issued` (invoices) or `all` (default) -- unknown value is 400.",
     ),
     limit: int = Query(200, ge=1, le=200),
     actor: str = Depends(get_current_actor),
@@ -112,3 +112,24 @@ async def list_drafts(
         ],
         total=total,
     )
+
+
+@router.post("/{draft_id}/reject", response_model=ThreadDraftResponse)
+async def reject_draft(draft_id: str, actor: str = Depends(get_human_actor)):
+    """`Kasta` on a pending voucher card (migration 052): the draft voucher is
+    deleted and the row goes `rejected`. A logged-in human only -- the API
+    key gets `403 human_only`. `404 draft_not_found`, `409
+    draft_not_pending` for a card that is already posted, replaced or
+    discarded. Invoice proposals are not discarded here."""
+    try:
+        draft = DraftService().reject(draft_id, actor=actor)
+    except DraftError as exc:
+        raise HTTPException(
+            status_code=(
+                http_status.HTTP_404_NOT_FOUND
+                if exc.code == "draft_not_found"
+                else http_status.HTTP_409_CONFLICT
+            ),
+            detail={"error": exc.message, "code": exc.code, "details": exc.details},
+        )
+    return _draft_response(DraftListItem(draft=draft))

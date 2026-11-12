@@ -576,3 +576,64 @@ describe("ett utkast som redan är postat, efter en omladdning", () => {
     expect(postaKnapp()).toBeInTheDocument();
   });
 });
+
+describe("Kasta (migration 052)", () => {
+  const URL_DRAFTS = "/api/v1/drafts";
+  const URL_REJECT = `/api/v1/drafts/${encodeURIComponent(DRAFT_ID)}/reject`;
+  const rad = (status: string) => ({
+    draft_id: DRAFT_ID,
+    post_id: FIXTUR_DRAFT.id,
+    decision_id: null,
+    correction_of: null,
+    status,
+    replaced_by: null,
+    posted_at: null,
+    voucher: null,
+    last_error_code: null,
+    created_at: "2026-09-18T06:41:00",
+  });
+  let serverStatus = "pending";
+  beforeEach(() => {
+    serverStatus = "pending";
+    get.mockImplementation(async (url: string) =>
+      url === URL_DRAFTS
+        ? { status: 200, data: { drafts: [rad(serverStatus)], total: 1 } }
+        : { data: {} }
+    );
+  });
+
+  it("frågar först, och Avbryt gör ingenting", async () => {
+    rendera();
+    await userEvent.click(screen.getByRole("button", { name: "Kasta" }));
+    expect(screen.getByText("Kasta förslaget?")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Avbryt" }));
+    expect(screen.getByRole("button", { name: "Kasta" })).toBeInTheDocument();
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it("Ja, kasta → POST /drafts/{id}/reject, och kortet blir Kastat utan knappar", async () => {
+    post.mockImplementation(async (url: string) => {
+      if (url === URL_REJECT) serverStatus = "rejected";
+      return { status: 200, data: rad("rejected") };
+    });
+    rendera();
+    await userEvent.click(screen.getByRole("button", { name: "Kasta" }));
+    await userEvent.click(screen.getByRole("button", { name: "Ja, kasta" }));
+    expect(post).toHaveBeenCalledWith(URL_REJECT);
+    expect(await screen.findByTestId("forslag-kastat")).toHaveTextContent("Kastat");
+    const knapprad = screen.getByTestId("forslag-knapprad");
+    expect(within(knapprad).queryAllByRole("button")).toHaveLength(0);
+    expect(within(knapprad).getByText(UTKAST.consequence)).toBeInTheDocument();
+  });
+
+  it("ett fel säger det och låter människan försöka igen", async () => {
+    post.mockRejectedValue(natverksFel());
+    rendera();
+    await userEvent.click(screen.getByRole("button", { name: "Kasta" }));
+    await userEvent.click(screen.getByRole("button", { name: "Ja, kasta" }));
+    expect(
+      await screen.findByRole("button", { name: "Gick inte att kasta, försök igen" })
+    ).toBeInTheDocument();
+    expect(postaKnapp()).toBeInTheDocument();
+  });
+});

@@ -8,8 +8,8 @@ the row posted inside the posting's own transaction.
 
 §6.2's lifecycle is enforced here, not trusted to callers: every status
 change is a single `UPDATE ... WHERE status = 'pending'`, and a zero
-`rowcount` raises `ThreadDraftTransitionError`. Posted and superseded are
-final.
+`rowcount` raises `ThreadDraftTransitionError`. Posted, superseded and
+rejected (migration 052) are final.
 """
 
 import json
@@ -19,7 +19,7 @@ from typing import Any, List, Mapping, Optional, Sequence, Tuple
 from db.database import db
 from domain.models import ThreadDraft
 
-STATUSES = ("pending", "posted", "superseded")
+STATUSES = ("pending", "posted", "superseded", "rejected")
 
 
 class ThreadDraftTransitionError(ValueError):
@@ -267,6 +267,32 @@ class ThreadDraftRepository:
         )
 
     @staticmethod
+    def mark_rejected(
+        voucher_id: str, rejected_at: datetime, actor: str, _commit: bool = True
+    ) -> ThreadDraft:
+        """`pending -> rejected` (migration 052): a human discarded the card."""
+        return ThreadDraftRepository._update_pending(
+            voucher_id,
+            "rejected",
+            "status = 'rejected', rejected_at = ?, rejected_by = ?",
+            (rejected_at, actor),
+            _commit,
+        )
+
+    @staticmethod
+    def rejected_post_ids(post_ids: Sequence[str]) -> List[str]:
+        """Which of these `draft` posts' drafts a human has discarded."""
+        if not post_ids:
+            return []
+        placeholders = ", ".join("?" for _ in post_ids)
+        rows = db.execute(
+            f"SELECT post_id FROM thread_drafts WHERE status = 'rejected' "
+            f"AND post_id IN ({placeholders})",
+            tuple(post_ids),
+        ).fetchall()
+        return [r["post_id"] for r in rows]
+
+    @staticmethod
     def set_error(
         voucher_id: str,
         code: str,
@@ -343,6 +369,8 @@ class ThreadDraftRepository:
             correction_of=row["correction_of"],
             correction_note_id=row["correction_note_id"],
             replaced_by=row["replaced_by"],
+            rejected_at=_parse_datetime(row["rejected_at"]),
+            rejected_by=row["rejected_by"],
             posted_at=_parse_datetime(row["posted_at"]),
             receipt_post_id=row["receipt_post_id"],
             last_error_code=row["last_error_code"],

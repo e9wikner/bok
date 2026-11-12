@@ -1,8 +1,15 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { felText, usePostaUtkast, type PostaLage } from "@/hooks/usePostaUtkast";
-import type { ForslagStatusSvar } from "@/lib/chattyta/api";
+import {
+  BESLUT_NYCKEL,
+  DRAFTS_NYCKEL,
+  kastaForslag,
+  VOUCHERS_NYCKEL,
+  type ForslagStatusSvar,
+} from "@/lib/chattyta/api";
 import { Kontering } from "@/components/chattyta/Kontering";
 import type { VerifikationDraftInlagg } from "@/lib/chattyta/typer";
 
@@ -23,8 +30,9 @@ import type { VerifikationDraftInlagg } from "@/lib/chattyta/typer";
  *   eller `pending`: som i dag, med knapparna. `last_error_code` hanteras av
  *   `PostaKnappar` (felraden, ingen `Posta`);
  * - `posted`: `Postad · {serie}-{nummer}` ur `voucher`, inga knappar;
- * - `superseded`: `Ersatt av ett nytt förslag`, inga knappar.
- * Konsekvensnotisen står kvar i alla fyra.
+ * - `superseded`: `Ersatt av ett nytt förslag`, inga knappar;
+ * - `rejected`: `Kastat`, inga knappar (migration 052).
+ * Konsekvensnotisen står kvar i alla fem.
  */
 export function VerifikationsForslag({
   inlagg,
@@ -98,6 +106,14 @@ export function VerifikationsForslag({
             className="bok-mono rounded-full border border-bok-linje bg-bok-linje-svagast px-[10px] py-[3px] text-[12px] text-bok-text-dampad"
           >
             Ersatt av ett nytt förslag
+          </span>
+        ) : status === "rejected" ? (
+          <span
+            role="status"
+            data-testid="forslag-kastat"
+            className="bok-mono rounded-full border border-bok-linje bg-bok-linje-svagast px-[10px] py-[3px] text-[12px] text-bok-text-dampad"
+          >
+            Kastat
           </span>
         ) : (
           knappar
@@ -241,6 +257,67 @@ export function PostaKnappar({
           Ändra
         </button>
       )}
+      {!postar && <KastaKnapp draftId={draftId} />}
     </>
+  );
+}
+
+/**
+ * `Kasta` (migration 052): ett tryck, en bekräftelse, och förslaget lämnar
+ * tråden som `Kastat` — utkastet tas bort, det hade inget nummer, så ingen
+ * lucka uppstår. Kortet påstår inget självt: frågorna hämtas om och
+ * `GET /drafts` säger `rejected`. Samma form som `AvfardaKnapp`.
+ */
+function KastaKnapp({ draftId }: { draftId: string }) {
+  const queryClient = useQueryClient();
+  const [lage, setLage] = useState<"redo" | "bekrafta" | "skickar" | "fel">("redo");
+
+  if (lage === "redo" || lage === "fel") {
+    return (
+      <button
+        type="button"
+        data-testid="kasta"
+        onClick={() => setLage("bekrafta")}
+        className="min-h-[46px] px-[6px] text-[14px] text-bok-text-svag hover:text-bok-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bok-lank"
+      >
+        {lage === "fel" ? "Gick inte att kasta, försök igen" : "Kasta"}
+      </button>
+    );
+  }
+
+  return (
+    <span className="flex min-h-[46px] items-center gap-[10px] text-[14px]">
+      <span className="text-bok-text-dampad">Kasta förslaget?</span>
+      <button
+        type="button"
+        data-testid="kasta-ja"
+        aria-disabled={lage === "skickar" ? true : undefined}
+        onClick={() => {
+          if (lage === "skickar") return;
+          setLage("skickar");
+          kastaForslag(draftId)
+            .then(() =>
+              Promise.all([
+                queryClient.invalidateQueries({ queryKey: DRAFTS_NYCKEL }),
+                queryClient.invalidateQueries({ queryKey: VOUCHERS_NYCKEL }),
+                queryClient.invalidateQueries({ queryKey: BESLUT_NYCKEL }),
+              ]),
+            )
+            .catch(() => setLage("fel"));
+        }}
+        className="font-medium text-bok-text hover:underline aria-disabled:opacity-70"
+      >
+        {lage === "skickar" ? "Kastar…" : "Ja, kasta"}
+      </button>
+      {lage === "bekrafta" && (
+        <button
+          type="button"
+          onClick={() => setLage("redo")}
+          className="text-bok-text-svag hover:text-bok-text"
+        >
+          Avbryt
+        </button>
+      )}
+    </span>
   );
 }

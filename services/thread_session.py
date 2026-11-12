@@ -33,7 +33,7 @@ import json
 import logging
 from dataclasses import replace
 from datetime import date
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from config import settings
 from domain.models import FiscalYear, Period, Thread, ThreadPost
@@ -152,6 +152,17 @@ def _render_fiscal_year(thread: Thread, fiscal_year: Optional[FiscalYear]) -> st
     )
 
 
+def _rejected_draft_seqs(window: list[ThreadPost]) -> list[int]:
+    from repositories.thread_draft_repo import ThreadDraftRepository
+
+    rejected = set(
+        ThreadDraftRepository.rejected_post_ids(
+            [post.id for post in window if post.type == "draft"]
+        )
+    )
+    return [post.seq for post in window if post.id in rejected]
+
+
 def build_thread_user_turn(
     thread: Thread,
     window: list[ThreadPost],
@@ -162,6 +173,7 @@ def build_thread_user_turn(
     omitted_posts: int = 0,
     reset_posts: int = 0,
     fiscal_year: Optional[FiscalYear] = None,
+    rejected_draft_seqs: Sequence[int] = (),
 ) -> list[dict]:
     """Build the volatile user turn for a thread reply.
 
@@ -184,6 +196,10 @@ def build_thread_user_turn(
     contains today: every year's thread is writable (decision §12.3), and the
     closing work for a year is done after it ended. The model is told the
     year's dates, and told plainly when the year is already over.
+
+    `rejected_draft_seqs` are the `draft` posts in the window whose card the
+    human discarded (migration 052). A post is never rewritten, so without
+    this line the model would read a discarded card as still waiting.
     """
     lines = [
         f"Dagens datum: {today.isoformat()}",
@@ -217,6 +233,13 @@ def build_thread_user_turn(
     if window:
         lines.append("Tidigare inlägg i tråden:")
         lines.extend(render_post(post) for post in window)
+        lines.append("")
+    if rejected_draft_seqs:
+        seqs = ", ".join(f"[{seq}]" for seq in rejected_draft_seqs)
+        lines.append(
+            f"(Människan har kastat förslagen i inlägg {seqs}. De finns inte "
+            "längre och kan inte postas eller ersättas.)"
+        )
         lines.append("")
     lines.append("Nytt meddelande:")
     lines.append(message)
@@ -290,6 +313,7 @@ def run_thread_session(
             omitted_posts=len(eligible) - len(window),
             reset_posts=len(history) - len(eligible),
             fiscal_year=fiscal_year,
+            rejected_draft_seqs=_rejected_draft_seqs(window),
         ),
         # Unchanged, in `_TOOL_SPECS`' unchanged order -- the tool list is
         # part of the cached prefix, and the thread gets no tool of its own

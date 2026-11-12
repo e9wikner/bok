@@ -429,12 +429,11 @@ def _account_code(details: Optional[str]) -> Optional[str]:
     return None
 
 
-#: `GET /drafts?status=` (§10): the table's three states, or every one.
-DRAFT_LIST_STATUSES = ("pending", "posted", "superseded", "all")
+#: `GET /drafts?status=` (§10): the table's four states, or every one.
+DRAFT_LIST_STATUSES = ("pending", "posted", "superseded", "rejected", "all")
 
 #: Statuses `GET /drafts` accepts once invoice proposals are in it:
-#: `posted` is vouchers only, `issued` and
-#: `rejected` invoices only.
+#: `posted` is vouchers only, `issued` invoices only.
 VIEW_DRAFT_STATUSES = ("pending", "posted", "superseded", "issued", "rejected", "all")
 
 
@@ -730,6 +729,66 @@ class DraftService:
             except Exception:
                 logger.exception("view.changed for thread %s failed", thread_id)
         return posts
+
+    # -- discarding (migration 052) ---------------------------------------
+
+    def reject(self, draft_id: str, *, actor: str) -> ThreadDraft:
+        """A human's `Kasta` on a pending card: the row goes `rejected` and
+        the draft voucher is deleted, in one transaction -- the way a
+        superseded draft goes (§6.2). It never took a number, so no gap is
+        left; the `draft` post stays and the card reads the new state from
+        `GET /drafts`. A correction note the draft answered stays open.
+
+        `draft_not_pending` (`DraftError`) for a row that is posted,
+        superseded or already rejected, `draft_not_found` for none."""
+        from repositories.audit_repo import AuditRepository
+
+        draft = ThreadDraftRepository.get(draft_id)
+        if draft is None:
+            raise DraftError(
+                "draft_not_found",
+                "No thread draft with that id",
+                details=f"draft_id={draft_id}",
+            )
+        try:
+            with db.transaction():
+                rejected = ThreadDraftRepository.mark_rejected(
+                    draft_id, datetime.now(), actor, _commit=False
+                )
+                VoucherRepository.delete_draft(draft_id, _commit=False)
+                AuditRepository.log(
+                    entity_type="thread_draft",
+                    entity_id=draft_id,
+                    action="rejected",
+                    actor=actor,
+                    payload={
+                        "thread_id": draft.thread_id,
+                        "post_id": draft.post_id,
+                        "correction_of": draft.correction_of,
+                    },
+                    _commit=False,
+                )
+        except ThreadDraftTransitionError as exc:
+            raise DraftError(
+                "draft_not_pending",
+                "Only a pending draft can be discarded",
+                details=f"draft_id={draft_id}, status={exc.current_status}",
+            )
+
+        from services.thread_stream import EVENT_VIEW_CHANGED, get_broker
+
+        try:
+            get_broker().publish(
+                draft.thread_id,
+                EVENT_VIEW_CHANGED,
+                {
+                    "view_key": draft.view_key,
+                    "changed": {"draft_id": draft_id, "kind": "draft_rejected"},
+                },
+            )
+        except Exception:
+            logger.exception("view.changed for rejected draft %s failed", draft_id)
+        return rejected
 
     def _write_receipt(self, voucher: Voucher, *, actor: str) -> Optional[ThreadPost]:
         """The `receipt` post and `receipt_post_id`, in one transaction.

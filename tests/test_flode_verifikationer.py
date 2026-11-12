@@ -3482,3 +3482,126 @@ def test_f16_a_failed_error_post_does_not_undo_the_lock(monkeypatch, auth_header
     [error] = _errors(thread)
     assert error.body["cause"] == _locked_cause(period.id)
     assert ThreadDraftRepository.get(draft_id).last_error_post_id == error.id
+
+
+# --- Kasta: en människa förkastar ett förslag (migration 052) -----------------
+
+
+def _human_headers():
+    from services.auth import AuthService
+
+    return {"Authorization": f"Bearer {AuthService().create_jwt('stefan')}"}
+
+
+def _reject_route(client, draft_id, headers):
+    return client.post(f"/api/v1/drafts/{draft_id}/reject", headers=headers)
+
+
+def test_reject_discards_the_draft_and_keeps_the_card():
+    thread, period, trigger = _books()
+    draft_id = _proposed(thread, period, trigger)
+    [post] = _draft_posts(thread)
+
+    response = _reject_route(_client(), draft_id, _human_headers())
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "rejected"
+    assert VoucherRepository.get(draft_id) is None
+    row = ThreadDraftRepository.get(draft_id)
+    assert row.status == "rejected"
+    assert row.rejected_by == "stefan"
+    assert row.rejected_at is not None
+    # The card stays in the thread: a post is never rewritten.
+    assert [p.id for p in _draft_posts(thread)] == [post.id]
+    audit = db.execute(
+        "SELECT actor FROM audit_log WHERE entity_type = 'thread_draft' "
+        "AND entity_id = ? AND action = 'rejected'",
+        (draft_id,),
+    ).fetchall()
+    assert [r["actor"] for r in audit] == ["stefan"]
+
+    listed = _client().get(
+        "/api/v1/drafts",
+        params={"view_key": thread.view_key, "status": "rejected"},
+        headers=_human_headers(),
+    )
+    assert listed.status_code == 200, listed.text
+    assert [d["draft_id"] for d in listed.json()["drafts"]] == [draft_id]
+
+
+def test_reject_is_for_a_human_only(auth_headers):
+    thread, period, trigger = _books()
+    draft_id = _proposed(thread, period, trigger)
+
+    response = _reject_route(_client(), draft_id, auth_headers)
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "human_only"
+    assert ThreadDraftRepository.get(draft_id).status == "pending"
+    assert VoucherRepository.get(draft_id) is not None
+
+
+def test_reject_refuses_a_posted_draft_and_leaves_it(auth_headers):
+    thread, period, trigger = _books()
+    draft_id = _proposed(thread, period, trigger)
+    client = _client()
+    assert _post_route(client, draft_id, auth_headers).status_code == 200
+
+    response = _reject_route(client, draft_id, _human_headers())
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "draft_not_pending"
+    assert ThreadDraftRepository.get(draft_id).status == "posted"
+    assert VoucherRepository.get(draft_id).number == 1
+
+
+def test_reject_twice_and_unknown():
+    thread, period, trigger = _books()
+    draft_id = _proposed(thread, period, trigger)
+    client = _client()
+    assert _reject_route(client, draft_id, _human_headers()).status_code == 200
+
+    again = _reject_route(client, draft_id, _human_headers())
+    assert again.status_code == 409
+    assert again.json()["detail"]["code"] == "draft_not_pending"
+    missing = _reject_route(client, "finns-inte", _human_headers())
+    assert missing.status_code == 404
+
+
+def test_a_rejected_draft_cannot_be_replaced_or_posted(auth_headers):
+    thread, period, trigger = _books()
+    proposals = ProposalSequence(thread.id, trigger.id)
+    old = _propose(thread, _args(period), proposals)
+    _reject_route(_client(), old["draft_id"], _human_headers())
+
+    # The voucher is gone, as a superseded draft's is: nothing to post.
+    assert _post_route(_client(), old["draft_id"], auth_headers).status_code == 400
+    assert ThreadDraftRepository.get(old["draft_id"]).status == "rejected"
+    with pytest.raises(ValidationError) as excinfo:
+        from services.draft_service import DraftService
+
+        DraftService()._check_replaceable(thread, old["draft_id"])
+    assert excinfo.value.code == "draft_not_replaceable"
+
+
+def test_the_agent_is_told_which_cards_were_discarded():
+    from services.thread_session import _rejected_draft_seqs, build_thread_user_turn
+
+    thread, period, trigger = _books()
+    proposals = ProposalSequence(thread.id, trigger.id)
+    kept = _propose(thread, _args(period), proposals)["draft_id"]
+    gone = _propose(thread, _args(period, description="Dubblett"), proposals)[
+        "draft_id"
+    ]
+    _reject_route(_client(), gone, _human_headers())
+    window = ThreadRepository.list_posts(thread.id)
+    gone_post = ThreadDraftRepository.get(gone).post_id
+    seq = next(p.seq for p in window if p.id == gone_post)
+
+    assert _rejected_draft_seqs(window) == [seq]
+    [turn] = build_thread_user_turn(
+        thread, window, "Hej", date(2026, 9, 20), [], rejected_draft_seqs=[seq]
+    )
+    text = turn["content"][0]["text"]
+    assert f"Människan har kastat förslagen i inlägg [{seq}]" in text
+    assert ThreadDraftRepository.get(kept).status == "pending"

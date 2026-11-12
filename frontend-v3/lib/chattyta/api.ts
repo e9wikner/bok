@@ -705,7 +705,7 @@ export const LONER_NYCKEL = ["payroll"] as const;
 
 /**
  * `thread_drafts.status`, och för fakturaförslag `thread_invoice_drafts.status`:
- * `issued` och `rejected` finns bara där.
+ * `issued` finns bara där. `rejected` är ett kastat förslag i båda.
  */
 export type ForslagStatus = "pending" | "posted" | "superseded" | "issued" | "rejected";
 
@@ -760,6 +760,22 @@ export interface ForslagListSvar {
   drafts: ForslagStatusSvar[];
   /** Antalet före `limit`. */
   total: number;
+}
+
+/**
+ * `Kasta` på ett väntande verifikationsförslag (`POST /drafts/{id}/reject`,
+ * migration 052): utkastet tas bort och kortet blir `rejected`. Bara en
+ * inloggad människa. `409 draft_not_pending` betyder att förslaget redan har
+ * postats, ersatts eller kastats — då visar `GET /drafts` vilket, och det är
+ * inget fel att visa här.
+ */
+export async function kastaForslag(draftId: string): Promise<void> {
+  try {
+    await apiClient.post(`/api/v1/drafts/${encodeURIComponent(draftId)}/reject`);
+  } catch (fel) {
+    if (axios.isAxiosError(fel) && fel.response?.status === 409) return;
+    throw fel;
+  }
 }
 
 /** `GET /drafts?view_key=…` — `view_key` krävs av servern. */
