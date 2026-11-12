@@ -90,6 +90,8 @@ export interface Lonebesked {
   underlag_linked?: boolean;
   /** Verifikationen lönebeskedet ännu kan kopplas till som underlag. */
   attach_voucher?: { id: string; number: string } | null;
+  /** Utbetalningen som lönen kan bokföras mot med ett tryck; saknas när den inte är entydig. */
+  payment_transaction_id?: string | null;
 }
 
 /** Månadens AGI, för månaden lönen betalades ut (`_agi_summary`). */
@@ -513,6 +515,9 @@ function lonebeskedRad(p: Lonebesked, manad: string, kort: BeslutSvar | undefine
     ...rad,
     meta: `ej bokförd · utbetalning ${p.payment_date}`,
     variant: "vantar",
+    ...(p.payment_transaction_id
+      ? { bokforLon: { payslipId: p.id, transactionId: p.payment_transaction_id } }
+      : {}),
     fraga: { viewKey: LONER_VY, text: `Om lönen för ${titel}, ${manad}: ` },
   };
 }

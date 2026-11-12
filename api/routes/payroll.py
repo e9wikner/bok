@@ -178,6 +178,14 @@ async def list_payroll_runs(
                 if p["underlag_linked"] or p["pending_decision_id"]
                 else _attach_voucher(underlag, payslip)
             )
+        # The one payment a row's payslip can be booked against with one
+        # press (`POST /payslips/{id}/book`); none when it is not unique.
+        for p in payload["payslips"]:
+            p["payment_transaction_id"] = (
+                _only_payment_candidate(service, p["id"])
+                if not p["voucher_id"] and not p["pending_decision_id"]
+                else None
+            )
         result.append(payload)
     # Salaries paid outside BokAI, booked here only as vouchers
     # (services/ledger_bookings.py).
@@ -503,6 +511,15 @@ def _payslip_to_dict(payslip: Payslip) -> dict:
         "pdf_sha256": payslip.pdf_sha256,
         "underlag_linked": PayslipUnderlagService.is_linked(payslip),
     }
+
+
+def _only_payment_candidate(service: PayrollService, payslip_id: str) -> Optional[str]:
+    """The bank transaction that paid *payslip_id*, when exactly one can."""
+    try:
+        candidates = service.payment_candidates(payslip_id)
+    except ValidationError:
+        return None
+    return candidates[0].id if len(candidates) == 1 else None
 
 
 def _attach_voucher(

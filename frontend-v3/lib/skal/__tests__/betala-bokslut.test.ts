@@ -348,6 +348,15 @@ describe("lonerVy", () => {
     expect(klar.kopplaLonebesked).toBeUndefined();
   });
 
+  it("en obokad lön med entydig utbetalning kan bokföras direkt", () => {
+    const vy = lonerVy({
+      payroll_runs: [korning({ payslips: [besked({ payment_transaction_id: "tx-1" })] })],
+    });
+    const [lon] = vy.sektioner[0].rader;
+    expect(lon.bokforLon).toEqual({ payslipId: lon.id, transactionId: "tx-1" });
+    expect(lon.fraga).toBeDefined();
+  });
+
   it("en obokad lön utan kort ber agenten, och en AGI som väntar på lönerna är neutral", () => {
     const vy = lonerVy({
       payroll_runs: [korning({ payslips: [besked({})], agi: agi({ unbooked_payslips: 1 }) })],

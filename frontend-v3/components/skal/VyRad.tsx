@@ -14,6 +14,7 @@ import {
   angraUtanUnderlag,
   forsokIgenMedUnderlag,
   godkannUtanUnderlag,
+  bokforLonebesked,
   kopplaLonebesked,
   type BeslutSvar,
   type UtanUnderlag,
@@ -88,6 +89,7 @@ export function VyRad({
   kvitto,
   forsokIgen,
   kopplaLonebesked: koppla,
+  bokforLon,
   beslut,
   fraga,
   underlagsval,
@@ -121,6 +123,8 @@ export function VyRad({
   forsokIgen?: { sourceId: string };
   /** Ett lönebesked som inte är underlag än: länken `koppla lönebesked till A-11`. */
   kopplaLonebesked?: VyRadData["kopplaLonebesked"];
+  /** En obokad lön med entydig utbetalning: länken `bokför`, ett tryck. */
+  bokforLon?: VyRadData["bokforLon"];
   /** Ett öppet beslut: titeln tar upp det i chatten. */
   beslut?: BeslutSvar;
   /** `be agenten` (eller `etikett`) i metaraden fyller vyns chattfält. */
@@ -225,7 +229,7 @@ export function VyRad({
             <Markerad text={titel} index={traff?.titel} />
           </span>
         )}
-        {(metaText || kvitto || forsokIgen || koppla || fraga || underlagsval || (lankar && detalj)) && (
+        {(metaText || kvitto || forsokIgen || koppla || bokforLon || fraga || underlagsval || (lankar && detalj)) && (
           <span
             className={`bok-mono ${storlek === "desktop" ? "text-[11px]" : "text-[12px]"}`}
             style={{ color: metaFarg(variant, ageDays) }}
@@ -240,11 +244,12 @@ export function VyRad({
             {kvitto && <KvittoLank {...kvitto} forsta={!meta} />}
             {forsokIgen && <ForsokIgenLank {...forsokIgen} forsta={!meta && !kvitto} />}
             {koppla && <KopplaLonebeskedLank {...koppla} forsta={!meta && !kvitto && !forsokIgen} />}
+            {bokforLon && <BokforLonLank {...bokforLon} forsta={!meta && !kvitto && !forsokIgen && !koppla} />}
             {fraga && (
               <MetaLank
                 text={fraga.etikett ?? "be agenten"}
                 titel="Fyll i chattfältet"
-                forsta={!meta && !kvitto && !forsokIgen && !koppla}
+                forsta={!meta && !kvitto && !forsokIgen && !koppla && !bokforLon}
                 onTryck={() => {
                   if (fraga.postId) visaInlagg(fraga.viewKey, fraga.postId);
                   fyll(fraga.viewKey, fraga.text);
@@ -465,6 +470,55 @@ function KopplaLonebeskedLank({
           kopplaLonebesked(payslipId, voucherId)
             .then(() => {
               setLage("kopplad");
+              return Promise.all([
+                queryClient.invalidateQueries({ queryKey: LONER_NYCKEL }),
+                queryClient.invalidateQueries({ queryKey: VOUCHERS_NYCKEL }),
+              ]);
+            })
+            .catch(() => setLage("fel"));
+        }}
+        className="text-bok-lank underline-offset-2 hover:text-bok-lank-hover hover:underline disabled:no-underline disabled:opacity-70"
+      >
+        {text}
+      </button>
+    </>
+  );
+}
+
+/**
+ * `bokför`: lönen bokförs mot sin utbetalning direkt, utan agentens omväg.
+ * Ett tryck av en inloggad människa; servern vägrar agentens nyckel. Lönerna
+ * och verifikationerna hämtas om, så raden flyttar till bokförd.
+ */
+function BokforLonLank({
+  payslipId,
+  transactionId,
+  forsta,
+}: {
+  payslipId: string;
+  transactionId: string;
+  forsta: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const [lage, setLage] = useState<"redo" | "skickar" | "bokford" | "fel">("redo");
+  const text = {
+    redo: "bokför",
+    skickar: "bokför…",
+    bokford: "bokförd",
+    fel: "gick inte, försök igen",
+  }[lage];
+  return (
+    <>
+      {!forsta && " · "}
+      <button
+        type="button"
+        title="Bokför lönen mot utbetalningen"
+        disabled={lage === "skickar" || lage === "bokford"}
+        onClick={() => {
+          setLage("skickar");
+          bokforLonebesked(payslipId, transactionId)
+            .then(() => {
+              setLage("bokford");
               return Promise.all([
                 queryClient.invalidateQueries({ queryKey: LONER_NYCKEL }),
                 queryClient.invalidateQueries({ queryKey: VOUCHERS_NYCKEL }),

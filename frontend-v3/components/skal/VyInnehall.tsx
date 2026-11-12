@@ -143,6 +143,7 @@ export function VyInnehall({
                   kvitto={rad.kvitto}
                   forsokIgen={rad.forsokIgen}
                   kopplaLonebesked={rad.kopplaLonebesked}
+                  bokforLon={rad.bokforLon}
                   beslut={rad.beslut}
                   fraga={rad.fraga}
                   underlagsval={rad.underlagsval}

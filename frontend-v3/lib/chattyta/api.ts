@@ -217,6 +217,16 @@ export async function kopplaLonebesked(payslipId: string, voucherId: string): Pr
 }
 
 /**
+ * `POST /payroll/payslips/{id}/book`: lönen bokförs mot utbetalningen på
+ * kontoutdraget. Bara en inloggad människa (API-nyckeln får `403 human_only`).
+ */
+export async function bokforLonebesked(payslipId: string, transactionId: string): Promise<void> {
+  await apiClient.post(`/api/v1/payroll/payslips/${encodeURIComponent(payslipId)}/book`, {
+    bank_transaction_id: transactionId,
+  });
+}
+
+/**
  * Varför en postad verifikation står utan underlag (migration 051):
  * `later` — underlaget kommer och matchas då; `none` — verifikationen är sitt
  * eget underlag (en periodisering).

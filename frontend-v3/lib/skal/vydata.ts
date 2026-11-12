@@ -68,6 +68,8 @@ export interface VyRadData {
    * `koppla lönebesked till A-11` (`POST /payroll/payslips/{id}/attach`).
    */
   kopplaLonebesked?: { payslipId: string; voucherId: string; nummer: string };
+  /** En obokad lön med en entydig utbetalning: länken `bokför` (`POST /payroll/payslips/{id}/book`). */
+  bokforLon?: { payslipId: string; transactionId: string };
   /** Ett öppet beslut: titeln är en knapp som tar upp det i chatten (`BeslutFokus`). */
   beslut?: BeslutSvar;
   /**
