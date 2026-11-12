@@ -95,8 +95,8 @@ describe("sektionen Saknar underlag (testfall 49b)", () => {
     expect(vy.sektioner.map((s) => s.titel)).toEqual([
       "Väntar på beslut",
       "Saknar underlag",
-      "Postade",
       "Utkast",
+      "Postade",
     ]);
   });
 

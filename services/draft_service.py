@@ -790,6 +790,72 @@ class DraftService:
             logger.exception("view.changed for rejected draft %s failed", draft_id)
         return rejected
 
+    def discard(self, voucher_id: str, *, actor: str) -> Voucher:
+        """`Kasta utkast` on the voucher's own page: any draft voucher, in a
+        thread or not. A thread's draft goes through `reject`, so its card
+        says `Kastat`. Any other draft -- a correction made with
+        `/correction-draft`, say -- is deleted with its rows; a correction
+        note that suggested it goes back to `pending`. Audit-logged.
+
+        `draft_not_found`, `draft_not_pending` (posted, or a thread draft
+        that is no longer pending), `draft_has_attachments` (the files would
+        go with it: `attachments` cascades) and `draft_referenced` (another
+        row points at it)."""
+        import sqlite3
+
+        from repositories.audit_repo import AuditRepository
+        from repositories.correction_note_repo import CorrectionNoteRepository
+
+        voucher = VoucherRepository.get(voucher_id)
+        if voucher is None:
+            raise DraftError(
+                "draft_not_found",
+                "No voucher with that id",
+                details=f"voucher_id={voucher_id}",
+            )
+        if voucher.is_posted():
+            raise DraftError(
+                "draft_not_pending",
+                "A posted voucher is never deleted; correct it in the B series",
+                details=f"voucher_id={voucher_id}",
+            )
+        if VoucherRepository.count_attachments(voucher_id) > 0:
+            raise DraftError(
+                "draft_has_attachments",
+                "The draft has attached files; remove them first",
+                details=f"voucher_id={voucher_id}",
+            )
+        if ThreadDraftRepository.get(voucher_id) is not None:
+            self.reject(voucher_id, actor=actor)
+            return voucher
+        try:
+            with db.transaction():
+                notes = CorrectionNoteRepository.unsuggest_for_voucher(
+                    voucher_id, _commit=False
+                )
+                VoucherRepository.delete_draft(voucher_id, _commit=False)
+                AuditRepository.log(
+                    entity_type="voucher",
+                    entity_id=voucher_id,
+                    action="deleted",
+                    actor=actor,
+                    payload={
+                        "series": voucher.series,
+                        "date": voucher.date.isoformat(),
+                        "description": voucher.description,
+                        "correction_of": voucher.correction_of,
+                        "correction_notes_reopened": notes,
+                    },
+                    _commit=False,
+                )
+        except sqlite3.IntegrityError as exc:
+            raise DraftError(
+                "draft_referenced",
+                "Another record points at the draft; it cannot be discarded",
+                details=f"voucher_id={voucher_id}: {exc}",
+            )
+        return voucher
+
     def _write_receipt(self, voucher: Voucher, *, actor: str) -> Optional[ThreadPost]:
         """The `receipt` post and `receipt_post_id`, in one transaction.
         `None` when another request wrote the receipt first."""

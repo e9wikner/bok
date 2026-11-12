@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useRef } from "react";
+import { Fragment, useEffect, useRef, type ReactNode } from "react";
 import { VyBanner } from "@/components/skal/VyBanner";
 import { VyHeaderStatus } from "@/components/skal/VyHeaderStatus";
 import { VyRad, VyRadSkelett } from "@/components/skal/VyRad";
@@ -26,6 +26,7 @@ export function VyInnehall({
   variant = "desktop",
   tillbaka,
   sok,
+  atgard,
 }: {
   /** En vy, eller detaljlagret (`Detalj.tsx`) som bara har en titel. */
   vy: { titel: string };
@@ -44,6 +45,8 @@ export function VyInnehall({
     sortering?: Sortering;
     onSortera?: (s: Sortering) => void;
   };
+  /** En åtgärd under fottexten, t.ex. `Kasta utkast` i detaljlagret. */
+  atgard?: ReactNode;
 }) {
   const fg = lageFarg(data.lage);
 
@@ -161,6 +164,7 @@ export function VyInnehall({
         <div className="pt-5 text-[13px] leading-[1.55] text-bok-text-svag [text-wrap:pretty]">
           {data.fot}
         </div>
+        {atgard}
       </div>
     </div>
   );

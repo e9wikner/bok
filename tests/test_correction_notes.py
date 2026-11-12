@@ -297,3 +297,98 @@ async def test_rejecting_note_records_failure_context(test_db, async_client):
     assert correction["corrected_voucher_id"] is None
     assert correction["corrected_data"]["rejection_reason"] == "Missing source context"
     assert correction["was_successful"] is False
+
+
+# --- Kasta utkast på utkastets sida (POST /vouchers/{id}/discard) ------------
+
+
+def _human():
+    from services.auth import AuthService
+
+    return {"Authorization": f"Bearer {AuthService().create_jwt('stefan')}"}
+
+
+@pytest.mark.asyncio
+async def test_discard_a_correction_draft_outside_any_thread(test_db, async_client):
+    from db.database import db
+
+    _ensure_accounts()
+    period = _period()
+    original = await _create_voucher(async_client, period.id)
+    draft = (
+        await async_client.post(
+            f"/api/v1/vouchers/{original['id']}/correction-draft",
+            headers=_headers(),
+            json={"correction_rows": _correction_rows()},
+        )
+    ).json()
+
+    agent = await async_client.post(
+        f"/api/v1/vouchers/{draft['id']}/discard", headers=_headers()
+    )
+    assert agent.status_code == 403
+    assert agent.json()["detail"]["code"] == "human_only"
+    assert VoucherRepository.get(draft["id"]) is not None
+
+    response = await async_client.post(
+        f"/api/v1/vouchers/{draft['id']}/discard", headers=_human()
+    )
+    assert response.status_code == 204, response.text
+    assert VoucherRepository.get(draft["id"]) is None
+    assert VoucherRepository.get(original["id"]).status.value == "posted"
+    [audit] = db.execute(
+        "SELECT actor, action FROM audit_log WHERE entity_id = ? "
+        "AND action = 'deleted'",
+        (draft["id"],),
+    ).fetchall()
+    assert audit["actor"] == "stefan"
+
+    again = await async_client.post(
+        f"/api/v1/vouchers/{draft['id']}/discard", headers=_human()
+    )
+    assert again.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_discard_reopens_the_note_that_suggested_the_draft(test_db, async_client):
+    _ensure_accounts()
+    period = _period()
+    original = await _create_voucher(async_client, period.id)
+    note = (
+        await async_client.post(
+            f"/api/v1/vouchers/{original['id']}/correction-notes",
+            headers=_headers(),
+            json={"note_text": "Fel konto"},
+        )
+    ).json()
+    suggested = (
+        await async_client.post(
+            f"/api/v1/vouchers/{original['id']}/correction-notes/{note['id']}/suggest",
+            headers=_headers(),
+            json={"correction_rows": _correction_rows()},
+        )
+    ).json()
+
+    response = await async_client.post(
+        f"/api/v1/vouchers/{suggested['draft']['id']}/discard", headers=_human()
+    )
+    assert response.status_code == 204, response.text
+    from repositories.correction_note_repo import CorrectionNoteRepository
+
+    reopened = CorrectionNoteRepository.get(note["id"])
+    assert reopened.status == "pending"
+    assert reopened.suggested_voucher_id is None
+
+
+@pytest.mark.asyncio
+async def test_discard_refuses_a_posted_voucher(test_db, async_client):
+    _ensure_accounts()
+    period = _period()
+    original = await _create_voucher(async_client, period.id)
+
+    response = await async_client.post(
+        f"/api/v1/vouchers/{original['id']}/discard", headers=_human()
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "draft_not_pending"
+    assert VoucherRepository.get(original["id"]) is not None

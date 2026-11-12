@@ -147,6 +147,27 @@ class CorrectionNoteRepository:
         return CorrectionNoteRepository.get(note_id)
 
     @staticmethod
+    def unsuggest_for_voucher(voucher_id: str, _commit: bool = True) -> List[str]:
+        """A suggested note whose draft is discarded goes back to `pending`,
+        so that a new correction can answer it. Returns the notes' ids."""
+        rows = db.execute(
+            "SELECT id FROM correction_notes "
+            "WHERE suggested_voucher_id = ? AND status = 'suggested'",
+            (voucher_id,),
+        ).fetchall()
+        ids = [r["id"] for r in rows]
+        if ids:
+            db.execute(
+                "UPDATE correction_notes SET status = 'pending', "
+                "suggested_voucher_id = NULL, updated_at = ? "
+                "WHERE suggested_voucher_id = ? AND status = 'suggested'",
+                (datetime.now(), voucher_id),
+            )
+        if _commit:
+            db.commit()
+        return ids
+
+    @staticmethod
     def set_applied(note_id: str, _commit: bool = True) -> Optional[CorrectionNote]:
         now = datetime.now()
         db.execute(

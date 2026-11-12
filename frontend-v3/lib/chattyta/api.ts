@@ -778,6 +778,28 @@ export async function kastaForslag(draftId: string): Promise<void> {
   }
 }
 
+/**
+ * `Kasta utkast` på utkastets sida (`POST /vouchers/{id}/discard`): vilket
+ * utkast som helst, i en tråd eller inte. Bara en inloggad människa.
+ * Ger `null` när det gick, annars en mening om varför inte.
+ */
+export async function kastaUtkast(voucherId: string): Promise<string | null> {
+  try {
+    await apiClient.post(`/api/v1/vouchers/${encodeURIComponent(voucherId)}/discard`);
+    return null;
+  } catch (fel) {
+    const kod = axios.isAxiosError(fel)
+      ? (fel.response?.data as { detail?: { code?: string } } | undefined)?.detail?.code
+      : undefined;
+    if (kod === "draft_has_attachments") return "Utkastet har bifogade filer. Ta bort dem först.";
+    if (kod === "draft_not_pending") return "Det är inte längre ett utkast — det har postats eller kastats.";
+    if (kod === "draft_not_found") return "Utkastet finns inte längre.";
+    if (kod === "draft_referenced") return "Något annat pekar på utkastet, så det kan inte kastas.";
+    if (kod === "human_only") return "Bara en inloggad användare kan kasta ett utkast.";
+    return "Gick inte att kasta. Försök igen.";
+  }
+}
+
 /** `GET /drafts?view_key=…` — `view_key` krävs av servern. */
 export async function hamtaForslag({
   viewKey,

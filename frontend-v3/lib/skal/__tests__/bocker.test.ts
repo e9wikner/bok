@@ -163,10 +163,10 @@ describe("verifikationerVy", () => {
       { total: 2, vouchers: [v({ id: "a", missing_attachment: true }), v({ id: "b", number: 2 })] },
       { total: 1, vouchers: [v({ id: "u", status: "draft" })] }
     );
-    // §11.1: Väntar på beslut, Postade, Utkast — i den ordningen.
-    expect(vy.sektioner.map((s) => s.titel)).toEqual(["Postade", "Utkast"]);
+    // Väntar på beslut, Saknar underlag, Utkast, Postade — ogjort överst.
+    expect(vy.sektioner.map((s) => s.titel)).toEqual(["Utkast", "Postade"]);
     expect(vy.lage).toBe("vantar");
-    const [saknar, vanlig, utkast] = rader(vy);
+    const [utkast, saknar, vanlig] = rader(vy);
     expect(utkast.variant).toBe("vantar");
     expect(saknar.variant).toBe("saknar");
     expect(saknar.meta).toBe("A-1 · 2026-09-04 · saknar underlag");
@@ -287,7 +287,7 @@ describe("verifikationerVy: Väntar på beslut, Postade, Utkast (testfall 45)", 
         ],
       }
     );
-    expect(vy.sektioner.map((s) => s.titel)).toEqual(["Väntar på beslut", "Postade", "Utkast"]);
+    expect(vy.sektioner.map((s) => s.titel)).toEqual(["Väntar på beslut", "Utkast", "Postade"]);
     expect(sektion(vy, "Väntar på beslut").map((r) => r.id)).toEqual(["trad"]);
     expect(sektion(vy, "Utkast").map((r) => r.id)).toEqual(["hand"]);
     const alla = vy.sektioner.flatMap((s) => s.rader.map((r) => r.id));

@@ -1032,9 +1032,9 @@ function postningsrad(p: Postning): VyRadData {
 /**
  * Fyra sektioner (flode-verifikationer §11.1, flode-underlag §10.4):
  * **Väntar på beslut** (öppna beslut och väntande trådförslag), **Saknar
- * underlag** (postade utan underlag, äldst först), **Postade** (senast
- * först, med de optimistiska raderna och `Nyss kopplad` överst, §11.2) och
- * **Utkast** (utkast som inte är trådens). En verifikation visas på ett
+ * underlag** (postade utan underlag, äldst först), **Utkast** (utkast som
+ * inte är trådens) och **Postade** (senast först, med de optimistiska
+ * raderna och `Nyss kopplad` överst, §11.2). Det som är ogjort står överst. En verifikation visas på ett
  * enda ställe; en tom sektion visas inte.
  *
  * Ett väntande förslag som svarar på ett öppet beslut står i beslutets
@@ -1128,6 +1128,10 @@ export function verifikationerVy(
   const sektioner: VySektionData[] = [];
   if (vantarRader.length > 0) sektioner.push({ titel: "Väntar på beslut", rader: vantarRader });
   if (saknarRader.length > 0) sektioner.push({ titel: "Saknar underlag", rader: saknarRader });
+  // Utkast är ogjort arbete, som det ovan: överst, inte under alla månader.
+  if (egnaUtkast.length > 0) {
+    sektioner.push({ titel: "Utkast", rader: egnaUtkast.map(verifikationsrad) });
+  }
   const bank = banksektion(underlag.bank, underlag.avstamning, sortering.ordning);
   if (bank) sektioner.push(bank);
   if (manader && manader.perioder.length > 0) {
@@ -1138,9 +1142,6 @@ export function verifikationerVy(
     sektioner.push(...manadssektioner(postadeMedDatum, aldsta, manader, sortering.ordning));
   } else if (postadeRader.length > 0) {
     sektioner.push({ titel: "Postade", rader: postadeRader });
-  }
-  if (egnaUtkast.length > 0) {
-    sektioner.push({ titel: "Utkast", rader: egnaUtkast.map(verifikationsrad) });
   }
 
   // Tomma månader räknas inte: de står där för låsets skull.

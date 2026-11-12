@@ -1043,6 +1043,16 @@ class VoucherRepository:
         return True
 
     @staticmethod
+    def count_attachments(voucher_id: str) -> int:
+        """Files attached to the voucher. `attachments` cascades on a deleted
+        voucher, so a draft is not discarded while it has any."""
+        row = db.execute(
+            "SELECT COUNT(*) AS n FROM attachments WHERE voucher_id = ?",
+            (voucher_id,),
+        ).fetchone()
+        return int(row["n"])
+
+    @staticmethod
     def clear_rows(voucher_id: str) -> bool:
         """Clear all rows from a draft voucher."""
         db.execute("DELETE FROM voucher_rows WHERE voucher_id = ?", (voucher_id,))

@@ -129,7 +129,7 @@ describe("verifikationerVy med månader", () => {
   it("utkast står kvar i Utkast, efter månaderna", () => {
     const utkast = { ...v("u1", "2026-09-12"), status: "draft", number: null };
     const vy = verifikationerVy(AR, TOM, lista(utkast), undefined, manader({ idag: "2026-01-15" }));
-    expect(vy.sektioner.map((s) => s.titel)).toEqual(["Januari 2026", "Utkast"]);
+    expect(vy.sektioner.map((s) => s.titel)).toEqual(["Utkast", "Januari 2026"]);
     expect(vy.status).toBe("1 utkast");
   });
 });

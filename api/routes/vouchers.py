@@ -43,7 +43,7 @@ from repositories.bank_input_repo import BankInputRepository
 from repositories.intake_link_repo import VoucherSourceReferenceRepository
 from repositories.intake_repo import IntakeRepository
 from services.correction_notes import CorrectionNoteError, CorrectionNoteService
-from services.draft_service import DraftService, SourceAlreadyBookedError
+from services.draft_service import DraftError, DraftService, SourceAlreadyBookedError
 from services.idempotency import IdempotencyOutcome, IdempotencyService
 from services.ledger import LedgerService, run_statement_match_after_posting
 from services.underlag_waiver import UnderlagWaiverError, UnderlagWaiverService
@@ -1126,6 +1126,27 @@ def _correction_note_to_response(note) -> CorrectionNoteResponse:
         updated_at=note.updated_at,
         resolved_at=note.resolved_at,
     )
+
+
+@router.post("/{voucher_id}/discard", status_code=http_status.HTTP_204_NO_CONTENT)
+async def discard_draft(voucher_id: str, actor: str = Depends(get_human_actor)):
+    """`Kasta utkast`: a draft voucher is deleted -- it never took a number,
+    so no gap is left. A thread's draft becomes `rejected` as with the card's
+    `Kasta`. A logged-in human only; the API key gets `403 human_only`.
+    `404 draft_not_found`; `409` for a posted voucher (`draft_not_pending`),
+    attached files (`draft_has_attachments`) or another row pointing at it
+    (`draft_referenced`)."""
+    try:
+        DraftService().discard(voucher_id, actor=actor)
+    except DraftError as exc:
+        raise HTTPException(
+            status_code=(
+                http_status.HTTP_404_NOT_FOUND
+                if exc.code == "draft_not_found"
+                else http_status.HTTP_409_CONFLICT
+            ),
+            detail={"error": exc.message, "code": exc.code, "details": exc.details},
+        )
 
 
 def _raise_correction_note_http_error(error: CorrectionNoteError) -> None:

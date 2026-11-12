@@ -3,6 +3,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { useDetalj } from "@/components/skal/DetaljKontext";
+import { KastaUtkast } from "@/components/skal/KastaUtkast";
 import { VyInnehall } from "@/components/skal/VyInnehall";
 import { VOUCHERS_NYCKEL } from "@/lib/chattyta/api";
 import type { OverviewFiscalYear } from "@/lib/skal/api";
@@ -34,7 +35,7 @@ const verifikationNyckel = (id: string) => [...VOUCHERS_NYCKEL, "skal", "ver", i
 function useDetaljData(
   detalj: Detalj,
   ar: OverviewFiscalYear | null | undefined
-): VyInnehallData & { titel: string } {
+): VyInnehallData & { titel: string; utkastId?: string } {
   const arId = ar?.id ?? "";
   const huvudbok = useQuery({
     queryKey: huvudbokNyckel(arId, detalj.typ === "konto" ? detalj.kod : ""),
@@ -58,7 +59,8 @@ function useDetaljData(
   const titel = verifikation.data ? verifikationTitel(verifikation.data) : "Verifikation";
   if (verifikation.isError) return { titel, data: FEL_VY, laddar: false };
   if (!verifikation.data) return { titel, data: LADDAR_VY, laddar: true };
-  return { titel, data: verifikationVy(verifikation.data), laddar: false };
+  const utkastId = verifikation.data.status === "draft" ? verifikation.data.id : undefined;
+  return { titel, data: verifikationVy(verifikation.data), laddar: false, utkastId };
 }
 
 /** Tillbakalänkens text: lagret under, med namnet om det redan är hämtat. */
@@ -120,7 +122,7 @@ function DetaljInnehall({
   onBakat: () => void;
   variant: "desktop" | "mobil";
 }) {
-  const { titel, data, laddar } = useDetaljData(detalj, ar);
+  const { titel, data, laddar, utkastId } = useDetaljData(detalj, ar);
   return (
     <VyInnehall
       vy={{ titel }}
@@ -128,6 +130,7 @@ function DetaljInnehall({
       laddar={laddar}
       variant={variant}
       tillbaka={{ text: foregaende, onClick: onBakat }}
+      atgard={utkastId ? <KastaUtkast key={utkastId} voucherId={utkastId} onKlar={onBakat} /> : undefined}
     />
   );
 }

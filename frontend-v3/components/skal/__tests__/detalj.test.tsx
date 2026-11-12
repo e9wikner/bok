@@ -106,12 +106,32 @@ const SVAR: Record<string, unknown> = {
       { id: "r2", account_code: "1930", account_name: "Företagskonto", debit: 0, credit: 30000 },
     ],
   },
+  "/api/v1/vouchers/u1": {
+    id: "u1",
+    series: "B",
+    number: null,
+    date: "2026-03-31",
+    description: "Rättelse: dubbelbokad hyra",
+    status: "draft",
+    total_debit: 30000,
+    total_credit: 30000,
+    missing_attachment: false,
+    created_by: "agent",
+    posted_at: null,
+    rows: [
+      { id: "u-r1", account_code: "1930", account_name: "Företagskonto", debit: 30000, credit: 0 },
+      { id: "u-r2", account_code: "5010", account_name: "Lokalhyra", debit: 0, credit: 30000 },
+    ],
+  },
 };
 
 const get = vi.fn(async (url: string) => ({
   data: SVAR[url] ?? { total: 0, vouchers: [], decisions: [], drafts: [], periods: [], fiscal_years: [] },
 }));
-vi.mock("@/lib/api", () => ({ default: { get: (url: string) => get(url) } }));
+const post = vi.fn(async (_url: string): Promise<unknown> => ({ status: 204, data: null }));
+vi.mock("@/lib/api", () => ({
+  default: { get: (url: string) => get(url), post: (url: string) => post(url) },
+}));
 
 function renderaSkal() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -129,6 +149,7 @@ beforeEach(() => {
   sokParametrar = new URLSearchParams();
   window.history.replaceState(null, "", "/v4");
   get.mockClear();
+  post.mockClear();
 });
 
 describe("konto → huvudbok → verifikation", () => {
@@ -231,5 +252,47 @@ describe("en länk med lagret i", () => {
     renderaSkal();
     expect(await screen.findByRole("button", { name: "Företagskonto" })).toBeInTheDocument();
     expect(within(document.body).queryByText(/^← /)).not.toBeInTheDocument();
+  });
+});
+
+describe("Kasta utkast", () => {
+  const oppnaUtkast = () => {
+    sokParametrar = new URLSearchParams("sida=bocker&vy=balans&ver=u1");
+    window.history.replaceState(null, "", "/v4?sida=bocker&vy=balans&ver=u1");
+  };
+
+  it("en postad verifikation har ingen Kasta", async () => {
+    sokParametrar = new URLSearchParams("sida=bocker&vy=balans&ver=v1");
+    renderaSkal();
+    expect(await screen.findByText("Verifikation A-12")).toBeInTheDocument();
+    expect(screen.queryByTestId("kasta-utkast")).not.toBeInTheDocument();
+  });
+
+  it("frågar först, kastar med POST /vouchers/{id}/discard och stänger lagret", async () => {
+    oppnaUtkast();
+    const user = userEvent.setup();
+    renderaSkal();
+    await user.click(await screen.findByRole("button", { name: "Kasta utkast" }));
+    expect(post).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Ja, kasta" }));
+    expect(post).toHaveBeenCalledWith("/api/v1/vouchers/u1/discard");
+    await waitFor(() => expect(screen.queryByTestId("kasta-utkast")).not.toBeInTheDocument());
+    expect(window.location.search).toBe("?sida=bocker&vy=balans");
+  });
+
+  it("ett nej från servern står kvar i klartext, och lagret stannar", async () => {
+    post.mockRejectedValueOnce(
+      Object.assign(new Error("409"), {
+        isAxiosError: true,
+        response: { status: 409, data: { detail: { code: "draft_has_attachments" } } },
+      })
+    );
+    oppnaUtkast();
+    const user = userEvent.setup();
+    renderaSkal();
+    await user.click(await screen.findByRole("button", { name: "Kasta utkast" }));
+    await user.click(screen.getByRole("button", { name: "Ja, kasta" }));
+    expect(await screen.findByTestId("kasta-utkast-fel")).toHaveTextContent("bifogade filer");
+    expect(screen.getByRole("button", { name: "Kasta utkast" })).toBeInTheDocument();
   });
 });

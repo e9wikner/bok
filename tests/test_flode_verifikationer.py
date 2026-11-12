@@ -3605,3 +3605,16 @@ def test_the_agent_is_told_which_cards_were_discarded():
     text = turn["content"][0]["text"]
     assert f"Människan har kastat förslagen i inlägg [{seq}]" in text
     assert ThreadDraftRepository.get(kept).status == "pending"
+
+
+def test_discard_on_the_voucher_page_rejects_a_thread_draft():
+    thread, period, trigger = _books()
+    draft_id = _proposed(thread, period, trigger)
+
+    response = _client().post(
+        f"/api/v1/vouchers/{draft_id}/discard", headers=_human_headers()
+    )
+
+    assert response.status_code == 204, response.text
+    assert VoucherRepository.get(draft_id) is None
+    assert ThreadDraftRepository.get(draft_id).status == "rejected"

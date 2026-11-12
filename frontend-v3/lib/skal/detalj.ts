@@ -308,7 +308,7 @@ export function verifikationVy(v: VerifikationDetalj): VyData {
     period: `${v.date} · ${v.description}${postad}`,
     sektioner,
     fot: utkast
-      ? "Utkastet är inte bokfört. Det postas från chatten."
+      ? "Utkastet är inte bokfört. Det postas från chatten, eller kastas här."
       : "En postad verifikation ändras aldrig. Ett fel rättas med en ny verifikation i B-serien.",
   };
   if (r && v.corrected_by) {
