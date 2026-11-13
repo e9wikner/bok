@@ -360,6 +360,9 @@ export function useVyer(
     "betala.loner": utanAr ?? vy([loner, lonerBeslut], (l, b) => lonerVy(l, { beslut: b.decisions, ar: ar! })),
     "bokslut.rapporter": bokslutsdel,
     "bokslut.ink2": bokslutsdel,
+    // SRU-kopplingen har sin egen komponent (`SruVy`); headern visar
+    // bokslutets status, som för delarna.
+    "bokslut.sru": bokslutsdel,
     "bokslut.moms": bokslutsdel,
     "bokslut.arsredovisning": bokslutsdel,
     "bokslut.uppgifter": bokslutsdel,

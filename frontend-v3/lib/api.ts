@@ -1089,50 +1089,6 @@ export const api = {
     return data as Blob;
   },
 
-  // SRU Mappings
-  getSRUFields: async () => {
-    const { data } = await apiClient.get(`/api/v1/sru-fields`);
-    return data;
-  },
-
-  getSRUMappings: async (fiscalYearId: string) => {
-    const { data } = await apiClient.get(`/api/v1/fiscal-years/${fiscalYearId}/sru-mappings`);
-    return data;
-  },
-
-  getDefaultSRUMappings: async (fiscalYearId: string) => {
-    const { data } = await apiClient.get(`/api/v1/fiscal-years/${fiscalYearId}/sru-mappings/default`);
-    return data;
-  },
-
-  updateSRUMapping: async (fiscalYearId: string, accountId: string, sruField: string) => {
-    const { data } = await apiClient.post(`/api/v1/fiscal-years/${fiscalYearId}/sru-mappings`, {
-      account_id: accountId,
-      sru_field: sruField,
-    });
-    return data;
-  },
-
-  bulkUpdateSRUMappings: async (fiscalYearId: string, mappings: { account_id: string; sru_field: string }[]) => {
-    const { data } = await apiClient.post(`/api/v1/fiscal-years/${fiscalYearId}/sru-mappings/bulk`, mappings);
-    return data;
-  },
-
-  deleteSRUMapping: async (fiscalYearId: string, mappingId: string) => {
-    const { data } = await apiClient.delete(`/api/v1/fiscal-years/${fiscalYearId}/sru-mappings/${mappingId}`);
-    return data;
-  },
-
-  inheritPreviousSRUMappings: async (fiscalYearId: string) => {
-    const { data } = await apiClient.post(`/api/v1/fiscal-years/${fiscalYearId}/sru-mappings/inherit-previous`);
-    return data;
-  },
-
-  resetDefaultSRUMappings: async (fiscalYearId: string) => {
-    const { data } = await apiClient.post(`/api/v1/fiscal-years/${fiscalYearId}/sru-mappings/reset-default`);
-    return data;
-  },
-
   // SRU Export
   exportSRU: async (fiscalYearId: string) => {
     const response = await apiClient.get(`/api/v1/export/sru/${fiscalYearId}`, {
@@ -1140,23 +1096,11 @@ export const api = {
     });
     return response;
   },
-  exportSRUByYear: async (year: number) => {
-    const response = await apiClient.get(`/api/v1/export/sru/by-year/${year}`, {
-      responseType: "blob",
-    });
-    return response;
-  },
-
-  previewSRU: async (fiscalYearId: string) => {
-    const { data } = await apiClient.get(`/api/v1/export/sru/${fiscalYearId}/preview`);
-    return data;
-  },
 
   getINK2Declaration: async (fiscalYearId: string) => {
     const { data } = await apiClient.get(`/api/v1/tax/ink2/${fiscalYearId}`);
     return data;
   },
-
 };
 
 export default apiClient;

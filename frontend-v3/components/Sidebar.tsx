@@ -9,7 +9,6 @@ import {
   Receipt,
   BarChart3,
   Brain,
-  Settings,
   ChevronLeft,
   ChevronRight,
   Moon,
@@ -39,7 +38,6 @@ const navItems = [
   { href: "/reports", label: "Rapporter", icon: BarChart3 },
   { href: "/bokslut", label: "Bokslut", icon: FileCheck },
   { href: "/learning", label: "Agentinstruktioner", icon: Brain },
-  { href: "/settings/sru-mappings", label: "SRU-mappningar", icon: Settings },
 ];
 
 export function Sidebar() {

@@ -11,6 +11,7 @@ import { DropzoneVy } from "@/components/skal/DropzoneVy";
 import { ForetagetVy } from "@/components/skal/ForetagetVy";
 import { KontoplanVy } from "@/components/skal/KontoplanVy";
 import { RevisionsloggVy } from "@/components/skal/RevisionsloggVy";
+import { SruVy } from "@/components/skal/SruVy";
 import { DetaljLager } from "@/components/skal/Detalj";
 import { DetaljProvider, useDetaljHistorik } from "@/components/skal/DetaljKontext";
 import { Header } from "@/components/skal/Header";
@@ -271,6 +272,8 @@ export function Skal() {
               onGaTill={gaTillVy}
               variant={variant}
             />
+          ) : vy.key === "bokslut.sru" ? (
+            <SruVy titel={vy.titel} arId={ar === undefined ? undefined : (ar?.id ?? null)} variant={variant} />
           ) : vy.key === "bocker.dropzone" ? (
             <DropzoneVy titel={vy.titel} variant={variant} />
           ) : vy.key === "bocker.kontoplan" ? (

@@ -52,13 +52,20 @@ export type Anstalldavy = "betala.anstallda";
 export type Foretagsvy = "betala.foretaget";
 
 /**
+ * SRU-kopplingen för året i headern: vilket INK2R-fält varje konto summeras
+ * till. Ingen egen tråd — den chattar i Översiktens, som bokslutsdelarna.
+ * Servern känner inte nyckeln.
+ */
+export type Sruvy = "bokslut.sru";
+
+/**
  * Böckernas register: kontoplanen och revisionsloggen. Ingen egen tråd —
  * de chattar i Verifikationers. Servern känner inte nycklarna.
  */
 export type Registervy = "bocker.kontoplan" | "bocker.revisionslogg";
 
 /** En vy i navigeringen: en trådvy, en bokslutsdel eller en vy med egen komponent. */
-export type Vynyckel = ViewKey | BokslutDel | Dropzonevy | Anstalldavy | Registervy | Foretagsvy;
+export type Vynyckel = ViewKey | BokslutDel | Dropzonevy | Anstalldavy | Registervy | Foretagsvy | Sruvy;
 
 export interface Vy {
   readonly key: Vynyckel;
@@ -171,6 +178,14 @@ export const SIDOR: readonly Sida[] = Object.freeze([
         lasvy: false,
       },
       { key: "bokslut.ink2", trad: "bokslut.rapporter", slug: "ink2", titel: "INK2", sida: "bokslut", lasvy: false },
+      {
+        key: "bokslut.sru",
+        trad: "bokslut.rapporter",
+        slug: "sru",
+        titel: "SRU-koppling",
+        sida: "bokslut",
+        lasvy: false,
+      },
       { key: "bokslut.moms", trad: "bokslut.rapporter", slug: "moms", titel: "Moms", sida: "bokslut", lasvy: false },
       {
         key: "bokslut.arsredovisning",
