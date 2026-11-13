@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { useDetalj } from "@/components/skal/DetaljKontext";
 import { VyBanner } from "@/components/skal/VyBanner";
 import { VyHeaderStatus } from "@/components/skal/VyHeaderStatus";
 import { VyRadSkelett } from "@/components/skal/VyRad";
@@ -17,8 +18,10 @@ import {
 import { lageFarg } from "@/lib/skal/lage";
 
 /**
- * Kontoplanen (`bocker.kontoplan`): BAS-kontona per kontoklass. Ingen egen
- * tråd — den chattar i Verifikationers, där kontona används.
+ * Kontoplanen (`bocker.kontoplan`): BAS-kontona per kontoklass. Ett konto
+ * öppnar sin huvudbok för året i headern, som ett konto i balans- eller
+ * resultaträkningen. Ingen egen tråd — den chattar i Verifikationers, där
+ * kontona används.
  */
 export function KontoplanVy({ titel, variant }: { titel: string; variant: "desktop" | "mobil" }) {
   const { data, isError } = useQuery({
@@ -88,12 +91,30 @@ export function KontoplanVy({ titel, variant }: { titel: string; variant: "deskt
 }
 
 function KontoRad({ k }: { k: Konto }) {
+  const detalj = useDetalj();
   const meta = kontoMeta(k);
-  return (
-    <div data-testid="konto" className="flex items-baseline gap-3 border-b border-bok-linje-svagast py-[7px]">
+  const innehall = (
+    <>
       <span className="bok-mono bok-tal w-[44px] shrink-0 text-[13px] text-bok-text">{k.code}</span>
       <span className="min-w-0 flex-1 text-[14px] leading-[1.35] text-bok-text">{k.name}</span>
       {meta && <span className="bok-mono shrink-0 text-right text-[11px] text-bok-meta">{meta}</span>}
+    </>
+  );
+  if (detalj) {
+    return (
+      <button
+        type="button"
+        data-testid="konto"
+        onClick={() => detalj.oppna({ typ: "konto", kod: k.code })}
+        className="-mx-2 flex w-[calc(100%+16px)] items-baseline gap-3 border-b border-bok-linje-svagast px-2 py-[7px] text-left hover:bg-bok-yta-svag"
+      >
+        {innehall}
+      </button>
+    );
+  }
+  return (
+    <div data-testid="konto" className="flex items-baseline gap-3 border-b border-bok-linje-svagast py-[7px]">
+      {innehall}
     </div>
   );
 }

@@ -7,7 +7,6 @@ import {
   LayoutDashboard,
   FileText,
   Receipt,
-  BarChart3,
   Brain,
   ChevronLeft,
   ChevronRight,
@@ -35,7 +34,6 @@ const navItems = [
   { href: "/vouchers/intake", label: "Intag", icon: Upload },
   { href: "/invoices", label: "Fakturor", icon: Receipt },
   { href: "/payroll", label: "Lön", icon: WalletCards },
-  { href: "/reports", label: "Rapporter", icon: BarChart3 },
   { href: "/v4?sida=bokslut&vy=oversikt", label: "Bokslut", icon: FileCheck },
   { href: "/learning", label: "Agentinstruktioner", icon: Brain },
 ];

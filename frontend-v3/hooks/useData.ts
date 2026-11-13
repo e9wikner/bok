@@ -205,31 +205,6 @@ export function useIncomeStatement(year?: number, month?: number, fiscalYearId?:
   });
 }
 
-export function useBalanceSheet(year?: number, fiscalYearId?: string) {
-  return useQuery({
-    queryKey: ["balance-sheet", year, fiscalYearId],
-    queryFn: () => api.getBalanceSheet(year, fiscalYearId),
-    staleTime: 5 * 60 * 1000,
-  });
-}
-
-export function useReportOptions() {
-  return useQuery({
-    queryKey: ["report-options"],
-    queryFn: () => api.getReportOptions(),
-    staleTime: 10 * 60 * 1000,
-  });
-}
-
-export function useGeneralLedger(accountCode: string, year?: number, month?: number, fiscalYearId?: string) {
-  return useQuery({
-    queryKey: ["general-ledger", accountCode, year, month, fiscalYearId],
-    queryFn: () => api.getGeneralLedger(accountCode, year, month, fiscalYearId),
-    staleTime: 5 * 60 * 1000,
-    enabled: !!accountCode,
-  });
-}
-
 export function usePeriods(fiscalYearId?: string) {
   return useQuery({
     queryKey: ["periods", fiscalYearId],

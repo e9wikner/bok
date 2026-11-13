@@ -89,7 +89,7 @@ function visa(oppna = vi.fn()) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={qc}>
-      <DetaljProvider value={{ stack: [], oppna, bakat: vi.fn(), stang: vi.fn() } as never}>
+      <DetaljProvider value={{ stack: [], oppna, bakat: vi.fn(), stang: vi.fn() }}>
         <RevisionsloggVy titel="Revisionslogg" variant="desktop" />
       </DetaljProvider>
     </QueryClientProvider>

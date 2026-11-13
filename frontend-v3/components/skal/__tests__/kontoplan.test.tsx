@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { DetaljProvider } from "@/components/skal/DetaljKontext";
 import { KontoplanVy } from "@/components/skal/KontoplanVy";
 import { type Konto, kontoklasser, kontoMeta, kontoplanStatus } from "@/lib/skal/kontoplan";
 import { allaVyer } from "@/lib/skal/vyer";
@@ -94,6 +95,21 @@ describe("vyn", () => {
     fireEvent.change(screen.getByLabelText("Sök konto"), { target: { value: "xyz" } });
     expect(screen.queryAllByTestId("konto")).toHaveLength(0);
     expect(screen.getByText(/Inget konto matchar/)).toBeInTheDocument();
+  });
+
+  it("ett konto öppnar sin huvudbok i detaljlagret", async () => {
+    get.mockResolvedValue({ data: { accounts: KONTON, total: KONTON.length } });
+    const oppna = vi.fn();
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <DetaljProvider value={{ stack: [], oppna, bakat: vi.fn(), stang: vi.fn() }}>
+          <KontoplanVy titel="Kontoplan" variant="desktop" />
+        </DetaljProvider>
+      </QueryClientProvider>
+    );
+    fireEvent.click(await screen.findByText("Företagskonto"));
+    expect(oppna).toHaveBeenCalledWith({ typ: "konto", kod: "1930" });
   });
 
   it("säger till när kontoplanen inte kan läsas", async () => {

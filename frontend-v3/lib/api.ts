@@ -833,26 +833,6 @@ export const api = {
     const { data } = await apiClient.get("/api/v1/reports/income-statement", { params });
     return data;
   },
-  getBalanceSheet: async (year?: number, fiscalYearId?: string) => {
-    const params: any = {};
-    if (fiscalYearId) params.fiscal_year_id = fiscalYearId;
-    if (year) params.year = year;
-    const { data } = await apiClient.get("/api/v1/reports/balance-sheet", { params });
-    return data;
-  },
-  getReportOptions: async () => {
-    const { data } = await apiClient.get("/api/v1/reports/options");
-    return data;
-  },
-  // General ledger (huvudbok per konto)
-  getGeneralLedger: async (accountCode: string, year?: number, month?: number, fiscalYearId?: string) => {
-    const params: any = {};
-    if (fiscalYearId) params.fiscal_year_id = fiscalYearId;
-    if (year) params.year = year;
-    if (month) params.month = month;
-    const { data } = await apiClient.get(`/api/v1/reports/general-ledger/${accountCode}`, { params });
-    return data;
-  },
 
   // Compliance
   getComplianceIssues: async () => {
@@ -1045,14 +1025,6 @@ export const api = {
     });
     return data as Blob;
   },
-  getReportPdfExport: async (report: "income" | "balance", fiscalYearId: string, month?: number): Promise<Blob> => {
-    const endpoint = report === "income" ? "/api/v1/export/pdf/income-statement" : "/api/v1/export/pdf/balance-sheet";
-    const { data } = await apiClient.get(endpoint, {
-      params: { fiscal_year_id: fiscalYearId, month: month || undefined },
-      responseType: "blob",
-    });
-    return data as Blob;
-  },
 
   // Every API route needs the bearer, files too, so a file is fetched as a
   // Blob -- never a plain <img src> or href, which would carry no token.
@@ -1061,14 +1033,6 @@ export const api = {
       responseType: "blob",
     });
     return data as Blob;
-  },
-
-  // SRU Export
-  exportSRU: async (fiscalYearId: string) => {
-    const response = await apiClient.get(`/api/v1/export/sru/${fiscalYearId}`, {
-      responseType: "blob",
-    });
-    return response;
   },
 };
 
