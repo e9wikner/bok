@@ -859,32 +859,6 @@ export const api = {
     const { data } = await apiClient.get("/api/v1/compliance/issues");
     return data;
   },
-  runComplianceCheck: async () => {
-    const { data } = await apiClient.post("/api/v1/compliance/check");
-    return data;
-  },
-
-  // VAT
-  getVatDeclarations: async () => {
-    const { data } = await apiClient.get("/api/v1/vat/declarations");
-    return data;
-  },
-  getYearlyVatDeclaration: async (year: number) => {
-    const { data } = await apiClient.get(`/api/v1/vat/declarations/yearly/${year}`);
-    return data;
-  },
-  exportVatEskd: async (year: number) => {
-    const response = await apiClient.get(`/api/v1/vat/export/eskd/${year}`, {
-      responseType: "blob",
-    });
-    return response;
-  },
-  exportVatPdf: async (year: number): Promise<Blob> => {
-    const { data } = await apiClient.get(`/api/v1/vat/export/pdf/${year}`, {
-      responseType: "blob",
-    });
-    return data as Blob;
-  },
 
   // Intake workspace
   getIntakeWorkspace: async (params?: {
@@ -1095,11 +1069,6 @@ export const api = {
       responseType: "blob",
     });
     return response;
-  },
-
-  getINK2Declaration: async (fiscalYearId: string) => {
-    const { data } = await apiClient.get(`/api/v1/tax/ink2/${fiscalYearId}`);
-    return data;
   },
 };
 

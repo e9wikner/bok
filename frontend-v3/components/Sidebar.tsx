@@ -36,7 +36,7 @@ const navItems = [
   { href: "/invoices", label: "Fakturor", icon: Receipt },
   { href: "/payroll", label: "Lön", icon: WalletCards },
   { href: "/reports", label: "Rapporter", icon: BarChart3 },
-  { href: "/bokslut", label: "Bokslut", icon: FileCheck },
+  { href: "/v4?sida=bokslut&vy=oversikt", label: "Bokslut", icon: FileCheck },
   { href: "/learning", label: "Agentinstruktioner", icon: Brain },
 ];
 

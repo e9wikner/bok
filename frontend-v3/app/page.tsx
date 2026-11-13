@@ -151,7 +151,7 @@ export default function DashboardPage() {
           <CardContent className="grid gap-2">
             <QuickLink href="/invoices/drafts" icon={Receipt} label="Granska fakturautkast" />
             <QuickLink href="/vouchers/new" icon={FileText} label="Skapa verifikation" />
-            <QuickLink href="/bokslut" icon={ClipboardList} label="Öppna bokslut" />
+            <QuickLink href="/v4?sida=bokslut&vy=oversikt" icon={ClipboardList} label="Öppna bokslut" />
             <QuickLink href="/learning" icon={Bot} label="Agentinstruktioner" />
           </CardContent>
         </Card>
