@@ -28,11 +28,9 @@ from api.schemas import (
 from config import settings
 from domain.models import DecisionOption
 from domain.types import ThreadViewKey
-from domain.validation import ValidationError
 from repositories.period_repo import PeriodRepository
 from repositories.thread_repo import ThreadRepository
-from services.agreement_booking import AgreementBookingService
-from services.company_info_proposal import CompanyInfoProposalService
+from services import decision_cards
 from services.decision_service import (
     DecisionAlreadyAnswered,
     DecisionNotAnswerable,
@@ -41,10 +39,6 @@ from services.decision_service import (
     DecisionService,
     DecisionView,
 )
-from services.fiscal_year_proposal import FiscalYearProposalService
-from services.intake_reuse import IntakeReuseService
-from services.payroll_proposal import PayrollProposalService
-from services.reimbursement_check import ReimbursementCheckService
 from services.thread_stream import ThreadTurnRunner
 
 logger = logging.getLogger(__name__)
@@ -159,19 +153,13 @@ async def list_decisions(
                 },
             )
 
-    try:
-        views, total = DecisionService().list_decisions(
-            status=status,
-            view_key=validated_view_key,
-            limit=limit,
-            offset=offset,
-            fiscal_year=fiscal_year,
-        )
-    except ValidationError as exc:
-        raise HTTPException(
-            status_code=http_status.HTTP_400_BAD_REQUEST,
-            detail={"error": exc.message, "code": exc.code, "details": exc.details},
-        )
+    views, total = DecisionService().list_decisions(
+        status=status,
+        view_key=validated_view_key,
+        limit=limit,
+        offset=offset,
+        fiscal_year=fiscal_year,
+    )
 
     return DecisionListResponse(
         decisions=[_decision_response(view) for view in views], total=total
@@ -269,35 +257,18 @@ async def answer_decision(
     just a code, so a client can render the already-answered state instead
     of a bare error.
     """
-    # A payroll card's press books a salary or an AGI: logged-in users only
-    # (JWT), refused before the answer is written. Every other decision can
-    # still be answered with the API key.
+    # A card whose press books, links or approves something: logged-in
+    # users only (JWT), refused before the answer is written. Every other
+    # decision can still be answered with the API key.
     actor = caller.actor
-    if not caller.human and IntakeReuseService.requires_human(decision_id):
+    reason = None if caller.human else decision_cards.human_only_reason(decision_id)
+    if reason:
         raise HTTPException(
             status_code=http_status.HTTP_403_FORBIDDEN,
             detail={
                 "error": "Only a logged-in user can do this",
                 "code": "human_only",
-                "details": "a shared underlag is approved by a logged-in user",
-            },
-        )
-    if not caller.human and AgreementBookingService.requires_human(decision_id):
-        raise HTTPException(
-            status_code=http_status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "Only a logged-in user can do this",
-                "code": "human_only",
-                "details": "an agreement booking is approved by a logged-in user",
-            },
-        )
-    if not caller.human and PayrollProposalService.requires_human(decision_id):
-        raise HTTPException(
-            status_code=http_status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "Only a logged-in user can do this",
-                "code": "human_only",
-                "details": "a payroll booking is pressed by a logged-in user",
+                "details": reason,
             },
         )
     try:
@@ -339,11 +310,6 @@ async def answer_decision(
                 "answer_text": existing.answer_text,
             },
         )
-    except ValidationError as exc:
-        raise HTTPException(
-            status_code=http_status.HTTP_400_BAD_REQUEST,
-            detail={"error": exc.message, "code": exc.code, "details": exc.details},
-        )
 
     # Step 6: started only after the transaction inside
     # `answer()` above has already committed -- the reply post and the
@@ -353,28 +319,9 @@ async def answer_decision(
     thread = ThreadRepository.get(decision.thread_id)
     assert thread is not None  # decision.thread_id is a real foreign key
 
-    # A fiscal-year card (`foresla_rakenskapsar`): the press on its create
-    # option creates the year before the turn starts, so the agent's turn
-    # already sees the year's open periods. Any other decision: nothing.
-    FiscalYearProposalService().on_decision_answered(decision, actor=actor)
-    # A company-info card (`foresla_bolagsinformation`): the press on a fill
-    # or overwrite option writes the details. Any other decision: nothing.
-    CompanyInfoProposalService().on_decision_answered(decision, actor=actor)
-    # A payroll card (`foresla_lonebokforing`): the
-    # press on its book option books the payslip before the turn
-    # starts, so the agent's turn sees it booked. Any other decision: nothing.
-    PayrollProposalService().on_decision_answered(decision, actor=actor)
-    # A shared-underlag card (`foresla_delat_underlag`): the press on a yes
-    # option links the underlag, and on the standing one also approves it
-    # for the fiscal year. Any other decision: nothing.
-    IntakeReuseService().on_decision_answered(decision, actor=actor)
-    # An utläggs card (`foresla_utlaggskontroll`): either answer puts the
-    # underlag back in the pass's queue, the exit records it as failed.
-    ReimbursementCheckService().on_decision_answered(decision, actor=actor)
-    # An agreement card (`foresla_avtalsbokforing`): a yes puts the underlag
-    # back in the pass's queue (or wakes the pass), the standing yes also
-    # approves it for the fiscal year; the exit records it as failed.
-    AgreementBookingService().on_decision_answered(decision, actor=actor)
+    # A card whose press acts (creates a fiscal year, books a payslip, links
+    # an underlag ...) does so now, so the agent's turn already sees it.
+    decision_cards.on_decision_answered(decision, actor=actor)
 
     if settings.agent_runtime_enabled:
         ThreadTurnRunner().start(thread, answer_post, answer_post.body["text"])

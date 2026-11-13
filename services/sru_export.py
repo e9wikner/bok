@@ -123,10 +123,6 @@ class SRUDeclaration:
     uppdragstagare: bool = False
     revision: bool = False
 
-    def get_field(self, field_number: str) -> Optional[SRUFieldValue]:
-        """Get value for a specific field."""
-        return self.fields.get(field_number)
-
     def get_field_value(self, field_number: str) -> int:
         """Get numeric value for a field (0 if not found)."""
         field = self.fields.get(field_number)
@@ -806,16 +802,3 @@ class SRUExportService:
 def encode_sru(text: str) -> bytes:
     """SRU files are ISO 8859-1. Characters outside it become '?'."""
     return text.encode("iso-8859-1", errors="replace")
-
-
-# Convenience function for API usage
-def export_sru_for_fiscal_year(
-    fiscal_year_id: str,
-) -> Tuple[bytes, str, List[str], List[str]]:
-    """
-    Export SRU files for a fiscal year.
-
-    Returns: (zip_bytes, filename, errors, warnings)
-    """
-    service = SRUExportService()
-    return service.export_sru_zip(fiscal_year_id)

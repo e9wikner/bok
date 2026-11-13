@@ -109,19 +109,14 @@ async def create_period(
 
     Used by SIE4 import when importing vouchers for months that don't have periods yet.
     """
-    try:
-        period = ledger.periods.create_period(
-            fiscal_year_id=fiscal_year_id,
-            year=year,
-            month=month,
-            start_date=start_date,
-            end_date=end_date,
-        )
-        return _period_to_response(period)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
-        )
+    period = ledger.periods.create_period(
+        fiscal_year_id=fiscal_year_id,
+        year=year,
+        month=month,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    return _period_to_response(period)
 
 
 @router.get("/periods", response_model=dict)
@@ -130,20 +125,15 @@ async def list_periods(
     ledger: LedgerService = Depends(get_ledger_service),
 ):
     """List periods, optionally filtered by fiscal year. If no fiscal_year_id, returns all periods."""
-    try:
-        if fiscal_year_id:
-            periods = ledger.periods.list_periods(fiscal_year_id)
-        else:
-            periods = ledger.periods.list_all_periods()
-        return {
-            "fiscal_year_id": fiscal_year_id,
-            "total": len(periods),
-            "periods": [_period_to_response(p) for p in periods],
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
-        )
+    if fiscal_year_id:
+        periods = ledger.periods.list_periods(fiscal_year_id)
+    else:
+        periods = ledger.periods.list_all_periods()
+    return {
+        "fiscal_year_id": fiscal_year_id,
+        "total": len(periods),
+        "periods": [_period_to_response(p) for p in periods],
+    }
 
 
 @router.get("/periods/{period_id}", response_model=PeriodResponse)
@@ -152,19 +142,12 @@ async def get_period(
     ledger: LedgerService = Depends(get_ledger_service),
 ):
     """Get period by ID."""
-    try:
-        period = ledger.periods.get_period(period_id)
-        if not period:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Period not found"
-            )
-        return _period_to_response(period)
-    except HTTPException:
-        raise
-    except Exception as e:
+    period = ledger.periods.get_period(period_id)
+    if not period:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            status_code=status.HTTP_404_NOT_FOUND, detail="Period not found"
         )
+    return _period_to_response(period)
 
 
 @router.post("/fiscal-years/{fy_id}/lock", response_model=FiscalYearResponse)

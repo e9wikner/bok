@@ -4,8 +4,9 @@ This test suite verifies:
 1. System instructions are read-only and loaded from files
 2. Company instructions can be updated via API
 3. API returns both system and company instructions separately
-4. Legacy endpoints still work for backward compatibility
 """
+
+import os
 
 import httpx
 import pytest
@@ -13,9 +14,10 @@ import pytest_asyncio
 
 from api.main import app
 from repositories.system_instructions import (
+    DOCS_TO_AGENT_DIR,
+    SYSTEM_INSTRUCTION_FILES,
     get_accounting_system_instructions,
     get_system_instructions,
-    list_available_files,
 )
 
 
@@ -58,21 +60,18 @@ class TestSystemInstructions:
             or "import" in result["content_markdown"].lower()
         )
 
-    def test_list_available_files(self):
-        """Should list all expected files."""
-        files = list_available_files()
+    def test_instruction_files_exist(self):
+        """Every listed instruction file is on disk."""
+        filenames = [name for name, _title in SYSTEM_INSTRUCTION_FILES]
 
-        assert len(files) >= 4
-
-        filenames = [f["filename"] for f in files]
         assert "01_drift_och_atkomst.md" in filenames
         assert "02_bokforingsprocess.md" in filenames
         assert "03_bokforingsinstruktion.md" in filenames
         assert "04_sie4_import_och_rakenskapsar.md" in filenames
 
-        # All files should exist
-        for f in files:
-            assert f["exists"] is True, f"File {f['filename']} should exist"
+        for name in filenames:
+            path = os.path.join(DOCS_TO_AGENT_DIR, name)
+            assert os.path.exists(path), f"File {name} should exist"
 
 
 class TestAgentInstructionsAPI:
@@ -237,25 +236,3 @@ class TestSIE4Documentation:
         assert "SIE4" in content
         assert "#RAR" in content
         assert "ingående balans" in content.lower() or "IB" in content
-
-
-class TestBackwardCompatibility:
-    """Test that legacy endpoints still work."""
-
-    @pytest.mark.asyncio
-    async def test_legacy_accounting_endpoint(
-        self, test_db, async_client, auth_headers
-    ):
-        """Legacy endpoint should still work."""
-        response = await async_client.get(
-            "/api/v1/agent-instructions/accounting/legacy", headers=auth_headers
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-
-        # Should have old format
-        assert "content_markdown" in data
-        assert "version" in data
-        assert data.get("deprecated") is True
-        assert "note" in data

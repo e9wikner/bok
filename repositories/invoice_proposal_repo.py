@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from db.database import db
 from domain.models import InvoiceProposal
+from repositories.dates import as_datetime
 from repositories.thread_draft_repo import ThreadDraftTransitionError
 
 STATUSES = ("pending", "issued", "superseded", "rejected")
@@ -150,17 +151,6 @@ class InvoiceProposalRepository:
         ).fetchone()
         return row["n"]
 
-    @staticmethod
-    def decision_ids_pending(view_key: str) -> List[str]:
-        """Decisions with a pending proposal in the view (for the view's
-        rows, like FV §11.2: the proposal stands in the decision's place)."""
-        rows = db.execute(
-            "SELECT DISTINCT decision_id FROM thread_invoice_drafts "
-            "WHERE status = 'pending' AND view_key = ? AND decision_id IS NOT NULL",
-            (view_key,),
-        ).fetchall()
-        return [r["decision_id"] for r in rows]
-
     # -- transitions ------------------------------------------------------
 
     @staticmethod
@@ -267,17 +257,9 @@ class InvoiceProposalRepository:
             decision_id=row["decision_id"],
             replaced_by=row["replaced_by"],
             invoice_id=row["invoice_id"],
-            issued_at=_parse_datetime(row["issued_at"]),
+            issued_at=as_datetime(row["issued_at"]),
             receipt_post_id=row["receipt_post_id"],
             last_error_code=row["last_error_code"],
             last_error_post_id=row["last_error_post_id"],
-            created_at=_parse_datetime(row["created_at"]) or datetime.now(),
+            created_at=as_datetime(row["created_at"]) or datetime.now(),
         )
-
-
-def _parse_datetime(value: Any) -> Optional[datetime]:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value
-    return datetime.fromisoformat(value)

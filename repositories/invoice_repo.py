@@ -10,23 +10,12 @@ from typing import Any, List, Optional
 
 from db.database import db
 from domain.invoice_models import CreditNote, Invoice, InvoiceRow, Payment
+from repositories.dates import as_date, as_datetime
 
 
 def _col(row, name: str):
     """A column that only exists after a later migration, or None."""
     return row[name] if name in row.keys() else None
-
-
-def _as_date(value) -> Optional[date]:
-    if value is None or isinstance(value, date):
-        return value
-    return date.fromisoformat(str(value)[:10])
-
-
-def _as_datetime(value) -> Optional[datetime]:
-    if value is None or isinstance(value, datetime):
-        return value
-    return datetime.fromisoformat(str(value))
 
 
 class InvoiceRepository:
@@ -171,8 +160,8 @@ class InvoiceRepository:
                     created_at=datetime.fromisoformat(row_data["created_at"]),
                     quantity_centi=_col(row_data, "quantity_centi"),
                     unit=_col(row_data, "unit") or "st",
-                    delivery_from=_as_date(_col(row_data, "delivery_from")),
-                    delivery_to=_as_date(_col(row_data, "delivery_to")),
+                    delivery_from=as_date(_col(row_data, "delivery_from")),
+                    delivery_to=as_date(_col(row_data, "delivery_to")),
                     delivery_month=_col(row_data, "delivery_month"),
                     article_number=_col(row_data, "article_number"),
                 )
@@ -207,7 +196,7 @@ class InvoiceRepository:
             source_draft_id=_col(row, "source_draft_id"),
             pdf_sha256=_col(row, "pdf_sha256"),
             pdf_path=_col(row, "pdf_path"),
-            issued_at=_as_datetime(_col(row, "issued_at")),
+            issued_at=as_datetime(_col(row, "issued_at")),
             issued_by=_col(row, "issued_by"),
         )
 
@@ -466,7 +455,7 @@ class InvoiceRepository:
             tuple(unique),
         ).fetchall()
         return {
-            r["customer_name"]: (r["invoice_number"], _as_date(r["invoice_date"]))
+            r["customer_name"]: (r["invoice_number"], as_date(r["invoice_date"]))
             for r in rows
         }
 

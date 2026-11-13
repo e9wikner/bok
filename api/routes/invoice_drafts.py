@@ -86,33 +86,28 @@ async def create_invoice_draft(
     request: CreateInvoiceDraftRequest,
     actor: str = Depends(get_current_actor),
 ):
-    try:
-        draft = InvoiceDraftService().create_draft(
-            customer_id=request.customer_id,
-            customer_name=request.customer_name,
-            customer_org_number=request.customer_org_number,
-            customer_email=request.customer_email,
-            invoice_date=request.invoice_date,
-            due_date=request.due_date,
-            reference=request.reference,
-            description=request.description,
-            status=request.status,
-            rows_data=[row.model_dump() for row in request.rows],
-            agent_summary=request.agent_notes.summary,
-            agent_confidence=request.agent_notes.confidence,
-            agent_warnings=(
-                "\n".join(request.agent_notes.warnings)
-                if request.agent_notes.warnings
-                else None
-            ),
-            created_by=actor,
-            **_draft_fields(request),
-        )
-        return _draft_to_dict(draft)
-    except ValidationError as exc:
-        raise HTTPException(
-            status_code=400, detail={"code": exc.code, "error": exc.message}
-        )
+    draft = InvoiceDraftService().create_draft(
+        customer_id=request.customer_id,
+        customer_name=request.customer_name,
+        customer_org_number=request.customer_org_number,
+        customer_email=request.customer_email,
+        invoice_date=request.invoice_date,
+        due_date=request.due_date,
+        reference=request.reference,
+        description=request.description,
+        status=request.status,
+        rows_data=[row.model_dump() for row in request.rows],
+        agent_summary=request.agent_notes.summary,
+        agent_confidence=request.agent_notes.confidence,
+        agent_warnings=(
+            "\n".join(request.agent_notes.warnings)
+            if request.agent_notes.warnings
+            else None
+        ),
+        created_by=actor,
+        **_draft_fields(request),
+    )
+    return _draft_to_dict(draft)
 
 
 @router.get("", response_model=dict)

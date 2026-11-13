@@ -70,6 +70,12 @@ export interface VyRadData {
   kopplaLonebesked?: { payslipId: string; voucherId: string; nummer: string };
   /** En obokad lön med en entydig utbetalning: länken `bokför` (`POST /payroll/payslips/{id}/book`). */
   bokforLon?: { payslipId: string; transactionId: string };
+  /**
+   * En utfärdad faktura som inte är betald: länken `registrera betalning`
+   * fäller ut datum och belopp (`POST /invoices/{id}/payment`). Betalningen
+   * bokförs mot 1510 i betalningsdagens period. `kvar` i öre.
+   */
+  betalning?: { invoiceId: string; kvar: number };
   /** Ett öppet beslut: titeln är en knapp som tar upp det i chatten (`BeslutFokus`). */
   beslut?: BeslutSvar;
   /**

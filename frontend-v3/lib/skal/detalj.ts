@@ -15,6 +15,7 @@ import apiClient from "@/lib/api";
 import type { OverviewFiscalYear } from "@/lib/skal/api";
 import { harUnderlag, underlagAlder, UTAN_UNDERLAG_TEXT, type Rattelse, type Verifikation, type VerifikationRef } from "@/lib/skal/bocker";
 import { formatBeloppHela } from "@/lib/skal/format";
+import { HANDLING, aktorText } from "@/lib/skal/revisionslogg";
 import type { VyData, VyRadData, VySektionData } from "@/lib/skal/vydata";
 import { allaVyer, type Vynyckel } from "@/lib/skal/vyer";
 import { formatVerifikationsnummer } from "@/lib/utils";
@@ -105,7 +106,22 @@ export const detaljApi = {
     const { data } = await apiClient.get<VerifikationDetalj>(`/api/v1/vouchers/${encodeURIComponent(id)}`);
     return data;
   },
+
+  /** Verifikationens behandlingshistorik, äldst först (`GET /vouchers/{id}/audit`). */
+  getHistorik: async (id: string): Promise<Verifikationshandelse[]> => {
+    const { data } = await apiClient.get<{ entries?: Verifikationshandelse[] }>(
+      `/api/v1/vouchers/${encodeURIComponent(id)}/audit`
+    );
+    return data?.entries ?? [];
+  },
 };
+
+export interface Verifikationshandelse {
+  id: string;
+  action: string;
+  actor: string;
+  timestamp: string;
+}
 
 // ─── Avbildningarna ───────────────────────────────────────────────────────
 
@@ -249,7 +265,7 @@ function rattadeKonteringar(r: Rattelse): VyRadData[] {
  * underlaget och hänvisningarna till andra verifikationer. Ingenting här
  * ändrar verifikationen — en postad rättas med en ny i B-serien.
  */
-export function verifikationVy(v: VerifikationDetalj): VyData {
+export function verifikationVy(v: VerifikationDetalj, historik: Verifikationshandelse[] = []): VyData {
   const utkast = v.status === "draft";
   const nummer = nummerAv(v);
   const saknar = !utkast && v.missing_attachment === true;
@@ -350,6 +366,35 @@ export function verifikationVy(v: VerifikationDetalj): VyData {
   if (v.referenced_by) hanvisningar.push(hanvisning("korrigering", "Korrigering", v.referenced_by));
   if (hanvisningar.length > 0) sektioner.push({ titel: "Hänvisningar", rader: hanvisningar });
 
+  // Ett fel i en postad verifikation rättas av agenten med en ny i B-serien;
+  // länken fyller Verifikationers chattfält, inget skickas förrän människan gör det.
+  if (!utkast && !makulerad && !v.corrected_by) {
+    sektioner.push({
+      titel: "Rättelse",
+      rader: [
+        {
+          id: "ratta",
+          titel: "Något fel i verifikationen?",
+          hoger: "",
+          fraga: { viewKey: "bocker.verifikationer", text: `Rätta ${nummer}: `, etikett: "be agenten rätta" },
+        },
+      ],
+    });
+  }
+
+  // Behandlingshistoriken (BFL 5 kap.): vad som hände, vem och när.
+  if (historik.length > 0) {
+    sektioner.push({
+      titel: "Händelser",
+      rader: historik.map((h) => ({
+        id: `handelse-${h.id}`,
+        titel: forstaVersal(HANDLING[h.action] ?? h.action),
+        meta: [aktorText(h.actor), h.timestamp.slice(0, 16).replace("T", " ")].join(" · "),
+        hoger: "",
+      })),
+    });
+  }
+
   const postad = v.posted_at ? ` · postad ${v.posted_at.slice(0, 10)}` : "";
   const vy: VyData = {
     lage: utkast || saknar ? "vantar" : "klart",
@@ -376,3 +421,5 @@ export function verifikationVy(v: VerifikationDetalj): VyData {
   }
   return vy;
 }
+
+const forstaVersal = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);

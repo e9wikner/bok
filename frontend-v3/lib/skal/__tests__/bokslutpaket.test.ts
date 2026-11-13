@@ -22,6 +22,7 @@ describe("bokslutets delar i navigeringen", () => {
     expect(sidan("bokslut").vyer.map((v) => v.titel)).toEqual([
       "Översikt",
       "INK2",
+      "SRU-koppling",
       "Moms",
       "Årsredovisning",
       "Uppgifter",
@@ -30,12 +31,14 @@ describe("bokslutets delar i navigeringen", () => {
   });
 
   it("delar Översiktens tråd; Åtgärder har sin egen", () => {
-    const vyer = sidan("bokslut").vyer;
-    expect(vyer.slice(0, 5).every((v) => v.trad === "bokslut.rapporter")).toBe(true);
-    expect(vyer.slice(0, 5).every((v) => arBokslutsdel(v.key))).toBe(true);
+    const vyer = sidan("bokslut").vyer.slice(0, 6);
+    expect(vyer.every((v) => v.trad === "bokslut.rapporter")).toBe(true);
+    // SRU-kopplingen delar tråden men har sin egen komponent (`SruVy`).
+    expect(vyer.filter((v) => v.key !== "bokslut.sru").every((v) => arBokslutsdel(v.key))).toBe(true);
+    expect(arBokslutsdel("bokslut.sru")).toBe(false);
     expect(arBokslutsdel("bokslut.atgarder")).toBe(false);
     expect(viewKeyOf("bokslut", 1)).toBe("bokslut.rapporter");
-    expect(viewKeyOf("bokslut", 5)).toBe("bokslut.atgarder");
+    expect(viewKeyOf("bokslut", 6)).toBe("bokslut.atgarder");
   });
 
   it("varje del nås med sin slug, och den gamla Rapporter-länken landar på Översikt", () => {

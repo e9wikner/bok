@@ -923,24 +923,6 @@ class VoucherRepository:
         ]
 
     @staticmethod
-    def get_next_number(series: str, fiscal_year_id: str) -> int:
-        """Next voucher number for a series within a fiscal year.
-
-        Counted over *posted* vouchers only — drafts have no number. Numbers
-        restart from 1 each fiscal year (BFL requirement). Informational:
-        `post` assigns the number itself, in the same statement as the
-        status change.
-        """
-        sql = """
-            SELECT MAX(number) as max_num
-            FROM vouchers
-            WHERE series = ? AND fiscal_year_id = ? AND status = 'posted'
-        """
-        cursor = db.execute(sql, (series, fiscal_year_id))
-        row = cursor.fetchone()
-        return (row["max_num"] or 0) + 1
-
-    @staticmethod
     def post(
         voucher_id: str, number: Optional[int] = None, _commit: bool = True
     ) -> int:
@@ -1082,13 +1064,6 @@ class VoucherRepository:
             (voucher_id,),
         ).fetchone()
         return int(row["n"])
-
-    @staticmethod
-    def clear_rows(voucher_id: str) -> bool:
-        """Clear all rows from a draft voucher."""
-        db.execute("DELETE FROM voucher_rows WHERE voucher_id = ?", (voucher_id,))
-        db.commit()
-        return True
 
     @staticmethod
     def update_description(

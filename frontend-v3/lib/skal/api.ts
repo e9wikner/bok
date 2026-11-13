@@ -104,4 +104,10 @@ export const skalApi = {
     const { data } = await apiClient.get<AgentStatus>("/api/v1/agent/status");
     return data;
   },
+
+  /** Serverns version och commit, till sidonavigeringens fot. */
+  getVersion: async (): Promise<string | null> => {
+    const { data } = await apiClient.get<{ version?: string; commit?: string }>("/api/v1/health");
+    return [data?.version, data?.commit].filter(Boolean).join(" · ") || null;
+  },
 };

@@ -6,6 +6,7 @@ from typing import List, Optional
 
 from db.database import db
 from domain.models import PayrollBookingProposal
+from repositories.dates import req_date, req_datetime
 
 
 class PayrollBookingProposalRepository:
@@ -97,19 +98,6 @@ class PayrollBookingProposalRepository:
         return [PayrollBookingProposalRepository._to_proposal(row) for row in rows]
 
     @staticmethod
-    def pending_for_agi(year: int, month: int) -> List[PayrollBookingProposal]:
-        rows = db.execute(
-            """
-            SELECT * FROM payroll_booking_proposals
-            WHERE kind = 'agi' AND agi_year = ? AND agi_month = ?
-              AND status = 'pending'
-            ORDER BY created_at
-            """,
-            (year, month),
-        ).fetchall()
-        return [PayrollBookingProposalRepository._to_proposal(row) for row in rows]
-
-    @staticmethod
     def resolve(
         proposal_id: str, status: str, *, actor: str, _commit: bool = True
     ) -> None:
@@ -136,26 +124,14 @@ class PayrollBookingProposalRepository:
             book_option_id=row["book_option_id"],
             status=row["status"],
             created_by=row["created_by"],
-            created_at=_datetime(row["created_at"]),
+            created_at=req_datetime(row["created_at"]),
             payslip_id=row["payslip_id"],
             bank_transaction_id=row["bank_transaction_id"],
             agi_year=row["agi_year"],
             agi_month=row["agi_month"],
-            voucher_date=_date(row["voucher_date"]) if row["voucher_date"] else None,
-            resolved_at=(_datetime(row["resolved_at"]) if row["resolved_at"] else None),
+            voucher_date=req_date(row["voucher_date"]) if row["voucher_date"] else None,
+            resolved_at=(
+                req_datetime(row["resolved_at"]) if row["resolved_at"] else None
+            ),
             resolved_by=row["resolved_by"],
         )
-
-
-def _date(value) -> date:
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    return datetime.fromisoformat(str(value)).date()
-
-
-def _datetime(value) -> datetime:
-    if isinstance(value, datetime):
-        return value
-    return datetime.fromisoformat(str(value))

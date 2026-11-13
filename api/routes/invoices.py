@@ -60,11 +60,6 @@ async def preview_invoice(
                 "code": getattr(e, "code", "validation_error"),
             },
         )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
-        )
 
 
 @router.get("", response_model=dict)
@@ -80,51 +75,44 @@ async def list_invoices(
     `fiscal_year_id` keeps the invoices dated in that year -- the year their
     voucher is booked in. `ledger_invoices` are the outgoing invoices booked
     outside BokAI in the same range: vouchers, not invoices."""
-    try:
-        service = InvoiceService()
-        invoices = service.invoices.list_all(
-            status=status_filter,
-            date_from=fiscal_year.start_date if fiscal_year else None,
-            date_to=fiscal_year.end_date if fiscal_year else None,
-        )
-        if search:
-            search_lower = search.lower()
-            invoices = [
-                inv
-                for inv in invoices
-                if search_lower in (inv.customer_name or "").lower()
-                or search_lower in str(inv.invoice_number or "").lower()
-            ]
+    service = InvoiceService()
+    invoices = service.invoices.list_all(
+        status=status_filter,
+        date_from=fiscal_year.start_date if fiscal_year else None,
+        date_to=fiscal_year.end_date if fiscal_year else None,
+    )
+    if search:
+        search_lower = search.lower()
+        invoices = [
+            inv
+            for inv in invoices
+            if search_lower in (inv.customer_name or "").lower()
+            or search_lower in str(inv.invoice_number or "").lower()
+        ]
 
-        total = len(invoices)
-        summary = _invoice_summary(invoices)
-        page_invoices = (
-            invoices[offset : offset + limit] if limit is not None else invoices
-        )
-        page_total = sum(inv.amount_inc_vat for inv in page_invoices)
-        # Invoices issued in another system, booked here only as vouchers
-        # (services/ledger_bookings.py). Not in `total` or `summary`.
-        ledger_invoices = LedgerBookingService().invoices(
-            date_from=fiscal_year.start_date if fiscal_year else None,
-            date_to=fiscal_year.end_date if fiscal_year else None,
-        )
+    total = len(invoices)
+    summary = _invoice_summary(invoices)
+    page_invoices = invoices[offset : offset + limit] if limit is not None else invoices
+    page_total = sum(inv.amount_inc_vat for inv in page_invoices)
+    # Invoices issued in another system, booked here only as vouchers
+    # (services/ledger_bookings.py). Not in `total` or `summary`.
+    ledger_invoices = LedgerBookingService().invoices(
+        date_from=fiscal_year.start_date if fiscal_year else None,
+        date_to=fiscal_year.end_date if fiscal_year else None,
+    )
 
-        return {
-            "total": total,
-            "limit": limit,
-            "offset": offset,
-            "summary": summary,
-            "page_total": page_total,
-            "invoices": [
-                _invoice_to_list_item(inv, service.payments.list_for_invoice(inv.id))
-                for inv in page_invoices
-            ],
-            "ledger_invoices": ledger_invoices,
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
-        )
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "summary": summary,
+        "page_total": page_total,
+        "invoices": [
+            _invoice_to_list_item(inv, service.payments.list_for_invoice(inv.id))
+            for inv in page_invoices
+        ],
+        "ledger_invoices": ledger_invoices,
+    }
 
 
 def _invoice_summary(invoices) -> dict:
@@ -200,50 +188,42 @@ def _invoice_row_to_dict(r) -> dict:
 @router.get("/{invoice_id}", response_model=dict)
 async def get_invoice(invoice_id: str):
     """Get invoice by ID."""
-    try:
-        service = InvoiceService()
-        invoice = service.invoices.get(invoice_id)
+    service = InvoiceService()
+    invoice = service.invoices.get(invoice_id)
 
-        if not invoice:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found"
-            )
-
-        return {
-            "id": invoice.id,
-            "invoice_number": invoice.invoice_number,
-            "customer_name": invoice.customer_name,
-            "customer_org_number": invoice.customer_org_number,
-            "customer_email": invoice.customer_email,
-            "invoice_date": invoice.invoice_date,
-            "due_date": invoice.due_date,
-            "description": invoice.description,
-            "amount_ex_vat": invoice.amount_ex_vat,
-            "vat_amount": invoice.vat_amount,
-            "amount_inc_vat": invoice.amount_inc_vat,
-            "paid_amount": invoice.paid_amount,
-            "remaining_amount": invoice.remaining_amount(),
-            "status": invoice.status,
-            "is_overdue": invoice.is_overdue(),
-            "rows": [_invoice_row_to_dict(r) for r in invoice.rows],
-            "created_at": invoice.created_at,
-            "sent_at": invoice.sent_at,
-            "voucher_id": invoice.voucher_id,
-            "issued_at": invoice.issued_at,
-            "issued_by": invoice.issued_by,
-            "pdf_url": _pdf_url(invoice),
-            "customer_address": invoice.customer_address,
-            "customer_reference": invoice.customer_reference,
-            "payment_terms_days": invoice.payment_terms_days,
-            "source_draft_id": invoice.source_draft_id,
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
+    if not invoice:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found"
         )
+
+    return {
+        "id": invoice.id,
+        "invoice_number": invoice.invoice_number,
+        "customer_name": invoice.customer_name,
+        "customer_org_number": invoice.customer_org_number,
+        "customer_email": invoice.customer_email,
+        "invoice_date": invoice.invoice_date,
+        "due_date": invoice.due_date,
+        "description": invoice.description,
+        "amount_ex_vat": invoice.amount_ex_vat,
+        "vat_amount": invoice.vat_amount,
+        "amount_inc_vat": invoice.amount_inc_vat,
+        "paid_amount": invoice.paid_amount,
+        "remaining_amount": invoice.remaining_amount(),
+        "status": invoice.status,
+        "is_overdue": invoice.is_overdue(),
+        "rows": [_invoice_row_to_dict(r) for r in invoice.rows],
+        "created_at": invoice.created_at,
+        "sent_at": invoice.sent_at,
+        "voucher_id": invoice.voucher_id,
+        "issued_at": invoice.issued_at,
+        "issued_by": invoice.issued_by,
+        "pdf_url": _pdf_url(invoice),
+        "customer_address": invoice.customer_address,
+        "customer_reference": invoice.customer_reference,
+        "payment_terms_days": invoice.payment_terms_days,
+        "source_draft_id": invoice.source_draft_id,
+    }
 
 
 @router.get("/{invoice_id}/pdf")
@@ -337,10 +317,6 @@ async def register_payment(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"error": str(e), "code": getattr(e, "code", "validation_error")},
         )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
-        )
 
 
 class CreateCreditNoteRequest(BaseModel):
@@ -390,8 +366,4 @@ async def create_credit_note(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"error": str(e), "code": getattr(e, "code", "validation_error")},
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )

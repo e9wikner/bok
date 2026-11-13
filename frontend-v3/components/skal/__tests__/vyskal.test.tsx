@@ -40,7 +40,7 @@ describe("tom sektion utgår helt (testfall 13)", () => {
   });
 
   it("tomt läge ger en vy utan en enda sektionsrubrik", () => {
-    const vy = sidan("bokslut").vyer[5];
+    const vy = sidan("bokslut").vyer.find((v) => v.key === "bokslut.atgarder")!;
     render(<VyInnehall vy={vy} data={atgarderVy({ count: 0, issues: [] })} />);
     expect(screen.getByText("Åtgärder och nyckeltal")).toBeInTheDocument();
     expect(screen.queryByText("Väntar")).not.toBeInTheDocument();

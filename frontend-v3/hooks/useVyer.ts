@@ -28,9 +28,20 @@ import { atgarderVy, bokslutApi, bokslutNyckel, bokslutStatus } from "@/lib/skal
 import { lasApi } from "@/lib/skal/las";
 import { dropzoneStatus } from "@/lib/skal/dropzone";
 import { ANSTALLDA_NYCKEL, anstalldaApi, anstalldaStatus } from "@/lib/skal/anstallda";
+import { FORETAGET_NYCKEL, foretagetApi, foretagetStatus } from "@/lib/skal/foretaget";
+import { instruktionNyckel, instruktionStatus, instruktionerApi } from "@/lib/skal/instruktioner";
+import { lonebeskedStatus } from "@/lib/skal/lonebesked";
+import { KONTOPLAN_NYCKEL, kontoplanApi, kontoplanStatus } from "@/lib/skal/kontoplan";
+import { ARTIKLAR_NYCKEL, KUNDER_NYCKEL, kunderApi, kunderStatus } from "@/lib/skal/kunder";
+import { REVISIONSLOGG_NYCKEL, revisionsloggApi, revisionsloggStatus } from "@/lib/skal/revisionslogg";
 import { sokVy } from "@/lib/skal/sok";
 import { FEL_VY, INGET_AR_VY, LADDAR_VY, type VyData } from "@/lib/skal/vydata";
 import type { Sidnyckel, Vynyckel } from "@/lib/skal/vyer";
+
+/** En vy med egen komponent: bara statusraden, till headern. */
+function statusrad(st: { text: string; lage: VyData["lage"] }): { data: VyData; laddar: boolean } {
+  return { data: { ...LADDAR_VY, status: st.text, lage: st.lage }, laddar: false };
+}
 
 /** Dagens datum i lokal tid, `YYYY-MM-DD`. */
 function idag(): string {
@@ -144,6 +155,57 @@ export function useVyer(
     queryKey: ANSTALLDA_NYCKEL,
     queryFn: anstalldaApi.lista,
     enabled: sida === "betala",
+    staleTime: 30 * 1000,
+  });
+  // Kontoplanen gäller inget år; frågan går när Böcker visas. Samma nyckel
+  // som `KontoplanVy`.
+  const kontoplan = useQuery({
+    queryKey: KONTOPLAN_NYCKEL,
+    queryFn: kontoplanApi.lista,
+    enabled: sida === "bocker",
+    staleTime: 10 * 60 * 1000,
+  });
+  // Företagets uppgifter gäller inget år; frågan går när Betala visas. Samma
+  // nyckel som `ForetagetVy`.
+  const foretaget = useQuery({
+    queryKey: FORETAGET_NYCKEL,
+    queryFn: foretagetApi.hamta,
+    enabled: sida === "betala",
+    staleTime: 60 * 1000,
+  });
+  // Agentens instruktioner, en fråga per omfång; samma nycklar som
+  // `InstruktionerVy`.
+  const bokforingsregler = useQuery({
+    queryKey: instruktionNyckel("accounting"),
+    queryFn: () => instruktionerApi.hamta("accounting"),
+    enabled: sida === "bocker",
+    staleTime: 60 * 1000,
+  });
+  const faktureringsregler = useQuery({
+    queryKey: instruktionNyckel("invoicing"),
+    queryFn: () => instruktionerApi.hamta("invoicing"),
+    enabled: sida === "betala",
+    staleTime: 60 * 1000,
+  });
+  // Kunderna och artiklarna; samma nycklar som `KunderVy`.
+  const kunder = useQuery({
+    queryKey: KUNDER_NYCKEL,
+    queryFn: kunderApi.kunder,
+    enabled: sida === "betala",
+    staleTime: 60 * 1000,
+  });
+  const artiklar = useQuery({
+    queryKey: ARTIKLAR_NYCKEL,
+    queryFn: kunderApi.artiklar,
+    enabled: sida === "betala",
+    staleTime: 60 * 1000,
+  });
+  // Revisionsloggens senaste händelse, till statusraden. Ingen sida av
+  // `RevisionsloggVy`s lista: bara en händelse.
+  const senasteLogg = useQuery({
+    queryKey: [...REVISIONSLOGG_NYCKEL, "senaste"],
+    queryFn: () => revisionsloggApi.sida([], 0, 1),
+    enabled: sida === "bocker",
     staleTime: 30 * 1000,
   });
   const saknar = useQuery({
@@ -328,6 +390,9 @@ export function useVyer(
     "betala.loner": utanAr ?? vy([loner, lonerBeslut], (l, b) => lonerVy(l, { beslut: b.decisions, ar: ar! })),
     "bokslut.rapporter": bokslutsdel,
     "bokslut.ink2": bokslutsdel,
+    // SRU-kopplingen har sin egen komponent (`SruVy`); headern visar
+    // bokslutets status, som för delarna.
+    "bokslut.sru": bokslutsdel,
     "bokslut.moms": bokslutsdel,
     "bokslut.arsredovisning": bokslutsdel,
     "bokslut.uppgifter": bokslutsdel,
@@ -344,6 +409,16 @@ export function useVyer(
       },
       laddar: false,
     },
+    // Kontoplanen har sin egen komponent (`KontoplanVy`); här bara statusraden.
+    "bocker.kontoplan": statusrad(kontoplanStatus(kontoplan.data, kontoplan.isError)),
+    "bocker.revisionslogg": statusrad(revisionsloggStatus(senasteLogg.data, senasteLogg.isError)),
+    "betala.foretaget": statusrad(foretagetStatus(foretaget.data, foretaget.isError)),
+    "betala.kunder": statusrad(kunderStatus(kunder.data, artiklar.data, kunder.isError || artiklar.isError)),
+    // Lönebesked har sin egen komponent (`LonebeskedVy`) och läser samma
+    // körningar som Löner.
+    "betala.lonebesked": statusrad(lonebeskedStatus(loner.data?.payroll_runs, loner.isError, ar === null ? null : id)),
+    "bocker.instruktioner": statusrad(instruktionStatus(bokforingsregler.data, bokforingsregler.isError)),
+    "betala.instruktioner": statusrad(instruktionStatus(faktureringsregler.data, faktureringsregler.isError)),
     // Anställda har sin egen komponent (`AnstalldaVy`); här bara statusraden.
     "betala.anstallda": {
       data: {

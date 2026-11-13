@@ -9,16 +9,11 @@ approval and its revocation are append-only: insert and read, nothing else
 
 import uuid
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import List, Optional
 
 from db.database import db
 from domain.intake_link import IntakeLinkProposal, ReuseApproval
-
-
-def _dt(value: Any) -> Optional[datetime]:
-    if value is None or isinstance(value, datetime):
-        return value
-    return datetime.fromisoformat(value)
+from repositories.dates import as_datetime
 
 
 class IntakeLinkProposalRepository:
@@ -180,7 +175,7 @@ class ReuseApprovalRepository:
 
 
 def _row_to_proposal(row) -> IntakeLinkProposal:
-    created_at = _dt(row["created_at"])
+    created_at = as_datetime(row["created_at"])
     assert created_at is not None
     return IntakeLinkProposal(
         id=row["id"],
@@ -194,13 +189,13 @@ def _row_to_proposal(row) -> IntakeLinkProposal:
         status=row["status"],
         created_by=row["created_by"],
         created_at=created_at,
-        resolved_at=_dt(row["resolved_at"]),
+        resolved_at=as_datetime(row["resolved_at"]),
         resolved_by=row["resolved_by"],
     )
 
 
 def _row_to_approval(row) -> ReuseApproval:
-    created_at = _dt(row["created_at"])
+    created_at = as_datetime(row["created_at"])
     assert created_at is not None
     return ReuseApproval(
         id=row["id"],
@@ -209,7 +204,7 @@ def _row_to_approval(row) -> ReuseApproval:
         decision_id=row["decision_id"],
         approved_by=row["approved_by"],
         created_at=created_at,
-        revoked_at=_dt(row["revoked_at"]),
+        revoked_at=as_datetime(row["revoked_at"]),
         revoked_by=row["revoked_by"],
         revoke_reason=row["revoke_reason"],
     )

@@ -78,15 +78,6 @@ class Invoice:
         """Check if invoice is still draft."""
         return self.status == InvoiceStatus.DRAFT
 
-    def is_sent(self) -> bool:
-        """Check if invoice has been sent."""
-        return self.status in [
-            InvoiceStatus.SENT,
-            InvoiceStatus.PARTIALLY_PAID,
-            InvoiceStatus.PAID,
-            InvoiceStatus.OVERDUE,
-        ]
-
     def is_paid(self) -> bool:
         """Check if invoice is fully paid."""
         return self.status == InvoiceStatus.PAID

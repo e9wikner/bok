@@ -7,16 +7,11 @@ append-only: insert and read, nothing else (the triggers refuse the rest).
 
 import uuid
 from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
 
 from db.database import db
 from domain.models import UnderlagWaiver
-
-
-def _dt(value: Any) -> Optional[datetime]:
-    if value is None or isinstance(value, datetime):
-        return value
-    return datetime.fromisoformat(value)
+from repositories.dates import as_datetime
 
 
 def _row_to_waiver(row) -> UnderlagWaiver:
@@ -26,8 +21,8 @@ def _row_to_waiver(row) -> UnderlagWaiver:
         reason=row["reason"],
         note=row["note"],
         waived_by=row["waived_by"],
-        created_at=_dt(row["created_at"]),  # type: ignore[arg-type]
-        revoked_at=_dt(row["revoked_at"]),
+        created_at=as_datetime(row["created_at"]),  # type: ignore[arg-type]
+        revoked_at=as_datetime(row["revoked_at"]),
         revoked_by=row["revoked_by"],
     )
 

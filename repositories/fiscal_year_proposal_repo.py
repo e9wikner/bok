@@ -6,6 +6,7 @@ from typing import List, Optional
 
 from db.database import db
 from domain.models import FiscalYearProposal
+from repositories.dates import req_date, req_datetime
 
 #: SQL fragment for `intake_sources`: the source is not waiting on a pending
 #: fiscal-year proposal. Used by the intake pass's queue.
@@ -152,28 +153,16 @@ class FiscalYearProposalRepository:
             decision_id=row["decision_id"],
             create_option_id=row["create_option_id"],
             thread_id=row["thread_id"],
-            start_date=_date(row["start_date"]),
-            end_date=_date(row["end_date"]),
-            document_date=_date(row["document_date"]),
+            start_date=req_date(row["start_date"]),
+            end_date=req_date(row["end_date"]),
+            document_date=req_date(row["document_date"]),
             status=row["status"],
             created_by=row["created_by"],
-            created_at=_datetime(row["created_at"]),
+            created_at=req_datetime(row["created_at"]),
             fiscal_year_id=row["fiscal_year_id"],
-            resolved_at=(_datetime(row["resolved_at"]) if row["resolved_at"] else None),
+            resolved_at=(
+                req_datetime(row["resolved_at"]) if row["resolved_at"] else None
+            ),
             resolved_by=row["resolved_by"],
             source_ids=FiscalYearProposalRepository._source_ids(row["id"]),
         )
-
-
-def _date(value) -> date:
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    return datetime.fromisoformat(str(value)).date()
-
-
-def _datetime(value) -> datetime:
-    if isinstance(value, datetime):
-        return value
-    return datetime.fromisoformat(str(value))

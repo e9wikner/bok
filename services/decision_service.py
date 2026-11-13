@@ -9,7 +9,7 @@ maps its typed errors to status codes, then starts the turn itself once
 the transaction inside `answer()` has committed; this module never
 imports `ThreadTurnRunner` or starts one (§7.2's boundary: a decision
 answer writes a post and stops, it does not itself drive a turn). The
-seven-day reminder (`due_reminders` / `send_reminders` / `mark_reminded`,
+seven-day reminder (`due_reminders` / `send_reminders`,
 B10) lives at the bottom of the class: an open decision at
 least `REMINDER_THRESHOLD_DAYS` old that has never been reminded gets one
 `agent_text` post in its own thread and `reminded_at` set, once, per
@@ -1490,18 +1490,6 @@ class DecisionService:
                 continue
             reminded.append(decision)
         return reminded
-
-    def mark_reminded(self, decision_id: str) -> None:
-        """A standalone `reminded_at` setter, kept for BRIEF.md §2's fixed
-        `DecisionService` surface.
-
-        `send_reminders` above never calls this -- it sets `reminded_at`
-        itself, inside the same transaction as the reminder post, for the
-        reason its own docstring gives. This exists as a thin wrapper
-        around `DecisionRepository.set_reminded` for a caller that only
-        needs to silence a decision without writing a post alongside it.
-        """
-        DecisionRepository.set_reminded(decision_id, datetime.now())
 
 
 # -- dismissing a card that holds underlag ------------------------------------

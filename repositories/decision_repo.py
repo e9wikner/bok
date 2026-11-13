@@ -17,6 +17,7 @@ from typing import Any, Iterable, List, Mapping, Optional, Sequence, Union
 
 from db.database import db
 from domain.models import Decision, DecisionOption
+from repositories.dates import as_datetime, req_datetime
 
 
 class DecisionRepository:
@@ -422,13 +423,13 @@ class DecisionRepository:
             source_date=(
                 date.fromisoformat(row["source_date"]) if row["source_date"] else None
             ),
-            created_at=_parse_required_datetime(row["created_at"]),
-            answered_at=_parse_datetime(row["answered_at"]),
+            created_at=req_datetime(row["created_at"]),
+            answered_at=as_datetime(row["answered_at"]),
             answered_by=row["answered_by"],
             answer_option_id=row["answer_option_id"],
             answer_text=row["answer_text"],
             answer_post_id=row["answer_post_id"],
-            reminded_at=_parse_datetime(row["reminded_at"]),
+            reminded_at=as_datetime(row["reminded_at"]),
             options=[],
         )
 
@@ -468,20 +469,3 @@ def _as_sequence(
     if isinstance(status, str):
         return (status,)
     return status
-
-
-def _parse_datetime(value: Any) -> Optional[datetime]:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value
-    return datetime.fromisoformat(value)
-
-
-def _parse_required_datetime(value: Any) -> datetime:
-    """`created_at` is `NOT NULL` in the schema — a thin, non-`Optional`
-    wrapper so `_row_to_decision` doesn't need to narrow `_parse_datetime`'s
-    `Optional[datetime]` back down at every call site."""
-    parsed = _parse_datetime(value)
-    assert parsed is not None
-    return parsed

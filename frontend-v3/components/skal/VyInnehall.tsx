@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useRef, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { VyBanner } from "@/components/skal/VyBanner";
 import { VyHeaderStatus } from "@/components/skal/VyHeaderStatus";
 import { VyRad, VyRadSkelett } from "@/components/skal/VyRad";
@@ -13,11 +13,9 @@ import type { VyData, VyRadData } from "@/lib/skal/vydata";
  * Läskolumnen: rubrikrad, period, eventuell banner, sektioner med rader och
  * en fottext som säger vad agenten gör härnäst.
  *
- * Fakturering och Löner är LÄSVYER UTAN SKRIVFLÖDE.
- * De får ingen primärknapp i foten — och ingen avstängd knapp och ingen
- * "kommer snart"-text heller. En yta som lovar en funktion som inte finns
- * är sämre än en yta som inte lovar den. Skrivning sker tills vidare via
- * /invoices och /payroll, som står kvar enligt §3.
+ * En läsvy (`lasvy`) får ingen primärknapp i foten — och ingen avstängd
+ * knapp och ingen "kommer snart"-text heller. En yta som lovar en funktion
+ * som inte finns är sämre än en yta som inte lovar den.
  */
 export function VyInnehall({
   vy,
@@ -49,6 +47,12 @@ export function VyInnehall({
   atgard?: ReactNode;
 }) {
   const fg = lageFarg(data.lage);
+  // En månad utan verifikationer står kvar för låsets skull; den går att dölja.
+  const [doljTomma, setDoljTomma] = useState(false);
+  const tommaManader = data.sektioner.filter((s) => s.tom && s.rader.length === 0).length;
+  const sektioner = doljTomma
+    ? data.sektioner.filter((s) => !(s.tom && s.rader.length === 0))
+    : data.sektioner;
 
   return (
     <div
@@ -103,6 +107,17 @@ export function VyInnehall({
           </div>
         )}
 
+        {tommaManader > 0 && (
+          <button
+            type="button"
+            onClick={() => setDoljTomma((d) => !d)}
+            aria-pressed={doljTomma}
+            className="bok-mono mt-[10px] self-start text-left text-[12px] text-bok-lank underline-offset-2 hover:text-bok-lank-hover hover:underline"
+          >
+            {doljTomma ? `Visa tomma månader (${tommaManader})` : "Dölj tomma månader"}
+          </button>
+        )}
+
         {data.banner && (
           <div className="mt-[14px]">
             <VyBanner ton={data.banner.ton} text={data.banner.text} />
@@ -114,7 +129,7 @@ export function VyInnehall({
             <VyRadSkelett />
           </div>
         ) : (
-          data.sektioner.map((sektion) => (
+          sektioner.map((sektion) => (
             <VySektion
               key={sektion.titel}
               titel={sektion.titel}
@@ -144,6 +159,7 @@ export function VyInnehall({
                   forsokIgen={rad.forsokIgen}
                   kopplaLonebesked={rad.kopplaLonebesked}
                   bokforLon={rad.bokforLon}
+                  betalning={rad.betalning}
                   beslut={rad.beslut}
                   fraga={rad.fraga}
                   underlagsval={rad.underlagsval}

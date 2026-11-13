@@ -1,6 +1,6 @@
 """Audit log API routes."""
 
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Query
 
@@ -11,30 +11,30 @@ router = APIRouter(prefix="/api/v1/audit", tags=["audit"])
 
 @router.get("/log")
 async def get_audit_log(
-    entity_type: Optional[str] = Query(
-        None, description="Filter by entity type (voucher, fiscal_year, etc.)"
+    entity_type: Optional[List[str]] = Query(
+        None,
+        description="Only these entity types (voucher, period, ...); repeat the parameter for several",
     ),
     action: Optional[str] = Query(
         None, description="Filter by action (created, updated, posted, etc.)"
     ),
-    limit: int = Query(100, description="Number of entries to return"),
+    limit: int = Query(100, ge=1, le=500, description="Number of entries to return"),
+    offset: int = Query(0, ge=0, description="Entries to skip, newest first"),
 ):
-    """Get audit log entries.
+    """The audit log (behandlingshistorik), newest first, a page at a time.
 
-    Returns recent audit log entries with optional filtering.
+    `has_more` says whether an older page exists.
     """
-    entries = AuditRepository.list_recent(limit=limit)
-
-    # Filter by entity type if specified
-    if entity_type:
-        entries = [e for e in entries if e.entity_type == entity_type]
-
-    # Filter by action if specified
-    if action:
-        entries = [e for e in entries if e.action.value == action]
+    entries = AuditRepository.list_recent(
+        limit=limit + 1, offset=offset, entity_types=entity_type, action=action
+    )
+    has_more = len(entries) > limit
+    entries = entries[:limit]
 
     return {
         "total": len(entries),
+        "offset": offset,
+        "has_more": has_more,
         "entries": [
             {
                 "id": e.id,

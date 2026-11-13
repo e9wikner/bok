@@ -8,6 +8,13 @@ import { BeslutFokusProvider } from "@/components/skal/BeslutFokus";
 import { BokslutVy } from "@/components/skal/BokslutVy";
 import { ChattBubbla } from "@/components/skal/ChattBubbla";
 import { DropzoneVy } from "@/components/skal/DropzoneVy";
+import { ForetagetVy } from "@/components/skal/ForetagetVy";
+import { InstruktionerVy } from "@/components/skal/InstruktionerVy";
+import { KontoplanVy } from "@/components/skal/KontoplanVy";
+import { KunderVy } from "@/components/skal/KunderVy";
+import { LonebeskedVy } from "@/components/skal/LonebeskedVy";
+import { RevisionsloggVy } from "@/components/skal/RevisionsloggVy";
+import { SruVy } from "@/components/skal/SruVy";
 import { DetaljLager } from "@/components/skal/Detalj";
 import { DetaljProvider, useDetaljHistorik } from "@/components/skal/DetaljKontext";
 import { Header } from "@/components/skal/Header";
@@ -16,6 +23,7 @@ import type { SidMeta } from "@/components/skal/SidVaeljare";
 import { VyInnehall } from "@/components/skal/VyInnehall";
 import { VySvep } from "@/components/skal/VySvep";
 import { useAgentStatus, useOverview } from "@/hooks/useSkal";
+import { skalApi } from "@/lib/skal/api";
 import { useVyer } from "@/hooks/useVyer";
 import { useVantandeBeslut } from "@/hooks/useVantandeBeslut";
 import { useLasning } from "@/hooks/useLasning";
@@ -130,6 +138,11 @@ export function Skal() {
     queryFn: bokslutApi.getRakenskapsar,
     staleTime: 60 * 1000,
   });
+  const { data: version } = useQuery({
+    queryKey: ["skal", "version"],
+    queryFn: skalApi.getVersion,
+    staleTime: 10 * 60 * 1000,
+  });
   const [valtArId, setValtArId] = useState<string | null>(null);
   const valtAr = arslista?.fiscal_years.find((a) => a.id === valtArId);
   // Räknarna (sidornas rader, flikarnas antal) gäller året som visas; det
@@ -236,6 +249,7 @@ export function Skal() {
           onValjVy={gaTillVy}
           onValjAr={setValtArId}
           tema={tema}
+          version={version ?? null}
         />
       )}
       <VySvep
@@ -261,8 +275,26 @@ export function Skal() {
               onGaTill={gaTillVy}
               variant={variant}
             />
+          ) : vy.key === "betala.lonebesked" ? (
+            <LonebeskedVy titel={vy.titel} arId={ar === undefined ? undefined : (ar?.id ?? null)} variant={variant} />
+          ) : vy.key === "bokslut.sru" ? (
+            <SruVy titel={vy.titel} arId={ar === undefined ? undefined : (ar?.id ?? null)} variant={variant} />
+          ) : vy.key === "bocker.instruktioner" || vy.key === "betala.instruktioner" ? (
+            <InstruktionerVy
+              titel={vy.titel}
+              omfang={vy.key === "bocker.instruktioner" ? "accounting" : "invoicing"}
+              variant={variant}
+            />
           ) : vy.key === "bocker.dropzone" ? (
             <DropzoneVy titel={vy.titel} variant={variant} />
+          ) : vy.key === "bocker.kontoplan" ? (
+            <KontoplanVy titel={vy.titel} variant={variant} />
+          ) : vy.key === "bocker.revisionslogg" ? (
+            <RevisionsloggVy titel={vy.titel} variant={variant} />
+          ) : vy.key === "betala.kunder" ? (
+            <KunderVy titel={vy.titel} variant={variant} />
+          ) : vy.key === "betala.foretaget" ? (
+            <ForetagetVy titel={vy.titel} variant={variant} />
           ) : vy.key === "betala.anstallda" ? (
             <AnstalldaVy titel={vy.titel} variant={variant} onGaTill={gaTillVy} />
           ) : null;

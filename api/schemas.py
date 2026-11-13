@@ -204,7 +204,7 @@ class VoucherOriginResponse(BaseModel):
 
     kind: str = Field(..., description="payslip, agi, invoice or invoice_payment")
     title: str
-    view_key: str = Field(..., description="The /v4 view the thing lives in")
+    view_key: str = Field(..., description="The shell view the thing lives in")
 
 
 class VoucherResponse(BaseModel):
@@ -471,69 +471,7 @@ class OpeningBalanceRequest(BaseModel):
 # Report Schemas
 
 
-class TrialBalanceRow(BaseModel):
-    """Row in trial balance."""
-
-    account_code: str
-    debit: int
-    credit: int
-    balance: int
-
-
-class TrialBalanceResponse(BaseModel):
-    """Trial balance report."""
-
-    period_id: str
-    period: str
-    as_of: DateType
-    rows: List[TrialBalanceRow]
-    total_debit: int
-    total_credit: int
-
-
-class AccountLedgerRow(BaseModel):
-    """Row in account ledger."""
-
-    date: DateType
-    voucher_series: str
-    voucher_number: str
-    description: str
-    debit: int
-    credit: int
-    balance: int
-
-
-class AccountLedgerResponse(BaseModel):
-    """Account ledger report."""
-
-    account_code: str
-    account_name: str
-    period_id: str
-    rows: List[AccountLedgerRow]
-    ending_balance: int
-
-
 # Audit Schemas
-
-
-class AuditLogEntryResponse(BaseModel):
-    """Audit log entry."""
-
-    id: str
-    entity_type: str
-    entity_id: str
-    action: str
-    actor: str
-    payload: Optional[dict] = None
-    timestamp: DateTimeType
-
-
-class AuditHistoryResponse(BaseModel):
-    """Audit history."""
-
-    entity_type: str
-    entity_id: str
-    entries: List[AuditLogEntryResponse]
 
 
 # Agent Runtime Schemas (GET /api/v1/agent/status)
@@ -939,12 +877,3 @@ class DecisionAnswerResponse(BaseModel):
 
 
 # Error Schemas
-
-
-class ErrorResponse(BaseModel):
-    """Error response."""
-
-    error: str
-    code: str
-    details: Optional[str] = None
-    timestamp: DateTimeType = Field(default_factory=DateTimeType.now)

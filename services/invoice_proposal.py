@@ -1021,7 +1021,7 @@ def issue_error_body(error: ValidationError, draft_id: str) -> dict:
     elif code == "company_info_incomplete":
         missing = [_COMPANY_FIELDS.get(m, m) for m in payload.get("missing", [])]
         cause = f"Företagsuppgifter saknas: {', '.join(missing)}."
-        tail = "Fyll i dem under Inställningar och tryck igen."
+        tail = "Fyll i dem under Företaget och tryck igen."
     else:
         cause = (
             "Fakturan klarade inte kontrollerna vid utfärdandet " f"({error.message})."
