@@ -132,31 +132,6 @@ export function useArticles(search?: string) {
   });
 }
 
-export function usePayrollEmployees(search?: string) {
-  return useQuery({
-    queryKey: ["payroll-employees", search],
-    queryFn: () => api.getPayrollEmployees(search),
-    staleTime: 2 * 60 * 1000,
-  });
-}
-
-export function usePayrollRuns() {
-  return useQuery({
-    queryKey: ["payroll-runs"],
-    queryFn: () => api.getPayrollRuns(),
-    staleTime: 60 * 1000,
-  });
-}
-
-export function useAgi(year: number, month: number, enabled = true) {
-  return useQuery({
-    queryKey: ["payroll-agi", year, month],
-    queryFn: () => api.getAgi(year, month),
-    enabled,
-    staleTime: 60 * 1000,
-  });
-}
-
 export function useAccountingCorrections(limit = 25) {
   return useQuery({
     queryKey: ["accounting-corrections", limit],

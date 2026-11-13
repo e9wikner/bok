@@ -763,67 +763,6 @@ export const api = {
     return data;
   },
 
-  // Payroll
-  getPayrollEmployees: async (search?: string) => {
-    const { data } = await apiClient.get("/api/v1/payroll/employees", { params: { search } });
-    return data;
-  },
-  createPayrollEmployee: async (payload: {
-    name: string;
-    personal_number?: string;
-    email?: string;
-    bank_account?: string;
-    active?: boolean;
-  }) => {
-    const { data } = await apiClient.post("/api/v1/payroll/employees", payload);
-    return data;
-  },
-  setPayrollSalary: async (employeeId: string, payload: {
-    gross_monthly_salary: number;
-    preliminary_tax: number;
-    employer_fee_rate_bp?: number | null;
-    employer_fee_amount?: number | null;
-    payment_day: number;
-    active?: boolean;
-  }) => {
-    const { data } = await apiClient.put(`/api/v1/payroll/employees/${employeeId}/salary`, payload);
-    return data;
-  },
-  getPayrollRuns: async () => {
-    const { data } = await apiClient.get("/api/v1/payroll/runs");
-    return data;
-  },
-  createPayrollRun: async (payload: { year: number; month: number; payment_date?: string }) => {
-    const { data } = await apiClient.post("/api/v1/payroll/runs", payload);
-    return data;
-  },
-  generatePayrollRun: async (id: string) => {
-    const { data } = await apiClient.post(`/api/v1/payroll/runs/${id}/generate`);
-    return data;
-  },
-  validatePayrollRun: async (id: string) => {
-    const { data } = await apiClient.get(`/api/v1/payroll/runs/${id}/validate`);
-    return data;
-  },
-  deletePayrollRun: async (id: string) => {
-    const { data } = await apiClient.delete(`/api/v1/payroll/runs/${id}`);
-    return data;
-  },
-  markPayslipSent: async (id: string) => {
-    const { data } = await apiClient.post(`/api/v1/payroll/payslips/${id}/mark-sent`);
-    return data;
-  },
-  bookPayslip: async (id: string, bankTransactionId: string) => {
-    const { data } = await apiClient.post(`/api/v1/payroll/payslips/${id}/book`, {
-      bank_transaction_id: bankTransactionId,
-    });
-    return data;
-  },
-  getAgi: async (year: number, month: number): Promise<AgiDeclaration> => {
-    const { data } = await apiClient.get(`/api/v1/payroll/agi/${year}/${month}`);
-    return data;
-  },
-
   // Reports
   getIncomeStatement: async (year?: number, month?: number, fiscalYearId?: string) => {
     const params: any = {};

@@ -30,6 +30,7 @@ import { dropzoneStatus } from "@/lib/skal/dropzone";
 import { ANSTALLDA_NYCKEL, anstalldaApi, anstalldaStatus } from "@/lib/skal/anstallda";
 import { FORETAGET_NYCKEL, foretagetApi, foretagetStatus } from "@/lib/skal/foretaget";
 import { instruktionNyckel, instruktionStatus, instruktionerApi } from "@/lib/skal/instruktioner";
+import { lonebeskedStatus } from "@/lib/skal/lonebesked";
 import { KONTOPLAN_NYCKEL, kontoplanApi, kontoplanStatus } from "@/lib/skal/kontoplan";
 import { REVISIONSLOGG_NYCKEL, revisionsloggApi, revisionsloggStatus } from "@/lib/skal/revisionslogg";
 import { sokVy } from "@/lib/skal/sok";
@@ -398,6 +399,9 @@ export function useVyer(
     "bocker.kontoplan": statusrad(kontoplanStatus(kontoplan.data, kontoplan.isError)),
     "bocker.revisionslogg": statusrad(revisionsloggStatus(senasteLogg.data, senasteLogg.isError)),
     "betala.foretaget": statusrad(foretagetStatus(foretaget.data, foretaget.isError)),
+    // Lönebesked har sin egen komponent (`LonebeskedVy`) och läser samma
+    // körningar som Löner.
+    "betala.lonebesked": statusrad(lonebeskedStatus(loner.data?.payroll_runs, loner.isError, ar === null ? null : id)),
     "bocker.instruktioner": statusrad(instruktionStatus(bokforingsregler.data, bokforingsregler.isError)),
     "betala.instruktioner": statusrad(instruktionStatus(faktureringsregler.data, faktureringsregler.isError)),
     // Anställda har sin egen komponent (`AnstalldaVy`); här bara statusraden.

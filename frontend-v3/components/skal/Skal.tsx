@@ -11,6 +11,7 @@ import { DropzoneVy } from "@/components/skal/DropzoneVy";
 import { ForetagetVy } from "@/components/skal/ForetagetVy";
 import { InstruktionerVy } from "@/components/skal/InstruktionerVy";
 import { KontoplanVy } from "@/components/skal/KontoplanVy";
+import { LonebeskedVy } from "@/components/skal/LonebeskedVy";
 import { RevisionsloggVy } from "@/components/skal/RevisionsloggVy";
 import { SruVy } from "@/components/skal/SruVy";
 import { DetaljLager } from "@/components/skal/Detalj";
@@ -273,6 +274,8 @@ export function Skal() {
               onGaTill={gaTillVy}
               variant={variant}
             />
+          ) : vy.key === "betala.lonebesked" ? (
+            <LonebeskedVy titel={vy.titel} arId={ar === undefined ? undefined : (ar?.id ?? null)} variant={variant} />
           ) : vy.key === "bokslut.sru" ? (
             <SruVy titel={vy.titel} arId={ar === undefined ? undefined : (ar?.id ?? null)} variant={variant} />
           ) : vy.key === "bocker.instruktioner" || vy.key === "betala.instruktioner" ? (

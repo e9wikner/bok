@@ -186,11 +186,12 @@ Beteendet är inte ändrat. Det här är iakttagelser.
   `/settings` (med SRU-mappningarna) är borta.
 - **Fakturering** är skrivvy sedan F1. En faktura skrivs genom att en inloggad människa utfärdar
   ett utkast (`POST /invoice-drafts/{id}/issue`). **Löner** skriver i `/v4` på samma sätt. De
-  sätts upp på `/payroll` eller i samtalet med agenten, som har `registrera_anstalld`, `satt_lon`
+  sätts upp under Anställda eller i samtalet med agenten, som har `registrera_anstalld`, `satt_lon`
   och `skapa_lonekorning` (bara i en tråd). Agenten lägger fram bokföringen av ett lönebesked
   som ett beslutskort (`foresla_lonebokforing`), och en inloggad människa bokför med ett tryck.
-  En AGI bokför agenten själv när kvittensen kommer in (`bokfor_agi`). Att skicka lönebesked och ta bort en lönekörning görs
-  fortfarande på `/payroll`.
+  En AGI bokför agenten själv när kvittensen kommer in (`bokfor_agi`). Lönebeskeden skickas,
+  markeras och en obokförd lönekörning tas bort under Lönebesked, där också AGI:ns fält står;
+  `/payroll` är borta.
 - **`mypy .`** ger 58 fel i 22 filer. Alla fanns före redesignen.
 - **CI** har `continue-on-error: true` på backendens steg (pytest, black, isort, flake8, mypy)
   och Docker-bygget, liksom på frontendens lint. Bara `npm test` fäller bygget. En grön bock

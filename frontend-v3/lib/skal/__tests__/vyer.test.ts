@@ -30,8 +30,8 @@ describe("kartan (testfall 1)", () => {
     expect(SIDOR.map((s) => s.key)).toEqual(["bocker", "betala", "bokslut"]);
   });
 
-  it("fördelar vyerna 7 / 5 / 7: Bokslut har en vy per bokslutsdel och SRU-kopplingen, Böcker dropzonen, kontoplanen, revisionsloggen och instruktionerna, Betala Anställda, Företaget och instruktionerna", () => {
-    expect(SIDOR.map((s) => s.vyer.length)).toEqual([7, 5, 7]);
+  it("fördelar vyerna 7 / 6 / 7: Bokslut har en vy per bokslutsdel och SRU-kopplingen, Böcker dropzonen, kontoplanen, revisionsloggen och instruktionerna, Betala lönebeskeden, Anställda, Företaget och instruktionerna", () => {
+    expect(SIDOR.map((s) => s.vyer.length)).toEqual([7, 6, 7]);
   });
 
   it("bär designens sidtitlar ordagrant", () => {

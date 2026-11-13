@@ -66,6 +66,12 @@ export type Sruvy = "bokslut.sru";
 export type Instruktionsvy = "bocker.instruktioner" | "betala.instruktioner";
 
 /**
+ * Årets lönebesked att skicka, och arbetsgivardeklarationens fält. Ingen
+ * egen tråd — den chattar i Löners. Servern känner inte nyckeln.
+ */
+export type Lonebeskedsvy = "betala.lonebesked";
+
+/**
  * Böckernas register: kontoplanen och revisionsloggen. Ingen egen tråd —
  * de chattar i Verifikationers. Servern känner inte nycklarna.
  */
@@ -80,7 +86,8 @@ export type Vynyckel =
   | Registervy
   | Foretagsvy
   | Sruvy
-  | Instruktionsvy;
+  | Instruktionsvy
+  | Lonebeskedsvy;
 
 export interface Vy {
   readonly key: Vynyckel;
@@ -169,6 +176,14 @@ export const SIDOR: readonly Sida[] = Object.freeze([
         lasvy: false,
       },
       { key: "betala.loner", trad: "betala.loner", slug: "loner", titel: "Löner", sida: "betala", lasvy: false },
+      {
+        key: "betala.lonebesked",
+        trad: "betala.loner",
+        slug: "lonebesked",
+        titel: "Lönebesked",
+        sida: "betala",
+        lasvy: false,
+      },
       {
         key: "betala.anstallda",
         trad: "betala.loner",

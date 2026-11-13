@@ -88,6 +88,10 @@ export interface Lonebesked {
   pending_decision_id?: string | null;
   /** Lönebeskedets PDF är underlag till verifikationen (migration 050). */
   underlag_linked?: boolean;
+  /** PDF:en sparades när lönebeskedet skapades (migration 050). */
+  pdf_stored?: boolean;
+  /** När lönebeskedet markerades som skickat. */
+  pdf_sent_at?: string | null;
   /** Verifikationen lönebeskedet ännu kan kopplas till som underlag. */
   attach_voucher?: { id: string; number: string } | null;
   /** Utbetalningen som lönen kan bokföras mot med ett tryck; saknas när den inte är entydig. */

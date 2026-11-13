@@ -13,11 +13,9 @@ import type { VyData, VyRadData } from "@/lib/skal/vydata";
  * Läskolumnen: rubrikrad, period, eventuell banner, sektioner med rader och
  * en fottext som säger vad agenten gör härnäst.
  *
- * Fakturering och Löner är LÄSVYER UTAN SKRIVFLÖDE.
- * De får ingen primärknapp i foten — och ingen avstängd knapp och ingen
- * "kommer snart"-text heller. En yta som lovar en funktion som inte finns
- * är sämre än en yta som inte lovar den. Skrivning sker tills vidare via
- * /invoices och /payroll, som står kvar enligt §3.
+ * En läsvy (`lasvy`) får ingen primärknapp i foten — och ingen avstängd
+ * knapp och ingen "kommer snart"-text heller. En yta som lovar en funktion
+ * som inte finns är sämre än en yta som inte lovar den.
  */
 export function VyInnehall({
   vy,
