@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { Fragment, useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
@@ -8,10 +8,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useVouchers, useFiscalYears } from "@/hooks/useData";
+import { groupByMonth, formatMonthLabel } from "@/lib/voucherMonths";
 import { formatCurrency, formatDate, formatFiscalYearLabel, formatVerifikationsnummer } from "@/lib/utils";
 import {
   FileText,
-  ChevronLeft,
+  ChevronDown,
   ChevronRight,
   Filter,
   Search,
@@ -21,7 +22,8 @@ import {
   ArrowUpDown,
 } from "lucide-react";
 
-const PAGE_SIZE = 15;
+// Listan är grupperad per månad och hämtas hel; månaderna sköter överblicken.
+const LOAD_LIMIT = 5000;
 
 const statusOptions = [
   { value: "", label: "Alla" },
@@ -62,11 +64,12 @@ export default function VouchersPage() {
   const initialStatus = searchParams.get("status") || "";
   const initialFiscalYearMode = searchParams.get("fiscalYear");
   const [status, setStatus] = useState(initialStatus);
-  const [page, setPage] = useState(0);
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<string | undefined>(undefined);
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [fiscalYearId, setFiscalYearId] = useState<string | undefined>(undefined);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [hideEmpty, setHideEmpty] = useState(true);
   const debouncedSearch = useDebounce(search, 300);
 
   const { data: fiscalYearsData } = useFiscalYears();
@@ -91,19 +94,10 @@ export default function VouchersPage() {
     }
   }, [fiscalYearsData, fiscalYearId, initialFiscalYearMode]);
 
-  // Reset to page 0 when search term changes
-  const prevSearch = useRef(debouncedSearch);
-  useEffect(() => {
-    if (prevSearch.current !== debouncedSearch) {
-      setPage(0);
-      prevSearch.current = debouncedSearch;
-    }
-  }, [debouncedSearch]);
-
   const { data, isLoading } = useVouchers(
     status || undefined,
-    PAGE_SIZE,
-    page * PAGE_SIZE,
+    LOAD_LIMIT,
+    0,
     debouncedSearch || undefined,
     sortBy,
     sortOrder,
@@ -118,7 +112,6 @@ export default function VouchersPage() {
       setSortBy(column);
       setSortOrder("desc");
     }
-    setPage(0);
   }
 
   function SortIcon({ column }: { column: string }) {
@@ -132,7 +125,29 @@ export default function VouchersPage() {
 
   const vouchers = data?.vouchers || [];
   const total = data?.total || 0;
-  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const selectedYear = fiscalYears.find((fy: any) => fy.id === fiscalYearId);
+  // Utan sökning/statusfilter visas årets alla månader; med filter bara träffarna.
+  const filtered = !!debouncedSearch || !!status;
+  let groups = groupByMonth(
+    vouchers,
+    selectedYear && !filtered
+      ? { start: selectedYear.start_date, end: selectedYear.end_date }
+      : undefined,
+  );
+  if (sortBy === "date" && sortOrder === "asc") groups = [...groups].reverse();
+  const emptyCount = groups.filter((g) => g.vouchers.length === 0).length;
+  const visibleGroups = hideEmpty ? groups.filter((g) => g.vouchers.length > 0) : groups;
+  const allCollapsed =
+    visibleGroups.length > 0 && visibleGroups.every((g) => collapsed.has(g.key));
+
+  function toggleMonth(key: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-[1400px] mx-auto">
@@ -175,8 +190,7 @@ export default function VouchersPage() {
                   size="sm"
                   onClick={() => {
                     setFiscalYearId(fy.id);
-                    setPage(0);
-                  }}
+                                  }}
                 >
                   {formatFiscalYearLabel(fy)}
                 </Button>
@@ -186,8 +200,7 @@ export default function VouchersPage() {
                 size="sm"
                 onClick={() => {
                   setFiscalYearId(undefined);
-                  setPage(0);
-                }}
+                              }}
               >
                 Alla år
               </Button>
@@ -199,8 +212,7 @@ export default function VouchersPage() {
                   size="sm"
                   onClick={() => {
                     setStatus(opt.value);
-                    setPage(0);
-                  }}
+                                  }}
                 >
                   {opt.label}
                 </Button>
@@ -209,6 +221,29 @@ export default function VouchersPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Månadsverktyg */}
+      {!isLoading && groups.length > 0 && (
+        <div className="flex items-center justify-between gap-3 flex-wrap text-sm">
+          <p className="text-muted-foreground">{total} verifikationer</p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setCollapsed(allCollapsed ? new Set() : new Set(visibleGroups.map((g) => g.key)))
+              }
+            >
+              {allCollapsed ? "Fäll ut alla" : "Fäll ihop alla"}
+            </Button>
+            {emptyCount > 0 && (
+              <Button variant="outline" size="sm" onClick={() => setHideEmpty((h) => !h)}>
+                {hideEmpty ? `Visa tomma månader (${emptyCount})` : "Dölj tomma månader"}
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Table */}
       <Card>
@@ -219,7 +254,7 @@ export default function VouchersPage() {
                 <Skeleton key={i} className="h-12 w-full" />
               ))}
             </div>
-          ) : vouchers.length > 0 ? (
+          ) : visibleGroups.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -257,7 +292,28 @@ export default function VouchersPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {vouchers.map((v: any) => (
+                  {visibleGroups.map((g) => {
+                    const isCollapsed = collapsed.has(g.key);
+                    const Chevron = isCollapsed ? ChevronRight : ChevronDown;
+                    return (
+                  <Fragment key={g.key}>
+                  <tr className="border-b bg-muted/30">
+                    <td colSpan={6} className="p-0">
+                      <button
+                        type="button"
+                        onClick={() => toggleMonth(g.key)}
+                        aria-expanded={!isCollapsed}
+                        className="w-full flex items-center gap-2 px-4 py-2 font-medium capitalize hover:bg-muted/50 transition-colors text-left"
+                      >
+                        <Chevron className="h-4 w-4" />
+                        {formatMonthLabel(g.key)}
+                        <span className="hidden sm:inline text-xs font-normal text-muted-foreground normal-case">
+                          {g.vouchers.length} verifikationer
+                        </span>
+                      </button>
+                    </td>
+                  </tr>
+                  {!isCollapsed && g.vouchers.map((v: any) => (
                       <tr
                         key={v.id}
                         className="border-b last:border-0 hover:bg-muted/30 transition-colors"
@@ -307,6 +363,9 @@ export default function VouchersPage() {
                         </td>
                       </tr>
                   ))}
+                  </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -318,37 +377,6 @@ export default function VouchersPage() {
           )}
         </CardContent>
       </Card>
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">
-            Visar {page * PAGE_SIZE + 1}-
-            {Math.min((page + 1) * PAGE_SIZE, total)} av {total}
-          </p>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.max(0, p - 1))}
-              disabled={page === 0}
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <span className="text-sm px-2">
-              {page + 1} / {totalPages}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-              disabled={page >= totalPages - 1}
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
