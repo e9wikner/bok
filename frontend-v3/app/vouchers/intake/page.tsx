@@ -669,7 +669,7 @@ function DropzoneStatusLine({
 
           {status.problem_file_count > 0 && (
             <p className="text-muted-foreground">
-              {status.problem_file_count} fil(er) ligger i _Problem/ med en
+              {status.problem_file_count} fil(er) ligger under Problem med en
               förklaring i en .txt-fil bredvid.
             </p>
           )}

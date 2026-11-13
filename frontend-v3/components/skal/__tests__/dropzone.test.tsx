@@ -160,6 +160,15 @@ describe("släpp", () => {
     expect(await screen.findByText("trasig.pdf")).toBeInTheDocument();
     expect(screen.getByText(/Filen kunde inte läsas\./)).toBeInTheDocument();
   });
+
+  it("en löst fil räknas inte som problem och visas som löst", async () => {
+    const lost = { folder: "_Problem", filename: "klar.pdf", size_bytes: 1, modified_at: "2026-11-08T11:00:00Z", reason: "Avstod.", resolved: true, outcome: { kind: "underlag" as const, source_id: "s", status: "processed", vouchers: [{ id: "v", series: "A", number: 3, date: "2026-01-01" }], decision: null, warning: null } };
+    expect(dropzoneStatus(oversikt({ problems: [lost] }), false, Date.parse("2026-11-08T12:00:00Z")).text).toBe("inget väntar");
+    get.mockResolvedValue({ data: oversikt({ problems: [lost] }) });
+    visa();
+    expect(await screen.findByText("klar.pdf")).toBeInTheDocument();
+    expect(screen.getByText(/löst: bokförd som A3/)).toBeInTheDocument();
+  });
 });
 
 describe("senast inlästa", () => {

@@ -67,6 +67,10 @@ export interface DropzoneVantande extends DropzoneFil {
 
 export interface DropzoneProblem extends DropzoneFil {
   reason: string | null;
+  /** Vad böckerna nu säger om filen; saknas från en server från före fältet. */
+  outcome?: DropzoneUtfall | null;
+  /** Filen ligger kvar i mappen men är inte längre ett problem. */
+  resolved?: boolean;
 }
 
 export interface DropzoneOversikt {
@@ -147,8 +151,9 @@ export function dropzoneStatus(
   if (!oversikt) return { text: "hämtar", lage: "pagaende" };
   if (!oversikt.enabled) return { text: "avstängd på servern", lage: "fel" };
   if (harStannat(oversikt, nu)) return { text: "hämtningen har stannat", lage: "fel" };
-  if (oversikt.problems.length > 0) {
-    return { text: `${oversikt.problems.length} i _Problem`, lage: "vantar" };
+  const olosta = oversikt.problems.filter((p) => !p.resolved).length;
+  if (olosta > 0) {
+    return { text: `${olosta} ${olosta === 1 ? "fil" : "filer"} med problem`, lage: "vantar" };
   }
   if (oversikt.pending.length > 0) {
     return { text: `${oversikt.pending.length} väntar på hämtning`, lage: "pagaende" };
