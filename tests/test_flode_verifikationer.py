@@ -937,12 +937,14 @@ def test_case_22_execute_tool_reaches_the_handler():
 # --- F8: postningens krokar och kvittot (testfall 23-27) ----------------------
 
 
-def _client():
+def _client(raise_server_exceptions: bool = True):
+    """The app's client. With `raise_server_exceptions=False` an unhandled
+    error is the `500` a real caller gets, not an exception in the test."""
     from fastapi.testclient import TestClient
 
     from api.main import app
 
-    return TestClient(app)
+    return TestClient(app, raise_server_exceptions=raise_server_exceptions)
 
 
 def _post_route(client, voucher_id, headers, key=None):
@@ -1710,7 +1712,9 @@ def test_a_server_error_writes_nothing_to_the_thread(monkeypatch, auth_headers):
         raise RuntimeError("disken är full")
 
     monkeypatch.setattr(LedgerService, "post_voucher", broken)
-    response = _post_route(_client(), draft_id, auth_headers)
+    response = _post_route(
+        _client(raise_server_exceptions=False), draft_id, auth_headers
+    )
 
     assert response.status_code == 500
     assert _errors(thread) == []
@@ -2537,7 +2541,9 @@ def test_case_38_a_failed_history_rolls_back_the_whole_posting(
         raise sqlite3.OperationalError("database is locked")
 
     monkeypatch.setattr(AccountingCorrectionRepository, "create", broken)
-    response = _post_route(_client(), draft_id, auth_headers, key=key)
+    response = _post_route(
+        _client(raise_server_exceptions=False), draft_id, auth_headers, key=key
+    )
 
     assert response.status_code == 500
     draft = VoucherRepository.get(draft_id)
@@ -2550,7 +2556,9 @@ def test_case_38_a_failed_history_rolls_back_the_whole_posting(
 
     # Nothing was used up: the next try takes B-1, with its history.
     monkeypatch.undo()
-    retry = _post_route(_client(), draft_id, auth_headers, key=key)
+    retry = _post_route(
+        _client(raise_server_exceptions=False), draft_id, auth_headers, key=key
+    )
     assert retry.status_code == 200, retry.text
     assert retry.json()["number"] == 1
     assert len(_history(original.id)) == 1
@@ -2777,7 +2785,7 @@ def test_correct_route_rolls_back_when_the_history_fails(
         raise sqlite3.OperationalError("database is locked")
 
     monkeypatch.setattr(AccountingCorrectionRepository, "create", broken)
-    response = _client().post(
+    response = _client(raise_server_exceptions=False).post(
         f"/api/v1/vouchers/{original.id}/correct",
         json={"corrected_rows": _CORRECTED_ROWS, "reason": "Fel moms"},
         headers=auth_headers,

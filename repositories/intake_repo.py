@@ -9,6 +9,7 @@ from db.database import db
 from domain.models import IntakeProcessingAttempt, IntakeSource, VoucherIntakeSource
 from domain.types import IntakeSourceType, IntakeStatus
 from repositories.agreement_booking_repo import NOT_WAITING_FOR_AGREEMENT_SQL
+from repositories.dates import req_datetime
 from repositories.fiscal_year_proposal_repo import NOT_WAITING_FOR_FISCAL_YEAR_SQL
 from repositories.reimbursement_check_repo import NOT_WAITING_FOR_REIMBURSEMENT_SQL
 
@@ -547,10 +548,10 @@ class IntakeRepository:
             voucher_id=row["voucher_id"],
             intake_source_id=row["intake_source_id"],
             linked_by=row["linked_by"],
-            linked_at=_as_datetime(row["linked_at"]),
+            linked_at=req_datetime(row["linked_at"]),
             link_reason=row["link_reason"],
             unlinked_at=(
-                _as_datetime(row["unlinked_at"])
+                req_datetime(row["unlinked_at"])
                 if "unlinked_at" in row.keys() and row["unlinked_at"]
                 else None
             ),
@@ -559,10 +560,3 @@ class IntakeRepository:
                 row["unlink_reason"] if "unlink_reason" in row.keys() else None
             ),
         )
-
-
-def _as_datetime(value) -> datetime:
-    """A timestamp column as SQLite hands it back: already parsed, or text."""
-    if isinstance(value, datetime):
-        return value
-    return datetime.fromisoformat(value)

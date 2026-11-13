@@ -4,10 +4,11 @@ tables do."""
 
 import uuid
 from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
 
 from db.database import db
 from domain.reimbursement import ReimbursementCheck
+from repositories.dates import as_datetime
 
 #: SQL fragment for `intake_sources`: the source is not waiting on a pending
 #: utläggs card. Used by the intake pass's queue.
@@ -15,12 +16,6 @@ NOT_WAITING_FOR_REIMBURSEMENT_SQL = (
     "NOT EXISTS (SELECT 1 FROM reimbursement_checks rc"
     " WHERE rc.status = 'pending' AND rc.intake_source_id = intake_sources.id)"
 )
-
-
-def _dt(value: Any) -> Optional[datetime]:
-    if value is None or isinstance(value, datetime):
-        return value
-    return datetime.fromisoformat(value)
 
 
 class ReimbursementCheckRepository:
@@ -120,7 +115,7 @@ class ReimbursementCheckRepository:
             thread_id=row["thread_id"],
             status=row["status"],
             created_by=row["created_by"],
-            created_at=_dt(row["created_at"]),  # type: ignore[arg-type]
-            resolved_at=_dt(row["resolved_at"]),
+            created_at=as_datetime(row["created_at"]),  # type: ignore[arg-type]
+            resolved_at=as_datetime(row["resolved_at"]),
             resolved_by=row["resolved_by"],
         )

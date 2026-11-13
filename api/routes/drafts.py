@@ -21,7 +21,6 @@ from api.schemas import (
     ThreadDraftResponse,
 )
 from domain.types import ThreadViewKey
-from domain.validation import ValidationError
 from services.draft_service import DraftError, DraftListItem, DraftService
 
 router = APIRouter(prefix="/api/v1/drafts", tags=["drafts"])
@@ -96,15 +95,9 @@ async def list_drafts(
     (`kind`), oldest first. `voucher` is set only when a voucher draft is
     posted, `invoice` only when an invoice proposal is issued."""
     validated_view_key = _validate_view_key(view_key)
-    try:
-        items, total = DraftService().list_view_drafts(
-            view_key=validated_view_key, status=status, limit=limit
-        )
-    except ValidationError as exc:
-        raise HTTPException(
-            status_code=http_status.HTTP_400_BAD_REQUEST,
-            detail={"error": exc.message, "code": exc.code, "details": exc.details},
-        )
+    items, total = DraftService().list_view_drafts(
+        view_key=validated_view_key, status=status, limit=limit
+    )
     return ThreadDraftListResponse(
         drafts=[
             _draft_response(item) if kind == "voucher" else _invoice_response(item)

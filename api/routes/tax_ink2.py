@@ -19,8 +19,3 @@ async def get_ink2_declaration(
         return build_ink2_declaration(fiscal_year_id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Could not build INK2 declaration: {str(exc)}",
-        )

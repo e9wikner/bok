@@ -7,8 +7,9 @@ sys.setrecursionlimit(3000)  # Increase for Pydantic v2 schema generation
 
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 # Import routers
 from api.deps import verify_api_key
@@ -46,6 +47,7 @@ from api.routes import (
     vouchers,
 )
 from config import settings
+from domain.validation import ValidationError
 from services import agent_runtime, dropzone
 
 
@@ -77,6 +79,29 @@ app = FastAPI(
     openapi_url="/openapi.json",
     lifespan=lifespan,
 )
+
+
+@app.exception_handler(ValidationError)
+async def validation_error_handler(request: Request, exc: ValidationError):
+    """A domain rule the request broke: `400` with the error's code.
+
+    A route maps a `ValidationError` itself only when the code means another
+    status (`404`, `409`, `422`) or the body needs more than the error carries.
+    Anything else that escapes a route is a bug and stays FastAPI's plain
+    `500`, logged with its traceback, never `str(e)` in the response.
+    """
+    return JSONResponse(
+        status_code=400,
+        content={
+            "detail": {
+                "error": exc.message,
+                "code": exc.code,
+                "details": exc.details,
+                **exc.payload,
+            }
+        },
+    )
+
 
 # Add CORS middleware
 app.add_middleware(

@@ -10,6 +10,7 @@ from typing import List, Optional
 
 from db.database import db
 from domain.invoice_draft_models import InvoiceDraft, InvoiceDraftRow
+from repositories.dates import as_date
 
 
 def _iso(value) -> Optional[str]:
@@ -17,12 +18,6 @@ def _iso(value) -> Optional[str]:
     if value is None:
         return None
     return value.isoformat() if isinstance(value, date) else str(value)
-
-
-def _as_date(value) -> Optional[date]:
-    if value is None or isinstance(value, date):
-        return value
-    return date.fromisoformat(str(value)[:10])
 
 
 class InvoiceDraftRepository:
@@ -157,8 +152,8 @@ class InvoiceDraftRepository:
             created_at=now,
             quantity_centi=quantity_centi,
             unit=unit,
-            delivery_from=_as_date(delivery_from),
-            delivery_to=_as_date(delivery_to),
+            delivery_from=as_date(delivery_from),
+            delivery_to=as_date(delivery_to),
             delivery_month=delivery_month,
             article_number=article_number,
         )
@@ -340,8 +335,8 @@ class InvoiceDraftRepository:
             updated_at=datetime.fromisoformat(row["updated_at"]),
             invoice_number=row["invoice_number"],
             customer_address=row["customer_address"],
-            delivery_from=_as_date(row["delivery_from"]),
-            delivery_to=_as_date(row["delivery_to"]),
+            delivery_from=as_date(row["delivery_from"]),
+            delivery_to=as_date(row["delivery_to"]),
             delivery_month=row["delivery_month"],
         )
 
@@ -363,8 +358,8 @@ class InvoiceDraftRepository:
             created_at=datetime.fromisoformat(row["created_at"]),
             quantity_centi=row["quantity_centi"],
             unit=row["unit"],
-            delivery_from=_as_date(row["delivery_from"]),
-            delivery_to=_as_date(row["delivery_to"]),
+            delivery_from=as_date(row["delivery_from"]),
+            delivery_to=as_date(row["delivery_to"]),
             delivery_month=row["delivery_month"],
             article_number=row["article_number"],
         )

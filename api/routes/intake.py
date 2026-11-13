@@ -26,7 +26,6 @@ from domain.models import (
     VoucherIntakeSource,
 )
 from domain.types import BankInputStatus, IntakeStatus
-from domain.validation import ValidationError
 from repositories.bank_input_repo import BankInputRepository
 from repositories.intake_repo import IntakeRepository
 from services.agent_tools import TolkaUnderlagArgs
@@ -382,11 +381,6 @@ async def create_intake_interpretation(
         )
     except IntakeError as exc:
         raise _http_error(exc) from exc
-    except ValidationError as exc:
-        raise HTTPException(
-            status_code=http_status.HTTP_400_BAD_REQUEST,
-            detail={"error": exc.message, "code": exc.code, "details": exc.details},
-        ) from exc
 
 
 @router.post(

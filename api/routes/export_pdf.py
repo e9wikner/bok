@@ -122,11 +122,6 @@ async def export_invoice_pdf(
         return _pdf_response(pdf_bytes, f"faktura_{invoice_id}.pdf")
     except (ValueError, ValidationError) as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Kunde inte generera faktura-PDF: {str(e)}",
-        )
 
 
 @router.get("/payslip/{payslip_id}")
@@ -140,11 +135,6 @@ async def export_payslip_pdf(
         return _pdf_response(pdf_bytes, f"lonespecifikation_{payslip_id}.pdf")
     except (ValueError, ValidationError) as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Kunde inte generera lönespecifikation-PDF: {str(e)}",
-        )
 
 
 @router.get("/payslip/{payslip_id}/html")
@@ -160,11 +150,6 @@ async def export_payslip_html(
         )
     except (ValueError, ValidationError) as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Kunde inte generera lönespecifikation-HTML: {str(e)}",
-        )
 
 
 # ---- General Ledger PDF ----
@@ -186,11 +171,6 @@ async def export_general_ledger_pdf(
         return _pdf_response(pdf_bytes, f"huvudbok_{account_code}_{period_id}.pdf")
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Kunde inte generera huvudbok-PDF: {str(e)}",
-        )
 
 
 # ---- Income Statement PDF ----
@@ -211,11 +191,6 @@ async def export_income_statement_pdf(
         return _pdf_response(pdf_bytes, f"resultatrakning_{period_id}.pdf")
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Kunde inte generera resultaträkning-PDF: {str(e)}",
-        )
 
 
 @router.get("/income-statement")
@@ -234,11 +209,6 @@ async def export_income_statement_pdf_for_fiscal_year(
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Kunde inte generera resultaträkning-PDF: {str(e)}",
-        )
 
 
 # ---- Balance Sheet PDF ----
@@ -259,11 +229,6 @@ async def export_balance_sheet_pdf(
         return _pdf_response(pdf_bytes, f"balansrakning_{period_id}.pdf")
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Kunde inte generera balansräkning-PDF: {str(e)}",
-        )
 
 
 @router.get("/balance-sheet")
@@ -280,11 +245,6 @@ async def export_balance_sheet_pdf_for_fiscal_year(
         return _pdf_response(pdf_bytes, f"balansrakning_{fiscal_year_id}_{suffix}.pdf")
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Kunde inte generera balansräkning-PDF: {str(e)}",
-        )
 
 
 # ---- HTML Export (Fallback) ----
@@ -312,8 +272,3 @@ async def export_invoice_html(
         return _html_response(html_str, f"faktura_{invoice_id}.html")
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Kunde inte generera faktura-HTML: {str(e)}",
-        )

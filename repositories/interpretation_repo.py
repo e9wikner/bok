@@ -13,11 +13,11 @@ same `created_at` still have one unambiguous latest -- the one inserted
 last.
 """
 
-from datetime import date, datetime
-from typing import Any, Optional
+from typing import Optional
 
 from db.database import db
 from domain.interpretation import Interpretation
+from repositories.dates import as_date, req_datetime
 
 
 class InterpretationRepository:
@@ -102,7 +102,7 @@ class InterpretationRepository:
             id=row["id"],
             intake_source_id=row["intake_source_id"],
             vendor=row["vendor"],
-            document_date=_parse_date(row["document_date"]),
+            document_date=as_date(row["document_date"]),
             currency=row["currency"],
             total_ore=row["total_ore"],
             vat_ore=row["vat_ore"],
@@ -111,7 +111,7 @@ class InterpretationRepository:
             actor=row["actor"],
             agent_run_id=row["agent_run_id"],
             thread_id=row["thread_id"],
-            created_at=_parse_datetime(row["created_at"]),
+            created_at=req_datetime(row["created_at"]),
             **Interpretation.from_json_columns(
                 lines_json=row["lines_json"],
                 checks_json=row["checks_json"],
@@ -120,18 +120,3 @@ class InterpretationRepository:
                 expected_json=row["expected_json"],
             ),
         )
-
-
-def _parse_date(value: Any) -> Optional[date]:
-    if value is None:
-        return None
-    if isinstance(value, date):
-        return value
-    return date.fromisoformat(value)
-
-
-def _parse_datetime(value: Any) -> datetime:
-    """`created_at` is `NOT NULL` in the schema."""
-    if isinstance(value, datetime):
-        return value
-    return datetime.fromisoformat(value)

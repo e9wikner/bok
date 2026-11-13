@@ -40,6 +40,7 @@ from repositories.period_repo import PeriodRepository
 from repositories.thread_repo import ThreadRepository
 from repositories.voucher_repo import VoucherRepository
 from services.intake import IntakeConflictError, IntakeError
+from services.thread_stream import publish_posts
 
 logger = logging.getLogger(__name__)
 
@@ -252,7 +253,7 @@ class IntakeReuseService:
                     "retry_draft_id": None,
                 },
             )
-            _publish([post])
+            publish_posts([post])
             return post
 
         with db.transaction():
@@ -332,20 +333,3 @@ class IntakeReuseService:
             "status": proposal.status,
             "decision_status": decision.status if decision is not None else None,
         }
-
-
-def _publish(posts: List[ThreadPost]) -> None:
-    """`message.completed` for posts written outside a turn. Never fatal."""
-    from services.thread_stream import (
-        EVENT_MESSAGE_COMPLETED,
-        get_broker,
-        post_event_payload,
-    )
-
-    for post in posts:
-        try:
-            get_broker().publish(
-                post.thread_id, EVENT_MESSAGE_COMPLETED, post_event_payload(post)
-            )
-        except Exception:
-            logger.exception("Post %s was not published", post.id)

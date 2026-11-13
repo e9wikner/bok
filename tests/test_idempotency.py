@@ -104,7 +104,9 @@ def _key_rows() -> list[dict]:
 
 @pytest_asyncio.fixture
 async def async_client():
-    transport = httpx.ASGITransport(app=app)
+    # An unhandled error is answered as the `500` a real caller gets, which
+    # the abort tests below assert on, not raised into the test.
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
 

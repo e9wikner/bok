@@ -67,11 +67,6 @@ async def list_correction_notes(
         return [_correction_note_to_response(note) for note in notes]
     except CorrectionNoteError as e:
         _raise_correction_note_http_error(e)
-    except Exception as e:
-        raise HTTPException(
-            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
-        )
 
 
 @router.post(
@@ -94,11 +89,6 @@ async def create_correction_note(
         return _correction_note_to_response(note)
     except CorrectionNoteError as e:
         _raise_correction_note_http_error(e)
-    except Exception as e:
-        raise HTTPException(
-            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
-        )
 
 
 @router.post("/{voucher_id}/correction-draft", response_model=VoucherResponse)
@@ -117,16 +107,6 @@ async def create_correction_draft(
         return _voucher_to_response(draft)
     except CorrectionNoteError as e:
         _raise_correction_note_http_error(e)
-    except ValidationError as e:
-        raise HTTPException(
-            status_code=http_status.HTTP_400_BAD_REQUEST,
-            detail={"error": e.message, "code": e.code, "details": e.details},
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
-        )
 
 
 @router.post("/{voucher_id}/correction-notes/{note_id}/suggest", response_model=dict)
@@ -150,16 +130,6 @@ async def suggest_correction_note(
         }
     except CorrectionNoteError as e:
         _raise_correction_note_http_error(e)
-    except ValidationError as e:
-        raise HTTPException(
-            status_code=http_status.HTTP_400_BAD_REQUEST,
-            detail={"error": e.message, "code": e.code, "details": e.details},
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
-        )
 
 
 @router.post(
@@ -188,16 +158,6 @@ async def approve_correction_note(
         return _voucher_to_response(voucher)
     except CorrectionNoteError as e:
         _raise_correction_note_http_error(e)
-    except ValidationError as e:
-        raise HTTPException(
-            status_code=http_status.HTTP_400_BAD_REQUEST,
-            detail={"error": e.message, "code": e.code, "details": e.details},
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
-        )
 
 
 @router.post(
@@ -221,11 +181,6 @@ async def dismiss_correction_note(
         return _correction_note_to_response(note)
     except CorrectionNoteError as e:
         _raise_correction_note_http_error(e)
-    except Exception as e:
-        raise HTTPException(
-            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
-        )
 
 
 @router.post(
@@ -249,11 +204,6 @@ async def reject_correction_note(
         return _correction_note_to_response(note)
     except CorrectionNoteError as e:
         _raise_correction_note_http_error(e)
-    except Exception as e:
-        raise HTTPException(
-            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
-        )
 
 
 @router.post(
@@ -285,44 +235,31 @@ async def create_voucher(
     }
     ```
     """
-    try:
-        rows_data = [r.model_dump() for r in request.rows]
+    rows_data = [r.model_dump() for r in request.rows]
 
-        # A draft has no number, so an
-        # explicit one can only be honoured when the voucher is posted now.
-        if request.number is not None and not request.auto_post:
-            raise ValidationError(
-                "number_requires_auto_post",
-                "An explicit voucher number is set at posting",
-                "pass auto_post=true together with number",
-            )
-
-        voucher = ledger.create_voucher(
-            series=request.series,
-            date=request.date,
-            period_id=request.period_id,
-            description=request.description,
-            rows_data=rows_data,
-            created_by=actor,
+    # A draft has no number, so an
+    # explicit one can only be honoured when the voucher is posted now.
+    if request.number is not None and not request.auto_post:
+        raise ValidationError(
+            "number_requires_auto_post",
+            "An explicit voucher number is set at posting",
+            "pass auto_post=true together with number",
         )
 
-        # Auto-post if requested
-        if request.auto_post:
-            voucher = ledger.post_voucher(
-                voucher.id, actor=actor, number=request.number
-            )
+    voucher = ledger.create_voucher(
+        series=request.series,
+        date=request.date,
+        period_id=request.period_id,
+        description=request.description,
+        rows_data=rows_data,
+        created_by=actor,
+    )
 
-        return _voucher_to_response(voucher)
+    # Auto-post if requested
+    if request.auto_post:
+        voucher = ledger.post_voucher(voucher.id, actor=actor, number=request.number)
 
-    except ValidationError as e:
-        raise HTTPException(
-            status_code=http_status.HTTP_400_BAD_REQUEST,
-            detail={"error": e.message, "code": e.code, "details": e.details},
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
-        )
+    return _voucher_to_response(voucher)
 
 
 @router.get("/{voucher_id}/source-context", response_model=dict)
@@ -495,24 +432,17 @@ async def get_voucher(
     ledger: LedgerService = Depends(get_ledger_service),
 ):
     """Get voucher by ID."""
-    try:
-        voucher = ledger.vouchers.get(voucher_id)
-        if not voucher:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND, detail="Voucher not found"
-            )
-        response = _voucher_to_response(voucher)
-        _attach_corrections([voucher], [response])
-        origin = voucher_origin(voucher_id)
-        if origin is not None:
-            response.origin = VoucherOriginResponse(**origin)
-        return response
-    except HTTPException:
-        raise
-    except Exception as e:
+    voucher = ledger.vouchers.get(voucher_id)
+    if not voucher:
         raise HTTPException(
-            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            status_code=http_status.HTTP_404_NOT_FOUND, detail="Voucher not found"
         )
+    response = _voucher_to_response(voucher)
+    _attach_corrections([voucher], [response])
+    origin = voucher_origin(voucher_id)
+    if origin is not None:
+        response.origin = VoucherOriginResponse(**origin)
+    return response
 
 
 @router.post("/{voucher_id}/post", response_model=VoucherResponse)
@@ -603,12 +533,6 @@ def _post_and_record(
         else:
             _after_failed_posting(voucher_id, e, actor)
         raise _posting_http_error(e, ledger, voucher_id)
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
-        )
 
     _after_posting(voucher_id, actor)
 
@@ -804,42 +728,32 @@ def _correct_and_record(
     endpoint: str,
 ) -> VoucherResponse:
     """B-series voucher, correction history and key row, in one transaction."""
-    try:
-        rows_data = [r.model_dump() for r in request.corrected_rows]
-        with db.transaction():
-            correction = ledger.create_posted_correction(
-                original_voucher_id=voucher_id,
-                corrected_rows=rows_data,
-                reason=request.reason,
-                actor=actor,
+    rows_data = [r.model_dump() for r in request.corrected_rows]
+    with db.transaction():
+        correction = ledger.create_posted_correction(
+            original_voucher_id=voucher_id,
+            corrected_rows=rows_data,
+            reason=request.reason,
+            actor=actor,
+            _commit=False,
+        )
+        response = _voucher_to_response(correction)
+
+        # The key row commits with the correction. Written afterwards it
+        # would leave a window where the B-series voucher exists but the
+        # key does not — the hole this module closes.
+        if idempotency_key:
+            idempotency.complete(
+                key=idempotency_key,
+                endpoint=endpoint,
+                response_status=http_status.HTTP_200_OK,
+                response_payload=jsonable_encoder(response),
+                entity_type="voucher",
+                entity_id=correction.id,
                 _commit=False,
             )
-            response = _voucher_to_response(correction)
 
-            # The key row commits with the correction. Written afterwards it
-            # would leave a window where the B-series voucher exists but the
-            # key does not — the hole this module closes.
-            if idempotency_key:
-                idempotency.complete(
-                    key=idempotency_key,
-                    endpoint=endpoint,
-                    response_status=http_status.HTTP_200_OK,
-                    response_payload=jsonable_encoder(response),
-                    entity_type="voucher",
-                    entity_id=correction.id,
-                    _commit=False,
-                )
-
-        return response
-    except ValidationError as e:
-        raise HTTPException(
-            status_code=http_status.HTTP_400_BAD_REQUEST,
-            detail={"error": e.message, "code": e.code, "details": e.details},
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
-        )
+    return response
 
 
 @router.put("/{voucher_id}", response_model=VoucherResponse)
@@ -855,33 +769,17 @@ async def update_voucher(
     Only draft vouchers can be updated in place. Posted vouchers must be
     corrected with POST /api/v1/vouchers/{id}/correct.
     """
-    try:
-        rows_data = [r.model_dump() for r in request.rows]
+    rows_data = [r.model_dump() for r in request.rows]
 
-        voucher = ledger.update_voucher(
-            voucher_id=voucher_id,
-            rows_data=rows_data,
-            description=request.description,
-            reason=request.reason,
-            actor=actor,
-        )
+    voucher = ledger.update_voucher(
+        voucher_id=voucher_id,
+        rows_data=rows_data,
+        description=request.description,
+        reason=request.reason,
+        actor=actor,
+    )
 
-        return _voucher_to_response(voucher)
-
-    except ValidationError as e:
-        raise HTTPException(
-            status_code=http_status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": e.message,
-                "code": e.code,
-                "details": e.details,
-            },
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
-        )
+    return _voucher_to_response(voucher)
 
 
 @router.get("", response_model=dict)
@@ -919,59 +817,54 @@ async def list_vouchers(
     Use missing_attachment=true with sort_by=age for the vouchers that still
     need a receipt, oldest first.
     """
-    try:
-        status_filter = voucher_status if voucher_status != "all" else None
+    status_filter = voucher_status if voucher_status != "all" else None
 
-        # Parse exclude_series
-        exclude_series_list = None
-        if exclude_series:
-            exclude_series_list = [s.strip() for s in exclude_series.split(",")]
+    # Parse exclude_series
+    exclude_series_list = None
+    if exclude_series:
+        exclude_series_list = [s.strip() for s in exclude_series.split(",")]
 
-        if period_id:
-            vouchers = ledger.vouchers.list_for_period(period_id, status=status_filter)
-            # Filter out excluded series
-            if exclude_series_list:
-                vouchers = [
-                    v for v in vouchers if v.series.value not in exclude_series_list
-                ]
-            # Same meaning as the SQL branch below: the flag only applies to
-            # posted vouchers. Silently ignoring it here would hand a view that
-            # asked for "missing attachment" the whole ledger back.
-            if missing_attachment is not None:
-                vouchers = [
-                    v
-                    for v in vouchers
-                    if v.status.value == "posted"
-                    and bool(v.missing_attachment) is missing_attachment
-                ]
-            total = len(vouchers)
-        else:
-            vouchers, total = ledger.vouchers.list_all(
-                status=status_filter,
-                search=search,
-                limit=limit,
-                offset=offset,
-                sort_by=sort_by,
-                sort_order=sort_order,
-                fiscal_year_id=fiscal_year_id,
-                exclude_series=exclude_series_list,
-                missing_attachment=missing_attachment,
-            )
-
-        # Read once for the page, not once per voucher.
-        account_names = AccountRepository.get_all_as_dict()
-        responses = [_voucher_to_response(v, account_names) for v in vouchers]
-        _attach_corrections(vouchers, responses, account_names)
-        return {
-            "period_id": period_id,
-            "status_filter": voucher_status,
-            "total": total,
-            "vouchers": responses,
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+    if period_id:
+        vouchers = ledger.vouchers.list_for_period(period_id, status=status_filter)
+        # Filter out excluded series
+        if exclude_series_list:
+            vouchers = [
+                v for v in vouchers if v.series.value not in exclude_series_list
+            ]
+        # Same meaning as the SQL branch below: the flag only applies to
+        # posted vouchers. Silently ignoring it here would hand a view that
+        # asked for "missing attachment" the whole ledger back.
+        if missing_attachment is not None:
+            vouchers = [
+                v
+                for v in vouchers
+                if v.status.value == "posted"
+                and bool(v.missing_attachment) is missing_attachment
+            ]
+        total = len(vouchers)
+    else:
+        vouchers, total = ledger.vouchers.list_all(
+            status=status_filter,
+            search=search,
+            limit=limit,
+            offset=offset,
+            sort_by=sort_by,
+            sort_order=sort_order,
+            fiscal_year_id=fiscal_year_id,
+            exclude_series=exclude_series_list,
+            missing_attachment=missing_attachment,
         )
+
+    # Read once for the page, not once per voucher.
+    account_names = AccountRepository.get_all_as_dict()
+    responses = [_voucher_to_response(v, account_names) for v in vouchers]
+    _attach_corrections(vouchers, responses, account_names)
+    return {
+        "period_id": period_id,
+        "status_filter": voucher_status,
+        "total": total,
+        "vouchers": responses,
+    }
 
 
 def _waiver_error(exc: UnderlagWaiverError) -> HTTPException:
@@ -1030,35 +923,28 @@ async def get_voucher_audit(
     Returns all changes made to a voucher, including who changed it,
     when, and what was changed (before/after values).
     """
-    try:
-        voucher = ledger.vouchers.get(voucher_id)
-        if not voucher:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND, detail="Voucher not found"
-            )
-
-        entries = AuditRepository.get_history("voucher", voucher_id)
-
-        return {
-            "voucher_id": voucher_id,
-            "total": len(entries),
-            "entries": [
-                {
-                    "id": e.id,
-                    "action": e.action.value,
-                    "actor": e.actor,
-                    "timestamp": e.timestamp.isoformat(),
-                    "payload": e.payload,
-                }
-                for e in entries
-            ],
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
+    voucher = ledger.vouchers.get(voucher_id)
+    if not voucher:
         raise HTTPException(
-            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            status_code=http_status.HTTP_404_NOT_FOUND, detail="Voucher not found"
         )
+
+    entries = AuditRepository.get_history("voucher", voucher_id)
+
+    return {
+        "voucher_id": voucher_id,
+        "total": len(entries),
+        "entries": [
+            {
+                "id": e.id,
+                "action": e.action.value,
+                "actor": e.actor,
+                "timestamp": e.timestamp.isoformat(),
+                "payload": e.payload,
+            }
+            for e in entries
+        ],
+    }
 
 
 def _source_processing_note(attempt) -> dict:

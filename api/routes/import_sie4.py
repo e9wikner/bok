@@ -50,85 +50,76 @@ async def import_sie4(
     Returns import statistics and any errors.
     """
     try:
-        try:
-            text_content, body_fiscal_year_id = await _read_sie4_content(request, file)
-        except UnicodeDecodeError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Could not decode file - unsupported encoding",
-            )
-        target_fiscal_year_id = fiscal_year_id or body_fiscal_year_id
-
-        # Validate the target fiscal year before any import writes occur.
-        importer = SIE4Importer(
-            api_url=settings.api_url,
-            api_key=api_key,
-        )
-        preview_data = importer.parser.parse_content(text_content)
-        encoding_issues = SIE4Parser.find_encoding_issues(preview_data)
-        if encoding_issues:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "message": "SIE4 file contains suspicious text encoding artifacts",
-                    "encoding_issues": encoding_issues,
-                    "hint": "Check the file encoding. SIE #FORMAT PC8 should be decoded as CP437.",
-                },
-            )
-        try:
-            resolved_fiscal_year_id = importer.resolve_fiscal_year(
-                preview_data, target_fiscal_year_id
-            )
-        except ValidationError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "error": exc.message,
-                    "code": exc.code,
-                    "details": exc.details,
-                    "fiscal_year": {
-                        "start": (
-                            preview_data.fiscal_year_start.isoformat()
-                            if preview_data.fiscal_year_start
-                            else None
-                        ),
-                        "end": (
-                            preview_data.fiscal_year_end.isoformat()
-                            if preview_data.fiscal_year_end
-                            else None
-                        ),
-                    },
-                },
-            )
-
-        # Run the synchronous importer in a thread pool to avoid blocking
-        # the async event loop during database-heavy imports.
-        import asyncio
-
-        loop = asyncio.get_event_loop()
-        success = await loop.run_in_executor(
-            None,
-            importer.import_content,
-            text_content,
-            resolved_fiscal_year_id,
-        )
-
-        return {
-            "success": success,
-            "imported": importer.imported,
-            "errors": importer.errors,
-            "warnings": importer.warnings,
-            "parser_errors": importer.parser.errors,
-            "fiscal_year": importer.fiscal_year_resolution,
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
+        text_content, body_fiscal_year_id = await _read_sie4_content(request, file)
+    except UnicodeDecodeError:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Import failed: {str(e)}",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Could not decode file - unsupported encoding",
         )
+    target_fiscal_year_id = fiscal_year_id or body_fiscal_year_id
+
+    # Validate the target fiscal year before any import writes occur.
+    importer = SIE4Importer(
+        api_url=settings.api_url,
+        api_key=api_key,
+    )
+    preview_data = importer.parser.parse_content(text_content)
+    encoding_issues = SIE4Parser.find_encoding_issues(preview_data)
+    if encoding_issues:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "message": "SIE4 file contains suspicious text encoding artifacts",
+                "encoding_issues": encoding_issues,
+                "hint": "Check the file encoding. SIE #FORMAT PC8 should be decoded as CP437.",
+            },
+        )
+    try:
+        resolved_fiscal_year_id = importer.resolve_fiscal_year(
+            preview_data, target_fiscal_year_id
+        )
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": exc.message,
+                "code": exc.code,
+                "details": exc.details,
+                "fiscal_year": {
+                    "start": (
+                        preview_data.fiscal_year_start.isoformat()
+                        if preview_data.fiscal_year_start
+                        else None
+                    ),
+                    "end": (
+                        preview_data.fiscal_year_end.isoformat()
+                        if preview_data.fiscal_year_end
+                        else None
+                    ),
+                },
+            },
+        )
+
+    # Run the synchronous importer in a thread pool to avoid blocking
+    # the async event loop during database-heavy imports.
+    import asyncio
+
+    loop = asyncio.get_event_loop()
+    success = await loop.run_in_executor(
+        None,
+        importer.import_content,
+        text_content,
+        resolved_fiscal_year_id,
+    )
+
+    return {
+        "success": success,
+        "imported": importer.imported,
+        "errors": importer.errors,
+        "warnings": importer.warnings,
+        "parser_errors": importer.parser.errors,
+        "fiscal_year": importer.fiscal_year_resolution,
+    }
 
 
 @router.post("/sie4/validate", status_code=status.HTTP_200_OK)
@@ -143,65 +134,52 @@ async def validate_sie4(
     Returns parsing results and any validation errors.
     """
     try:
-        try:
-            text_content, _ = await _read_sie4_content(request, file)
-        except UnicodeDecodeError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Could not decode file",
+        text_content, _ = await _read_sie4_content(request, file)
+    except UnicodeDecodeError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Could not decode file",
+        )
+
+    parser = SIE4Parser()
+    data = parser.parse_content(text_content)
+
+    # Validate
+    errors = parser.errors
+    encoding_issues = SIE4Parser.find_encoding_issues(data)
+    errors.extend(encoding_issues)
+
+    # Check for required fields
+    if not data.fiscal_year_start or not data.fiscal_year_end:
+        errors.append("Missing valid #RAR 0 fiscal year interval")
+
+    if not data.vouchers:
+        errors.append("No vouchers found in file")
+
+    # Check voucher balance
+    for voucher in data.vouchers:
+        total = sum(row.amount for row in voucher.rows)
+        if total != 0:
+            errors.append(
+                f"Voucher {voucher.series}{voucher.number} is unbalanced: {total}"
             )
 
-        parser = SIE4Parser()
-        data = parser.parse_content(text_content)
-
-        # Validate
-        errors = parser.errors
-        encoding_issues = SIE4Parser.find_encoding_issues(data)
-        errors.extend(encoding_issues)
-
-        # Check for required fields
-        if not data.fiscal_year_start or not data.fiscal_year_end:
-            errors.append("Missing valid #RAR 0 fiscal year interval")
-
-        if not data.vouchers:
-            errors.append("No vouchers found in file")
-
-        # Check voucher balance
-        for voucher in data.vouchers:
-            total = sum(row.amount for row in voucher.rows)
-            if total != 0:
-                errors.append(
-                    f"Voucher {voucher.series}{voucher.number} is unbalanced: {total}"
-                )
-
-        return {
-            "valid": len(errors) == 0,
-            "company": {
-                "name": data.company.name if data.company else None,
-                "org_number": data.company.org_number if data.company else None,
-            },
-            "fiscal_year": {
-                "start": (
-                    data.fiscal_year_start.isoformat()
-                    if data.fiscal_year_start
-                    else None
-                ),
-                "end": (
-                    data.fiscal_year_end.isoformat() if data.fiscal_year_end else None
-                ),
-            },
-            "statistics": {
-                "accounts": len(data.accounts),
-                "vouchers": len(data.vouchers),
-            },
-            "errors": errors,
-            "encoding_issues": encoding_issues,
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Validation failed: {str(e)}",
-        )
+    return {
+        "valid": len(errors) == 0,
+        "company": {
+            "name": data.company.name if data.company else None,
+            "org_number": data.company.org_number if data.company else None,
+        },
+        "fiscal_year": {
+            "start": (
+                data.fiscal_year_start.isoformat() if data.fiscal_year_start else None
+            ),
+            "end": (data.fiscal_year_end.isoformat() if data.fiscal_year_end else None),
+        },
+        "statistics": {
+            "accounts": len(data.accounts),
+            "vouchers": len(data.vouchers),
+        },
+        "errors": errors,
+        "encoding_issues": encoding_issues,
+    }

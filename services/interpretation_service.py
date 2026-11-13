@@ -49,6 +49,7 @@ from services.interpretation import (
     match_lines,
     run_checks,
 )
+from services.thread_stream import publish_posts
 
 logger = logging.getLogger(__name__)
 
@@ -174,7 +175,7 @@ class InterpretationService:
                             _commit=False,
                         )
                     )
-        _publish(posts)
+        publish_posts(posts)
         return {
             "interpretation_id": interpretation.id,
             "source_id": source.id,
@@ -290,28 +291,6 @@ class InterpretationService:
             return None
         intake = IntakeService()
         return extract_pdf_text(intake.resolve_source_file(source).read_bytes())
-
-
-def _publish(posts: List[ThreadPost]) -> None:
-    """`message.completed` for each comparison post, after the commit --
-    the same event `DraftService.on_posted` sends for its receipt. A post
-    without `run_id`, so the turn's own in-flight message is left alone.
-    Never fatal: the posts are stored and the next read shows them."""
-    if not posts:
-        return
-    from services.thread_stream import (
-        EVENT_MESSAGE_COMPLETED,
-        get_broker,
-        post_event_payload,
-    )
-
-    for post in posts:
-        try:
-            get_broker().publish(
-                post.thread_id, EVENT_MESSAGE_COMPLETED, post_event_payload(post)
-            )
-        except Exception:
-            logger.exception("Comparison post %s was not published", post.id)
 
 
 def _read(args: MatchRead) -> Dict[str, Any]:
