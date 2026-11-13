@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { LasKnapp } from "@/components/skal/LasKnapp";
 import type { LasData } from "@/lib/skal/las";
 
@@ -26,6 +27,7 @@ export function VySektion({
   las,
   tom,
   kolumner,
+  fallbar = false,
 }: {
   titel: string;
   children: React.ReactNode;
@@ -40,7 +42,11 @@ export function VySektion({
    * bara högerkolumnen, så där står bara den sista.
    */
   kolumner?: string[];
+  /** Visar pilen som fäller ihop sektionens rader (månaderna i Verifikationer). */
+  fallbar?: boolean;
 }) {
+  // Sektionens rader går att fälla ihop; rubriken och låset står kvar.
+  const [hopfalld, setHopfalld] = useState(false);
   if (antalRader === 0 && !tom) return null;
   const desktop = variant === "desktop";
 
@@ -52,7 +58,24 @@ export function VySektion({
           desktop ? "pt-6" : "pt-[22px]"
         }`}
       >
-        <h3 className={`min-w-0 font-medium leading-tight text-bok-text ${desktop ? "text-[16px]" : "text-[17px]"}`}>
+        <h3
+          className={`flex min-w-0 flex-1 items-center gap-[6px] font-medium leading-tight text-bok-text ${
+            desktop ? "text-[16px]" : "text-[17px]"
+          }`}
+        >
+          {fallbar && antalRader > 0 && (
+            <button
+              type="button"
+              onClick={() => setHopfalld((h) => !h)}
+              aria-expanded={!hopfalld}
+              aria-label={`${hopfalld ? "Visa" : "Dölj"} verifikationerna i ${titel}`}
+              className="bok-mono -ml-1 flex h-5 w-5 shrink-0 items-center justify-center rounded text-[13px] text-bok-meta hover:text-bok-text"
+            >
+              <span aria-hidden className={`inline-block transition-transform ${hopfalld ? "" : "rotate-90"}`}>
+                ›
+              </span>
+            </button>
+          )}
           {titel}
         </h3>
         {kolumner && desktop && (
@@ -65,7 +88,7 @@ export function VySektion({
         {kolumner && !desktop && <KolumnRubrik text={kolumner[kolumner.length - 1]} bredd="" />}
         {las && <LasKnapp {...las} />}
       </div>
-      {antalRader === 0 ? (
+      {fallbar && hopfalld && antalRader > 0 ? null : antalRader === 0 ? (
         <div className="bok-mono border-b border-bok-linje-svagast py-[9px] text-[11px] text-bok-meta">
           {tom}
         </div>
