@@ -16,7 +16,6 @@ import {
   Sun,
   Shield,
   LogOut,
-  ScrollText,
   FileCheck,
   WalletCards,
   Upload,
@@ -40,7 +39,6 @@ const navItems = [
   { href: "/reports", label: "Rapporter", icon: BarChart3 },
   { href: "/bokslut", label: "Bokslut", icon: FileCheck },
   { href: "/learning", label: "Agentinstruktioner", icon: Brain },
-  { href: "/audit", label: "Logg", icon: ScrollText },
   { href: "/settings", label: "Inställningar", icon: Settings },
 ];
 

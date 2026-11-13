@@ -29,6 +29,7 @@ import { lasApi } from "@/lib/skal/las";
 import { dropzoneStatus } from "@/lib/skal/dropzone";
 import { ANSTALLDA_NYCKEL, anstalldaApi, anstalldaStatus } from "@/lib/skal/anstallda";
 import { KONTOPLAN_NYCKEL, kontoplanApi, kontoplanStatus } from "@/lib/skal/kontoplan";
+import { REVISIONSLOGG_NYCKEL, revisionsloggApi, revisionsloggStatus } from "@/lib/skal/revisionslogg";
 import { sokVy } from "@/lib/skal/sok";
 import { FEL_VY, INGET_AR_VY, LADDAR_VY, type VyData } from "@/lib/skal/vydata";
 import type { Sidnyckel, Vynyckel } from "@/lib/skal/vyer";
@@ -159,6 +160,14 @@ export function useVyer(
     queryFn: kontoplanApi.lista,
     enabled: sida === "bocker",
     staleTime: 10 * 60 * 1000,
+  });
+  // Revisionsloggens senaste händelse, till statusraden. Ingen sida av
+  // `RevisionsloggVy`s lista: bara en händelse.
+  const senasteLogg = useQuery({
+    queryKey: [...REVISIONSLOGG_NYCKEL, "senaste"],
+    queryFn: () => revisionsloggApi.sida([], 0, 1),
+    enabled: sida === "bocker",
+    staleTime: 30 * 1000,
   });
   const saknar = useQuery({
     queryKey: [...VOUCHERS_NYCKEL, "skal", id, "saknar"],
@@ -360,6 +369,7 @@ export function useVyer(
     },
     // Kontoplanen har sin egen komponent (`KontoplanVy`); här bara statusraden.
     "bocker.kontoplan": statusrad(kontoplanStatus(kontoplan.data, kontoplan.isError)),
+    "bocker.revisionslogg": statusrad(revisionsloggStatus(senasteLogg.data, senasteLogg.isError)),
     // Anställda har sin egen komponent (`AnstalldaVy`); här bara statusraden.
     "betala.anstallda": {
       data: {

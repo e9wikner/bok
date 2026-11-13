@@ -55,54 +55,47 @@ class AuditRepository:
         WHERE entity_type = ? AND entity_id = ?
         ORDER BY timestamp ASC
         """
-        cursor = db.execute(sql, (entity_type, entity_id))
-        entries = []
-
-        for row in cursor.fetchall():
-            payload = None
-            if row["payload"]:
-                payload = json.loads(row["payload"])
-
-            entries.append(
-                AuditLogEntry(
-                    id=row["id"],
-                    entity_type=row["entity_type"],
-                    entity_id=row["entity_id"],
-                    action=AuditAction(row["action"]),
-                    actor=row["actor"],
-                    payload=payload,
-                    timestamp=datetime.fromisoformat(row["timestamp"]),
-                )
-            )
-
-        return entries
+        return [
+            _row_to_entry(row)
+            for row in db.execute(sql, (entity_type, entity_id)).fetchall()
+        ]
 
     @staticmethod
-    def list_recent(limit: int = 100) -> List[AuditLogEntry]:
-        """Get recent audit log entries."""
-        sql = """
-        SELECT * FROM audit_log
-        ORDER BY timestamp DESC
-        LIMIT ?
+    def list_recent(
+        limit: int = 100,
+        offset: int = 0,
+        entity_types: Optional[List[str]] = None,
+        action: Optional[str] = None,
+    ) -> List[AuditLogEntry]:
+        """Audit log entries, newest first.
+
+        The filters are applied before `limit`/`offset`, so a page holds
+        `limit` matching entries, and the trail can be read back page by page.
         """
-        cursor = db.execute(sql, (limit,))
-        entries = []
+        where = []
+        params: list = []
+        if entity_types:
+            where.append(f"entity_type IN ({', '.join('?' for _ in entity_types)})")
+            params.extend(entity_types)
+        if action:
+            where.append("action = ?")
+            params.append(action)
+        sql = "SELECT * FROM audit_log"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        # `rowid` breaks ties within the same timestamp in write order.
+        sql += " ORDER BY timestamp DESC, rowid DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+        return [_row_to_entry(row) for row in db.execute(sql, tuple(params)).fetchall()]
 
-        for row in cursor.fetchall():
-            payload = None
-            if row["payload"]:
-                payload = json.loads(row["payload"])
 
-            entries.append(
-                AuditLogEntry(
-                    id=row["id"],
-                    entity_type=row["entity_type"],
-                    entity_id=row["entity_id"],
-                    action=AuditAction(row["action"]),
-                    actor=row["actor"],
-                    payload=payload,
-                    timestamp=datetime.fromisoformat(row["timestamp"]),
-                )
-            )
-
-        return entries
+def _row_to_entry(row) -> AuditLogEntry:
+    return AuditLogEntry(
+        id=row["id"],
+        entity_type=row["entity_type"],
+        entity_id=row["entity_id"],
+        action=AuditAction(row["action"]),
+        actor=row["actor"],
+        payload=json.loads(row["payload"]) if row["payload"] else None,
+        timestamp=datetime.fromisoformat(row["timestamp"]),
+    )

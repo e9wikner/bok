@@ -155,7 +155,7 @@ export function SidNav({
         );
       })}
       {/* Det som ännu bara finns på de gamla sidorna (oppna-beslut, Städning):
-          företagets uppgifter och revisionsspåret. */}
+          företagets uppgifter. */}
       <div className="mt-auto flex flex-col gap-[2px] border-t border-bok-linje-svag pt-4">
         <span className="bok-etikett px-3 pb-[6px] text-[10px] text-bok-meta">Fler sidor</span>
         {FLER_SIDOR.map((l) => (
@@ -175,6 +175,5 @@ export function SidNav({
 
 const FLER_SIDOR = [
   { href: "/settings", titel: "Inställningar" },
-  { href: "/audit", titel: "Revisionslogg" },
   { href: "/", titel: "Klassiska vyn" },
 ] as const;

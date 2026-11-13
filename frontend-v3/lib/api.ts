@@ -1114,14 +1114,6 @@ export const api = {
     return data as Blob;
   },
 
-  // Audit Log
-  getAuditLog: async (limit = 100, entityType?: string, action?: string) => {
-    const { data } = await apiClient.get("/api/v1/audit/log", {
-      params: { limit, entity_type: entityType, action },
-    });
-    return data;
-  },
-
   // SRU Mappings
   getSRUFields: async () => {
     const { data } = await apiClient.get(`/api/v1/sru-fields`);

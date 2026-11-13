@@ -92,6 +92,7 @@ describe("skalet i drift", () => {
       "bocker.verifikationer",
       "bocker.dropzone",
       "bocker.kontoplan",
+      "bocker.revisionslogg",
     ]);
   });
 

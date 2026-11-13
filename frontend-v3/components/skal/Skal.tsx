@@ -9,6 +9,7 @@ import { BokslutVy } from "@/components/skal/BokslutVy";
 import { ChattBubbla } from "@/components/skal/ChattBubbla";
 import { DropzoneVy } from "@/components/skal/DropzoneVy";
 import { KontoplanVy } from "@/components/skal/KontoplanVy";
+import { RevisionsloggVy } from "@/components/skal/RevisionsloggVy";
 import { DetaljLager } from "@/components/skal/Detalj";
 import { DetaljProvider, useDetaljHistorik } from "@/components/skal/DetaljKontext";
 import { Header } from "@/components/skal/Header";
@@ -266,6 +267,8 @@ export function Skal() {
             <DropzoneVy titel={vy.titel} variant={variant} />
           ) : vy.key === "bocker.kontoplan" ? (
             <KontoplanVy titel={vy.titel} variant={variant} />
+          ) : vy.key === "bocker.revisionslogg" ? (
+            <RevisionsloggVy titel={vy.titel} variant={variant} />
           ) : vy.key === "betala.anstallda" ? (
             <AnstalldaVy titel={vy.titel} variant={variant} onGaTill={gaTillVy} />
           ) : null;

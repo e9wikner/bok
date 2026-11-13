@@ -24,7 +24,7 @@ export interface Konto {
 export const kontoplanApi = {
   lista: async (): Promise<Konto[]> => {
     const { data } = await apiClient.get<{ accounts: Konto[] }>("/api/v1/accounts");
-    return data.accounts;
+    return data?.accounts ?? [];
   },
 };
 
