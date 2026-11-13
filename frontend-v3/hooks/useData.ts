@@ -2,92 +2,12 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { IntakeKind, IntakeStatus } from "@/lib/api";
 
 export function useVouchers(status?: string, limit = 15, offset = 0, search?: string, sortBy?: string, sortOrder?: string, fiscalYearId?: string, excludeSeries?: string) {
   return useQuery({
     queryKey: ["vouchers", status, limit, offset, search, sortBy, sortOrder, fiscalYearId, excludeSeries],
     queryFn: () => api.getVouchers(status, limit, offset, search, sortBy, sortOrder, fiscalYearId, excludeSeries),
     staleTime: 5 * 60 * 1000,
-  });
-}
-
-export function useVoucher(id: string) {
-  return useQuery({
-    queryKey: ["voucher", id],
-    queryFn: () => api.getVoucher(id),
-    staleTime: 5 * 60 * 1000,
-  });
-}
-
-export function useVoucherSourceContext(voucherId?: string) {
-  return useQuery({
-    queryKey: ["voucher-source-context", voucherId],
-    queryFn: () => api.getVoucherSourceContext(voucherId as string),
-    staleTime: 60 * 1000,
-    enabled: !!voucherId,
-  });
-}
-
-export function useCorrectionNotes(voucherId?: string) {
-  return useQuery({
-    queryKey: ["correction-notes", voucherId],
-    queryFn: () => api.getCorrectionNotes(voucherId as string),
-    staleTime: 60 * 1000,
-    enabled: !!voucherId,
-  });
-}
-
-export function useIntakeWorkspace(params?: {
-  status?: IntakeStatus;
-  kind?: IntakeKind;
-  limit?: number;
-  offset?: number;
-}) {
-  return useQuery({
-    queryKey: [
-      "intake-workspace",
-      params?.status,
-      params?.kind,
-      params?.limit,
-      params?.offset,
-    ],
-    queryFn: () => api.getIntakeWorkspace(params),
-    staleTime: 60 * 1000,
-  });
-}
-
-export function useDropzoneStatus() {
-  return useQuery({
-    queryKey: ["dropzone-status"],
-    queryFn: () => api.getDropzoneStatus(),
-    staleTime: 30 * 1000,
-    refetchInterval: 60 * 1000,
-  });
-}
-
-export function useIntakeDetail(kind?: IntakeKind, id?: string) {
-  return useQuery({
-    queryKey: ["intake-detail", kind, id],
-    queryFn: () => api.getIntakeDetail(kind as IntakeKind, id as string),
-    staleTime: 60 * 1000,
-    enabled: !!kind && !!id,
-  });
-}
-
-export function useBankInputConnections() {
-  return useQuery({
-    queryKey: ["bank-input-connections"],
-    queryFn: () => api.getBankInputConnections(),
-    staleTime: 5 * 60 * 1000,
-  });
-}
-
-export function useAccounts() {
-  return useQuery({
-    queryKey: ["accounts"],
-    queryFn: () => api.getAccounts(),
-    staleTime: 10 * 60 * 1000,
   });
 }
 
@@ -120,14 +40,6 @@ export function useIncomeStatement(year?: number, month?: number, fiscalYearId?:
     queryKey: ["income-statement", year, month, fiscalYearId],
     queryFn: () => api.getIncomeStatement(year, month, fiscalYearId),
     staleTime: 5 * 60 * 1000,
-  });
-}
-
-export function usePeriods(fiscalYearId?: string) {
-  return useQuery({
-    queryKey: ["periods", fiscalYearId],
-    queryFn: () => api.getPeriods(fiscalYearId),
-    staleTime: 10 * 60 * 1000,
   });
 }
 

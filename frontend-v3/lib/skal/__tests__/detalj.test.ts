@@ -320,3 +320,28 @@ describe("lagret i URL:en", () => {
     expect(lasDetalj(url.searchParams.get("konto"), url.searchParams.get("ver"))).toEqual({ typ: "ver", id: "a b" });
   });
 });
+
+describe("verifikationens rättelse och historik", () => {
+  it("en postad verifikation har länken som ber agenten rätta, i Verifikationers chatt", () => {
+    const ratta = rader(verifikationVy(verifikation())).find((r) => r.id === "ratta");
+    expect(ratta?.fraga).toEqual({ viewKey: "bocker.verifikationer", text: "Rätta A-12: ", etikett: "be agenten rätta" });
+  });
+
+  it("ett utkast och en redan rättad verifikation har den inte", () => {
+    expect(rader(verifikationVy(verifikation({ status: "draft", number: null }))).find((r) => r.id === "ratta")).toBeUndefined();
+    const rattad = verifikation({ corrected_by: { id: "b1", series: "B", number: 3 } as never });
+    expect(rader(verifikationVy(rattad)).find((r) => r.id === "ratta")).toBeUndefined();
+  });
+
+  it("visar behandlingshistoriken: vad, vem och när", () => {
+    const vy = verifikationVy(verifikation(), [
+      { id: "h1", action: "created", actor: "agent", timestamp: "2026-03-05T07:59:00" },
+      { id: "h2", action: "posted", actor: "admin", timestamp: "2026-03-05T08:00:00" },
+    ]);
+    const handelser = vy.sektioner.find((s) => s.titel === "Händelser")!.rader;
+    expect(handelser.map((r) => [r.titel, r.meta])).toEqual([
+      ["Skapad", "agenten · 2026-03-05 07:59"],
+      ["Bokförd", "admin · 2026-03-05 08:00"],
+    ]);
+  });
+});

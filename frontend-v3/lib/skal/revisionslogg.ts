@@ -80,7 +80,7 @@ const SAK: Record<string, string> = {
   thread: "Tråd",
 };
 
-const HANDLING: Record<string, string> = {
+export const HANDLING: Record<string, string> = {
   created: "skapad",
   updated: "ändrad",
   posted: "bokförd",
@@ -143,7 +143,12 @@ export function handelseMeta(h: Logghandelse): string {
     : tid.toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" });
   const debet = h.payload?.total_debit;
   const belopp = h.entity_type === "voucher" && typeof debet === "number" && debet > 0 ? formatBeloppHela(debet) : null;
-  return [AKTOR[h.actor] ?? h.actor, klocka, belopp].filter(Boolean).join(" · ");
+  return [aktorText(h.actor), klocka, belopp].filter(Boolean).join(" · ");
+}
+
+/** Vem som gjorde det, i ord: "agenten", "SIE4-import", annars namnet. */
+export function aktorText(actor: string): string {
+  return AKTOR[actor] ?? actor;
 }
 
 /** Verifikationen händelsen gäller, om den går att öppna. */

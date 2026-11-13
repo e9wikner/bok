@@ -97,7 +97,7 @@ export default function DashboardPage() {
           title="Verifikationsutkast"
           value={draftVoucherCount}
           description="Utkast före bokföring"
-          href="/vouchers?status=draft&fiscalYear=all"
+          href="/v4?sida=bocker&vy=verifikationer"
           icon={FileClock}
           urgent={draftVoucherCount > 0}
         />
@@ -150,7 +150,7 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent className="grid gap-2">
             <QuickLink href="/v4?sida=betala&vy=fakturering" icon={Receipt} label="Granska fakturautkast" />
-            <QuickLink href="/vouchers/new" icon={FileText} label="Skapa verifikation" />
+            <QuickLink href="/v4?sida=bocker&vy=verifikationer" icon={FileText} label="Verifikationer" />
             <QuickLink href="/v4?sida=bokslut&vy=oversikt" icon={ClipboardList} label="Öppna bokslut" />
             <QuickLink href="/v4?sida=bocker&vy=instruktioner" icon={Bot} label="Agentinstruktioner" />
           </CardContent>
@@ -202,7 +202,7 @@ export default function DashboardPage() {
               <CardTitle>Senaste verifikationer</CardTitle>
               <CardDescription>Senaste bokföringshändelserna.</CardDescription>
             </div>
-            <Link href="/vouchers" className="text-sm text-primary hover:underline">
+            <Link href="/v4?sida=bocker&vy=verifikationer" className="text-sm text-primary hover:underline">
               Visa alla
             </Link>
           </CardHeader>
@@ -218,7 +218,7 @@ export default function DashboardPage() {
                 {vouchers.slice(0, 5).map((voucher: any) => (
                   <RowLink
                     key={voucher.id}
-                    href={`/vouchers/${voucher.id}`}
+                    href={`/v4?sida=bocker&vy=verifikationer&ver=${voucher.id}`}
                     title={`${formatVerifikationsnummer(voucher.number, voucher.series || "A")} · ${voucher.description}`}
                     meta={`${formatDate(voucher.date)} · ${voucher.status === "posted" ? "Bokförd" : "Utkast"}`}
                     value={formatCurrency(voucher.total_debit || 0)}

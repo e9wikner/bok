@@ -598,61 +598,6 @@ export const api = {
     });
     return data;
   },
-  getVoucher: async (id: string) => {
-    const { data } = await apiClient.get(`/api/v1/vouchers/${id}`);
-    return data;
-  },
-  getVoucherSourceContext: async (
-    voucherId: string
-  ): Promise<VoucherSourceContext> => {
-    const { data } = await apiClient.get(
-      `/api/v1/vouchers/${voucherId}/source-context`
-    );
-    return data;
-  },
-  getCorrectionNotes: async (voucherId: string): Promise<CorrectionNote[]> => {
-    const { data } = await apiClient.get(
-      `/api/v1/vouchers/${voucherId}/correction-notes`
-    );
-    return data;
-  },
-  createCorrectionNote: async (
-    voucherId: string,
-    note_text: string
-  ): Promise<CorrectionNote> => {
-    const { data } = await apiClient.post(
-      `/api/v1/vouchers/${voucherId}/correction-notes`,
-      { note_text }
-    );
-    return data;
-  },
-  approveCorrectionNote: async (
-    voucherId: string,
-    noteId: string,
-    rows?: CorrectionRowPayload[]
-  ): Promise<Voucher> => {
-    const { data } = await apiClient.post(
-      `/api/v1/vouchers/${voucherId}/correction-notes/${noteId}/approve`,
-      { rows }
-    );
-    return data;
-  },
-  dismissCorrectionNote: async (
-    voucherId: string,
-    noteId: string,
-    reason?: string
-  ): Promise<CorrectionNote> => {
-    const { data } = await apiClient.post(
-      `/api/v1/vouchers/${voucherId}/correction-notes/${noteId}/dismiss`,
-      { reason }
-    );
-    return data;
-  },
-  // Accounts
-  getAccounts: async () => {
-    const { data } = await apiClient.get("/api/v1/accounts");
-    return data;
-  },
 
   // Invoices
   getInvoices: async (status?: string, limit?: number, offset?: number, search?: string) => {
@@ -702,158 +647,14 @@ export const api = {
     return data;
   },
 
-  // Intake workspace
-  getIntakeWorkspace: async (params?: {
-    status?: IntakeStatus;
-    kind?: IntakeKind;
-    limit?: number;
-    offset?: number;
-  }): Promise<IntakeWorkspaceResponse> => {
-    const { data } = await apiClient.get("/api/v1/intake/workspace", {
-      params,
-    });
-    return data;
-  },
-  getDropzoneStatus: async (): Promise<DropzoneStatus> => {
-    const { data } = await apiClient.get("/api/v1/intake/dropzone/status");
-    return data;
-  },
-  getIntakeDetail: async (
-    kind: IntakeKind,
-    id: string
-  ): Promise<IntakeDetailResponse> => {
-    const { data } = await apiClient.get(
-      `/api/v1/intake/workspace/${kind}/${id}`
-    );
-    return data;
-  },
-  uploadIntakeSource: async (payload: {
-    file: File;
-    source_type?: string;
-    explanation?: string;
-    agent_guidance?: string;
-  }): Promise<IntakeSourceUploadResponse> => {
-    const formData = new FormData();
-    formData.append("file", payload.file);
-    if (payload.source_type) {
-      formData.append("source_type", payload.source_type);
-    }
-    if (payload.explanation) {
-      formData.append("explanation", payload.explanation);
-    }
-    if (payload.agent_guidance) {
-      formData.append("agent_guidance", payload.agent_guidance);
-    }
-    const { data } = await apiClient.post("/api/v1/intake", formData, {
-      headers: { "Content-Type": "multipart/form-data" },
-    });
-    return data;
-  },
-  updateIntakeGuidance: async (
-    id: string,
-    agent_guidance?: string | null
-  ): Promise<IntakeSourceUploadResponse> => {
-    const { data } = await apiClient.put(`/api/v1/intake/${id}/agent-guidance`, {
-      agent_guidance,
-    });
-    return data;
-  },
-  getBankInputConnections: async (): Promise<{
-    items: BankConnectionOption[];
-  }> => {
-    const { data } = await apiClient.get("/api/v1/bank-inputs/connections");
-    return data;
-  },
-  uploadBankInput: async (payload: {
-    file: File;
-    bank_connection_id: string;
-  }): Promise<BankInputUploadResponse> => {
-    const formData = new FormData();
-    formData.append("file", payload.file);
-    formData.append("bank_connection_id", payload.bank_connection_id);
-    const { data } = await apiClient.post("/api/v1/bank-inputs", formData, {
-      headers: { "Content-Type": "multipart/form-data" },
-    });
-    return data;
-  },
-  deleteIntakeSource: async (id: string): Promise<void> => {
-    await apiClient.delete(`/api/v1/intake/${id}`);
-  },
-  deleteBankInput: async (id: string): Promise<void> => {
-    await apiClient.delete(`/api/v1/bank-inputs/${id}`);
-  },
   // Fiscal years
   getFiscalYears: async () => {
     const { data } = await apiClient.get("/api/v1/fiscal-years");
     return data;
   },
 
-  // Voucher audit trail
-  getVoucherAudit: async (id: string) => {
-    const { data } = await apiClient.get(`/api/v1/vouchers/${id}/audit`);
-    return data;
-  },
-
-  // Voucher attachments
-  getVoucherAttachments: async (id: string) => {
-    const { data } = await apiClient.get(`/api/v1/vouchers/${id}/attachments`);
-    return data;
-  },
-  uploadVoucherAttachment: async (id: string, file: File) => {
-    const formData = new FormData();
-    formData.append("file", file);
-    const { data } = await apiClient.post(
-      `/api/v1/vouchers/${id}/attachments`,
-      formData,
-      { headers: { "Content-Type": "multipart/form-data" } }
-    );
-    return data;
-  },
-  deleteVoucherAttachment: async (id: string, attachmentId: string) => {
-    const { data } = await apiClient.delete(
-      `/api/v1/vouchers/${id}/attachments/${attachmentId}`
-    );
-    return data;
-  },
-
-  // Update voucher
-  updateVoucher: async (id: string, payload: {
-    rows: { account: string; debit: number; credit: number; description?: string }[];
-    reason?: string;
-  }) => {
-    const { data } = await apiClient.put(`/api/v1/vouchers/${id}`, payload);
-    return data;
-  },
-  correctVoucher: async (id: string, payload: {
-    corrected_rows: { account: string; debit: number; credit: number; description?: string }[];
-    reason?: string;
-  }) => {
-    const { data } = await apiClient.post(`/api/v1/vouchers/${id}/correct`, payload);
-    return data;
-  },
-
-  // Create voucher
-  createVoucher: async (payload: {
-    series?: string;
-    date: string;
-    period_id: string;
-    description: string;
-    rows: { account: string; debit: number; credit: number; description?: string }[];
-    auto_post?: boolean;
-  }) => {
-    const { data } = await apiClient.post("/api/v1/vouchers", payload);
-    return data;
-  },
-
   getAccountingCorrections: async (limit = 100) => {
     const { data } = await apiClient.get("/api/v1/accounting-corrections", { params: { limit } });
-    return data;
-  },
-
-  // Periods
-  getPeriods: async (fiscalYearId?: string) => {
-    const params = fiscalYearId ? { fiscal_year_id: fiscalYearId } : undefined;
-    const { data } = await apiClient.get("/api/v1/periods", { params });
     return data;
   },
 
@@ -864,25 +665,7 @@ export const api = {
     });
     return data as Blob;
   },
-  getIntakeFile: async (kind: IntakeKind, id: string): Promise<Blob> => {
-    const endpoint =
-      kind === "bank_input"
-        ? `/api/v1/bank-inputs/${id}/file`
-        : `/api/v1/intake/${id}/file`;
-    const { data } = await apiClient.get(endpoint, {
-      responseType: "blob",
-    });
-    return data as Blob;
-  },
 
-  // Every API route needs the bearer, files too, so a file is fetched as a
-  // Blob -- never a plain <img src> or href, which would carry no token.
-  getAttachmentFile: async (voucherId: string, attachmentId: string): Promise<Blob> => {
-    const { data } = await apiClient.get(`/api/v1/vouchers/${voucherId}/attachments/${attachmentId}`, {
-      responseType: "blob",
-    });
-    return data as Blob;
-  },
 };
 
 export default apiClient;

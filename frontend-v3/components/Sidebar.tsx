@@ -30,8 +30,8 @@ const NYA_BOKAI =
 
 const navItems = [
   { href: "/", label: "Översikt", icon: LayoutDashboard },
-  { href: "/vouchers", label: "Verifikationer", icon: FileText },
-  { href: "/vouchers/intake", label: "Intag", icon: Upload },
+  { href: "/v4?sida=bocker&vy=verifikationer", label: "Verifikationer", icon: FileText },
+  { href: "/v4?sida=bocker&vy=dropzone", label: "Intag", icon: Upload },
   { href: "/v4?sida=betala&vy=fakturering", label: "Fakturor", icon: Receipt },
   { href: "/v4?sida=betala&vy=lonebesked", label: "Lön", icon: WalletCards },
   { href: "/v4?sida=bokslut&vy=oversikt", label: "Bokslut", icon: FileCheck },
