@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import type { SidMeta } from "@/components/skal/SidVaeljare";
 import { TemaVaxel, type Tema } from "@/components/skal/TemaVaxel";
 import type { OverviewAnnatAr } from "@/lib/skal/api";
@@ -30,6 +29,7 @@ export function SidNav({
   onValjVy,
   onValjAr,
   tema,
+  version = null,
 }: {
   aktivVy: Vynyckel;
   metaPerSida: Partial<Record<Sidnyckel, SidMeta>>;
@@ -42,6 +42,8 @@ export function SidNav({
   onValjVy: (key: Vynyckel) => void;
   onValjAr?: (id: string) => void;
   tema?: Tema;
+  /** Serverns version och commit, i foten. */
+  version?: string | null;
 }) {
   return (
     <nav
@@ -154,28 +156,11 @@ export function SidNav({
           </div>
         );
       })}
-      {/* Det som ännu bara finns på de gamla sidorna (oppna-beslut, Städning):
-          företagets uppgifter, kontoplanen och revisionsspåret. */}
       <div className="mt-auto flex flex-col gap-[2px] border-t border-bok-linje-svag pt-4">
-        <span className="bok-etikett px-3 pb-[6px] text-[10px] text-bok-meta">Fler sidor</span>
-        {FLER_SIDOR.map((l) => (
-          <Link
-            key={l.href}
-            href={l.href}
-            className="flex min-h-[32px] items-center rounded-lg px-3 text-[13px] text-bok-text-2 transition-colors hover:bg-bok-yta-svag hover:text-bok-text"
-          >
-            {l.titel}
-          </Link>
-        ))}
         {tema && <TemaVaxel tema={tema} />}
+        {version && <span className="bok-mono px-3 pt-2 text-[10px] text-bok-meta">{version}</span>}
       </div>
     </nav>
   );
 }
 
-const FLER_SIDOR = [
-  { href: "/settings", titel: "Inställningar" },
-  { href: "/accounts", titel: "Kontoplan" },
-  { href: "/audit", titel: "Revisionslogg" },
-  { href: "/", titel: "Klassiska vyn" },
-] as const;

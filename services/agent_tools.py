@@ -77,7 +77,7 @@ The twenty-third to twenty-sixth are payroll, appended after
 ``koppla_bort_banktransaktion`` for the same reason: ``las_loner``
 (read-only), ``registrera_anstalld``, ``satt_lon`` and
 ``skapa_lonekorning``. They call ``PayrollService``, the same code as
-/payroll, and write employees, salary settings, payroll runs and payslips --
+the payroll routes, and write employees, salary settings, payroll runs and payslips --
 never a voucher. The three that write refuse outside a thread. Booking a
 payslip is proposed, never done (the thirtieth, below); an AGI is booked
 from its kvittens (the thirty-first).

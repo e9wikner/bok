@@ -479,9 +479,7 @@ def test_source_context_lists_statement_links(books):
         BANK_HEADER + "2026-01-15;-300000,00;Till skattekonto\n",
         filename="1930 jan.csv",
     )
-    context = asyncio.run(
-        get_voucher_source_context(voucher.id, ledger=books[0], actor="test")
-    )
+    context = asyncio.run(get_voucher_source_context(voucher.id, actor="test"))
     [link] = context["statement_links"]
     assert link["account_code"] == "1930"
     assert link["date"] == "2026-01-15"
@@ -687,9 +685,7 @@ def test_a_wrong_automatic_link_is_undone_and_linked_right(books):
         (tx_id,),
     ).fetchall()
     assert [r["voucher_id"] for r in history] == [wrong.id, right.id]
-    wrong_context = asyncio.run(
-        get_voucher_source_context(wrong.id, ledger=books[0], actor="test")
-    )
+    wrong_context = asyncio.run(get_voucher_source_context(wrong.id, actor="test"))
     assert wrong_context["statement_links"] == []
     assert BankInputRepository.list_inputs_for_voucher(wrong.id) == []
     assert len(BankInputRepository.list_inputs_for_voucher(right.id)) == 1

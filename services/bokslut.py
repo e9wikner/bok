@@ -178,6 +178,13 @@ class BokslutService:
                 "beskrivning": "Undertecknas efter årsstämman",
                 "url": f"{base}/faststallelseintyg.pdf",
             },
+            {
+                "id": "sie4",
+                "grupp": "revisor eller annat program",
+                "label": "SIE4",
+                "beskrivning": "Årets verifikationer, kontoplan och saldon",
+                "url": f"{base}/bokforing.si",
+            },
         ]
 
     # ── Kontroller ─────────────────────────────────────────────────────────
@@ -488,6 +495,16 @@ class BokslutService:
                 pdf,
                 "application/pdf",
                 f"Faststallelseintyg_{_filnamn(report['company']['name'])}_{year}.pdf",
+            )
+
+        if name == "bokforing.si":
+            from services.sie4_export import SIE4Exporter
+
+            exporter = SIE4Exporter()
+            return (
+                exporter.export(fiscal_year_id=fiscal_year_id),
+                "application/x-sie",
+                exporter.get_filename(exporter.company_name(), fy),
             )
 
         raise KeyError(name)

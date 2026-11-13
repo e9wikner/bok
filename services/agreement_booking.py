@@ -141,10 +141,8 @@ class AgreementBookingService:
         counter = self._counter_account(counter_account, account_code)
 
         from repositories.thread_repo import ThreadRepository
-        from services.fiscal_year_proposal import (
-            FiscalYearProposalService,
-            _publish,
-        )
+        from services.fiscal_year_proposal import FiscalYearProposalService
+        from services.thread_stream import publish_posts
 
         pending = AgreementBookingRepository.pending_for_source(source.id)
         if pending is not None:
@@ -194,7 +192,7 @@ class AgreementBookingService:
             raise
 
         if thread is None:
-            _publish(ThreadRepository.list_posts(target.id, since=seq_before))
+            publish_posts(ThreadRepository.list_posts(target.id, since=seq_before))
         return {
             "booking_id": booking.id,
             "decision_id": booking.decision_id,

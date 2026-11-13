@@ -26,7 +26,7 @@ import json
 import logging
 import threading
 from datetime import date
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 from domain.models import Thread, ThreadPost
 from repositories.agent_run_repo import AgentRunRepository
@@ -262,6 +262,19 @@ _broker = ThreadBroker()
 def get_broker() -> ThreadBroker:
     """The process-wide broker."""
     return _broker
+
+
+def publish_posts(posts: Iterable[ThreadPost]) -> None:
+    """`message.completed` for posts written outside a turn (a card's
+    receipt, an error post after a press). Never fatal: the posts are
+    stored, and the next read of the thread shows them."""
+    for post in posts:
+        try:
+            _broker.publish(
+                post.thread_id, EVENT_MESSAGE_COMPLETED, post_event_payload(post)
+            )
+        except Exception:
+            logger.exception("Post %s was not published", post.id)
 
 
 # ---------------------------------------------------------------------------

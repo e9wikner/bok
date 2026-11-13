@@ -18,6 +18,7 @@ from typing import Any, List, Mapping, Optional, Sequence, Tuple
 
 from db.database import db
 from domain.models import ThreadDraft
+from repositories.dates import as_datetime, req_datetime
 
 STATUSES = ("pending", "posted", "superseded", "rejected")
 
@@ -369,13 +370,13 @@ class ThreadDraftRepository:
             correction_of=row["correction_of"],
             correction_note_id=row["correction_note_id"],
             replaced_by=row["replaced_by"],
-            rejected_at=_parse_datetime(row["rejected_at"]),
+            rejected_at=as_datetime(row["rejected_at"]),
             rejected_by=row["rejected_by"],
-            posted_at=_parse_datetime(row["posted_at"]),
+            posted_at=as_datetime(row["posted_at"]),
             receipt_post_id=row["receipt_post_id"],
             last_error_code=row["last_error_code"],
             last_error_post_id=row["last_error_post_id"],
-            created_at=_parse_required_datetime(row["created_at"]),
+            created_at=req_datetime(row["created_at"]),
             intake_source_ids=list(traceability.get("intake_source_ids", [])),
             bank_input_ids=list(traceability.get("bank_input_ids", [])),
             bank_transaction_ids=list(traceability.get("bank_transaction_ids", [])),
@@ -384,18 +385,3 @@ class ThreadDraftRepository:
                 for k, v in traceability.get("shared_intake_sources", {}).items()
             },
         )
-
-
-def _parse_datetime(value: Any) -> Optional[datetime]:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value
-    return datetime.fromisoformat(value)
-
-
-def _parse_required_datetime(value: Any) -> datetime:
-    """`created_at` is `NOT NULL` in the schema."""
-    parsed = _parse_datetime(value)
-    assert parsed is not None
-    return parsed

@@ -220,6 +220,18 @@ export async function kopplaLonebesked(payslipId: string, voucherId: string): Pr
  * `POST /payroll/payslips/{id}/book`: lönen bokförs mot utbetalningen på
  * kontoutdraget. Bara en inloggad människa (API-nyckeln får `403 human_only`).
  */
+/**
+ * `POST /invoices/{id}/payment`: en betalning på en utfärdad faktura. Servern
+ * bokför den (debet bankkontot, kredit 1510) i betalningsdagens period.
+ */
+export async function registreraBetalning(invoiceId: string, belopp: number, datum: string): Promise<void> {
+  await apiClient.post(`/api/v1/invoices/${encodeURIComponent(invoiceId)}/payment`, {
+    amount: belopp,
+    payment_date: datum,
+    payment_method: "bank_transfer",
+  });
+}
+
 export async function bokforLonebesked(payslipId: string, transactionId: string): Promise<void> {
   await apiClient.post(`/api/v1/payroll/payslips/${encodeURIComponent(payslipId)}/book`, {
     bank_transaction_id: transactionId,

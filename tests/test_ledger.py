@@ -185,8 +185,8 @@ def test_audit_history(ledger_service, test_period):
     ledger_service.post_voucher(voucher.id, actor="test")
 
     # Get audit history
-    history = ledger_service.get_audit_history("voucher", voucher.id)
+    history = ledger_service.audit.get_history("voucher", voucher.id)
 
     assert len(history) >= 2  # At least created + posted
-    assert history[0]["action"] == "created"
-    assert any(h["action"] == "posted" for h in history)
+    assert history[0].action.value == "created"
+    assert any(h.action.value == "posted" for h in history)

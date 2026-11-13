@@ -147,7 +147,7 @@ const balansKolumn = () => screen.getAllByText("Balansräkning").length;
 
 beforeEach(() => {
   sokParametrar = new URLSearchParams();
-  window.history.replaceState(null, "", "/v4");
+  window.history.replaceState(null, "", "/");
   get.mockClear();
   post.mockClear();
 });
@@ -233,7 +233,7 @@ describe("konto → huvudbok → verifikation", () => {
 describe("en länk med lagret i", () => {
   it("öppnar verifikationen direkt, och tillbakalänken leder till vyn", async () => {
     sokParametrar = new URLSearchParams("sida=bocker&vy=balans&ver=v1");
-    window.history.replaceState(null, "", "/v4?sida=bocker&vy=balans&ver=v1");
+    window.history.replaceState(null, "", "/?sida=bocker&vy=balans&ver=v1");
     const user = userEvent.setup();
     renderaSkal();
 
@@ -258,7 +258,7 @@ describe("en länk med lagret i", () => {
 describe("Kasta utkast", () => {
   const oppnaUtkast = () => {
     sokParametrar = new URLSearchParams("sida=bocker&vy=balans&ver=u1");
-    window.history.replaceState(null, "", "/v4?sida=bocker&vy=balans&ver=u1");
+    window.history.replaceState(null, "", "/?sida=bocker&vy=balans&ver=u1");
   };
 
   it("en postad verifikation har ingen Kasta", async () => {

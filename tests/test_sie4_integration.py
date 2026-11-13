@@ -12,11 +12,30 @@ import pytest
 from fastapi.testclient import TestClient
 
 from config import settings
+from db.database import db
 from repositories.account_repo import AccountRepository
+from repositories.company_info_repo import CompanyInfoRepository
 from repositories.period_repo import PeriodRepository
 from repositories.voucher_repo import VoucherRepository
 from services.sie4_export import SIE4Exporter
 from services.sie4_import import SIE4Parser
+
+
+def _sie_fil(client, headers, fiscal_year_id, company_name=None):
+    """Årets SIE4-fil, som Bokslut laddar ner den (`/bokslut/{id}/filer/bokforing.si`).
+    Företagsnamnet i #FNAMN kommer ur företagets uppgifter."""
+    if company_name:
+        CompanyInfoRepository.set_values({"name": company_name})
+        db.commit()
+    return client.get(
+        f"/api/v1/bokslut/{fiscal_year_id}/filer/bokforing.si", headers=headers
+    )
+
+
+def _sie_text(client, headers, fiscal_year_id, company_name=None) -> str:
+    resp = _sie_fil(client, headers, fiscal_year_id, company_name)
+    assert resp.status_code == 200, resp.text
+    return resp.content.decode("windows-1252")
 
 
 @pytest.fixture
@@ -434,11 +453,7 @@ class TestSIE4ImportOpeningBalances:
         )
         assert resp.status_code == 200
 
-        content = client.get(
-            "/api/v1/export/sie4",
-            headers=auth_headers,
-            params={"fiscal_year_id": fy.id, "download": False},
-        ).json()["content"]
+        content = _sie_text(client, auth_headers, fy.id)
 
         # IB speglar filens #IB — även konton utan rörelse under året.
         assert "#IB 0 1930 200000.00" in content
@@ -509,71 +524,27 @@ class TestSIE4ImportOpeningBalances:
 
 
 class TestSIE4ExportAPI:
-    """Testa API-endpoints för SIE4-export."""
+    """Årets SIE4-fil genom Bokslutets filer."""
 
-    def test_export_endpoint_get_json(
-        self, client, auth_headers, fiscal_year_with_data
-    ):
-        """Testa GET /api/v1/export/sie4 med JSON-svar."""
-        fy = fiscal_year_with_data
-        resp = client.get(
-            "/api/v1/export/sie4",
-            headers=auth_headers,
-            params={
-                "fiscal_year_id": fy.id,
-                "company_name": "API Test AB",
-                "download": False,
-            },
+    def test_export_file_content(self, client, auth_headers, fiscal_year_with_data):
+        """Årets SIE4-fil är SIE4 med företagets namn."""
+        content = _sie_text(
+            client, auth_headers, fiscal_year_with_data.id, "API Test AB"
         )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "content" in data
-        assert data["format"] == "SIE4"
-        assert "#FLAGGA 0" in data["content"]
-        assert '#FNAMN "API Test AB"' in data["content"]
+        assert "#FLAGGA 0" in content
+        assert '#FNAMN "API Test AB"' in content
 
-    def test_export_endpoint_get_download(
-        self, client, auth_headers, fiscal_year_with_data
-    ):
-        """Testa GET /api/v1/export/sie4 med filnedladdning."""
-        fy = fiscal_year_with_data
-        resp = client.get(
-            "/api/v1/export/sie4",
-            headers=auth_headers,
-            params={
-                "fiscal_year_id": fy.id,
-                "company_name": "Download AB",
-                "download": True,
-            },
-        )
+    def test_export_file_download(self, client, auth_headers, fiscal_year_with_data):
+        """Filen laddas ner som SIE, i Windows-1252."""
+        resp = _sie_fil(client, auth_headers, fiscal_year_with_data.id, "Download AB")
         assert resp.status_code == 200
         assert "attachment" in resp.headers.get("content-disposition", "")
         assert resp.headers.get("content-type") == "application/x-sie"
-        # Verifiera att innehållet är giltigt SIE4
-        content = resp.content.decode("windows-1252")
-        assert "#FLAGGA 0" in content
+        assert "#FLAGGA 0" in resp.content.decode("windows-1252")
 
-    def test_export_endpoint_post(self, client, auth_headers, fiscal_year_with_data):
-        """Testa POST /api/v1/export/sie4."""
-        fy = fiscal_year_with_data
-        resp = client.post(
-            "/api/v1/export/sie4",
-            headers=auth_headers,
-            params={
-                "fiscal_year_id": fy.id,
-                "company_name": "POST Test AB",
-            },
-        )
-        assert resp.status_code == 200
-        assert "attachment" in resp.headers.get("content-disposition", "")
-
-    def test_export_endpoint_not_found(self, client, auth_headers):
+    def test_export_file_not_found(self, client, auth_headers):
         """Testa 404 vid icke-existerande räkenskapsår."""
-        resp = client.get(
-            "/api/v1/export/sie4",
-            headers=auth_headers,
-            params={"fiscal_year_id": "nonexistent"},
-        )
+        resp = _sie_fil(client, auth_headers, "nonexistent")
         assert resp.status_code == 404
 
     def test_full_flow_create_post_export(self, client, auth_headers):
@@ -633,17 +604,7 @@ class TestSIE4ExportAPI:
         assert resp.status_code == 200
 
         # 4. Exportera till SIE4
-        resp = client.get(
-            "/api/v1/export/sie4",
-            headers=auth_headers,
-            params={
-                "fiscal_year_id": fy.id,
-                "company_name": "Fullflöde AB",
-                "download": False,
-            },
-        )
-        assert resp.status_code == 200
-        content = resp.json()["content"]
+        content = _sie_text(client, auth_headers, fy.id, "Fullflöde AB")
 
         # 5. Verifiera exporten
         assert '#FNAMN "Fullflöde AB"' in content

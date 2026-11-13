@@ -4,7 +4,6 @@ This service handles:
 1. Bank connection management (connect, disconnect, status)
 2. Transaction synchronization (fetch new transactions)
 3. Transaction deduplication
-4. Triggering auto-categorization after import
 
 For production: Use Tink API (https://docs.tink.com/)
 For development: Supports manual CSV import and mock data
@@ -274,13 +273,6 @@ class BankIntegrationService:
             "SELECT * FROM bank_transactions WHERE id = ?", (tx_id,)
         ).fetchone()
         return self._row_to_transaction(row) if row else None
-
-    def get_pending_count(self) -> int:
-        """Count transactions awaiting categorization/booking."""
-        row = db.execute(
-            "SELECT COUNT(*) as cnt FROM bank_transactions WHERE status = 'pending'"
-        ).fetchone()
-        return row["cnt"] if row else 0
 
     def update_transaction_status(
         self,
@@ -607,28 +599,6 @@ class BankIntegrationService:
 
     def _is_iso_date(self, value: str) -> bool:
         return re.fullmatch(r"\d{4}-\d{2}-\d{2}", value) is not None
-
-    def get_sync_summary(self) -> Dict:
-        """Get summary of all bank syncs."""
-        rows = db.execute("""
-            SELECT
-                bc.bank_name,
-                bc.status as connection_status,
-                bc.last_sync_at,
-                COUNT(bt.id) as total_transactions,
-                SUM(CASE WHEN bt.status = 'pending' THEN 1 ELSE 0 END) as pending,
-                SUM(CASE WHEN bt.status = 'categorized' THEN 1 ELSE 0 END) as categorized,
-                SUM(CASE WHEN bt.status = 'booked' THEN 1 ELSE 0 END) as booked,
-                SUM(CASE WHEN bt.status = 'ignored' THEN 1 ELSE 0 END) as ignored
-            FROM bank_connections bc
-            LEFT JOIN bank_transactions bt ON bt.bank_connection_id = bc.id
-            GROUP BY bc.id
-        """).fetchall()
-
-        return {
-            "connections": [dict(r) for r in rows],
-            "total_pending": sum(r["pending"] or 0 for r in rows),
-        }
 
     def _row_to_connection(self, row) -> BankConnection:
         return BankConnection(

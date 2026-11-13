@@ -11,11 +11,11 @@ schema's triggers refuse a rewrite or a removal anyway; the repositories do
 not offer one either (the second of three layers).
 """
 
-from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
 
 from db.database import db
 from domain.intake_link import IntakeLinkBasis, IntakeUnlink, VoucherSourceReference
+from repositories.dates import req_datetime
 
 
 class IntakeLinkRepository:
@@ -191,7 +191,7 @@ def _row_to_reference(row) -> VoucherSourceReference:
         intake_source_id=row["intake_source_id"],
         via_voucher_id=row["via_voucher_id"],
         decision_id=row["decision_id"],
-        created_at=_parse_datetime(row["created_at"]),
+        created_at=req_datetime(row["created_at"]),
     )
 
 
@@ -206,7 +206,7 @@ def _row_to_unlink(row) -> IntakeUnlink:
         decision_id=row["decision_id"],
         agent_run_id=row["agent_run_id"],
         thread_id=row["thread_id"],
-        created_at=_parse_datetime(row["created_at"]),
+        created_at=req_datetime(row["created_at"]),
     )
 
 
@@ -220,13 +220,6 @@ def _row_to_basis(row) -> IntakeLinkBasis:
         actor=row["actor"],
         agent_run_id=row["agent_run_id"],
         thread_id=row["thread_id"],
-        created_at=_parse_datetime(row["created_at"]),
+        created_at=req_datetime(row["created_at"]),
         link_id=row["link_id"],
     )
-
-
-def _parse_datetime(value: Any) -> datetime:
-    """`created_at` is `NOT NULL` in the schema."""
-    if isinstance(value, datetime):
-        return value
-    return datetime.fromisoformat(value)

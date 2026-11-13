@@ -7,6 +7,7 @@ from typing import Dict, List, Mapping, Optional
 
 from db.database import db
 from domain.models import CompanyInfoProposal
+from repositories.dates import req_datetime
 
 
 class CompanyInfoProposalRepository:
@@ -99,17 +100,13 @@ class CompanyInfoProposalRepository:
             thread_id=row["thread_id"],
             status=row["status"],
             created_by=row["created_by"],
-            created_at=_datetime(row["created_at"]),
+            created_at=req_datetime(row["created_at"]),
             fill_option_id=row["fill_option_id"],
             overwrite_option_id=row["overwrite_option_id"],
             fill_values=values(row["fill_values"]),
             overwrite_values=values(row["overwrite_values"]),
-            resolved_at=(_datetime(row["resolved_at"]) if row["resolved_at"] else None),
+            resolved_at=(
+                req_datetime(row["resolved_at"]) if row["resolved_at"] else None
+            ),
             resolved_by=row["resolved_by"],
         )
-
-
-def _datetime(value) -> datetime:
-    if isinstance(value, datetime):
-        return value
-    return datetime.fromisoformat(str(value))

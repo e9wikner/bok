@@ -6,14 +6,11 @@ from typing import Any, Dict, List, Optional
 
 from db.database import db
 from domain.payroll_models import Employee, EmployeeSalarySetting, PayrollRun, Payslip
+from repositories.dates import req_date
 
 
 def _dt(value) -> datetime:
     return datetime.fromisoformat(value) if value else datetime.now()
-
-
-def _date(value) -> date:
-    return date.fromisoformat(value) if isinstance(value, str) else value
 
 
 class EmployeeRepository:
@@ -264,7 +261,7 @@ class PayrollRunRepository:
             id=row["id"],
             year=row["year"],
             month=row["month"],
-            payment_date=_date(row["payment_date"]),
+            payment_date=req_date(row["payment_date"]),
             status=row["status"],
             created_at=_dt(row["created_at"]),
             created_by=row["created_by"],
@@ -410,7 +407,7 @@ class PayslipRepository:
             employee_id=row["employee_id"],
             period_year=row["period_year"],
             period_month=row["period_month"],
-            payment_date=_date(row["payment_date"]),
+            payment_date=req_date(row["payment_date"]),
             gross_salary=row["gross_salary"],
             preliminary_tax=row["preliminary_tax"],
             employer_fee=row["employer_fee"],

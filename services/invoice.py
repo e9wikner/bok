@@ -22,6 +22,7 @@ from repositories.invoice_repo import (
     InvoiceRepository,
     PaymentRepository,
 )
+from repositories.period_repo import PeriodRepository
 from repositories.voucher_repo import VoucherRepository
 
 
@@ -398,9 +399,6 @@ class InvoiceService:
 
         return voucher.id
 
-    def _default_revenue_account(self, vat_code: str) -> str:
-        return default_revenue_account(vat_code)
-
     def register_payment(
         self,
         invoice_id: str,
@@ -435,7 +433,12 @@ class InvoiceService:
             # Update invoice paid amount and status
             self.invoices.update_paid_amount(invoice_id, amount)
 
-            # Auto-book payment if period provided
+            # A booked invoice has its receivable on 1510, so its payment is
+            # booked too (debit bank, credit 1510), in the period of the
+            # payment date unless one is named. An invoice from before
+            # issuing booked anything has no receivable to settle.
+            if period_id is None and invoice.voucher_id:
+                period_id = self._period_for(payment_date)
             if period_id:
                 self._create_payment_voucher(invoice, payment, period_id, actor)
 
@@ -459,6 +462,23 @@ class InvoiceService:
             run_statement_match_after_posting()
 
         return payment
+
+    @staticmethod
+    def _period_for(day: date) -> str:
+        from services.fiscal_years import FiscalYearService
+
+        fiscal_year = FiscalYearService.containing(day)
+        period = (
+            PeriodRepository.get_period_by_date(fiscal_year.id, day)
+            if fiscal_year
+            else None
+        )
+        if period is None:
+            raise ValidationError(
+                "period_not_found",
+                f"Det finns ingen räkenskapsperiod för betalningsdagen {day}",
+            )
+        return period.id
 
     def _create_payment_voucher(
         self, invoice: Invoice, payment: Payment, period_id: str, actor: str
@@ -596,21 +616,3 @@ class InvoiceService:
 
         ledger.post_voucher(voucher.id, actor=actor, _commit=False)
         self.credits.link_voucher(credit.id, voucher.id)
-
-    def get_vat_summary_for_period(self, period_id: str) -> Dict:
-        """Get VAT summary for period (for momsrapport)."""
-        # Get all invoices and payments in period
-        # This would sum up VAT by code for momsrapporting
-        # For now, skeleton
-        return {
-            "period_id": period_id,
-            "total_sales_25": 0,
-            "total_sales_12": 0,
-            "total_sales_6": 0,
-            "total_sales_0": 0,
-            "total_vat_25": 0,
-            "total_vat_12": 0,
-            "total_vat_6": 0,
-            "total_input_vat": 0,
-            "net_vat_due": 0,
-        }

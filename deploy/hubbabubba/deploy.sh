@@ -23,7 +23,7 @@
 #   --no-pull      deploy the checkout in $SRC as it stands, without git pull
 #                  (for trying a commit before it is pushed; always rebuilds)
 #   --branch=NAME  switch the checkout to origin's NAME before pulling, e.g.
-#                  --branch=redesign-v4 to preview unmerged work; the checkout
+#                  --branch=my-branch to preview unmerged work; the checkout
 #                  stays on NAME until another --branch (use --branch=main to
 #                  go back)
 #
@@ -166,15 +166,6 @@ fi
 echo "==> source: $(git -C "$SRC" branch --show-current) at $(git -C "$SRC" rev-parse --short HEAD)"
 
 # ── build ───────────────────────────────────────────────────────────────
-# NEXT_PUBLIC_SKAL turns on the new shell at /v4. Next.js
-# inlines NEXT_PUBLIC_* at build time, so it is a build arg, not a runtime env
-# var, and changing it in bok.env must trigger a frontend rebuild. The image
-# carries the value it was built with as a label to compare against.
-skal=$(env_value NEXT_PUBLIC_SKAL)
-built_skal=$(podman image inspect --format '{{ index .Labels "bok.skal" }}' \
-  bok-frontend:latest 2>/dev/null || true)
-[ "$built_skal" = "<no value>" ] && built_skal=
-
 do_build=0
 if [ "$BUILD" = force ]; then
   do_build=1
@@ -183,9 +174,6 @@ elif [ "$BUILD" = no ]; then
 elif [ "$changed" = 1 ]; then
   do_build=1
 elif ! podman image exists bok-api:latest || ! podman image exists bok-frontend:latest; then
-  do_build=1
-elif [ "$BUILD" = auto ] && [ "$skal" != "$built_skal" ]; then
-  echo "==> NEXT_PUBLIC_SKAL changed ('$built_skal' -> '$skal'), rebuilding"
   do_build=1
 fi
 
@@ -204,8 +192,6 @@ if [ "$do_build" = 1 ]; then
   # origin and Next proxies /api + /health server-side.
   podman build -t bok-frontend:latest \
     --build-arg BACKEND_URL=http://127.0.0.1:8000 \
-    --build-arg NEXT_PUBLIC_SKAL="$skal" \
-    --label bok.skal="$skal" \
     "$SRC/frontend-v3"
 else
   echo "==> source unchanged, skipping build (--force-build to override)"
@@ -270,9 +256,7 @@ if [ -n "$api_key" ]; then
     http://127.0.0.1:8000/api/v1/agent/status || echo '(no answer)'
   echo
 fi
-if [ -n "$skal" ]; then
-  printf 'v4       '; curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/v4
-fi
+printf 'ui       '; curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/ || echo '(no answer)'
 
 echo
 echo "done — UI at http://hubbabubba:3000, API at http://hubbabubba:8000"

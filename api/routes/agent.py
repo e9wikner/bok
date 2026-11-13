@@ -18,7 +18,6 @@ from api.schemas import (
 )
 from config import settings
 from domain.models import AgentRun
-from domain.validation import ValidationError
 from repositories.agent_run_repo import AgentRunRepository
 from repositories.correction_note_repo import CorrectionNoteRepository
 from repositories.intake_repo import IntakeRepository
@@ -63,22 +62,6 @@ class AgentFailedRequest(BaseModel):
     summary: str = Field(..., min_length=1)
     error_detail: str = Field(..., min_length=1)
     warnings: Optional[list[str]] = None
-
-
-@router.post("/seed", response_model=dict, status_code=status.HTTP_201_CREATED)
-async def seed_demo_data(
-    actor: str = Depends(get_current_actor),
-):
-    """Seed demo/test data (idempotent - safe to call multiple times)."""
-    try:
-        from scripts.seed_test_data import seed_test_company
-
-        seed_test_company()
-        return {"status": "ok", "message": "Demo data seeded successfully"}
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
-        )
 
 
 @router.post("/vouchers", response_model=dict, status_code=status.HTTP_201_CREATED)
@@ -162,19 +145,10 @@ def _create_and_post_voucher(
             idempotency_key=idempotency_key,
             endpoint=AGENT_VOUCHER_ENDPOINT,
         )
-    except ValidationError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": exc.message, "code": exc.code, "details": exc.details},
-        )
     except IntakeError as exc:
         raise _intake_http_error(exc) from exc
     except BankInputError as exc:
         raise _bank_input_http_error(exc) from exc
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
-        )
 
 
 @router.get("/intake/pending", response_model=dict)

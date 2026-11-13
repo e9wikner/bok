@@ -38,7 +38,6 @@ from services.bank_inputs import (
 )
 from services.bank_integration import BankIntegrationService
 from services.intake import IntakeService
-from services.ledger import LedgerService
 
 
 @pytest.fixture
@@ -941,7 +940,6 @@ async def test_agent_bank_driven_posting_links_input_and_transaction(
 
     source_context = await get_voucher_source_context(
         response["id"],
-        ledger=LedgerService(),
         actor="api",
     )
     bank_source = source_context["source_material"][0]
@@ -999,7 +997,6 @@ async def test_source_context_only_lists_transactions_linked_to_voucher(
 
     source_context = await get_voucher_source_context(
         response["id"],
-        ledger=LedgerService(),
         actor="api",
     )
     bank_source = source_context["source_material"][0]

@@ -7,6 +7,8 @@ server writes a row in `voucher_source_references`: the difference voucher
 (A-118). The agent states nothing; the server looks it up.
 """
 
+from fastapi.testclient import TestClient
+
 from repositories.intake_link_repo import VoucherSourceReferenceRepository
 from repositories.voucher_repo import VoucherRepository
 from tests import test_flode_underlag as fu
@@ -156,11 +158,13 @@ def test_fu10_reference_fails_the_whole_posting_rolls_back(
         raise RuntimeError("reference insert failed")
 
     monkeypatch.setattr(VoucherSourceReferenceRepository, "insert", staticmethod(boom))
-    resp = _post(client, auth_headers, draft_id)
+    resp = _post(
+        TestClient(client.app, raise_server_exceptions=False), auth_headers, draft_id
+    )
 
-    # An unexpected error is the route's 500 (`_post_and_record`).
+    # An unexpected error is a plain 500; its message stays in the log.
     assert resp.status_code == 500
-    assert "reference insert failed" in resp.text
+    assert "reference insert failed" not in resp.text
 
     draft = VoucherRepository.get(draft_id)
     assert draft is not None

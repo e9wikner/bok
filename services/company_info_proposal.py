@@ -36,6 +36,7 @@ from domain.validation import ValidationError
 from repositories.company_info_proposal_repo import CompanyInfoProposalRepository
 from repositories.company_info_repo import CompanyInfoRepository
 from repositories.thread_repo import ThreadRepository
+from services.thread_stream import publish_posts
 
 logger = logging.getLogger(__name__)
 
@@ -203,7 +204,7 @@ class CompanyInfoProposalService:
                 body=_receipt_body(writes, skipped),
                 _commit=False,
             )
-        _publish([post])
+        publish_posts([post])
         return post
 
     # -- helpers -----------------------------------------------------------
@@ -291,20 +292,3 @@ def _receipt_body(writes: Mapping[str, str], skipped: List[str]) -> dict:
         "voucher_id": None,
         "note": note,
     }
-
-
-def _publish(posts: List[ThreadPost]) -> None:
-    """`message.completed` for posts written outside a turn. Never fatal."""
-    from services.thread_stream import (
-        EVENT_MESSAGE_COMPLETED,
-        get_broker,
-        post_event_payload,
-    )
-
-    for post in posts:
-        try:
-            get_broker().publish(
-                post.thread_id, EVENT_MESSAGE_COMPLETED, post_event_payload(post)
-            )
-        except Exception:
-            logger.exception("Post %s was not published", post.id)

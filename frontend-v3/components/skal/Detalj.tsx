@@ -27,6 +27,7 @@ import { FEL_VY, LADDAR_VY } from "@/lib/skal/vydata";
 
 const huvudbokNyckel = (arId: string, kod: string) => [...VOUCHERS_NYCKEL, "skal", "huvudbok", arId, kod];
 const verifikationNyckel = (id: string) => [...VOUCHERS_NYCKEL, "skal", "ver", id];
+const historikNyckel = (id: string) => [...VOUCHERS_NYCKEL, "skal", "ver", id, "historik"];
 
 /**
  * Lagrets innehåll ur API:t. Under `VOUCHERS_NYCKEL`, så att en postning och
@@ -50,6 +51,14 @@ function useDetaljData(
     staleTime: 60 * 1000,
   });
 
+  // Historiken väntas inte in: verifikationen visas utan den tills den kommer.
+  const historik = useQuery({
+    queryKey: historikNyckel(detalj.typ === "ver" ? detalj.id : ""),
+    queryFn: () => detaljApi.getHistorik(detalj.typ === "ver" ? detalj.id : ""),
+    enabled: detalj.typ === "ver",
+    staleTime: 60 * 1000,
+  });
+
   if (detalj.typ === "konto") {
     const titel = huvudbokTitel(detalj.kod, huvudbok.data?.account_name);
     if (huvudbok.isError) return { titel, data: FEL_VY, laddar: false };
@@ -60,7 +69,7 @@ function useDetaljData(
   if (verifikation.isError) return { titel, data: FEL_VY, laddar: false };
   if (!verifikation.data) return { titel, data: LADDAR_VY, laddar: true };
   const utkastId = verifikation.data.status === "draft" ? verifikation.data.id : undefined;
-  return { titel, data: verifikationVy(verifikation.data), laddar: false, utkastId };
+  return { titel, data: verifikationVy(verifikation.data, historik.data), laddar: false, utkastId };
 }
 
 /** Tillbakalänkens text: lagret under, med namnet om det redan är hämtat. */

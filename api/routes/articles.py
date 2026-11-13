@@ -2,11 +2,10 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel, Field
 
 from api.deps import get_current_actor
-from domain.invoice_validation import ValidationError
 from services.customer_article import ArticleService
 
 router = APIRouter(prefix="/api/v1/articles", tags=["articles"])
@@ -37,13 +36,8 @@ async def create_article(
     request: CreateArticleRequest,
     actor: str = Depends(get_current_actor),
 ):
-    try:
-        article = ArticleService().create_article(**request.model_dump())
-        return _article_to_dict(article)
-    except ValidationError as exc:
-        raise HTTPException(
-            status_code=400, detail={"code": exc.code, "error": exc.message}
-        )
+    article = ArticleService().create_article(**request.model_dump())
+    return _article_to_dict(article)
 
 
 def _article_to_dict(article) -> dict:

@@ -45,8 +45,56 @@ export type Dropzonevy = "bocker.dropzone";
  */
 export type Anstalldavy = "betala.anstallda";
 
-/** En vy i navigeringen: en trådvy, en bokslutsdel, dropzonen eller Anställda. */
-export type Vynyckel = ViewKey | BokslutDel | Dropzonevy | Anstalldavy;
+/**
+ * Företaget: företagets uppgifter och det som står på fakturan. Ingen egen
+ * tråd — den chattar i Fakturerings. Servern känner inte nyckeln.
+ */
+export type Foretagsvy = "betala.foretaget";
+
+/**
+ * SRU-kopplingen för året i headern: vilket INK2R-fält varje konto summeras
+ * till. Ingen egen tråd — den chattar i Översiktens, som bokslutsdelarna.
+ * Servern känner inte nyckeln.
+ */
+export type Sruvy = "bokslut.sru";
+
+/**
+ * Företagets regler till agenten: för bokföringen i Böcker, för
+ * faktureringen i Betala. Ingen egen tråd — de chattar i sidans skrivvy
+ * (Verifikationer, Fakturering). Servern känner inte nycklarna.
+ */
+export type Instruktionsvy = "bocker.instruktioner" | "betala.instruktioner";
+
+/**
+ * Årets lönebesked att skicka, och arbetsgivardeklarationens fält. Ingen
+ * egen tråd — den chattar i Löners. Servern känner inte nyckeln.
+ */
+export type Lonebeskedsvy = "betala.lonebesked";
+
+/**
+ * Kunder och artiklar, registren fakturorna skrivs ur. Ingen egen tråd —
+ * den chattar i Fakturerings. Servern känner inte nyckeln.
+ */
+export type Kundvy = "betala.kunder";
+
+/**
+ * Böckernas register: kontoplanen och revisionsloggen. Ingen egen tråd —
+ * de chattar i Verifikationers. Servern känner inte nycklarna.
+ */
+export type Registervy = "bocker.kontoplan" | "bocker.revisionslogg";
+
+/** En vy i navigeringen: en trådvy, en bokslutsdel eller en vy med egen komponent. */
+export type Vynyckel =
+  | ViewKey
+  | BokslutDel
+  | Dropzonevy
+  | Anstalldavy
+  | Registervy
+  | Foretagsvy
+  | Sruvy
+  | Instruktionsvy
+  | Lonebeskedsvy
+  | Kundvy;
 
 export interface Vy {
   readonly key: Vynyckel;
@@ -95,6 +143,30 @@ export const SIDOR: readonly Sida[] = Object.freeze([
         sida: "bocker",
         lasvy: false,
       },
+      {
+        key: "bocker.kontoplan",
+        trad: "bocker.verifikationer",
+        slug: "kontoplan",
+        titel: "Kontoplan",
+        sida: "bocker",
+        lasvy: false,
+      },
+      {
+        key: "bocker.revisionslogg",
+        trad: "bocker.verifikationer",
+        slug: "revisionslogg",
+        titel: "Revisionslogg",
+        sida: "bocker",
+        lasvy: false,
+      },
+      {
+        key: "bocker.instruktioner",
+        trad: "bocker.verifikationer",
+        slug: "instruktioner",
+        titel: "Instruktioner",
+        sida: "bocker",
+        lasvy: false,
+      },
     ] as const),
   }),
   Object.freeze({
@@ -110,12 +182,44 @@ export const SIDOR: readonly Sida[] = Object.freeze([
         // Skrivvy sedan fakturering F1.
         lasvy: false,
       },
+      {
+        key: "betala.kunder",
+        trad: "betala.fakturering",
+        slug: "kunder",
+        titel: "Kunder och artiklar",
+        sida: "betala",
+        lasvy: false,
+      },
       { key: "betala.loner", trad: "betala.loner", slug: "loner", titel: "Löner", sida: "betala", lasvy: false },
+      {
+        key: "betala.lonebesked",
+        trad: "betala.loner",
+        slug: "lonebesked",
+        titel: "Lönebesked",
+        sida: "betala",
+        lasvy: false,
+      },
       {
         key: "betala.anstallda",
         trad: "betala.loner",
         slug: "anstallda",
         titel: "Anställda",
+        sida: "betala",
+        lasvy: false,
+      },
+      {
+        key: "betala.foretaget",
+        trad: "betala.fakturering",
+        slug: "foretaget",
+        titel: "Företaget",
+        sida: "betala",
+        lasvy: false,
+      },
+      {
+        key: "betala.instruktioner",
+        trad: "betala.fakturering",
+        slug: "instruktioner",
+        titel: "Instruktioner",
         sida: "betala",
         lasvy: false,
       },
@@ -135,6 +239,14 @@ export const SIDOR: readonly Sida[] = Object.freeze([
         lasvy: false,
       },
       { key: "bokslut.ink2", trad: "bokslut.rapporter", slug: "ink2", titel: "INK2", sida: "bokslut", lasvy: false },
+      {
+        key: "bokslut.sru",
+        trad: "bokslut.rapporter",
+        slug: "sru",
+        titel: "SRU-koppling",
+        sida: "bokslut",
+        lasvy: false,
+      },
       { key: "bokslut.moms", trad: "bokslut.rapporter", slug: "moms", titel: "Moms", sida: "bokslut", lasvy: false },
       {
         key: "bokslut.arsredovisning",

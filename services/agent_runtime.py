@@ -1236,11 +1236,6 @@ def stop_agent_runtime() -> None:
     _runner.stop()
 
 
-def agent_runtime_status() -> dict:
-    """Status of the agent runtime, for the status endpoint (A11)."""
-    return _runner.status()
-
-
 #: The three named modes `komponenter.md`'s `AgentStatus` shows, and the only
 #: values `AgentStatusResponse.state` ever takes.
 AGENT_STATE_WORKING = "arbetar"

@@ -125,7 +125,7 @@ class SIE4Exporter:
         data.previous_fiscal_year = self._get_previous_fiscal_year(fy)
 
         # Företagsinfo
-        data.company_name = company_name or self._get_company_name()
+        data.company_name = company_name or self.company_name()
         data.org_number = org_number or self._get_org_number()
 
         # Hämta alla konton
@@ -169,7 +169,7 @@ class SIE4Exporter:
             return None
         return max(prior, key=lambda fy: fy.end_date)
 
-    def _get_company_name(self) -> str:
+    def company_name(self) -> str:
         """Hämta företagsnamn från company_info-tabellen om den finns."""
         try:
             cursor = db.execute(

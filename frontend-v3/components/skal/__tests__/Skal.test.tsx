@@ -49,7 +49,7 @@ function renderaSkal() {
 }
 
 beforeEach(() => {
-  window.history.replaceState({}, "", "/v4");
+  window.history.replaceState({}, "", "/");
 });
 
 describe("skalet i drift", () => {
@@ -83,7 +83,7 @@ describe("skalet i drift", () => {
     expect(localStorage.getItem("darkMode")).toBe("false");
   });
 
-  it("renderar sidans fyra vyer i svepraden, inte bara den aktiva", () => {
+  it("renderar sidans alla vyer i svepraden, inte bara den aktiva", () => {
     const { container } = renderaSkal();
     const vyer = container.querySelectorAll("[data-view-key]");
     expect([...vyer].map((v) => v.getAttribute("data-view-key"))).toEqual([
@@ -91,6 +91,9 @@ describe("skalet i drift", () => {
       "bocker.resultat",
       "bocker.verifikationer",
       "bocker.dropzone",
+      "bocker.kontoplan",
+      "bocker.revisionslogg",
+      "bocker.instruktioner",
     ]);
   });
 

@@ -296,9 +296,9 @@ class ReimbursementCheckService:
             raise
 
         if thread is None:
-            from services.fiscal_year_proposal import _publish
+            from services.thread_stream import publish_posts
 
-            _publish(ThreadRepository.list_posts(target.id, since=seq_before))
+            publish_posts(ThreadRepository.list_posts(target.id, since=seq_before))
         return self._result(check, hit, existing_card=False)
 
     @staticmethod

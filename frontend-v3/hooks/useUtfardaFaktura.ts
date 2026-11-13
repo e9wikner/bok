@@ -124,7 +124,7 @@ export function utfardaFelText(kod: string): string {
     case "period_locked":
       return "Perioden är låst. Lås upp den och tryck igen, eller be agenten ändra datumet.";
     case "company_info_incomplete":
-      return "Företagsuppgifter saknas. Fyll i dem under Inställningar och tryck igen.";
+      return "Företagsuppgifter saknas. Fyll i dem under Företaget och tryck igen.";
     default:
       return `Fakturan kunde inte utfärdas (${kod}). Ingenting är bokfört.`;
   }

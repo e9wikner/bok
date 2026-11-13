@@ -10,11 +10,10 @@ const bocker = sidan("bocker");
 describe("PrickNav är riktiga knappar (testfall 11)", () => {
   it("har en knapp per vy med vyns namn som aria-label", () => {
     render(<PrickNav vyer={bocker.vyer} aktivIndex={0} onValj={vi.fn()} />);
-    expect(screen.getByRole("button", { name: "Balansräkning" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Resultaträkning" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Verifikationer" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Dropzone" })).toBeInTheDocument();
-    expect(screen.getAllByRole("button")).toHaveLength(4);
+    for (const vy of bocker.vyer) {
+      expect(screen.getByRole("button", { name: vy.titel })).toBeInTheDocument();
+    }
+    expect(screen.getAllByRole("button")).toHaveLength(bocker.vyer.length);
   });
 
   it("markerar aktiv vy med aria-current", () => {

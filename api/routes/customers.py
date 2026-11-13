@@ -2,11 +2,10 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel, Field
 
 from api.deps import get_current_actor
-from domain.invoice_validation import ValidationError
 from services.customer_article import CustomerService
 
 router = APIRouter(prefix="/api/v1/customers", tags=["customers"])
@@ -38,13 +37,8 @@ async def create_customer(
     request: CreateCustomerRequest,
     actor: str = Depends(get_current_actor),
 ):
-    try:
-        customer = CustomerService().create_customer(**request.model_dump())
-        return _customer_to_dict(customer)
-    except ValidationError as exc:
-        raise HTTPException(
-            status_code=400, detail={"code": exc.code, "error": exc.message}
-        )
+    customer = CustomerService().create_customer(**request.model_dump())
+    return _customer_to_dict(customer)
 
 
 def _customer_to_dict(customer) -> dict:

@@ -32,6 +32,7 @@ from api.schemas import VoucherRowRequest
 from config import settings
 from db.database import db
 from domain.types import IntakeSourceType, IntakeStatus
+from domain.validation import ValidationError
 from repositories.accounting_correction_repo import AccountingCorrectionRepository
 from repositories.intake_repo import IntakeRepository
 from repositories.voucher_repo import VoucherRepository
@@ -424,7 +425,6 @@ async def test_agent_voucher_posts_and_links_single_intake_source(
 
     source_context = await get_voucher_source_context(
         response["id"],
-        ledger=LedgerService(),
         actor="api",
     )
     assert source_context["source_material"][0]["kind"] == "voucher_source"
@@ -475,7 +475,6 @@ async def test_voucher_source_context_correction_chain_includes_reason(
 
     source_context = await get_voucher_source_context(
         response["id"],
-        ledger=LedgerService(),
         actor="api",
     )
     assert (
@@ -500,7 +499,7 @@ async def test_agent_voucher_without_source_traceability_is_rejected(
 ):
     _, before_count = VoucherRepository.list_all()
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(ValidationError) as exc_info:
         await create_and_post_agent_voucher(
             AgentVoucherRequest(
                 date=date(2026, 3, 16),
@@ -516,8 +515,8 @@ async def test_agent_voucher_without_source_traceability_is_rejected(
             idempotency_key=None,
         )
 
-    assert exc_info.value.status_code == 400
-    assert exc_info.value.detail["code"] == "missing_source_traceability"
+    # The app's handler answers it `400` with this code.
+    assert exc_info.value.code == "missing_source_traceability"
     _, after_count = VoucherRepository.list_all()
     assert after_count == before_count
 

@@ -2,10 +2,11 @@
 
 import uuid
 from datetime import datetime
-from typing import Any, Iterable, List, Optional
+from typing import Iterable, List, Optional
 
 from db.database import db
 from domain.agreement_booking import AgreementBooking
+from repositories.dates import as_datetime
 
 #: SQL fragment for `intake_sources`: the source is not waiting on a pending
 #: agreement card. Used by the intake pass's queue.
@@ -13,12 +14,6 @@ NOT_WAITING_FOR_AGREEMENT_SQL = (
     "NOT EXISTS (SELECT 1 FROM agreement_bookings ab"
     " WHERE ab.status = 'pending' AND ab.intake_source_id = intake_sources.id)"
 )
-
-
-def _dt(value: Any) -> Optional[datetime]:
-    if value is None or isinstance(value, datetime):
-        return value
-    return datetime.fromisoformat(value)
 
 
 class AgreementBookingRepository:
@@ -212,8 +207,8 @@ class AgreementBookingRepository:
             standing_option_id=row["standing_option_id"],
             status=row["status"],
             created_by=row["created_by"],
-            created_at=_dt(row["created_at"]),  # type: ignore[arg-type]
-            resolved_at=_dt(row["resolved_at"]),
+            created_at=as_datetime(row["created_at"]),  # type: ignore[arg-type]
+            resolved_at=as_datetime(row["resolved_at"]),
             resolved_by=row["resolved_by"],
             bank_transaction_ids=AgreementBookingRepository._transaction_ids(row["id"]),
         )

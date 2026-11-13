@@ -1,4 +1,4 @@
-"""Tests for bank integration, categorization, and compliance services."""
+"""Tests for bank integration and compliance services."""
 
 import os
 import tempfile
@@ -8,7 +8,6 @@ import pytest
 
 from db.database import db
 from services.bank_integration import BankIntegrationService
-from services.categorization import CategorizationService
 from services.compliance import ComplianceService
 
 
@@ -121,172 +120,6 @@ class TestBankIntegration:
 
         result = service.import_csv(conn.id, csv_content)
         assert result.imported_count == 3
-
-    def test_pending_count(self):
-        service = BankIntegrationService()
-        conn = service.create_connection(provider="manual", bank_name="Test")
-
-        service.import_transactions(
-            conn.id,
-            [
-                {"date": "2026-01-01", "amount": -100.0, "description": "Test"},
-            ],
-        )
-
-        assert service.get_pending_count() == 1
-
-    def test_sync_summary(self):
-        service = BankIntegrationService()
-        conn = service.create_connection(provider="manual", bank_name="Test")
-        service.import_transactions(
-            conn.id,
-            [
-                {"date": "2026-01-01", "amount": -100.0, "description": "Test"},
-            ],
-        )
-
-        summary = service.get_sync_summary()
-        assert summary["total_pending"] == 1
-        assert len(summary["connections"]) == 1
-
-
-class TestCategorization:
-    """Test automatic categorization engine."""
-
-    def _create_tx(self, description, amount=-500.0, counterpart=None):
-        """Helper to create a transaction and return it."""
-        bank = BankIntegrationService()
-        conn = bank.create_connection(provider="manual", bank_name="Test")
-        bank.import_transactions(
-            conn.id,
-            [
-                {
-                    "date": "2026-01-15",
-                    "amount": amount,
-                    "description": description,
-                    "counterpart_name": counterpart,
-                    "external_id": str(uuid.uuid4()),
-                }
-            ],
-        )
-        return bank.get_transactions(status="pending")[0]
-
-    def test_categorize_telecom(self):
-        cat = CategorizationService()
-        tx = self._create_tx("TELIA MOBILRÄKNING JAN")
-        result = cat.categorize_transaction(tx)
-        assert result is not None
-        assert result.account_code == "6211"
-
-    def test_categorize_rent(self):
-        cat = CategorizationService()
-        tx = self._create_tx("Hyra kontor januari", amount=-15000.0)
-        result = cat.categorize_transaction(tx)
-        assert result is not None
-        assert result.account_code == "5010"
-
-    def test_categorize_fuel(self):
-        cat = CategorizationService()
-        tx = self._create_tx("CIRCLE K STOCKHOLM", amount=-850.0)
-        result = cat.categorize_transaction(tx)
-        assert result is not None
-        assert result.account_code == "5611"
-
-    def test_categorize_swish_income(self):
-        cat = CategorizationService()
-        tx = self._create_tx("Swish betalning kund", amount=5000.0)
-        result = cat.categorize_transaction(tx)
-        assert result is not None
-        assert result.account_code == "3011"
-
-    def test_categorize_insurance(self):
-        cat = CategorizationService()
-        tx = self._create_tx("Trygg-Hansa företagsförsäkring", amount=-3500.0)
-        result = cat.categorize_transaction(tx)
-        assert result is not None
-        assert result.account_code == "6310"
-
-    def test_categorize_software(self):
-        cat = CategorizationService()
-        tx = self._create_tx("GITHUB SUBSCRIPTION", amount=-90.0)
-        result = cat.categorize_transaction(tx)
-        assert result is not None
-        assert result.account_code == "6540"
-
-    def test_categorize_bank_fee(self):
-        cat = CategorizationService()
-        tx = self._create_tx("Bankavgift kontoavgift", amount=-99.0)
-        result = cat.categorize_transaction(tx)
-        assert result is not None
-        assert result.account_code == "6570"
-
-    def test_uncategorized_transaction(self):
-        cat = CategorizationService()
-        tx = self._create_tx("XYZZY MYSTERIOUS PAYMENT", amount=-1234.0)
-        result = cat.categorize_transaction(tx)
-        # Unknown transactions should return None
-        assert result is None
-
-    def test_categorize_pending_batch(self):
-        bank = BankIntegrationService()
-        cat = CategorizationService()
-        conn = bank.create_connection(provider="manual", bank_name="Test")
-
-        bank.import_transactions(
-            conn.id,
-            [
-                {
-                    "date": "2026-01-01",
-                    "amount": -500.0,
-                    "description": "Telia telefon",
-                    "external_id": "b1",
-                },
-                {
-                    "date": "2026-01-02",
-                    "amount": -15000.0,
-                    "description": "Hyra lokal",
-                    "external_id": "b2",
-                },
-                {
-                    "date": "2026-01-03",
-                    "amount": 8000.0,
-                    "description": "Swish betalning",
-                    "external_id": "b3",
-                },
-                {
-                    "date": "2026-01-04",
-                    "amount": -300.0,
-                    "description": "Random obscure text",
-                    "external_id": "b4",
-                },
-            ],
-        )
-
-        results = cat.categorize_pending()
-        assert results["total"] == 4
-        assert results["categorized"] >= 3
-
-    def test_add_custom_rule(self):
-        cat = CategorizationService()
-        rule_id = cat.add_rule(
-            rule_type="keyword",
-            match_description="coworking",
-            match_is_expense=True,
-            target_account_code="5010",
-            target_vat_code="MF",
-            priority=10,
-        )
-        assert rule_id is not None
-
-        rules = cat.get_rules()
-        custom = [r for r in rules if r.id == rule_id]
-        assert len(custom) == 1
-
-    def test_stats(self):
-        cat = CategorizationService()
-        stats = cat.get_stats()
-        assert "transactions" in stats
-        assert "rules" in stats
 
 
 class TestCompliance:
