@@ -983,19 +983,6 @@ export const api = {
     return data;
   },
 
-  // Agent instructions and correction history
-  getAgentInstructions: async (scope = "accounting") => {
-    const { data } = await apiClient.get(`/api/v1/agent-instructions/${scope}`);
-    return data;
-  },
-  updateAgentInstructions: async (payload: { content_markdown: string; change_summary?: string }, scope = "accounting") => {
-    const { data } = await apiClient.put(`/api/v1/agent-instructions/${scope}`, payload);
-    return data;
-  },
-  getAgentInstructionVersions: async (scope = "accounting") => {
-    const { data } = await apiClient.get(`/api/v1/agent-instructions/${scope}/versions`);
-    return data;
-  },
   getAccountingCorrections: async (limit = 100) => {
     const { data } = await apiClient.get("/api/v1/accounting-corrections", { params: { limit } });
     return data;

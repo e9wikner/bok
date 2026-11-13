@@ -9,6 +9,7 @@ import { BokslutVy } from "@/components/skal/BokslutVy";
 import { ChattBubbla } from "@/components/skal/ChattBubbla";
 import { DropzoneVy } from "@/components/skal/DropzoneVy";
 import { ForetagetVy } from "@/components/skal/ForetagetVy";
+import { InstruktionerVy } from "@/components/skal/InstruktionerVy";
 import { KontoplanVy } from "@/components/skal/KontoplanVy";
 import { RevisionsloggVy } from "@/components/skal/RevisionsloggVy";
 import { SruVy } from "@/components/skal/SruVy";
@@ -274,6 +275,12 @@ export function Skal() {
             />
           ) : vy.key === "bokslut.sru" ? (
             <SruVy titel={vy.titel} arId={ar === undefined ? undefined : (ar?.id ?? null)} variant={variant} />
+          ) : vy.key === "bocker.instruktioner" || vy.key === "betala.instruktioner" ? (
+            <InstruktionerVy
+              titel={vy.titel}
+              omfang={vy.key === "bocker.instruktioner" ? "accounting" : "invoicing"}
+              variant={variant}
+            />
           ) : vy.key === "bocker.dropzone" ? (
             <DropzoneVy titel={vy.titel} variant={variant} />
           ) : vy.key === "bocker.kontoplan" ? (

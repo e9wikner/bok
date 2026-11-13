@@ -93,6 +93,7 @@ describe("skalet i drift", () => {
       "bocker.dropzone",
       "bocker.kontoplan",
       "bocker.revisionslogg",
+      "bocker.instruktioner",
     ]);
   });
 

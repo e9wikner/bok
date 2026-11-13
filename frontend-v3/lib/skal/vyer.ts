@@ -59,13 +59,28 @@ export type Foretagsvy = "betala.foretaget";
 export type Sruvy = "bokslut.sru";
 
 /**
+ * Företagets regler till agenten: för bokföringen i Böcker, för
+ * faktureringen i Betala. Ingen egen tråd — de chattar i sidans skrivvy
+ * (Verifikationer, Fakturering). Servern känner inte nycklarna.
+ */
+export type Instruktionsvy = "bocker.instruktioner" | "betala.instruktioner";
+
+/**
  * Böckernas register: kontoplanen och revisionsloggen. Ingen egen tråd —
  * de chattar i Verifikationers. Servern känner inte nycklarna.
  */
 export type Registervy = "bocker.kontoplan" | "bocker.revisionslogg";
 
 /** En vy i navigeringen: en trådvy, en bokslutsdel eller en vy med egen komponent. */
-export type Vynyckel = ViewKey | BokslutDel | Dropzonevy | Anstalldavy | Registervy | Foretagsvy | Sruvy;
+export type Vynyckel =
+  | ViewKey
+  | BokslutDel
+  | Dropzonevy
+  | Anstalldavy
+  | Registervy
+  | Foretagsvy
+  | Sruvy
+  | Instruktionsvy;
 
 export interface Vy {
   readonly key: Vynyckel;
@@ -130,6 +145,14 @@ export const SIDOR: readonly Sida[] = Object.freeze([
         sida: "bocker",
         lasvy: false,
       },
+      {
+        key: "bocker.instruktioner",
+        trad: "bocker.verifikationer",
+        slug: "instruktioner",
+        titel: "Instruktioner",
+        sida: "bocker",
+        lasvy: false,
+      },
     ] as const),
   }),
   Object.freeze({
@@ -159,6 +182,14 @@ export const SIDOR: readonly Sida[] = Object.freeze([
         trad: "betala.fakturering",
         slug: "foretaget",
         titel: "Företaget",
+        sida: "betala",
+        lasvy: false,
+      },
+      {
+        key: "betala.instruktioner",
+        trad: "betala.fakturering",
+        slug: "instruktioner",
+        titel: "Instruktioner",
         sida: "betala",
         lasvy: false,
       },

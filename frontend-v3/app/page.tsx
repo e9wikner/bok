@@ -113,7 +113,7 @@ export default function DashboardPage() {
           title="Korrigeringar"
           value={correctionsData?.total || 0}
           description="Senaste agentläsbara rättelser"
-          href="/learning"
+          href="/v4?sida=bocker&vy=instruktioner"
           icon={Bot}
         />
       </section>
@@ -152,7 +152,7 @@ export default function DashboardPage() {
             <QuickLink href="/invoices/drafts" icon={Receipt} label="Granska fakturautkast" />
             <QuickLink href="/vouchers/new" icon={FileText} label="Skapa verifikation" />
             <QuickLink href="/v4?sida=bokslut&vy=oversikt" icon={ClipboardList} label="Öppna bokslut" />
-            <QuickLink href="/learning" icon={Bot} label="Agentinstruktioner" />
+            <QuickLink href="/v4?sida=bocker&vy=instruktioner" icon={Bot} label="Agentinstruktioner" />
           </CardContent>
         </Card>
       </section>

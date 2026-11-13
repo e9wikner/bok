@@ -29,6 +29,7 @@ import { lasApi } from "@/lib/skal/las";
 import { dropzoneStatus } from "@/lib/skal/dropzone";
 import { ANSTALLDA_NYCKEL, anstalldaApi, anstalldaStatus } from "@/lib/skal/anstallda";
 import { FORETAGET_NYCKEL, foretagetApi, foretagetStatus } from "@/lib/skal/foretaget";
+import { instruktionNyckel, instruktionStatus, instruktionerApi } from "@/lib/skal/instruktioner";
 import { KONTOPLAN_NYCKEL, kontoplanApi, kontoplanStatus } from "@/lib/skal/kontoplan";
 import { REVISIONSLOGG_NYCKEL, revisionsloggApi, revisionsloggStatus } from "@/lib/skal/revisionslogg";
 import { sokVy } from "@/lib/skal/sok";
@@ -167,6 +168,20 @@ export function useVyer(
   const foretaget = useQuery({
     queryKey: FORETAGET_NYCKEL,
     queryFn: foretagetApi.hamta,
+    enabled: sida === "betala",
+    staleTime: 60 * 1000,
+  });
+  // Agentens instruktioner, en fråga per omfång; samma nycklar som
+  // `InstruktionerVy`.
+  const bokforingsregler = useQuery({
+    queryKey: instruktionNyckel("accounting"),
+    queryFn: () => instruktionerApi.hamta("accounting"),
+    enabled: sida === "bocker",
+    staleTime: 60 * 1000,
+  });
+  const faktureringsregler = useQuery({
+    queryKey: instruktionNyckel("invoicing"),
+    queryFn: () => instruktionerApi.hamta("invoicing"),
     enabled: sida === "betala",
     staleTime: 60 * 1000,
   });
@@ -383,6 +398,8 @@ export function useVyer(
     "bocker.kontoplan": statusrad(kontoplanStatus(kontoplan.data, kontoplan.isError)),
     "bocker.revisionslogg": statusrad(revisionsloggStatus(senasteLogg.data, senasteLogg.isError)),
     "betala.foretaget": statusrad(foretagetStatus(foretaget.data, foretaget.isError)),
+    "bocker.instruktioner": statusrad(instruktionStatus(bokforingsregler.data, bokforingsregler.isError)),
+    "betala.instruktioner": statusrad(instruktionStatus(faktureringsregler.data, faktureringsregler.isError)),
     // Anställda har sin egen komponent (`AnstalldaVy`); här bara statusraden.
     "betala.anstallda": {
       data: {

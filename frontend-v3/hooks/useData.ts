@@ -157,38 +157,6 @@ export function useAgi(year: number, month: number, enabled = true) {
   });
 }
 
-export function useAgentInstructions() {
-  return useQuery({
-    queryKey: ["agent-instructions", "accounting"],
-    queryFn: () => api.getAgentInstructions("accounting"),
-    staleTime: 60 * 1000,
-  });
-}
-
-export function useAgentInstructionVersions() {
-  return useQuery({
-    queryKey: ["agent-instruction-versions", "accounting"],
-    queryFn: () => api.getAgentInstructionVersions("accounting"),
-    staleTime: 60 * 1000,
-  });
-}
-
-export function useInvoicingInstructions() {
-  return useQuery({
-    queryKey: ["agent-instructions", "invoicing"],
-    queryFn: () => api.getAgentInstructions("invoicing"),
-    staleTime: 60 * 1000,
-  });
-}
-
-export function useInvoicingInstructionVersions() {
-  return useQuery({
-    queryKey: ["agent-instruction-versions", "invoicing"],
-    queryFn: () => api.getAgentInstructionVersions("invoicing"),
-    staleTime: 60 * 1000,
-  });
-}
-
 export function useAccountingCorrections(limit = 25) {
   return useQuery({
     queryKey: ["accounting-corrections", limit],

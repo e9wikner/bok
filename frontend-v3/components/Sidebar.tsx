@@ -35,7 +35,7 @@ const navItems = [
   { href: "/invoices", label: "Fakturor", icon: Receipt },
   { href: "/payroll", label: "Lön", icon: WalletCards },
   { href: "/v4?sida=bokslut&vy=oversikt", label: "Bokslut", icon: FileCheck },
-  { href: "/learning", label: "Agentinstruktioner", icon: Brain },
+  { href: "/v4?sida=bocker&vy=instruktioner", label: "Agentinstruktioner", icon: Brain },
 ];
 
 export function Sidebar() {
