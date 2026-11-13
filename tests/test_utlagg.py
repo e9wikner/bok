@@ -154,7 +154,7 @@ def test_the_user_turn_says_it_is_an_utlagg(books):
     text = build_user_turn(receipt, {"type": "text", "text": "x"}, date.today(), [])[0][
         "content"
     ][0]["text"]
-    assert "- typ: kvitto (Kvitton/)" in text
+    assert "- typ: kvitto" in text
 
 
 # --- a foreign utlägg, reverse charge, the rate in the comment ----------------

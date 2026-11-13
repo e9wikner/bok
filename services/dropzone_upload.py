@@ -15,9 +15,9 @@ outside the dropzone or into ``_Inläst``/``_Problem``.
 The file is written under a ``.part`` name (which the scanner ignores) and
 renamed into place, so the scanner never sees a half-written file.
 
-The folder is the only classification: there is no comment field. The web
-view shows the share's folders as they are on disk, so what a file becomes
-is decided by where it is dropped, as on the share.
+There is no comment field. What a file becomes is decided as on the share: by
+its extension (statement, SIE4 export or underlag) and, for ``Utlägg``, by the
+folder.
 """
 
 import hashlib
@@ -39,7 +39,6 @@ from services.dropzone import (
     PROBLEM_NOTE_SUFFIX,
     RESERVED_DIR_NAMES,
     SIE4_EXTENSIONS,
-    STATEMENT_FOLDERS,
     DropzoneScanner,
     _is_ignored,
     _is_sidecar,
@@ -56,17 +55,14 @@ MAX_FILES_PER_DROP = 50
 #: How many problem and recently read-in files the listing returns.
 LISTING_LIMIT = 50
 
-#: The type folders, in the order the share's README lists them. The folder
-#: name on disk wins if it exists (an NFD spelling from a Mac, say).
-TYPE_FOLDERS: tuple[tuple[str, IntakeSourceType, str], ...] = (
-    ("Kvitton", IntakeSourceType.RECEIPT, "Kvitton"),
-    ("Leverantörsfakturor", IntakeSourceType.SUPPLIER_INVOICE, "Leverantörsfakturor"),
-    ("Kundfakturor", IntakeSourceType.CUSTOMER_INVOICE, "Kundfakturor"),
+#: The two folders a drop can be aimed at, in the order the share lists them.
+#: The folder name on disk wins if it exists (an NFD spelling from a Mac, say).
+#: What a file in either is follows its extension (``services/dropzone.py``);
+#: ``Utlägg`` is the only folder that adds a type.
+TYPE_FOLDERS: tuple[tuple[str, IntakeSourceType | None, str], ...] = (
+    ("Underlag", None, "Underlag"),
     ("Utlägg", IntakeSourceType.REIMBURSEMENT, "Utlägg"),
-    ("Övrigt", IntakeSourceType.OTHER, "Övrigt"),
 )
-STATEMENT_ROOT_NAME = "Kontoutdrag"
-SIE4_FOLDER_NAME = "SIE4-import"
 
 
 class DropzoneUploadError(Exception):
@@ -86,7 +82,7 @@ class DropTarget:
     #: Path relative to the dropzone root, with ``/``. The folder's identity.
     folder: str
     label: str
-    kind: str  # "voucher_source", "bank_input" or "sie4_import"
+    kind: str  # "voucher_source"
     source_type: str | None = None
     account_code: str | None = None
     account_name: str | None = None
@@ -122,16 +118,14 @@ def _existing_child(parent: Path, name: str) -> Path:
 def drop_targets(scanner: DropzoneScanner | None = None) -> list[DropTarget]:
     """The folders the browser may drop into.
 
-    The share's folders, in the share's layout: the five type folders,
-    ``Kontoutdrag`` and ``SIE4-import`` always (created on first drop if
-    missing), and every other top-level folder someone made on the share (read
-    in without a type, the agent classifies). ``Kontoutdrag`` has no account
-    subfolders: a statement's file name says which account it is for.
+    ``Underlag`` and ``Utlägg`` always (created on first drop if missing), and
+    every other top-level folder someone made on the share (read like
+    ``Underlag``). Nothing else is a target: statements and SIE4 exports go in
+    ``Underlag`` too, told apart by their extension.
     """
     root = (scanner or get_scanner()).root
     targets: list[DropTarget] = []
-    known = {folder_key(name) for name, _, _ in TYPE_FOLDERS}
-    known |= STATEMENT_FOLDERS | RESERVED_DIR_NAMES | {folder_key(SIE4_FOLDER_NAME)}
+    known = {folder_key(name) for name, _, _ in TYPE_FOLDERS} | RESERVED_DIR_NAMES
     for name, source_type, label in TYPE_FOLDERS:
         folder = _existing_child(root, name)
         targets.append(
@@ -139,7 +133,7 @@ def drop_targets(scanner: DropzoneScanner | None = None) -> list[DropTarget]:
                 folder=folder.name,
                 label=label,
                 kind="voucher_source",
-                source_type=source_type.value,
+                source_type=source_type.value if source_type else None,
             )
         )
 
@@ -159,16 +153,6 @@ def drop_targets(scanner: DropzoneScanner | None = None) -> list[DropTarget]:
     for entry in other:
         name = unicodedata.normalize("NFC", entry.name)
         targets.append(DropTarget(folder=entry.name, label=name, kind="voucher_source"))
-
-    statements = _existing_child(root, STATEMENT_ROOT_NAME)
-    targets.append(
-        DropTarget(folder=statements.name, label="Kontoutdrag", kind="bank_input")
-    )
-
-    sie4 = _existing_child(root, SIE4_FOLDER_NAME)
-    targets.append(
-        DropTarget(folder=sie4.name, label="SIE4-import", kind="sie4_import")
-    )
     return targets
 
 
@@ -215,17 +199,17 @@ def _check_statement(name: str, content: bytes) -> None:
     The scanner decides again when it reads the file; this only spares a
     round trip through the share for a name that cannot work.
     """
-    if Path(name).suffix.lower() != ".csv":
-        raise DropzoneUploadError(
-            "Kontoutdrag måste vara CSV-filer.", "not_csv_statement"
-        )
     try:
         code = statement_account_code(name, content)
-    except BankInputError:
+    except BankInputError as exc:
         raise DropzoneUploadError(
-            'Börja filnamnet med kontokoden, till exempel "1930 oktober.csv", '
-            "så att utdraget hamnar på rätt konto.",
-            "statement_account_unknown",
+            (
+                "Filnamnet innehåller flera kontonummer. Ta bort alla utom ett."
+                if exc.code == "statement_account_ambiguous"
+                else 'Ta med kontots nummer i filnamnet, till exempel "1930 '
+                'oktober.csv", så att utdraget hamnar på rätt konto.'
+            ),
+            exc.code,
         )
     account = AccountRepository.get(code)
     if not account or not account.active:
@@ -283,16 +267,16 @@ def drop_file(
         raise DropzoneUploadError("Filen är tom.", "empty_file")
     if len(content) > MAX_DROP_BYTES:
         raise DropzoneUploadError("Filen är större än 10 MB.", "file_too_large")
-    if (
-        target.kind == "sie4_import"
-        and Path(name).suffix.lower() not in SIE4_EXTENSIONS
-    ):
-        raise DropzoneUploadError(
-            "SIE4-import tar bara emot bokföringsexporter (.se, .si, .sie eller .sie4).",
-            "not_sie4",
-        )
-    if target.kind == "bank_input":
-        _check_statement(name, content)
+    extension = Path(name).suffix.lower()
+    if extension == ".csv" or extension in SIE4_EXTENSIONS:
+        if target.source_type == IntakeSourceType.REIMBURSEMENT.value:
+            raise DropzoneUploadError(
+                f"{target.label} tar bara emot underlag för utlägg. Kontoutdrag "
+                "(CSV) och SIE4-filer läggs i Underlag.",
+                "not_a_reimbursement",
+            )
+        if extension == ".csv":
+            _check_statement(name, content)
 
     directory = root.joinpath(*target.folder.split("/"))
     directory.mkdir(parents=True, exist_ok=True)

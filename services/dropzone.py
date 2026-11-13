@@ -6,17 +6,18 @@ any device. A background thread walks it, hands each file to the *existing*
 intake services, and moves it out of the way afterwards:
 
     Bokföring/
-      Kvitton/                     -> source_type = receipt
-      Leverantörsfakturor/         -> source_type = supplier_invoice
-      Kundfakturor/                -> source_type = customer_invoice
+      Underlag/                    -> a document; the agent classifies it
       Utlägg/                      -> source_type = reimbursement
-      Övrigt/                      -> source_type = other
-      Kontoutdrag/1930 oktober.csv -> account statement for account 1930: the
-                                      file name starts with the account code,
-                                      Skatteverket's export is 1630 as is
-      SIE4-import/                 -> whole-year SIE4 ledger export, imported
       _Inläst/2026-09/             <- ingested files are moved here
       _Problem/                    <- rejected files, with a .txt saying why
+
+What a file *is* comes from its extension, not from a folder: a ``.csv`` is an
+account statement for the account whose code stands in the file name
+(``1930 oktober.csv``, ``oktober 1930.csv``; Skatteverket's export is 1630 as
+is), a ``.se``/``.si``/``.sie``/``.sie4`` is a whole-year SIE4 export, and
+anything else is an underlag. ``Utlägg/`` is the one folder that means
+something, because a private outlay is booked differently. Any other folder
+(``Kvitton/`` from before) is read like ``Underlag/``.
 
 The scanner is a *caller* of ``IntakeService`` and ``BankInputService``, never a
 parallel ingest path, so validation, storage, dedupe and the audit trail behave
@@ -79,23 +80,10 @@ def folder_key(name: str) -> str:
     return unicodedata.normalize("NFC", unicodedata.normalize("NFC", name).casefold())
 
 
-SOURCE_TYPE_FOLDERS = {
-    folder_key("Kvitton"): IntakeSourceType.RECEIPT,
-    folder_key("Leverantörsfakturor"): IntakeSourceType.SUPPLIER_INVOICE,
-    folder_key("Kundfakturor"): IntakeSourceType.CUSTOMER_INVOICE,
-    folder_key("Utlägg"): IntakeSourceType.REIMBURSEMENT,
-    folder_key("Övrigt"): IntakeSourceType.OTHER,
-}
-
-# "Kontoutdrag" covers bank, tax-account, card and payment-provider statements
-# alike. "Bank" stays accepted so an existing folder keeps working. There are no
-# per-account subfolders: the file's own name says which account it is for
-# (``BankInputService.resolve_auto_reference``, the same rule as the chat).
-STATEMENT_FOLDERS = {folder_key("Kontoutdrag"), folder_key("Bank")}
-
-# A whole-year SIE4 export is the one dropzone input that writes vouchers
-# directly instead of queueing a document for the agent to classify.
-SIE4_FOLDERS = {folder_key("SIE4-import")}
+# The one folder that decides what a document is: a private outlay the company
+# owes back (``source_type = reimbursement``). Everything else is classified by
+# the agent from the document itself.
+REIMBURSEMENT_FOLDERS = {folder_key("Utlägg")}
 
 # ".txt" is reserved for sidecar metadata (see _is_sidecar), so a SIE4 file
 # saved as .txt would be read as an explanation and never imported. The
@@ -392,62 +380,29 @@ class DropzoneScanner:
     # --- routing -------------------------------------------------------
 
     def route_for(self, path: Path) -> DropzoneRoute:
-        """Decide what a file is, based on the folder it was dropped in."""
+        """Decide what a file is: its extension first, then its folder."""
         parts = path.relative_to(self.root).parts
-        if len(parts) == 1:
-            return DropzoneRoute(kind="voucher_source")
-
-        top = folder_key(parts[0])
-        if top in SOURCE_TYPE_FOLDERS:
-            return DropzoneRoute(
-                kind="voucher_source",
-                source_type=SOURCE_TYPE_FOLDERS[top].value,
-            )
-        if top in STATEMENT_FOLDERS:
-            return self._statement_route(parts)
-        if top in SIE4_FOLDERS:
-            return self._sie4_route(path)
-        # An unrecognised folder is not an error: the file is ingested without a
-        # type and the agent classifies it.
-        return DropzoneRoute(kind="voucher_source")
-
-    def _statement_route(self, parts: tuple[str, ...]) -> DropzoneRoute:
-        """A statement lies directly in ``Kontoutdrag/``.
-
-        The account is read from the file when it is ingested, not from the
-        folder, so a subfolder means nothing and is said so rather than
-        guessed at.
-        """
-        if len(parts) > 2:
-            return DropzoneRoute(
-                kind="problem",
-                problem_message=(
-                    f"Kontoutdrag läggs direkt i {parts[0]}/, inte i en undermapp. "
-                    "Börja filnamnet med kontokoden, till exempel "
-                    f'"1930 oktober.csv", och lägg filen i {parts[0]}/.'
-                ),
-            )
-        return DropzoneRoute(kind="bank_input")
-
-    def _sie4_route(self, path: Path) -> DropzoneRoute:
-        """Only recognised SIE extensions are treated as ledger exports.
-
-        Anything else in the folder is bounced rather than ingested as an
-        untyped document: silently filing a stray PDF as a receipt from a
-        folder the owner meant for whole-year imports would be worse than
-        saying so.
-        """
         extension = path.suffix.lower()
-        if extension in SIE4_EXTENSIONS:
-            return DropzoneRoute(kind="sie4_import")
+        in_reimbursements = len(parts) > 1 and folder_key(parts[0]) in (
+            REIMBURSEMENT_FOLDERS
+        )
+        if extension in SIE4_EXTENSIONS or extension == ".csv":
+            if in_reimbursements:
+                return DropzoneRoute(
+                    kind="problem",
+                    problem_message=(
+                        f"{parts[0]}/ tar bara emot underlag för utlägg, inte "
+                        "kontoutdrag (CSV) eller SIE4-filer. Lägg filen i "
+                        "Underlag/ i stället."
+                    ),
+                )
+            return DropzoneRoute(
+                kind="sie4_import" if extension in SIE4_EXTENSIONS else "bank_input"
+            )
         return DropzoneRoute(
-            kind="problem",
-            problem_message=(
-                f"Filtypen {extension or 'okänd'} känns inte igen som en "
-                "SIE4-fil. SIE4-import/ tar bara emot bokföringsexporter "
-                "(.se, .si, .sie eller .sie4). Lägg underlag i Kvitton/, "
-                "Leverantörsfakturor/, Kundfakturor/, Utlägg/ eller Övrigt/ "
-                "i stället."
+            kind="voucher_source",
+            source_type=(
+                IntakeSourceType.REIMBURSEMENT.value if in_reimbursements else None
             ),
         )
 
@@ -960,11 +915,12 @@ def _date_warnings() -> dict:
 
 
 def statement_account_code(filename: str, content: bytes) -> str:
-    """The account a statement in ``Kontoutdrag/`` is for.
+    """The account a statement (a ``.csv``) is for.
 
-    The leading account code of the file name (``1930 oktober.csv``), or 1630
-    for Skatteverket's tax-account export. Raises ``BankInputValidationError``
-    (``statement_account_unknown``) when neither says.
+    The one account code standing anywhere in the file name
+    (``oktober 1930.csv``), or 1630 for Skatteverket's tax-account export.
+    Raises ``BankInputValidationError`` (``statement_account_unknown`` or
+    ``statement_account_ambiguous``) when the name does not say which.
     """
     reference = BankInputService().resolve_auto_reference(filename, content)
     return reference.removeprefix(ACCOUNT_REFERENCE_PREFIX)
@@ -1005,36 +961,41 @@ def problem_message_for(
         )
     if code == "statement_account_unknown":
         return (
-            "Filnamnet säger inte vilket konto utdraget gäller. Börja filnamnet "
-            'med kontokoden, till exempel "1930 oktober.csv", och lägg tillbaka '
-            "filen i Kontoutdrag/."
+            "Filnamnet säger inte vilket konto utdraget gäller. Ta med kontots "
+            'nummer i filnamnet, till exempel "1930 oktober.csv", och lägg '
+            "tillbaka filen. Ett nummer som inte är ett konto med utdrag i "
+            "kontoplanen (ett årtal, till exempel) räknas inte."
+        )
+    if code == "statement_account_ambiguous":
+        return (
+            f"Filnamnet innehåller flera kontonummer ({exc.message.rsplit(': ', 1)[-1]}). "
+            "Ta bort alla utom det konto utdraget gäller och lägg tillbaka filen."
         )
     if code == "bank_connection_not_found":
         return (
             f"Konto {route.account_code} finns inte i kontoplanen. Lägg upp kontot "
-            "i kontoplanen först, eller döp om filen så att den börjar med ett "
-            "konto som finns."
+            "i kontoplanen först, eller döp om filen."
         )
     if code == "unsupported_statement_account_type":
         return (
             f"Konto {route.account_code} är inte ett tillgångs- eller skuldkonto "
-            "och kan därför inte ta emot kontoutdrag. Döp om filen så att den "
-            "börjar med ett bank- eller skuldkonto."
+            "och kan därför inte ta emot kontoutdrag. Döp om filen med ett bank- "
+            "eller skuldkonto."
         )
     if code == "inactive_bank_connection":
         return (
             f"Kontot {route.account_code} är inaktivt. Aktivera kontot i "
-            "kontoplanen, eller döp om filen så att den börjar med ett aktivt konto."
+            "kontoplanen, eller döp om filen med ett aktivt konto."
         )
     if code in ("unsupported_bank_input_file", "unsupported_bank_input_mime_type"):
         return (
             "Kontoutdrag måste vara CSV-filer. Exportera utdraget som CSV och "
-            "lägg tillbaka det i Kontoutdrag/."
+            "lägg tillbaka det i dropzonen."
         )
     if code == "invalid_source_type":
         return (
-            "Mappen motsvarar ingen känd underlagstyp. Flytta filen till Kvitton/, "
-            "Leverantörsfakturor/, Kundfakturor/, Utlägg/ eller Övrigt/."
+            "Mappen motsvarar ingen känd underlagstyp. Flytta filen till "
+            "Underlag/ eller Utlägg/."
         )
     return f"Filen kunde inte läsas in: {exc.message} ({code})."
 

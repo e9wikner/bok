@@ -10,7 +10,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from config import settings
-from domain.types import IntakeSourceType
 from repositories.account_repo import AccountRepository
 from repositories.intake_repo import IntakeRepository
 from services import dropzone as dropzone_module
@@ -43,17 +42,17 @@ def _drop(folder: str, name: str = "kvitto.pdf", content: bytes = PDF):
 
 
 def test_a_dropped_file_is_read_in_by_the_scanner(test_db, root):
-    result = _drop("Kvitton")
+    result = _drop("Underlag")
 
     assert result["filename"] == "kvitto.pdf"
-    assert (root / "Kvitton" / "kvitto.pdf").read_bytes() == PDF
+    assert (root / "Underlag" / "kvitto.pdf").read_bytes() == PDF
     assert not list(root.rglob("*.part"))
 
     dropzone_module.get_scanner().scan_once()
 
     sources = IntakeRepository().list_by_status(status=None, limit=10)
     assert len(sources) == 1
-    assert sources[0].source_type == IntakeSourceType.RECEIPT
+    assert sources[0].source_type is None
     archived = sorted(
         p.name for p in (root / INGESTED_DIR_NAME).rglob("*") if p.is_file()
     )
@@ -61,23 +60,23 @@ def test_a_dropped_file_is_read_in_by_the_scanner(test_db, root):
 
 
 def test_same_name_never_overwrites(test_db, root):
-    _drop("Kvitton")
-    second = _drop("Kvitton", content=PDF + b"2")
+    _drop("Underlag")
+    second = _drop("Underlag", content=PDF + b"2")
 
     assert second["filename"] == "kvitto (2).pdf"
-    assert (root / "Kvitton" / "kvitto.pdf").read_bytes() == PDF
+    assert (root / "Underlag" / "kvitto.pdf").read_bytes() == PDF
 
 
 def test_a_new_file_does_not_inherit_an_existing_sidecar(test_db, root):
-    (root / "Kvitton").mkdir()
-    (root / "Kvitton" / "kvitto.txt").write_text("annan fils kommentar")
+    (root / "Underlag").mkdir()
+    (root / "Underlag" / "kvitto.txt").write_text("annan fils kommentar")
 
-    assert _drop("Kvitton")["filename"] == "kvitto (2).pdf"
+    assert _drop("Underlag")["filename"] == "kvitto (2).pdf"
 
 
 @pytest.mark.parametrize(
     "folder",
-    ["_Problem", "_Inläst", "../utanför", "Kontoutdrag/1930 Företagskonto", "/etc"],
+    ["_Problem", "_Inläst", "../utanför", "Underlag/undermapp", "/etc"],
 )
 def test_only_listed_folders_can_be_written(test_db, root, folder):
     with pytest.raises(DropzoneUploadError) as err:
@@ -88,8 +87,8 @@ def test_only_listed_folders_can_be_written(test_db, root, folder):
 
 @pytest.mark.parametrize("name", ["../../x.pdf", "a/b/kvitto.pdf"])
 def test_a_path_in_the_filename_is_reduced_to_its_name(test_db, root, name):
-    result = _drop("Kvitton", name=name)
-    assert (root / "Kvitton" / result["filename"]).exists()
+    result = _drop("Underlag", name=name)
+    assert (root / "Underlag" / result["filename"]).exists()
     assert "/" not in result["filename"]
 
 
@@ -103,60 +102,70 @@ def test_a_path_in_the_filename_is_reduced_to_its_name(test_db, root, name):
 )
 def test_unusable_filenames_are_refused(test_db, root, name, code):
     with pytest.raises(DropzoneUploadError) as err:
-        _drop("Kvitton", name=name)
+        _drop("Underlag", name=name)
     assert err.value.code == code
 
 
-def test_sie4_folder_takes_only_sie_files(test_db, root):
-    with pytest.raises(DropzoneUploadError) as err:
-        _drop("SIE4-import", name="kvitto.pdf")
-    assert err.value.code == "not_sie4"
+def test_utlagg_takes_documents_only(test_db, root):
+    for name in ("utdrag 1930.csv", "2024.se"):
+        with pytest.raises(DropzoneUploadError) as err:
+            _drop("Utlägg", name=name)
+        assert err.value.code == "not_a_reimbursement"
+    assert not (root / "Utlägg").exists() or not list((root / "Utlägg").iterdir())
+
+
+def test_underlag_takes_a_sie4_file(test_db, root):
+    result = _drop("Underlag", name="2024.se", content=b"#FLAGGA 0\n")
+    assert (root / "Underlag" / result["filename"]).exists()
 
 
 CSV = b"Datum;Text;Belopp\n2026-10-01;Kaffe;-45,00\n"
 
 
-def test_a_statement_named_after_its_account_is_accepted(test_db, root):
+@pytest.mark.parametrize(
+    "name", ["1930 oktober.csv", "oktober 1930.csv", "okt_1930.csv"]
+)
+def test_a_statement_named_after_its_account_is_accepted(test_db, root, name):
     if not AccountRepository.exists("1930"):
         AccountRepository.create("1930", "Företagskonto", "asset")
 
-    result = _drop("Kontoutdrag", name="1930 oktober.csv", content=CSV)
+    result = _drop("Underlag", name=name, content=CSV)
 
-    assert (root / "Kontoutdrag" / result["filename"]).exists()
+    assert (root / "Underlag" / result["filename"]).exists()
 
 
 @pytest.mark.parametrize(
     "name,code",
     [
         ("oktober.csv", "statement_account_unknown"),
-        ("9999 oktober.csv", "statement_account_missing"),
-        ("1930 oktober.pdf", "not_csv_statement"),
+        ("9999 oktober.csv", "statement_account_unknown"),
+        ("oktober 2026.csv", "statement_account_unknown"),
+        ("1930 och 1630 oktober.csv", "statement_account_ambiguous"),
     ],
 )
 def test_a_statement_the_scanner_would_refuse_is_refused_at_once(
     test_db, root, name, code
 ):
-    if not AccountRepository.exists("1930"):
-        AccountRepository.create("1930", "Företagskonto", "asset")
+    for account, label in (("1930", "Företagskonto"), ("1630", "Skattekonto")):
+        if not AccountRepository.exists(account):
+            AccountRepository.create(account, label, "asset")
 
     with pytest.raises(DropzoneUploadError) as err:
-        _drop("Kontoutdrag", name=name, content=CSV)
+        _drop("Underlag", name=name, content=CSV)
 
     assert err.value.code == code
-    assert not (root / "Kontoutdrag").exists() or not list(
-        (root / "Kontoutdrag").iterdir()
-    )
+    assert not (root / "Underlag").exists() or not list((root / "Underlag").iterdir())
 
 
 def test_disabled_dropzone_refuses_the_upload(test_db, root, monkeypatch):
     monkeypatch.setattr(settings, "dropzone_enabled", False)
     with pytest.raises(DropzoneUploadError) as err:
-        _drop("Kvitton")
+        _drop("Underlag")
     assert err.value.status == 409
 
 
 def test_targets_mirror_the_share(test_db, root):
-    (root / "Kontoutdrag" / "1930 Företagskonto").mkdir(parents=True)
+    (root / "Underlag" / "1930 Företagskonto").mkdir(parents=True)
     (root / "Representation").mkdir()
     (root / PROBLEM_DIR_NAME).mkdir()
     (root / ".stfolder").mkdir()
@@ -164,19 +173,14 @@ def test_targets_mirror_the_share(test_db, root):
     targets = [(t.folder, t.kind) for t in drop_targets()]
 
     assert targets == [
-        ("Kvitton", "voucher_source"),
-        ("Leverantörsfakturor", "voucher_source"),
-        ("Kundfakturor", "voucher_source"),
+        ("Underlag", "voucher_source"),
         ("Utlägg", "voucher_source"),
-        ("Övrigt", "voucher_source"),
         ("Representation", "voucher_source"),
-        ("Kontoutdrag", "bank_input"),
-        ("SIE4-import", "sie4_import"),
     ]
 
 
 def test_overview_lists_pending_and_problems_with_their_reason(test_db, root):
-    _drop("Kvitton")
+    _drop("Underlag")
     problem = root / PROBLEM_DIR_NAME
     problem.mkdir()
     (problem / "trasig.pdf").write_bytes(PDF)
@@ -187,7 +191,7 @@ def test_overview_lists_pending_and_problems_with_their_reason(test_db, root):
     overview = dropzone_overview()
 
     assert [(p["folder"], p["filename"]) for p in overview["pending"]] == [
-        ("Kvitton", "kvitto.pdf")
+        ("Underlag", "kvitto.pdf")
     ]
     assert overview["targets"][0]["pending_count"] == 1
     assert [(p["filename"], p["reason"]) for p in overview["problems"]] == [
@@ -202,7 +206,7 @@ def test_endpoints(test_db, root, auth_headers):
     response = client.post(
         "/api/v1/intake/dropzone/files",
         headers=auth_headers,
-        data={"folder": "Leverantörsfakturor"},
+        data={"folder": "Underlag"},
         files=[
             ("files", ("faktura.pdf", PDF, "application/pdf")),
             ("files", ("faktura2.pdf", PDF + b"2", "application/pdf")),
@@ -216,9 +220,9 @@ def test_endpoints(test_db, root, auth_headers):
         (True, "faktura2.pdf", None),
         (False, None, "sidecar_filename"),
     ]
-    assert (root / "Leverantörsfakturor" / "faktura.pdf").exists()
-    assert (root / "Leverantörsfakturor" / "faktura2.pdf").exists()
-    assert not (root / "Leverantörsfakturor" / "notis.txt").exists()
+    assert (root / "Underlag" / "faktura.pdf").exists()
+    assert (root / "Underlag" / "faktura2.pdf").exists()
+    assert not (root / "Underlag" / "notis.txt").exists()
 
     refused = client.post(
         "/api/v1/intake/dropzone/files",
@@ -243,7 +247,7 @@ def test_endpoints(test_db, root, auth_headers):
 
 
 def _read_in(root, name: str = "kvitto.pdf", content: bytes = PDF):
-    _drop("Kvitton", name=name, content=content)
+    _drop("Underlag", name=name, content=content)
     dropzone_module.get_scanner().scan_once()
     (entry,) = [e for e in dropzone_overview()["ingested"] if e["filename"] == name]
     return entry
@@ -302,7 +306,7 @@ def test_a_file_not_in_the_books_has_no_outcome(test_db, root):
 
 
 def test_overview_says_why_a_pending_file_was_not_read_in(test_db, root, monkeypatch):
-    _drop("Kvitton")
+    _drop("Underlag")
     scanner = dropzone_module.get_scanner()
 
     def trasig(*_args, **_kwargs):
@@ -314,9 +318,9 @@ def test_overview_says_why_a_pending_file_was_not_read_in(test_db, root, monkeyp
     [entry] = dropzone_overview()["pending"]
     assert entry["error"] == "OSError: Read-only file system"
 
-    (root / "Kvitton" / "kvitto.pdf").unlink()
+    (root / "Underlag" / "kvitto.pdf").unlink()
     scanner.scan_once()
-    assert scanner.file_error(root / "Kvitton" / "kvitto.pdf") is None
+    assert scanner.file_error(root / "Underlag" / "kvitto.pdf") is None
 
 
 def test_problem_without_a_source_in_the_books_is_unresolved():

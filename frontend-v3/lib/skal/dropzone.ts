@@ -14,7 +14,7 @@ import type { VyLage } from "@/lib/skal/vydata";
 export type MalTyp = "voucher_source" | "bank_input" | "sie4_import";
 
 export interface DropzoneMal {
-  /** Sökvägen i dropzonen, t.ex. `Kvitton`. Målets identitet. */
+  /** Sökvägen i dropzonen, t.ex. `Underlag`. Målets identitet. */
   folder: string;
   label: string;
   kind: MalTyp;
@@ -196,18 +196,11 @@ function langd(sekunder: number): string {
 
 /** Vad mappen gör med en fil, i en mening. */
 export function malBeskrivning(mal: DropzoneMal): string {
-  if (mal.kind === "bank_input") return "kontoutdrag (CSV), kontokoden först i filnamnet: 1930 oktober.csv";
+  if (mal.source_type === "reimbursement") return "utlägg: privat betalda köp som företaget ersätter (PDF eller bild)";
+  if (mal.kind === "bank_input") return "kontoutdrag (CSV), kontonumret någonstans i filnamnet: 1930 oktober.csv";
   if (mal.kind === "sie4_import") return "hel årsexport, bokförs direkt";
-  return MAPPTYP[mal.source_type ?? ""] ?? "ingen typ, agenten avgör";
+  return "underlag (PDF eller bild), kontoutdrag (CSV, med kontonumret i filnamnet) och SIE4-filer: agenten och filändelsen avgör";
 }
-
-const MAPPTYP: Readonly<Record<string, string>> = {
-  receipt: "kvitton",
-  supplier_invoice: "leverantörsfakturor",
-  customer_invoice: "kundfakturor",
-  reimbursement: "utlägg",
-  other: "övrigt underlag",
-};
 
 /** Mapparna som i utdelningen: översta nivån, med undermapparna under sin förälder. */
 export interface Mappnod {
@@ -236,9 +229,10 @@ export function mapptrad(mal: readonly DropzoneMal[]): Mappnod[] {
 /** Filtyperna filväljaren erbjuder för ett mål. Servern avgör ändå. */
 export function malAccept(mal: DropzoneMal | undefined): string | undefined {
   if (!mal) return undefined;
-  if (mal.kind === "sie4_import") return ".se,.si,.sie,.sie4";
-  if (mal.kind === "bank_input") return ".csv,text/csv";
-  return "application/pdf,image/jpeg,image/png,image/gif,image/webp";
+  const underlag = "application/pdf,image/jpeg,image/png,image/gif,image/webp";
+  // Utlägg tar bara underlag; Underlag tar också kontoutdrag och SIE4.
+  if (mal.source_type === "reimbursement") return underlag;
+  return `${underlag},.csv,text/csv,.se,.si,.sie,.sie4`;
 }
 
 export function storlek(bytes: number): string {

@@ -133,12 +133,13 @@ EOF
 fi
 
 # The folder contract the scanner reads (services/dropzone.py). Creating them is
-# this repo's job, not the file server's: the names ARE the classification.
+# this repo's job, not the file server's. Only `Utlägg` classifies; everything
+# else goes in `Underlag` and is told apart by extension (a .csv is a statement
+# for the account whose code is in the file name: `1930 oktober.csv`).
 # Folder names are matched case- and NFC/NFD-insensitively, so a folder created
-# on a Mac works too. Statements need no per-account folder: the file name
-# starts with the account code (`Kontoutdrag/1930 oktober.csv`).
+# on a Mac works too.
 echo "==> ensuring the dropzone folder contract in $DROPZONE"
-for folder in Kvitton Leverantörsfakturor Kundfakturor Utlägg Övrigt               Kontoutdrag SIE4-import; do
+for folder in Underlag Utlägg; do
   mkdir -p "$DROPZONE/$folder"
 done
 

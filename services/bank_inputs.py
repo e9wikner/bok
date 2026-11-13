@@ -23,7 +23,10 @@ ACCOUNT_REFERENCE_PREFIX = "account:"
 #: `bank_connection_id` for "work the account out from the file"
 #: (`resolve_auto_reference`).
 AUTO_CONNECTION_REFERENCE = "auto"
-AUTO_FILENAME_ACCOUNT_PATTERN = re.compile(r"^(\d{4})(?:[\s\-_.]|$)")
+#: A four-digit number standing on its own in a file name: not part of a longer
+#: number (`20261001`) or a word (`x1930y`). `[^\W_]` is "a letter or digit",
+#: so `_` and `-` count as separators.
+FILENAME_ACCOUNT_CANDIDATE = re.compile(r"(?<![^\W_])\d{4}(?![^\W_])")
 TAX_ACCOUNT_CODE = "1630"
 
 
@@ -216,14 +219,35 @@ class BankInputService:
         return connection.id
 
     def resolve_auto_reference(self, filename: str | None, content: bytes) -> str:
-        """``auto`` -> ``account:<kontokod>`` for a statement dropped in the
-        chat, where nobody picked an account: the file name's leading
-        account code (``1930 sep.csv``, the same rule as the dropzone's
-        statement folders), or 1630 for Skatteverket's tax-account export.
+        """``auto`` -> ``account:<kontokod>`` for a statement where nobody
+        picked an account (the chat, the dropzone): the one account code
+        standing anywhere in the file name (``1930 sep.csv``,
+        ``sep-1930.csv``), or 1630 for Skatteverket's tax-account export.
         """
-        match = AUTO_FILENAME_ACCOUNT_PATTERN.match(Path(filename or "").name)
-        if match:
-            return f"{ACCOUNT_REFERENCE_PREFIX}{match.group(1)}"
+        name = Path(filename or "").stem
+        statement_accounts = {
+            account.code
+            for account in AccountRepository.list_all(active_only=True)
+            if is_statement_account(account)
+        }
+        # A year in the name (`1930 oktober 2026.csv`) is a four-digit number
+        # too, but not an account in the chart, so only real statement
+        # accounts count.
+        found = list(
+            dict.fromkeys(
+                code
+                for code in FILENAME_ACCOUNT_CANDIDATE.findall(name)
+                if code in statement_accounts
+            )
+        )
+        if len(found) == 1:
+            return f"{ACCOUNT_REFERENCE_PREFIX}{found[0]}"
+        if len(found) > 1:
+            raise BankInputValidationError(
+                "statement_account_ambiguous",
+                "The file name names more than one account: " + ", ".join(found),
+                "Ta bort alla utom ett kontonummer ur filnamnet",
+            )
         try:
             csv_content = content.decode("utf-8-sig")
         except UnicodeDecodeError:
@@ -233,7 +257,7 @@ class BankInputService:
         raise BankInputValidationError(
             "statement_account_unknown",
             "Could not tell which account the statement belongs to",
-            "Börja filnamnet med kontokoden, till exempel '1930 kontoutdrag.csv'",
+            "Ta med kontokoden i filnamnet, till exempel '1930 kontoutdrag.csv'",
         )
 
     def statement_account_connections(self) -> list[BankConnection]:

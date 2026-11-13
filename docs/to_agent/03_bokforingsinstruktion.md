@@ -512,8 +512,8 @@ avsluta med en mening om varför den behöver något mer, så står den kvar fö
 användaren. I en tråd, när du ändå har läst `las_okopplade_banktransaktioner`,
 bokför du rader av det här slaget direkt i stället för att räkna upp dem.
 
-Kontoutdrag kommer in som CSV, i Dropzone (`Kontoutdrag/`, med kontokoden först
-i filnamnet: `1930 oktober.csv`) eller i tråden. Servern läser in raderna, håller en transaktion per verklig transaktion
+Kontoutdrag kommer in som CSV, i Dropzone (en `.csv` i `Underlag/`, med kontokoden
+någonstans i filnamnet: `1930 oktober.csv`) eller i tråden. Servern läser in raderna, håller en transaktion per verklig transaktion
 även när exporterna överlappar, och kopplar själv varje transaktion som har
 exakt en postad verifikation med samma belopp på samma konto och samma datum.
 Det gäller också en verifikation som postas efter att utdraget kom in. Be aldrig
