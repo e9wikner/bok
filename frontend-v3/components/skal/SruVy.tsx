@@ -45,8 +45,9 @@ export function SruVy({
   const konton = useQuery({ queryKey: KONTOPLAN_NYCKEL, queryFn: kontoplanApi.lista, staleTime: 10 * 60 * 1000 });
   const [sok, setSok] = useState("");
   const [baraAnpassade, setBaraAnpassade] = useState(false);
-  const [baraMedTransaktioner, setBaraMedTransaktioner] = useState(false);
-  // Frågan går först när rutan kryssas i.
+  const [visaAlla, setVisaAlla] = useState(false);
+  const baraMedTransaktioner = !visaAlla;
+  // Förvalet är kontona med transaktioner; "Visa alla" släpper det villkoret.
   const rorelse = useQuery({
     queryKey: rorelseNyckel(arId ?? ""),
     queryFn: () => sruApi.kontonMedTransaktioner(arId ?? ""),
@@ -106,12 +107,8 @@ export function SruVy({
                 Bara anpassade
               </label>
               <label className="flex items-center gap-2 text-[13px] text-bok-text-2">
-                <input
-                  type="checkbox"
-                  checked={baraMedTransaktioner}
-                  onChange={(e) => setBaraMedTransaktioner(e.target.checked)}
-                />
-                Bara konton med transaktioner under året
+                <input type="checkbox" checked={visaAlla} onChange={(e) => setVisaAlla(e.target.checked)} />
+                Visa alla konton (annars bara de med transaktioner under året)
               </label>
             </div>
             {baraMedTransaktioner && !rorelse.data ? (

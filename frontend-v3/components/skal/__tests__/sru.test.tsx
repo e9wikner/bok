@@ -42,6 +42,8 @@ function svara(sparade: { id: string; account_code: string; sru_field: string }[
   });
 }
 
+const ALLA = /Visa alla konton/;
+
 function visa(arId: string | null = "fy-2025") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -88,6 +90,7 @@ describe("vyn", () => {
     svara([{ id: "m1", account_code: "6110", sru_field: "7410" }]);
     visa();
 
+    fireEvent.click(await screen.findByLabelText(ALLA));
     expect(await screen.findByText("3.1 Nettoomsättning · anpassad")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Försäljning tjänster"));
     fireEvent.change(screen.getByLabelText("SRU-fält för 3011"), { target: { value: "7513" } });
@@ -106,25 +109,25 @@ describe("vyn", () => {
   it("visar bara de anpassade när rutan är ikryssad", async () => {
     svara([{ id: "m1", account_code: "6110", sru_field: "7410" }]);
     visa();
+    fireEvent.click(await screen.findByLabelText(ALLA));
     await waitFor(() => expect(screen.getAllByTestId("sru-konto")).toHaveLength(2));
     fireEvent.click(screen.getByLabelText("Bara anpassade"));
     expect(screen.getAllByTestId("sru-konto")).toHaveLength(1);
     expect(screen.getByText("Kontorsmateriel")).toBeInTheDocument();
   });
 
-  it("visar samtliga konton, eller bara de med transaktioner under året", async () => {
+  it("visar som standard bara konton med transaktioner under året, och alla på begäran", async () => {
     svara([]);
     visa();
-    await waitFor(() => expect(screen.getAllByTestId("sru-konto")).toHaveLength(2));
-    expect(get.mock.calls.map((c) => c[0])).not.toContain("/api/v1/accounts/with-transactions");
-
-    fireEvent.click(screen.getByLabelText("Bara konton med transaktioner under året"));
     await waitFor(() => expect(screen.getAllByTestId("sru-konto")).toHaveLength(1));
     expect(screen.getByText("Kontorsmateriel")).toBeInTheDocument();
     expect(get).toHaveBeenCalledWith("/api/v1/accounts/with-transactions", { params: { fiscal_year_id: "fy-2025" } });
 
-    fireEvent.click(screen.getByLabelText("Bara konton med transaktioner under året"));
+    fireEvent.click(screen.getByLabelText(ALLA));
     await waitFor(() => expect(screen.getAllByTestId("sru-konto")).toHaveLength(2));
+
+    fireEvent.click(screen.getByLabelText(ALLA));
+    await waitFor(() => expect(screen.getAllByTestId("sru-konto")).toHaveLength(1));
   });
 
   it("frågar innan årets kopplingar återställs", async () => {
