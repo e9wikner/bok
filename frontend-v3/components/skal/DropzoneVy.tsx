@@ -29,6 +29,7 @@ import {
   vantarText,
 } from "@/lib/skal/dropzone";
 import { lageFarg } from "@/lib/skal/lage";
+import { harFiler } from "@/lib/skal/menySlapp";
 import type { Vynyckel } from "@/lib/skal/vyer";
 
 /** Tråden bredvid dropzonen (`vyer.ts`): ett beslut där tas upp utan vybyte. */
@@ -353,9 +354,6 @@ function VantandeFiler({
     </ul>
   );
 }
-
-const harFiler = (dt: DataTransfer | null): boolean =>
-  !!dt && Array.from(dt.types ?? []).includes("Files");
 
 function MappRad({
   mal,
