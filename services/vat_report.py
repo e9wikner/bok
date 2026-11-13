@@ -14,7 +14,6 @@ from html import escape
 from typing import Dict, List, Optional, Tuple
 
 from db.database import get_db
-from domain.validation import ValidationError
 from repositories.period_repo import PeriodRepository
 from services.pdf_export import CompanyInfo, PDFEngine
 
@@ -128,43 +127,6 @@ def _format_sek(value_ore: int) -> str:
 class VatReportService:
     """Generate and manage VAT declarations."""
 
-    def generate_monthly(self, year: int, month: int) -> VatDeclaration:
-        """Generate VAT declaration for a specific calendar month."""
-
-        if month < 1 or month > 12:
-            raise ValidationError("invalid_month", "Month must be 1-12")
-        start = date(year, month, 1)
-        if month == 12:
-            end = date(year, 12, 31)
-        else:
-            end = date(year, month + 1, 1).replace(day=1)
-            end = date.fromordinal(end.toordinal() - 1)
-        decl = self._calculate_for_dates(start, end, period_month=month)
-        self._save_declaration(decl)
-        return decl
-
-    def generate_quarterly(self, year: int, quarter: int) -> VatDeclaration:
-        """Generate VAT declaration for a quarter."""
-
-        if quarter < 1 or quarter > 4:
-            raise ValidationError("invalid_quarter", "Quarter must be 1-4")
-        start_month = (quarter - 1) * 3 + 1
-        start = date(year, start_month, 1)
-        end_month = start_month + 2
-        end = date(year, end_month, 31 if end_month == 12 else 1)
-        if end_month != 12:
-            end = date(year, end_month + 1, 1)
-            end = date.fromordinal(end.toordinal() - 1)
-        decl = self._calculate_for_dates(
-            start,
-            end,
-            period_month=0,
-            period_quarter=quarter,
-            period_code=f"{year}Q{quarter}",
-        )
-        self._save_declaration(decl)
-        return decl
-
     def generate_yearly(self, year: int) -> VatDeclaration:
         """Generate annual VAT declaration.
 
@@ -234,19 +196,6 @@ class VatReportService:
             .fetchone()
         )
         return self._row_to_declaration(row) if row else None
-
-    def list_declarations(self, year: Optional[int] = None) -> List[VatDeclaration]:
-        """List all saved VAT declarations."""
-
-        sql = "SELECT * FROM vat_declarations"
-        params = []
-        if year:
-            sql += " WHERE period_year = ?"
-            params.append(year)
-        sql += " ORDER BY period_year DESC, period_month DESC, created_at DESC"
-
-        rows = get_db().execute(sql, tuple(params)).fetchall()
-        return [self._row_to_declaration(r) for r in rows]
 
     def format_skv_summary(self, decl: VatDeclaration) -> Dict:
         """Format declaration as API JSON."""

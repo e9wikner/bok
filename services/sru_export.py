@@ -802,16 +802,3 @@ class SRUExportService:
 def encode_sru(text: str) -> bytes:
     """SRU files are ISO 8859-1. Characters outside it become '?'."""
     return text.encode("iso-8859-1", errors="replace")
-
-
-# Convenience function for API usage
-def export_sru_for_fiscal_year(
-    fiscal_year_id: str,
-) -> Tuple[bytes, str, List[str], List[str]]:
-    """
-    Export SRU files for a fiscal year.
-
-    Returns: (zip_bytes, filename, errors, warnings)
-    """
-    service = SRUExportService()
-    return service.export_sru_zip(fiscal_year_id)

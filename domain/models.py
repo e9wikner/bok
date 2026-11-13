@@ -26,10 +26,6 @@ class FiscalYear:
     locked_at: Optional[datetime] = None
     created_at: datetime = field(default_factory=datetime.now)
 
-    def is_open(self) -> bool:
-        """Check if fiscal year is open for posting."""
-        return not self.locked
-
 
 @dataclass
 class Period:
@@ -45,10 +41,6 @@ class Period:
     locked_at: Optional[datetime] = None
     locked_by: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
-
-    def is_open(self) -> bool:
-        """Check if period is open for posting (BFL varaktighet requirement)."""
-        return not self.locked
 
 
 @dataclass
@@ -75,10 +67,6 @@ class VoucherRow:
     credit: int = 0  # In öre
     description: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
-
-    def is_debit(self) -> bool:
-        """Check if this row is a debit entry."""
-        return self.debit > 0
 
 
 @dataclass(frozen=True)

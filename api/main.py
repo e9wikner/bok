@@ -19,7 +19,6 @@ from api.routes import (
     agent,
     agent_instructions,
     articles,
-    attachments,
     audit,
     auth,
     bank_inputs,
@@ -30,8 +29,6 @@ from api.routes import (
     decisions,
     drafts,
     export_pdf,
-    export_sie4,
-    export_sru,
     import_sie4,
     intake,
     invoice_drafts,
@@ -41,9 +38,7 @@ from api.routes import (
     periods,
     reports,
     sru_mappings,
-    tax_ink2,
     threads,
-    vat,
     vouchers,
 )
 from config import settings
@@ -131,27 +126,18 @@ app.include_router(customers.router, dependencies=AUTHENTICATED)
 app.include_router(articles.router, dependencies=AUTHENTICATED)
 app.include_router(invoice_drafts.router, dependencies=AUTHENTICATED)
 
-# Fas 3: Rapporter & K2
-
 # Fas 4: Agent Integration
 app.include_router(agent.router, dependencies=AUTHENTICATED)
 app.include_router(agent_instructions.router)
 
 # Import/Export
 app.include_router(import_sie4.router, dependencies=AUTHENTICATED)
-app.include_router(export_sie4.router, dependencies=AUTHENTICATED)
 
 # PDF Export
 app.include_router(export_pdf.router, dependencies=AUTHENTICATED)
 
-# SRU Export (INK2 Tax Declaration)
-app.include_router(export_sru.router, dependencies=AUTHENTICATED)
-
 # Fas 5: BFL Compliance Checking
 app.include_router(compliance.router, dependencies=AUTHENTICATED)
-
-# Fas 5: VAT Declarations
-app.include_router(vat.router, dependencies=AUTHENTICATED)
 
 # Agent-readable corrections
 app.include_router(accounting_corrections.router, dependencies=AUTHENTICATED)
@@ -159,9 +145,6 @@ app.include_router(accounting_corrections.router, dependencies=AUTHENTICATED)
 # Intake source material
 app.include_router(intake.router, dependencies=AUTHENTICATED)
 app.include_router(bank_inputs.router, dependencies=AUTHENTICATED)
-
-# Attachments
-app.include_router(attachments.router, dependencies=AUTHENTICATED)
 
 # Auth (JWT-based user authentication — additive, does not replace API key auth)
 app.include_router(auth.router)
@@ -177,7 +160,6 @@ app.include_router(sru_mappings.sru_fields_router, dependencies=AUTHENTICATED)
 app.include_router(company_info.router, dependencies=AUTHENTICATED)
 
 # Tax declaration presentation data
-app.include_router(tax_ink2.router, dependencies=AUTHENTICATED)
 app.include_router(bokslut.router, dependencies=AUTHENTICATED)
 
 # Payroll

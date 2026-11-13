@@ -484,8 +484,3 @@ class INK2DeclarationService:
                     }
                 )
         return accounts
-
-
-def build_ink2_declaration(fiscal_year_id: str) -> Dict:
-    """Build INK2 declaration data for API routes."""
-    return INK2DeclarationService().build(fiscal_year_id)
