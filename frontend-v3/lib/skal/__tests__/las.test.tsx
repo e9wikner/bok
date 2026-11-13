@@ -165,7 +165,7 @@ describe("LasKnapp", () => {
 });
 
 describe("VyInnehall med månader", () => {
-  it("ritar en tom månad med sin text och sitt lås", () => {
+  it("ritar inte en tom månad, inte heller dess lås", () => {
     const vy = sidan("bocker").vyer.find((x) => x.key === "bocker.verifikationer")!;
     render(
       <VyInnehall
@@ -179,8 +179,7 @@ describe("VyInnehall med månader", () => {
         }}
       />
     );
-    expect(screen.getByText("Juli 2026")).toBeTruthy();
-    expect(screen.getByText("inga postade verifikationer")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Lås juli 2026" })).toBeTruthy();
+    expect(screen.queryByText("Juli 2026")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Lås juli 2026" })).toBeNull();
   });
 });

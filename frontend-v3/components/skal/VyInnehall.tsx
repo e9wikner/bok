@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, type ReactNode } from "react";
 import { VyBanner } from "@/components/skal/VyBanner";
 import { VyHeaderStatus } from "@/components/skal/VyHeaderStatus";
 import { VyRad, VyRadSkelett } from "@/components/skal/VyRad";
@@ -47,12 +47,8 @@ export function VyInnehall({
   atgard?: ReactNode;
 }) {
   const fg = lageFarg(data.lage);
-  // En månad utan verifikationer står kvar för låsets skull; den går att dölja.
-  const [doljTomma, setDoljTomma] = useState(false);
-  const tommaManader = data.sektioner.filter((s) => s.tom && s.rader.length === 0).length;
-  const sektioner = doljTomma
-    ? data.sektioner.filter((s) => !(s.tom && s.rader.length === 0))
-    : data.sektioner;
+  // En månad utan verifikationer visas inte.
+  const sektioner = data.sektioner.filter((s) => !(s.tom && s.rader.length === 0));
 
   return (
     <div
@@ -105,17 +101,6 @@ export function VyInnehall({
               <SorteringsVal sortering={sok.sortering} onSortera={sok.onSortera} />
             )}
           </div>
-        )}
-
-        {tommaManader > 0 && (
-          <button
-            type="button"
-            onClick={() => setDoljTomma((d) => !d)}
-            aria-pressed={doljTomma}
-            className="bok-mono mt-[10px] self-start text-left text-[12px] text-bok-lank underline-offset-2 hover:text-bok-lank-hover hover:underline"
-          >
-            {doljTomma ? `Visa tomma månader (${tommaManader})` : "Dölj tomma månader"}
-          </button>
         )}
 
         {data.banner && (
