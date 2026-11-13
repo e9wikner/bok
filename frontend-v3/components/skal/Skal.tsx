@@ -8,6 +8,7 @@ import { BeslutFokusProvider } from "@/components/skal/BeslutFokus";
 import { BokslutVy } from "@/components/skal/BokslutVy";
 import { ChattBubbla } from "@/components/skal/ChattBubbla";
 import { DropzoneVy } from "@/components/skal/DropzoneVy";
+import { ForetagetVy } from "@/components/skal/ForetagetVy";
 import { KontoplanVy } from "@/components/skal/KontoplanVy";
 import { RevisionsloggVy } from "@/components/skal/RevisionsloggVy";
 import { DetaljLager } from "@/components/skal/Detalj";
@@ -18,6 +19,7 @@ import type { SidMeta } from "@/components/skal/SidVaeljare";
 import { VyInnehall } from "@/components/skal/VyInnehall";
 import { VySvep } from "@/components/skal/VySvep";
 import { useAgentStatus, useOverview } from "@/hooks/useSkal";
+import { skalApi } from "@/lib/skal/api";
 import { useVyer } from "@/hooks/useVyer";
 import { useVantandeBeslut } from "@/hooks/useVantandeBeslut";
 import { useLasning } from "@/hooks/useLasning";
@@ -132,6 +134,11 @@ export function Skal() {
     queryFn: bokslutApi.getRakenskapsar,
     staleTime: 60 * 1000,
   });
+  const { data: version } = useQuery({
+    queryKey: ["skal", "version"],
+    queryFn: skalApi.getVersion,
+    staleTime: 10 * 60 * 1000,
+  });
   const [valtArId, setValtArId] = useState<string | null>(null);
   const valtAr = arslista?.fiscal_years.find((a) => a.id === valtArId);
   // Räknarna (sidornas rader, flikarnas antal) gäller året som visas; det
@@ -238,6 +245,7 @@ export function Skal() {
           onValjVy={gaTillVy}
           onValjAr={setValtArId}
           tema={tema}
+          version={version ?? null}
         />
       )}
       <VySvep
@@ -269,6 +277,8 @@ export function Skal() {
             <KontoplanVy titel={vy.titel} variant={variant} />
           ) : vy.key === "bocker.revisionslogg" ? (
             <RevisionsloggVy titel={vy.titel} variant={variant} />
+          ) : vy.key === "betala.foretaget" ? (
+            <ForetagetVy titel={vy.titel} variant={variant} />
           ) : vy.key === "betala.anstallda" ? (
             <AnstalldaVy titel={vy.titel} variant={variant} onGaTill={gaTillVy} />
           ) : null;

@@ -181,7 +181,8 @@ Beteendet är inte ändrat. Det här är iakttagelser.
 
 - **De gamla sidorna** i `frontend-v3` tas bort en i taget när skalet har en vy för dem.
   Kontoplanen och revisionsloggen (behandlingshistoriken, ett BFL-krav) är vyer i Böcker sedan
-  november 2026, och `/accounts` och `/audit` är borta.
+  november 2026, företagets uppgifter är Företaget i Fakturering och löner, och SIE4-filen
+  laddas ner per år i Bokslut. `/accounts`, `/audit` och `/settings` är borta.
 - **Fakturering** är skrivvy sedan F1. En faktura skrivs genom att en inloggad människa utfärdar
   ett utkast (`POST /invoice-drafts/{id}/issue`). **Löner** skriver i `/v4` på samma sätt. De
   sätts upp på `/payroll` eller i samtalet med agenten, som har `registrera_anstalld`, `satt_lon`

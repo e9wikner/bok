@@ -46,13 +46,19 @@ export type Dropzonevy = "bocker.dropzone";
 export type Anstalldavy = "betala.anstallda";
 
 /**
+ * Företaget: företagets uppgifter och det som står på fakturan. Ingen egen
+ * tråd — den chattar i Fakturerings. Servern känner inte nyckeln.
+ */
+export type Foretagsvy = "betala.foretaget";
+
+/**
  * Böckernas register: kontoplanen och revisionsloggen. Ingen egen tråd —
  * de chattar i Verifikationers. Servern känner inte nycklarna.
  */
 export type Registervy = "bocker.kontoplan" | "bocker.revisionslogg";
 
 /** En vy i navigeringen: en trådvy, en bokslutsdel eller en vy med egen komponent. */
-export type Vynyckel = ViewKey | BokslutDel | Dropzonevy | Anstalldavy | Registervy;
+export type Vynyckel = ViewKey | BokslutDel | Dropzonevy | Anstalldavy | Registervy | Foretagsvy;
 
 export interface Vy {
   readonly key: Vynyckel;
@@ -138,6 +144,14 @@ export const SIDOR: readonly Sida[] = Object.freeze([
         trad: "betala.loner",
         slug: "anstallda",
         titel: "Anställda",
+        sida: "betala",
+        lasvy: false,
+      },
+      {
+        key: "betala.foretaget",
+        trad: "betala.fakturering",
+        slug: "foretaget",
+        titel: "Företaget",
         sida: "betala",
         lasvy: false,
       },

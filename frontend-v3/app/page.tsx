@@ -105,7 +105,7 @@ export default function DashboardPage() {
           title="Varningar"
           value={complianceIssues.length}
           description="Compliance att kontrollera"
-          href="/audit"
+          href="/v4?sida=bokslut&vy=atgarder"
           icon={AlertTriangle}
           urgent={complianceIssues.length > 0}
         />

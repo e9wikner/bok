@@ -39,7 +39,7 @@ const navItems = [
   { href: "/reports", label: "Rapporter", icon: BarChart3 },
   { href: "/bokslut", label: "Bokslut", icon: FileCheck },
   { href: "/learning", label: "Agentinstruktioner", icon: Brain },
-  { href: "/settings", label: "Inställningar", icon: Settings },
+  { href: "/settings/sru-mappings", label: "SRU-mappningar", icon: Settings },
 ];
 
 export function Sidebar() {

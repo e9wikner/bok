@@ -886,26 +886,6 @@ export const api = {
     return data as Blob;
   },
 
-  // Company info
-  getCompanyInfo: async (): Promise<CompanyInfo> => {
-    const { data } = await apiClient.get("/api/v1/company-info");
-    return data;
-  },
-  updateCompanyInfo: async (payload: CompanyInfo): Promise<CompanyInfo> => {
-    const { data } = await apiClient.put("/api/v1/company-info", payload);
-    return data;
-  },
-
-  // Import/Export
-  importSie4: async (file: File) => {
-    const formData = new FormData();
-    formData.append("file", file);
-    const { data } = await apiClient.post("/api/v1/import/sie4", formData, {
-      headers: { "Content-Type": "multipart/form-data" },
-    });
-    return data;
-  },
-
   // Intake workspace
   getIntakeWorkspace: async (params?: {
     status?: IntakeStatus;
@@ -986,11 +966,6 @@ export const api = {
   deleteBankInput: async (id: string): Promise<void> => {
     await apiClient.delete(`/api/v1/bank-inputs/${id}`);
   },
-  exportSie4: async () => {
-    const { data } = await apiClient.get("/api/v1/export/sie4");
-    return data;
-  },
-
   // Fiscal years
   getFiscalYears: async () => {
     const { data } = await apiClient.get("/api/v1/fiscal-years");

@@ -37,7 +37,7 @@ export function describeInvoiceError(err: unknown, fallback: string): string {
   switch (detail?.code) {
     case "company_info_incomplete": {
       const missing = (detail.missing || []).map((key) => COMPANY_INFO_LABELS[key] || key);
-      return `Företagsuppgifterna räcker inte för en faktura. Saknas: ${missing.join(", ")}. Fyll i dem under Inställningar.`;
+      return `Företagsuppgifterna räcker inte för en faktura. Saknas: ${missing.join(", ")}. Fyll i dem under Företaget i Fakturering och löner.`;
     }
     case "number_taken":
       return `Fakturanummer ${detail.invoice_number ?? ""} är redan använt. Välj ett annat nummer.`;

@@ -325,6 +325,9 @@ class TestApi:
             resp = client.get(f["url"])
             assert resp.status_code == 200, f["id"]
             assert "attachment" in resp.headers["content-disposition"]
+        sie = client.get(f"/api/v1/bokslut/{ar}/filer/bokforing.si")
+        assert sie.content.startswith(b"#FLAGGA")
+        assert sie.headers["content-disposition"].endswith('.si"')
 
     def test_uppgifter_valideras_och_ar_append_only(self, ar, client, test_db):
         bad = client.post(
