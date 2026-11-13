@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Skal } from "@/components/skal/Skal";
+import { sidan } from "@/lib/skal/vyer";
 import { satteBredd } from "../../../vitest.setup";
 
 vi.mock("next/navigation", () => ({
@@ -59,7 +60,7 @@ describe("mobilmönstret under 1000 px", () => {
   it("har en chattbubbla för den aktiva vyn, inte en chattlist per vy", () => {
     const { container } = renderaSkal();
     expect(container.querySelectorAll('[aria-label="Visa eller minimera chatten"]')).toHaveLength(0);
-    expect(container.querySelectorAll("[data-view-key]")).toHaveLength(4);
+    expect(container.querySelectorAll("[data-view-key]")).toHaveLength(sidan("bocker").vyer.length);
     expect(screen.getByRole("button", { name: /Öppna chatten för Verifikationer/ })).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });

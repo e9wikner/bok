@@ -28,9 +28,15 @@ import { atgarderVy, bokslutApi, bokslutNyckel, bokslutStatus } from "@/lib/skal
 import { lasApi } from "@/lib/skal/las";
 import { dropzoneStatus } from "@/lib/skal/dropzone";
 import { ANSTALLDA_NYCKEL, anstalldaApi, anstalldaStatus } from "@/lib/skal/anstallda";
+import { KONTOPLAN_NYCKEL, kontoplanApi, kontoplanStatus } from "@/lib/skal/kontoplan";
 import { sokVy } from "@/lib/skal/sok";
 import { FEL_VY, INGET_AR_VY, LADDAR_VY, type VyData } from "@/lib/skal/vydata";
 import type { Sidnyckel, Vynyckel } from "@/lib/skal/vyer";
+
+/** En vy med egen komponent: bara statusraden, till headern. */
+function statusrad(st: { text: string; lage: VyData["lage"] }): { data: VyData; laddar: boolean } {
+  return { data: { ...LADDAR_VY, status: st.text, lage: st.lage }, laddar: false };
+}
 
 /** Dagens datum i lokal tid, `YYYY-MM-DD`. */
 function idag(): string {
@@ -145,6 +151,14 @@ export function useVyer(
     queryFn: anstalldaApi.lista,
     enabled: sida === "betala",
     staleTime: 30 * 1000,
+  });
+  // Kontoplanen gäller inget år; frågan går när Böcker visas. Samma nyckel
+  // som `KontoplanVy`.
+  const kontoplan = useQuery({
+    queryKey: KONTOPLAN_NYCKEL,
+    queryFn: kontoplanApi.lista,
+    enabled: sida === "bocker",
+    staleTime: 10 * 60 * 1000,
   });
   const saknar = useQuery({
     queryKey: [...VOUCHERS_NYCKEL, "skal", id, "saknar"],
@@ -344,6 +358,8 @@ export function useVyer(
       },
       laddar: false,
     },
+    // Kontoplanen har sin egen komponent (`KontoplanVy`); här bara statusraden.
+    "bocker.kontoplan": statusrad(kontoplanStatus(kontoplan.data, kontoplan.isError)),
     // Anställda har sin egen komponent (`AnstalldaVy`); här bara statusraden.
     "betala.anstallda": {
       data: {

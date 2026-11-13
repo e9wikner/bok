@@ -6,7 +6,6 @@ import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
   FileText,
-  BookOpen,
   Receipt,
   BarChart3,
   Brain,
@@ -36,7 +35,6 @@ const navItems = [
   { href: "/", label: "Översikt", icon: LayoutDashboard },
   { href: "/vouchers", label: "Verifikationer", icon: FileText },
   { href: "/vouchers/intake", label: "Intag", icon: Upload },
-  { href: "/accounts", label: "Kontoplan", icon: BookOpen },
   { href: "/invoices", label: "Fakturor", icon: Receipt },
   { href: "/payroll", label: "Lön", icon: WalletCards },
   { href: "/reports", label: "Rapporter", icon: BarChart3 },

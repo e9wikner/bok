@@ -45,8 +45,14 @@ export type Dropzonevy = "bocker.dropzone";
  */
 export type Anstalldavy = "betala.anstallda";
 
-/** En vy i navigeringen: en trådvy, en bokslutsdel, dropzonen eller Anställda. */
-export type Vynyckel = ViewKey | BokslutDel | Dropzonevy | Anstalldavy;
+/**
+ * Böckernas register: kontoplanen. Ingen egen tråd — den chattar i
+ * Verifikationers. Servern känner inte nyckeln.
+ */
+export type Registervy = "bocker.kontoplan";
+
+/** En vy i navigeringen: en trådvy, en bokslutsdel eller en vy med egen komponent. */
+export type Vynyckel = ViewKey | BokslutDel | Dropzonevy | Anstalldavy | Registervy;
 
 export interface Vy {
   readonly key: Vynyckel;
@@ -92,6 +98,14 @@ export const SIDOR: readonly Sida[] = Object.freeze([
         trad: "bocker.verifikationer",
         slug: "dropzone",
         titel: "Dropzone",
+        sida: "bocker",
+        lasvy: false,
+      },
+      {
+        key: "bocker.kontoplan",
+        trad: "bocker.verifikationer",
+        slug: "kontoplan",
+        titel: "Kontoplan",
         sida: "bocker",
         lasvy: false,
       },

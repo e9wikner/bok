@@ -72,14 +72,20 @@ describe("skalet håller sig innanför sin gräns (testfall 18)", () => {
 
   it("rör bara app/v4, app/globals.css och app/layout.tsx jämfört med main", () => {
     let andrade: string[];
+    let borttagna: string[];
     try {
       execFileSync("git", ["rev-parse", "--verify", "main"], { cwd: ROT, stdio: "ignore" });
-      andrade = execFileSync("git", ["diff", "--name-only", "main", "--", "app"], {
-        cwd: ROT,
-        encoding: "utf8",
-      })
-        .split("\n")
-        .filter(Boolean);
+      const diff = (...flaggor: string[]) =>
+        execFileSync("git", ["diff", "--name-only", ...flaggor, "main", "--", "app"], {
+          cwd: ROT,
+          encoding: "utf8",
+        })
+          .split("\n")
+          .filter(Boolean);
+      andrade = diff();
+      // En gammal sida som har fått en vy i skalet tas bort (docs/oppna-beslut.md,
+      // Städning): att den försvinner är tillåtet, att den ändras är det inte.
+      borttagna = diff("--diff-filter=D");
     } catch {
       // Grunt klonad CI-checkout utan main: den statiska vakten ovan gäller.
       return;
@@ -112,6 +118,7 @@ describe("skalet håller sig innanför sin gräns (testfall 18)", () => {
     // där en människa kan ange dem.
     const installningarna = ["frontend-v3/app/settings/page.tsx"];
     const tillatet = (f: string) =>
+      borttagna.includes(f) ||
       f.includes("frontend-v3/app/v4/") ||
       f.endsWith("frontend-v3/app/globals.css") ||
       f.endsWith("frontend-v3/app/layout.tsx") ||
