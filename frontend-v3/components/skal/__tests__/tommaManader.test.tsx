@@ -36,4 +36,14 @@ describe("Dölj tomma månader", () => {
     render(<VyInnehall vy={{ titel: "Verifikationer" }} data={data([MANADER[1]])} />);
     expect(screen.queryByRole("button", { name: /tomma månader/ })).toBeNull();
   });
+
+  it("fäller ihop och ut en månads verifikationer med pilknappen", async () => {
+    const user = userEvent.setup();
+    render(<VyInnehall vy={{ titel: "Verifikationer" }} data={data([MANADER[1]])} sok={{ varde: "", onAndra: () => {} }} />);
+    expect(screen.getByText("Hyra kontor")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Dölj verifikationerna i Maj 2026" }));
+    expect(screen.queryByText("Hyra kontor")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Visa verifikationerna i Maj 2026" }));
+    expect(screen.getByText("Hyra kontor")).toBeInTheDocument();
+  });
 });

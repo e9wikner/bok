@@ -138,6 +138,7 @@ export function VyInnehall({
               las={sektion.las}
               tom={sektion.tom}
               kolumner={sektion.kolumner}
+              fallbar={!!sok}
             >
               {medGrupper(sektion.rader).map(({ rad, grupp }) => (
                 <Fragment key={rad.id}>
