@@ -13,58 +13,6 @@ router = APIRouter(prefix="/api/v1/vat", tags=["vat"])
 vat_service = VatReportService()
 
 
-@router.post("/declarations/monthly")
-async def generate_monthly_declaration(
-    year: int = Query(..., description="Year (e.g. 2026)"),
-    month: int = Query(..., ge=1, le=12, description="Month (1-12)"),
-):
-    """Generate a monthly VAT declaration (momsdeklaration).
-
-    Collects all VAT-related transactions from posted vouchers for the
-    given period and calculates the SKV 4700 form values.
-
-    Returns:
-    - Sales by VAT rate (25%, 12%, 6%, exempt)
-    - Output VAT (utgående moms)
-    - Input VAT (ingående moms)
-    - Net VAT to pay/receive
-    """
-    try:
-        decl = vat_service.generate_monthly(year, month)
-        return vat_service.format_skv_summary(decl)
-    except ValidationError as e:
-        raise HTTPException(status_code=400, detail=e.message)
-
-
-@router.post("/declarations/quarterly")
-async def generate_quarterly_declaration(
-    year: int = Query(..., description="Year"),
-    quarter: int = Query(..., ge=1, le=4, description="Quarter (1-4)"),
-):
-    """Generate a quarterly VAT declaration."""
-    try:
-        decl = vat_service.generate_quarterly(year, quarter)
-        return vat_service.format_skv_summary(decl)
-    except ValidationError as e:
-        raise HTTPException(status_code=400, detail=e.message)
-
-
-@router.post("/declarations/yearly")
-async def generate_yearly_declaration(
-    year: int = Query(..., description="Year"),
-):
-    """Generate an annual VAT declaration.
-
-    Annual eSKD declarations use period code YYYY12, matching Skatteverket's
-    upload format and the iOrdning reference export.
-    """
-    try:
-        decl = vat_service.generate_yearly(year)
-        return vat_service.format_skv_summary(decl)
-    except ValidationError as e:
-        raise HTTPException(status_code=400, detail=e.message)
-
-
 @router.get("/declarations/yearly/{year}")
 async def preview_yearly_declaration(year: int):
     """Preview an annual VAT declaration without saving a new row."""

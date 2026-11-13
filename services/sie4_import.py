@@ -530,15 +530,6 @@ class SIE4Importer:
         }
         self.fiscal_year_resolution: Optional[Dict[str, str]] = None
 
-    def import_file(self, filepath: str, fiscal_year_id: Optional[str] = None) -> bool:
-        """Import a SIE4 file."""
-        try:
-            data = self.parser.parse_file(filepath)
-            return self._import_data(data, fiscal_year_id)
-        except Exception as e:
-            self.errors.append(f"Failed to parse file: {str(e)}")
-            return False
-
     def import_content(
         self, content: str, fiscal_year_id: Optional[str] = None
     ) -> bool:
@@ -987,68 +978,3 @@ class SIE4Importer:
             "5": "expense",
         }
         return mapping.get(sie_type, "asset")
-
-
-def create_sample_sie4() -> str:
-    """Create a sample SIE4 file for testing."""
-    return """#FLAGGA 0
-#FORMAT PC8
-#GEN "Bokföringssystem" 20260115
-#PROGRAM "Bokföringssystem" 1.0
-#FNAMN "Demo AB"
-#FORGN 5591234567
-#ADRESS "Stefan Wikner" "Storgatan 1" "11122 Stockholm" "08-123456"
-#RAR 0 20260101 20261231
-#KPTYP EUBAS97
-
-#KONTO 1930 "Företagskonto"
-#KONTO 2013 "Eget uttag"
-#KONTO 2081 "Aktieägartillskott"
-#KONTO 2440 "Leverantörsskulder"
-#KONTO 2610 "Utgående moms 25%"
-#KONTO 2640 "Ingående moms"
-#KONTO 3010 "Försäljning tjänster"
-#KONTO 5010 "Lokalhyra"
-#KONTO 7010 "Lön tjänstemän"
-
-#VER A 1 20260115 "Startkapital"
-{
-#TRANS 1930 {} 200000.00 20260115 "Insättning"
-#TRANS 2081 {} -200000.00 20260115 "Aktieägartillskott"
-}
-
-#VER A 2 20260201 "Hyra februari"
-{
-#TRANS 5010 {} 10000.00 20260201 "Lokalhyra"
-#TRANS 2640 {} 2500.00 20260201 "Moms 25%"
-#TRANS 2440 {} -12500.00 20260201 "Leverantörsskuld"
-}
-
-#VER A 3 20260215 "Försäljning"
-{
-#TRANS 1510 {} 125000.00 20260215 "Kundfordran"
-#TRANS 3010 {} -100000.00 20260215 "Försäljning"
-#TRANS 2610 {} -25000.00 20260215 "Utgående moms"
-}
-#SRU 1930 1940
-#SRU 3010 3610
-"""
-
-
-if __name__ == "__main__":
-    # Test parsing
-    sample = create_sample_sie4()
-    parser = SIE4Parser()
-    data = parser.parse_content(sample)
-
-    print("Parsed SIE4 data:")
-    print(f"  Company: {data.company.name if data.company else 'N/A'}")
-    print(f"  Org number: {data.company.org_number if data.company else 'N/A'}")
-    print(f"  Accounts: {len(data.accounts)}")
-    print(f"  Vouchers: {len(data.vouchers)}")
-    print(f"  Fiscal year: {data.fiscal_year_start} - {data.fiscal_year_end}")
-
-    for voucher in data.vouchers:
-        print(f"\n  {voucher.series}{voucher.number}: {voucher.description}")
-        for row in voucher.rows:
-            print(f"    {row.account}: {row.amount / 100:,.2f} kr")

@@ -150,17 +150,6 @@ class InvoiceProposalRepository:
         ).fetchone()
         return row["n"]
 
-    @staticmethod
-    def decision_ids_pending(view_key: str) -> List[str]:
-        """Decisions with a pending proposal in the view (for the view's
-        rows, like FV §11.2: the proposal stands in the decision's place)."""
-        rows = db.execute(
-            "SELECT DISTINCT decision_id FROM thread_invoice_drafts "
-            "WHERE status = 'pending' AND view_key = ? AND decision_id IS NOT NULL",
-            (view_key,),
-        ).fetchall()
-        return [r["decision_id"] for r in rows]
-
     # -- transitions ------------------------------------------------------
 
     @staticmethod

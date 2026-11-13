@@ -97,19 +97,6 @@ class PayrollBookingProposalRepository:
         return [PayrollBookingProposalRepository._to_proposal(row) for row in rows]
 
     @staticmethod
-    def pending_for_agi(year: int, month: int) -> List[PayrollBookingProposal]:
-        rows = db.execute(
-            """
-            SELECT * FROM payroll_booking_proposals
-            WHERE kind = 'agi' AND agi_year = ? AND agi_month = ?
-              AND status = 'pending'
-            ORDER BY created_at
-            """,
-            (year, month),
-        ).fetchall()
-        return [PayrollBookingProposalRepository._to_proposal(row) for row in rows]
-
-    @staticmethod
     def resolve(
         proposal_id: str, status: str, *, actor: str, _commit: bool = True
     ) -> None:

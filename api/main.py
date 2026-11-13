@@ -35,7 +35,6 @@ from api.routes import (
     intake,
     invoice_drafts,
     invoices,
-    k2_reports,
     overview,
     payroll,
     periods,
@@ -108,7 +107,6 @@ app.include_router(articles.router, dependencies=AUTHENTICATED)
 app.include_router(invoice_drafts.router, dependencies=AUTHENTICATED)
 
 # Fas 3: Rapporter & K2
-app.include_router(k2_reports.router, dependencies=AUTHENTICATED)
 
 # Fas 4: Agent Integration
 app.include_router(agent.router, dependencies=AUTHENTICATED)

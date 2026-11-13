@@ -75,20 +75,3 @@ def _read_file(filepath: str) -> Optional[str]:
         return None
     except Exception as e:
         return f"[Fel vid läsning av fil: {str(e)}]"
-
-
-def list_available_files() -> List[Dict]:
-    """List all available system instruction files with their status."""
-    result = []
-    for filename, title in SYSTEM_INSTRUCTION_FILES:
-        filepath = os.path.join(DOCS_TO_AGENT_DIR, filename)
-        exists = os.path.exists(filepath)
-        result.append(
-            {
-                "filename": filename,
-                "title": title,
-                "exists": exists,
-                "path": filepath if exists else None,
-            }
-        )
-    return result

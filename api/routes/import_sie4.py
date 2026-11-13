@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from api.deps import get_current_actor, verify_api_key
 from config import settings
 from domain.validation import ValidationError
-from services.sie4_import import SIE4Importer, SIE4Parser, create_sample_sie4
+from services.sie4_import import SIE4Importer, SIE4Parser
 
 router = APIRouter(prefix="/api/v1/import", tags=["import"])
 
@@ -129,18 +129,6 @@ async def import_sie4(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Import failed: {str(e)}",
         )
-
-
-@router.get("/sie4/sample", status_code=status.HTTP_200_OK)
-async def get_sie4_sample(
-    actor: str = Depends(get_current_actor),
-):
-    """Get a sample SIE4 file for testing import functionality."""
-    return {
-        "content": create_sample_sie4(),
-        "description": "Sample SIE4 file with 3 vouchers for testing",
-        "format": "SIE4",
-    }
 
 
 @router.post("/sie4/validate", status_code=status.HTTP_200_OK)

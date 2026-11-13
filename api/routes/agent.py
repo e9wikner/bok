@@ -65,22 +65,6 @@ class AgentFailedRequest(BaseModel):
     warnings: Optional[list[str]] = None
 
 
-@router.post("/seed", response_model=dict, status_code=status.HTTP_201_CREATED)
-async def seed_demo_data(
-    actor: str = Depends(get_current_actor),
-):
-    """Seed demo/test data (idempotent - safe to call multiple times)."""
-    try:
-        from scripts.seed_test_data import seed_test_company
-
-        seed_test_company()
-        return {"status": "ok", "message": "Demo data seeded successfully"}
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
-        )
-
-
 @router.post("/vouchers", response_model=dict, status_code=status.HTTP_201_CREATED)
 async def create_and_post_agent_voucher(
     request: AgentVoucherRequest,

@@ -439,31 +439,3 @@ async def get_invoicing_system_instructions_only(
         return get_invoicing_system_instructions()
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
-
-
-# Legacy endpoints for backward compatibility
-@router.get("/accounting/legacy", response_model=dict)
-async def get_accounting_instructions_legacy(actor: str = Depends(get_current_actor)):
-    """Legacy endpoint: Get combined instructions (deprecated).
-
-    This endpoint returns the old combined format for backward compatibility.
-    New integrations should use GET /accounting which separates system and company.
-    """
-    try:
-        # Get company instructions (which may have been updated from legacy data)
-        company = AgentInstructionRepository.get_active("accounting")
-
-        return {
-            "scope": "accounting",
-            "version_id": company.get("version_id"),
-            "version": company.get("version"),
-            "content_markdown": company.get("content_markdown"),
-            "change_summary": company.get("change_summary"),
-            "created_by": company.get("created_by"),
-            "created_at": company.get("created_at"),
-            "updated_at": company.get("updated_at"),
-            "deprecated": True,
-            "note": "Detta är ett legacy-endpoint. Använd GET /accounting för separerade system/company-instruktioner.",
-        }
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))

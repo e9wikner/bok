@@ -4,15 +4,12 @@ Uses WeasyPrint + Jinja2 for HTML→PDF rendering with Swedish templates.
 Falls back gracefully if WeasyPrint is not available (requires system libraries).
 """
 
-import base64
-import io
 import os
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-import qrcode
 from jinja2 import Environment, FileSystemLoader
 from markupsafe import Markup, escape
 
@@ -29,7 +26,6 @@ from domain.validation import ValidationError
 from repositories.company_info_repo import CompanyInfoRepository
 from repositories.period_repo import PeriodRepository
 from services.invoice import InvoiceService
-from services.k2_report import K2ReportService
 from services.ledger import LedgerService
 from services.payroll import PayrollService
 
@@ -238,33 +234,6 @@ def _lines(text: Optional[str]) -> List[str]:
     return [line.strip() for line in (text or "").splitlines() if line.strip()]
 
 
-# --- QR code generation ---
-
-
-def generate_swish_qr(
-    payee: str,
-    amount_ore: int,
-    message: str = "",
-) -> str:
-    """Generate Swish-compatible QR code as base64 PNG.
-
-    Uses the Swish C2B format.
-    """
-    amount_kr = amount_ore / 100
-    # Swish QR payload format
-    payload = f"C{payee};{amount_kr:.2f};{message}"
-
-    qr = qrcode.QRCode(version=1, box_size=6, border=2)
-    qr.add_data(payload)
-    qr.make(fit=True)
-
-    img = qr.make_image(fill_color="black", back_color="white")
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
-    return base64.b64encode(buf.read()).decode("ascii")
-
-
 # --- PDF Engine ---
 
 
@@ -410,45 +379,6 @@ class PDFExportService:
         return self.engine.render_html("payslip.html", context)
 
     # ---- Trial Balance PDF ----
-
-    def export_trial_balance(self, period_id: str) -> bytes:
-        """Generate trial balance (råbalans) PDF."""
-        period = self.period_repo.get_period(period_id)
-        if not period:
-            raise ValueError(f"Period {period_id} hittades inte")
-
-        balances = self.ledger.get_trial_balance(period_id)
-        all_accounts = self.ledger.accounts.get_all_as_dict()
-
-        rows = []
-        total_debit = 0
-        total_credit = 0
-
-        for code in sorted(balances.keys()):
-            bal = balances[code]
-            account = all_accounts.get(code)
-            account_name = account.name if account else code
-            rows.append(
-                {
-                    "account_code": code,
-                    "account_name": account_name,
-                    "debit": bal["debit"],
-                    "credit": bal["credit"],
-                    "balance": bal["debit"] - bal["credit"],
-                }
-            )
-            total_debit += bal["debit"]
-            total_credit += bal["credit"]
-
-        context = {
-            "company": self.company,
-            "period": f"{period.year}-{period.month:02d}",
-            "rows": rows,
-            "total_debit": total_debit,
-            "total_credit": total_credit,
-            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        }
-        return self.engine.render_pdf("trial_balance.html", context)
 
     # ---- Account Ledger (Huvudbok) PDF ----
 
@@ -733,108 +663,6 @@ class PDFExportService:
         }
         return self.engine.render_pdf("balance_sheet.html", context)
 
-    # ---- K2 Report PDF ----
-
-    def export_k2_report(
-        self,
-        fiscal_year_id: str,
-        company_name: str,
-        org_number: str = "",
-        managing_director: str = "",
-        average_employees: Optional[int] = None,
-        significant_events: str = "",
-    ) -> bytes:
-        """Generate K2 annual report PDF."""
-        fy = self.period_repo.get_fiscal_year(fiscal_year_id)
-        if not fy:
-            raise ValueError(f"Räkenskapsår {fiscal_year_id} hittades inte")
-
-        # Generate K2 data via existing service
-        k2_service = K2ReportService()
-        report = k2_service.generate_report(
-            fiscal_year=fy,
-            company_name=company_name,
-            org_number=org_number,
-            managing_director=managing_director,
-            average_employees=average_employees,
-            significant_events=significant_events,
-        )
-
-        # Build sections for template
-        income_statement_sections = []
-        balance_sheet_sections = []
-
-        if "income_statement" in report:
-            is_data = report["income_statement"]
-            # Revenue section
-            rev_rows = []
-            for item in is_data.get("revenue_items", []):
-                rev_rows.append(
-                    {"label": item.get("name", ""), "amount": item.get("amount", 0)}
-                )
-            income_statement_sections.append(
-                {
-                    "title": "Rörelseintäkter",
-                    "rows": rev_rows,
-                    "total": is_data.get("total_revenue", 0),
-                    "total_label": "Summa rörelseintäkter",
-                }
-            )
-            # Expense section
-            exp_rows = []
-            for item in is_data.get("expense_items", []):
-                exp_rows.append(
-                    {"label": item.get("name", ""), "amount": item.get("amount", 0)}
-                )
-            income_statement_sections.append(
-                {
-                    "title": "Rörelsekostnader",
-                    "rows": exp_rows,
-                    "total": is_data.get("total_expenses", 0),
-                    "total_label": "Summa rörelsekostnader",
-                }
-            )
-
-        if "balance_sheet" in report:
-            bs_data = report["balance_sheet"]
-            for section_name in ["assets", "equity_and_liabilities"]:
-                section_data = bs_data.get(section_name, {})
-                rows = []
-                for item in section_data.get("items", []):
-                    rows.append(
-                        {"label": item.get("name", ""), "amount": item.get("amount", 0)}
-                    )
-                title = (
-                    "Tillgångar"
-                    if section_name == "assets"
-                    else "Eget kapital och skulder"
-                )
-                balance_sheet_sections.append(
-                    {
-                        "title": title,
-                        "rows": rows,
-                        "total": section_data.get("total", 0),
-                        "total_label": f"Summa {title.lower()}",
-                    }
-                )
-
-        context = {
-            "company": CompanyInfo(name=company_name, org_number=org_number),
-            "fiscal_year_start": fy.start_date.isoformat(),
-            "fiscal_year_end": fy.end_date.isoformat(),
-            "fiscal_year_label": f"{fy.start_date.year}",
-            "managing_director": managing_director,
-            "average_employees": average_employees,
-            "significant_events": significant_events,
-            "income_statement_sections": income_statement_sections,
-            "balance_sheet_sections": balance_sheet_sections,
-            "net_result": report.get("income_statement", {}).get("net_result", 0),
-            "compare_year": None,
-            "notes": report.get("notes", []),
-            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        }
-        return self.engine.render_pdf("k2_report.html", context)
-
     # ---- HTML Export Methods (Fallback) ----
 
     def export_invoice_html(self, invoice_id: str) -> str:
@@ -842,42 +670,3 @@ class PDFExportService:
         return self.engine.render_html(
             "invoice.html", self._invoice_context(invoice_id)
         )
-
-    def export_trial_balance_html(self, period_id: str) -> str:
-        """Generate HTML for trial balance (fallback for PDF)."""
-        period = self.period_repo.get_period(period_id)
-        if not period:
-            raise ValueError(f"Period {period_id} hittades inte")
-
-        balances = self.ledger.get_trial_balance(period_id)
-        all_accounts = self.ledger.accounts.get_all_as_dict()
-
-        rows = []
-        total_debit = 0
-        total_credit = 0
-
-        for code in sorted(balances.keys()):
-            bal = balances[code]
-            account = all_accounts.get(code)
-            account_name = account.name if account else code
-            rows.append(
-                {
-                    "account_code": code,
-                    "account_name": account_name,
-                    "debit": bal["debit"],
-                    "credit": bal["credit"],
-                    "balance": bal["debit"] - bal["credit"],
-                }
-            )
-            total_debit += bal["debit"]
-            total_credit += bal["credit"]
-
-        context = {
-            "company": self.company,
-            "period": f"{period.year}-{period.month:02d}",
-            "rows": rows,
-            "total_debit": total_debit,
-            "total_credit": total_credit,
-            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        }
-        return self.engine.render_html("trial_balance.html", context)

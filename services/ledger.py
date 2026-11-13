@@ -925,16 +925,3 @@ class LedgerService:
                         )
 
         return ledger_rows
-
-    def get_audit_history(self, entity_type: str, entity_id: str) -> List[Dict]:
-        """Get audit trail for an entity."""
-        entries = self.audit.get_history(entity_type, entity_id)
-        return [
-            {
-                "timestamp": entry.timestamp.isoformat(),
-                "action": entry.action.value,
-                "actor": entry.actor,
-                "payload": entry.payload,
-            }
-            for entry in entries
-        ]

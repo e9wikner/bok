@@ -63,23 +63,6 @@ class Account:
     active: bool = True
     created_at: datetime = field(default_factory=datetime.now)
 
-    def is_debit_account(self) -> bool:
-        """Check if account normally has debit balance (assets, expenses)."""
-        return self.account_type in [
-            AccountType.ASSET,
-            AccountType.EXPENSE,
-            AccountType.VAT_IN,
-        ]
-
-    def is_credit_account(self) -> bool:
-        """Check if account normally has credit balance (liabilities, equity, revenue)."""
-        return self.account_type in [
-            AccountType.LIABILITY,
-            AccountType.EQUITY,
-            AccountType.REVENUE,
-            AccountType.VAT_OUT,
-        ]
-
 
 @dataclass
 class VoucherRow:
@@ -96,14 +79,6 @@ class VoucherRow:
     def is_debit(self) -> bool:
         """Check if this row is a debit entry."""
         return self.debit > 0
-
-    def is_credit(self) -> bool:
-        """Check if this row is a credit entry."""
-        return self.credit > 0
-
-    def get_amount(self) -> int:
-        """Get the amount (debit or credit) in öre."""
-        return self.debit if self.is_debit() else self.credit
 
 
 @dataclass(frozen=True)
@@ -204,10 +179,6 @@ class Voucher:
         """Get total credit amount in öre."""
         return sum(row.credit for row in self.rows)
 
-    def is_correction(self) -> bool:
-        """Check if this is a correction voucher (B-series)."""
-        return self.series == VoucherSeries.B or self.correction_of is not None
-
 
 @dataclass
 class AuditLogEntry:
@@ -220,20 +191,6 @@ class AuditLogEntry:
     actor: str  # User ID or "system"
     payload: Optional[dict] = None  # JSON with before/after values
     timestamp: datetime = field(default_factory=datetime.now)
-
-
-@dataclass
-class VoucherAttachment:
-    """Verifikationsbilag (voucher attachment)."""
-
-    id: str
-    voucher_id: str
-    filename: str
-    sha256: str
-    mime_type: str
-    stored_path: str
-    size_bytes: int
-    uploaded_at: datetime = field(default_factory=datetime.now)
 
 
 @dataclass

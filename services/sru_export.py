@@ -123,10 +123,6 @@ class SRUDeclaration:
     uppdragstagare: bool = False
     revision: bool = False
 
-    def get_field(self, field_number: str) -> Optional[SRUFieldValue]:
-        """Get value for a specific field."""
-        return self.fields.get(field_number)
-
     def get_field_value(self, field_number: str) -> int:
         """Get numeric value for a field (0 if not found)."""
         field = self.fields.get(field_number)

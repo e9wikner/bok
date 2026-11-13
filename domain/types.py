@@ -55,13 +55,6 @@ class AuditAction(str, Enum):
     UNDERLAG_WAIVER_REVOKED = "underlag_waiver_revoked"
 
 
-class PeriodLockStatus(str, Enum):
-    """Period lock state."""
-
-    OPEN = "open"
-    LOCKED = "locked"
-
-
 class IntakeStatus(str, Enum):
     """Lifecycle status for uploaded voucher source material."""
 

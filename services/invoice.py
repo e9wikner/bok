@@ -398,9 +398,6 @@ class InvoiceService:
 
         return voucher.id
 
-    def _default_revenue_account(self, vat_code: str) -> str:
-        return default_revenue_account(vat_code)
-
     def register_payment(
         self,
         invoice_id: str,
@@ -596,21 +593,3 @@ class InvoiceService:
 
         ledger.post_voucher(voucher.id, actor=actor, _commit=False)
         self.credits.link_voucher(credit.id, voucher.id)
-
-    def get_vat_summary_for_period(self, period_id: str) -> Dict:
-        """Get VAT summary for period (for momsrapport)."""
-        # Get all invoices and payments in period
-        # This would sum up VAT by code for momsrapporting
-        # For now, skeleton
-        return {
-            "period_id": period_id,
-            "total_sales_25": 0,
-            "total_sales_12": 0,
-            "total_sales_6": 0,
-            "total_sales_0": 0,
-            "total_vat_25": 0,
-            "total_vat_12": 0,
-            "total_vat_6": 0,
-            "total_input_vat": 0,
-            "net_vat_due": 0,
-        }

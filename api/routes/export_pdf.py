@@ -287,47 +287,6 @@ async def export_balance_sheet_pdf_for_fiscal_year(
         )
 
 
-# ---- K2 Report PDF ----
-
-
-@router.get("/k2-report/{fiscal_year_id}")
-async def export_k2_report_pdf(
-    fiscal_year_id: str,
-    company_name: str = Query(..., description="Företagsnamn"),
-    org_number: str = Query("", description="Organisationsnummer"),
-    managing_director: str = Query("", description="Styrelse/VD"),
-    average_employees: Optional[int] = Query(None, description="Medelantal anställda"),
-    significant_events: str = Query("", description="Väsentliga händelser"),
-    pdf_service: PDFExportService = Depends(_get_pdf_service),
-):
-    """
-    Exportera K2-årsredovisning som PDF.
-
-    Komplett årsredovisning enligt K2-regelverket med:
-    - Förvaltningsberättelse
-    - Resultaträkning
-    - Balansräkning
-    - Noter
-    """
-    try:
-        pdf_bytes = pdf_service.export_k2_report(
-            fiscal_year_id=fiscal_year_id,
-            company_name=company_name,
-            org_number=org_number,
-            managing_director=managing_director,
-            average_employees=average_employees,
-            significant_events=significant_events,
-        )
-        return _pdf_response(pdf_bytes, f"k2_arsredovisning_{fiscal_year_id}.pdf")
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Kunde inte generera K2-rapport-PDF: {str(e)}",
-        )
-
-
 # ---- HTML Export (Fallback) ----
 
 

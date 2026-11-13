@@ -57,16 +57,6 @@ def test_pdf_export_general_ledger_endpoint_exists(client):
         assert response.status_code in [200, 404]
 
 
-def test_pdf_export_k2_report_endpoint_exists(client):
-    """Test that K2 report PDF export endpoint exists."""
-    with patch("services.pdf_export.PDFExportService.export_k2_report") as mock_export:
-        mock_export.return_value = b"fake pdf content"
-        response = client.get(
-            "/api/v1/export/pdf/k2-report/test-fy?company_name=Test+AB"
-        )
-        assert response.status_code in [200, 404]
-
-
 def test_pdf_response_headers(client):
     """Test that PDF responses have correct headers."""
     with patch("services.pdf_export.PDFExportService.export_invoice") as mock_export:

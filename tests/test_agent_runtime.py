@@ -2848,7 +2848,7 @@ class TestAgentRuntimeDisabledByDefault:
         finally:
             runner.stop()
 
-        assert agent_runtime_module.agent_runtime_status()["enabled"] is False
+        assert agent_runtime_module._runner.status()["enabled"] is False
 
 
 class TestAgentWorkerProgressTracking:
