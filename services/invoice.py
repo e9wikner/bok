@@ -22,6 +22,7 @@ from repositories.invoice_repo import (
     InvoiceRepository,
     PaymentRepository,
 )
+from repositories.period_repo import PeriodRepository
 from repositories.voucher_repo import VoucherRepository
 
 
@@ -432,7 +433,12 @@ class InvoiceService:
             # Update invoice paid amount and status
             self.invoices.update_paid_amount(invoice_id, amount)
 
-            # Auto-book payment if period provided
+            # A booked invoice has its receivable on 1510, so its payment is
+            # booked too (debit bank, credit 1510), in the period of the
+            # payment date unless one is named. An invoice from before
+            # issuing booked anything has no receivable to settle.
+            if period_id is None and invoice.voucher_id:
+                period_id = self._period_for(payment_date)
             if period_id:
                 self._create_payment_voucher(invoice, payment, period_id, actor)
 
@@ -456,6 +462,23 @@ class InvoiceService:
             run_statement_match_after_posting()
 
         return payment
+
+    @staticmethod
+    def _period_for(day: date) -> str:
+        from services.fiscal_years import FiscalYearService
+
+        fiscal_year = FiscalYearService.containing(day)
+        period = (
+            PeriodRepository.get_period_by_date(fiscal_year.id, day)
+            if fiscal_year
+            else None
+        )
+        if period is None:
+            raise ValidationError(
+                "period_not_found",
+                f"Det finns ingen räkenskapsperiod för betalningsdagen {day}",
+            )
+        return period.id
 
     def _create_payment_voucher(
         self, invoice: Invoice, payment: Payment, period_id: str, actor: str

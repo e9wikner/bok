@@ -226,6 +226,7 @@ function fakturarad(f: Faktura): VyRadData {
     // `betalning` den som bokförde betalningen.
     mal: f.voucher_id ? { typ: "ver", id: f.voucher_id } : undefined,
     lankar: betalningslankar(f.payment_voucher_ids ?? []),
+    betalning: OBETALD.has(f.status) && f.remaining_amount > 0 ? { invoiceId: f.id, kvar: f.remaining_amount } : undefined,
   };
 }
 

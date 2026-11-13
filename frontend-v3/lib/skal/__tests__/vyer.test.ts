@@ -30,8 +30,8 @@ describe("kartan (testfall 1)", () => {
     expect(SIDOR.map((s) => s.key)).toEqual(["bocker", "betala", "bokslut"]);
   });
 
-  it("fördelar vyerna 7 / 6 / 7: Bokslut har en vy per bokslutsdel och SRU-kopplingen, Böcker dropzonen, kontoplanen, revisionsloggen och instruktionerna, Betala lönebeskeden, Anställda, Företaget och instruktionerna", () => {
-    expect(SIDOR.map((s) => s.vyer.length)).toEqual([7, 6, 7]);
+  it("fördelar vyerna 7 / 7 / 7: Bokslut har en vy per bokslutsdel och SRU-kopplingen, Böcker dropzonen, kontoplanen, revisionsloggen och instruktionerna, Betala kunderna, lönebeskeden, Anställda, Företaget och instruktionerna", () => {
+    expect(SIDOR.map((s) => s.vyer.length)).toEqual([7, 7, 7]);
   });
 
   it("bär designens sidtitlar ordagrant", () => {
@@ -51,7 +51,7 @@ describe("view_key mot serverns lista (testfall 2)", () => {
 
   it("härleder view_key ur kartan, inte ur en hopklistrad sträng", () => {
     expect(viewKeyOf("bocker", 2)).toBe("bocker.verifikationer");
-    expect(viewKeyOf("betala", 1)).toBe("betala.loner");
+    expect(viewKeyOf("betala", 2)).toBe("betala.loner");
     expect(viewKeyOf("bokslut", 7)).toBeUndefined();
   });
 

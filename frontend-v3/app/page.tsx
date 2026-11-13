@@ -47,7 +47,7 @@ export default function DashboardPage() {
   );
   const legacyDraftInvoices = legacyDraftInvoiceData?.invoices || [];
   const invoiceDraftCount = invoiceDrafts.length + legacyDraftInvoices.length;
-  const invoiceDraftHref = invoiceDrafts.length > 0 ? "/invoices/drafts" : "/invoices";
+  const invoiceDraftHref = "/v4?sida=betala&vy=fakturering";
   const complianceIssues = complianceData?.issues || [];
   const fiscalYears = fiscalYearsData?.fiscal_years || [];
   const activeFiscalYear = fiscalYears.find((fy: any) => {
@@ -149,7 +149,7 @@ export default function DashboardPage() {
             <CardTitle>Snabbåtgärder</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-2">
-            <QuickLink href="/invoices/drafts" icon={Receipt} label="Granska fakturautkast" />
+            <QuickLink href="/v4?sida=betala&vy=fakturering" icon={Receipt} label="Granska fakturautkast" />
             <QuickLink href="/vouchers/new" icon={FileText} label="Skapa verifikation" />
             <QuickLink href="/v4?sida=bokslut&vy=oversikt" icon={ClipboardList} label="Öppna bokslut" />
             <QuickLink href="/v4?sida=bocker&vy=instruktioner" icon={Bot} label="Agentinstruktioner" />
@@ -174,7 +174,7 @@ export default function DashboardPage() {
                 {invoiceDrafts.slice(0, 5).map((draft: any) => (
                   <RowLink
                     key={draft.id}
-                    href={`/invoices/drafts/${draft.id}`}
+                    href="/v4?sida=betala&vy=fakturering"
                     title={draft.customer_name}
                     meta={`${draft.reference || "Ingen referens"} · ${formatDate(draft.invoice_date)} · ${draft.row_count} rader`}
                     value={formatCurrency(draft.amount_inc_vat || 0)}
@@ -183,7 +183,7 @@ export default function DashboardPage() {
                 {legacyDraftInvoices.slice(0, Math.max(0, 5 - invoiceDrafts.length)).map((invoice: any) => (
                   <RowLink
                     key={invoice.id}
-                    href={`/invoices/${invoice.id}`}
+                    href="/v4?sida=betala&vy=fakturering"
                     title={invoice.customer_name}
                     meta={`Faktura ${invoice.invoice_number || invoice.id?.slice(0, 8)} · ${formatDate(invoice.invoice_date)} · ${invoice.row_count || 0} rader`}
                     value={formatCurrency(invoice.amount_inc_vat || 0)}

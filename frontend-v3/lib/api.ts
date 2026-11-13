@@ -666,23 +666,6 @@ export const api = {
     });
     return data;
   },
-  getInvoice: async (id: string) => {
-    const { data } = await apiClient.get(`/api/v1/invoices/${id}`);
-    return data;
-  },
-  previewInvoice: async (payload: {
-    rows: {
-      description: string;
-      quantity: number | string;
-      unit?: string | null;
-      unit_price: number;
-      vat_code: string;
-      revenue_account?: string;
-    }[];
-  }) => {
-    const { data } = await apiClient.post("/api/v1/invoices/preview", payload);
-    return data;
-  },
   /**
    * The PDF stored when the invoice was issued, byte for byte. An invoice
    * from before F0 has none (404 `pdf_not_stored`); `getPdfExport` renders
@@ -696,70 +679,10 @@ export const api = {
     const match = disposition?.match(/filename="?([^";]+)"?/);
     return { blob: response.data as Blob, filename: match ? match[1] : null };
   },
-  registerPayment: async (id: string, payload: { amount: number; payment_date: string; payment_method: string; reference?: string }) => {
-    const { data } = await apiClient.post(`/api/v1/invoices/${id}/payment`, payload);
-    return data;
-  },
   getInvoiceDrafts: async (status?: string) => {
     const { data } = await apiClient.get("/api/v1/invoice-drafts", {
       params: { status_filter: status },
     });
-    return data;
-  },
-  getInvoiceDraft: async (id: string) => {
-    const { data } = await apiClient.get(`/api/v1/invoice-drafts/${id}`);
-    return data;
-  },
-  createInvoiceDraft: async (payload: InvoiceDraftPayload) => {
-    const { data } = await apiClient.post("/api/v1/invoice-drafts", payload);
-    return data;
-  },
-  updateInvoiceDraft: async (id: string, payload: InvoiceDraftPayload) => {
-    const { data } = await apiClient.put(`/api/v1/invoice-drafts/${id}`, payload);
-    return data;
-  },
-  /**
-   * Issue the draft: the invoice, its posted voucher
-   * and the stored PDF, all or nothing. Logged-in users only; errors come as
-   * `detail.code` (`number_taken`, `period_locked`, `company_info_incomplete`,
-   * `human_only`, ...) with their payload.
-   */
-  issueInvoiceDraft: async (id: string): Promise<IssuedInvoice> => {
-    const { data } = await apiClient.post(`/api/v1/invoice-drafts/${id}/issue`);
-    return data;
-  },
-  rejectInvoiceDraft: async (id: string) => {
-    const { data } = await apiClient.post(`/api/v1/invoice-drafts/${id}/reject`);
-    return data;
-  },
-  getCustomers: async (search?: string) => {
-    const { data } = await apiClient.get("/api/v1/customers", { params: { search } });
-    return data;
-  },
-  createCustomer: async (payload: {
-    name: string;
-    org_number?: string;
-    email?: string;
-    address?: string;
-    payment_terms_days: number;
-  }) => {
-    const { data } = await apiClient.post("/api/v1/customers", payload);
-    return data;
-  },
-  getArticles: async (search?: string) => {
-    const { data } = await apiClient.get("/api/v1/articles", { params: { search } });
-    return data;
-  },
-  createArticle: async (payload: {
-    article_number: string;
-    name: string;
-    description?: string;
-    unit: string;
-    unit_price: number;
-    vat_code: string;
-    revenue_account: string;
-  }) => {
-    const { data } = await apiClient.post("/api/v1/articles", payload);
     return data;
   },
 

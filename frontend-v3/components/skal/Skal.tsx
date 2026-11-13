@@ -11,6 +11,7 @@ import { DropzoneVy } from "@/components/skal/DropzoneVy";
 import { ForetagetVy } from "@/components/skal/ForetagetVy";
 import { InstruktionerVy } from "@/components/skal/InstruktionerVy";
 import { KontoplanVy } from "@/components/skal/KontoplanVy";
+import { KunderVy } from "@/components/skal/KunderVy";
 import { LonebeskedVy } from "@/components/skal/LonebeskedVy";
 import { RevisionsloggVy } from "@/components/skal/RevisionsloggVy";
 import { SruVy } from "@/components/skal/SruVy";
@@ -290,6 +291,8 @@ export function Skal() {
             <KontoplanVy titel={vy.titel} variant={variant} />
           ) : vy.key === "bocker.revisionslogg" ? (
             <RevisionsloggVy titel={vy.titel} variant={variant} />
+          ) : vy.key === "betala.kunder" ? (
+            <KunderVy titel={vy.titel} variant={variant} />
           ) : vy.key === "betala.foretaget" ? (
             <ForetagetVy titel={vy.titel} variant={variant} />
           ) : vy.key === "betala.anstallda" ? (

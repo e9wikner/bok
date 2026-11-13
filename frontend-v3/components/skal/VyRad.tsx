@@ -9,6 +9,7 @@ import { useDetalj } from "@/components/skal/DetaljKontext";
 import { aldersTon } from "@/lib/chattyta/alder";
 import {
   BESLUT_NYCKEL,
+  FAKTUROR_NYCKEL,
   LONER_NYCKEL,
   VOUCHERS_NYCKEL,
   angraUtanUnderlag,
@@ -16,6 +17,7 @@ import {
   godkannUtanUnderlag,
   bokforLonebesked,
   kopplaLonebesked,
+  registreraBetalning,
   type BeslutSvar,
   type UtanUnderlag,
 } from "@/lib/chattyta/api";
@@ -90,6 +92,7 @@ export function VyRad({
   forsokIgen,
   kopplaLonebesked: koppla,
   bokforLon,
+  betalning,
   beslut,
   fraga,
   underlagsval,
@@ -125,6 +128,8 @@ export function VyRad({
   kopplaLonebesked?: VyRadData["kopplaLonebesked"];
   /** En obokad lön med entydig utbetalning: länken `bokför`, ett tryck. */
   bokforLon?: VyRadData["bokforLon"];
+  /** En obetald faktura: länken `registrera betalning` och dess fält. */
+  betalning?: VyRadData["betalning"];
   /** Ett öppet beslut: titeln tar upp det i chatten. */
   beslut?: BeslutSvar;
   /** `be agenten` (eller `etikett`) i metaraden fyller vyns chattfält. */
@@ -172,6 +177,7 @@ export function VyRad({
       ? kolumner.map((k, i) => `${kolumnRubriker?.[i] ?? ""} ${k}`.trim()).join(" · ")
       : undefined;
   const metaText = [nummerKolumn ? undefined : nummer, meta, kolumnMeta].filter(Boolean).join(" · ") || undefined;
+  const [betalar, setBetalar] = useState(false);
 
   return (
     <div
@@ -229,7 +235,7 @@ export function VyRad({
             <Markerad text={titel} index={traff?.titel} />
           </span>
         )}
-        {(metaText || kvitto || forsokIgen || koppla || bokforLon || fraga || underlagsval || (lankar && detalj)) && (
+        {(metaText || kvitto || forsokIgen || koppla || bokforLon || betalning || fraga || underlagsval || (lankar && detalj)) && (
           <span
             className={`bok-mono ${storlek === "desktop" ? "text-[11px]" : "text-[12px]"}`}
             style={{ color: metaFarg(variant, ageDays) }}
@@ -245,6 +251,14 @@ export function VyRad({
             {forsokIgen && <ForsokIgenLank {...forsokIgen} forsta={!meta && !kvitto} />}
             {koppla && <KopplaLonebeskedLank {...koppla} forsta={!meta && !kvitto && !forsokIgen} />}
             {bokforLon && <BokforLonLank {...bokforLon} forsta={!meta && !kvitto && !forsokIgen && !koppla} />}
+            {betalning && !betalar && (
+              <MetaLank
+                text="registrera betalning"
+                titel="Registrera en betalning på fakturan"
+                forsta={!meta && !kvitto && !forsokIgen && !koppla && !bokforLon}
+                onTryck={() => setBetalar(true)}
+              />
+            )}
             {fraga && (
               <MetaLank
                 text={fraga.etikett ?? "be agenten"}
@@ -271,6 +285,7 @@ export function VyRad({
               ))}
           </span>
         )}
+        {betalning && betalar && <Betalning {...betalning} onKlar={() => setBetalar(false)} />}
       </span>
       {iKolumner && (
         <span className="flex shrink-0">
@@ -490,6 +505,66 @@ function KopplaLonebeskedLank({
  * Ett tryck av en inloggad människa; servern vägrar agentens nyckel. Lönerna
  * och verifikationerna hämtas om, så raden flyttar till bokförd.
  */
+/** Datum och belopp för en betalning på en faktura; förifyllda med i dag och det som återstår. */
+function Betalning({ invoiceId, kvar, onKlar }: { invoiceId: string; kvar: number; onKlar: () => void }) {
+  const queryClient = useQueryClient();
+  const [datum, setDatum] = useState(() => new Date().toLocaleDateString("sv-SE"));
+  const [belopp, setBelopp] = useState(() => (kvar / 100).toFixed(2).replace(".", ","));
+  const [lage, setLage] = useState<"redo" | "skickar" | "fel">("redo");
+  const [fel, setFel] = useState<string | null>(null);
+  const ore = Math.round(Number(belopp.replace(/\s/g, "").replace(",", ".")) * 100);
+  const giltigt = Number.isFinite(ore) && ore > 0 && ore <= kvar && /^\d{4}-\d{2}-\d{2}$/.test(datum);
+  const falt =
+    "bok-mono rounded-md border border-bok-linje bg-bok-yta px-2 py-[3px] text-[12px] text-bok-text focus:border-bok-lank focus:outline-none";
+  const skicka = () => {
+    setLage("skickar");
+    setFel(null);
+    registreraBetalning(invoiceId, ore, datum)
+      .then(() => {
+        onKlar();
+        return Promise.all([
+          queryClient.invalidateQueries({ queryKey: FAKTUROR_NYCKEL }),
+          queryClient.invalidateQueries({ queryKey: VOUCHERS_NYCKEL }),
+        ]);
+      })
+      .catch((e: unknown) => {
+        setLage("fel");
+        const d = (e as { response?: { data?: { detail?: { error?: string } | string } } })?.response?.data?.detail;
+        setFel(typeof d === "string" ? d : (d?.error ?? "Betalningen kunde inte registreras."));
+      });
+  };
+  return (
+    <span className="flex flex-wrap items-center gap-2 pt-1">
+      <input
+        type="date"
+        aria-label="Betalningsdag"
+        value={datum}
+        onChange={(e) => setDatum(e.target.value)}
+        className={falt}
+      />
+      <input
+        aria-label="Belopp"
+        inputMode="decimal"
+        value={belopp}
+        onChange={(e) => setBelopp(e.target.value)}
+        className={`${falt} w-[110px] text-right`}
+      />
+      <button
+        type="button"
+        disabled={!giltigt || lage === "skickar"}
+        onClick={skicka}
+        className="bok-mono text-[12px] text-bok-lank hover:underline disabled:opacity-60"
+      >
+        {lage === "skickar" ? "registrerar…" : "registrera"}
+      </button>
+      <button type="button" onClick={onKlar} className="bok-mono text-[12px] text-bok-meta hover:underline">
+        avbryt
+      </button>
+      {fel && <span className="bok-mono w-full text-[11px] text-bok-fel-meta">{fel}</span>}
+    </span>
+  );
+}
+
 function BokforLonLank({
   payslipId,
   transactionId,

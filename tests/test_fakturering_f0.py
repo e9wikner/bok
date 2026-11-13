@@ -734,6 +734,54 @@ def test_14_old_invoices_keep_their_numbers_and_can_be_read_and_paid(
     assert pdf.content.startswith(b"%PDF")
 
 
+def test_14c_paying_an_issued_invoice_books_the_payment(
+    client, books, customer, auth_headers
+):
+    """An issued invoice put its receivable on 1510; its payment settles it
+    in the period of the payment date, with no period named by the caller."""
+    invoice_id = _field(_issue(_draft(customer).id), "invoice_id")
+
+    paid = client.post(
+        f"/api/v1/invoices/{invoice_id}/payment",
+        headers=auth_headers,
+        json={
+            "amount": 2800000,
+            "payment_date": "2026-09-15",
+            "payment_method": "bank_transfer",
+        },
+    )
+    assert paid.status_code == 200, paid.text
+    assert paid.json()["invoice_status"] == "paid"
+
+    payment = db.execute(
+        "SELECT voucher_id FROM payments WHERE invoice_id = ?", (invoice_id,)
+    ).fetchone()
+    voucher = VoucherRepository.get(payment["voucher_id"])
+    assert voucher.status == VoucherStatus.POSTED
+    assert voucher.period_id == books[9].id
+    assert sorted((r.account_code, r.debit, r.credit) for r in voucher.rows) == [
+        ("1510", 0, 2800000),
+        ("1930", 2800000, 0),
+    ]
+
+
+def test_14d_a_payment_outside_every_period_is_refused(client, customer, auth_headers):
+    invoice_id = _field(_issue(_draft(customer).id), "invoice_id")
+    refused = client.post(
+        f"/api/v1/invoices/{invoice_id}/payment",
+        headers=auth_headers,
+        json={
+            "amount": 2800000,
+            "payment_date": "2027-02-01",
+            "payment_method": "bank_transfer",
+        },
+    )
+    assert refused.status_code == 400
+    assert refused.json()["detail"]["code"] == "period_not_found"
+    row = _invoice_row(invoice_id)
+    assert row["paid_amount"] == 0
+
+
 def test_14b_the_old_invoice_routes_are_gone(client, books, customer, auth_headers):
     invoice_id = _insert_old_invoice()
     draft = _draft(customer)

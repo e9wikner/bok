@@ -6,7 +6,7 @@ import { faktureringVy, lonerVy } from "@/lib/skal/betala";
 import { allaVyer, sidan } from "@/lib/skal/vyer";
 
 const fakturering = sidan("betala").vyer[0];
-const loner = sidan("betala").vyer[1];
+const loner = sidan("betala").vyer.find((v) => v.key === "betala.loner")!;
 
 const FAKTUROR = faktureringVy({
   total: 1,
@@ -41,9 +41,13 @@ const LONER = lonerVy({
 });
 
 describe("Fakturering och Löner har ingen knapp i vyn (testfall 17)", () => {
-  it("Fakturering har ingen knapp alls i vyn", () => {
+  it("Fakturering har ingen knapp i vyn, bara radernas länkar", () => {
     render(<VyInnehall vy={fakturering} data={FAKTUROR} />);
-    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    // En obetald faktura har länken `registrera betalning` i metaraden,
+    // som en lön har `bokför`; vyn har ingen primärknapp.
+    expect(screen.queryAllByRole("button").map((b) => b.textContent)).toEqual(
+      screen.queryAllByRole("button").map(() => "registrera betalning")
+    );
   });
 
   it("Löner har ingen knapp alls i vyn", () => {

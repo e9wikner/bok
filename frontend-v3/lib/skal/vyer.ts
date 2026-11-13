@@ -72,6 +72,12 @@ export type Instruktionsvy = "bocker.instruktioner" | "betala.instruktioner";
 export type Lonebeskedsvy = "betala.lonebesked";
 
 /**
+ * Kunder och artiklar, registren fakturorna skrivs ur. Ingen egen tråd —
+ * den chattar i Fakturerings. Servern känner inte nyckeln.
+ */
+export type Kundvy = "betala.kunder";
+
+/**
  * Böckernas register: kontoplanen och revisionsloggen. Ingen egen tråd —
  * de chattar i Verifikationers. Servern känner inte nycklarna.
  */
@@ -87,7 +93,8 @@ export type Vynyckel =
   | Foretagsvy
   | Sruvy
   | Instruktionsvy
-  | Lonebeskedsvy;
+  | Lonebeskedsvy
+  | Kundvy;
 
 export interface Vy {
   readonly key: Vynyckel;
@@ -173,6 +180,14 @@ export const SIDOR: readonly Sida[] = Object.freeze([
         titel: "Fakturering",
         sida: "betala",
         // Skrivvy sedan fakturering F1.
+        lasvy: false,
+      },
+      {
+        key: "betala.kunder",
+        trad: "betala.fakturering",
+        slug: "kunder",
+        titel: "Kunder och artiklar",
+        sida: "betala",
         lasvy: false,
       },
       { key: "betala.loner", trad: "betala.loner", slug: "loner", titel: "Löner", sida: "betala", lasvy: false },

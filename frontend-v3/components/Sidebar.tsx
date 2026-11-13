@@ -32,7 +32,7 @@ const navItems = [
   { href: "/", label: "Översikt", icon: LayoutDashboard },
   { href: "/vouchers", label: "Verifikationer", icon: FileText },
   { href: "/vouchers/intake", label: "Intag", icon: Upload },
-  { href: "/invoices", label: "Fakturor", icon: Receipt },
+  { href: "/v4?sida=betala&vy=fakturering", label: "Fakturor", icon: Receipt },
   { href: "/v4?sida=betala&vy=lonebesked", label: "Lön", icon: WalletCards },
   { href: "/v4?sida=bokslut&vy=oversikt", label: "Bokslut", icon: FileCheck },
   { href: "/v4?sida=bocker&vy=instruktioner", label: "Agentinstruktioner", icon: Brain },

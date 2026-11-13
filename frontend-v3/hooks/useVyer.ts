@@ -32,6 +32,7 @@ import { FORETAGET_NYCKEL, foretagetApi, foretagetStatus } from "@/lib/skal/fore
 import { instruktionNyckel, instruktionStatus, instruktionerApi } from "@/lib/skal/instruktioner";
 import { lonebeskedStatus } from "@/lib/skal/lonebesked";
 import { KONTOPLAN_NYCKEL, kontoplanApi, kontoplanStatus } from "@/lib/skal/kontoplan";
+import { ARTIKLAR_NYCKEL, KUNDER_NYCKEL, kunderApi, kunderStatus } from "@/lib/skal/kunder";
 import { REVISIONSLOGG_NYCKEL, revisionsloggApi, revisionsloggStatus } from "@/lib/skal/revisionslogg";
 import { sokVy } from "@/lib/skal/sok";
 import { FEL_VY, INGET_AR_VY, LADDAR_VY, type VyData } from "@/lib/skal/vydata";
@@ -183,6 +184,19 @@ export function useVyer(
   const faktureringsregler = useQuery({
     queryKey: instruktionNyckel("invoicing"),
     queryFn: () => instruktionerApi.hamta("invoicing"),
+    enabled: sida === "betala",
+    staleTime: 60 * 1000,
+  });
+  // Kunderna och artiklarna; samma nycklar som `KunderVy`.
+  const kunder = useQuery({
+    queryKey: KUNDER_NYCKEL,
+    queryFn: kunderApi.kunder,
+    enabled: sida === "betala",
+    staleTime: 60 * 1000,
+  });
+  const artiklar = useQuery({
+    queryKey: ARTIKLAR_NYCKEL,
+    queryFn: kunderApi.artiklar,
     enabled: sida === "betala",
     staleTime: 60 * 1000,
   });
@@ -399,6 +413,7 @@ export function useVyer(
     "bocker.kontoplan": statusrad(kontoplanStatus(kontoplan.data, kontoplan.isError)),
     "bocker.revisionslogg": statusrad(revisionsloggStatus(senasteLogg.data, senasteLogg.isError)),
     "betala.foretaget": statusrad(foretagetStatus(foretaget.data, foretaget.isError)),
+    "betala.kunder": statusrad(kunderStatus(kunder.data, artiklar.data, kunder.isError || artiklar.isError)),
     // Lönebesked har sin egen komponent (`LonebeskedVy`) och läser samma
     // körningar som Löner.
     "betala.lonebesked": statusrad(lonebeskedStatus(loner.data?.payroll_runs, loner.isError, ar === null ? null : id)),

@@ -185,7 +185,10 @@ Beteendet är inte ändrat. Det här är iakttagelser.
   laddas ner per år i Bokslut, där SRU-kopplingen också ställs in. `/accounts`, `/audit` och
   `/settings` (med SRU-mappningarna) är borta.
 - **Fakturering** är skrivvy sedan F1. En faktura skrivs genom att en inloggad människa utfärdar
-  ett utkast (`POST /invoice-drafts/{id}/issue`). **Löner** skriver i `/v4` på samma sätt. De
+  ett utkast (`POST /invoice-drafts/{id}/issue`), som agenten lägger fram i tråden; ett eget
+  formulär för en ny faktura finns inte längre. En betalning registreras från fakturans rad och
+  bokförs mot 1510 i betalningsdagens period. Kunder och artiklar läggs upp under Kunder och
+  artiklar; `/invoices` är borta. **Löner** skriver i `/v4` på samma sätt. De
   sätts upp under Anställda eller i samtalet med agenten, som har `registrera_anstalld`, `satt_lon`
   och `skapa_lonekorning` (bara i en tråd). Agenten lägger fram bokföringen av ett lönebesked
   som ett beslutskort (`foresla_lonebokforing`), och en inloggad människa bokför med ett tryck.
