@@ -16,6 +16,7 @@ import {
   arAnpassad,
   faltText,
   filtreraKonton,
+  rorelseNyckel,
   sruApi,
   sruNyckel,
   sruStatus,
@@ -44,9 +45,22 @@ export function SruVy({
   const konton = useQuery({ queryKey: KONTOPLAN_NYCKEL, queryFn: kontoplanApi.lista, staleTime: 10 * 60 * 1000 });
   const [sok, setSok] = useState("");
   const [baraAnpassade, setBaraAnpassade] = useState(false);
-  const isError = sru.isError || konton.isError;
+  const [baraMedTransaktioner, setBaraMedTransaktioner] = useState(false);
+  // Frågan går först när rutan kryssas i.
+  const rorelse = useQuery({
+    queryKey: rorelseNyckel(arId ?? ""),
+    queryFn: () => sruApi.kontonMedTransaktioner(arId ?? ""),
+    enabled: !!arId && baraMedTransaktioner,
+    staleTime: 60 * 1000,
+  });
+  const medTransaktioner = baraMedTransaktioner && rorelse.data ? new Set(rorelse.data) : null;
+  const isError = sru.isError || konton.isError || (baraMedTransaktioner && rorelse.isError);
   const status = sruStatus(sru.data, isError, arId);
   const pad = variant === "desktop" ? "px-6" : "px-[18px]";
+  const klasser =
+    konton.data && sru.data && !(baraMedTransaktioner && !rorelse.data)
+      ? kontoklasser(filtreraKonton(konton.data, sru.data, baraAnpassade, medTransaktioner), sok)
+      : [];
 
   return (
     <div
@@ -91,8 +105,23 @@ export function SruVy({
                 <input type="checkbox" checked={baraAnpassade} onChange={(e) => setBaraAnpassade(e.target.checked)} />
                 Bara anpassade
               </label>
+              <label className="flex items-center gap-2 text-[13px] text-bok-text-2">
+                <input
+                  type="checkbox"
+                  checked={baraMedTransaktioner}
+                  onChange={(e) => setBaraMedTransaktioner(e.target.checked)}
+                />
+                Bara konton med transaktioner under året
+              </label>
             </div>
-            {kontoklasser(filtreraKonton(konton.data, sru.data, baraAnpassade), sok).map((g) => (
+            {baraMedTransaktioner && !rorelse.data ? (
+              <div className="pt-5">
+                <VyRadSkelett />
+              </div>
+            ) : klasser.length === 0 ? (
+              <div className="bok-mono pt-5 text-[12px] text-bok-meta">Inga konton matchar.</div>
+            ) : null}
+            {klasser.map((g) => (
               <VySektion key={g.klass} titel={`${g.klass} · ${g.titel}`} antalRader={g.konton.length} variant={variant}>
                 {g.konton.map((k) => (
                   <KontoRad key={k.code} k={k} data={sru.data!} arId={arId} />

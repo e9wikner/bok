@@ -35,6 +35,7 @@ function svara(sparade: { id: string; account_code: string; sru_field: string }[
   get.mockImplementation((url: string) => {
     if (url === "/api/v1/sru-fields") return Promise.resolve({ data: FALT });
     if (url === "/api/v1/accounts") return Promise.resolve({ data: { accounts: KONTON } });
+    if (url === "/api/v1/accounts/with-transactions") return Promise.resolve({ data: { codes: ["6110"] } });
     if (url.endsWith("/sru-mappings/default")) return Promise.resolve({ data: STANDARD });
     if (url.endsWith("/sru-mappings")) return Promise.resolve({ data: sparade });
     return Promise.reject(new Error(url));
@@ -109,6 +110,21 @@ describe("vyn", () => {
     fireEvent.click(screen.getByLabelText("Bara anpassade"));
     expect(screen.getAllByTestId("sru-konto")).toHaveLength(1);
     expect(screen.getByText("Kontorsmateriel")).toBeInTheDocument();
+  });
+
+  it("visar samtliga konton, eller bara de med transaktioner under året", async () => {
+    svara([]);
+    visa();
+    await waitFor(() => expect(screen.getAllByTestId("sru-konto")).toHaveLength(2));
+    expect(get.mock.calls.map((c) => c[0])).not.toContain("/api/v1/accounts/with-transactions");
+
+    fireEvent.click(screen.getByLabelText("Bara konton med transaktioner under året"));
+    await waitFor(() => expect(screen.getAllByTestId("sru-konto")).toHaveLength(1));
+    expect(screen.getByText("Kontorsmateriel")).toBeInTheDocument();
+    expect(get).toHaveBeenCalledWith("/api/v1/accounts/with-transactions", { params: { fiscal_year_id: "fy-2025" } });
+
+    fireEvent.click(screen.getByLabelText("Bara konton med transaktioner under året"));
+    await waitFor(() => expect(screen.getAllByTestId("sru-konto")).toHaveLength(2));
   });
 
   it("frågar innan årets kopplingar återställs", async () => {

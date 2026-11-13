@@ -105,3 +105,20 @@ class AccountRepository:
         sql = "SELECT 1 FROM accounts WHERE code = ? LIMIT 1"
         cursor = db.execute(sql, (code,))
         return cursor.fetchone() is not None
+
+    @staticmethod
+    def codes_with_transactions(fiscal_year_id: str) -> List[str]:
+        """Accounts a posted voucher in the fiscal year has a row on, in code order.
+
+        The opening balance is not a movement (`services/opening_balance.py`),
+        so a posted `IB`-series voucher from before migration 033 does not
+        count, and nor does a draft.
+        """
+        sql = """
+        SELECT DISTINCT vr.account_code AS code
+        FROM voucher_rows vr
+        JOIN vouchers v ON v.id = vr.voucher_id
+        WHERE v.fiscal_year_id = ? AND v.status = 'posted' AND v.series <> 'IB'
+        ORDER BY vr.account_code
+        """
+        return [row["code"] for row in db.execute(sql, (fiscal_year_id,)).fetchall()]

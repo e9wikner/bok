@@ -42,6 +42,18 @@ async def list_accounts(
     )
 
 
+@router.get("/with-transactions", response_model=dict)
+async def list_accounts_with_transactions(
+    fiscal_year_id: str,
+    ledger: LedgerService = Depends(get_ledger_service),
+):
+    """Codes of the accounts with a posted transaction in the fiscal year."""
+    return {
+        "fiscal_year_id": fiscal_year_id,
+        "codes": ledger.accounts.codes_with_transactions(fiscal_year_id),
+    }
+
+
 @router.get("/{code}", response_model=AccountResponse)
 async def get_account(
     code: str,

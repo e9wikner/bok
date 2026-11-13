@@ -14,6 +14,7 @@ import type { Konto } from "@/lib/skal/kontoplan";
 import type { VyLage } from "@/lib/skal/vydata";
 
 export const sruNyckel = (arId: string) => ["skal", "sru", arId] as const;
+export const rorelseNyckel = (arId: string) => ["skal", "sru", arId, "rorelse"] as const;
 
 export interface SruFalt {
   code: string;
@@ -50,6 +51,14 @@ export const sruApi = {
       apiClient.get<Koppling[]>(`/api/v1/fiscal-years/${arId}/sru-mappings`),
     ]);
     return { falt: falt.data ?? [], kopplingar: slaIhop(standard.data ?? [], sparade.data ?? []) };
+  },
+
+  /** Kontona med en bokförd transaktion under året (`GET /accounts/with-transactions`). */
+  kontonMedTransaktioner: async (arId: string): Promise<string[]> => {
+    const { data } = await apiClient.get<{ codes?: string[] }>("/api/v1/accounts/with-transactions", {
+      params: { fiscal_year_id: arId },
+    });
+    return data?.codes ?? [];
   },
 
   /** Sparar årets koppling för kontot (ersätter en tidigare). */
@@ -93,9 +102,21 @@ export function arAnpassad(k: Kontokoppling | undefined): boolean {
   return !!k?.sparad && k.sparad.falt !== k.standard;
 }
 
-/** Kontona som visas: alla, eller bara de anpassade. */
-export function filtreraKonton(konton: Konto[], data: SruData, baraAnpassade: boolean): Konto[] {
-  return baraAnpassade ? konton.filter((k) => arAnpassad(data.kopplingar[k.code])) : konton;
+/**
+ * Kontona som visas. `medTransaktioner` är kontona med en bokförd transaktion
+ * under året, eller null för alla konton; `baraAnpassade` begränsar till de
+ * vars koppling skiljer sig från standarden. Båda villkoren gäller samtidigt.
+ */
+export function filtreraKonton(
+  konton: Konto[],
+  data: SruData,
+  baraAnpassade: boolean,
+  medTransaktioner: ReadonlySet<string> | null = null
+): Konto[] {
+  return konton.filter(
+    (k) =>
+      (!baraAnpassade || arAnpassad(data.kopplingar[k.code])) && (!medTransaktioner || medTransaktioner.has(k.code))
+  );
 }
 
 export function sruStatus(data: SruData | undefined, isError: boolean, arId: string | null | undefined): { text: string; lage: VyLage } {
