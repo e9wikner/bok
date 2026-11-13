@@ -212,15 +212,38 @@ function Innehall({
         })}
       </VySektion>
 
-      <VySektion titel="_Problem" antalRader={data.problems.length} variant={variant}>
-        {data.problems.map((f) => (
-          <Rad
-            key={`${f.folder}/${f.filename}`}
-            titel={f.filename}
-            meta={`${f.reason ?? "Avvisad, se .problem.txt bredvid filen."} · ${tidpunkt(f.modified_at)}`}
-            ton="fel"
-          />
-        ))}
+      <VySektion
+        titel="Problem vid inläsning"
+        antalRader={data.problems.filter((f) => !f.resolved).length}
+        variant={variant}
+      >
+        {data.problems
+          .filter((f) => !f.resolved)
+          .map((f) => (
+            <Rad
+              key={`${f.folder}/${f.filename}`}
+              titel={f.filename}
+              meta={`${f.reason ?? "Avvisad, se .problem.txt bredvid filen."} · ${tidpunkt(f.modified_at)}`}
+              ton="fel"
+            />
+          ))}
+      </VySektion>
+
+      <VySektion
+        titel="Tidigare problem, lösta"
+        antalRader={data.problems.filter((f) => f.resolved).length}
+        variant={variant}
+      >
+        {data.problems
+          .filter((f) => f.resolved)
+          .map((f) => (
+            <Rad
+              key={`${f.folder}/${f.filename}`}
+              titel={f.filename}
+              meta={`löst: ${utfallText(f.outcome).text} · ${tidpunkt(f.modified_at)}`}
+              ton="klar"
+            />
+          ))}
       </VySektion>
 
       <VySektion titel="Senast inlästa" antalRader={data.ingested.length} variant={variant}>
@@ -232,7 +255,7 @@ function Innehall({
       <div className="pt-5 text-[13px] leading-[1.55] text-bok-text-svag [text-wrap:pretty]">
         En fil som läggs här hamnar i samma mapp som om den kopierats in via utdelningen. Skannern läser in
         den när den legat orörd i {data.quiet_seconds} s, flyttar den till _Inläst/ och agenten bokför den i
-        Verifikationer. En fil som inte går att läsa hamnar i _Problem/ med en förklaring. Ett kontoutdrag
+        Verifikationer. En fil som inte går att läsa hamnar under Problem med en förklaring. Ett kontoutdrag
         bokförs på kontot filnamnet börjar med, till exempel 1930 oktober.csv.
       </div>
     </>
@@ -248,7 +271,7 @@ function slapptMeta(s: Slappt, data: DropzoneOversikt, nu: number): string {
   if (s.tillstand === "laddar") return `laddar upp till ${s.mapp}/`;
   if (s.tillstand === "fel") return s.text ?? "kunde inte läggas i mappen";
   const problem = data.problems.find((p) => p.filename === s.namn);
-  if (problem) return `avvisad, ligger i _Problem/${problem.reason ? ` · ${problem.reason}` : ""}`;
+  if (problem) return `avvisad${problem.resolved ? " (löst)" : ""}${problem.reason ? ` · ${problem.reason}` : ""}`;
   const vantar = data.pending.find((p) => p.folder === s.mapp && p.filename === s.namn);
   if (vantar) return `i ${s.mapp}/ · ${vantarText(vantar, data, nu).text}`;
   const inlast = data.ingested.find((p) => p.filename === s.namn);

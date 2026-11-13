@@ -317,3 +317,13 @@ def test_overview_says_why_a_pending_file_was_not_read_in(test_db, root, monkeyp
     (root / "Kvitton" / "kvitto.pdf").unlink()
     scanner.scan_once()
     assert scanner.file_error(root / "Kvitton" / "kvitto.pdf") is None
+
+
+def test_problem_without_a_source_in_the_books_is_unresolved():
+    from services.dropzone_upload import _problem_resolved
+
+    assert _problem_resolved(None) is False
+    base = {"kind": "underlag", "status": "failed", "vouchers": []}
+    assert _problem_resolved(base) is False
+    assert _problem_resolved({**base, "status": "skipped"}) is True
+    assert _problem_resolved({**base, "vouchers": [{"id": "v"}]}) is True

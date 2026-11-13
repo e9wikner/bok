@@ -436,6 +436,23 @@ def _ingested_outcome(path: Path) -> dict | None:
     }
 
 
+def _problem_resolved(outcome: dict | None) -> bool:
+    """Is a file in ``_Problem/`` no longer a problem?
+
+    Resolved when the books now hold it: an underlag that supports a voucher
+    or was dismissed/handled, a statement that was imported. A file the books
+    know nothing of, or whose underlag still failed or waits on a person, is
+    still a problem.
+    """
+    if outcome is None:
+        return False
+    if outcome["kind"] == "statement":
+        return outcome["status"] == "processed" and not outcome["parse_error"]
+    if outcome["vouchers"]:
+        return True
+    return outcome["status"] in {"processed", "skipped", "deleted"}
+
+
 def _read_note(path: Path) -> str | None:
     try:
         text = path.read_text(encoding="utf-8", errors="replace").strip()
@@ -505,6 +522,10 @@ def dropzone_overview(scanner: DropzoneScanner | None = None) -> dict:
     for path in _newest(problem_files):
         entry = _file_entry(path, root)
         entry["reason"] = _read_note(path.with_name(path.name + PROBLEM_NOTE_SUFFIX))
+        # A file stays in _Problem/ after the problem is dealt with (a human
+        # booked it, or waved it off); the books say which, not the folder.
+        entry["outcome"] = _ingested_outcome(path)
+        entry["resolved"] = _problem_resolved(entry["outcome"])
         problems.append(entry)
 
     ingested_dir = scanner._reserved_dir(INGESTED_DIR_NAME)
