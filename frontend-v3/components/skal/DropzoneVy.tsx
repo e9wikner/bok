@@ -37,9 +37,10 @@ const DROPZONENS_TRAD = "bocker.verifikationer";
 /**
  * Dropzonen (`bocker.dropzone`): SMB-utdelningens mappar i webben.
  *
- * Mapparna visas som i utdelningen, och mappen är hela klassningen: en fil
- * som läggs i `Kvitton/` blir ett kvitto, en i `Kontoutdrag/` ett kontoutdrag
- * för kontot filnamnet börjar med (`1930 oktober.csv`). Släpp en eller flera filer på en mapp, eller tryck på
+ * Mapparna visas som i utdelningen. Filändelsen klassar en fil: en `.csv` är
+ * ett kontoutdrag för kontot vars nummer står i filnamnet (`1930 oktober.csv`),
+ * en SIE4-fil importeras, resten är underlag. `Utlägg/` är den enda mapp som
+ * ger en typ. Släpp en eller flera filer på en mapp, eller tryck på
  * den för filväljaren (flera filer går att välja). Filerna skrivs i mappen på
  * servern i ett anrop och läses in av mappskannern vid nästa varv — samma
  * `_Inläst/` och `_Problem/` som en fil som kopierats dit i Finder. Därför

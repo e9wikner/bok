@@ -187,10 +187,10 @@ The same folders are in the web UI: `/?sida=bocker&vy=dropzone` (Böcker →
 Dropzone), listed as on the share. One or more files dropped on a folder are
 written into that folder (`POST /api/v1/intake/dropzone/files`,
 `services/dropzone_upload.py`) and read in by the scanner like any other —
-the folder decides what each file becomes, and nothing is ingested by the
-upload itself. Any top-level folder except `_Inläst/`/`_Problem/` can be
-written. A statement dropped on `Kontoutdrag/` is refused at once if its name
-does not start with a usable account code.
+the extension (and, for `Utlägg/`, the folder) decides what each file
+becomes, and nothing is ingested by the upload itself. Any top-level folder except `_Inläst/`/`_Problem/` can be
+written. A `.csv` is refused at once if its name does not hold exactly one usable
+account code.
 
 ### The split with hubbabubba
 
@@ -211,35 +211,34 @@ Two things must hold on that side, or nothing here works:
 - **A POSIX ACL grants `e9wikner`** (`host_acl` in the share declaration).
   `bok-api` runs rootless with `UserNS=keep-id`, so the container's root *is*
   that account on the host. Without the grant the scanner cannot move a file —
-  and a full `Kvitton/` looks identical whether the scanner is stuck or nobody
+  and a full `Underlag/` looks identical whether the scanner is stuck or nobody
   has dropped anything.
 
 ### The folder contract
 
-`deploy.sh` creates these; the names are the classification:
+`deploy.sh` creates these:
 
 ```
-Kvitton/                        kvitto
-Leverantörsfakturor/            leverantörsfaktura
-Kundfakturor/                   kundfaktura
-Utlägg/                         utlägg
-Övrigt/                         annat
-Kontoutdrag/                    kontoutdrag (CSV), konto ur filnamnet
-SIE4-import/                    hel årsexport, bokförs direkt
+Underlag/                       kvitto, faktura, avtal ... agenten avgör
+Utlägg/                         utlägg (privat betalt, företaget ersätter)
 _Inläst/2026-09/                ← inlästa filer flyttas hit
 _Problem/                       ← avvisade filer, med .txt som förklarar
 ```
 
-Names match case- and NFC/NFD-insensitively, so a folder created on a Mac
-works.
+What a file is follows its **extension**, wherever it lies: a `.csv` is an
+account statement, a `.se`/`.si`/`.sie`/`.sie4` is a whole-year SIE4 export
+(bokförs direkt), anything else is an underlag. `Utlägg/` is the only folder
+that adds a type, so it takes documents only; a CSV or SIE4 file there goes to
+`_Problem/`. Any other folder is read like `Underlag/` (so `Kvitton/` from
+before still works). Names match case- and NFC/NFD-insensitively.
 
-`Kontoutdrag/` has no per-account subfolders. A statement's file name starts
-with the account code — `1930 oktober.csv`, `1630-2026-10.csv` — and any
-asset or liability account in the chart of accounts works with no code or
-config change. Skatteverket's tax-account export is recognised as 1630 even
-without the code. A file whose name names no usable account, or one left in a
-subfolder, goes to `_Problem/` with the reason. A file in the root or an unknown folder is read without a type and
-classified by the agent; a `.txt` is always sidecar metadata, never a document.
+A statement's file name holds the account code **anywhere**: `1930 oktober.csv`,
+`oktober 1930.csv`, `1630-2026-10.csv`. The code is a four-digit number
+standing on its own (not inside `20261001` or `x1930y`) that is an active asset
+or liability account in the chart, so a year such as 2026 is ignored. Exactly
+one such number is required; none or several sends the file to `_Problem/` with
+the reason. Skatteverket's tax-account export is recognised as 1630 even
+without a code. A `.txt` is always sidecar metadata, never a document.
 
 Files are never deleted, only moved. A file still being written is left alone
 until it has been quiet for `DROPZONE_QUIET_SECONDS` (30 here, up from the

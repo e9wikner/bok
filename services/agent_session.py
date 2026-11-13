@@ -184,14 +184,16 @@ def _render_open_periods(open_periods: list[Period]) -> str:
 
 #: What the dropzone folder says about an underlag (`services/dropzone.py`).
 _SOURCE_TYPE_TEXT = {
-    "receipt": "kvitto (Kvitton/)",
-    "supplier_invoice": "leverantörsfaktura (Leverantörsfakturor/)",
-    "customer_invoice": "kundfaktura (Kundfakturor/)",
+    # Older underlag were sorted into folders by type; new ones carry no type
+    # but utlägg, and the agent classifies them from the document.
+    "receipt": "kvitto",
+    "supplier_invoice": "leverantörsfaktura",
+    "customer_invoice": "kundfaktura",
     "reimbursement": (
         "utlägg (Utlägg/): ett privat utlägg som företaget ska ersätta den som "
         "betalade -- krediteras 2820, se Utlägg i bokföringsinstruktionen"
     ),
-    "other": "övrigt (Övrigt/)",
+    "other": "övrigt",
 }
 
 

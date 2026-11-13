@@ -21,9 +21,8 @@ const oversikt = (over: Partial<DropzoneOversikt> = {}): DropzoneOversikt => ({
   scan_interval_seconds: 60,
   max_bytes: 10 * 1024 * 1024,
   targets: [
-    { folder: "Kvitton", label: "Kvitton", kind: "voucher_source", source_type: "receipt", account_code: null, account_name: null, pending_count: 0 },
-    { folder: "Kontoutdrag", label: "Kontoutdrag", kind: "bank_input", source_type: null, account_code: null, account_name: null, pending_count: 0 },
-    { folder: "SIE4-import", label: "SIE4-import", kind: "sie4_import", source_type: null, account_code: null, account_name: null, pending_count: 0 },
+    { folder: "Underlag", label: "Underlag", kind: "voucher_source", source_type: null, account_code: null, account_name: null, pending_count: 0 },
+    { folder: "Utlägg", label: "Utlägg", kind: "voucher_source", source_type: "reimbursement", account_code: null, account_name: null, pending_count: 0 },
   ],
   pending: [],
   problems: [],
@@ -68,7 +67,7 @@ describe("statusraden", () => {
     const gammal = { ...oversikt().status, last_scan_at: "2026-11-08T11:00:00Z" };
     expect(dropzoneStatus(oversikt({ status: gammal }), false, NU).lage).toBe("fel");
     expect(dropzoneStatus(oversikt({ enabled: false }), false, NU).text).toBe("avstängd på servern");
-    const fil = { folder: "Kvitton", filename: "a.pdf", size_bytes: 1, modified_at: "2026-11-08T11:59:00Z" };
+    const fil = { folder: "Underlag", filename: "a.pdf", size_bytes: 1, modified_at: "2026-11-08T11:59:00Z" };
     expect(dropzoneStatus(oversikt({ pending: [fil] }), false, NU).text).toBe("1 väntar på hämtning");
     expect(dropzoneStatus(oversikt(), false, NU).text).toBe("inget väntar");
   });
@@ -79,17 +78,17 @@ describe("släpp", () => {
     get.mockResolvedValue({ data: oversikt() });
     post.mockResolvedValue({
       data: {
-        folder: "Kvitton",
+        folder: "Underlag",
         results: [
-          { ok: true, original_filename: "taxi.pdf", folder: "Kvitton", filename: "taxi.pdf", size_bytes: 3 },
-          { ok: true, original_filename: "lunch.pdf", folder: "Kvitton", filename: "lunch (2).pdf", size_bytes: 3 },
+          { ok: true, original_filename: "taxi.pdf", folder: "Underlag", filename: "taxi.pdf", size_bytes: 3 },
+          { ok: true, original_filename: "lunch.pdf", folder: "Underlag", filename: "lunch (2).pdf", size_bytes: 3 },
           { ok: false, original_filename: "notis.txt", error: "En .txt-fil läses aldrig som underlag", code: "sidecar_filename" },
         ],
       },
     });
     visa();
 
-    const ruta = await screen.findByTestId("dropzone-mal-Kvitton");
+    const ruta = await screen.findByTestId("dropzone-mal-Underlag");
     const filer = [
       new File(["pdf"], "taxi.pdf", { type: "application/pdf" }),
       new File(["pdf"], "lunch.pdf", { type: "application/pdf" }),
@@ -100,32 +99,32 @@ describe("släpp", () => {
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
     const [url, form] = post.mock.calls[0] as [string, FormData];
     expect(url).toBe("/api/v1/intake/dropzone/files");
-    expect(form.get("folder")).toBe("Kvitton");
+    expect(form.get("folder")).toBe("Underlag");
     expect(form.getAll("files").map((f) => (f as File).name)).toEqual(["taxi.pdf", "lunch.pdf", "notis.txt"]);
     expect(form.get("comment")).toBeNull();
     expect(await screen.findByText("lunch (2).pdf")).toBeInTheDocument();
-    expect(screen.getAllByText(/lagd i Kvitton\//)).toHaveLength(2);
+    expect(screen.getAllByText(/lagd i Underlag\//)).toHaveLength(2);
     expect(screen.getByText(/läses aldrig som underlag/)).toBeInTheDocument();
   });
 
   it("filväljaren tar flera filer, och det finns inget kommentarsfält", async () => {
     get.mockResolvedValue({ data: oversikt() });
     const { container } = visa();
-    await screen.findByTestId("dropzone-mal-Kvitton");
+    await screen.findByTestId("dropzone-mal-Underlag");
     const valjare = container.querySelectorAll('input[type="file"]');
-    expect(valjare.length).toBe(3);
+    expect(valjare.length).toBe(2);
     valjare.forEach((v) => expect(v).toHaveAttribute("multiple"));
     expect(container.querySelector("textarea")).toBeNull();
   });
 
-  it("mapparna står som i utdelningen, kontoutdrag utan kontomappar", async () => {
+  it("två mappar: Underlag tar allt, Utlägg bara underlag", async () => {
     get.mockResolvedValue({ data: oversikt() });
     visa();
-    await screen.findByTestId("dropzone-mal-Kvitton");
-    expect(screen.getByText("Kvitton/")).toBeInTheDocument();
-    expect(screen.getByText("Kontoutdrag/")).toBeInTheDocument();
-    expect(screen.getByText(/kontokoden först i filnamnet/)).toBeInTheDocument();
-    expect(screen.getByText("SIE4-import/")).toBeInTheDocument();
+    await screen.findByTestId("dropzone-mal-Underlag");
+    expect(screen.getByText("Underlag/")).toBeInTheDocument();
+    expect(screen.getByText("Utlägg/")).toBeInTheDocument();
+    expect(screen.getByText(/kontonumret i filnamnet/)).toBeInTheDocument();
+    expect(screen.queryByText("Kontoutdrag/")).toBeNull();
   });
 
   it("serverns avvisning av hela släppet står på varje fil", async () => {
@@ -133,7 +132,7 @@ describe("släpp", () => {
     post.mockRejectedValue({ response: { data: { detail: { error: "Mappen finns inte i dropzonen.", code: "unknown_dropzone_folder" } } } });
     visa();
 
-    const ruta = await screen.findByTestId("dropzone-mal-SIE4-import");
+    const ruta = await screen.findByTestId("dropzone-mal-Utlägg");
     fireEvent.drop(ruta, { dataTransfer: { files: [new File(["x"], "a.se"), new File(["y"], "b.se")], types: ["Files"] } });
 
     await waitFor(() => expect(screen.getAllByText("Mappen finns inte i dropzonen.")).toHaveLength(2));
@@ -143,8 +142,8 @@ describe("släpp", () => {
     get.mockResolvedValue({ data: oversikt({ enabled: false }) });
     visa();
 
-    const ruta = await screen.findByTestId("dropzone-mal-Kvitton");
-    expect(screen.getByRole("button", { name: "Lägg filer i Kvitton" })).toBeDisabled();
+    const ruta = await screen.findByTestId("dropzone-mal-Underlag");
+    expect(screen.getByRole("button", { name: "Lägg filer i Underlag" })).toBeDisabled();
     fireEvent.drop(ruta, { dataTransfer: { files: [new File(["x"], "a.pdf")], types: ["Files"] } });
     expect(post).not.toHaveBeenCalled();
     expect(screen.getByText(/avstängd på servern \(DROPZONE_ENABLED\)/)).toBeInTheDocument();

@@ -90,20 +90,20 @@ def _statement_account(code: str = "1930", name: str = "Företagskonto") -> None
 # --- 1: receipt folder -------------------------------------------------
 
 
-def test_pdf_in_kvitton_becomes_a_receipt_and_is_archived(
+def test_pdf_in_underlag_becomes_an_untyped_source_and_is_archived(
     test_db, scanner, dropzone_dir
 ):
-    _drop(dropzone_dir, "Kvitton/kvitto-taxi.pdf")
+    _drop(dropzone_dir, "Underlag/kvitto-taxi.pdf")
 
     result = scanner.scan_once()
 
     assert result.ingested == 1
     sources = _sources()
     assert len(sources) == 1
-    assert sources[0].source_type == IntakeSourceType.RECEIPT
+    assert sources[0].source_type is None, "the agent classifies it"
     assert sources[0].original_filename == "kvitto-taxi.pdf"
     assert sources[0].uploaded_by == "dropzone"
-    assert not (dropzone_dir / "Kvitton/kvitto-taxi.pdf").exists()
+    assert not (dropzone_dir / "Underlag/kvitto-taxi.pdf").exists()
     archived = _ingested_files(dropzone_dir)
     assert [p.name for p in archived] == ["kvitto-taxi.pdf"]
     # _Inläst/YYYY-MM/
@@ -236,16 +236,15 @@ def test_statement_ingests_after_the_account_is_added(test_db, scanner, dropzone
 
 def test_statement_for_revenue_account_is_rejected(test_db, scanner, dropzone_dir):
     AccountRepository.create("3010", "Försäljning tjänster", "revenue")
-    _drop(dropzone_dir, "Kontoutdrag/3010 utdrag.csv", CSV_BYTES)
+    bank_csv = "Datum;Text;Belopp\n2026-09-01;Kaffe;-45,00\n".encode("utf-8")
+    _drop(dropzone_dir, "Underlag/3010 utdrag.csv", bank_csv)
 
     scanner.scan_once()
 
+    # 3010 is not an account that can hold a statement, so it is not read as
+    # the account code at all.
     assert BankInputRepository().list_by_status(status=None, limit=10, offset=0) == []
-    note = next(
-        p for p in _problem_files(dropzone_dir) if p.name.endswith(".problem.txt")
-    )
-    text = note.read_text(encoding="utf-8")
-    assert "inte ett tillgångs- eller skuldkonto" in text
+    assert "statement_account_unknown" in _problem_note_text(dropzone_dir)
 
 
 def test_statement_without_account_code_in_its_name_is_rejected(
@@ -254,7 +253,7 @@ def test_statement_without_account_code_in_its_name_is_rejected(
     # A recognised bank format: a headerless file would be read as
     # Skatteverket's tax-account export and go to 1630 without a code.
     bank_csv = "Datum;Text;Belopp\n2026-09-01;Kaffe;-45,00\n".encode("utf-8")
-    _drop(dropzone_dir, "Kontoutdrag/utdrag.csv", bank_csv)
+    _drop(dropzone_dir, "Underlag/utdrag.csv", bank_csv)
 
     scanner.scan_once()
 
@@ -262,7 +261,7 @@ def test_statement_without_account_code_in_its_name_is_rejected(
         p for p in _problem_files(dropzone_dir) if p.name.endswith(".problem.txt")
     )
     text = note.read_text(encoding="utf-8")
-    assert "Börja filnamnet med kontokoden" in text
+    assert "Ta med kontots nummer i filnamnet" in text
     assert "statement_account_unknown" in text
 
 
@@ -281,17 +280,80 @@ def test_skatteverket_export_goes_to_1630_without_a_code(
     assert connection.account_number == "1630"
 
 
-def test_statement_in_a_subfolder_is_rejected(test_db, scanner, dropzone_dir):
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Underlag/1930 okt.csv",
+        "Underlag/okt 1930.csv",
+        "Underlag/okt-1930-utdrag.csv",
+        "Underlag/utdrag_1930.csv",
+        "Underlag/1930 oktober 2026.csv",  # 2026 is a year, not an account
+        "Underlag/1930-20261001.csv",  # eight digits are not an account
+        "Underlag/okt/1930 okt.csv",  # a subfolder means nothing
+        "1930.csv",
+    ],
+)
+def test_the_account_code_may_stand_anywhere_in_a_statements_name(
+    test_db, scanner, dropzone_dir, name
+):
     _statement_account()
-    _drop(dropzone_dir, "Kontoutdrag/1930 Företagskonto/1930 okt.csv", CSV_BYTES)
+    _drop(dropzone_dir, name, CSV_BYTES)
+
+    scanner.scan_once()
+
+    assert _problem_files(dropzone_dir) == []
+    inputs = BankInputRepository().list_by_status(status=None, limit=10, offset=0)
+    assert len(inputs) == 1
+    connection = BankIntegrationService().get_connection(inputs[0].bank_connection_id)
+    assert connection.account_number == "1930"
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Underlag/x1930y.csv",  # inside a word
+        "Underlag/19301.csv",  # inside a longer number
+        "Underlag/utdrag oktober.csv",  # no number
+    ],
+)
+def test_a_number_that_is_not_standing_alone_is_not_an_account_code(
+    test_db, scanner, dropzone_dir, name
+):
+    _statement_account()
+    _drop(dropzone_dir, name, b"Datum;Text;Belopp\n2026-09-01;Kaffe;-45,00\n")
 
     scanner.scan_once()
 
     assert BankInputRepository().list_by_status(status=None, limit=10, offset=0) == []
-    note = next(
-        p for p in _problem_files(dropzone_dir) if p.name.endswith(".problem.txt")
-    )
-    assert "inte i en undermapp" in note.read_text(encoding="utf-8")
+    assert "statement_account_unknown" in _problem_note_text(dropzone_dir)
+
+
+def test_two_account_codes_in_a_statements_name_are_refused(
+    test_db, scanner, dropzone_dir
+):
+    _statement_account()
+    _statement_account("1630", "Skattekonto")
+    _drop(dropzone_dir, "Underlag/1930 och 1630.csv", CSV_BYTES)
+
+    scanner.scan_once()
+
+    assert BankInputRepository().list_by_status(status=None, limit=10, offset=0) == []
+    note = _problem_note_text(dropzone_dir)
+    assert "statement_account_ambiguous" in note
+    assert "1930" in note and "1630" in note
+
+
+def test_a_csv_in_utlagg_is_refused_not_read_as_a_statement(
+    test_db, scanner, dropzone_dir
+):
+    _statement_account()
+    _drop(dropzone_dir, "Utlägg/1930 okt.csv", CSV_BYTES)
+
+    result = scanner.scan_once()
+
+    assert result.problems == 1
+    assert BankInputRepository().list_by_status(status=None, limit=10, offset=0) == []
+    assert "Underlag/" in _problem_note_text(dropzone_dir)
 
 
 # --- 4: stability gate -------------------------------------------------
@@ -460,15 +522,15 @@ def test_ignored_names_are_left_alone(test_db, scanner, dropzone_dir, relative):
 
 
 def test_nfd_folder_name_maps_to_the_same_source_type(test_db, scanner, dropzone_dir):
-    nfd_folder = unicodedata.normalize("NFD", "Leverantörsfakturor")
-    assert nfd_folder != "Leverantörsfakturor"
-    _drop(dropzone_dir, f"{nfd_folder}/faktura.pdf")
+    nfd_folder = unicodedata.normalize("NFD", "Utlägg")
+    assert nfd_folder != "Utlägg"
+    _drop(dropzone_dir, f"{nfd_folder}/kvitto.pdf")
 
     scanner.scan_once()
 
     sources = _sources()
     assert len(sources) == 1
-    assert sources[0].source_type == IntakeSourceType.SUPPLIER_INVOICE
+    assert sources[0].source_type == IntakeSourceType.REIMBURSEMENT
 
 
 def test_lowercase_folder_name_maps_to_the_same_source_type(
@@ -928,18 +990,14 @@ def test_a_different_year_still_imports_alongside_an_existing_one(
     assert len(_vouchers()) == 2
 
 
-def test_non_sie4_file_in_the_import_folder_is_rejected_not_ingested(
-    test_db, scanner, dropzone_dir
-):
-    _drop(dropzone_dir, "SIE4-import/kvitto.pdf")
+def test_a_sie4_file_is_imported_wherever_it_lies(test_db, scanner, dropzone_dir):
+    _drop(dropzone_dir, "Underlag/2024.se", _sie4_bytes())
 
-    result = scanner.scan_once()
+    scanner.scan_once()
 
-    assert result.problems == 1
-    assert _sources() == [], "a PDF here must not become an untyped source"
-    note = _problem_note_text(dropzone_dir)
-    assert ".pdf" in note
-    assert "Kvitton/" in note
+    assert _sources() == [], "a SIE4 file is never an underlag"
+    assert _problem_files(dropzone_dir) == []
+    assert _vouchers()
 
 
 def test_sie4_without_fiscal_year_is_rejected(test_db, scanner, dropzone_dir):
