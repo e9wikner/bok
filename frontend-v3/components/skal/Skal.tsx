@@ -18,6 +18,7 @@ import { SruVy } from "@/components/skal/SruVy";
 import { DetaljLager } from "@/components/skal/Detalj";
 import { DetaljProvider, useDetaljHistorik } from "@/components/skal/DetaljKontext";
 import { Header } from "@/components/skal/Header";
+import { MenySlapp } from "@/components/skal/MenySlapp";
 import { SidNav } from "@/components/skal/SidNav";
 import type { SidMeta } from "@/components/skal/SidVaeljare";
 import { VyInnehall } from "@/components/skal/VyInnehall";
@@ -240,6 +241,7 @@ export function Skal() {
 
       <div className="flex min-h-0 flex-1">
       {bred && (
+        <MenySlapp onVisaDropzone={() => gaTillVy("bocker.dropzone")}>
         <SidNav
           aktivVy={aktivVy.key}
           metaPerSida={metaPerSida}
@@ -251,6 +253,7 @@ export function Skal() {
           tema={tema}
           version={version ?? null}
         />
+        </MenySlapp>
       )}
       <VySvep
         // Ny sida = ny sverprad. Utan nyckeln ligger skrollpositionen kvar
