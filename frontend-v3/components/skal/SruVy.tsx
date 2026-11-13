@@ -189,11 +189,17 @@ function KontoRad({ k, data, arId }: { k: Konto; data: SruData; arId: string }) 
         type="button"
         onClick={() => setOppen(!oppen)}
         aria-expanded={oppen}
-        className="-mx-2 flex w-[calc(100%+16px)] items-baseline gap-3 px-2 py-[7px] text-left hover:bg-bok-yta-svag"
+        className="-mx-2 flex w-[calc(100%+16px)] flex-wrap items-baseline gap-x-3 gap-y-[2px] px-2 py-[7px] text-left hover:bg-bok-yta-svag"
       >
         <span className="bok-mono bok-tal w-[44px] shrink-0 text-[13px] text-bok-text">{k.code}</span>
         <span className="min-w-0 flex-1 text-[14px] leading-[1.35] text-bok-text">{k.name}</span>
-        <span className={`bok-mono shrink-0 text-right text-[11px] ${anpassad ? "text-bok-vantar-meta" : "text-bok-meta"}`}>
+        {/* Fältet på en egen rad under namnet: det är långt och ska få radbryta,
+            inte skjuta in över namnet på en smal skärm. */}
+        <span
+          className={`bok-mono basis-full break-words pl-[56px] text-[11px] leading-[1.45] ${
+            anpassad ? "text-bok-vantar-meta" : "text-bok-meta"
+          }`}
+        >
           {faltText(data.falt, koppling?.galler ?? null)}
           {anpassad ? " · anpassad" : ""}
         </span>
