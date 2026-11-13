@@ -91,7 +91,7 @@ def test_36_koppla_underlag_is_last_and_the_first_twelve_are_unchanged():
     # statement-unlink tool, the payroll tools, foresla_rakenskapsar and the
     # payroll booking proposals, foresla_delat_underlag, and the three
     # utläggs tools last (migration 045).
-    assert len(names) == 36
+    assert len(names) == 37
     assert names[11:] == [
         "tolka_underlag",
         "koppla_underlag",
@@ -118,6 +118,7 @@ def test_36_koppla_underlag_is_last_and_the_first_twelve_are_unchanged():
         "kontrollera_utlagg",
         "foresla_utlaggskontroll",
         "foresla_avtalsbokforing",
+        "uppdatera_instruktioner",
     ]
     first_twelve = json.dumps(AGENT_TOOL_DEFINITIONS[:12])
     assert hashlib.sha256(first_twelve.encode()).hexdigest() == _FIRST_TWELVE_SHA256

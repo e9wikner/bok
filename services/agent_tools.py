@@ -2305,6 +2305,15 @@ def _run_foresla_utlaggskontroll(
     )
 
 
+class UppdateraInstruktionerArgs(BaseModel):
+    """Skriv en lärdom till företagets bokföringsinstruktioner, ett avsnitt
+    i taget."""
+
+    rubrik: str = Field(..., min_length=3, max_length=120)
+    text: str = Field(..., min_length=1, max_length=6000)
+    change_summary: str = Field(..., min_length=3, max_length=300)
+
+
 class ForeslaAvtalsbokforingArgs(BaseModel):
     """Fråga användaren om ett avtal eller medgivande ska bokföras mot de
     transaktioner i kontoutdraget som det gäller."""
@@ -2326,6 +2335,33 @@ class ForeslaAvtalsbokforingArgs(BaseModel):
     )
     reason: str = Field(
         ..., description="En mening om varför avtalet gäller transaktionerna"
+    )
+
+
+def _run_uppdatera_instruktioner(
+    args: UppdateraInstruktionerArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """Not terminal. Thread only: the lesson comes from a conversation with
+    the human who can read the result. One section per call, a new immutable
+    version each time -- never a rewrite of the whole document."""
+    if (tool_context or {}).get("thread") is None:
+        raise ValidationError(
+            code="instructions_require_thread",
+            message="uppdatera_instruktioner can only be called from a thread turn",
+            details="Instructions are changed when the user asks in a conversation.",
+        )
+    from services.instruction_update import update_section
+
+    return update_section(
+        rubrik=args.rubrik,
+        text=args.text,
+        change_summary=args.change_summary,
+        actor=actor,
     )
 
 
@@ -2734,6 +2770,21 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
         ForeslaAvtalsbokforingArgs,
         _run_foresla_avtalsbokforing,
     ),
+    (
+        "uppdatera_instruktioner",
+        "Spara en generell lärdom i företagets bokföringsinstruktioner, så att "
+        "du hittar rätt nästa gång (du minns inget mellan trådar). Ett avsnitt "
+        "per anrop: rubrik med #-tecken (till exempel '### Betalning av en "
+        "redan bokförd leverantörsfaktura') och avsnittets hela text. Finns "
+        "avsnittet byts det ut, annars läggs det sist; resten av dokumentet "
+        "rörs inte, och varje anrop blir en ny version som användaren kan "
+        "läsa. Skriv bara allmän, återanvändbar vägledning: inga belopp eller "
+        "namn från ett enskilt underlag, inga nycklar, inga antaganden. Fråga "
+        "användaren i chatten och vänta på ett ja innan du anropar det; be "
+        "inte om ett beslut med be_om_beslut. Bara i ett samtal.",
+        UppdateraInstruktionerArgs,
+        _run_uppdatera_instruktioner,
+    ),
 )
 
 #: Anthropic tool-definition shape: {"name", "description", "input_schema"}.
@@ -2778,8 +2829,8 @@ def execute_tool(
     tool_context: Optional[Mapping[str, Any]] = None,
 ) -> Any:
     """Validate and run one model-requested tool call -- one of the
-    thirty-six tools in ``_TOOL_SPECS``, the last of them
-    ``foresla_avtalsbokforing`` (the thirty-fifth ``foresla_utlaggskontroll``,
+    thirty-seven tools in ``_TOOL_SPECS``, the last of them
+    ``uppdatera_instruktioner`` (the thirty-sixth ``foresla_avtalsbokforing``, the thirty-fifth ``foresla_utlaggskontroll``,
     the thirty-third and thirty-fourth
     ``hamta_valutakurs`` and ``kontrollera_utlagg``, the thirty-second
     ``foresla_delat_underlag``, the thirty-first ``bokfor_agi``,

@@ -136,6 +136,7 @@ _TRACE_LABELS = {
     "kontrollera_utlagg": "utlägg kontrollerat mot kontoutdragen",
     "foresla_utlaggskontroll": "fråga om utlägget",
     "foresla_avtalsbokforing": "fråga om avtalets transaktioner",
+    "uppdatera_instruktioner": "instruktionerna uppdaterade",
 }
 
 

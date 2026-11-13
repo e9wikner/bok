@@ -1163,8 +1163,12 @@ class TestThreadToolSurface:
             "remove",
         ]
         # `andra_fakturautkast` changes an invoice draft by replacing it --
-        # never anything issued or posted.
-        exceptions = {"andra_fakturautkast": {"andra"}}
+        # never anything issued or posted. `uppdatera_instruktioner` writes a
+        # new version of the company's instructions, not the ledger.
+        exceptions = {
+            "andra_fakturautkast": {"andra"},
+            "uppdatera_instruktioner": {"uppdatera"},
+        }
         for tool in client.calls[0]["tools"]:
             lowered = tool["name"].lower()
             for fragment in forbidden:

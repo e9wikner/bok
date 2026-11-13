@@ -1131,6 +1131,8 @@ _EXPECTED_TOOL_NAMES = [
     # The thirty-sixth (migration 048): an agreement booked against the
     # statement transactions it covers, asked about on a card.
     "foresla_avtalsbokforing",
+    # The thirty-seventh: a lesson written to the company instructions.
+    "uppdatera_instruktioner",
 ]
 
 #: Names that carry a forbidden fragment by design, and why it is not the
@@ -1138,8 +1140,12 @@ _EXPECTED_TOOL_NAMES = [
 #: invoice *draft* -- never an issued invoice or a posted voucher -- and even
 #: then by creating a new draft that replaces the old one
 #: (beslut 1). The name is the one the spec
-#: and the user chose.
-_NAME_FRAGMENT_EXCEPTIONS = {"andra_fakturautkast": {"andra"}}
+#: and the user chose. `uppdatera_instruktioner` adds a version of the
+#: company's instructions (append-only itself) and touches no ledger row.
+_NAME_FRAGMENT_EXCEPTIONS = {
+    "andra_fakturautkast": {"andra"},
+    "uppdatera_instruktioner": {"uppdatera"},
+}
 
 
 class TestToolDefinitionsOrder:
@@ -1306,6 +1312,7 @@ class TestAppendOnlyToolSurface:
             "foresla_delat_underlag",
             "foresla_utlaggskontroll",
             "foresla_avtalsbokforing",
+            "uppdatera_instruktioner",
         }
         read_tool_names = set(_EXPECTED_TOOL_NAMES) - write_tool_names
         for tool in AGENT_TOOL_DEFINITIONS:

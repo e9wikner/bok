@@ -52,6 +52,7 @@ export const SKRIVER_ETIKETTER: Readonly<Record<string, string>> = {
   kontrollera_utlagg: "Letar efter utlägget i kontoutdragen…",
   foresla_utlaggskontroll: "Frågar om utlägget…",
   foresla_avtalsbokforing: "Frågar vilka transaktioner avtalet gäller…",
+  uppdatera_instruktioner: "Uppdaterar instruktionerna…",
 };
 
 /**

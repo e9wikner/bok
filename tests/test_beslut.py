@@ -1695,7 +1695,7 @@ class TestBeOmBeslutIsLastInAgentToolDefinitions:
     def test_case_25_be_om_beslut_is_tenth_and_the_first_nine_are_unchanged(self):
         names = [tool["name"] for tool in AGENT_TOOL_DEFINITIONS]
 
-        assert len(names) == 36
+        assert len(names) == 37
         assert names[:9] == self._EXPECTED_FIRST_NINE
         assert names[9] == "be_om_beslut"
         assert names[10:] == [
@@ -1725,6 +1725,7 @@ class TestBeOmBeslutIsLastInAgentToolDefinitions:
             "kontrollera_utlagg",
             "foresla_utlaggskontroll",
             "foresla_avtalsbokforing",
+            "uppdatera_instruktioner",
         ]
 
 
@@ -1769,8 +1770,10 @@ class TestCaseTwentySixAppendOnlyToolSurfaceExtended:
     ]
 
     #: As in `tests/test_agent_runtime.py`: `andra_fakturautkast` changes an
-    #: invoice draft by replacing it, never anything issued or posted.
-    _NAME_FRAGMENT_EXCEPTIONS = {"andra_fakturautkast": {"andra"}}
+    _NAME_FRAGMENT_EXCEPTIONS = {
+        "andra_fakturautkast": {"andra"},
+        "uppdatera_instruktioner": {"uppdatera"},
+    }
 
     def test_case_26_no_tool_name_contains_a_mutate_or_delete_verb(self):
         for tool in AGENT_TOOL_DEFINITIONS:
