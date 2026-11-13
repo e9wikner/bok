@@ -425,7 +425,6 @@ async def test_agent_voucher_posts_and_links_single_intake_source(
 
     source_context = await get_voucher_source_context(
         response["id"],
-        ledger=LedgerService(),
         actor="api",
     )
     assert source_context["source_material"][0]["kind"] == "voucher_source"
@@ -476,7 +475,6 @@ async def test_voucher_source_context_correction_chain_includes_reason(
 
     source_context = await get_voucher_source_context(
         response["id"],
-        ledger=LedgerService(),
         actor="api",
     )
     assert (
