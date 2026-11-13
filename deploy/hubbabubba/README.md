@@ -58,7 +58,6 @@ Everything below is off or defaulted when absent.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `NEXT_PUBLIC_SKAL` | unset | `1` builds the frontend with the new shell at `/v4`. It takes effect at **build** time: `deploy.sh` passes it as a build arg and rebuilds the frontend when the value changes. The 24 existing pages are unaffected either way. |
 | `AGENT_RUNTIME_ENABLED` | `False` | `true` starts the internal agent worker, which books pending intake with an LLM. It costs money, so it is off unless you say so. `deploy.sh` refuses to run if it is `true` and `LLM_API_KEY` is empty. |
 | `LLM_API_KEY` | empty | The LLM gateway key. Never logged or returned by any endpoint. |
 | `LLM_BASE_URL` | `https://opencode.ai/zen/v1` | The OpenCode Zen gateway, for `opencode/…` models. |
@@ -70,8 +69,7 @@ Everything below is off or defaulted when absent.
 | `AGENT_MAX_ITEMS_PER_PASS`, `AGENT_MAX_TOOL_TURNS_PER_ITEM`, `AGENT_THREAD_WINDOW_TOKENS` | `20`, `25`, `12000` | The other caps; see `config.py`. |
 
 The backend settings are read when `bok-api` starts, so a change needs only
-`systemctl --user restart bok-api.service`. `NEXT_PUBLIC_SKAL` needs a
-`deploy.sh` run.
+`systemctl --user restart bok-api.service`.
 
 `/srv/appdata` is on the snapshotted, backed-up `@docker` Btrfs subvolume, so
 the SQLite database and `bok.env` are covered by the hubbabubba backup tiers
@@ -95,8 +93,7 @@ What it does:
 2. Clone/`git pull` the source into `/srv/appdata/bok/src` (after switching
    branch if `--branch` is given).
 3. `podman build` `bok-api:latest` (repo root) and `bok-frontend:latest`
-   (`frontend-v3/`), but only when the source or `NEXT_PUBLIC_SKAL` changed, or
-   with `--force-build`. The previous images are retagged `:previous` first.
+   (`frontend-v3/`), but only when the source changed, or with `--force-build`. The previous images are retagged `:previous` first.
 4. If it built: stop `bok-api` and copy the database to
    `/srv/appdata/bok/backups/<timestamp>/`. New code can carry migrations,
    and they run when `bok-api` starts.
@@ -104,8 +101,7 @@ What it does:
    `systemctl --user daemon-reload`.
 6. `systemctl --user restart bok-api bok-frontend`.
 7. Curl `/health` on `:8000` and `:3000`, check the DB file ownership, and
-   print the dropzone scanner's and the agent's status (plus `/v4`'s HTTP code
-   when the shell is on).
+   print the dropzone scanner's and the agent's status and the web UI's HTTP code.
 
 `[Install] WantedBy=default.target` in the quadlets means both units come back
 on reboot automatically — no `systemctl enable` needed (linger is already on
@@ -115,27 +111,18 @@ Flags: `--no-build` (quadlet + restart only), `--force-build` (rebuild even if
 the source is unchanged), `--no-pull` (deploy the checkout as it stands),
 `--branch=NAME` (switch the checkout to `origin/NAME` first).
 
-## Previewing an unmerged branch (v4)
+## Previewing an unmerged branch
 
-The redesign lives on `redesign-v4` until the whole first delivery is done. To
-run it on the box without merging:
+To run a branch on the box without merging:
 
 ```bash
-# once: in /srv/appdata/bok/bok.env
-NEXT_PUBLIC_SKAL=1
-# optional: AGENT_RUNTIME_ENABLED=true and LLM_API_KEY=... (see the table above)
-
-~/Development/bok/deploy/hubbabubba/deploy.sh --branch=redesign-v4
+~/Development/bok/deploy/hubbabubba/deploy.sh --branch=NAME
 ```
 
 The checkout **stays** on that branch. Later plain `deploy.sh` runs
-fast-forward `redesign-v4`, not `main`. To go back:
-`deploy.sh --branch=main`.
-
-The branch adds migrations 023–026. All four are additive (new tables and one
-nullable column, `periods.locked_by`), and the migration runner skips versions
-it does not know. That means `main`'s code runs against the migrated database,
-and going back to `main` needs no database restore.
+fast-forward it, not `main`. To go back: `deploy.sh --branch=main`. A branch
+that adds migrations leaves them applied; check that they are additive before
+going back without a database restore.
 
 ## Verify
 
@@ -196,7 +183,7 @@ smb://hubbabubba/Bokforing        (macOS)
 The share is hidden from the server's share list (`browseable: false`), so
 connect to it by exact name.
 
-The same folders are in the web UI: `/v4?sida=bocker&vy=dropzone` (Böcker →
+The same folders are in the web UI: `/?sida=bocker&vy=dropzone` (Böcker →
 Dropzone), listed as on the share. One or more files dropped on a folder are
 written into that folder (`POST /api/v1/intake/dropzone/files`,
 `services/dropzone_upload.py`) and read in by the scanner like any other —

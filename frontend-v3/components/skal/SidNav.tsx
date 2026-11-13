@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import type { SidMeta } from "@/components/skal/SidVaeljare";
 import { TemaVaxel, type Tema } from "@/components/skal/TemaVaxel";
 import type { OverviewAnnatAr } from "@/lib/skal/api";
@@ -157,19 +156,7 @@ export function SidNav({
           </div>
         );
       })}
-      {/* Den klassiska vyn står kvar tills de sista gamla sidorna har vyer här
-          (docs/oppna-beslut.md, Städning). */}
       <div className="mt-auto flex flex-col gap-[2px] border-t border-bok-linje-svag pt-4">
-        <span className="bok-etikett px-3 pb-[6px] text-[10px] text-bok-meta">Fler sidor</span>
-        {FLER_SIDOR.map((l) => (
-          <Link
-            key={l.href}
-            href={l.href}
-            className="flex min-h-[32px] items-center rounded-lg px-3 text-[13px] text-bok-text-2 transition-colors hover:bg-bok-yta-svag hover:text-bok-text"
-          >
-            {l.titel}
-          </Link>
-        ))}
         {tema && <TemaVaxel tema={tema} />}
         {version && <span className="bok-mono px-3 pt-2 text-[10px] text-bok-meta">{version}</span>}
       </div>
@@ -177,6 +164,3 @@ export function SidNav({
   );
 }
 
-const FLER_SIDOR = [
-  { href: "/", titel: "Klassiska vyn" },
-] as const;

@@ -204,7 +204,7 @@ class VoucherOriginResponse(BaseModel):
 
     kind: str = Field(..., description="payslip, agi, invoice or invoice_payment")
     title: str
-    view_key: str = Field(..., description="The /v4 view the thing lives in")
+    view_key: str = Field(..., description="The shell view the thing lives in")
 
 
 class VoucherResponse(BaseModel):

@@ -52,7 +52,7 @@ function renderaSkal() {
 }
 
 beforeEach(() => {
-  window.history.replaceState({}, "", "/v4");
+  window.history.replaceState({}, "", "/");
   satteBredd(390); // Designens mobilbredd, under brytpunkten 1000.
 });
 

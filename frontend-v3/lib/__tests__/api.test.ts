@@ -38,7 +38,7 @@ beforeEach(() => {
   });
   ga.mockReset();
   vi.spyOn(obehorig, "ga").mockImplementation(ga);
-  vi.spyOn(obehorig, "sokvag").mockReturnValue("/v4");
+  vi.spyOn(obehorig, "sokvag").mockReturnValue("/");
 });
 
 afterEach(() => {

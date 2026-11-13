@@ -1,5 +1,11 @@
-import { describe, expect, it } from "vitest";
-import { lasPosition, positionsUrl, skalArPa } from "@/lib/skal/rutt";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("next/navigation", () => ({
+  redirect: (url: string) => {
+    throw new Error(`NEXT_REDIRECT:${url}`);
+  },
+}));
+import { lasPosition, positionsUrl } from "@/lib/skal/rutt";
 
 describe("fallback i URL:en (testfall 4)", () => {
   it("okänd sida faller tillbaka på bocker och dess första vy", () => {
@@ -24,21 +30,17 @@ describe("fallback i URL:en (testfall 4)", () => {
 
   it("bygger en URL som läses tillbaka till samma position", () => {
     const p = lasPosition("betala", "loner");
-    expect(positionsUrl(p.sida, p.vy)).toBe("/v4?sida=betala&vy=loner");
+    expect(positionsUrl(p.sida, p.vy)).toBe("/?sida=betala&vy=loner");
     expect(lasPosition("betala", "loner").vy.key).toBe(p.vy.key);
   });
 });
 
-describe("flaggan (testfall 5)", () => {
-  it("är av när variabeln saknas eller är något annat än 1/true", () => {
-    expect(skalArPa(undefined)).toBe(false);
-    expect(skalArPa("")).toBe(false);
-    expect(skalArPa("0")).toBe(false);
-    expect(skalArPa("ja")).toBe(false);
-  });
-
-  it("är på för 1 och true", () => {
-    expect(skalArPa("1")).toBe(true);
-    expect(skalArPa("true")).toBe(true);
+describe("den gamla adressen", () => {
+  it("/v4 skickar vidare till / med samma sida, vy och lager", async () => {
+    const { default: V4 } = await import("@/app/v4/page");
+    await expect(V4({ searchParams: Promise.resolve({ sida: "bocker", vy: "balans", ver: "a b" }) })).rejects.toThrow(
+      "NEXT_REDIRECT:/?sida=bocker&vy=balans&ver=a+b"
+    );
+    await expect(V4({ searchParams: Promise.resolve({}) })).rejects.toThrow("NEXT_REDIRECT:/");
   });
 });

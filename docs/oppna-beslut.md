@@ -1,6 +1,6 @@
 # Öppna beslut efter redesignen (v4)
 
-Redesignen (`/v4`, bakom `NEXT_PUBLIC_SKAL`) är byggd: idempotens, översikt,
+Redesignen är byggd och är hela webben (skalet på `/`; `/v4` skickar vidare dit): idempotens, översikt,
 agentruntime, trådar, beslut, skal, chattyta, flöde 1 (verifikationer), underlagstolkning,
 flöde 4 (underlag), läsbarhet, underlag-ersatt och fakturering F0–F1. Modulspecarna och uppgiftslistorna är
 borttagna och används inte längre.
@@ -179,22 +179,22 @@ Beteendet är inte ändrat. Det här är iakttagelser.
 
 ## Städning och skuld
 
-- **De gamla sidorna** i `frontend-v3` tas bort en i taget när skalet har en vy för dem.
-  Kontoplanen och revisionsloggen (behandlingshistoriken, ett BFL-krav) är vyer i Böcker sedan
-  november 2026, företagets uppgifter är Företaget i Fakturering och löner, och SIE4-filen
-  laddas ner per år i Bokslut, där SRU-kopplingen också ställs in. `/accounts`, `/audit` och
-  `/settings` (med SRU-mappningarna) är borta.
+- **De gamla sidorna** är borta (november 2026), liksom flaggan `NEXT_PUBLIC_SKAL` och den gamla
+  sidomenyn. Det som fanns bara där har vyer i skalet: Kontoplan, Revisionslogg och Instruktioner
+  i Böcker; Kunder och artiklar, Lönebesked, Företaget och Instruktioner i Fakturering och löner;
+  SRU-koppling i Bokslut, där också SIE4-filen laddas ner. Formulär för att skriva en verifikation
+  eller faktura för hand följer inte med: agenten lägger fram utkastet och en människa postar
+  eller utfärdar det.
 - **Fakturering** är skrivvy sedan F1. En faktura skrivs genom att en inloggad människa utfärdar
   ett utkast (`POST /invoice-drafts/{id}/issue`), som agenten lägger fram i tråden; ett eget
   formulär för en ny faktura finns inte längre. En betalning registreras från fakturans rad och
   bokförs mot 1510 i betalningsdagens period. Kunder och artiklar läggs upp under Kunder och
-  artiklar; `/invoices` är borta. **Löner** skriver i `/v4` på samma sätt. De
+  artiklar. **Löner** skriver i skalet på samma sätt. De
   sätts upp under Anställda eller i samtalet med agenten, som har `registrera_anstalld`, `satt_lon`
   och `skapa_lonekorning` (bara i en tråd). Agenten lägger fram bokföringen av ett lönebesked
   som ett beslutskort (`foresla_lonebokforing`), och en inloggad människa bokför med ett tryck.
   En AGI bokför agenten själv när kvittensen kommer in (`bokfor_agi`). Lönebeskeden skickas,
-  markeras och en obokförd lönekörning tas bort under Lönebesked, där också AGI:ns fält står;
-  `/payroll` är borta.
+  markeras och en obokförd lönekörning tas bort under Lönebesked, där också AGI:ns fält står.
 - **`mypy .`** ger 58 fel i 22 filer. Alla fanns före redesignen.
 - **CI** har `continue-on-error: true` på backendens steg (pytest, black, isort, flake8, mypy)
   och Docker-bygget, liksom på frontendens lint. Bara `npm test` fäller bygget. En grön bock

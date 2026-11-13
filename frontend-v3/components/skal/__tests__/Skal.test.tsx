@@ -49,7 +49,7 @@ function renderaSkal() {
 }
 
 beforeEach(() => {
-  window.history.replaceState({}, "", "/v4");
+  window.history.replaceState({}, "", "/");
 });
 
 describe("skalet i drift", () => {
