@@ -9,19 +9,26 @@
 #   bok-curl POST /api/v1/agent/vouchers body.json
 #
 # Host:   BOK_API_URL, annars http://localhost:8000
-# Nyckel: BOKFOERING_API_KEY, annars BOK_ENV_FILE (default
-#         /srv/appdata/bok/bok.env, hubbabubbas placering)
+# Nyckel: BOKFOERING_API_KEY, annars nyckelfilen BOK_KEY_FILE (default
+#         /srv/appdata/bok/agent.key, bara nyckeln pa en rad), sist
+#         BOK_ENV_FILE (default /srv/appdata/bok/bok.env). Nyckelfilen finns
+#         sa att agenten inte behover lasa bok.env, som ocksa har JWT_SECRET
+#         och AUTH_PASSWORD.
 set -euo pipefail
 
 BASE=${BOK_API_URL:-http://localhost:8000}
+KEY_FILE=${BOK_KEY_FILE:-/srv/appdata/bok/agent.key}
 ENV_FILE=${BOK_ENV_FILE:-/srv/appdata/bok/bok.env}
 
 key=${BOKFOERING_API_KEY:-}
+if [ -z "$key" ] && [ -r "$KEY_FILE" ]; then
+  key=$(head -1 "$KEY_FILE" | tr -d '[:space:]')
+fi
 if [ -z "$key" ] && [ -r "$ENV_FILE" ]; then
   key=$(sed -n 's/^BOKFOERING_API_KEY=//p' "$ENV_FILE" | head -1 | sed 's/^["'"'"']//; s/["'"'"']$//')
 fi
 if [ -z "$key" ]; then
-  echo "bok-curl: ingen nyckel - satt BOKFOERING_API_KEY eller lagg den i $ENV_FILE" >&2
+  echo "bok-curl: ingen nyckel - satt BOKFOERING_API_KEY eller lagg den i $KEY_FILE (eller $ENV_FILE)" >&2
   exit 1
 fi
 

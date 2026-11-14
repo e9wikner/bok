@@ -80,6 +80,12 @@ if grep -qE '^(BOKFOERING_API_KEY|JWT_SECRET|AUTH_PASSWORD)=("")?$' "$ENV_FILE" 
 fi
 chmod 600 "$ENV_FILE"
 
+# agent.key holds only the API key, so an agent's bok-curl needs no read
+# access to bok.env (which also holds JWT_SECRET and AUTH_PASSWORD).
+agent_key=$(sed -n 's/^BOKFOERING_API_KEY=//p' "$ENV_FILE" | head -1)
+[ "$(cat "$APPDATA/agent.key" 2>/dev/null)" = "$agent_key" ] ||
+  (umask 077; printf '%s\n' "$agent_key" > "$APPDATA/agent.key.tmp" && mv "$APPDATA/agent.key.tmp" "$APPDATA/agent.key")
+
 env_value() { sed -n "s/^$1=//p" "$ENV_FILE" | tail -1; }
 
 # An enabled runtime without a key starts, then fails every pass with an auth

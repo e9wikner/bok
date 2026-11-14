@@ -21,6 +21,7 @@ one-time setup that does need an admin shell.
 | `bok-api.container` | Quadlet for the API. Installed to `~/.config/containers/systemd/`. |
 | `bok-frontend.container` | Quadlet for the frontend. |
 | `/srv/appdata/bok/bok.env` | **Not in git.** The three secrets plus the optional settings below, `mode 600`, `e9wikner`-owned. |
+| `/srv/appdata/bok/agent.key` | **Not in git.** Only `BOKFOERING_API_KEY`'s value, on one line, `mode 600`. `scripts/bok-curl` reads it, so an agent needs no read access to `bok.env`. `deploy.sh` writes it from `bok.env` on each run. |
 | `/srv/appdata/bok/backups/` | Database copies `deploy.sh` takes before starting new code. The five newest are kept. |
 | `/srv/appdata/bok/dropzone` | **Not created here.** The `Bokforing` SMB share, owned by the hubbabubba repo — see "Folder intake" below. |
 
@@ -51,6 +52,22 @@ AUTH_PASSWORD=<openssl rand -base64 24>
 
 `AUTH_USERNAME` is `admin` (set in `bok-api.container`, not a secret). Save the
 `AUTH_PASSWORD` in a password manager — it is the web-UI login.
+
+### The agent's key file
+
+`bok.env` holds `JWT_SECRET` and `AUTH_PASSWORD` next to the API key. An agent
+that can read it can log in as the human and get past every `human_only` gate.
+So the agent gets the API key alone, in `/srv/appdata/bok/agent.key`, which
+`scripts/bok-curl` reads before falling back to `bok.env` (override the path
+with `BOK_KEY_FILE`). Deny the agent read access to `bok.env` (e.g. in its
+sandbox or permission settings) and allow `agent.key`.
+
+`deploy.sh` writes the file from `bok.env` whenever it is missing or differs.
+To create it by hand, without printing the key:
+
+```bash
+(umask 077; sed -n 's/^BOKFOERING_API_KEY=//p' /srv/appdata/bok/bok.env | head -1 > /srv/appdata/bok/agent.key)
+```
 
 ### Optional settings in `bok.env`
 

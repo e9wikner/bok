@@ -6,6 +6,12 @@ from typing import Optional
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
+# Well-known development defaults. The server refuses to start with any of
+# them unless DEBUG=true (`Settings.default_secrets`, `main.run_server`).
+DEFAULT_API_KEY = "dev-key-change-in-production"
+DEFAULT_AUTH_PASSWORD = "admin"
+DEFAULT_JWT_SECRET = "dev-jwt-secret-change-in-production"
+
 
 class Settings(BaseSettings):
     """Application settings."""
@@ -42,20 +48,20 @@ class Settings(BaseSettings):
 
     # Authentication
     api_key: str = Field(
-        default=os.getenv("BOKFOERING_API_KEY", "dev-key-change-in-production"),
+        default=os.getenv("BOKFOERING_API_KEY", DEFAULT_API_KEY),
         alias="BOKFOERING_API_KEY",
     )
     auth_username: str = os.getenv("AUTH_USERNAME", "admin")
-    auth_password: str = os.getenv("AUTH_PASSWORD", "admin")
+    auth_password: str = os.getenv("AUTH_PASSWORD", DEFAULT_AUTH_PASSWORD)
 
     # JWT
-    jwt_secret: str = os.getenv("JWT_SECRET", "dev-jwt-secret-change-in-production")
+    jwt_secret: str = os.getenv("JWT_SECRET", DEFAULT_JWT_SECRET)
     jwt_algorithm: str = "HS256"
     jwt_expire_days: int = 7
 
     # Security
     debug: bool = os.getenv("DEBUG", "False").lower() == "true"
-    cors_origins: str = os.getenv("CORS_ORIGINS", "*")
+    cors_origins: str = os.getenv("CORS_ORIGINS", "http://localhost:3000")
 
     # Agent runtime -- off by default, like
     # the dropzone: running `python main.py` should never accidentally start a
@@ -124,6 +130,15 @@ class Settings(BaseSettings):
         if provider == "opencode-go":
             return self.llm_go_base_url, self.llm_go_api_key or self.llm_api_key
         return self.llm_base_url, self.llm_api_key
+
+    def default_secrets(self) -> list[str]:
+        """Names of the secret env variables still at their well-known default."""
+        checks = [
+            ("BOKFOERING_API_KEY", self.api_key, DEFAULT_API_KEY),
+            ("AUTH_PASSWORD", self.auth_password, DEFAULT_AUTH_PASSWORD),
+            ("JWT_SECRET", self.jwt_secret, DEFAULT_JWT_SECRET),
+        ]
+        return [name for name, value, default in checks if value == default]
 
     @property
     def cors_origins_list(self) -> list[str]:

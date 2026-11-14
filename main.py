@@ -65,6 +65,16 @@ def _load_default_accounts():
 
 def run_server(host: str = "0.0.0.0", port: int = 8000):
     """Run FastAPI server."""
+    defaults = settings.default_secrets()
+    if defaults and not settings.debug:
+        print(
+            "❌ Refusing to start: "
+            + ", ".join(defaults)
+            + " still set to the well-known default. Set real values, or"
+            " DEBUG=true for local development.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     print(f"🚀 Starting server on {host}:{port}...")
     # Disable auto-reload in Docker (causes Pydantic recursion errors)
     uvicorn.run(

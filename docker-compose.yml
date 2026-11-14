@@ -16,12 +16,13 @@ services:
       # receives files; the mount is harmless while DROPZONE_ENABLED is false.
       - ${DROPZONE_HOST_DIR:-./dropzone}:/app/data/dropzone
     environment:
-      - DEBUG=${DEBUG:-False}
+      # Local/dev use: DEBUG lets the server start with the default secrets below.
+      - DEBUG=${DEBUG:-true}
       - BOKFOERING_API_KEY=${BOKFOERING_API_KEY:-dev-key-change-in-production}
       - AUTH_USERNAME=${AUTH_USERNAME:-admin}
       - AUTH_PASSWORD=${AUTH_PASSWORD:-admin}
       - JWT_SECRET=${JWT_SECRET:-dev-jwt-secret-change-in-production}
-      - CORS_ORIGINS=${CORS_ORIGINS:-*}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
       - DATABASE_URL=sqlite:////app/data/bokfoering.db
       - DROPZONE_ENABLED=${DROPZONE_ENABLED:-false}
       - DROPZONE_DIR=/app/data/dropzone

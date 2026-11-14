@@ -17,7 +17,7 @@ the formal accounting constraints.
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 python main.py --init-db --seed        # one-time DB init + test data
-python main.py                         # serve on 127.0.0.1:8000
+DEBUG=true python main.py              # serve on 127.0.0.1:8000 (default secrets need DEBUG=true)
 
 pytest tests/ -v
 pytest tests/test_ledger.py::test_name
@@ -147,6 +147,11 @@ Service-to-service imports are deferred inside methods to avoid import cycles.
   then. The posting tools refuse to date an underlag out of a locked period
   without a decision, or into another fiscal year
   (`FiscalYearService.check_underlag_dates`).
+- **Company details are saved by a human's press, not by the agent.** The
+  bankgiro, plusgiro and VAT number are printed on every issued invoice. The
+  agent proposes them as a decision card (`foresla_bolagsinformation`,
+  `services/company_info_proposal.py`, migration 042); `PUT /company-info`
+  gets `403 human_only` with the API key. `GET` stays readable with the key.
 - **`docs/to_agent/*.md` is runtime content, not documentation.** It is read and
   served to agents by `repositories/system_instructions.py` and asserted on by
   `tests/test_agent_entrypoint.py`. Editing it changes system behaviour.

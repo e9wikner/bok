@@ -1,5 +1,6 @@
 """API routes for simple payroll."""
 
+import logging
 from datetime import date
 from typing import Any, Optional
 
@@ -23,6 +24,7 @@ from services.payroll_proposal import PayrollProposalService
 from services.payslip_underlag import PayslipUnderlagService
 
 router = APIRouter(prefix="/api/v1/payroll", tags=["payroll"])
+logger = logging.getLogger(__name__)
 
 
 class EmployeeRequest(BaseModel):
@@ -224,8 +226,11 @@ async def create_payroll_run(
         return _run_to_dict(run, [], service.validate_payroll_run(run.id))
     except ValidationError as exc:
         raise _validation_http(exc)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        # Anything else is unexpected (e.g. a database error); log it and
+        # keep its text, which may name tables or paths, out of the response.
+        logger.exception("Failed to create payroll run")
+        raise HTTPException(status_code=500, detail="Could not create payroll run")
 
 
 @router.post("/runs/{payroll_run_id}/generate", response_model=dict)
