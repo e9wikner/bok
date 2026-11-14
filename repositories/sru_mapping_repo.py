@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime
+from typing import Dict
 
 from db.database import db
 
@@ -38,3 +39,34 @@ class SruMappingRepository:
                 ),
             )
         return len(rows)
+
+    @staticmethod
+    def for_year(fiscal_year_id: str) -> Dict[str, str]:
+        """A year's saved mappings, ``{account_code: sru_field}``."""
+        rows = db.execute(
+            "SELECT account_code, sru_field FROM account_sru_mappings "
+            "WHERE fiscal_year_id = ? ORDER BY account_code",
+            (fiscal_year_id,),
+        ).fetchall()
+        return {row["account_code"]: row["sru_field"] for row in rows}
+
+    @staticmethod
+    def replace(fiscal_year_id: str, mappings: Dict[str, str]) -> None:
+        """Replace a year's saved mappings with ``mappings``."""
+        now = datetime.now().isoformat()
+        db.execute(
+            "DELETE FROM account_sru_mappings WHERE fiscal_year_id = ?",
+            (fiscal_year_id,),
+        )
+        db.executemany(
+            """
+            INSERT INTO account_sru_mappings
+                (id, fiscal_year_id, account_code, sru_field,
+                 created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (str(uuid.uuid4()), fiscal_year_id, code, field, now, now)
+                for code, field in sorted(mappings.items())
+            ],
+        )

@@ -29,7 +29,7 @@ two applies from the net balance of the row's accounts.
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, FrozenSet, List, Optional, Tuple
 
 AccountRange = Tuple[int, int]
 
@@ -732,3 +732,101 @@ def account_ranges_label(row: INK2RRow) -> str:
         str(start) if start == end else f"{start}-{end}" for start, end in row.accounts
     ]
     return ", ".join(parts)
+
+
+# --- Year-to-year mapping comparison (issue #47) ----------------------------
+
+# Every code an account may be mapped to: each INK2R row's fields, the
+# sign-split keys ("7410/7510"), the extra coupling codes and the result codes
+# 899x may carry. INK2S codes are derived by the export, never mapped.
+KNOWN_MAPPING_FIELDS: FrozenSet[str] = frozenset(
+    {code for row in INK2R_ROWS for code in row.field_codes}
+    | {row.mapping_key for row in INK2R_ROWS}
+    | set(_EXTRA_ACCOUNTS)
+    | set(RESULT_FIELD_LABELS)
+    | {"7450/7550"}
+)
+
+_STANDARD_FIELD_BY_ACCOUNT: Dict[int, str] = {
+    number: key
+    for key, numbers in default_account_mappings().items()
+    for number in numbers
+}
+
+MAPPING_OK = "ok"
+MAPPING_DIFFERS_FROM_STANDARD = "differs_from_standard"
+MAPPING_UNKNOWN_FIELD = "unknown_field"
+MAPPING_MISSING = "missing"
+MAPPING_NEEDS_REVIEW: FrozenSet[str] = frozenset(
+    {MAPPING_DIFFERS_FROM_STANDARD, MAPPING_UNKNOWN_FIELD, MAPPING_MISSING}
+)
+
+
+def standard_field_for_account(account_code: str) -> Optional[str]:
+    """The BAS coupling table's mapping key for an account, or None."""
+    try:
+        return _STANDARD_FIELD_BY_ACCOUNT.get(int(account_code))
+    except ValueError:
+        return None
+
+
+def is_known_mapping_field(code: str) -> bool:
+    """Whether a saved mapping names a field this table knows.
+
+    A slash alternative is known when each half is ("7416/7520" from an
+    import need not be a row's own key)."""
+    code = code.strip()
+    if code in KNOWN_MAPPING_FIELDS:
+        return True
+    parts = [part.strip() for part in code.split("/")]
+    return len(parts) == 2 and all(part in KNOWN_MAPPING_FIELDS for part in parts)
+
+
+def matches_standard(field: str, standard: Optional[str]) -> bool:
+    """Whether a saved mapping lands on the standard's row.
+
+    A single code that is one half of a sign-split standard ("7410" against
+    "7411/7510") counts as the same row: a SIE4 ``#SRU`` line names one code
+    per account, so flagging that would bury the real choices in noise."""
+    if standard is None:
+        return False
+    field = field.strip()
+    if field == standard:
+        return True
+    halves = {part.strip() for part in standard.split("/")}
+    return "/" not in field and field in halves
+
+
+def mapping_status(
+    *,
+    has_balance: bool,
+    derived: bool,
+    current_field: Optional[str],
+    previous_field: Optional[str],
+    standard_field: Optional[str],
+    year_has_saved_mappings: bool,
+) -> str:
+    """Derive one account's review status; the first rule that matches wins.
+
+    1. ``missing`` - the account carries a balance but the export finds no
+       field for it. The export reads the year's saved mapping alone when the
+       year has one, otherwise the BAS standard alone, so this is "no
+       ``current_field``" or "no ``standard_field``" respectively. 899x
+       (``derived``) is never missing: the result is derived, not mapped.
+    2. ``unknown_field`` - ``previous_field`` or ``current_field`` is not a
+       code in this table (expired or misspelt).
+    3. ``differs_from_standard`` - ``previous_field`` lands on another row
+       than the standard (see ``matches_standard``); an active choice.
+    4. ``ok`` - no previous mapping, or it matches the standard.
+    """
+    effective = current_field if year_has_saved_mappings else standard_field
+    if has_balance and not derived and effective is None:
+        return MAPPING_MISSING
+    for field in (previous_field, current_field):
+        if field is not None and not is_known_mapping_field(field):
+            return MAPPING_UNKNOWN_FIELD
+    if previous_field is not None and not matches_standard(
+        previous_field, standard_field
+    ):
+        return MAPPING_DIFFERS_FROM_STANDARD
+    return MAPPING_OK

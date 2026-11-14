@@ -11,7 +11,6 @@ from pydantic import BaseModel
 
 from api.deps import get_current_actor, verify_api_key
 from db.database import get_db
-from repositories.period_repo import PeriodRepository
 
 router = APIRouter(prefix="/api/v1/fiscal-years", tags=["sru-mappings"])
 sru_fields_router = APIRouter(prefix="/api/v1/sru-fields", tags=["sru-mappings"])
@@ -192,75 +191,76 @@ async def list_default_sru_mappings(
 )
 async def inherit_previous_year_sru_mappings(
     fiscal_year_id: str,
+    dry_run: bool = False,
     actor: str = Depends(get_current_actor),
     api_key: str = Depends(verify_api_key),
 ):
-    """Replace this year's saved mappings with mappings from the closest previous fiscal year."""
-    import uuid
-    from datetime import datetime
+    """Replace this year's saved mappings with the closest previous year's.
 
-    current_year = PeriodRepository.get_fiscal_year(fiscal_year_id)
-    if not current_year:
+    The response lists in ``needs_review`` the accounts whose inherited
+    mapping is ``differs_from_standard``, ``unknown_field`` or ``missing``
+    (see ``GET .../sru-mappings/diff``). With ``dry_run=true`` nothing is
+    written; the report is the same as a real run would give.
+    """
+    from services.sru_mapping import (
+        FiscalYearNotFoundError,
+        NoPreviousFiscalYearError,
+        SruMappingService,
+    )
+
+    try:
+        return SruMappingService().inherit_previous(fiscal_year_id, dry_run=dry_run)
+    except FiscalYearNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Fiscal year not found"
         )
-
-    previous_year = next(
-        (
-            year
-            for year in sorted(
-                PeriodRepository.list_fiscal_years(),
-                key=lambda fy: fy.end_date,
-                reverse=True,
-            )
-            if year.end_date < current_year.start_date
-        ),
-        None,
-    )
-    if not previous_year:
+    except NoPreviousFiscalYearError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Det finns inget tidigare räkenskapsår att ärva mappning från",
         )
 
-    db = get_db()
-    rows = db.execute(
-        """
-        SELECT account_code, sru_field
-        FROM account_sru_mappings
-        WHERE fiscal_year_id = ?
-        ORDER BY account_code
-        """,
-        (previous_year.id,),
-    ).fetchall()
 
-    now = datetime.now().isoformat()
-    with db.transaction():
-        db.execute(
-            "DELETE FROM account_sru_mappings WHERE fiscal_year_id = ?",
-            (fiscal_year_id,),
+class SRUMappingDiffRow(BaseModel):
+    account_code: str
+    account_name: Optional[str] = None
+    has_balance: bool
+    current_field: Optional[str] = None
+    previous_field: Optional[str] = None
+    standard_field: Optional[str] = None
+    status: str
+
+
+class SRUMappingDiffResponse(BaseModel):
+    fiscal_year_id: str
+    previous_fiscal_year_id: Optional[str] = None
+    rows: List[SRUMappingDiffRow]
+
+
+@router.get(
+    "/{fiscal_year_id}/sru-mappings/diff", response_model=SRUMappingDiffResponse
+)
+async def diff_sru_mappings(
+    fiscal_year_id: str,
+    actor: str = Depends(get_current_actor),
+    api_key: str = Depends(verify_api_key),
+):
+    """Compare this year's, the previous year's and the BAS standard mapping.
+
+    One row per account with a balance, a saved mapping this year or the
+    previous year, or a standard mapping. ``status`` is the first that holds:
+    ``missing`` (a balance the export maps to no field), ``unknown_field``
+    (a saved code not in the field table), ``differs_from_standard`` (the
+    previous year's code lands on another row than the standard), ``ok``.
+    """
+    from services.sru_mapping import FiscalYearNotFoundError, SruMappingService
+
+    try:
+        return SruMappingService().diff(fiscal_year_id)
+    except FiscalYearNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Fiscal year not found"
         )
-        for row in rows:
-            db.execute(
-                """
-                INSERT INTO account_sru_mappings (id, fiscal_year_id, account_code, sru_field, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    str(uuid.uuid4()),
-                    fiscal_year_id,
-                    row["account_code"],
-                    row["sru_field"],
-                    now,
-                    now,
-                ),
-            )
-
-    return {
-        "fiscal_year_id": fiscal_year_id,
-        "source_fiscal_year_id": previous_year.id,
-        "copied": len(rows),
-    }
 
 
 @router.post(
