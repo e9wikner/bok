@@ -46,10 +46,12 @@ scripts/bok-curl <METOD> <SÖKVÄG> [json-fil]
 ```
 
 Wrappern löser adressen från `BOK_API_URL` och faller tillbaka på
-`http://localhost:8000`. Nyckeln hämtas från `BOKFOERING_API_KEY` i miljön, och
-i andra hand ur env-filen `BOK_ENV_FILE`. Standardvärdet
-`/srv/appdata/bok/bok.env` är serverns placering, inte ett krav — med nyckeln i
-miljön fungerar wrappern även utanför servern. Saknas båda källorna avbryter
+`http://localhost:8000`. Nyckeln hämtas från `BOKFOERING_API_KEY` i miljön, i
+andra hand ur nyckelfilen `BOK_KEY_FILE` (standard `/srv/appdata/bok/agent.key`,
+bara nyckeln) och sist ur env-filen `BOK_ENV_FILE`. Läs inte env-filen själv —
+den innehåller även användarens inloggningshemligheter. Standardvärdena är
+serverns placering, inte ett krav — med nyckeln i
+miljön fungerar wrappern även utanför servern. Saknas alla källor avbryter
 wrappern utan att skriva ut något nyckelvärde.
 
 ## Hälsokontroll

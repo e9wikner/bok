@@ -86,7 +86,14 @@ def test_get_account_not_found(client, auth_headers):
     assert resp.status_code == 404
 
 
-def test_company_info_can_be_updated(client, auth_headers):
+@pytest.fixture
+def human_headers():
+    from services.auth import AuthService
+
+    return {"Authorization": f"Bearer {AuthService().create_jwt('stefan')}"}
+
+
+def test_company_info_can_be_updated(client, auth_headers, human_headers):
     """Test editable company metadata."""
     payload = {
         "name": "Demo AB",
@@ -99,7 +106,7 @@ def test_company_info_can_be_updated(client, auth_headers):
         "phone": "08-123456",
     }
 
-    resp = client.put("/api/v1/company-info", headers=auth_headers, json=payload)
+    resp = client.put("/api/v1/company-info", headers=human_headers, json=payload)
     assert resp.status_code == 200
     assert resp.json()["name"] == "Demo AB"
     assert resp.json()["org_number"] == "559123-4567"
@@ -110,7 +117,7 @@ def test_company_info_can_be_updated(client, auth_headers):
     assert resp.json()["postort"] == "Stockholm"
 
 
-def test_company_info_invoice_fields_survive_an_older_client(client, auth_headers):
+def test_company_info_invoice_fields_survive_an_older_client(client, human_headers):
     """seat, vat_number, bankgiro and f_skatt can be set, and a PUT that
     does not send them (the older settings page) leaves them as they are."""
     from services.pdf_export import CompanyInfo
@@ -124,13 +131,13 @@ def test_company_info_invoice_fields_survive_an_older_client(client, auth_header
         "bankgiro": "123-4567",
         "f_skatt": True,
     }
-    resp = client.put("/api/v1/company-info", headers=auth_headers, json=full)
+    resp = client.put("/api/v1/company-info", headers=human_headers, json=full)
     assert resp.status_code == 200
     assert resp.json()["seat"] == "Stockholm"
     assert resp.json()["f_skatt"] is True
 
     older = {"name": "Demo AB", "org_number": "559123-4567", "phone": "08-1"}
-    resp = client.put("/api/v1/company-info", headers=auth_headers, json=older)
+    resp = client.put("/api/v1/company-info", headers=human_headers, json=older)
     assert resp.status_code == 200
     assert resp.json()["seat"] == "Stockholm"
     assert resp.json()["vat_number"] == "SE559123456701"
@@ -139,6 +146,26 @@ def test_company_info_invoice_fields_survive_an_older_client(client, auth_header
     company = CompanyInfo.load()
     assert company.f_skatt is True
     company.check_complete_for_invoice()
+
+
+def test_company_info_cannot_be_updated_with_the_api_key(
+    client, auth_headers, human_headers
+):
+    """The bankgiro is printed on every invoice: the agent proposes company
+    details as a card, and only a logged-in human saves them."""
+    saved = {"name": "Demo AB", "org_number": "559123-4567", "bankgiro": "123-4567"}
+    resp = client.put("/api/v1/company-info", headers=human_headers, json=saved)
+    assert resp.status_code == 200
+
+    changed = {"name": "Annat AB", "org_number": "559999-9999", "bankgiro": "999-9999"}
+    resp = client.put("/api/v1/company-info", headers=auth_headers, json=changed)
+    assert resp.status_code == 403
+    assert resp.json()["detail"]["code"] == "human_only"
+
+    resp = client.get("/api/v1/company-info", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "Demo AB"
+    assert resp.json()["bankgiro"] == "123-4567"
 
 
 def test_sru_mappings_use_account_codes(client, auth_headers, test_db):

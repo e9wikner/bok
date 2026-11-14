@@ -1,11 +1,65 @@
 """Authentication service — validates credentials against environment variables."""
 
+import hmac
+import math
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 
 import jwt
 from fastapi import HTTPException, status
 
 from config import settings
+
+# Failed-login throttle. There is one configured user and one API process, so
+# a single in-memory counter is enough: after MAX_FAILED_LOGINS failures within
+# LOGIN_LOCKOUT_SECONDS, every login is refused with 429 until the window ends.
+MAX_FAILED_LOGINS = 5
+LOGIN_LOCKOUT_SECONDS = 60
+
+_failed_lock = threading.Lock()
+_failed_count = 0
+_failed_window_start = 0.0
+
+
+def reset_login_throttle() -> None:
+    """Clear the failed-login counter (used by tests)."""
+    global _failed_count, _failed_window_start
+    with _failed_lock:
+        _failed_count = 0
+        _failed_window_start = 0.0
+
+
+def _check_login_throttle() -> None:
+    """Raise HTTP 429 while too many recent logins have failed."""
+    global _failed_count
+    with _failed_lock:
+        if _failed_count == 0:
+            return
+        elapsed = time.monotonic() - _failed_window_start
+        if elapsed >= LOGIN_LOCKOUT_SECONDS:
+            _failed_count = 0
+            return
+        if _failed_count >= MAX_FAILED_LOGINS:
+            retry_after = max(1, math.ceil(LOGIN_LOCKOUT_SECONDS - elapsed))
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many failed login attempts",
+                headers={"Retry-After": str(retry_after)},
+            )
+
+
+def _record_failed_login() -> None:
+    """Count one failed login.
+
+    The window starts at the first failure; the failure that reaches the limit
+    restarts it, so the lockout lasts a full LOGIN_LOCKOUT_SECONDS.
+    """
+    global _failed_count, _failed_window_start
+    with _failed_lock:
+        _failed_count += 1
+        if _failed_count == 1 or _failed_count == MAX_FAILED_LOGINS:
+            _failed_window_start = time.monotonic()
 
 
 class AuthService:
@@ -45,12 +99,26 @@ class AuthService:
 
     def login(self, username: str, password: str) -> str:
         """Verify credentials against env vars and return a JWT."""
-        if username != settings.auth_username or password != settings.auth_password:
+        # Checked before the credentials, so a correct password is refused
+        # too while the lockout lasts.
+        _check_login_throttle()
+        # Constant-time comparisons; `&` evaluates both, so a wrong username
+        # takes as long as a wrong password.
+        if not (
+            hmac.compare_digest(
+                username.encode("utf-8"), settings.auth_username.encode("utf-8")
+            )
+            & hmac.compare_digest(
+                password.encode("utf-8"), settings.auth_password.encode("utf-8")
+            )
+        ):
+            _record_failed_login()
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid username or password",
                 headers={"WWW-Authenticate": "Bearer"},
             )
+        reset_login_throttle()
         return self.create_jwt(username)
 
     def get_me(self, token: str) -> dict:

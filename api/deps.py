@@ -1,5 +1,6 @@
 """Dependency injection for FastAPI."""
 
+import hmac
 import logging
 import uuid
 from dataclasses import dataclass
@@ -13,6 +14,11 @@ from services.auth import AuthService
 from services.ledger import LedgerService
 
 logger = logging.getLogger(__name__)
+
+
+def _is_api_key(token: str) -> bool:
+    """Whether the token is the static API key, compared in constant time."""
+    return hmac.compare_digest(token.encode("utf-8"), settings.api_key.encode("utf-8"))
 
 
 async def verify_api_key(authorization: Optional[str] = Header(None)) -> str:
@@ -36,7 +42,7 @@ async def verify_api_key(authorization: Optional[str] = Header(None)) -> str:
     token = parts[1]
 
     # Accept static API key
-    if token == settings.api_key:
+    if _is_api_key(token):
         return token
 
     # Accept valid JWT token
@@ -71,7 +77,7 @@ async def get_human_actor(api_key: str = Depends(verify_api_key)) -> str:
     JWT. A request made with the key is refused, so the agent cannot reach
     these routes through the HTTP API either.
     """
-    if api_key == settings.api_key:
+    if _is_api_key(api_key):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
@@ -102,7 +108,7 @@ class Caller:
 async def get_caller(api_key: str = Depends(verify_api_key)) -> Caller:
     """For a route that lets a human do on their own what the agent needs a
     decision for (undoing a link, underlag-ersatt)."""
-    if api_key == settings.api_key:
+    if _is_api_key(api_key):
         return Caller(actor="api", human=False)
     username = AuthService().verify_jwt(api_key).get("sub")
     if not username:

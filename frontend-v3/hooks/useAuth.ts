@@ -71,6 +71,9 @@ export function useAuthState(): AuthContextType {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
     });
+    if (res.status === 429) {
+      throw new Error("För många försök. Vänta en minut.");
+    }
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.detail || "Inloggning misslyckades");

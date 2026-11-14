@@ -1,5 +1,6 @@
 """API routes for SIE4 import."""
 
+import json
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
@@ -11,16 +12,38 @@ from services.sie4_import import SIE4Importer, SIE4Parser
 
 router = APIRouter(prefix="/api/v1/import", tags=["import"])
 
+# Upper bound for a SIE4 file, uploaded or sent as JSON `content`.
+MAX_SIE4_BYTES = 10 * 1024 * 1024
+
+
+def _too_large() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+        detail={"error": "File too large", "code": "file_too_large"},
+    )
+
 
 async def _read_sie4_content(
     request: Request, file: Optional[UploadFile]
 ) -> tuple[str, Optional[str]]:
     if file:
-        return SIE4Parser.decode_bytes(await file.read()), None
+        raw = await file.read(MAX_SIE4_BYTES + 1)
+        if len(raw) > MAX_SIE4_BYTES:
+            raise _too_large()
+        return SIE4Parser.decode_bytes(raw), None
 
     if request.headers.get("content-type", "").startswith("application/json"):
-        payload = await request.json()
+        # Read the body with a cap; JSON escaping can inflate the text, so
+        # the body may be twice the content limit.
+        body = bytearray()
+        async for chunk in request.stream():
+            body.extend(chunk)
+            if len(body) > 2 * MAX_SIE4_BYTES:
+                raise _too_large()
+        payload = json.loads(body)
         content = payload.get("content")
+        if isinstance(content, str) and len(content) > MAX_SIE4_BYTES:
+            raise _too_large()
         if content:
             return content, payload.get("fiscal_year_id")
 

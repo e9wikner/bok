@@ -1,5 +1,6 @@
 """FastAPI application setup."""
 
+import functools
 import os
 import sys
 
@@ -182,10 +183,21 @@ app.include_router(drafts.router, dependencies=AUTHENTICATED)
 @app.get("/api/v1/health", tags=["health"])
 async def health_check():
     """Health check endpoint with build info."""
+    return {
+        "status": "ok",
+        "service": "bokfoering-api",
+        "version": settings.api_version,
+        "commit": _build_commit(),
+    }
+
+
+@functools.lru_cache(maxsize=1)
+def _build_commit() -> str:
+    """The running commit, resolved once per process rather than per request."""
     import subprocess
 
     try:
-        commit = (
+        return (
             subprocess.check_output(
                 ["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL
             )
@@ -193,14 +205,7 @@ async def health_check():
             .strip()
         )
     except Exception:
-        commit = os.environ.get("GIT_COMMIT", "unknown")
-
-    return {
-        "status": "ok",
-        "service": "bokfoering-api",
-        "version": settings.api_version,
-        "commit": commit,
-    }
+        return os.environ.get("GIT_COMMIT", "unknown")
 
 
 @app.get("/", tags=["root"])

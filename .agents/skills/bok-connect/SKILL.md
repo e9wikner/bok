@@ -28,8 +28,10 @@ Never read `API_HOST` from `.env`; it is a bind address, not a client URL.
 ## Authenticate safely
 
 The key value is never read into instructions or output. `bok-curl` resolves it
-itself, from `BOKFOERING_API_KEY` or the deployment env file, and sets the bearer
-header for you — so no key handling is needed here at all.
+itself, from `BOKFOERING_API_KEY`, the key file `BOK_KEY_FILE` (default
+`/srv/appdata/bok/agent.key`, the key alone) or, last, the deployment env file,
+and sets the bearer header for you — so no key handling is needed here at all.
+Do not read `bok.env`: it also holds the human's login secrets.
 
 Without the wrapper, use `Authorization: Bearer $BOKFOERING_API_KEY` through
 shell expansion. Do not use a `.env` fallback, print the command with expansion,

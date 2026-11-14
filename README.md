@@ -27,7 +27,7 @@ Utan containrar:
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 python main.py --init-db --seed     # engångsinit med testdata
-python main.py
+DEBUG=true python main.py           # standardhemligheter kräver DEBUG=true
 
 cd frontend-v3 && npm install && npm run dev
 ```

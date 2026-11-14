@@ -523,6 +523,47 @@ class TestSIE4ImportOpeningBalances:
         assert len([v for v in vouchers if v["series"] == "A"]) == 1
 
 
+class TestSIE4ImportSizeLimit:
+    """En för stor SIE4-fil avvisas med 413 innan den tolkas."""
+
+    @pytest.fixture(autouse=True)
+    def _small_limit(self, monkeypatch):
+        from api.routes import import_sie4
+
+        monkeypatch.setattr(import_sie4, "MAX_SIE4_BYTES", 100)
+
+    @pytest.mark.parametrize(
+        "path", ["/api/v1/import/sie4", "/api/v1/import/sie4/validate"]
+    )
+    def test_upload_over_limit_is_413(self, client, auth_headers, path):
+        resp = client.post(
+            path,
+            headers=auth_headers,
+            files={"file": ("big.si", b"#FLAGGA 0\n" * 20, "text/plain")},
+        )
+        assert resp.status_code == 413
+        assert resp.json()["detail"]["code"] == "file_too_large"
+
+    @pytest.mark.parametrize(
+        "path", ["/api/v1/import/sie4", "/api/v1/import/sie4/validate"]
+    )
+    def test_json_content_over_limit_is_413(self, client, auth_headers, path):
+        resp = client.post(
+            path, headers=auth_headers, json={"content": "#FLAGGA 0\n" * 20}
+        )
+        assert resp.status_code == 413
+        assert resp.json()["detail"]["code"] == "file_too_large"
+
+    def test_upload_within_limit_is_read(self, client, auth_headers):
+        resp = client.post(
+            "/api/v1/import/sie4/validate",
+            headers=auth_headers,
+            files={"file": ("small.si", b"#FLAGGA 0\n", "text/plain")},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["valid"] is False
+
+
 class TestSIE4ExportAPI:
     """Årets SIE4-fil genom Bokslutets filer."""
 

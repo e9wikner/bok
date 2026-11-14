@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from api.deps import get_current_actor, verify_api_key
+from api.deps import get_current_actor, get_human_actor, verify_api_key
 from db.database import get_db
 from repositories.company_info_repo import CompanyInfoRepository
 
@@ -75,6 +75,10 @@ async def get_company_info(
     api_key: str = Depends(verify_api_key),
 ):
     """Return editable company metadata."""
+    return _company_info()
+
+
+def _company_info() -> CompanyInfoResponse:
     values = CompanyInfoRepository.get_all()
     fields: dict[str, object] = {
         key: values[key] for key in COMPANY_INFO_KEYS if values.get(key)
@@ -86,10 +90,15 @@ async def get_company_info(
 @router.put("", response_model=CompanyInfoResponse)
 async def update_company_info(
     payload: CompanyInfoUpdate,
-    actor: str = Depends(get_current_actor),
-    api_key: str = Depends(verify_api_key),
+    actor: str = Depends(get_human_actor),
 ):
-    """Update editable company metadata."""
+    """Update editable company metadata. Only a logged-in human may.
+
+    The bankgiro, plusgiro and VAT number are printed on every issued
+    invoice, so the API key gets `403 human_only`: in a thread the agent
+    proposes company details as a `foresla_bolagsinformation` card, and a
+    human answers it or saves them here.
+    """
     sent = payload.model_fields_set
     values = payload.model_dump()
     updates = {key: values[key] for key in COMPANY_INFO_KEYS if key in sent}
@@ -99,4 +108,4 @@ async def update_company_info(
     CompanyInfoRepository.set_values(updates)
     get_db().commit()
 
-    return await get_company_info(actor=actor, api_key=api_key)
+    return _company_info()
