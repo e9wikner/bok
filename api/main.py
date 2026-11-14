@@ -44,13 +44,14 @@ from api.routes import (
 )
 from config import settings
 from domain.validation import ValidationError
-from services import agent_runtime, dropzone
+from services import agent_runtime, dropzone, payroll_auto
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Run folder pickup and the agent runtime alongside the API when
-    enabled.
+    enabled, and the payment-day payroll booking (`services/payroll_auto.py`,
+    which does nothing until a human turns it on).
 
     Both are threads in this process rather than a second container:
     `db.Database` already hands out thread-local SQLite connections with WAL on,
@@ -58,9 +59,11 @@ async def lifespan(app: FastAPI):
     """
     dropzone.start_background_scanner()
     agent_runtime.start_agent_runtime()
+    payroll_auto.start_payroll_scheduler()
     try:
         yield
     finally:
+        payroll_auto.stop_payroll_scheduler()
         agent_runtime.stop_agent_runtime()
         dropzone.stop_background_scanner()
 

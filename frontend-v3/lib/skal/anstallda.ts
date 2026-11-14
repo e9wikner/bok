@@ -3,9 +3,10 @@
  *
  * Här ställs lönerna in: vem som är anställd, vad hen tjänar, skatten som
  * dras och arbetsgivaravgiften, och här skapas månadens lönekörning med ett
- * lönebesked per anställd. Inget av det bokför något — lönebeskeden bokförs
- * i Löner, med ett tryck i kortet agenten lägger fram. Samma endpoints som
- * den gamla /payroll-sidan (`api/routes/payroll.py`).
+ * lönebesked per anställd. Lönebeskeden bokförs i Löner, med ett tryck i
+ * kortet agenten lägger fram, eller direkt: med knappen "Skapa och bokför",
+ * eller på lönedagen när automatiken är på (`services/payroll_auto.py`).
+ * Samma endpoints som den gamla /payroll-sidan (`api/routes/payroll.py`).
  */
 
 import apiClient from "@/lib/api";
@@ -83,7 +84,45 @@ export const anstalldaApi = {
       throw fel;
     }
   },
+
+  /**
+   * Skapar månadens lönebesked och bokför dem direkt, för vilken månad som
+   * helst, i efterhand också (`POST /payroll/runs/book`, bara inloggad).
+   * Ett lönebesked som ändå inte kunde bokföras står under `errors`.
+   */
+  skapaOchBokfor: async (ar: number, manad: number, utbetalning: string): Promise<BokfordKorning> => {
+    const { data } = await apiClient.post<BokfordKorning>("/api/v1/payroll/runs/book", {
+      year: ar,
+      month: manad,
+      payment_date: utbetalning,
+    });
+    return data;
+  },
+
+  automatik: async (): Promise<LoneAutomatik> => {
+    const { data } = await apiClient.get<LoneAutomatik>("/api/v1/payroll/auto-booking");
+    return { ...data, enabled: data?.enabled === true };
+  },
+
+  sattAutomatik: async (enabled: boolean): Promise<LoneAutomatik> => {
+    const { data } = await apiClient.put<LoneAutomatik>("/api/v1/payroll/auto-booking", { enabled });
+    return data;
+  },
 };
+
+export const AUTOMATIK_NYCKEL = [...LONER_NYCKEL, "automatik"] as const;
+
+/** Om lönerna skapas och bokförs av sig själva på lönedagen (migration 054). */
+export interface LoneAutomatik {
+  enabled: boolean;
+  set_by: string | null;
+  set_at: string | null;
+  next_payment_date: string | null;
+}
+
+export interface BokfordKorning extends PayrollRun {
+  errors: { payslip_id: string; code: string; message: string }[];
+}
 
 // ─── Tal in och ut ────────────────────────────────────────────────────────
 

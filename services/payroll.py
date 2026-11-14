@@ -448,6 +448,82 @@ class PayrollService:
         )
         return updated
 
+    def check_payment_date_booking(self, payment_date: date) -> Period:
+        """The open period a salary paid on *payment_date* is booked in.
+        Raises `period_not_found` or `period_locked`; writes nothing."""
+        period = self._find_period_for_date(payment_date)
+        if not period:
+            raise ValidationError(
+                "period_not_found",
+                "Det finns ingen period för utbetalningsdagen",
+                payment_date.isoformat(),
+            )
+        if period.locked:
+            raise ValidationError(
+                "period_locked",
+                f"Perioden {period.year}-{period.month:02d} är låst",
+                payment_date.isoformat(),
+                payload=period_lock_payload(period),
+            )
+        return period
+
+    def book_payslip(self, payslip_id: str, actor: str = "system") -> Payslip:
+        """Book *payslip_id* without waiting for the bank statement.
+
+        Called by the automatic booking on the payment day and by a human's
+        press on "Skapa och bokför" (`services/payroll_auto.py`), never by
+        the agent. When exactly one payment on an imported statement fits
+        (`payment_candidates`) it is booked against that payment, as the
+        card would. Otherwise the voucher is dated the payment day with the
+        net salary on the account the statements are imported for, and the
+        statement matching links the payment when the statement comes in
+        (`services/statement_match.py`).
+        """
+        payslip = self.payslips.get(payslip_id)
+        if not payslip:
+            raise ValidationError("payslip_not_found", "Payslip not found")
+        if payslip.voucher_id:
+            raise ValidationError("payslip_already_booked", "Payslip is already booked")
+        candidates = self.payment_candidates(payslip_id)
+        if len(candidates) == 1:
+            return self.match_bank_transaction_and_book(
+                payslip_id, candidates[0].id, actor=actor
+            )
+
+        from services.invoice import payment_bank_account
+        from services.payslip_underlag import PayslipUnderlagService
+
+        self._ensure_payroll_accounts()
+        period = self.check_payment_date_booking(payslip.payment_date)
+        underlag = PayslipUnderlagService()
+        underlag.store(payslip.id, actor=actor)
+
+        ledger = LedgerService()
+        voucher = ledger.create_voucher(
+            series="A",
+            date=payslip.payment_date,
+            period_id=period.id,
+            description=self._voucher_description(payslip),
+            rows_data=self._voucher_rows_for_payslip(payslip, payment_bank_account()),
+            created_by=actor,
+        )
+        voucher = ledger.post_voucher(voucher.id, actor=actor)
+
+        linked = self.payslips.link_booking(payslip.id, None, voucher.id)
+        assert linked is not None
+        underlag.link(linked, voucher.id, actor)
+        updated = self.payslips.get(payslip.id)
+        assert updated is not None
+        self._update_run_status_if_complete(payslip.payroll_run_id)
+        self.audit.log(
+            "payslip",
+            payslip.id,
+            AuditAction.POSTED.value,
+            actor,
+            {"voucher_id": voucher.id, "bank_transaction_id": None},
+        )
+        return updated
+
     def get_agi(self, year: int, month: int) -> AgiDeclaration:
         """The month's AGI underlag, from the payslips paid that month."""
         if month < 1 or month > 12:

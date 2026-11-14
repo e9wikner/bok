@@ -20,6 +20,7 @@ from domain.payroll_models import (
 from domain.validation import ValidationError
 from services.ledger_bookings import LedgerBookingService
 from services.payroll import PayrollService
+from services.payroll_auto import PayrollAutoService
 from services.payroll_proposal import PayrollProposalService
 from services.payslip_underlag import PayslipUnderlagService
 
@@ -48,6 +49,10 @@ class PayrollRunRequest(BaseModel):
     year: int
     month: int = Field(..., ge=1, le=12)
     payment_date: Optional[date] = None
+
+
+class AutoBookingRequest(BaseModel):
+    enabled: bool
 
 
 class BookPayslipRequest(BaseModel):
@@ -231,6 +236,49 @@ async def create_payroll_run(
         # keep its text, which may name tables or paths, out of the response.
         logger.exception("Failed to create payroll run")
         raise HTTPException(status_code=500, detail="Could not create payroll run")
+
+
+@router.post("/runs/book", response_model=dict, status_code=status.HTTP_201_CREATED)
+async def create_and_book_payroll_run(
+    request: PayrollRunRequest,
+    actor: str = Depends(get_human_actor),
+):
+    """Create the month's payroll run and payslips and book each payslip,
+    for any month, afterwards too (`services/payroll_auto.py`). Logged-in
+    users only (JWT); the API key gets `403 human_only`. Refused before
+    anything is written when the month has a run or its payment day's
+    period is locked or missing. A payslip that still could not be booked
+    is listed under `errors` and stays unbooked."""
+    try:
+        auto = PayrollAutoService()
+        payment_date = request.payment_date or auto.payroll._default_payment_date(
+            request.year, request.month
+        )
+        auto.check_bookable(request.year, request.month, payment_date)
+        result = auto.create_and_book(
+            request.year, request.month, payment_date, actor=actor
+        )
+    except ValidationError as exc:
+        raise _validation_http(exc)
+    payload = _run_to_dict(result["run"], result["payslips"])
+    payload["errors"] = result["errors"]
+    return payload
+
+
+@router.get("/auto-booking", response_model=dict)
+async def get_auto_booking():
+    """Whether the salaries are created and booked on the payment day."""
+    return PayrollAutoService().status()
+
+
+@router.put("/auto-booking", response_model=dict)
+async def set_auto_booking(
+    request: AutoBookingRequest,
+    actor: str = Depends(get_human_actor),
+):
+    """Turn the payment-day booking on or off (migration 054). Logged-in
+    users only (JWT); the API key gets `403 human_only`."""
+    return PayrollAutoService().set_enabled(request.enabled, actor)
 
 
 @router.post("/runs/{payroll_run_id}/generate", response_model=dict)
