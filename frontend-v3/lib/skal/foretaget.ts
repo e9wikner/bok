@@ -1,5 +1,5 @@
 /**
- * Företagets uppgifter (modul `skal`, vyn `betala.foretaget`).
+ * Företagets uppgifter (modul `skal`, vyn `installningar.foretaget`).
  *
  * Namn, organisationsnummer, adress och kontakt, och det som står på
  * fakturan: säte, momsregistreringsnummer, bankgiro eller plusgiro och

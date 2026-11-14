@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { LonebeskedVy } from "@/components/skal/LonebeskedVy";
+import { LonebeskedLista } from "@/components/skal/LonebeskedVy";
 import type { Lonebesked, Lonekorning } from "@/lib/skal/betala";
-import { beskedLage, kanTasBort, lonebeskedStatus, pdfVag } from "@/lib/skal/lonebesked";
+import { beskedLage, kanTasBort, pdfVag } from "@/lib/skal/lonebesked";
 import { allaVyer } from "@/lib/skal/vyer";
 
 /** Lönebeskeden i skalet: skicka, markera skickat, ta bort en obokförd körning, AGI:ns fält. */
@@ -75,7 +75,7 @@ function visa(runs: Lonekorning[]) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <LonebeskedVy titel="Lönebesked" arId="fy-2026" variant="desktop" />
+      <LonebeskedLista arId="fy-2026" />
     </QueryClientProvider>
   );
 }
@@ -88,8 +88,9 @@ beforeEach(() => {
 });
 
 describe("kartan", () => {
-  it("Lönebesked är en vy på Betala som chattar i Löners tråd", () => {
-    expect(allaVyer().find((v) => v.key === "betala.lonebesked")).toMatchObject({ sida: "betala", trad: "betala.loner" });
+  it("lönebeskeden står i Löner, inte i en egen vy", () => {
+    expect(allaVyer().map((v) => v.titel)).not.toContain("Lönebesked");
+    expect(allaVyer().find((v) => v.key === "betala.loner")).toMatchObject({ sida: "betala", titel: "Löner" });
   });
 });
 
@@ -109,14 +110,15 @@ describe("reglerna", () => {
     expect(pdfVag(besked())).toBe("/api/v1/payroll/payslips/p1/pdf");
     expect(pdfVag(besked({ pdf_stored: false }))).toBe("/api/v1/export/pdf/payslip/p1");
   });
-
-  it("statusraden räknar de oskickade", () => {
-    expect(lonebeskedStatus([korning()], false, "fy")).toEqual({ text: "1 inte skickat", lage: "vantar" });
-    expect(lonebeskedStatus([], false, "fy").lage).toBe("tomt");
-  });
 });
 
-describe("vyn", () => {
+describe("listan i Löner", () => {
+  it("ett år utan körningar får ingen rubrik", async () => {
+    const { container } = visa([]);
+    await waitFor(() => expect(get).toHaveBeenCalled());
+    expect(container).toBeEmptyDOMElement();
+  });
+
   it("öppnar PDF:en och markerar lönebeskedet skickat", async () => {
     visa([korning()]);
     fireEvent.click(await screen.findByRole("button", { name: "PDF" }));

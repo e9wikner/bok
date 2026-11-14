@@ -1,5 +1,5 @@
 /**
- * Kunder och artiklar (modul `skal`, vyn `betala.kunder`).
+ * Kunder och artiklar (modul `skal`, vyn `installningar.kunder`).
  *
  * Registren fakturorna skrivs ur: kunden med adress och betalningsvillkor,
  * artikeln med pris, moms och intäktskonto. Agenten läser dem

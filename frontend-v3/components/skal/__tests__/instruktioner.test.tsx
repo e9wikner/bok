@@ -47,11 +47,11 @@ function svara(omfang: Omfang) {
   });
 }
 
-function visa(omfang: Omfang) {
+function visa() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <InstruktionerVy titel="Instruktioner" omfang={omfang} variant="desktop" />
+      <InstruktionerVy titel="Instruktioner" variant="desktop" />
     </QueryClientProvider>
   );
 }
@@ -62,9 +62,10 @@ beforeEach(() => {
 });
 
 describe("kartan", () => {
-  it("bokföringens regler står i Böcker och faktureringens i Betala, i sidans skrivtråd", () => {
-    expect(allaVyer().find((v) => v.key === "bocker.instruktioner")).toMatchObject({ trad: "bocker.verifikationer" });
-    expect(allaVyer().find((v) => v.key === "betala.instruktioner")).toMatchObject({ trad: "betala.fakturering" });
+  it("reglerna är en vy under Inställningar, för bokföringen och faktureringen", () => {
+    expect(allaVyer().filter((v) => v.titel === "Instruktioner")).toMatchObject([
+      { key: "installningar.instruktioner", sida: "installningar", trad: "bocker.verifikationer" },
+    ]);
   });
 });
 
@@ -84,7 +85,7 @@ describe("vyn", () => {
   it("sparar en ändring som ny version med sin sammanfattning", async () => {
     svara("accounting");
     put.mockResolvedValue({ data: { ...V2, version_id: "v3", version: 3 } });
-    visa("accounting");
+    visa();
 
     const text = await screen.findByLabelText("Företagets regler");
     expect(text).toHaveValue("Telia bokförs på 6212.");
@@ -102,9 +103,10 @@ describe("vyn", () => {
     );
   });
 
-  it("bokföringens vy visar rättelserna och versionerna; systeminstruktionerna fälls ut", async () => {
+  it("bokföringens del står framme först, med rättelserna och versionerna; systeminstruktionerna fälls ut", async () => {
     svara("accounting");
-    visa("accounting");
+    visa();
+    expect(screen.getByRole("tab", { name: "Bokföring" })).toHaveAttribute("aria-selected", "true");
     expect(await screen.findByText("A-12 rättad med B-3")).toBeInTheDocument();
     expect(screen.getByText("Version 2 · gäller")).toBeInTheDocument();
     expect(screen.queryByText(/Regler\./)).not.toBeInTheDocument();
@@ -112,10 +114,19 @@ describe("vyn", () => {
     expect(screen.getByText(/Regler\./)).toBeInTheDocument();
   });
 
-  it("faktureringens vy frågar inte efter rättelserna", async () => {
+  it("faktureringens del läser och sparar sina egna regler, utan rättelserna", async () => {
     svara("invoicing");
-    visa("invoicing");
+    put.mockResolvedValue({ data: { ...V2, version_id: "v3", version: 3 } });
+    visa();
+    fireEvent.click(screen.getByRole("tab", { name: "Fakturering" }));
     await screen.findByText("Version 2 · gäller");
-    expect(get.mock.calls.map((c) => c[0])).not.toContain("/api/v1/accounting-corrections");
+    expect(get.mock.calls.map((c) => c[0])).toContain("/api/v1/agent-instructions/invoicing");
+    expect(screen.queryByText("Senaste rättelser")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Företagets regler"), { target: { value: "30 dagar netto." } });
+    fireEvent.click(screen.getByRole("button", { name: "Spara som ny version" }));
+    await waitFor(() =>
+      expect(put).toHaveBeenCalledWith("/api/v1/agent-instructions/invoicing", expect.objectContaining({ content_markdown: "30 dagar netto." }))
+    );
   });
 });

@@ -37,7 +37,7 @@ async def get_overview(
     """All three pages' counters in one call.
 
     Returns the fiscal year, the current period state, and one entry per page
-    in the order the design draws them: Böcker, Fakturering och löner, Bokslut.
+    in the order the design draws them: Bokföring, Fakturor och löner, Bokslut.
     Each page carries `waiting` (is there a dot?) and `meta` (what waits?),
     both decided by the server — the client counts nothing.
 

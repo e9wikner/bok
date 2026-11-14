@@ -17,7 +17,7 @@ describe("PrickNav är riktiga knappar (testfall 11)", () => {
   });
 
   it("markerar aktiv vy med aria-current", () => {
-    render(<PrickNav vyer={bocker.vyer} aktivIndex={2} onValj={vi.fn()} />);
+    render(<PrickNav vyer={bocker.vyer} aktivIndex={0} onValj={vi.fn()} />);
     expect(screen.getByRole("button", { name: "Verifikationer" })).toHaveAttribute(
       "aria-current",
       "true"
@@ -37,7 +37,7 @@ describe("PrickNav är riktiga knappar (testfall 11)", () => {
     const user = userEvent.setup();
     const onValj = vi.fn();
     render(<PrickNav vyer={bocker.vyer} aktivIndex={0} onValj={onValj} />);
-    await user.click(screen.getByRole("button", { name: "Verifikationer" }));
+    await user.click(screen.getByRole("button", { name: "Balansräkning" }));
     expect(onValj).toHaveBeenCalledWith(2);
   });
 });
@@ -52,7 +52,7 @@ describe("piltangenterna är svepets ekvivalent (testfall 12)", () => {
         renderVy={(vy) => <div>{vy.titel}</div>}
       />
     );
-    return { grupp: screen.getByRole("group", { name: /Vyer i Böcker/ }), onIndexChange };
+    return { grupp: screen.getByRole("group", { name: /Vyer i Bokföring/ }), onIndexChange };
   }
 
   it("går framåt med högerpil", () => {

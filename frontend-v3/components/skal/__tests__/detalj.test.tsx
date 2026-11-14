@@ -145,9 +145,10 @@ function renderaSkal() {
 /** Läskolumnen för den aktiva vyn. */
 const balansKolumn = () => screen.getAllByText("Balansräkning").length;
 
+// Testerna börjar i Balansräkningen, som en inklistrad adress.
 beforeEach(() => {
-  sokParametrar = new URLSearchParams();
-  window.history.replaceState(null, "", "/");
+  sokParametrar = new URLSearchParams("sida=bocker&vy=balans");
+  window.history.replaceState(null, "", "/?sida=bocker&vy=balans");
   get.mockClear();
   post.mockClear();
 });

@@ -12,7 +12,7 @@ import { ForetagetVy } from "@/components/skal/ForetagetVy";
 import { InstruktionerVy } from "@/components/skal/InstruktionerVy";
 import { KontoplanVy } from "@/components/skal/KontoplanVy";
 import { KunderVy } from "@/components/skal/KunderVy";
-import { LonebeskedVy } from "@/components/skal/LonebeskedVy";
+import { LonebeskedLista } from "@/components/skal/LonebeskedVy";
 import { RevisionsloggVy } from "@/components/skal/RevisionsloggVy";
 import { SruVy } from "@/components/skal/SruVy";
 import { DetaljLager } from "@/components/skal/Detalj";
@@ -50,7 +50,7 @@ import {
 } from "@/lib/skal/vyer";
 
 /**
- * Skalet: tre sidor, deras vyer, en rutt.
+ * Skalet: fyra sidor, deras vyer, en rutt.
  *
  * Vyn är ett skrolläge och sidan är en navigering. Vypositionen skrivs med
  * history.replaceState så att ett svep inte kostar en post i historiken och
@@ -105,11 +105,11 @@ export function Skal() {
   const gaTillTrad = useCallback(
     (trad: string) => {
       if (aktivVy.trad === trad) return;
-      const pasidan = sida.vyer.find((v) => v.trad === trad);
-      const vy = pasidan ?? allaVyer().find((v) => v.trad === trad);
+      // Vyn som äger tråden, inte en inställningsvy som lånar den.
+      const vy = allaVyer().find((v) => v.key === trad);
       if (vy) gaTillVy(vy.key);
     },
-    [aktivVy.trad, sida, gaTillVy]
+    [aktivVy.trad, gaTillVy]
   );
   const detalj = useDetaljHistorik({ start: start.detalj, url: detaljUrl, gaTillVy });
   const { stack: detaljer, stang: stangDetalj } = detalj;
@@ -278,29 +278,25 @@ export function Skal() {
               onGaTill={gaTillVy}
               variant={variant}
             />
-          ) : vy.key === "betala.lonebesked" ? (
-            <LonebeskedVy titel={vy.titel} arId={ar === undefined ? undefined : (ar?.id ?? null)} variant={variant} />
-          ) : vy.key === "bokslut.sru" ? (
+          ) : vy.key === "installningar.sru" ? (
             <SruVy titel={vy.titel} arId={ar === undefined ? undefined : (ar?.id ?? null)} variant={variant} />
-          ) : vy.key === "bocker.instruktioner" || vy.key === "betala.instruktioner" ? (
-            <InstruktionerVy
-              titel={vy.titel}
-              omfang={vy.key === "bocker.instruktioner" ? "accounting" : "invoicing"}
-              variant={variant}
-            />
+          ) : vy.key === "installningar.instruktioner" ? (
+            <InstruktionerVy titel={vy.titel} variant={variant} />
           ) : vy.key === "bocker.dropzone" ? (
             <DropzoneVy titel={vy.titel} variant={variant} />
-          ) : vy.key === "bocker.kontoplan" ? (
+          ) : vy.key === "installningar.kontoplan" ? (
             <KontoplanVy titel={vy.titel} variant={variant} />
-          ) : vy.key === "bocker.revisionslogg" ? (
+          ) : vy.key === "installningar.revisionslogg" ? (
             <RevisionsloggVy titel={vy.titel} variant={variant} />
-          ) : vy.key === "betala.kunder" ? (
+          ) : vy.key === "installningar.kunder" ? (
             <KunderVy titel={vy.titel} variant={variant} />
-          ) : vy.key === "betala.foretaget" ? (
+          ) : vy.key === "installningar.foretaget" ? (
             <ForetagetVy titel={vy.titel} variant={variant} />
-          ) : vy.key === "betala.anstallda" ? (
+          ) : vy.key === "installningar.anstallda" ? (
             <AnstalldaVy titel={vy.titel} variant={variant} onGaTill={gaTillVy} />
           ) : null;
+          // Löner bär årets lönebesked att skicka under sina rader.
+          const under = vy.key === "betala.loner" && ar ? <LonebeskedLista arId={ar.id} /> : undefined;
           if (bred) {
             // Vyn äger ytan bredvid sidonavigeringen; chatten är en bubbla
             // (`ChattBubbla`) nere till höger. Kolumnen fyller bredden upp
@@ -318,6 +314,7 @@ export function Skal() {
                       data={innehall}
                       laddar={laddar}
                       sok={vy.key === "bocker.verifikationer" ? sok : undefined}
+                      under={under}
                     />
                   )}
                 </div>
@@ -337,6 +334,7 @@ export function Skal() {
                   laddar={laddar}
                   variant="mobil"
                   sok={vy.key === "bocker.verifikationer" ? sok : undefined}
+                  under={under}
                 />
               )}
             </div>

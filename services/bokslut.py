@@ -25,17 +25,16 @@ def _kontroll(id_: str, niva: str, titel: str, text: str = "") -> Dict[str, str]
 
 
 def _del(id_: str) -> str:
-    """The Bokslut view a check is acted on in, so it is shown there: a
-    missing annual-report detail under Uppgifter, the tax under INK2, the VAT
-    under Moms. What concerns the year as a whole stays on Översikt."""
+    """The Bokslut view a check is acted on in, so it is shown there: the
+    tax under INK2, the VAT under Moms. What concerns the year as a whole
+    stays on Översikt, and so does a missing annual-report detail: the
+    details are filled in there."""
     if id_ in ("skatt", "ink2", "periodiseringsfond") or id_.startswith("ink2s_"):
         return "bokslut.ink2"
     if id_ in ("momsavstamning", "moms_varning"):
         return "bokslut.moms"
     if id_ == "ar_varning":
         return "bokslut.arsredovisning"
-    if id_.startswith("ar_"):
-        return "bokslut.uppgifter"
     return "bokslut.rapporter"
 
 

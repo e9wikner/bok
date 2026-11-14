@@ -1,5 +1,5 @@
 /**
- * Anställda och deras löner (modul `skal`, vyn `betala.anstallda`).
+ * Anställda och deras löner (modul `skal`, vyn `installningar.anstallda`).
  *
  * Här ställs lönerna in: vem som är anställd, vad hen tjänar, skatten som
  * dras och arbetsgivaravgiften, och här skapas månadens lönekörning med ett

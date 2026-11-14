@@ -491,11 +491,11 @@ describe("betalaVantar", () => {
     });
   });
 
-  it("ett fakturaförslag leder till Fakturering och visar sitt inlägg", () => {
+  it("ett fakturaförslag leder till Fakturor och visar sitt inlägg", () => {
     const [rad] = betalaVantar({ lonerBeslut: [], faktureringForslag: [forslag({})], fakturautkast: [utkast] });
     expect(rad).toMatchObject({
       titel: "Faktura 1046 · Ateljé Vind AB",
-      meta: "faktura · väntar i Fakturering",
+      meta: "faktura · väntar i Fakturor",
       mal: { typ: "vy", key: "betala.fakturering" },
       inlagg: { viewKey: "betala.fakturering", postId: "p-9" },
     });

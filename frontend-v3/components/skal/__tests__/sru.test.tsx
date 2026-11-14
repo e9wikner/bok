@@ -60,9 +60,9 @@ beforeEach(() => {
 });
 
 describe("kartan", () => {
-  it("SRU-kopplingen är en vy i Bokslut som chattar i Översiktens tråd", () => {
-    const vy = allaVyer().find((v) => v.key === "bokslut.sru");
-    expect(vy).toMatchObject({ sida: "bokslut", slug: "sru", trad: "bokslut.rapporter" });
+  it("SRU-kopplingen är en vy under Inställningar som chattar i Översiktens tråd", () => {
+    const vy = allaVyer().find((v) => v.key === "installningar.sru");
+    expect(vy).toMatchObject({ sida: "installningar", slug: "sru", trad: "bokslut.rapporter" });
   });
 });
 

@@ -24,21 +24,20 @@ const OM: Record<Omfang, string> = {
   invoicing: "Agenten läser reglerna innan den lägger fram ett fakturautkast, efter systeminstruktionerna.",
 };
 
+const DELAR: { omfang: Omfang; titel: string }[] = [
+  { omfang: "accounting", titel: "Bokföring" },
+  { omfang: "invoicing", titel: "Fakturering" },
+];
+
 /**
- * Instruktioner (`bocker.instruktioner`, `betala.instruktioner`): företagets
- * egna regler till agenten, en version per sparning. Bokföringens vy visar
- * också de senaste rättelserna, som är vad reglerna oftast bör lära av.
- * Ingen egen tråd — vyn chattar i sidans skrivvy.
+ * Instruktioner (`installningar.instruktioner`): företagets egna regler till
+ * agenten, en version per sparning — för bokföringen och för faktureringen,
+ * en del i taget. Bokföringens del visar också de senaste rättelserna, som
+ * är vad reglerna oftast bör lära av. Ingen egen tråd — vyn chattar i
+ * Verifikationers.
  */
-export function InstruktionerVy({
-  titel,
-  omfang,
-  variant,
-}: {
-  titel: string;
-  omfang: Omfang;
-  variant: "desktop" | "mobil";
-}) {
+export function InstruktionerVy({ titel, variant }: { titel: string; variant: "desktop" | "mobil" }) {
+  const [omfang, setOmfang] = useState<Omfang>("accounting");
   const { data, isError } = useQuery({
     queryKey: instruktionNyckel(omfang),
     queryFn: () => instruktionerApi.hamta(omfang),
@@ -64,7 +63,28 @@ export function InstruktionerVy({
             : `flex flex-col bok-mobil-botten ${pad}`
         }
       >
-        <div className="pt-[14px] text-[13px] leading-[1.55] text-bok-text-svag [text-wrap:pretty]">{OM[omfang]}</div>
+        <div role="tablist" aria-label="Regler för" className="flex gap-1 pt-[14px]">
+          {DELAR.map((d) => {
+            const vald = d.omfang === omfang;
+            return (
+              <button
+                key={d.omfang}
+                type="button"
+                role="tab"
+                aria-selected={vald}
+                onClick={() => setOmfang(d.omfang)}
+                className={`min-h-[36px] rounded-lg px-3 text-[14px] transition-colors ${
+                  vald
+                    ? "bg-bok-linje-svagast font-medium text-bok-text"
+                    : "text-bok-text-2 hover:bg-bok-yta-svag hover:text-bok-text"
+                }`}
+              >
+                {d.titel}
+              </button>
+            );
+          })}
+        </div>
+        <div className="pt-[10px] text-[13px] leading-[1.55] text-bok-text-svag [text-wrap:pretty]">{OM[omfang]}</div>
 
         {isError ? (
           <div className="mt-[14px]">
@@ -76,7 +96,8 @@ export function InstruktionerVy({
           </div>
         ) : (
           <>
-            <Redigera key={data.foretaget?.version_id ?? "ingen"} omfang={omfang} data={data} />
+            {/* Nyckeln bär omfånget: ett byte av del får inte ta med sig osparad text. */}
+            <Redigera key={`${omfang}:${data.foretaget?.version_id ?? "ingen"}`} omfang={omfang} data={data} />
             {omfang === "accounting" && <Korrigeringar />}
             <Versioner data={data} />
             <System text={data.system} />

@@ -9,9 +9,9 @@ import { lasPosition, positionsUrl } from "@/lib/skal/rutt";
 
 describe("fallback i URL:en (testfall 4)", () => {
   it("okänd sida faller tillbaka på bocker och dess första vy", () => {
-    expect(lasPosition("installningar", "moms")).toMatchObject({
+    expect(lasPosition("register", "moms")).toMatchObject({
       sida: "bocker",
-      vy: { key: "bocker.balans" },
+      vy: { key: "bocker.verifikationer" },
     });
   });
 
@@ -19,13 +19,19 @@ describe("fallback i URL:en (testfall 4)", () => {
     expect(lasPosition("betala", "balans").vy.key).toBe("betala.fakturering");
   });
 
-  it("utan parametrar landar man på bocker.balans", () => {
-    expect(lasPosition(null, null).vy.key).toBe("bocker.balans");
+  it("utan parametrar landar man på bocker.verifikationer", () => {
+    expect(lasPosition(null, null).vy.key).toBe("bocker.verifikationer");
     expect(lasPosition(undefined, undefined).sida).toBe("bocker");
   });
 
   it("kända parametrar respekteras", () => {
     expect(lasPosition("bokslut", "atgarder").vy.key).toBe("bokslut.atgarder");
+    expect(lasPosition("installningar", "kontoplan").vy.key).toBe("installningar.kontoplan");
+  });
+
+  it("en adress till en vy som flyttat eller gått upp i en annan landar på sidans första vy", () => {
+    expect(lasPosition("bocker", "kontoplan").vy.key).toBe("bocker.verifikationer");
+    expect(lasPosition("bokslut", "uppgifter").vy.key).toBe("bokslut.rapporter");
   });
 
   it("bygger en URL som läses tillbaka till samma position", () => {

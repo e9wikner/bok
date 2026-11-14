@@ -18,7 +18,7 @@ import {
 import { lageFarg } from "@/lib/skal/lage";
 
 /**
- * Kontoplanen (`bocker.kontoplan`): BAS-kontona per kontoklass. Ett konto
+ * Kontoplanen (`installningar.kontoplan`): BAS-kontona per kontoklass. Ett konto
  * öppnar sin huvudbok för året i headern, som ett konto i balans- eller
  * resultaträkningen. Ingen egen tråd — den chattar i Verifikationers, där
  * kontona används.

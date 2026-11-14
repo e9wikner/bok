@@ -56,9 +56,9 @@ beforeEach(() => {
 });
 
 describe("kartan", () => {
-  it("dropzonen är en vy på Böcker som chattar i Verifikationers tråd", () => {
+  it("dropzonen är vyn Underlag i Bokföring, som chattar i Verifikationers tråd", () => {
     const vy = allaVyer().find((v) => v.key === "bocker.dropzone");
-    expect(vy).toMatchObject({ sida: "bocker", slug: "dropzone", trad: "bocker.verifikationer" });
+    expect(vy).toMatchObject({ sida: "bocker", slug: "underlag", titel: "Underlag", trad: "bocker.verifikationer" });
   });
 });
 

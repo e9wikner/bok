@@ -19,8 +19,8 @@ from repositories.voucher_repo import VoucherRepository
 # The three pages of the information architecture, in the order the design
 # draws them. A list, not a mapping: the order is the design's to decide.
 PAGE_TITLES = [
-    ("bocker", "Böcker"),
-    ("betala", "Fakturering och löner"),
+    ("bocker", "Bokföring"),
+    ("betala", "Fakturor och löner"),
     ("bokslut", "Bokslut"),
 ]
 

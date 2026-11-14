@@ -12,10 +12,6 @@ import type { VyData, VyRadData } from "@/lib/skal/vydata";
 /**
  * Läskolumnen: rubrikrad, period, eventuell banner, sektioner med rader och
  * en fottext som säger vad agenten gör härnäst.
- *
- * En läsvy (`lasvy`) får ingen primärknapp i foten — och ingen avstängd
- * knapp och ingen "kommer snart"-text heller. En yta som lovar en funktion
- * som inte finns är sämre än en yta som inte lovar den.
  */
 export function VyInnehall({
   vy,
@@ -24,6 +20,7 @@ export function VyInnehall({
   variant = "desktop",
   tillbaka,
   sok,
+  under,
   atgard,
 }: {
   /** En vy, eller detaljlagret (`Detalj.tsx`) som bara har en titel. */
@@ -43,6 +40,8 @@ export function VyInnehall({
     sortering?: Sortering;
     onSortera?: (s: Sortering) => void;
   };
+  /** Vyns egna delar under raderna, före fottexten (Löners lönebesked). */
+  under?: ReactNode;
   /** En åtgärd under fottexten, t.ex. `Kasta utkast` i detaljlagret. */
   atgard?: ReactNode;
 }) {
@@ -163,6 +162,8 @@ export function VyInnehall({
         )}
 
         {!laddar && data.harFler && data.hamtaFler && <LaddarFler hamtaFler={data.hamtaFler} />}
+
+        {!laddar && under}
 
         <div className="pt-5 text-[13px] leading-[1.55] text-bok-text-svag [text-wrap:pretty]">
           {data.fot}

@@ -42,9 +42,9 @@ beforeEach(() => {
 });
 
 describe("kartan", () => {
-  it("Företaget är en vy på Betala som chattar i Fakturerings tråd", () => {
-    const vy = allaVyer().find((v) => v.key === "betala.foretaget");
-    expect(vy).toMatchObject({ sida: "betala", slug: "foretaget", trad: "betala.fakturering" });
+  it("Företaget är en vy under Inställningar som chattar i Fakturerings tråd", () => {
+    const vy = allaVyer().find((v) => v.key === "installningar.foretaget");
+    expect(vy).toMatchObject({ sida: "installningar", slug: "foretaget", trad: "betala.fakturering" });
   });
 });
 

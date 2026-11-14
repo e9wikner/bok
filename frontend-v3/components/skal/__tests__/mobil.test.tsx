@@ -30,7 +30,7 @@ vi.mock("@/lib/skal/api", () => ({
       fiscal_year: null,
       period_state: null,
       pages: [
-        { key: "bocker", title: "Böcker", waiting: true, meta: "1 väntar på dig", counters: {} },
+        { key: "bocker", title: "Bokföring", waiting: true, meta: "1 väntar på dig", counters: {} },
       ],
     }),
     getAgentStatus: async () => ({

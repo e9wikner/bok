@@ -1,5 +1,5 @@
 /**
- * Revisionsloggen (modul `skal`, vyn `bocker.revisionslogg`).
+ * Revisionsloggen (modul `skal`, vyn `installningar.revisionslogg`).
  *
  * Behandlingshistoriken: varje skapad, bokförd, låst, kopplad eller ändrad
  * sak, vem som gjorde det och när. Nyast först, hundra åt gången, och hela

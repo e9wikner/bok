@@ -37,9 +37,9 @@ beforeEach(() => {
 });
 
 describe("kartan", () => {
-  it("revisionsloggen är en vy på Böcker som chattar i Verifikationers tråd", () => {
-    const vy = allaVyer().find((v) => v.key === "bocker.revisionslogg");
-    expect(vy).toMatchObject({ sida: "bocker", slug: "revisionslogg", trad: "bocker.verifikationer" });
+  it("revisionsloggen är en vy under Inställningar som chattar i Verifikationers tråd", () => {
+    const vy = allaVyer().find((v) => v.key === "installningar.revisionslogg");
+    expect(vy).toMatchObject({ sida: "installningar", slug: "revisionslogg", trad: "bocker.verifikationer" });
   });
 });
 

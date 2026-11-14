@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { VyInnehall } from "@/components/skal/VyInnehall";
 import type { BeslutSvar } from "@/lib/chattyta/api";
 import { faktureringVy, lonerVy } from "@/lib/skal/betala";
-import { allaVyer, sidan } from "@/lib/skal/vyer";
+import { sidan } from "@/lib/skal/vyer";
 
 const fakturering = sidan("betala").vyer[0];
 const loner = sidan("betala").vyer.find((v) => v.key === "betala.loner")!;
@@ -66,13 +66,6 @@ describe("Fakturering och Löner har ingen knapp i vyn (testfall 17)", () => {
   it("säger i stället hur en lön bokförs: i kortet agenten lägger fram", () => {
     render(<VyInnehall vy={loner} data={LONER} />);
     expect(screen.getByText(/Du bokför med ett tryck i kortet/)).toBeInTheDocument();
-  });
-
-  it("ingen vy är längre märkt som läsvy", () => {
-    // Fakturering skriver sedan F1 och Löner sedan lönebokföringen — i
-    // tråden, genom kortet, inte med knappar i vyn. Vyn själv har
-    // fortfarande ingen knapp (ovan).
-    expect(allaVyer().filter((v) => v.lasvy).map((v) => v.titel)).toEqual([]);
   });
 
   it("ett lönekort som väntar är raden att klicka på, som ett beslut i Verifikationer", () => {

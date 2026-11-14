@@ -50,7 +50,7 @@ beforeEach(() => {
 
 describe("kartan", () => {
   it("Kunder och artiklar är en vy på Betala som chattar i Fakturerings tråd", () => {
-    expect(allaVyer().find((v) => v.key === "betala.kunder")).toMatchObject({ trad: "betala.fakturering" });
+    expect(allaVyer().find((v) => v.key === "installningar.kunder")).toMatchObject({ trad: "betala.fakturering" });
   });
 });
 

@@ -228,7 +228,7 @@ på underlag, kontoplan, instruktioner, tidigare verifikationer och öppna perio
 
 ### I Fakturerings tråd
 
-I tråden i Fakturering används verktygen, inte HTTP-vägen nedan:
+I tråden i Fakturor används verktygen, inte HTTP-vägen nedan:
 
 - Börja med `las_kunder` och `las_fakturor`. Säg vad du hittade och vad du
   antar innan du lägger fram fakturan: kund, adress, villkor, antal, pris och

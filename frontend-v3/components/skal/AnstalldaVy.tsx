@@ -28,7 +28,7 @@ import { lageFarg } from "@/lib/skal/lage";
 import type { Vynyckel } from "@/lib/skal/vyer";
 
 /**
- * Anställda (`betala.anstallda`): där lönerna ställs in.
+ * Anställda (`installningar.anstallda`): där lönerna ställs in.
  *
  * De anställda med sin månadslön, skatt och arbetsgivaravgift, ett formulär
  * för en ny anställd och knappen som skapar månadens lönebesked. Ingenting

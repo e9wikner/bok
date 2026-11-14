@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { VyInnehall } from "@/components/skal/VyInnehall";
 import type { VyData } from "@/lib/skal/vydata";
 
@@ -30,7 +31,7 @@ describe("Tomma månader", () => {
 
   it("fäller ihop och ut en månads verifikationer med pilknappen", async () => {
     const user = userEvent.setup();
-    render(<VyInnehall vy={{ titel: "Verifikationer" }} data={data([MANADER[1]])} sok={{ varde: "", onAndra: () => {} }} />);
+    render(<VyInnehall vy={{ titel: "Verifikationer" }} data={data([{ titel: "Maj 2026", rader: [rad], tom: "inga postade verifikationer" }])} sok={{ varde: "", onAndra: () => {} }} />);
     expect(screen.getByText("Hyra kontor")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Dölj verifikationerna i Maj 2026" }));
     expect(screen.queryByText("Hyra kontor")).toBeNull();

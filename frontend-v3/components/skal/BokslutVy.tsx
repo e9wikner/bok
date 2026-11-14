@@ -27,7 +27,7 @@ import { type BokslutDel, sidan } from "@/lib/skal/vyer";
 
 /**
  * En del av ett räkenskapsårs bokslut, i läskolumnen: Översikt (kontrollerna
- * och filerna), INK2, Moms, Årsredovisning eller Uppgifter. Delarna är egna
+ * filerna och årsredovisningens uppgifter), INK2, Moms eller Årsredovisning. Delarna är egna
  * vyer i navigeringen och gäller året i årsväljaren. Allt räknas på servern
  * (`services/bokslut.py`); här visas det och laddas ner. Uppgifterna är det
  * enda som skrivs, och de bokför ingenting.
@@ -106,12 +106,16 @@ export function BokslutVy({
               {del === "bokslut.rapporter" && las && <LasKnapp {...las} />}
             </div>
             {del !== "bokslut.rapporter" && <AttAtgardaHar b={data} del={del} />}
-            {del === "bokslut.rapporter" && <Oversikt b={data} onGaTill={onGaTill} />}
+            {del === "bokslut.rapporter" && (
+              <>
+                <Oversikt b={data} onGaTill={onGaTill} />
+                {/* Nyckeln: ett annat år ger formuläret det årets startvärden. */}
+                <UppgifterFlik key={data.fiscal_year.id} b={data} />
+              </>
+            )}
             {del === "bokslut.ink2" && <Ink2Flik b={data} />}
             {del === "bokslut.moms" && <MomsFlik b={data} />}
             {del === "bokslut.arsredovisning" && <ArFlik b={data} />}
-            {/* Nyckeln: ett annat år ger formuläret det årets startvärden. */}
-            {del === "bokslut.uppgifter" && <UppgifterFlik key={data.fiscal_year.id} b={data} />}
           </>
         )}
       </div>
@@ -216,7 +220,7 @@ function Filer({ filer }: { filer: Nedladdning[] }) {
   );
 }
 
-/** Vytiteln för en bokslutsdel: "INK2", "Uppgifter". */
+/** Vytiteln för en bokslutsdel: "INK2", "Moms". */
 function delTitel(del: BokslutDel): string {
   return sidan("bokslut").vyer.find((v) => v.key === del)?.titel ?? del;
 }
@@ -469,7 +473,7 @@ function ArFlik({ b }: { b: Bokslut }) {
         <div className="mt-[14px]">
           <VyBanner
             ton="varning"
-            text={`Uppgifter saknas: ${ar.missing.map((m) => m.label.toLowerCase()).join(", ")}. De står markerade i PDF:en tills de fylls i under Uppgifter.`}
+            text={`Uppgifter saknas: ${ar.missing.map((m) => m.label.toLowerCase()).join(", ")}. De står markerade i PDF:en tills de fylls i på Översikten.`}
           />
         </div>
       )}
@@ -667,7 +671,7 @@ function UppgifterFlik({ b }: { b: Bokslut }) {
         spara.mutate();
       }}
     >
-      <Rubrik>Årsredovisningen</Rubrik>
+      <Rubrik>Uppgifter till årsredovisningen</Rubrik>
       {AR_FALT.map(falt)}
       <button
         type="button"

@@ -723,7 +723,7 @@ def test_runtime_system_prompt_has_the_thread_writing_section(test_db):
 
 
 def test_accounting_instruction_does_not_drive_the_underlag_queue():
-    """The list in Böcker → Verifikationer shows
+    """The list in Bokföring → Verifikationer shows
     what is missing, and the user picks what to upload next. Nowhere in 03
     does the agent ask for an underlag on its own or name the next one."""
     _assert_no_queue_driving(ACCOUNTING_DOC_PATH.read_text(encoding="utf-8"))

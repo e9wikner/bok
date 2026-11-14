@@ -445,12 +445,13 @@ class TestOversiktensBokslut:
             assert k["del"] in per_vy
         saknas = [k for k in kvar if k["id"].startswith("ar_ar.")]
         if len(saknas) > 1:
-            assert per_vy["bokslut.uppgifter"].meta == f"{len(saknas)} uppgifter saknas"
+            assert "bokslut.uppgifter" not in per_vy
+            assert per_vy["bokslut.rapporter"].waiting >= len(saknas)
 
     def test_kontrollens_vy(self):
         from services.bokslut import _del
 
-        assert _del("ar_ar.datum") == "bokslut.uppgifter"
+        assert _del("ar_ar.datum") == "bokslut.rapporter"
         assert _del("ar_varning") == "bokslut.arsredovisning"
         assert _del("skatt") == "bokslut.ink2"
         assert _del("ink2s_4.3c") == "bokslut.ink2"

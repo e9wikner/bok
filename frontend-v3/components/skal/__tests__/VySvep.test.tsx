@@ -76,7 +76,7 @@ describe("positionen är sanningen, inte klicket", () => {
           renderVy={(vy) => <div>{vy.titel}</div>}
         />
       );
-      const rad = screen.getByRole("group", { name: /Vyer i Böcker/ });
+      const rad = screen.getByRole("group", { name: /Vyer i Bokföring/ });
       rad.scrollLeft = BREDD; // ett svep, inget klick
       fireEvent.scroll(rad);
       expect(onIndexChange).toHaveBeenCalledWith(1);
@@ -94,7 +94,7 @@ describe("positionen är sanningen, inte klicket", () => {
           renderVy={(vy) => <div>{vy.titel}</div>}
         />
       );
-      const rad = screen.getByRole("group", { name: /Vyer i Böcker/ });
+      const rad = screen.getByRole("group", { name: /Vyer i Bokföring/ });
       rad.scrollLeft = 30; // rundas till samma vy
       fireEvent.scroll(rad);
       expect(onIndexChange).not.toHaveBeenCalled();

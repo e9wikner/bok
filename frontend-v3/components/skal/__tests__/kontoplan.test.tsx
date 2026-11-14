@@ -45,9 +45,9 @@ beforeEach(() => {
 });
 
 describe("kartan", () => {
-  it("kontoplanen är en vy på Böcker som chattar i Verifikationers tråd", () => {
-    const vy = allaVyer().find((v) => v.key === "bocker.kontoplan");
-    expect(vy).toMatchObject({ sida: "bocker", slug: "kontoplan", trad: "bocker.verifikationer" });
+  it("kontoplanen är en vy under Inställningar som chattar i Verifikationers tråd", () => {
+    const vy = allaVyer().find((v) => v.key === "installningar.kontoplan");
+    expect(vy).toMatchObject({ sida: "installningar", slug: "kontoplan", trad: "bocker.verifikationer" });
   });
 });
 

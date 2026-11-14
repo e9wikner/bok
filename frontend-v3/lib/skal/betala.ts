@@ -677,7 +677,7 @@ export function lonerVy(lista: Lonekorningar, extra?: LonerExtra): VyData {
         ? "Nettolön per lönebesked"
         : `${antal} · nettolön`,
     sektioner,
-    fot: "Lönerna ställs in och månadens lönebesked skapas under Anställda. Be agenten bokföra lönen, så lägger den fram ett kort. Du bokför med ett tryck i kortet. Arbetsgivardeklarationen bokför agenten själv när kvittensen kommer in.",
+    fot: "Lönerna ställs in och månadens lönebesked skapas under Inställningar → Anställda. Be agenten bokföra lönen, så lägger den fram ett kort. Du bokför med ett tryck i kortet. Arbetsgivardeklarationen bokför agenten själv när kvittensen kommer in.",
   };
 }
 
@@ -731,7 +731,7 @@ export function betalaVantar(k: BetalaVantarKallor): VyRadData[] {
       return {
         id: `betala.fakturering:${f.draft_id}`,
         titel,
-        meta: f.last_error_code ? "faktura · utfärdandet misslyckades" : "faktura · väntar i Fakturering",
+        meta: f.last_error_code ? "faktura · utfärdandet misslyckades" : "faktura · väntar i Fakturor",
         hoger: u ? formatBeloppHela(u.amount_inc_vat) : "",
         variant: f.last_error_code ? "fel" : "vantar",
         mal: { typ: "vy", key: FAKTURERING_VY },

@@ -155,7 +155,7 @@ describe("MenySlapp", () => {
     expect(screen.getByText("Utlägg tar inte kontoutdrag eller SIE4")).toBeInTheDocument();
   });
 
-  it("serverns avvisning står kvar med filnamnet, och notisen leder till Dropzone-vyn", async () => {
+  it("serverns avvisning står kvar med filnamnet, och notisen leder till Underlag-vyn", async () => {
     post.mockRejectedValue({ response: { data: { detail: { error: "Dropzonen är avstängd." } } } });
     visa();
     draIn([fil("a.pdf")]);
@@ -163,7 +163,7 @@ describe("MenySlapp", () => {
     act(() => void fireEvent.drop(window, { dataTransfer: dt() }));
 
     expect(await screen.findByText("a.pdf: Dropzonen är avstängd.")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /visa i Dropzone/ }));
+    fireEvent.click(screen.getByRole("button", { name: /visa i Underlag/ }));
     expect(visaDropzone).toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByTestId("meny-slapp-notis")).toBeNull());
   });

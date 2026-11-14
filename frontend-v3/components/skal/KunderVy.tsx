@@ -21,7 +21,7 @@ import {
 import { lageFarg } from "@/lib/skal/lage";
 
 /**
- * Kunder och artiklar (`betala.kunder`): registren fakturorna skrivs ur.
+ * Kunder och artiklar (`installningar.kunder`): registren fakturorna skrivs ur.
  * Ingen egen tråd — den chattar i Fakturerings.
  */
 export function KunderVy({ titel, variant }: { titel: string; variant: "desktop" | "mobil" }) {

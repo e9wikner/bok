@@ -44,7 +44,7 @@ dubbelpost. Då ska underlaget kopplas till den postade verifikationen i ställe
 Därför:
 
 1. **Underlag som saknas:** be inte om underlag på eget initiativ. Listan i
-   Böcker → Verifikationer visar vilka som saknar underlag, och användaren väljer
+   Bokföring → Verifikationer visar vilka som saknar underlag, och användaren väljer
    själv vad som laddas upp. Frågar användaren vilka som saknar underlag, svara ur
    `las_verifikationer` (`missing_attachment`, `age_days`) med verifikationsnumret,
    beloppet och datumet, och säg för var och en varför underlaget behövs för just

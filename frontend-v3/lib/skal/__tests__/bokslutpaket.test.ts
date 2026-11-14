@@ -21,24 +21,22 @@ describe("bokslutets delar i navigeringen", () => {
   it("står direkt under Bokslut, före Åtgärder", () => {
     expect(sidan("bokslut").vyer.map((v) => v.titel)).toEqual([
       "Översikt",
-      "INK2",
-      "SRU-koppling",
       "Moms",
+      "INK2",
       "Årsredovisning",
-      "Uppgifter",
       "Åtgärder och nyckeltal",
     ]);
   });
 
   it("delar Översiktens tråd; Åtgärder har sin egen", () => {
-    const vyer = sidan("bokslut").vyer.slice(0, 6);
+    const vyer = sidan("bokslut").vyer.slice(0, 4);
     expect(vyer.every((v) => v.trad === "bokslut.rapporter")).toBe(true);
-    // SRU-kopplingen delar tråden men har sin egen komponent (`SruVy`).
-    expect(vyer.filter((v) => v.key !== "bokslut.sru").every((v) => arBokslutsdel(v.key))).toBe(true);
-    expect(arBokslutsdel("bokslut.sru")).toBe(false);
+    expect(vyer.every((v) => arBokslutsdel(v.key))).toBe(true);
+    // SRU-kopplingen delar tråden men står under Inställningar, med sin egen komponent (`SruVy`).
+    expect(arBokslutsdel("installningar.sru")).toBe(false);
     expect(arBokslutsdel("bokslut.atgarder")).toBe(false);
     expect(viewKeyOf("bokslut", 1)).toBe("bokslut.rapporter");
-    expect(viewKeyOf("bokslut", 6)).toBe("bokslut.atgarder");
+    expect(viewKeyOf("bokslut", 4)).toBe("bokslut.atgarder");
   });
 
   it("varje del nås med sin slug, och den gamla Rapporter-länken landar på Översikt", () => {

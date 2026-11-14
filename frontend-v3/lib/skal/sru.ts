@@ -1,5 +1,5 @@
 /**
- * SRU-kopplingen (modul `skal`, vyn `bokslut.sru`).
+ * SRU-kopplingen (modul `skal`, vyn `installningar.sru`).
  *
  * Vilket fält i INK2R varje konto summeras till, för det räkenskapsår som
  * är valt i headern. Varje konto har en standardkoppling ur BAS-tabellen

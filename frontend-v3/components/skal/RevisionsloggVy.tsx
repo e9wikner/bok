@@ -20,7 +20,7 @@ import {
 } from "@/lib/skal/revisionslogg";
 
 /**
- * Revisionsloggen (`bocker.revisionslogg`): behandlingshistoriken, nyast
+ * Revisionsloggen (`installningar.revisionslogg`): behandlingshistoriken, nyast
  * först och dag för dag. Ett urval i filterraden frågar servern om bara de
  * sakerna, så att en sida alltid är full. En händelse som gäller en
  * verifikation öppnar den. Ingen egen tråd — den chattar i Verifikationers.

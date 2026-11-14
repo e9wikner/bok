@@ -6,7 +6,7 @@ import { SidNav } from "@/components/skal/SidNav";
 describe("SidNav", () => {
   it("visar alla sidor och vyer, och markerar den aktiva vyn", () => {
     render(<SidNav aktivVy="bocker.resultat" metaPerSida={{}} onValjVy={vi.fn()} />);
-    for (const titel of ["Balansräkning", "Resultaträkning", "Verifikationer", "Fakturering", "Löner", "Översikt", "INK2", "Moms", "Årsredovisning", "Uppgifter"]) {
+    for (const titel of ["Balansräkning", "Resultaträkning", "Verifikationer", "Underlag", "Fakturor", "Löner", "Översikt", "INK2", "Moms", "Årsredovisning", "Företaget", "Kontoplan", "Instruktioner"]) {
       expect(screen.getByRole("button", { name: titel })).toBeInTheDocument();
     }
     expect(screen.getByRole("button", { name: "Resultaträkning" })).toHaveAttribute("aria-current", "page");
@@ -53,13 +53,13 @@ describe("SidNav", () => {
         aktivVy="bocker.balans"
         metaPerSida={{ bokslut: { waiting: true, meta: "6 att åtgärda i bokslutet" } }}
         metaPerVy={{
-          "bokslut.uppgifter": { waiting: true, meta: "5 uppgifter saknas" },
+          "bokslut.rapporter": { waiting: true, meta: "5 uppgifter saknas" },
           "bokslut.ink2": { waiting: true, meta: "Bokförd skatt skiljer sig från beräknad" },
         }}
         onValjVy={vi.fn()}
       />
     );
-    expect(screen.getByTestId("sidnav-rad-bokslut.uppgifter")).toHaveTextContent("5 uppgifter saknas");
+    expect(screen.getByTestId("sidnav-rad-bokslut.rapporter")).toHaveTextContent("5 uppgifter saknas");
     expect(screen.getByTestId("sidnav-rad-bokslut.ink2")).toHaveTextContent("Bokförd skatt skiljer sig från beräknad");
     expect(screen.queryByText("6 att åtgärda i bokslutet")).toBeNull();
     expect(screen.getByTestId("sidnav-vantar-bokslut")).toBeInTheDocument();

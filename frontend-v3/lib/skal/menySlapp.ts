@@ -1,7 +1,7 @@
 /**
  * Menyn som släppyta: medan en fil dras över fönstret byter sidomenyn
  * innehåll mot dropzonens två mappar, och ett släpp lägger filen där
- * (`POST /api/v1/intake/dropzone/files`), som i Dropzone-vyn.
+ * (`POST /api/v1/intake/dropzone/files`), som i Underlag-vyn.
  *
  * Mappen svarar bara på en fråga: är det ett utlägg? Vad filen i övrigt är
  * avgör filändelsen på servern (`services/dropzone.py`). `Utlägg/` tar inte

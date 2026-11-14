@@ -63,9 +63,9 @@ beforeEach(() => {
 });
 
 describe("kartan", () => {
-  it("Anställda är en vy på Betala som chattar i Löners tråd", () => {
-    const vy = allaVyer().find((v) => v.key === "betala.anstallda");
-    expect(vy).toMatchObject({ sida: "betala", slug: "anstallda", trad: "betala.loner" });
+  it("Anställda är en vy under Inställningar som chattar i Löners tråd", () => {
+    const vy = allaVyer().find((v) => v.key === "installningar.anstallda");
+    expect(vy).toMatchObject({ sida: "installningar", slug: "anstallda", trad: "betala.loner" });
   });
 });
 

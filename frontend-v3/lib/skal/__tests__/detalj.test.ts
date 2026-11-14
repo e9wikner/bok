@@ -315,7 +315,7 @@ describe("lagret i URL:en", () => {
 
   it("bygger en URL som läses tillbaka till samma lager", () => {
     const vy = forstaVyn("bocker");
-    expect(positionsUrl("bocker", vy, { typ: "konto", kod: "1930" })).toBe("/?sida=bocker&vy=balans&konto=1930");
+    expect(positionsUrl("bocker", vy, { typ: "konto", kod: "1930" })).toBe("/?sida=bocker&vy=verifikationer&konto=1930");
     const url = new URL(positionsUrl("bocker", vy, { typ: "ver", id: "a b" }), "http://x");
     expect(lasDetalj(url.searchParams.get("konto"), url.searchParams.get("ver"))).toEqual({ typ: "ver", id: "a b" });
   });

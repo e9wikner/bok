@@ -10,13 +10,13 @@ const meta = {
 };
 
 describe("SidVaeljare (testfall 10)", () => {
-  it("fäller ut de tre sidorna i designens ordning", async () => {
+  it("fäller ut de fyra sidorna i ordning", async () => {
     const user = userEvent.setup();
     render(<SidVaeljare aktiv="bocker" metaPerSida={meta} onValj={vi.fn()} variant="desktop" />);
 
     await user.click(screen.getByRole("button", { name: "Välj sida" }));
     const rader = screen.getAllByRole("menuitem");
-    expect(rader.map((r) => r.textContent?.slice(0, 6))).toEqual(["Böcker", "Faktur", "Bokslu"]);
+    expect(rader.map((r) => r.textContent?.slice(0, 6))).toEqual(["Bokför", "Faktur", "Bokslu", "Instäl"]);
   });
 
   it("stängs med Escape", async () => {
@@ -52,7 +52,7 @@ describe("SidVaeljare (testfall 10)", () => {
   it("knappen bär bara sidtiteln — ingen etikett, ingen metarad", () => {
     render(<SidVaeljare aktiv="bocker" metaPerSida={meta} onValj={vi.fn()} variant="desktop" />);
     const knapp = screen.getByRole("button", { name: "Välj sida" });
-    expect(knapp.textContent).toContain("Böcker");
+    expect(knapp.textContent).toContain("Bokföring");
     expect(knapp.textContent).not.toContain("Sida");
     expect(knapp.textContent).not.toContain("1 väntar på dig");
   });
@@ -72,7 +72,7 @@ describe("SidVaeljare (testfall 10)", () => {
     render(<SidVaeljare aktiv="bocker" metaPerSida={meta} onValj={vi.fn()} variant="desktop" />);
 
     await user.click(screen.getByRole("button", { name: "Välj sida" }));
-    const rad = screen.getByRole("menuitem", { name: /Böcker/ });
+    const rad = screen.getByRole("menuitem", { name: /Bokföring/ });
     expect(rad.textContent).toContain("1 väntar på dig");
     expect(rad.querySelector(".text-bok-vantar-meta")).not.toBeNull();
   });

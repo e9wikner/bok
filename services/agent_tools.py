@@ -64,7 +64,7 @@ F1 and appended after
 ``koppla_banktransaktion`` for the same reason: the seventeen before them are
 unchanged byte for byte. The first two read. The last two write an invoice
 draft, its ``draft`` card and its ``thread_invoice_drafts`` row in
-Fakturering's thread; a change is a new draft that replaces the old one. None
+Fakturor's thread; a change is a new draft that replaces the old one. None
 of them issues an invoice -- a logged-in human does that (F0 beslut 3).
 
 A twenty-second, ``koppla_bort_banktransaktion``, is appended after
@@ -1707,7 +1707,7 @@ def _invoice_thread(tool: str, tool_context: Optional[Mapping[str, Any]]):
             code="draft_requires_thread",
             message=f"{tool} can only be called from a thread turn",
             details=(
-                "An invoice proposal is a card in Fakturering's thread for a "
+                "An invoice proposal is a card in Fakturor's thread for a "
                 "human to issue."
             ),
         )

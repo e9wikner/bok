@@ -25,8 +25,8 @@ vi.mock("@/lib/skal/api", () => ({
       fiscal_year: { id: "1", label: "2026", start: "2026-01-01", end: "2026-12-31" },
       period_state: { current_period_id: "p", label: "2026-06", locked: false },
       pages: [
-        { key: "bocker", title: "Böcker", waiting: true, meta: "1 väntar på dig", counters: {} },
-        { key: "betala", title: "Fakturering och löner", waiting: false, meta: "Inget väntar", counters: {} },
+        { key: "bocker", title: "Bokföring", waiting: true, meta: "1 väntar på dig", counters: {} },
+        { key: "betala", title: "Fakturor och löner", waiting: false, meta: "Inget väntar", counters: {} },
         { key: "bokslut", title: "Bokslut", waiting: false, meta: "Inget väntar", counters: {} },
       ],
     }),
@@ -53,10 +53,10 @@ beforeEach(() => {
 });
 
 describe("skalet i drift", () => {
-  it("startar på Böcker · Balansräkning", async () => {
+  it("startar på Bokföring · Verifikationer", async () => {
     renderaSkal();
-    expect(screen.getByRole("group", { name: "Vyer i Böcker" })).toBeInTheDocument();
-    expect(screen.getAllByText("Balansräkning").length).toBeGreaterThan(0);
+    expect(screen.getByRole("group", { name: "Vyer i Bokföring" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Verifikationer" })).toHaveAttribute("aria-current", "page");
   });
 
   it("sätter egen textfärg, så att inget ärver shadcn-temats `--foreground` (#59)", () => {
@@ -87,13 +87,10 @@ describe("skalet i drift", () => {
     const { container } = renderaSkal();
     const vyer = container.querySelectorAll("[data-view-key]");
     expect([...vyer].map((v) => v.getAttribute("data-view-key"))).toEqual([
-      "bocker.balans",
-      "bocker.resultat",
       "bocker.verifikationer",
       "bocker.dropzone",
-      "bocker.kontoplan",
-      "bocker.revisionslogg",
-      "bocker.instruktioner",
+      "bocker.balans",
+      "bocker.resultat",
     ]);
   });
 
@@ -102,9 +99,9 @@ describe("skalet i drift", () => {
     const langdFore = window.history.length;
     renderaSkal();
 
-    await user.click(screen.getByRole("button", { name: "Verifikationer" }));
+    await user.click(screen.getByRole("button", { name: "Balansräkning" }));
     await waitFor(() => {
-      expect(window.location.search).toBe("?sida=bocker&vy=verifikationer");
+      expect(window.location.search).toBe("?sida=bocker&vy=balans");
     });
     expect(window.history.length).toBe(langdFore);
   });

@@ -1,8 +1,7 @@
 /**
  * Sid- och vykartan (modul `skal`).
  *
- * Skalets enda sanning om vad som finns: tre sidor och deras vyer, i designens
- * ordning (design_handoff_bokai/README.md §Informationsarkitektur).
+ * Skalets enda sanning om vad som finns: fyra sidor och deras vyer.
  *
  * `view_key` är samma sju nycklar som servern validerar mot i
  * Listan är SLUTEN: en okänd nyckel ger 404 på servern,
@@ -12,7 +11,7 @@
  * typfel.
  */
 
-export type Sidnyckel = "bocker" | "betala" | "bokslut";
+export type Sidnyckel = "bocker" | "betala" | "bokslut" | "installningar";
 
 export type ViewKey =
   | "bocker.balans"
@@ -28,90 +27,50 @@ export type ViewKey =
  * navigeringen men inga egna trådar: de delar Översiktens tråd
  * (`bokslut.rapporter`), så att samtalet om ett års bokslut är ett samtal
  * oavsett vilken del som står framme. Servern känner inte nycklarna.
+ * Årsredovisningens uppgifter fylls i på Översikten.
  */
-export type BokslutDel = "bokslut.ink2" | "bokslut.moms" | "bokslut.arsredovisning" | "bokslut.uppgifter";
+export type BokslutDel = "bokslut.ink2" | "bokslut.moms" | "bokslut.arsredovisning";
 
 /**
- * Dropzonen: samma mappar som SMB-utdelningen, i webben. Ingen egen tråd —
- * den chattar i Verifikationers, där underlagen bokförs. Servern känner
- * inte nyckeln.
+ * Underlag: dropzonens mappar (samma som SMB-utdelningen), i webben. Ingen
+ * egen tråd — den chattar i Verifikationers, där underlagen bokförs.
+ * Servern känner inte nyckeln.
  */
 export type Dropzonevy = "bocker.dropzone";
 
 /**
- * Anställda: där lönerna ställs in (anställda, lön, skatt, avgift) och
- * månadens lönebesked skapas. Ingen egen tråd — den chattar i Löners, där
- * lönebeskeden bokförs. Servern känner inte nyckeln.
+ * Inställningar: register och regler som arbetet läser ur men som sällan
+ * ändras. Ingen har egen tråd — var och en chattar i tråden för arbetet den
+ * hör till (`trad`). Servern känner inte nycklarna.
+ *
+ * - Företaget: företagets uppgifter och det som står på fakturan.
+ * - Kunder och artiklar: registren fakturorna skrivs ur.
+ * - Anställda: lön, skatt och avgift, och där månadens lönebesked skapas.
+ * - Kontoplan, och SRU-kopplingen (vilket INK2R-fält varje konto summeras till).
+ * - Instruktioner: företagets regler till agenten, för bokföringen och för
+ *   faktureringen.
+ * - Revisionslogg: behandlingshistoriken.
  */
-export type Anstalldavy = "betala.anstallda";
-
-/**
- * Företaget: företagets uppgifter och det som står på fakturan. Ingen egen
- * tråd — den chattar i Fakturerings. Servern känner inte nyckeln.
- */
-export type Foretagsvy = "betala.foretaget";
-
-/**
- * SRU-kopplingen för året i headern: vilket INK2R-fält varje konto summeras
- * till. Ingen egen tråd — den chattar i Översiktens, som bokslutsdelarna.
- * Servern känner inte nyckeln.
- */
-export type Sruvy = "bokslut.sru";
-
-/**
- * Företagets regler till agenten: för bokföringen i Böcker, för
- * faktureringen i Betala. Ingen egen tråd — de chattar i sidans skrivvy
- * (Verifikationer, Fakturering). Servern känner inte nycklarna.
- */
-export type Instruktionsvy = "bocker.instruktioner" | "betala.instruktioner";
-
-/**
- * Årets lönebesked att skicka, och arbetsgivardeklarationens fält. Ingen
- * egen tråd — den chattar i Löners. Servern känner inte nyckeln.
- */
-export type Lonebeskedsvy = "betala.lonebesked";
-
-/**
- * Kunder och artiklar, registren fakturorna skrivs ur. Ingen egen tråd —
- * den chattar i Fakturerings. Servern känner inte nyckeln.
- */
-export type Kundvy = "betala.kunder";
-
-/**
- * Böckernas register: kontoplanen och revisionsloggen. Ingen egen tråd —
- * de chattar i Verifikationers. Servern känner inte nycklarna.
- */
-export type Registervy = "bocker.kontoplan" | "bocker.revisionslogg";
+export type Installningsvy =
+  | "installningar.foretaget"
+  | "installningar.kunder"
+  | "installningar.anstallda"
+  | "installningar.kontoplan"
+  | "installningar.sru"
+  | "installningar.instruktioner"
+  | "installningar.revisionslogg";
 
 /** En vy i navigeringen: en trådvy, en bokslutsdel eller en vy med egen komponent. */
-export type Vynyckel =
-  | ViewKey
-  | BokslutDel
-  | Dropzonevy
-  | Anstalldavy
-  | Registervy
-  | Foretagsvy
-  | Sruvy
-  | Instruktionsvy
-  | Lonebeskedsvy
-  | Kundvy;
+export type Vynyckel = ViewKey | BokslutDel | Dropzonevy | Installningsvy;
 
 export interface Vy {
   readonly key: Vynyckel;
-  /** Tråden vyn chattar i, mot servern. Samma som `key` utom för bokslutsdelarna. */
+  /** Tråden vyn chattar i, mot servern. Samma som `key` för de sju trådvyerna. */
   readonly trad: ViewKey;
   /** Kort nyckel i URL:en, t.ex. "balans". */
   readonly slug: string;
   readonly titel: string;
   readonly sida: Sidnyckel;
-  /**
-   * Läsvy utan skrivflöde: rader och tråd, ingen
-   * primärknapp, inget godkännandekort och ingen avstängd knapp. Ingen vy är
-   * det längre: Fakturering skriver sedan fakturering F1 och Löner sedan
-   * lönebokföringen i tråden. Fältet står kvar för en vy som kommer utan
-   * skrivflöde.
-   */
-  readonly lasvy: boolean;
 }
 
 export interface Sida {
@@ -120,159 +79,60 @@ export interface Sida {
   readonly vyer: readonly Vy[];
 }
 
+const vy = (sida: Sidnyckel, slug: string, titel: string, trad?: ViewKey, key?: Vynyckel): Vy => {
+  const k = key ?? (`${sida}.${slug}` as Vynyckel);
+  return { key: k, trad: trad ?? (k as ViewKey), slug, titel, sida };
+};
+
+/**
+ * Fyra sidor. De tre första är arbetet, i den ordning det görs: bokföra,
+ * fakturera och betala lön, göra bokslut. Den fjärde är det som ställs in en
+ * gång. Sidnycklarna `bocker`, `betala` och `bokslut` är serverns
+ * (`GET /overview`); `installningar` finns bara här.
+ */
 export const SIDOR: readonly Sida[] = Object.freeze([
   Object.freeze({
     key: "bocker" as const,
-    titel: "Böcker",
+    titel: "Bokföring",
     vyer: Object.freeze([
-      { key: "bocker.balans", trad: "bocker.balans", slug: "balans", titel: "Balansräkning", sida: "bocker", lasvy: false },
-      { key: "bocker.resultat", trad: "bocker.resultat", slug: "resultat", titel: "Resultaträkning", sida: "bocker", lasvy: false },
-      {
-        key: "bocker.verifikationer",
-        trad: "bocker.verifikationer",
-        slug: "verifikationer",
-        titel: "Verifikationer",
-        sida: "bocker",
-        lasvy: false,
-      },
-      {
-        key: "bocker.dropzone",
-        trad: "bocker.verifikationer",
-        slug: "dropzone",
-        titel: "Dropzone",
-        sida: "bocker",
-        lasvy: false,
-      },
-      {
-        key: "bocker.kontoplan",
-        trad: "bocker.verifikationer",
-        slug: "kontoplan",
-        titel: "Kontoplan",
-        sida: "bocker",
-        lasvy: false,
-      },
-      {
-        key: "bocker.revisionslogg",
-        trad: "bocker.verifikationer",
-        slug: "revisionslogg",
-        titel: "Revisionslogg",
-        sida: "bocker",
-        lasvy: false,
-      },
-      {
-        key: "bocker.instruktioner",
-        trad: "bocker.verifikationer",
-        slug: "instruktioner",
-        titel: "Instruktioner",
-        sida: "bocker",
-        lasvy: false,
-      },
-    ] as const),
+      vy("bocker", "verifikationer", "Verifikationer"),
+      vy("bocker", "underlag", "Underlag", "bocker.verifikationer", "bocker.dropzone"),
+      vy("bocker", "balans", "Balansräkning"),
+      vy("bocker", "resultat", "Resultaträkning"),
+    ]),
   }),
   Object.freeze({
     key: "betala" as const,
-    titel: "Fakturering och löner",
+    titel: "Fakturor och löner",
     vyer: Object.freeze([
-      {
-        key: "betala.fakturering",
-        trad: "betala.fakturering",
-        slug: "fakturering",
-        titel: "Fakturering",
-        sida: "betala",
-        // Skrivvy sedan fakturering F1.
-        lasvy: false,
-      },
-      {
-        key: "betala.kunder",
-        trad: "betala.fakturering",
-        slug: "kunder",
-        titel: "Kunder och artiklar",
-        sida: "betala",
-        lasvy: false,
-      },
-      { key: "betala.loner", trad: "betala.loner", slug: "loner", titel: "Löner", sida: "betala", lasvy: false },
-      {
-        key: "betala.lonebesked",
-        trad: "betala.loner",
-        slug: "lonebesked",
-        titel: "Lönebesked",
-        sida: "betala",
-        lasvy: false,
-      },
-      {
-        key: "betala.anstallda",
-        trad: "betala.loner",
-        slug: "anstallda",
-        titel: "Anställda",
-        sida: "betala",
-        lasvy: false,
-      },
-      {
-        key: "betala.foretaget",
-        trad: "betala.fakturering",
-        slug: "foretaget",
-        titel: "Företaget",
-        sida: "betala",
-        lasvy: false,
-      },
-      {
-        key: "betala.instruktioner",
-        trad: "betala.fakturering",
-        slug: "instruktioner",
-        titel: "Instruktioner",
-        sida: "betala",
-        lasvy: false,
-      },
-    ] as const),
+      vy("betala", "fakturor", "Fakturor", "betala.fakturering", "betala.fakturering"),
+      vy("betala", "loner", "Löner"),
+    ]),
   }),
   Object.freeze({
     key: "bokslut" as const,
     titel: "Bokslut",
     vyer: Object.freeze([
-      // Översikt till Uppgifter gäller året i årsväljaren och delar tråd.
-      {
-        key: "bokslut.rapporter",
-        trad: "bokslut.rapporter",
-        slug: "oversikt",
-        titel: "Översikt",
-        sida: "bokslut",
-        lasvy: false,
-      },
-      { key: "bokslut.ink2", trad: "bokslut.rapporter", slug: "ink2", titel: "INK2", sida: "bokslut", lasvy: false },
-      {
-        key: "bokslut.sru",
-        trad: "bokslut.rapporter",
-        slug: "sru",
-        titel: "SRU-koppling",
-        sida: "bokslut",
-        lasvy: false,
-      },
-      { key: "bokslut.moms", trad: "bokslut.rapporter", slug: "moms", titel: "Moms", sida: "bokslut", lasvy: false },
-      {
-        key: "bokslut.arsredovisning",
-        trad: "bokslut.rapporter",
-        slug: "arsredovisning",
-        titel: "Årsredovisning",
-        sida: "bokslut",
-        lasvy: false,
-      },
-      {
-        key: "bokslut.uppgifter",
-        trad: "bokslut.rapporter",
-        slug: "uppgifter",
-        titel: "Uppgifter",
-        sida: "bokslut",
-        lasvy: false,
-      },
-      {
-        key: "bokslut.atgarder",
-        trad: "bokslut.atgarder",
-        slug: "atgarder",
-        titel: "Åtgärder och nyckeltal",
-        sida: "bokslut",
-        lasvy: false,
-      },
-    ] as const),
+      // Översikt till Årsredovisning gäller året i årsväljaren och delar tråd.
+      vy("bokslut", "oversikt", "Översikt", "bokslut.rapporter", "bokslut.rapporter"),
+      vy("bokslut", "moms", "Moms", "bokslut.rapporter"),
+      vy("bokslut", "ink2", "INK2", "bokslut.rapporter"),
+      vy("bokslut", "arsredovisning", "Årsredovisning", "bokslut.rapporter"),
+      vy("bokslut", "atgarder", "Åtgärder och nyckeltal"),
+    ]),
+  }),
+  Object.freeze({
+    key: "installningar" as const,
+    titel: "Inställningar",
+    vyer: Object.freeze([
+      vy("installningar", "foretaget", "Företaget", "betala.fakturering"),
+      vy("installningar", "kunder", "Kunder och artiklar", "betala.fakturering"),
+      vy("installningar", "anstallda", "Anställda", "betala.loner"),
+      vy("installningar", "kontoplan", "Kontoplan", "bocker.verifikationer"),
+      vy("installningar", "sru", "SRU-koppling", "bokslut.rapporter"),
+      vy("installningar", "instruktioner", "Instruktioner", "bocker.verifikationer"),
+      vy("installningar", "revisionslogg", "Revisionslogg", "bocker.verifikationer"),
+    ]),
   }),
 ]);
 
@@ -318,12 +178,7 @@ export function viewKeyOf(sida: Sidnyckel, index: number): ViewKey | undefined {
 export function arBokslutsdel(key: Vynyckel): key is BokslutDel | "bokslut.rapporter" {
   return key === "bokslut.rapporter" || BOKSLUTSDELAR.includes(key as BokslutDel);
 }
-const BOKSLUTSDELAR: readonly BokslutDel[] = [
-  "bokslut.ink2",
-  "bokslut.moms",
-  "bokslut.arsredovisning",
-  "bokslut.uppgifter",
-];
+const BOKSLUTSDELAR: readonly BokslutDel[] = ["bokslut.ink2", "bokslut.moms", "bokslut.arsredovisning"];
 
 export function allaVyer(): readonly Vy[] {
   return SIDOR.flatMap((s) => s.vyer);

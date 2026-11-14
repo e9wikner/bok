@@ -22,7 +22,7 @@ const NOTIS_MS = 8000;
  * Sidomenyn som släppyta (`lib/skal/menySlapp.ts`). Medan en fil dras över
  * fönstret ligger två zoner över menyn — Underlag och Utlägg — och ett släpp
  * på en av dem lägger filen i den mappen. Efteråt säger en notis längst ner
- * i menyn vad som hände, med en väg till Dropzone-vyn.
+ * i menyn vad som hände, med en väg till Underlag-vyn.
  *
  * Tråden tar fortfarande emot sina egna släpp: där bifogas filen till
  * meddelandet. Den här ytan gäller bara menyn.
@@ -207,7 +207,7 @@ function NotisRuta({
       {!laddar && (
         <span className="flex items-center justify-between gap-2 pt-1">
           <button type="button" onClick={onVisa} className="bok-mono text-[11px] text-bok-lank hover:underline">
-            visa i Dropzone →
+            visa i Underlag →
           </button>
           <button
             type="button"

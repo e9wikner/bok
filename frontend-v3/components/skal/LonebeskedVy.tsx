@@ -4,91 +4,46 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Knapp, Rubrik } from "@/components/skal/Formular";
 import { VyBanner } from "@/components/skal/VyBanner";
-import { VyHeaderStatus } from "@/components/skal/VyHeaderStatus";
-import { VyRadSkelett } from "@/components/skal/VyRad";
 import { LONER_NYCKEL, oppnaFil } from "@/lib/chattyta/api";
 import { felText } from "@/lib/skal/anstallda";
 import { type Lonebesked, type Lonekorning, betalaApi } from "@/lib/skal/betala";
 import { formatBeloppHela } from "@/lib/skal/format";
-import { lageFarg } from "@/lib/skal/lage";
 import {
   agiNyckel,
   beskedLage,
   kanTasBort,
   lonebeskedApi,
-  lonebeskedStatus,
   manadText,
   pdfVag,
 } from "@/lib/skal/lonebesked";
 
 /**
- * Lönebesked (`betala.lonebesked`): årets lönebesked att skicka, och
- * arbetsgivardeklarationens fält per månad. Ingen egen tråd — den chattar
- * i Löners, där lönebeskeden bokförs.
+ * Årets lönebesked att skicka, och arbetsgivardeklarationens fält per månad.
+ * Står under raderna i Löner (`betala.loner`), där lönebeskeden bokförs.
  */
-export function LonebeskedVy({
-  titel,
-  arId,
-  variant,
-}: {
-  titel: string;
-  arId: string | null | undefined;
-  variant: "desktop" | "mobil";
-}) {
+export function LonebeskedLista({ arId }: { arId: string }) {
   // Samma fråga som Löner (`useVyer`), så att en bokföring där syns här.
   const { data, isError } = useQuery({
-    queryKey: [...LONER_NYCKEL, "skal", arId ?? ""],
-    queryFn: () => betalaApi.getLonekorningar(arId ?? ""),
-    enabled: !!arId,
+    queryKey: [...LONER_NYCKEL, "skal", arId],
+    queryFn: () => betalaApi.getLonekorningar(arId),
     staleTime: 30 * 1000,
   });
-  const korningar = data
-    ? [...data.payroll_runs].sort((a, b) => b.year - a.year || b.month - a.month)
-    : undefined;
-  const status = lonebeskedStatus(korningar, isError, arId);
-  const pad = variant === "desktop" ? "px-6" : "px-[18px]";
-
-  return (
-    <div
-      className={
-        variant === "desktop"
-          ? "flex min-h-0 flex-col bg-bok-yta"
-          : "bok-dold-skroll flex min-h-0 flex-1 flex-col overflow-auto"
-      }
-    >
-      <VyHeaderStatus titel={titel} status={status.text} fg={lageFarg(status.lage)} variant={variant} />
-
-      <div
-        className={
-          variant === "desktop"
-            ? `bok-dold-skroll flex min-h-0 flex-1 flex-col overflow-auto pb-[136px] pt-1 ${pad}`
-            : `flex flex-col bok-mobil-botten ${pad}`
-        }
-      >
-        {arId === null ? (
-          <div className="pt-5 text-[13px] text-bok-text-svag">Det finns inget räkenskapsår.</div>
-        ) : isError ? (
-          <div className="mt-[14px]">
-            <VyBanner ton="fel" text="Lönebeskeden kunde inte läsas. Ladda om sidan." />
-          </div>
-        ) : !korningar ? (
-          <div className="pt-5">
-            <VyRadSkelett />
-          </div>
-        ) : korningar.length === 0 ? (
-          <div className="pt-5 text-[13px] text-bok-text-svag">
-            Inga lönekörningar i året. Månadens lönebesked skapas under Anställda.
-          </div>
-        ) : (
-          korningar.map((k) => <Korning key={k.id} k={k} />)
-        )}
-
-        <div className="pt-5 text-[13px] leading-[1.55] text-bok-text-svag [text-wrap:pretty]">
-          Lönebeskeden bokförs i Löner, med ett tryck i kortet agenten lägger fram. Arbetsgivardeklarationen lämnar du i
-          Skatteverkets e-tjänst; agenten bokför den när kvittensen kommer in.
-        </div>
+  if (isError) {
+    return (
+      <div className="mt-[14px]">
+        <VyBanner ton="fel" text="Lönebeskeden kunde inte läsas. Ladda om sidan." />
       </div>
-    </div>
+    );
+  }
+  const korningar = [...(data?.payroll_runs ?? [])].sort((a, b) => b.year - a.year || b.month - a.month);
+  if (korningar.length === 0) return null;
+  return (
+    <section aria-label="Lönebesked att skicka" className="flex flex-col pt-4">
+      <Rubrik>Lönebesked att skicka</Rubrik>
+      {korningar.map((k) => (
+        <Korning key={k.id} k={k} />
+      ))}
+    </section>
   );
 }
 
@@ -248,7 +203,7 @@ function Agi({ ar, manad }: { ar: number; manad: number }) {
                 ? "Bokförd mot skattekontot: 2710 och 2730 mot 1630."
                 : data.unbooked_payslips > 0
                   ? "Bokför månadens löner först, sedan arbetsgivardeklarationen."
-                  : "Bokförs när kvittensen från Skatteverket kommer in. Lägg den i Dropzone eller i tråden."}
+                  : "Bokförs när kvittensen från Skatteverket kommer in. Lägg den i Underlag eller i tråden."}
             </div>
           </div>
         ))}

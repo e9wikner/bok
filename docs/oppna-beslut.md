@@ -180,9 +180,9 @@ Beteendet är inte ändrat. Det här är iakttagelser.
 ## Städning och skuld
 
 - **De gamla sidorna** är borta (november 2026), liksom flaggan `NEXT_PUBLIC_SKAL` och den gamla
-  sidomenyn. Det som fanns bara där har vyer i skalet: Kontoplan, Revisionslogg och Instruktioner
-  i Böcker; Kunder och artiklar, Lönebesked, Företaget och Instruktioner i Fakturering och löner;
-  SRU-koppling i Bokslut, där också SIE4-filen laddas ner. Formulär för att skriva en verifikation
+  sidomenyn. Det som fanns bara där har vyer i skalet, under Inställningar: Företaget, Kunder och
+  artiklar, Anställda, Kontoplan, SRU-koppling, Instruktioner och Revisionslogg. Lönebeskeden står
+  i Löner och årsredovisningens uppgifter på Bokslutets översikt, där också SIE4-filen laddas ner. Formulär för att skriva en verifikation
   eller faktura för hand följer inte med: agenten lägger fram utkastet och en människa postar
   eller utfärdar det.
 - **Fakturering** är skrivvy sedan F1. En faktura skrivs genom att en inloggad människa utfärdar

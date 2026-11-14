@@ -20,7 +20,7 @@ import {
 import { lageFarg } from "@/lib/skal/lage";
 
 /**
- * Företaget (`betala.foretaget`): företagets uppgifter och det som står på
+ * Företaget (`installningar.foretaget`): företagets uppgifter och det som står på
  * fakturan. Ingen egen tråd — den chattar i Fakturerings, där uppgifterna
  * behövs.
  */

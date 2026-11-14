@@ -23,7 +23,7 @@ import {
 } from "@/lib/skal/sru";
 
 /**
- * SRU-koppling (`bokslut.sru`): vilket INK2R-fält varje konto summeras till,
+ * SRU-koppling (`installningar.sru`): vilket INK2R-fält varje konto summeras till,
  * för året i headern. En ändring sparas direkt och räknar om INK2. Chattar
  * i Översiktens tråd, som bokslutets andra delar.
  */

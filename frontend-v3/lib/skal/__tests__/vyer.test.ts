@@ -26,22 +26,37 @@ const SERVERNS_VIEW_KEYS = [
 ];
 
 describe("kartan (testfall 1)", () => {
-  it("har exakt tre sidor i designens ordning", () => {
-    expect(SIDOR.map((s) => s.key)).toEqual(["bocker", "betala", "bokslut"]);
+  it("har fyra sidor: arbetet i den ordning det görs, och sist inställningarna", () => {
+    expect(SIDOR.map((s) => s.key)).toEqual(["bocker", "betala", "bokslut", "installningar"]);
   });
 
-  it("fördelar vyerna 7 / 7 / 7: Bokslut har en vy per bokslutsdel och SRU-kopplingen, Böcker dropzonen, kontoplanen, revisionsloggen och instruktionerna, Betala kunderna, lönebeskeden, Anställda, Företaget och instruktionerna", () => {
-    expect(SIDOR.map((s) => s.vyer.length)).toEqual([7, 7, 7]);
+  it("fördelar vyerna 4 / 2 / 5 / 7: register och regler står under Inställningar, inte bland arbetet", () => {
+    expect(SIDOR.map((s) => s.vyer.length)).toEqual([4, 2, 5, 7]);
   });
 
-  it("bär designens sidtitlar ordagrant", () => {
-    expect(SIDOR.map((s) => s.titel)).toEqual(["Böcker", "Fakturering och löner", "Bokslut"]);
+  it("bär sidtitlarna", () => {
+    expect(SIDOR.map((s) => s.titel)).toEqual(["Bokföring", "Fakturor och löner", "Bokslut", "Inställningar"]);
+  });
+
+  it("ingen titel står två gånger i menyn", () => {
+    const titlar = allaVyer().map((v) => v.titel);
+    expect(new Set(titlar).size).toBe(titlar.length);
+  });
+
+  it("en inställningsvy äger ingen tråd: den lånar arbetets", () => {
+    for (const vy of allaVyer().filter((v) => v.sida === "installningar")) {
+      expect(vy.key).not.toBe(vy.trad);
+    }
   });
 });
 
 describe("view_key mot serverns lista (testfall 2)", () => {
-  it("chattar bara i de sju nycklarna servern validerar mot, i samma ordning", () => {
-    expect(Array.from(new Set(allaVyer().map((v) => v.trad)))).toEqual(SERVERNS_VIEW_KEYS);
+  it("chattar bara i de sju nycklarna servern validerar mot", () => {
+    expect(Array.from(new Set(allaVyer().map((v) => v.trad))).sort()).toEqual([...SERVERNS_VIEW_KEYS].sort());
+  });
+
+  it("varje tråd ägs av exakt en vy, den med trådens nyckel", () => {
+    expect(allaVyer().filter((v) => v.key === v.trad).map((v) => v.key).sort()).toEqual([...SERVERNS_VIEW_KEYS].sort());
   });
 
   it("ger varje vy en egen nyckel", () => {
@@ -50,9 +65,11 @@ describe("view_key mot serverns lista (testfall 2)", () => {
   });
 
   it("härleder view_key ur kartan, inte ur en hopklistrad sträng", () => {
-    expect(viewKeyOf("bocker", 2)).toBe("bocker.verifikationer");
-    expect(viewKeyOf("betala", 2)).toBe("betala.loner");
-    expect(viewKeyOf("bokslut", 7)).toBeUndefined();
+    expect(viewKeyOf("bocker", 0)).toBe("bocker.verifikationer");
+    expect(viewKeyOf("bocker", 1)).toBe("bocker.verifikationer");
+    expect(viewKeyOf("betala", 1)).toBe("betala.loner");
+    expect(viewKeyOf("installningar", 2)).toBe("betala.loner");
+    expect(viewKeyOf("bokslut", 5)).toBeUndefined();
   });
 
   it("har en nyckel som börjar med sin egen sidnyckel", () => {
@@ -64,15 +81,16 @@ describe("view_key mot serverns lista (testfall 2)", () => {
 
 describe("sidbyte landar på första vyn (testfall 3)", () => {
   it("ger sidans första vy, aldrig den senast besökta", () => {
-    expect(forstaVyn("bocker").key).toBe("bocker.balans");
+    expect(forstaVyn("bocker").key).toBe("bocker.verifikationer");
     expect(forstaVyn("betala").key).toBe("betala.fakturering");
     expect(forstaVyn("bokslut").key).toBe("bokslut.rapporter");
+    expect(forstaVyn("installningar").key).toBe("installningar.foretaget");
   });
 
   it("kommer ihåg ingenting — två anrop efter ett vybyte ger samma svar", () => {
     const forst = forstaVyn("bocker");
     // Ett "besök" på tredje vyn får inte påverka nästa sidbyte.
-    expect(vyAt("bocker", 2)?.key).toBe("bocker.verifikationer");
+    expect(vyAt("bocker", 2)?.key).toBe("bocker.balans");
     expect(forstaVyn("bocker")).toBe(forst);
   });
 });
@@ -81,7 +99,8 @@ describe("uppslag och validering", () => {
   it("känner igen en sidnyckel och avvisar allt annat", () => {
     expect(arSidnyckel("bocker")).toBe(true);
     expect(arSidnyckel("bokslut")).toBe(true);
-    expect(arSidnyckel("installningar")).toBe(false);
+    expect(arSidnyckel("installningar")).toBe(true);
+    expect(arSidnyckel("register")).toBe(false);
     expect(arSidnyckel(null)).toBe(false);
   });
 
@@ -92,14 +111,7 @@ describe("uppslag och validering", () => {
   });
 
   it("ger vyns index inom sidan", () => {
-    expect(vyIndex("bocker", "bocker.verifikationer")).toBe(2);
+    expect(vyIndex("bocker", "bocker.verifikationer")).toBe(0);
     expect(vyIndex("betala", "bocker.balans")).toBe(-1);
-  });
-});
-
-describe("läsvyerna är märkta i kartan (testfall 17, halva)", () => {
-  it("ingen vy är läsvy (Fakturering skriver sedan fakturering F1, Löner sedan lönebokföringen)", () => {
-    const lasvyer = allaVyer().filter((v) => v.lasvy).map((v) => v.key);
-    expect(lasvyer).toEqual([]);
   });
 });

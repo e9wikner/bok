@@ -1,5 +1,5 @@
 /**
- * Kontoplanen (modul `skal`, vyn `bocker.kontoplan`).
+ * Kontoplanen (modul `skal`, vyn `installningar.kontoplan`).
  *
  * BAS-kontona som bokföringen använder, grupperade per kontoklass, med
  * momskod och SRU-kod. Bara läsning: ett konto läggs till av agenten eller
