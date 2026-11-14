@@ -7,6 +7,7 @@ import { KastaUtkast } from "@/components/skal/KastaUtkast";
 import { VyInnehall } from "@/components/skal/VyInnehall";
 import { VOUCHERS_NYCKEL } from "@/lib/chattyta/api";
 import type { OverviewFiscalYear } from "@/lib/skal/api";
+import { arRedigerbartMal } from "@/lib/skal/tangent";
 import {
   type Detalj,
   type Huvudbok,
@@ -106,8 +107,7 @@ export function DetaljLager({
     if (!bakat) return;
     const vidTangent = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
-      const mal = e.target as HTMLElement | null;
-      if (mal && (mal.tagName === "INPUT" || mal.tagName === "TEXTAREA" || mal.isContentEditable)) return;
+      if (arRedigerbartMal(e.target)) return;
       bakat();
     };
     window.addEventListener("keydown", vidTangent);

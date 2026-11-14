@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import { arRedigerbartMal } from "@/lib/skal/tangent";
 import type { Sida, Vy } from "@/lib/skal/vyer";
 
 /**
@@ -75,6 +76,10 @@ export function VySvep({
   /** Tangentbordsekvivalenten till svepet (README.md §Tillgänglighet). */
   const vidTangent = (e: React.KeyboardEvent) => {
     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    // Tangenten bubblar upp från vyernas fält. I en textruta flyttar den
+    // markören, inte sidan (#57). Modifierare är textmarkering/webbläsaren.
+    if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    if (arRedigerbartMal(e.target)) return;
     const steg = e.key === "ArrowRight" ? 1 : -1;
     const nytt = aktivIndex + steg;
     // Stannar vid kanterna. Vyer wrappar inte — sidan är gränsen.

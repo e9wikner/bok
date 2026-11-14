@@ -64,6 +64,57 @@ describe("svepradens startposition", () => {
   });
 });
 
+describe("piltangenterna (#57)", () => {
+  function rendera(onIndexChange: (i: number) => void) {
+    render(
+      <VySvep
+        sida={bocker}
+        aktivIndex={1}
+        onIndexChange={onIndexChange}
+        renderVy={(vy, i) => (
+          <div>
+            {vy.titel}
+            {i === 1 && <textarea aria-label="Verksamhetens art och inriktning" />}
+            {i === 1 && <div contentEditable suppressContentEditableWarning aria-label="redigerbar" role="textbox" />}
+          </div>
+        )}
+      />
+    );
+  }
+
+  it("piltangent utanför textrutor byter vy", () => {
+    const onIndexChange = vi.fn();
+    rendera(onIndexChange);
+    fireEvent.keyDown(screen.getByRole("group", { name: /Vyer i Böcker/ }), { key: "ArrowRight" });
+    expect(onIndexChange).toHaveBeenCalledWith(2);
+  });
+
+  it("piltangent i en textruta flyttar markören, inte sidan", () => {
+    const onIndexChange = vi.fn();
+    rendera(onIndexChange);
+    const ruta = screen.getByLabelText("Verksamhetens art och inriktning");
+    const vanster = fireEvent.keyDown(ruta, { key: "ArrowLeft" });
+    fireEvent.keyDown(ruta, { key: "ArrowRight" });
+    expect(onIndexChange).not.toHaveBeenCalled();
+    // Inte förhindrad: webbläsaren ska få flytta markören.
+    expect(vanster).toBe(true);
+  });
+
+  it("piltangent i contentEditable byter inte vy", () => {
+    const onIndexChange = vi.fn();
+    rendera(onIndexChange);
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "redigerbar" }), { key: "ArrowRight" });
+    expect(onIndexChange).not.toHaveBeenCalled();
+  });
+
+  it("piltangent med modifierare byter inte vy", () => {
+    const onIndexChange = vi.fn();
+    rendera(onIndexChange);
+    fireEvent.keyDown(screen.getByRole("group", { name: /Vyer i Böcker/ }), { key: "ArrowRight", shiftKey: true });
+    expect(onIndexChange).not.toHaveBeenCalled();
+  });
+});
+
 describe("positionen är sanningen, inte klicket", () => {
   it("skrollning i sidled markerar rätt vy", () => {
     medBredd(() => {
