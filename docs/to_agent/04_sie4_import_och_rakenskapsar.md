@@ -145,6 +145,51 @@ Systemet importerar främst verifikationer och balanser. Kontoplan och
 dimensioner används som referens vid import men påverkar inte systemets egen
 kontoplan.
 
+## SRU-mappning mellan år
+
+SRU-mappningen styr vilket INK2-fält varje konto hamnar i. Ett räkenskapsår
+utan sparad mappning använder BAS-kopplingstabellen (standarden). Har året en
+sparad mappning, oftast från en SIE4-import med `#SRU`, används den **ensam**:
+ett konto som saknas i den kommer inte med i deklarationen. Ett nytt
+räkenskapsår får en kopia av föregående års sparade mappning när det skapas.
+
+Fältkoder och kopplingar kan ha ändrats sedan fjolåret. Gå igenom arvet så här
+när användaren ber om det, eller innan en INK2 tas fram:
+
+1. `GET /api/v1/fiscal-years/{id}/sru-mappings/diff` visar en rad per konto
+   med `current_field` (i år), `previous_field` (föregående år),
+   `standard_field` (BAS nu) och `status`.
+2. `POST /api/v1/fiscal-years/{id}/sru-mappings/inherit-previous?dry_run=true`
+   skriver inget. Svaret har `source_fiscal_year_id`, `copied` och
+   `needs_review`: raderna som vore granskningsfall efter arvet.
+3. Fråga användaren om varje rad i `needs_review`, en i taget, med konto och
+   båda koderna, till exempel: "Behåll fjolårets 7369 eller ta standarden 7368
+   för konto 2510 (Skatteskulder)?" Gissa aldrig.
+4. `POST .../sru-mappings/inherit-previous` utan `dry_run` skriver arvet. Det
+   ersätter årets sparade mappning helt.
+5. `POST /api/v1/fiscal-years/{id}/sru-mappings` med `{"account_code": "2510",
+   "sru_field": "7368"}` för varje konto där användaren valde standarden eller
+   en annan kod. Giltiga koder: `GET /api/v1/sru-fields`.
+6. Slutkontroll: `GET .../sru-mappings/diff` igen ska inte ha några rader med
+   `missing` eller `unknown_field`, och `GET /api/v1/bokslut/{id}` ska inte ha
+   någon `ink2`-kontroll om konton med saldo som saknar SRU-fält.
+
+`status` är den första som stämmer:
+
+- `missing` – kontot har saldo men exporten hittar inget fält: årets sparade
+  mappning saknar kontot, eller, om året inte har någon, standarden saknar
+  det. Beloppet faller ur deklarationen. Konto 8990–8999 räknas aldrig hit.
+- `unknown_field` – fjolårets eller årets kod finns inte i fälttabellen
+  (utgången eller felstavad).
+- `differs_from_standard` – fjolårets kod hamnar på en annan INK2-rad än
+  standarden. Ett aktivt val som användaren ska bekräfta.
+- `ok` – ingen fjolårskod, eller samma rad som standarden. En enskild kod som
+  är ena halvan av en teckenstyrd standard (7411 mot `7411/7510`) räknas som
+  samma rad.
+
+`POST .../sru-mappings/reset-default` tar bort årets sparade mappning, så att
+standarden gäller för alla konton.
+
 ## Källa
 
 - SIE4-standard: https://www.sie.se/
