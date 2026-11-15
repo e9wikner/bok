@@ -85,7 +85,7 @@ describe("piltangenterna (#57)", () => {
   it("piltangent utanför textrutor byter vy", () => {
     const onIndexChange = vi.fn();
     rendera(onIndexChange);
-    fireEvent.keyDown(screen.getByRole("group", { name: /Vyer i Böcker/ }), { key: "ArrowRight" });
+    fireEvent.keyDown(screen.getByRole("group", { name: /Vyer i Bokföring/ }), { key: "ArrowRight" });
     expect(onIndexChange).toHaveBeenCalledWith(2);
   });
 
@@ -110,7 +110,7 @@ describe("piltangenterna (#57)", () => {
   it("piltangent med modifierare byter inte vy", () => {
     const onIndexChange = vi.fn();
     rendera(onIndexChange);
-    fireEvent.keyDown(screen.getByRole("group", { name: /Vyer i Böcker/ }), { key: "ArrowRight", shiftKey: true });
+    fireEvent.keyDown(screen.getByRole("group", { name: /Vyer i Bokföring/ }), { key: "ArrowRight", shiftKey: true });
     expect(onIndexChange).not.toHaveBeenCalled();
   });
 });
