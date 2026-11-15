@@ -167,6 +167,63 @@ describe("vyn", () => {
     expect(onGaTill).toHaveBeenCalledWith("betala.loner");
   });
 
+  it("Skapa och bokför bokför en månad i efterhand i ett anrop", async () => {
+    get.mockResolvedValue({ data: { employees: [anna()] } });
+    post.mockResolvedValueOnce({
+      data: { id: "r1", payslip_count: 1, payment_date: "2026-01-23", errors: [] },
+    });
+    visa();
+    await screen.findByText("Anna Andersson");
+    fireEvent.change(screen.getByLabelText("Månad"), { target: { value: "2026-01" } });
+    fireEvent.change(screen.getByLabelText(/^Utbetalningsdag/), { target: { value: "23" } });
+    fireEvent.click(screen.getByRole("button", { name: "Skapa och bokför" }));
+
+    expect(await screen.findByText(/skapade och bokförda på utbetalningsdagen 2026-01-23/)).toBeInTheDocument();
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(post.mock.calls[0]).toEqual([
+      "/api/v1/payroll/runs/book",
+      { year: 2026, month: 1, payment_date: "2026-01-23" },
+    ]);
+  });
+
+  it("ett lönebesked som inte kunde bokföras sägs", async () => {
+    get.mockResolvedValue({ data: { employees: [anna()] } });
+    post.mockResolvedValueOnce({
+      data: {
+        id: "r1",
+        payslip_count: 1,
+        payment_date: "2026-01-25",
+        errors: [{ payslip_id: "p1", code: "period_locked", message: "Perioden 2026-01 är låst" }],
+      },
+    });
+    visa();
+    await screen.findByText("Anna Andersson");
+    fireEvent.click(screen.getByRole("button", { name: "Skapa och bokför" }));
+    expect(await screen.findByText(/0 bokförda\. Perioden 2026-01 är låst/)).toBeInTheDocument();
+  });
+
+  it("automatiken slås på med ett kryss och visar nästa lönedag", async () => {
+    get.mockImplementation((url: string) =>
+      Promise.resolve(
+        url === "/api/v1/payroll/auto-booking"
+          ? { data: { enabled: false, set_by: null, set_at: null, next_payment_date: null } }
+          : { data: { employees: [anna()] } }
+      )
+    );
+    put.mockResolvedValue({
+      data: { enabled: true, set_by: "stefan", set_at: "2026-11-14", next_payment_date: "2026-11-25" },
+    });
+    visa();
+    const kryss = await screen.findByRole("checkbox", { name: /på lönedagen varje månad/ });
+    await waitFor(() => expect(kryss).not.toBeDisabled());
+    expect(kryss).not.toBeChecked();
+    fireEvent.click(kryss);
+
+    await waitFor(() => expect(put).toHaveBeenCalledWith("/api/v1/payroll/auto-booking", { enabled: true }));
+    expect(await screen.findByText(/Nästa gång: 2026-11-25/)).toBeInTheDocument();
+    expect(kryss).toBeChecked();
+  });
+
   it("misslyckas lönebeskeden tas den tomma körningen bort", async () => {
     get.mockResolvedValue({ data: { employees: [anna()] } });
     post

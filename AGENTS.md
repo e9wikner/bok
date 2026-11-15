@@ -127,6 +127,16 @@ Service-to-service imports are deferred inside methods to avoid import cycles.
   proposes it as a decision card (`foresla_lonebokforing`,
   `services/payroll_proposal.py`, migration 043); answering such a card, and
   `POST /payroll/payslips/{id}/book`, get `403 human_only` with the API key.
+  Two more human-rooted paths book without a card (`services/payroll_auto.py`,
+  migration 054): "Skapa och bokför" (`POST /payroll/runs/book`) for any
+  month, and the payment-day booking, which a human turns on
+  (`PUT /payroll/auto-booking`, append-only). On the payment day a background
+  thread creates the month's run, payslips and vouchers. It does this only if
+  the month has no run yet and the payment day is not before the day the
+  choice was turned on. The voucher is dated the payment day, with the net
+  salary on the statement account, and the statement matching links the
+  payment later. Both paths are `human_only`, and the agent cannot reach
+  either.
 - **An AGI is booked by the agent from its kvittens, and only so.**
   `bokfor_agi` books the month through `PayrollService.book_agi` with the
   kvittens linked as underlag, and ends the pass like a posting. There is no

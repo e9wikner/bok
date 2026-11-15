@@ -489,3 +489,36 @@ class AgiBookingRepository:
             (year, month),
         ).fetchall()
         return {row["kind"]: row["voucher_id"] for row in rows}
+
+
+class PayrollAutoBookingRepository:
+    """`payroll_auto_booking_settings`: append-only (migration 054). The
+    current choice is the newest row; no row means off."""
+
+    @staticmethod
+    def current() -> Optional[Dict[str, Any]]:
+        row = db.execute(
+            "SELECT id, enabled, set_by, created_at "
+            "FROM payroll_auto_booking_settings "
+            "ORDER BY created_at DESC, rowid DESC LIMIT 1"
+        ).fetchone()
+        if not row:
+            return None
+        return {
+            "id": row["id"],
+            "enabled": bool(row["enabled"]),
+            "set_by": row["set_by"],
+            "created_at": _dt(row["created_at"]),
+        }
+
+    @staticmethod
+    def record(enabled: bool, set_by: str, _commit: bool = True) -> str:
+        setting_id = str(uuid.uuid4())
+        db.execute(
+            "INSERT INTO payroll_auto_booking_settings "
+            "(id, enabled, set_by, created_at) VALUES (?, ?, ?, ?)",
+            (setting_id, 1 if enabled else 0, set_by, datetime.now()),
+        )
+        if _commit:
+            db.commit()
+        return setting_id

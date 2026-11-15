@@ -10,6 +10,7 @@ import type { PayrollEmployee } from "@/lib/api";
 import { LONER_NYCKEL } from "@/lib/chattyta/api";
 import {
   ANSTALLDA_NYCKEL,
+  AUTOMATIK_NYCKEL,
   STANDARD_AVGIFT_PROCENT,
   STANDARD_UTBETALNINGSDAG,
   anstalldaApi,
@@ -31,9 +32,11 @@ import type { Vynyckel } from "@/lib/skal/vyer";
  * Anställda (`installningar.anstallda`): där lönerna ställs in.
  *
  * De anställda med sin månadslön, skatt och arbetsgivaravgift, ett formulär
- * för en ny anställd och knappen som skapar månadens lönebesked. Ingenting
- * här bokför: lönebeskeden bokförs i Löner, med ett tryck i kortet agenten
- * lägger fram. Vyn chattar i Löners tråd, som dropzonen i Verifikationers.
+ * för en ny anställd och knapparna som skapar månadens lönebesked. "Skapa
+ * lönebesked" bokför inget: lönebeskeden bokförs i Löner, med ett tryck i
+ * kortet agenten lägger fram. "Skapa och bokför" bokför dem direkt, för
+ * vilken månad som helst, och automatiken gör samma sak på lönedagen när den
+ * är på. Vyn chattar i Löners tråd, som dropzonen i Verifikationers.
  */
 export function AnstalldaVy({
   titel,
@@ -100,6 +103,8 @@ export function AnstalldaVy({
                 ))}
               </>
             )}
+
+            {aktiva.length > 0 && <Automatik />}
 
             {aktiva.length > 0 && <Lonekorning anstallda={data} onGaTill={onGaTill} />}
 
@@ -509,31 +514,42 @@ function Lonekorning({
   const brutto = medLon.reduce((s, a) => s + (a.salary_setting?.gross_monthly_salary ?? 0), 0);
 
   const skapa = useMutation({
-    mutationFn: () => anstalldaApi.skapaKorning(ar, man, datum!),
+    mutationFn: async (bokfor: boolean) => {
+      if (!bokfor) {
+        const k = await anstalldaApi.skapaKorning(ar, man, datum!);
+        return `${k.payslip_count} lönebesked för ${MANADER[man - 1]} ${ar} är skapade. Be agenten bokföra dem i Löner.`;
+      }
+      const k = await anstalldaApi.skapaOchBokfor(ar, man, datum!);
+      const manadText = `${MANADER[man - 1]} ${ar}`;
+      if (k.errors.length > 0) {
+        const bokforda = k.payslip_count - k.errors.length;
+        throw new Error(
+          `${k.payslip_count} lönebesked för ${manadText} är skapade, ${bokforda} bokförda. ` +
+            `${k.errors[0].message}. De obokförda bokförs i Löner.`
+        );
+      }
+      return `${k.payslip_count} lönebesked för ${manadText} är skapade och bokförda på utbetalningsdagen ${k.payment_date}.`;
+    },
     onMutate: () => {
       setFel(null);
       setKlar(null);
     },
-    onSuccess: (k) =>
-      setKlar(
-        `${k.payslip_count} lönebesked för ${MANADER[man - 1]} ${ar} är skapade. Be agenten bokföra dem i Löner.`
-      ),
-    onError: (e) => setFel(felText(e, "Kunde inte skapa lönebeskeden.")),
+    onSuccess: (text) => setKlar(text),
+    onError: (e) =>
+      setFel(e instanceof Error && !("response" in e) ? e.message : felText(e, "Kunde inte skapa lönebeskeden.")),
     onSettled: () => void uppdatera(),
   });
 
+  const tryck = (bokfor: boolean) => {
+    if (!datum) {
+      setFel("Välj månad och utbetalningsdag.");
+      return;
+    }
+    skapa.mutate(bokfor);
+  };
+
   return (
-    <form
-      className="flex flex-col"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (!datum) {
-          setFel("Välj månad och utbetalningsdag.");
-          return;
-        }
-        skapa.mutate();
-      }}
-    >
+    <form className="flex flex-col" onSubmit={(e) => e.preventDefault()}>
       <Rubrik>Månadens lönebesked</Rubrik>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Falt etikett="Månad">
@@ -548,6 +564,10 @@ function Lonekorning({
           ? "Ingen anställd har en lön inställd."
           : `${medLon.length} lönebesked · brutto ${formatBeloppHela(brutto)}`}
       </div>
+      <div className="pt-2 text-[13px] leading-[1.55] text-bok-text-svag [text-wrap:pretty]">
+        Skapa och bokför gör lönebeskeden och bokför dem direkt, daterade på utbetalningsdagen, även för en månad
+        som redan passerat. Skapa lönebesked gör bara lönebeskeden, som du sedan bokför i Löner mot utbetalningen.
+      </div>
       {fel && (
         <div className="mt-[14px]">
           <VyBanner ton="fel" text={fel} />
@@ -559,8 +579,11 @@ function Lonekorning({
         </div>
       )}
       <div className="flex flex-wrap items-center gap-3 pt-4">
-        <Knapp disabled={skapa.isPending || medLon.length === 0}>
-          {skapa.isPending ? "Skapar…" : "Skapa lönebesked"}
+        <Knapp type="button" disabled={skapa.isPending || medLon.length === 0} onClick={() => tryck(true)}>
+          {skapa.isPending && skapa.variables ? "Bokför…" : "Skapa och bokför"}
+        </Knapp>
+        <Knapp type="button" sekundar disabled={skapa.isPending || medLon.length === 0} onClick={() => tryck(false)}>
+          {skapa.isPending && !skapa.variables ? "Skapar…" : "Skapa lönebesked"}
         </Knapp>
         {klar && (
           <button
@@ -573,5 +596,53 @@ function Lonekorning({
         )}
       </div>
     </form>
+  );
+}
+
+/**
+ * Automatisk lönebokföring (migration 054): på lönedagen skapar och bokför
+ * servern månadens lönebesked. Bara inloggad kan slå på och av
+ * (`PUT /payroll/auto-booking`). En månad som redan har en lönekörning
+ * lämnas orörd, och en lönedag före påslaget bokförs aldrig av automatiken.
+ */
+function Automatik() {
+  const queryClient = useQueryClient();
+  const [fel, setFel] = useState<string | null>(null);
+  const { data } = useQuery({
+    queryKey: AUTOMATIK_NYCKEL,
+    queryFn: anstalldaApi.automatik,
+    staleTime: 30 * 1000,
+  });
+  const satt = useMutation({
+    mutationFn: (enabled: boolean) => anstalldaApi.sattAutomatik(enabled),
+    onMutate: () => setFel(null),
+    onSuccess: (a) => queryClient.setQueryData(AUTOMATIK_NYCKEL, a),
+    onError: (e) => setFel(felText(e, "Inställningen kunde inte sparas.")),
+  });
+  const pa = data?.enabled === true;
+
+  return (
+    <section aria-label="Automatisk lönebokföring" className="flex flex-col">
+      <Rubrik>Automatisk lönebokföring</Rubrik>
+      <label className="flex items-center gap-2 text-[14px] text-bok-text">
+        <input
+          type="checkbox"
+          checked={pa}
+          disabled={!data || satt.isPending}
+          onChange={(e) => satt.mutate(e.target.checked)}
+        />
+        Skapa och bokför lönebeskeden på lönedagen varje månad
+      </label>
+      <div className="pt-2 text-[13px] leading-[1.55] text-bok-text-svag [text-wrap:pretty]">
+        {pa
+          ? `Nästa gång: ${data?.next_payment_date ?? "på lönedagen"}. Verifikationen dateras på lönedagen och kopplas till utbetalningen när kontoutdraget kommer in. En månad som redan har lönebesked rörs inte.`
+          : "Av: ingenting skapas eller bokförs av sig självt. Lönebeskeden skapas med knapparna nedan."}
+      </div>
+      {fel && (
+        <div className="mt-[14px]">
+          <VyBanner ton="fel" text={fel} />
+        </div>
+      )}
+    </section>
   );
 }
