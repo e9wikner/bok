@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { LasKnapp } from "@/components/skal/LasKnapp";
 import { VyBanner } from "@/components/skal/VyBanner";
 import { VyHeaderStatus } from "@/components/skal/VyHeaderStatus";
@@ -672,14 +672,22 @@ function UppgifterFlik({ b }: { b: Bokslut }) {
       }}
     >
       <Rubrik>Uppgifter till årsredovisningen</Rubrik>
-      {AR_FALT.map(falt)}
-      <button
-        type="button"
-        onClick={() => setVarden({ ...varden, "ar.utdelning": String(fritt) })}
-        className="bok-mono self-start pt-1 text-[12px] text-bok-lank underline-offset-2 hover:underline"
-      >
-        Föreslå hela fria egna kapitalet ({kronor(fritt)})
-      </button>
+      {AR_FALT.map((f) =>
+        f.key === "ar.utdelning" ? (
+          <Fragment key={f.key}>
+            {falt(f)}
+            <button
+              type="button"
+              onClick={() => setVarden({ ...varden, "ar.utdelning": String(fritt) })}
+              className="bok-mono self-start pt-1 text-[12px] text-bok-lank underline-offset-2 hover:underline"
+            >
+              Föreslå hela fria egna kapitalet ({kronor(fritt)})
+            </button>
+          </Fragment>
+        ) : (
+          falt(f)
+        )
+      )}
 
       <Rubrik>Underskrifter</Rubrik>
       {underskrifter.map((u, i) => (
