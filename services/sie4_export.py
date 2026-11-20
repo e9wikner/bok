@@ -3,10 +3,10 @@ SIE4 export functionality for Swedish accounting data exchange.
 
 Genererar SIE4-filer enligt standarden från SIE-gruppen.
 Stödjer alla obligatoriska sektioner: #FLAGGA, #FORMAT, #GEN, #PROGRAM,
-#FNAMN, #FORGN, #ADRESS, #RAR, #KPTYP, #KONTO, #SRU, #IB, #UB, #RES,
+#FNAMN, #ORGNR, #ADRESS, #RAR, #KPTYP, #KONTO, #SRU, #IB, #UB, #RES,
 #PSALDO, #VER och #TRANS.
 
-Filen kodas i Windows-1252 med \\r\\n radbrytningar (SIE4-standard).
+Filen kodas i PC8 (codepage 437) med \\r\\n radbrytningar (SIE4-standard).
 """
 
 from collections import defaultdict
@@ -52,7 +52,7 @@ class SIE4Exporter:
     Användning:
         exporter = SIE4Exporter()
         content = exporter.export(fiscal_year_id="...")
-        # content är bytes i Windows-1252 encoding
+        # content är bytes i PC8 (codepage 437)
     """
 
     PROGRAM_NAME = "Bokföringssystem"
@@ -75,10 +75,10 @@ class SIE4Exporter:
             fiscal_year_id: ID för räkenskapsåret att exportera
             company_name: Företagsnamn (om None, hämtas från settings/db)
             org_number: Organisationsnummer (om None, hämtas från settings/db)
-            format_type: "PC8" (Windows-1252) eller "ASCII"
+            format_type: "PC8" (codepage 437) eller "ASCII"
 
         Returns:
-            bytes: SIE4-filinnehåll kodat i Windows-1252
+            bytes: SIE4-filinnehåll kodat i PC8 (codepage 437)
 
         Raises:
             ValueError: Om räkenskapsåret inte hittas
@@ -87,7 +87,10 @@ class SIE4Exporter:
         data = self._collect_data(fiscal_year_id, company_name, org_number)
         content = self._generate_content(data, format_type)
 
-        encoding = "windows-1252" if format_type == "PC8" else "ascii"
+        # PC8 is IBM PC 8-bit ASCII, code page 437 (SIE 4B §5.2), which is
+        # what services/sie4_import.py and other programs decode it as.
+        # Windows-1252 put å, ä and ö on the wrong bytes.
+        encoding = "cp437" if format_type == "PC8" else "ascii"
         try:
             return content.encode(encoding)
         except UnicodeEncodeError:
@@ -382,7 +385,7 @@ class SIE4Exporter:
         if data.company_name:
             lines.append(f'#FNAMN "{self._escape(data.company_name)}"')
         if data.org_number:
-            lines.append(f"#FORGN {data.org_number}")
+            lines.append(f"#ORGNR {data.org_number}")
 
         # Adress (kontakt, gatuadress, postnr+ort, telefon)
         if any(
@@ -503,10 +506,14 @@ class SIE4Exporter:
     def _escape(self, text: str) -> str:
         """Escapea text för SIE4-format.
 
-        Dubbla citattecken inuti strängar ersätts med dubbla citattecken.
+        Dubbla citattecken inuti strängar ersätts med dubbla citattecken, och
+        radbrytningar med mellanslag.
         """
         if not text:
             return ""
+        # A post is one line: a line break inside a text field would split
+        # it (and mixed CRLF into the file's LF).
+        text = " ".join(text.splitlines())
         return text.replace('"', '""')
 
     def get_filename(self, company_name: str, fiscal_year: FiscalYear) -> str:

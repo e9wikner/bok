@@ -269,13 +269,16 @@ class SRUExportService:
         mapped_balances: Dict[str, List[Dict]] = {}
         unmapped_accounts: List[str] = []
         for account_code, account_data in account_balances.items():
+            # 899x carries the year's result, which is derived from the result
+            # rows below rather than mapped. An SIE file often maps 8999 to
+            # 7450/7550 anyway; honouring that put 7450 at 0 kr before the
+            # result was closed (8999 has no balance then), and the derived
+            # result was skipped, so the tax came out on 0 kr.
+            if _is_derived_result_account(account_code):
+                continue
             mapping = sru_mappings.get(account_code)
             if not mapping:
-                # 899x carries the year's result, which is derived from the
-                # result rows below rather than mapped, so it is not missing.
-                if account_data["balance"] != 0 and not _is_derived_result_account(
-                    account_code
-                ):
+                if account_data["balance"] != 0:
                     unmapped_accounts.append(account_code)
                 continue
             mapped_balances.setdefault(mapping, []).append(

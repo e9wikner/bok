@@ -24,8 +24,13 @@ Pröva
 - ett slumpvis urval av resten.
 
 Skriv i `summary_markdown` hur du valde: gränsen för en stor post, vilka
-riskområden du gick igenom och hur stort det slumpvisa urvalet var. Lista
-varje verifikation du faktiskt prövade i `examined_voucher_ids`.
+riskområden du gick igenom och hur stort det slumpvisa urvalet var.
+
+En verifikation är **prövad** när du har jämfört dess rader med underlaget
+(belopp, datum, motpart, konto och moms) eller, för en bank- eller
+skattekontopost utan eget underlag, med raden i kontoutdraget. Lista varje
+prövad verifikation i `examined_voucher_ids`, och bara dem. En verifikation
+som du bara har sett i en summa räknas inte.
 
 ## Riskområden
 
@@ -38,8 +43,9 @@ Ett litet aktiebolag har de här riskerna:
 - **Periodisering.** Kostnader och intäkter kring årsskiftet (17xx och 29xx).
 - **Underlag.** Underlaget ska stödja verifikationen: belopp, motpart och
   datum. Samma kvitto får inte ligga bakom två kostnader.
-- **Avstämningar.** Bank 1930 och skattekontot 1630 ska stämma mot de
-  importerade kontoutdragen. Den ingående balansen ska stämma mot fjolårets
+- **Avstämningar.** Bolagets bankkonton (19xx, se kontoplanen och
+  kontoutdragen) och skattekontot 1630 ska stämma mot de importerade
+  kontoutdragen. Den ingående balansen ska stämma mot fjolårets
   utgående.
 - **Bokslut.** Avskrivningar enligt K2, skatteberäkningen och utdelning mot
   fritt eget kapital (ABL 17 kap. 3 §).
@@ -50,8 +56,13 @@ Varje anmärkning ska bygga på något du har läst. Ange verifikationerna i
 `voucher_ids` när det går. Servern vägrar ett id som inte är en postad
 verifikation i året.
 
-Räkna inte fram summor i huvudet. Hämta dem från rapportrutterna
-(balansräkning, resultaträkning, huvudbok) och skriv var de kommer ifrån.
+Hämta summor och saldon från rapportrutterna (balansräkning,
+resultaträkning, huvudbok) när de finns där. Ett belopp som du måste räkna
+fram själv räknar du med kod, inte i huvudet. Skriv i anmärkningen hur det är
+räknat och vilka verifikationer eller rutter det bygger på.
+
+Säger två rutter emot varandra är det en anmärkning (`ovrigt`) med båda
+källorna. Välj inte tyst den ena.
 
 ## Allvarlighet
 

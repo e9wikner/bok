@@ -27,7 +27,9 @@ agent och din modell ärligt.
 }
 ```
 
-- `id` är ett UUID som du skapar en gång per rapport. Skickar du samma `id`
+- `id` är ett UUID som du skapar en gång per rapport. Skapa det innan du
+  bygger rapporten och spara det i en fil, så att en omkörning av ditt eget
+  skript skickar samma `id`. Skickar du samma `id`
   och samma innehåll igen får du den sparade rapporten tillbaka (`200`). Det
   blir ingen dubblett. Samma `id` med annat innehåll ger
   `409 review_report_id_conflict`. En ny rapport får ett nytt `id`.
@@ -43,3 +45,9 @@ Servern kontrollerar hela rapporten innan något sparas. Ett id i
 `voucher_ids` eller `examined_voucher_ids` som inte är en postad verifikation
 i året ger `422 invalid_voucher_id`, och `invalid_voucher_ids` listar dem.
 Rätta och skicka igen med samma `id`. `201` betyder att rapporten är sparad.
+
+Svaret är den sparade rapporten. Utöver det du skickade har den `uploaded_by`,
+`uploaded_at`, `counts` (antal anmärkningar per `severity`),
+`instruction_outdated` (`true` om instruktionen har ändrats sedan du läste den)
+och, för varje anmärkning, `vouchers` med verifikationernas nummer och datum.
+Läs `counts` och kontrollera att alla anmärkningar kom med.

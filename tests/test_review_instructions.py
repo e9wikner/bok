@@ -111,6 +111,9 @@ def test_the_instructions_route(client, ledger_service):
 
     chosen = client.get(f"/api/v1/review/instructions?fiscal_year_id={older.id}")
     assert chosen.json()["fiscal_year"]["id"] == older.id
+    # The instruction tells the reviewer how to treat a year that is not over.
+    assert chosen.json()["fiscal_year"]["ended"] is True
+    assert isinstance(data["fiscal_year"]["ended"], bool)
     unknown = client.get("/api/v1/review/instructions?fiscal_year_id=nope")
     assert unknown.status_code == 404
 

@@ -265,6 +265,43 @@ def test_reports_start_from_the_ib(client):
     assert sheet["closing_bank_and_cash"] == 70000
 
 
+def test_balance_sheet_balances_with_the_unbooked_result(client):
+    """Before the year's result is booked to 2099 it sits in the result
+    accounts. The sheet reports it as `unbooked_result` and counts it in
+    `balanced`; 24xx is a current liability and 13xx a fixed asset (BAS)."""
+    _account("1385", "Kapitalförsäkring", "asset")
+    fy, period = _year(2025)
+    OpeningBalanceService().state(
+        fy.id, {"1930": 100000, "1385": 50000, "2081": -150000}, actor="test"
+    )
+    _post(
+        period,
+        [
+            {"account": "1930", "debit": 40000, "credit": 0},
+            {"account": "3010", "debit": 0, "credit": 40000},
+        ],
+    )
+    _post(
+        period,
+        [
+            {"account": "5010", "debit": 10000, "credit": 0},
+            {"account": "2440", "debit": 0, "credit": 10000},
+        ],
+    )
+
+    sheet = client.get(
+        "/api/v1/reports/balance-sheet", params={"fiscal_year_id": fy.id}
+    ).json()
+    assert sheet["unbooked_result"] == 30000
+    assert sheet["closing_assets"] == 190000
+    assert sheet["closing_equity_liabilities"] == 160000  # class 2 only
+    assert sheet["balanced"] is True
+    assert sheet["closing_current_liabilities"] == 10000
+    assert sheet["closing_long_term_liabilities"] == 0
+    assert sheet["closing_fixed_assets"] == 50000
+    assert sheet["closing_current_assets"] == 0
+
+
 def test_general_ledger_starts_from_the_ib(client):
     """The huvudbok /v4 opens from a balance sheet row ends where the row
     does: the account's IB plus the year's movements."""

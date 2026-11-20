@@ -24,7 +24,7 @@ replay and returns the stored report; the same id with another body is
 import sqlite3
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Dict, List, Literal, Optional, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -203,6 +203,9 @@ def _fiscal_year_json(fy: FiscalYear) -> dict:
         "start_date": fy.start_date.isoformat(),
         "end_date": fy.end_date.isoformat(),
         "locked": fy.locked,
+        # An ongoing year has no closing entries and statements only up to
+        # now; the instruction tells the reviewer to review it so far.
+        "ended": fy.end_date < date.today(),
     }
 
 

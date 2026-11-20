@@ -35,7 +35,7 @@ def _sie_fil(client, headers, fiscal_year_id, company_name=None):
 def _sie_text(client, headers, fiscal_year_id, company_name=None) -> str:
     resp = _sie_fil(client, headers, fiscal_year_id, company_name)
     assert resp.status_code == 200, resp.text
-    return resp.content.decode("windows-1252")
+    return resp.content.decode("cp437")
 
 
 @pytest.fixture
@@ -147,6 +147,26 @@ def fiscal_year_with_data(test_db):
 class TestSIE4ExportIntegration:
     """Integrationstester mot databasen."""
 
+    def test_pc8_is_code_page_437_and_reads_back(self, fiscal_year_with_data):
+        """#FORMAT PC8 is code page 437. The bytes must decode as such, as
+        the importer and other programs read them, with å, ä and ö intact,
+        and a line break in a description must not split a post."""
+        from services.sie4_import import SIE4Parser
+
+        fy = fiscal_year_with_data
+        exporter = SIE4Exporter()
+        raw = exporter.export(
+            fiscal_year_id=fy.id,
+            company_name="Testföretag Åkesson AB",
+            org_number="556677-8899",
+        )
+        assert SIE4Parser._detect_encoding(raw) == "cp437"
+        text = SIE4Parser.decode_bytes(raw)
+        assert '#FNAMN "Testföretag Åkesson AB"' in text
+        assert '#KONTO 1930 "Företagskonto"' in text
+        assert raw.count(b"\n") == raw.count(b"\r\n")
+        assert exporter._escape("rad ett\nrad två") == "rad ett rad två"
+
     def test_export_with_real_data(self, fiscal_year_with_data):
         """Testa export med riktig data från databasen."""
         fy = fiscal_year_with_data
@@ -161,7 +181,7 @@ class TestSIE4ExportIntegration:
         assert "#FLAGGA 0" in content
         assert "#FORMAT PC8" in content
         assert '#FNAMN "Testföretag AB"' in content
-        assert "#FORGN 556677-8899" in content
+        assert "#ORGNR 556677-8899" in content
         assert "#RAR 0 20260101 20261231" in content
 
         # Verifiera konton
@@ -212,7 +232,7 @@ class TestSIE4ExportIntegration:
             ), f"Verifikation {v.series}{v.number} balanserar inte: {total}"
 
     def test_export_bytes_encoding(self, fiscal_year_with_data):
-        """Testa att export genererar korrekt Windows-1252 bytes."""
+        """Testa att export genererar korrekta PC8-bytes (codepage 437)."""
         fy = fiscal_year_with_data
         exporter = SIE4Exporter()
         content_bytes = exporter.export(
@@ -221,8 +241,8 @@ class TestSIE4ExportIntegration:
         )
 
         assert isinstance(content_bytes, bytes)
-        # Verifiera att det kan dekodas som Windows-1252
-        decoded = content_bytes.decode("windows-1252")
+        # Verifiera att det kan dekodas som PC8 (codepage 437)
+        decoded = content_bytes.decode("cp437")
         assert "Testföretag AB" in decoded
         # Verifiera CRLF
         assert b"\r\n" in content_bytes
@@ -576,12 +596,12 @@ class TestSIE4ExportAPI:
         assert '#FNAMN "API Test AB"' in content
 
     def test_export_file_download(self, client, auth_headers, fiscal_year_with_data):
-        """Filen laddas ner som SIE, i Windows-1252."""
+        """Filen laddas ner som SIE, i PC8 (codepage 437)."""
         resp = _sie_fil(client, auth_headers, fiscal_year_with_data.id, "Download AB")
         assert resp.status_code == 200
         assert "attachment" in resp.headers.get("content-disposition", "")
         assert resp.headers.get("content-type") == "application/x-sie"
-        assert "#FLAGGA 0" in resp.content.decode("windows-1252")
+        assert "#FLAGGA 0" in resp.content.decode("cp437")
 
     def test_export_file_not_found(self, client, auth_headers):
         """Testa 404 vid icke-existerande räkenskapsår."""

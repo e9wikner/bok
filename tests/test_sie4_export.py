@@ -3,7 +3,7 @@
 Testar:
 - Generering av alla SIE4-sektioner
 - Beräkning av IB, UB, RES, PSALDO
-- Windows-1252 encoding och \\r\\n radbrytningar
+- PC8 (codepage 437) och \\r\\n radbrytningar
 - Export → Import roundtrip (verifierar att data bevaras)
 - Felhantering
 """
@@ -167,7 +167,7 @@ class TestSIE4ExporterContent:
         data = self._build_test_data()
         content = exporter._generate_content(data, "PC8")
         assert '#FNAMN "Test AB"' in content
-        assert "#FORGN 556677-8899" in content
+        assert "#ORGNR 556677-8899" in content
 
     def test_fiscal_year(self):
         """Testa att räkenskapsår genereras."""
@@ -235,8 +235,8 @@ class TestSIE4ExporterContent:
         lines_with_lf = content.count("\n")
         assert lines_with_crlf == lines_with_lf  # Alla \n ska vara \r\n
 
-    def test_windows_1252_encoding(self):
-        """Testa att export genererar Windows-1252 encoding."""
+    def test_pc8_encoding(self):
+        """PC8 är codepage 437 (SIE 4B), inte Windows-1252."""
         exporter = SIE4Exporter()
         data = self._build_test_data()
         # Lägg till svenska tecken
@@ -244,8 +244,8 @@ class TestSIE4ExporterContent:
             _make_account("6010", "Kontorsmöbler (åäö)", AccountType.EXPENSE)
         )
         content = exporter._generate_content(data, "PC8")
-        encoded = content.encode("windows-1252")
-        assert isinstance(encoded, bytes)
+        encoded = content.encode("cp437")
+        assert encoded.decode("cp437") == content
         # Verifiera att ö, ä, å kodas korrekt
         assert "åäö" in content
 

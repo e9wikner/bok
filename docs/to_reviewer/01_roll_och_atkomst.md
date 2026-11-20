@@ -21,6 +21,15 @@ bokföringsinstruktioner (`company_instructions`) och `report_schema` för
 uppladdningen. Utan `fiscal_year_id` gäller det senaste året. De andra åren
 står i `fiscal_years`.
 
+Rapporten gäller ett räkenskapsår, men du får läsa andra år för att följa en
+post bakåt (till exempel en skatteskuld eller en utdelning). Byt
+`fiscal_year_id` i läsrutterna.
+
+**Ett år som inte är slut** (`fiscal_year.ended` är `false`) granskas så långt
+det har kommit. Bokslutsposter saknas då, och kontoutdragen slutar där
+importen slutar. Det är inte fel i sig. Skriv i sammanfattningen vilket datum
+granskningen gäller till och hoppa över det som hör till bokslutet.
+
 ## Var datan finns
 
 Sökvägarna står i `read_endpoints`. `{fy}` nedan är räkenskapsårets id.
@@ -38,6 +47,8 @@ Sökvägarna står i `read_endpoints`. `{fy}` nedan är räkenskapsårets id.
 | Resultaträkning | `GET /api/v1/reports/income-statement?fiscal_year_id={fy}` |
 | Huvudbok för ett konto | `GET /api/v1/reports/general-ledger/{account_code}?fiscal_year_id={fy}` |
 | Ingående balanser | `GET /api/v1/fiscal-years/{fy}/opening-balances` |
+| Kontoplanen | `GET /api/v1/accounts` |
+| Bolagets uppgifter (organisationsnummer, momsnummer, bankgiro) | `GET /api/v1/company-info` |
 | Bokslutet: skatt, avskrivningar, eget kapital | `GET /api/v1/bokslut/{fy}` |
 | Momsdeklaration för året, framräknad ur bokföringen | `GET /api/v1/bokslut/{fy}/filer/moms.eskd` |
 | Fakturor och lönekörningar | `GET /api/v1/invoices?fiscal_year_id={fy}`, `GET /api/v1/payroll/runs?fiscal_year_id={fy}` |
@@ -55,3 +66,9 @@ bearer. `statement_links` visar vilka transaktioner i kontoutdragen som är
 kopplade till verifikationen.
 
 Alla belopp är i öre. 125000 är 1 250 kr.
+
+**Svar och filer.** Svaren är JSON utom filerna, som kommer som de är (SIE4,
+PDF, bilder, CSV). Spara en fil direkt till disk och öppna den därifrån.
+Använder du `scripts/bok-curl`, sätt `BOK_CURL_STATUS=0`. Då kommer svaret
+orört på stdout och `[http NNN]` på stderr. Annars lägger skriptet raden sist i
+svaret, och JSON-tolkningen eller filen går sönder.

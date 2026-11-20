@@ -136,6 +136,36 @@ class TestInk2s:
         assert f["7667"] == 6000 + 4000
         assert f["7670"] == 326355 + 685 - 30040 + 7840 + 10000
 
+    def test_arets_resultat_mappat_i_sie_ger_inte_noll_fore_bokslutet(self, test_db):
+        """En SIE-fil kopplar ofta 8999 till 7450/7550. Före bokslutet har 8999
+        inget saldo, och kopplingen fick då 7450 att stå på 0 kr, så att
+        skatten räknades på 0 kr i stället för årets resultat."""
+        import re
+
+        from services.sie4_import import SIE4Importer
+        from services.sru_export import DEFAULT_SRU_MAPPINGS
+
+        # En årsspecifik mappning ersätter BAS helt, så filen kopplar alla
+        # konton som BAS gör, och dessutom 899x till 7450 som iOrdning gör.
+        bas = {
+            str(konto): falt
+            for falt, konton in DEFAULT_SRU_MAPPINGS.items()
+            for konto in konton
+        }
+        sru = [
+            f"#SRU {k} {bas[k]}"
+            for k in re.findall(r"^#KONTO (\d{4})", SIE, re.M)
+            if k in bas
+        ]
+        sru += ["#SRU 8999 7450", "#SRU 8990 7450"]
+        sie = SIE.replace("#IB 0 1385", "\n".join(sru) + "\n#IB 0 1385", 1)
+        importer = SIE4Importer("", "")
+        assert importer.import_content(sie), importer.errors
+        f = _falt(importer.fiscal_year_resolution["id"])
+        assert f["7450"] == 326355
+        assert f["7650"] == 326355
+        assert f["7670"] == 326355 + 685 - 30040 + 7840 + 10000
+
     def test_ett_angivet_belopp_ersatter_beraknat(self, ar):
         from services.bokslut_inputs import BokslutInputsService
 

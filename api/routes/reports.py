@@ -306,7 +306,15 @@ async def get_balance_sheet(
         (1600, 1899),
         (1900, 1999),
     ]
-    liability_ranges = [(2000, 2299), (2300, 2499), (2500, 2999)]
+    liability_ranges = [(2000, 2299), (2300, 2399), (2400, 2999)]
+    # BAS: 10xx-13xx are fixed assets (13xx financial ones), 14xx-15xx
+    # inventory and receivables, 16xx-18xx other current assets, 19xx cash.
+    # 20xx-22xx equity, untaxed reserves and provisions, 23xx long-term
+    # liabilities, 24xx-29xx current liabilities.
+    fixed_ranges = [(1000, 1399)]
+    current_ranges = [(1600, 1899)]
+    long_term_ranges = [(2300, 2399)]
+    current_liab_ranges = [(2400, 2999)]
 
     # Calculate totals
     opening_assets = _calc_category(opening_balances, asset_ranges, False)
@@ -315,6 +323,10 @@ async def get_balance_sheet(
     change_liabilities = _calc_category(change_balances, liability_ranges, True)
     closing_assets = opening_assets + change_assets
     closing_liabilities = opening_liabilities + change_liabilities
+    # Until the result is booked to 2099 it sits in the result accounts
+    # (3000-8999), and class 2 alone falls short of the assets by exactly
+    # that. Once 8999 is booked against 2099 the movement here nets to 0.
+    unbooked_result = _calc_category(change_balances, [(3000, 8999)], True)
 
     # Build account details with 3 columns
     all_codes = set(opening_balances.keys()) | set(change_balances.keys())
@@ -348,28 +360,24 @@ async def get_balance_sheet(
         return details
 
     # Calculate sub-categories for assets
-    opening_current_assets = _calc_category(
-        opening_balances, [(1000, 1199), (1300, 1399), (1600, 1899)], False
-    )
+    opening_current_assets = _calc_category(opening_balances, current_ranges, False)
     opening_receivables = _calc_category(opening_balances, [(1400, 1599)], False)
-    opening_fixed_assets = _calc_category(opening_balances, [(1200, 1299)], False)
+    opening_fixed_assets = _calc_category(opening_balances, fixed_ranges, False)
     opening_bank = _calc_category(opening_balances, [(1900, 1999)], False)
 
-    change_current_assets = _calc_category(
-        change_balances, [(1000, 1199), (1300, 1399), (1600, 1899)], False
-    )
+    change_current_assets = _calc_category(change_balances, current_ranges, False)
     change_receivables = _calc_category(change_balances, [(1400, 1599)], False)
-    change_fixed_assets = _calc_category(change_balances, [(1200, 1299)], False)
+    change_fixed_assets = _calc_category(change_balances, fixed_ranges, False)
     change_bank = _calc_category(change_balances, [(1900, 1999)], False)
 
     # Calculate sub-categories for liabilities/equity
     opening_equity = _calc_category(opening_balances, [(2000, 2299)], True)
-    opening_long_term = _calc_category(opening_balances, [(2300, 2499)], True)
-    opening_current_liab = _calc_category(opening_balances, [(2500, 2999)], True)
+    opening_long_term = _calc_category(opening_balances, long_term_ranges, True)
+    opening_current_liab = _calc_category(opening_balances, current_liab_ranges, True)
 
     change_equity = _calc_category(change_balances, [(2000, 2299)], True)
-    change_long_term = _calc_category(change_balances, [(2300, 2499)], True)
-    change_current_liab = _calc_category(change_balances, [(2500, 2999)], True)
+    change_long_term = _calc_category(change_balances, long_term_ranges, True)
+    change_current_liab = _calc_category(change_balances, current_liab_ranges, True)
 
     return {
         # Summary totals with 3 columns
@@ -379,7 +387,9 @@ async def get_balance_sheet(
         "change_equity_liabilities": change_liabilities,
         "closing_assets": closing_assets,
         "closing_equity_liabilities": closing_liabilities,
-        "balanced": abs(closing_assets - closing_liabilities) < 100,
+        # Class 2 only; the result not yet booked to 2099 is apart.
+        "unbooked_result": unbooked_result,
+        "balanced": abs(closing_assets - closing_liabilities - unbooked_result) < 100,
         "period": as_of_date or _period_label(year, None, fiscal_year_id),
         # "stated" (the first year's, entered or imported), "derived" (from
         # the previous year) or "none".
@@ -410,17 +420,17 @@ async def get_balance_sheet(
         "closing_long_term_liabilities": opening_long_term + change_long_term,
         "closing_current_liabilities": opening_current_liab + change_current_liab,
         # Per-account details with 3 columns
-        "fixed_assets_details": _build_details(all_codes, [(1200, 1299)], False),
+        "fixed_assets_details": _build_details(all_codes, fixed_ranges, False),
         "receivables_details": _build_details(all_codes, [(1400, 1599)], False),
         "bank_and_cash_details": _build_details(all_codes, [(1900, 1999)], False),
-        "current_assets_details": _build_details(
-            all_codes, [(1000, 1199), (1300, 1399), (1600, 1899)], False
-        ),
+        "current_assets_details": _build_details(all_codes, current_ranges, False),
         "equity_details": _build_details(all_codes, [(2000, 2299)], True),
         "long_term_liabilities_details": _build_details(
-            all_codes, [(2300, 2499)], True
+            all_codes, long_term_ranges, True
         ),
-        "current_liabilities_details": _build_details(all_codes, [(2500, 2999)], True),
+        "current_liabilities_details": _build_details(
+            all_codes, current_liab_ranges, True
+        ),
         # Backward compatibility
         "total_assets": closing_assets,
         "total_equity_liabilities": closing_liabilities,

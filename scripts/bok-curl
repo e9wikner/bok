@@ -7,6 +7,7 @@
 #   bok-curl GET  /api/v1/accounts
 #   bok-curl POST /api/v1/agent/test/ping
 #   bok-curl POST /api/v1/agent/vouchers body.json
+#   BOK_CURL_STATUS=0 bok-curl GET /api/v1/bokslut/<fy>/filer/bokforing.si > sie.si
 #
 # Host:   BOK_API_URL, annars http://localhost:8000
 # Nyckel: BOKFOERING_API_KEY, annars nyckelfilen BOK_KEY_FILE (default
@@ -41,4 +42,11 @@ if [ $# -gt 0 ] && [ -n "${1:-}" ]; then
   args+=(-H 'Content-Type: application/json' --data-binary "@$1")
 fi
 
-curl "${args[@]}" -w '\n[http %{http_code}]\n'
+# BOK_CURL_STATUS=0 lamnar svaret orort pa stdout (for JSON-tolkning och
+# binara filer) och skriver [http NNN] pa stderr; annars kommer raden sist pa
+# stdout.
+if [ "${BOK_CURL_STATUS:-1}" = "0" ]; then
+  curl "${args[@]}" -w '%{stderr}[http %{http_code}]\n'
+else
+  curl "${args[@]}" -w '\n[http %{http_code}]\n'
+fi
