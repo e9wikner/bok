@@ -99,8 +99,12 @@ const KOMPONENTER: Components = {
   td: ({ node: _n, ...p }) => <td {...p} className={CELL} />,
 };
 
-/** Agentens text som markdown, i en egen kolumn med samma gap 13 som inlägget. */
-function AgentText({ text }: { text: string }) {
+/**
+ * Agentens text som markdown, i en egen kolumn med samma gap 13 som inlägget.
+ * Också granskningsrapportens sammanfattning (`GranskningVy`), som en annan
+ * agent har skrivit.
+ */
+export function AgentText({ text }: { text: string }) {
   return (
     <div className="flex min-w-0 flex-col gap-[13px]">
       <Markdown remarkPlugins={[remarkGfm]} components={KOMPONENTER}>

@@ -7,6 +7,7 @@ version-controlled files and cannot be modified by agents.
 Company-specific instructions are stored separately and can be updated by agents.
 """
 
+import hashlib
 import os
 from typing import Dict, List, Optional
 
@@ -14,6 +15,19 @@ from typing import Dict, List, Optional
 DOCS_TO_AGENT_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs", "to_agent"
 )
+
+# The review instruction (docs/granskning.md §6): read by the external
+# reviewing agent through `GET /api/v1/review/instructions`, never by the
+# bookkeeping agent -- the bookkeeping agent does not review itself.
+DOCS_TO_REVIEWER_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs", "to_reviewer"
+)
+
+REVIEWER_INSTRUCTION_FILES: List[tuple] = [
+    ("01_roll_och_atkomst.md", "Roll och åtkomst"),
+    ("02_granskningen.md", "Granskningen"),
+    ("03_rapporten.md", "Rapporten"),
+]
 
 # Ordered list of system instruction files
 # These are read-only and contain system-critical information
@@ -64,6 +78,25 @@ def get_invoicing_system_instructions() -> Dict:
     # For now, invoicing uses a subset or the same system instructions
     # In the future, this could load different files
     return get_system_instructions()
+
+
+def get_reviewer_instructions() -> Dict:
+    """The review instruction, joined in order, and its sha256.
+
+    The hash is over `content_markdown` as UTF-8; a report stores the hash it
+    was made against, so a changed instruction shows on older reports.
+    """
+    sections = []
+    for filename, title in REVIEWER_INSTRUCTION_FILES:
+        content = _read_file(os.path.join(DOCS_TO_REVIEWER_DIR, filename))
+        if content:
+            sections.append(f"# {title}\n\n{content.strip()}\n")
+    combined = "\n---\n\n".join(sections)
+    return {
+        "content_markdown": combined,
+        "sha256": hashlib.sha256(combined.encode("utf-8")).hexdigest(),
+        "files": [f[0] for f in REVIEWER_INSTRUCTION_FILES],
+    }
 
 
 def _read_file(filepath: str) -> Optional[str]:

@@ -88,6 +88,20 @@ agent_key=$(sed -n 's/^BOKFOERING_API_KEY=//p' "$ENV_FILE" | head -1)
 
 env_value() { sed -n "s/^$1=//p" "$ENV_FILE" | tail -1; }
 
+# review.key holds only the review key (docs/granskning.md §3): read-only,
+# plus uploading a review report. Written the same way as agent.key, and only
+# while BOKFOERING_REVIEW_KEY is set; unset, review with its own key is off
+# and a stale review.key is removed.
+review_key=$(sed -n 's/^BOKFOERING_REVIEW_KEY=//p' "$ENV_FILE" | head -1)
+if [ -n "$review_key" ]; then
+  [ "$review_key" != "$agent_key" ] ||
+    fail "$ENV_FILE: BOKFOERING_REVIEW_KEY must differ from BOKFOERING_API_KEY"
+  [ "$(cat "$APPDATA/review.key" 2>/dev/null)" = "$review_key" ] ||
+    (umask 077; printf '%s\n' "$review_key" > "$APPDATA/review.key.tmp" && mv "$APPDATA/review.key.tmp" "$APPDATA/review.key")
+else
+  rm -f "$APPDATA/review.key"
+fi
+
 # An enabled runtime without a key starts, then fails every pass with an auth
 # error from the gateway. Refuse that here instead of finding it in the journal.
 if [ "$(env_value AGENT_RUNTIME_ENABLED | tr '[:upper:]' '[:lower:]')" = true ] &&

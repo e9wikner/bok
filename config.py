@@ -51,6 +51,13 @@ class Settings(BaseSettings):
         default=os.getenv("BOKFOERING_API_KEY", DEFAULT_API_KEY),
         alias="BOKFOERING_API_KEY",
     )
+    # The review key (docs/granskning.md §3): read-only, plus uploading a
+    # review report. Empty means review with its own key is off; an empty
+    # bearer never matches it (`api/deps.py::_key_kind`).
+    review_api_key: str = Field(
+        default=os.getenv("BOKFOERING_REVIEW_KEY", ""),
+        alias="BOKFOERING_REVIEW_KEY",
+    )
     auth_username: str = os.getenv("AUTH_USERNAME", "admin")
     auth_password: str = os.getenv("AUTH_PASSWORD", DEFAULT_AUTH_PASSWORD)
 

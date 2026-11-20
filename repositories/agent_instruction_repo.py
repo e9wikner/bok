@@ -72,6 +72,35 @@ class AgentInstructionRepository:
         return AgentInstructionRepository._response(document, version)
 
     @staticmethod
+    def read_active(scope: str) -> Dict:
+        """The active document as `get_active` gives it, but never writes:
+        without a stored document, the default content with `version` and
+        the ids `None` and `is_default` true. For a reader that may not
+        write (the review key, docs/granskning.md §3)."""
+        document = AgentInstructionRepository._get_document(scope)
+        if document:
+            version = AgentInstructionRepository._get_version(
+                document["active_version_id"]
+            )
+            return {
+                **AgentInstructionRepository._response(document, version),
+                "is_default": False,
+            }
+        return {
+            "id": None,
+            "scope": scope,
+            "active_version_id": None,
+            "updated_at": None,
+            "version_id": None,
+            "version": None,
+            "content_markdown": AgentInstructionRepository._default_content(scope),
+            "change_summary": None,
+            "created_by": None,
+            "created_at": None,
+            "is_default": True,
+        }
+
+    @staticmethod
     def update(
         scope: str,
         content_markdown: str,

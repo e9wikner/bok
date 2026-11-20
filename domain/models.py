@@ -99,6 +99,40 @@ class UnderlagWaiver:
         return self.revoked_at is None
 
 
+@dataclass(frozen=True)
+class ReviewReport:
+    """An uploaded granskningsrapport (migration 055, docs/granskning.md).
+    `id` is the reviewing agent's own UUID; `uploaded_by` is the credential
+    that uploaded it: `review_key`, `api_key` or a username."""
+
+    id: str
+    fiscal_year_id: str
+    reviewer_agent: str
+    reviewer_model: str
+    instruction_sha256: str
+    summary_markdown: str
+    uploaded_by: str
+    uploaded_at: datetime
+
+
+@dataclass(frozen=True)
+class ReviewFinding:
+    """An anmärkning in a review report, at `position` in the report.
+    `voucher_ids` are posted vouchers in the report's fiscal year."""
+
+    id: str
+    report_id: str
+    position: int
+    severity: str
+    area: str
+    title: str
+    description: str
+    rule: Optional[str] = None
+    amount_ore: Optional[int] = None
+    suggested_correction: Optional[str] = None
+    voucher_ids: List[str] = field(default_factory=list)
+
+
 @dataclass
 class Voucher:
     """Verifikation (accounting voucher - BFL §5 kap 6)."""

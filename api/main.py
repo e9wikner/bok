@@ -38,6 +38,7 @@ from api.routes import (
     payroll,
     periods,
     reports,
+    review,
     sru_mappings,
     threads,
     vouchers,
@@ -113,8 +114,9 @@ app.add_middleware(
 
 # Every route needs the bearer -- the agent's API key or a logged-in user's
 # JWT -- reads too: the books hold salaries, personal numbers and invoices.
-# Public are only `/`, `/health`, the auth router (login) and the agent
-# entrypoint; those two routers authenticate their other routes themselves.
+# Public are only `/`, `/health`, the auth router (login) and the agent and
+# review entrypoints; those routers authenticate their other routes
+# themselves or are included behind the bearer separately.
 AUTHENTICATED = [Depends(verify_api_key)]
 
 # Include routers (organized by phase)
@@ -180,6 +182,10 @@ app.include_router(decisions.router, dependencies=AUTHENTICATED)
 
 # Trådens förslag och vad som hände med dem
 app.include_router(drafts.router, dependencies=AUTHENTICATED)
+
+# Granskning (docs/granskning.md): the entrypoint is public, the rest is not
+app.include_router(review.public_router)
+app.include_router(review.router, dependencies=AUTHENTICATED)
 
 
 @app.get("/health", tags=["health"])

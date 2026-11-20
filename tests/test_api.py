@@ -283,6 +283,7 @@ PUBLIC_ROUTES = {
     ("POST", "/api/v1/auth/login"),
     ("POST", "/api/v1/auth/logout"),
     ("GET", "/api/v1/agent-instructions/entrypoint"),
+    ("GET", "/api/v1/review/entrypoint"),
 }
 
 

@@ -29,6 +29,7 @@ import { lasApi } from "@/lib/skal/las";
 import { dropzoneStatus } from "@/lib/skal/dropzone";
 import { ANSTALLDA_NYCKEL, anstalldaApi, anstalldaStatus } from "@/lib/skal/anstallda";
 import { FORETAGET_NYCKEL, foretagetApi, foretagetStatus } from "@/lib/skal/foretaget";
+import { granskningApi, granskningStatus, rapporterNyckel } from "@/lib/skal/granskning";
 import { instruktionNyckel, instruktionStatus, instruktionerApi } from "@/lib/skal/instruktioner";
 import { KONTOPLAN_NYCKEL, kontoplanApi, kontoplanStatus } from "@/lib/skal/kontoplan";
 import { ARTIKLAR_NYCKEL, KUNDER_NYCKEL, kunderApi, kunderStatus } from "@/lib/skal/kunder";
@@ -322,6 +323,13 @@ export function useVyer(
     enabled: (bokslut || installningar) && !!id,
     staleTime: 30 * 1000,
   });
+  // Granskningsrapporterna, till statusraden; samma nyckel som `GranskningVy`.
+  const granskning = useQuery({
+    queryKey: rapporterNyckel(id),
+    queryFn: () => granskningApi.rapporter(id),
+    enabled: bokslut && !!id,
+    staleTime: 30 * 1000,
+  });
   const avvikelser = useQuery({
     queryKey: ["skal", "avvikelser"],
     queryFn: bokslutApi.getAvvikelser,
@@ -391,6 +399,9 @@ export function useVyer(
     "bokslut.moms": bokslutsdel,
     "bokslut.arsredovisning": bokslutsdel,
     "bokslut.atgarder": vy([avvikelser], atgarderVy),
+    // Granskningen har sin egen komponent (`GranskningVy`); här bara statusraden.
+    "bokslut.granskning":
+      utanAr ?? statusrad(granskningStatus(granskning.data, granskning.isError, ar?.id)),
     // Dropzonen har sin egen komponent (`DropzoneVy`), som Bokslutets delar.
     // Här bara statusraden, till headern.
     "bocker.dropzone": {

@@ -22,6 +22,7 @@ one-time setup that does need an admin shell.
 | `bok-frontend.container` | Quadlet for the frontend. |
 | `/srv/appdata/bok/bok.env` | **Not in git.** The three secrets plus the optional settings below, `mode 600`, `e9wikner`-owned. |
 | `/srv/appdata/bok/agent.key` | **Not in git.** Only `BOKFOERING_API_KEY`'s value, on one line, `mode 600`. `scripts/bok-curl` reads it, so an agent needs no read access to `bok.env`. `deploy.sh` writes it from `bok.env` on each run. |
+| `/srv/appdata/bok/review.key` | **Not in git.** Only `BOKFOERING_REVIEW_KEY`'s value, on one line, `mode 600`, for a reviewing agent (see "The review key" below). `deploy.sh` writes it from `bok.env` when the variable is set and removes it when it is not. |
 | `/srv/appdata/bok/backups/` | Database copies `deploy.sh` takes before starting new code. The five newest are kept. |
 | `/srv/appdata/bok/dropzone` | **Not created here.** The `Bokforing` SMB share, owned by the hubbabubba repo — see "Folder intake" below. |
 
@@ -69,12 +70,44 @@ To create it by hand, without printing the key:
 (umask 077; sed -n 's/^BOKFOERING_API_KEY=//p' /srv/appdata/bok/bok.env | head -1 > /srv/appdata/bok/agent.key)
 ```
 
+### The review key
+
+A reviewing agent (Bokslut → Granskning, `docs/granskning.md`) gets its own
+key, never the bookkeeping agent's. It can `GET` every authenticated route
+and `POST /api/v1/review/reports`, nothing else: any other call is
+`403 review_key_read_only`, and it is not a human, so `human_only` routes
+refuse it too. Set it in `bok.env`, different from `BOKFOERING_API_KEY`
+(`deploy.sh` refuses the same value):
+
+```
+BOKFOERING_REVIEW_KEY=<openssl rand -hex 32>
+```
+
+and run `deploy.sh`, which writes `/srv/appdata/bok/review.key` beside
+`agent.key` (`bok-api.container` reads all of `bok.env` through
+`EnvironmentFile`, so the API gets the variable on restart). Unset or empty,
+review with its own key is off (an empty bearer never matches it) and
+`deploy.sh` removes `review.key`. To revoke a key, change or remove the line
+and deploy again.
+
+Point the reviewer at the public entrypoint,
+`http://hubbabubba:8000/api/v1/review/entrypoint`. To call the API as the
+reviewer from the box, without the key entering a transcript:
+
+```bash
+BOK_KEY_FILE=/srv/appdata/bok/review.key scripts/bok-curl GET /api/v1/review/instructions
+```
+
+(`bok-curl` prefers `BOKFOERING_API_KEY` from the environment over the key
+file, so leave that variable unset in the reviewer's shell.)
+
 ### Optional settings in `bok.env`
 
 Everything below is off or defaulted when absent.
 
 | Variable | Default | What it does |
 |---|---|---|
+| `BOKFOERING_REVIEW_KEY` | empty | The read-only review key, see "The review key" above. Empty: off. |
 | `AGENT_RUNTIME_ENABLED` | `False` | `true` starts the internal agent worker, which books pending intake with an LLM. It costs money, so it is off unless you say so. `deploy.sh` refuses to run if it is `true` and `LLM_API_KEY` is empty. |
 | `LLM_API_KEY` | empty | The LLM gateway key. Never logged or returned by any endpoint. |
 | `LLM_BASE_URL` | `https://opencode.ai/zen/v1` | The OpenCode Zen gateway, for `opencode/…` models. |

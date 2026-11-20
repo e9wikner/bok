@@ -9,6 +9,7 @@ import { BokslutVy } from "@/components/skal/BokslutVy";
 import { ChattBubbla } from "@/components/skal/ChattBubbla";
 import { DropzoneVy } from "@/components/skal/DropzoneVy";
 import { ForetagetVy } from "@/components/skal/ForetagetVy";
+import { GranskningVy } from "@/components/skal/GranskningVy";
 import { InstruktionerVy } from "@/components/skal/InstruktionerVy";
 import { KontoplanVy } from "@/components/skal/KontoplanVy";
 import { KunderVy } from "@/components/skal/KunderVy";
@@ -276,6 +277,13 @@ export function Skal() {
               arId={ar === undefined ? undefined : (ar?.id ?? null)}
               las={arsLas}
               onGaTill={gaTillVy}
+              variant={variant}
+            />
+          ) : vy.key === "bokslut.granskning" ? (
+            <GranskningVy
+              titel={vy.titel}
+              arId={ar === undefined ? undefined : (ar?.id ?? null)}
+              arEtikett={ar?.label}
               variant={variant}
             />
           ) : vy.key === "installningar.sru" ? (

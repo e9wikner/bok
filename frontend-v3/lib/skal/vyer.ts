@@ -32,6 +32,14 @@ export type ViewKey =
 export type BokslutDel = "bokslut.ink2" | "bokslut.moms" | "bokslut.arsredovisning";
 
 /**
+ * Granskning: granskningsrapporterna som externa agenter har laddat upp för
+ * året i årsväljaren (`docs/granskning.md`). En egen komponent
+ * (`GranskningVy`), ingen egen tråd: den chattar i Översiktens, som
+ * bokslutets delar. Servern känner inte nyckeln.
+ */
+export type Granskningsvy = "bokslut.granskning";
+
+/**
  * Underlag: dropzonens mappar (samma som SMB-utdelningen), i webben. Ingen
  * egen tråd — den chattar i Verifikationers, där underlagen bokförs.
  * Servern känner inte nyckeln.
@@ -61,7 +69,7 @@ export type Installningsvy =
   | "installningar.revisionslogg";
 
 /** En vy i navigeringen: en trådvy, en bokslutsdel eller en vy med egen komponent. */
-export type Vynyckel = ViewKey | BokslutDel | Dropzonevy | Installningsvy;
+export type Vynyckel = ViewKey | BokslutDel | Granskningsvy | Dropzonevy | Installningsvy;
 
 export interface Vy {
   readonly key: Vynyckel;
@@ -119,6 +127,8 @@ export const SIDOR: readonly Sida[] = Object.freeze([
       vy("bokslut", "ink2", "INK2", "bokslut.rapporter"),
       vy("bokslut", "arsredovisning", "Årsredovisning", "bokslut.rapporter"),
       vy("bokslut", "atgarder", "Åtgärder och nyckeltal"),
+      // Sist: granskningen läser böckerna och bokslutet när de är klara.
+      vy("bokslut", "granskning", "Granskning", "bokslut.rapporter"),
     ]),
   }),
   Object.freeze({

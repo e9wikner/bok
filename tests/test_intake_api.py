@@ -7,7 +7,7 @@ from io import BytesIO
 from pathlib import Path
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 
 from api.deps import get_current_actor, verify_api_key
 from api.routes.agent import (
@@ -232,7 +232,10 @@ async def test_intake_upload_download_pending_and_soft_delete_api(
     assert Path(download.path).read_bytes() == content
 
     with pytest.raises(HTTPException) as exc_info:
-        await verify_api_key(None)
+        await verify_api_key(
+            Request({"type": "http", "method": "GET", "path": "/", "headers": []}),
+            None,
+        )
     assert exc_info.value.status_code == 401
 
     deleted = await delete_intake_source(source["id"], actor="api")

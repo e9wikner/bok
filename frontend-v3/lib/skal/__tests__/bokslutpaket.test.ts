@@ -18,13 +18,14 @@ function bokslut(kontroller: Bokslut["kontroller"], locked = false): Bokslut {
 }
 
 describe("bokslutets delar i navigeringen", () => {
-  it("står direkt under Bokslut, före Åtgärder", () => {
+  it("står direkt under Bokslut, före Åtgärder, och Granskning sist", () => {
     expect(sidan("bokslut").vyer.map((v) => v.titel)).toEqual([
       "Översikt",
       "Moms",
       "INK2",
       "Årsredovisning",
       "Åtgärder och nyckeltal",
+      "Granskning",
     ]);
   });
 

@@ -1,6 +1,6 @@
 # Granskning – implementationsspec
 
-Status: förslag, inte byggt.
+Status: backend byggd (avsnitt 3–6 och 8); frontend under bygge.
 
 En extern agent pekas på en publik ingång. Ingången säger hur den ska autentisera sig och var
 instruktionen finns. Agenten läser böckerna genom API:et, granskar ett räkenskapsår enligt
@@ -315,11 +315,4 @@ Det finns inga svar, kvitteringar eller PDF:er per anmärkning. Rättelser görs
 
 ## 10. Öppna frågor
 
-Flytta det som återstår till `docs/oppna-beslut.md` när bygget börjar.
-
-1. Om granskningen av ett kvartal behövs. I så fall får uppladdningen ha `scope_start` och
-   `scope_end`, och voucher-kontrollen gäller då omfånget.
-2. Om en människa ska kunna kvittera en anmärkning ("rättad", "godtagen") i vyn. Det är
-   utelämnat tills behovet visar sig.
-3. Om flera granskningsnycklar behövs, en per agent, så att `uploaded_by` blir säkrare än
-   agentens egen uppgift om sig själv.
+Flyttade till `docs/oppna-beslut.md`, avsnittet Granskning.

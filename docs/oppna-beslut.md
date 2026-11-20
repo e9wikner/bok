@@ -160,6 +160,22 @@ F2–F4 är ramar och specas en i taget innan de byggs.
   inklusive moms, utan moms på räntan. Påminnelser väntar på schemaläggningen
   (produktbeslut 4).
 
+## Granskning (docs/granskning.md): öppet och val i bygget
+
+1. **Kvartal.** Om granskningen av ett kvartal behövs. I så fall får uppladdningen
+   `scope_start` och `scope_end`, och kontrollen av verifikations-id gäller omfånget.
+2. **Kvittera en anmärkning.** Om en människa ska kunna markera en anmärkning som "rättad" eller
+   "godtagen" i vyn. Utelämnat tills behovet visar sig.
+3. **En nyckel per granskare.** Om flera granskningsnycklar behövs, så att `uploaded_by` blir
+   säkrare än agentens egen uppgift om agent och modell.
+4. **Läsningar som skriver.** `GET /agent-instructions/{accounting,invoicing}` och deras
+   `/versions` skapar bolagets standardinstruktion vid första läsningen. Granskningsnyckeln får
+   därför `403 review_key_read_only` där, och bolagets instruktion följer i stället med i
+   `GET /review/instructions` (`company_instructions`), läst utan att något skrivs. Bekräfta, eller
+   gör läsningarna rena så att undantaget kan tas bort.
+5. **Täckningen.** En rapport som anmärker på en verifikation räknas som att den har prövat den,
+   även om verifikationen inte står i `examined_voucher_ids`.
+
 ## Observerat beteende att ta ställning till
 
 Beteendet är inte ändrat. Det här är iakttagelser.

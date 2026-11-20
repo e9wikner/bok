@@ -30,8 +30,8 @@ describe("kartan (testfall 1)", () => {
     expect(SIDOR.map((s) => s.key)).toEqual(["bocker", "betala", "bokslut", "installningar"]);
   });
 
-  it("fördelar vyerna 4 / 2 / 5 / 7: register och regler står under Inställningar, inte bland arbetet", () => {
-    expect(SIDOR.map((s) => s.vyer.length)).toEqual([4, 2, 5, 7]);
+  it("fördelar vyerna 4 / 2 / 6 / 7: register och regler står under Inställningar, inte bland arbetet", () => {
+    expect(SIDOR.map((s) => s.vyer.length)).toEqual([4, 2, 6, 7]);
   });
 
   it("bär sidtitlarna", () => {
@@ -69,7 +69,9 @@ describe("view_key mot serverns lista (testfall 2)", () => {
     expect(viewKeyOf("bocker", 1)).toBe("bocker.verifikationer");
     expect(viewKeyOf("betala", 1)).toBe("betala.loner");
     expect(viewKeyOf("installningar", 2)).toBe("betala.loner");
-    expect(viewKeyOf("bokslut", 5)).toBeUndefined();
+    // Granskningen chattar i Översiktens tråd.
+    expect(viewKeyOf("bokslut", 5)).toBe("bokslut.rapporter");
+    expect(viewKeyOf("bokslut", 6)).toBeUndefined();
   });
 
   it("har en nyckel som börjar med sin egen sidnyckel", () => {

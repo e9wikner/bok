@@ -271,12 +271,14 @@ def test_1_migration_keeps_posted_rows_and_clears_draft_numbers(v26_db):
     assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
     assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
 
-    # Indexes from 001 and all four triggers from 014, verbatim.
+    # Indexes from 001 and all four triggers from 014, verbatim. The review
+    # tables (migration 055) only have "vouchers" in their names.
     objects = {
         r["name"]: r["sql"]
         for r in conn.execute(
             "SELECT name, sql FROM sqlite_master "
-            "WHERE type IN ('index', 'trigger') AND sql LIKE '%vouchers%'"
+            "WHERE type IN ('index', 'trigger') AND sql LIKE '%vouchers%' "
+            "AND tbl_name NOT LIKE 'review\\_%' ESCAPE '\\'"
         )
     }
     assert objects == {**INDEXES_001, **TRIGGERS_014}
