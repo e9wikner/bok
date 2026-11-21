@@ -53,6 +53,8 @@ class AuditAction(str, Enum):
     DISMISSED = "dismissed"
     UNDERLAG_WAIVED = "underlag_waived"
     UNDERLAG_WAIVER_REVOKED = "underlag_waiver_revoked"
+    REVIEW_TOKEN_ISSUED = "review_token_issued"
+    REVIEW_TOKEN_REVOKED = "review_token_revoked"
 
 
 class IntakeStatus(str, Enum):

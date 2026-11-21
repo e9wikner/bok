@@ -52,9 +52,15 @@ def _key_kind(token: str) -> Optional[KeyKind]:
     """Which static key *token* is, if any.
 
     The review key is checked first: were it set to the same value as the
-    API key by mistake, the key is read-only rather than the agent's.
+    API key by mistake, the key is read-only rather than the agent's. A
+    temporary review key (`services/review_token.py`) a human copied from
+    the Granskning view is a review key too, with the same rights.
     """
     if _matches(token, settings.review_api_key):
+        return "review"
+    from services.review_token import ReviewTokenService
+
+    if ReviewTokenService.is_valid(token):
         return "review"
     if _matches(token, settings.api_key):
         return "api"

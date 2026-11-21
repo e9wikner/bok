@@ -283,7 +283,6 @@ export function Skal() {
             <GranskningVy
               titel={vy.titel}
               arId={ar === undefined ? undefined : (ar?.id ?? null)}
-              arEtikett={ar?.label}
               variant={variant}
             />
           ) : vy.key === "installningar.sru" ? (

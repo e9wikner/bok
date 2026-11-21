@@ -58,6 +58,9 @@ class Settings(BaseSettings):
         default=os.getenv("BOKFOERING_REVIEW_KEY", ""),
         alias="BOKFOERING_REVIEW_KEY",
     )
+    # How long a temporary review key lives (`services/review_token.py`):
+    # a logged-in human copies one with the prompt from the Granskning view.
+    review_token_ttl_minutes: int = int(os.getenv("REVIEW_TOKEN_TTL_MINUTES", "60"))
     auth_username: str = os.getenv("AUTH_USERNAME", "admin")
     auth_password: str = os.getenv("AUTH_PASSWORD", DEFAULT_AUTH_PASSWORD)
 

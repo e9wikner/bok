@@ -74,6 +74,24 @@ möjligt att testa utan att sätta en ny nyckel.
   nyckeln, utom `POST /api/v1/review/reports`.
 - Är `BOKFOERING_REVIEW_KEY` tom ger en tom bearer `401`, inte åtkomst.
 
+### 3.1 Tillfällig nyckel med uppdraget (`services/review_token.py`, migration 056)
+
+Det enklaste sättet att starta en granskning är knappen **Kopiera uppdrag till agent** i vyn. Den
+anropar `POST /api/v1/review/tokens` med `{fiscal_year_id, entrypoint_url}` och får tillbaka
+`{id, token, expires_at, prompt}`. `prompt` är ett färdigt uppdrag med året, ingången och nyckeln. Det
+klistras in hos vilken agent som helst.
+
+- Nyckeln börjar med `bokrev_`. Den gäller `REVIEW_TOKEN_TTL_MINUTES` (standard 60) och har exakt
+  granskningsnyckelns rättigheter: `_key_kind` kallar den `"review"`.
+- Bara en inloggad människa får skapa, lista (`GET /api/v1/review/tokens`) och återkalla
+  (`POST /api/v1/review/tokens/{id}/revoke`) en nyckel. API-nyckeln och en granskningsnyckel får `403`.
+- Bara nyckelns sha256 sparas, och klartexten visas en gång. `review_tokens` och
+  `review_token_revocations` är append-only. Att skapa och återkalla en nyckel loggas i `audit_log`.
+- En utgången eller återkallad nyckel ger `401`. Den statiska `BOKFOERING_REVIEW_KEY` fungerar som
+  förut, oberoende av detta.
+
+Tester: `tests/test_review_tokens.py`.
+
 ---
 
 ## 4. API (`api/routes/review.py`)

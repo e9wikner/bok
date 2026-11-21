@@ -15,6 +15,7 @@ import {
   type Anmarkning,
   type AnmarkningsVerifikation,
   type Antal,
+  type GranskningsNyckel,
   type GranskningsVal,
   type Rapport,
   type Rapportrad,
@@ -22,6 +23,7 @@ import {
   beloppKr,
   granskareText,
   granskningApi,
+  giltigTillText,
   granskningStatus,
   ingangUrl,
   lasVal,
@@ -57,14 +59,11 @@ const ALLVARLIGHET_FARG: Record<Allvarlighet, string> = {
 export function GranskningVy({
   titel,
   arId,
-  arEtikett,
   variant,
 }: {
   titel: string;
   /** Året i årsväljaren; `null` när det inte finns något räkenskapsår. */
   arId: string | null | undefined;
-  /** Årets namn, "2025", till texten som en agent kan få. */
-  arEtikett?: string;
   variant: "desktop" | "mobil";
 }) {
   const rapporter = useQuery({
@@ -147,9 +146,12 @@ export function GranskningVy({
             ) : val.rapport && rapporter.data.some((r) => r.id === val.rapport) ? (
               <RapportDetalj id={val.rapport} onTillbaka={() => setVal({ ...val, rapport: null })} />
             ) : rapporter.data.length === 0 ? (
-              <TomtLage arId={arId} arEtikett={arEtikett} />
+              <TomtLage arId={arId} />
             ) : (
-              <RapportLista rapporter={rapporter.data} onOppna={(id) => setVal({ ...val, rapport: id })} />
+              <>
+                <StartaGranskning arId={arId} />
+                <RapportLista rapporter={rapporter.data} onOppna={(id) => setVal({ ...val, rapport: id })} />
+              </>
             )}
           </>
         )}
@@ -238,38 +240,113 @@ function RapportLista({ rapporter, onOppna }: { rapporter: Rapportrad[]; onOppna
   );
 }
 
-function TomtLage({ arId, arEtikett }: { arId: string; arEtikett?: string }) {
-  const url = ingangUrl(apiClient.defaults.baseURL, typeof window === "undefined" ? "" : window.location.origin);
-  const aret = ["Granska räkenskapsåret", arEtikett, `(fiscal_year_id ${arId})`].filter(Boolean).join(" ");
-  const uppdrag = `${aret} och ladda upp en granskningsrapport. Börja här: ${url}`;
+function TomtLage({ arId }: { arId: string }) {
   return (
     <>
       <Rubrik>Ingen rapport än</Rubrik>
-      <div className="flex flex-col gap-3 text-[14px] leading-[1.55] text-bok-text-2 [text-wrap:pretty]">
-        <p className="m-0">
-          Det finns ingen granskningsrapport för året. Bok granskar inte själv: en agent, vilken som helst, läser
-          böckerna genom API:et och laddar upp sin rapport hit.
-        </p>
-        <p className="m-0">Peka agenten på ingången, som säger hur den autentiserar sig och var instruktionen finns:</p>
-        <code
-          data-testid="granskning-ingang"
-          className="bok-mono block select-all break-all rounded-md bg-bok-bubbla px-3 py-2 text-[13px] text-bok-text"
-        >
-          {url}
-        </code>
-        <p className="m-0">
-          Agenten behöver granskningsnyckeln, <span className="bok-mono text-[13px]">BOKFOERING_REVIEW_KEY</span>,
-          som bearer. Den nyckeln kan bara läsa och ladda upp en rapport; ge aldrig agenten bokföringens nyckel. Till
-          exempel:
-        </p>
-        <code className="bok-mono block select-all whitespace-pre-wrap break-words rounded-md bg-bok-bubbla px-3 py-2 text-[13px] text-bok-text">
-          {uppdrag}
-        </code>
-        <p className="m-0 text-[13px] text-bok-text-svag">
-          Kör flera agenter eller modeller, så får du flera oberoende rapporter om samma år att jämföra under Täckning.
-        </p>
-      </div>
+      <p className="m-0 text-[14px] leading-[1.55] text-bok-text-2 [text-wrap:pretty]">
+        Det finns ingen granskningsrapport för året. Bok granskar inte själv: en agent, vilken som helst, läser
+        böckerna genom API:et och laddar upp sin rapport hit.
+      </p>
+      <StartaGranskning arId={arId} />
     </>
+  );
+}
+
+/**
+ * En knapp som skapar en tillfällig granskningsnyckel (en timme, bara läsa
+ * och ladda upp rapporten) och kopierar ett färdigt uppdrag med nyckeln.
+ * Nyckeln finns bara i komponentens tillstånd; den sparas ingenstans.
+ */
+function StartaGranskning({ arId }: { arId: string }) {
+  const [nyckel, setNyckel] = useState<GranskningsNyckel | null>(null);
+  const [kopierad, setKopierad] = useState(false);
+  const [arbetar, setArbetar] = useState(false);
+  const [fel, setFel] = useState<string | null>(null);
+  const [aterkallad, setAterkallad] = useState(false);
+
+  // Ett annat år får sitt eget uppdrag.
+  useEffect(() => {
+    setNyckel(null);
+    setKopierad(false);
+    setFel(null);
+    setAterkallad(false);
+  }, [arId]);
+
+  const kopiera = async () => {
+    setArbetar(true);
+    setFel(null);
+    setKopierad(false);
+    setAterkallad(false);
+    try {
+      const url = ingangUrl(apiClient.defaults.baseURL, typeof window === "undefined" ? "" : window.location.origin);
+      const ny = await granskningApi.skapaNyckel(arId, url);
+      setNyckel(ny);
+      try {
+        await navigator.clipboard.writeText(ny.prompt);
+        setKopierad(true);
+      } catch {
+        // Utan urklipp står uppdraget nedan, markerbart.
+      }
+    } catch {
+      setFel("Uppdraget kunde inte skapas. Är du inloggad?");
+    } finally {
+      setArbetar(false);
+    }
+  };
+
+  const aterkalla = async () => {
+    if (!nyckel) return;
+    try {
+      await granskningApi.aterkallaNyckel(nyckel.id);
+      setAterkallad(true);
+    } catch {
+      setFel("Nyckeln kunde inte återkallas.");
+    }
+  };
+
+  const till = nyckel ? giltigTillText(nyckel.expires_at) : "";
+
+  return (
+    <div data-testid="starta-granskning" className="flex flex-col gap-3 text-[14px] leading-[1.55] text-bok-text-2">
+      <Rubrik>Starta en granskning</Rubrik>
+      <p className="m-0 [text-wrap:pretty]">
+        Kopiera uppdraget och klistra in det hos en agent. Det innehåller en tillfällig nyckel som gäller en timme och
+        bara kan läsa böckerna och ladda upp rapporten. Ge aldrig agenten bokföringens nyckel.
+      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={kopiera}
+          disabled={arbetar}
+          className="rounded-md border border-bok-text bg-bok-text px-3 py-[6px] text-[13px] text-bok-yta hover:opacity-90 disabled:opacity-60"
+        >
+          {nyckel ? "Kopiera ett nytt uppdrag" : "Kopiera uppdrag till agent"}
+        </button>
+        {nyckel && !aterkallad && (
+          <span className="bok-mono text-[12px] text-bok-meta" data-testid="granskning-kopierad">
+            {kopierad ? "Kopierat · " : ""}nyckeln gäller till {till}
+            {" · "}
+            <button type="button" onClick={aterkalla} className="text-bok-lank underline-offset-2 hover:underline">
+              Återkalla
+            </button>
+          </span>
+        )}
+        {aterkallad && <span className="bok-mono text-[12px] text-bok-meta">Nyckeln är återkallad</span>}
+      </div>
+      {fel && <VyBanner ton="fel" text={fel} />}
+      {nyckel && !aterkallad && (
+        <code
+          data-testid="granskning-uppdrag"
+          className="bok-mono block select-all whitespace-pre-wrap break-words rounded-md bg-bok-bubbla px-3 py-2 text-[13px] text-bok-text"
+        >
+          {nyckel.prompt}
+        </code>
+      )}
+      <p className="m-0 text-[13px] text-bok-text-svag">
+        Kör flera agenter eller modeller, så får du flera oberoende rapporter om samma år att jämföra under Täckning.
+      </p>
+    </div>
   );
 }
 

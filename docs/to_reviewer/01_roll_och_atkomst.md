@@ -10,7 +10,10 @@ senare av bolaget i det vanliga flödet, inte av dig.
 
 ## Åtkomst
 
-Varje anrop har headern `Authorization: Bearer <BOKFOERING_REVIEW_KEY>`.
+Varje anrop har headern `Authorization: Bearer <BOKFOERING_REVIEW_KEY>`, eller
+den tillfälliga nyckeln (`bokrev_…`) som står i ditt uppdrag. En tillfällig
+nyckel slutar gälla efter en timme. Då ger varje anrop `401`, och du behöver
+ett nytt uppdrag.
 Nyckeln får `GET` på läsrutterna och `POST /api/v1/review/reports`. Allt annat
 ger `403 review_key_read_only`. Det är väntat och betyder inte att något är
 fel.

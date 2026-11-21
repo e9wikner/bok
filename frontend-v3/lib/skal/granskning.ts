@@ -188,6 +188,16 @@ export const tackningNyckel = (arId: string) => [...GRANSKNING_NYCKEL, "tackning
 
 export const INGANG_SOKVAG = "/api/v1/review/entrypoint";
 
+/** Nyckeln står bara i `prompt`; den visas en gång och sparas ingenstans. */
+export type GranskningsNyckel = { id: string; prompt: string; expires_at: string };
+
+/** "14:05", nyckelns sista minut i lokal tid. */
+export function giltigTillText(expiresAt: string): string {
+  const t = new Date(expiresAt);
+  if (Number.isNaN(t.getTime())) return "";
+  return t.toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" });
+}
+
 export const granskningApi = {
   rapporter: async (arId: string): Promise<Rapportrad[]> => {
     const { data } = await apiClient.get(`/api/v1/review/reports?fiscal_year_id=${encodeURIComponent(arId)}`);
@@ -198,6 +208,15 @@ export const granskningApi = {
   rapport: async (id: string): Promise<Rapport> => {
     const { data } = await apiClient.get(`/api/v1/review/reports/${encodeURIComponent(id)}`);
     return somRapport((data ?? {}) as Rått);
+  },
+  /** En tillfällig granskningsnyckel och uppdraget att klistra in hos en agent. Bara en inloggad människa får en. */
+  skapaNyckel: async (arId: string, ingang: string): Promise<GranskningsNyckel> => {
+    const { data } = await apiClient.post("/api/v1/review/tokens", { fiscal_year_id: arId, entrypoint_url: ingang });
+    const d = (data ?? {}) as Rått;
+    return { id: String(d.id ?? ""), prompt: String(d.prompt ?? ""), expires_at: String(d.expires_at ?? "") };
+  },
+  aterkallaNyckel: async (id: string): Promise<void> => {
+    await apiClient.post(`/api/v1/review/tokens/${encodeURIComponent(id)}/revoke`);
   },
   tackning: async (arId: string): Promise<Tackning> => {
     const { data } = await apiClient.get(`/api/v1/review/coverage?fiscal_year_id=${encodeURIComponent(arId)}`);

@@ -162,6 +162,14 @@ Service-to-service imports are deferred inside methods to avoid import cycles.
   agent proposes them as a decision card (`foresla_bolagsinformation`,
   `services/company_info_proposal.py`, migration 042); `PUT /company-info`
   gets `403 human_only` with the API key. `GET` stays readable with the key.
+- **A review is started with a temporary key that a human copies.** The
+  Granskning view's "Kopiera uppdrag till agent" calls
+  `POST /api/v1/review/tokens` (`human_only`). That returns a prompt holding a
+  `bokrev_` key, valid for an hour, with the review key's rights: read, plus
+  `POST /review/reports` (`services/review_token.py`, migration 056,
+  append-only, revocable). Only the key's sha256 is stored.
+  `api/deps.py::_key_kind` maps it to `"review"`, so the review-key limits
+  apply unchanged.
 - **`docs/to_agent/*.md` is runtime content, not documentation.** It is read and
   served to agents by `repositories/system_instructions.py` and asserted on by
   `tests/test_agent_entrypoint.py`. Editing it changes system behaviour.

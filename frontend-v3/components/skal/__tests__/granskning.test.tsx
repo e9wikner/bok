@@ -26,8 +26,13 @@ import { allaVyer } from "@/lib/skal/vyer";
 /** Granskningen under Bokslut: rapporterna som externa agenter laddat upp, och täckningen. */
 
 const get = vi.fn();
+const post = vi.fn();
 vi.mock("@/lib/api", () => ({
-  default: { get: (...a: unknown[]) => get(...a), defaults: { baseURL: "http://bok.lan:8000" } },
+  default: {
+    get: (...a: unknown[]) => get(...a),
+    post: (...a: unknown[]) => post(...a),
+    defaults: { baseURL: "http://bok.lan:8000" },
+  },
 }));
 
 // Intl skriver ett hårt mellanslag som tusentalsavgränsare.
@@ -152,7 +157,7 @@ function visa({ arId = "fy-2025" as string | null, oppna = vi.fn() } = {}) {
   const utfall = render(
     <QueryClientProvider client={qc}>
       <DetaljProvider value={{ stack: [], oppna, bakat: vi.fn(), stang: vi.fn() }}>
-        <GranskningVy titel="Granskning" arId={arId} arEtikett="2025" variant="desktop" />
+        <GranskningVy titel="Granskning" arId={arId} variant="desktop" />
       </DetaljProvider>
     </QueryClientProvider>
   );
@@ -161,6 +166,7 @@ function visa({ arId = "fy-2025" as string | null, oppna = vi.fn() } = {}) {
 
 beforeEach(() => {
   get.mockReset();
+  post.mockReset();
 });
 
 describe("kartan", () => {
@@ -299,14 +305,48 @@ describe("vyn", () => {
     expect(get).toHaveBeenCalledWith("/api/v1/review/reports?fiscal_year_id=fy-2025");
   });
 
-  it("utan rapport säger den hur en agent pekas på ingången", async () => {
+  it("utan rapport kopierar en knapp ett uppdrag med en tillfällig nyckel", async () => {
     svara({ rapporter: [] });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    post.mockResolvedValue({
+      data: { id: "t1", prompt: "Granska räkenskapsåret 2025 ... Bearer bokrev_abc", expires_at: "2026-11-21T14:05:00+00:00" },
+    });
     visa();
-    expect(await screen.findByTestId("granskning-ingang")).toHaveTextContent(
-      "http://bok.lan:8000/api/v1/review/entrypoint"
-    );
-    expect(screen.getByText(/Granska räkenskapsåret 2025 \(fiscal_year_id fy-2025\)/)).toBeInTheDocument();
-    expect(screen.getAllByText(/BOKFOERING_REVIEW_KEY/).length).toBeGreaterThan(0);
+    fireEvent.click(await screen.findByRole("button", { name: "Kopiera uppdrag till agent" }));
+
+    expect(await screen.findByTestId("granskning-kopierad")).toHaveTextContent(/Kopierat · nyckeln gäller till \d\d:\d\d/);
+    expect(post).toHaveBeenCalledWith("/api/v1/review/tokens", {
+      fiscal_year_id: "fy-2025",
+      entrypoint_url: "http://bok.lan:8000/api/v1/review/entrypoint",
+    });
+    expect(writeText).toHaveBeenCalledWith("Granska räkenskapsåret 2025 ... Bearer bokrev_abc");
+    expect(screen.getByTestId("granskning-uppdrag")).toHaveTextContent("bokrev_abc");
+
+    fireEvent.click(screen.getByRole("button", { name: "Återkalla" }));
+    expect(await screen.findByText("Nyckeln är återkallad")).toBeInTheDocument();
+    expect(post).toHaveBeenLastCalledWith("/api/v1/review/tokens/t1/revoke");
+    expect(screen.queryByTestId("granskning-uppdrag")).not.toBeInTheDocument();
+  });
+
+  it("utan urklipp står uppdraget kvar att markera", async () => {
+    svara({ rapporter: [] });
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: vi.fn().mockRejectedValue(new Error("nej")) },
+      configurable: true,
+    });
+    post.mockResolvedValue({ data: { id: "t1", prompt: "uppdraget", expires_at: "2026-11-21T14:05:00+00:00" } });
+    visa();
+    fireEvent.click(await screen.findByRole("button", { name: "Kopiera uppdrag till agent" }));
+    expect(await screen.findByTestId("granskning-uppdrag")).toHaveTextContent("uppdraget");
+    expect(screen.getByTestId("granskning-kopierad")).not.toHaveTextContent("Kopierat");
+  });
+
+  it("med rapporter går en ny granskning också att starta", async () => {
+    svara();
+    visa();
+    await screen.findAllByTestId("granskningsrapport");
+    expect(screen.getByTestId("starta-granskning")).toBeInTheDocument();
   });
 
   it("en rapport visar sammanfattningen som markdown och anmärkningarna i allvarlighetsordning", async () => {

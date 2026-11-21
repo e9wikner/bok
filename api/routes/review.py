@@ -13,11 +13,13 @@ The bookkeeping agent gets no tool for this: it does not review itself.
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from pydantic import BaseModel, ConfigDict
 
-from api.deps import get_fiscal_year_filter, get_principal
+from api.deps import get_fiscal_year_filter, get_human_actor, get_principal
 from config import settings
 from domain.models import FiscalYear
 from services.review import ReviewError, ReviewReportIn, ReviewService
+from services.review_token import ReviewTokenError, ReviewTokenService, token_json
 
 PREFIX = "/api/v1/review"
 
@@ -144,3 +146,59 @@ async def get_review_coverage(
         return service.coverage(service.fiscal_year(fiscal_year_id))
     except ReviewError as exc:
         raise _http_error(exc) from exc
+
+
+# -- temporary review keys (services/review_token.py) -------------------------
+
+
+class ReviewTokenIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    fiscal_year_id: str
+    #: The entrypoint as the browser reaches it; only the browser knows the
+    #: host an agent can reach.
+    entrypoint_url: str
+
+
+def _token_error(exc: ReviewTokenError) -> HTTPException:
+    return HTTPException(
+        status_code=exc.status, detail={"error": exc.message, "code": exc.code}
+    )
+
+
+@router.post(
+    "/tokens",
+    response_model=dict,
+    status_code=status.HTTP_201_CREATED,
+    responses={403: {"description": "human_only"}},
+)
+async def issue_review_token(
+    body: ReviewTokenIn, actor: str = Depends(get_human_actor)
+):
+    """A temporary review key and a prompt to paste into an agent. The key
+    reads and uploads a review report, nothing else, and expires after
+    `review_token_ttl_minutes`. It is returned once; only its hash is
+    stored. Only a logged-in human may issue one."""
+    try:
+        return ReviewTokenService().issue(
+            created_by=actor,
+            fiscal_year_id=body.fiscal_year_id,
+            entrypoint_url=body.entrypoint_url,
+        )
+    except ReviewTokenError as exc:
+        raise _token_error(exc) from exc
+
+
+@router.get("/tokens", response_model=dict)
+async def list_review_tokens(actor: str = Depends(get_human_actor)):
+    """The temporary review keys still in force. Never the keys themselves."""
+    return {"tokens": ReviewTokenService.list_active()}
+
+
+@router.post("/tokens/{token_id}/revoke", response_model=dict)
+async def revoke_review_token(token_id: str, actor: str = Depends(get_human_actor)):
+    """End a temporary review key before it expires. A replay is not an error."""
+    try:
+        return token_json(ReviewTokenService().revoke(token_id, revoked_by=actor))
+    except ReviewTokenError as exc:
+        raise _token_error(exc) from exc
