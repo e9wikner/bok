@@ -121,6 +121,37 @@ def _falt(fy):
     return {k: v.value for k, v in d.fields.items()}
 
 
+def _bas_sru():
+    """#SRU-rader för SIE-filens konton enligt BAS.
+
+    En årsspecifik mappning ersätter BAS helt, så en fil som avviker för
+    några konton måste ändå koppla alla de andra som BAS gör.
+    """
+    import re
+
+    from services.sru_export import DEFAULT_SRU_MAPPINGS
+
+    bas = {
+        str(konto): falt
+        for falt, konton in DEFAULT_SRU_MAPPINGS.items()
+        for konto in konton
+    }
+    return [
+        f"#SRU {k} {bas[k]}"
+        for k in re.findall(r"^#KONTO (\d{4})", SIE, re.M)
+        if k in bas
+    ]
+
+
+def _importera_med_sru(sru):
+    from services.sie4_import import SIE4Importer
+
+    sie = SIE.replace("#IB 0 1385", "\n".join(sru) + "\n#IB 0 1385", 1)
+    importer = SIE4Importer("", "")
+    assert importer.import_content(sie), importer.errors
+    return importer.fiscal_year_resolution["id"]
+
+
 class TestInk2s:
     def test_justeringarna_raknas_ur_bokforingen(self, ar):
         f = _falt(ar)
@@ -140,28 +171,20 @@ class TestInk2s:
         """En SIE-fil kopplar ofta 8999 till 7450/7550. Före bokslutet har 8999
         inget saldo, och kopplingen fick då 7450 att stå på 0 kr, så att
         skatten räknades på 0 kr i stället för årets resultat."""
-        import re
-
-        from services.sie4_import import SIE4Importer
-        from services.sru_export import DEFAULT_SRU_MAPPINGS
-
-        # En årsspecifik mappning ersätter BAS helt, så filen kopplar alla
-        # konton som BAS gör, och dessutom 899x till 7450 som iOrdning gör.
-        bas = {
-            str(konto): falt
-            for falt, konton in DEFAULT_SRU_MAPPINGS.items()
-            for konto in konton
-        }
-        sru = [
-            f"#SRU {k} {bas[k]}"
-            for k in re.findall(r"^#KONTO (\d{4})", SIE, re.M)
-            if k in bas
-        ]
+        # Som iOrdning: 899x kopplat till 7450.
+        sru = _bas_sru()
         sru += ["#SRU 8999 7450", "#SRU 8990 7450"]
-        sie = SIE.replace("#IB 0 1385", "\n".join(sru) + "\n#IB 0 1385", 1)
-        importer = SIE4Importer("", "")
-        assert importer.import_content(sie), importer.errors
-        f = _falt(importer.fiscal_year_resolution["id"])
+        f = _falt(_importera_med_sru(sru))
+        assert f["7450"] == 326355
+        assert f["7650"] == 326355
+        assert f["7670"] == 326355 + 685 - 30040 + 7840 + 10000
+
+    def test_annat_konto_utan_saldo_mappat_till_arets_resultat(self, test_db):
+        """Samma fel med ett konto utanför 899x: 2099 utan saldo kopplat till
+        7450 fick 7450 att stå på 0 kr, och det härledda resultatet hoppades
+        över."""
+        sru = _bas_sru() + ["#SRU 2099 7450"]
+        f = _falt(_importera_med_sru(sru))
         assert f["7450"] == 326355
         assert f["7650"] == 326355
         assert f["7670"] == 326355 + 685 - 30040 + 7840 + 10000

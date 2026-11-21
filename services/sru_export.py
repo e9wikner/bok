@@ -449,6 +449,12 @@ class SRUExportService:
         result = sum(fields[f].value for f in income_fields if f in fields) - sum(
             fields[f].value for f in expense_fields if f in fields
         )
+        # A mapped result row that sums to 0 kr is no stated result: it is an
+        # account mapped to 7450/7550 that has no balance yet (e.g. 2099
+        # before the result is closed). Keeping it would put the tax on 0 kr.
+        for code in ("7450", "7550"):
+            if code in fields and fields[code].value == 0:
+                del fields[code]
         if result > 0 and "7450" not in fields:
             fields["7450"] = SRUFieldValue(
                 field_number="7450",
