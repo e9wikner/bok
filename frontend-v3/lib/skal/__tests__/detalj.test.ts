@@ -167,10 +167,11 @@ describe("verifikationen", () => {
   it("varje kontering leder till kontots huvudbok", () => {
     const vy = verifikationVy(verifikation());
     const konteringar = vy.sektioner[0].rader;
-    expect(konteringar.map((r) => [r.titel, r.hoger, r.mal])).toEqual([
-      ["Lokalhyra", "300", { typ: "konto", kod: "5010" }],
-      ["Företagskonto", "−300", { typ: "konto", kod: "1930" }],
-      ["Omslutning", "300", undefined],
+    expect(vy.sektioner[0].kolumner).toEqual(["Debet", "Kredit"]);
+    expect(konteringar.map((r) => [r.titel, r.kolumner, r.hoger, r.mal])).toEqual([
+      ["Lokalhyra", ["300"], "", { typ: "konto", kod: "5010" }],
+      ["Företagskonto", [""], "300", { typ: "konto", kod: "1930" }],
+      ["Omslutning", ["300"], "300", undefined],
     ]);
     expect(vy.status).toBe("postad · låst");
   });

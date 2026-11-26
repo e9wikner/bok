@@ -260,6 +260,9 @@ function rattadeKonteringar(r: Rattelse): VyRadData[] {
   return rader;
 }
 
+/** Konteringarnas kolumner, som i en verifikation på papper. */
+const DEBET_KREDIT = ["Debet", "Kredit"];
+
 /**
  * Verifikationen: konteringarna (varje konto leder till sin huvudbok),
  * underlaget och hänvisningarna till andra verifikationer. Ingenting här
@@ -274,10 +277,18 @@ export function verifikationVy(v: VerifikationDetalj, historik: Verifikationshan
     id: r.id,
     titel: r.account_name || r.account_code,
     meta: r.description && r.description !== v.description ? `${r.account_code} · ${r.description}` : r.account_code,
-    hoger: formatBeloppHela(r.debit - r.credit),
+    // Debet i den första kolumnen, kredit i `hoger`; den tomma cellen står kvar.
+    kolumner: [r.debit ? formatBeloppHela(r.debit) : ""],
+    hoger: r.credit ? formatBeloppHela(r.credit) : "",
     mal: { typ: "konto", kod: r.account_code },
   }));
-  konteringar.push({ id: "omslutning", titel: "Omslutning", hoger: formatBeloppHela(v.total_debit), summa: true });
+  konteringar.push({
+    id: "omslutning",
+    titel: "Omslutning",
+    kolumner: [formatBeloppHela(v.total_debit)],
+    hoger: formatBeloppHela(v.total_credit),
+    summa: true,
+  });
 
   // En rättad verifikation visar först hur konteringen står nu, sedan den
   // som postades. En rättelse visar först vad den ändrade, sedan sina egna
@@ -291,13 +302,13 @@ export function verifikationVy(v: VerifikationDetalj, historik: Verifikationshan
       titel: makulerad ? `Makulerad med ${rattelseNr}` : `Kontering efter ${rattelseNr}`,
       rader: rattadeKonteringar(r),
     });
-    sektioner.push({ titel: "Som postad", rader: konteringar });
+    sektioner.push({ titel: "Som postad", rader: konteringar, kolumner: DEBET_KREDIT });
   } else if (v.correction && v.corrects) {
     const vad = v.correction.kind === "makulering" ? "Makulerar" : "Ändrar";
     sektioner.push({ titel: `${vad} ${nummerAv(v.correction.original)}`, rader: rattadeKonteringar(v.correction) });
-    sektioner.push({ titel: "Konteringar som bokförda", rader: konteringar });
+    sektioner.push({ titel: "Konteringar som bokförda", rader: konteringar, kolumner: DEBET_KREDIT });
   } else {
-    sektioner.push({ titel: "Konteringar", rader: konteringar });
+    sektioner.push({ titel: "Konteringar", rader: konteringar, kolumner: DEBET_KREDIT });
   }
 
   // Kommentaren, en rad per stycke: kursraden servern skrev, sedan agentens text.

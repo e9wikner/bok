@@ -174,7 +174,10 @@ export function VyRad({
   // Mobilen har inte bredd för kolumnerna: de står i metaraden i stället.
   const kolumnMeta =
     kolumner && storlek === "mobil"
-      ? kolumner.map((k, i) => `${kolumnRubriker?.[i] ?? ""} ${k}`.trim()).join(" · ")
+      ? kolumner
+          .map((k, i) => (k ? `${kolumnRubriker?.[i] ?? ""} ${k}`.trim() : ""))
+          .filter(Boolean)
+          .join(" · ")
       : undefined;
   const metaText = [nummerKolumn ? undefined : nummer, meta, kolumnMeta].filter(Boolean).join(" · ") || undefined;
   const [betalar, setBetalar] = useState(false);
