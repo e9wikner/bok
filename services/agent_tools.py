@@ -296,6 +296,24 @@ class LasKontoplanArgs(BaseModel):
     active_only: bool = True
 
 
+class SkapaKontoArgs(BaseModel):
+    """Lägg upp ett nytt konto i kontoplanen."""
+
+    code: str = Field(..., description="Fyrsiffrig BAS-kontokod, 1000-8999")
+    name: str = Field(..., min_length=1, max_length=200)
+    account_type: Literal[
+        "asset",
+        "liability",
+        "equity",
+        "revenue",
+        "expense",
+        "vat_out",
+        "vat_in",
+    ] = Field(..., description="Kontotyp enligt BAS-klassen")
+    vat_code: Optional[Literal["MP1", "MP2", "MP3", "MF"]] = None
+    sru_code: Optional[str] = None
+
+
 class LasPerioderArgs(BaseModel):
     """Läs perioder -- öppna och/eller låsta, med `locked_by`/`locked_at`."""
 
@@ -1027,6 +1045,29 @@ def _run_las_kontoplan(
 ) -> list[dict]:
     accounts = AccountRepository.list_all(active_only=args.active_only)
     return [_account_dict(account) for account in accounts]
+
+
+def _run_skapa_konto(
+    args: SkapaKontoArgs,
+    *,
+    actor: str,
+    capabilities: LLMCapabilities,
+    idempotency_key: Optional[str] = None,
+    tool_context: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    # Deferred import (AGENTS.md: service-to-service imports wait until the
+    # method runs).
+    from services.ledger import LedgerService
+
+    account = LedgerService().create_account(
+        code=args.code,
+        name=args.name,
+        account_type=args.account_type,
+        vat_code=args.vat_code,
+        sru_code=args.sru_code,
+        actor=actor,
+    )
+    return _account_dict(account)
 
 
 def _run_las_perioder(
@@ -2785,6 +2826,15 @@ _TOOL_SPECS: tuple[tuple[str, str, type[BaseModel], _ToolHandler], ...] = (
         UppdateraInstruktionerArgs,
         _run_uppdatera_instruktioner,
     ),
+    (
+        "skapa_konto",
+        "Lägg upp ett nytt konto i kontoplanen när underlaget kräver ett "
+        "BAS-konto som saknas (läs kontoplanen först). Fyrsiffrig kod och "
+        "BAS-namnet, typ efter kontoklassen. Ett befintligt konto ändras "
+        "aldrig: finns koden får du account_exists. Bokför ingenting.",
+        SkapaKontoArgs,
+        _run_skapa_konto,
+    ),
 )
 
 #: Anthropic tool-definition shape: {"name", "description", "input_schema"}.
@@ -2829,8 +2879,8 @@ def execute_tool(
     tool_context: Optional[Mapping[str, Any]] = None,
 ) -> Any:
     """Validate and run one model-requested tool call -- one of the
-    thirty-seven tools in ``_TOOL_SPECS``, the last of them
-    ``uppdatera_instruktioner`` (the thirty-sixth ``foresla_avtalsbokforing``, the thirty-fifth ``foresla_utlaggskontroll``,
+    thirty-eight tools in ``_TOOL_SPECS``, the last of them
+    ``skapa_konto`` (the thirty-seventh ``uppdatera_instruktioner``, the thirty-sixth ``foresla_avtalsbokforing``, the thirty-fifth ``foresla_utlaggskontroll``,
     the thirty-third and thirty-fourth
     ``hamta_valutakurs`` and ``kontrollera_utlagg``, the thirty-second
     ``foresla_delat_underlag``, the thirty-first ``bokfor_agi``,

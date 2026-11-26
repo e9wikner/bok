@@ -53,6 +53,7 @@ export const SKRIVER_ETIKETTER: Readonly<Record<string, string>> = {
   foresla_utlaggskontroll: "Frågar om utlägget…",
   foresla_avtalsbokforing: "Frågar vilka transaktioner avtalet gäller…",
   uppdatera_instruktioner: "Uppdaterar instruktionerna…",
+  skapa_konto: "Lägger upp kontot…",
 };
 
 /**

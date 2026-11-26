@@ -245,6 +245,9 @@ kontoplan om sådan finns. Gissa inte bort differenser.
 
 Använd företagets faktiska kontoplan från API:t. Följande är vanliga BAS-mönster
 men ska inte användas om kontot saknas eller företagets instruktion säger annat:
+saknas det BAS-konto som underlaget kräver, lägg upp det med `skapa_konto`
+(utifrån: `POST /api/v1/accounts`) med BAS-namnet, i stället för att bokföra på
+ett närliggande konto. Ett befintligt konto ändras aldrig.
 
 - `1510` Kundfordringar
 - `1930` Företagskonto/bank

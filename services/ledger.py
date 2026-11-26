@@ -4,8 +4,8 @@ import logging
 from datetime import date, datetime
 from typing import Dict, List, Optional, Tuple
 
-from domain.models import FiscalYear, Period, Voucher, VoucherRow
-from domain.types import AuditAction, VoucherSeries, VoucherStatus
+from domain.models import Account, FiscalYear, Period, Voucher, VoucherRow
+from domain.types import AccountType, AuditAction, VoucherSeries, VoucherStatus
 from domain.validation import (
     FiscalYearValidator,
     PeriodValidator,
@@ -622,6 +622,81 @@ class LedgerService:
         # Return the latest unlocked period
         unlocked = [p for p in periods if not p.locked]
         return unlocked[-1] if unlocked else None
+
+    def create_account(
+        self,
+        code: str,
+        name: str,
+        account_type: str,
+        vat_code: Optional[str] = None,
+        sru_code: Optional[str] = None,
+        active: bool = True,
+        actor: str = "system",
+    ) -> Account:
+        """Add an account to the kontoplan, audit-logged.
+
+        The kontoplan is not räkenskapsinformation the way a posted voucher
+        is: adding an account changes no balance and no voucher, so the
+        agent may do it. An existing code is never overwritten -- the
+        account's name and type are what earlier vouchers were booked
+        against.
+        """
+        from domain.invoice_validation import VATCalculator
+
+        code = code.strip()
+        name = name.strip()
+        if not (len(code) == 4 and code.isdigit() and "1000" <= code <= "8999"):
+            raise ValidationError(
+                "invalid_account_code",
+                "Kontokoden ska vara fyra siffror mellan 1000 och 8999 (BAS)",
+                details=f"code={code!r}",
+            )
+        if not name:
+            raise ValidationError("invalid_account_name", "Kontot behöver ett namn")
+        try:
+            parsed_type = AccountType(account_type)
+        except ValueError:
+            raise ValidationError(
+                "invalid_account_type",
+                f"Okänd kontotyp {account_type!r}",
+                details=f"giltiga: {[t.value for t in AccountType]}",
+            )
+        if vat_code is not None and vat_code not in VATCalculator.VAT_PERCENT:
+            raise ValidationError(
+                "invalid_vat_code",
+                f"Okänd momskod {vat_code!r}",
+                details=f"giltiga: {sorted(VATCalculator.VAT_PERCENT)}",
+            )
+        existing = self.accounts.get(code)
+        if existing is not None:
+            raise ValidationError(
+                "account_exists",
+                f"Konto {code} finns redan ({existing.name}"
+                f"{'' if existing.active else ', inaktivt'})",
+            )
+
+        account = self.accounts.create(
+            code=code,
+            name=name,
+            account_type=parsed_type.value,
+            vat_code=vat_code,
+            sru_code=sru_code,
+            active=active,
+        )
+        self.audit.log(
+            entity_type="account",
+            entity_id=code,
+            action=AuditAction.CREATED.value,
+            actor=actor,
+            payload={
+                "name": name,
+                "account_type": parsed_type.value,
+                "vat_code": vat_code,
+                "sru_code": sru_code,
+                "active": active,
+            },
+        )
+        return account
 
     def lock_period(self, period_id: str, actor: str = "system") -> Period:
         """Lock period: no new vouchers can be posted in it.

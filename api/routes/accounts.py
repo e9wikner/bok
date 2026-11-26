@@ -2,8 +2,9 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from api.deps import get_ledger_service
+from api.deps import get_current_actor, get_ledger_service
 from api.schemas import AccountListResponse, AccountResponse, CreateAccountRequest
+from domain.validation import ValidationError
 from services.ledger import LedgerService
 
 router = APIRouter(prefix="/api/v1/accounts", tags=["accounts"])
@@ -13,16 +14,29 @@ router = APIRouter(prefix="/api/v1/accounts", tags=["accounts"])
 async def create_account(
     request: CreateAccountRequest,
     ledger: LedgerService = Depends(get_ledger_service),
+    actor: str = Depends(get_current_actor),
 ):
-    """Create a new account (typically for extending BAS 2026)."""
-    account = ledger.accounts.create(
-        code=request.code,
-        name=request.name,
-        account_type=request.account_type,
-        vat_code=request.vat_code,
-        sru_code=request.sru_code,
-        active=request.active,
-    )
+    """Create a new account (typically for extending BAS 2026).
+
+    An existing code gets `409 account_exists`; it is never overwritten.
+    """
+    try:
+        account = ledger.create_account(
+            code=request.code,
+            name=request.name,
+            account_type=request.account_type,
+            vat_code=request.vat_code,
+            sru_code=request.sru_code,
+            active=request.active,
+            actor=actor,
+        )
+    except ValidationError as exc:
+        if exc.code != "account_exists":
+            raise
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": exc.message, "code": exc.code},
+        )
     return _account_to_response(account)
 
 

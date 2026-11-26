@@ -1133,6 +1133,7 @@ _EXPECTED_TOOL_NAMES = [
     "foresla_avtalsbokforing",
     # The thirty-seventh: a lesson written to the company instructions.
     "uppdatera_instruktioner",
+    "skapa_konto",
 ]
 
 #: Names that carry a forbidden fragment by design, and why it is not the
@@ -1313,6 +1314,7 @@ class TestAppendOnlyToolSurface:
             "foresla_utlaggskontroll",
             "foresla_avtalsbokforing",
             "uppdatera_instruktioner",
+            "skapa_konto",
         }
         read_tool_names = set(_EXPECTED_TOOL_NAMES) - write_tool_names
         for tool in AGENT_TOOL_DEFINITIONS:
