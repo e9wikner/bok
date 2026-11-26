@@ -465,7 +465,7 @@ class ThreadTurnRunner:
                 logger.error("Thread run %s failed: %s", run.id, reason)
                 AgentRunRepository.update_status(run.id, "failed", last_error=reason)
                 post = ThreadService.record_error(thread, reason, run_id=run.id)
-                self._publish_completed(thread, post)
+                self._publish_completed(thread, post, since=trigger_post.seq)
                 return None
 
             AgentRunRepository.add_usage(
@@ -493,7 +493,7 @@ class ThreadTurnRunner:
                 answer_text="".join(paragraph).strip() or None,
             )
             AgentRunRepository.update_status(run.id, "completed")
-            self._publish_completed(thread, post)
+            self._publish_completed(thread, post, since=trigger_post.seq)
 
             if outcome.kind == "posted":
                 # Derived from the posting's own outcome -- never from a
@@ -520,12 +520,32 @@ class ThreadTurnRunner:
             post = ThreadService.record_error(
                 thread, f"{type(exc).__name__}: {exc}", run_id=run.id
             )
-            self._publish_completed(thread, post)
+            self._publish_completed(thread, post, since=trigger_post.seq)
             return None
         finally:
             release_run(run.id)
 
-    def _publish_completed(self, thread: Thread, post: ThreadPost) -> None:
+    def _publish_completed(
+        self, thread: Thread, post: ThreadPost, *, since: Optional[int] = None
+    ) -> None:
+        """Announce the turn's final post -- and, with `since` (the trigger
+        post's seq), every post the turn wrote before it.
+
+        A tool such as `foresla_verifikation` writes its card in the middle
+        of the turn and publishes nothing itself. Without this the card was
+        stored but reached an open thread only on the next read, while the
+        answer that pointed at it arrived live. The cards go first, in seq
+        order, so the answer never lands above what it refers to. A post
+        some service already published comes again; the client drops a post
+        it has already seen.
+        """
+        if since is not None:
+            for earlier in ThreadRepository.list_posts(thread.id, since=since):
+                if earlier.seq >= post.seq:
+                    break
+                self.broker.publish(
+                    thread.id, EVENT_MESSAGE_COMPLETED, post_event_payload(earlier)
+                )
         self.broker.publish(
             thread.id, EVENT_MESSAGE_COMPLETED, post_event_payload(post)
         )

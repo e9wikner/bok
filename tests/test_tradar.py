@@ -2648,6 +2648,39 @@ class TestStreamEventOrder:
         assert completed["seq"] == stored.seq
         assert completed["body"]["text"] == "Klart."
 
+    def test_a_card_written_during_the_turn_is_announced_before_the_answer(
+        self, agent_enabled
+    ):
+        """A tool such as `foresla_verifikation` stores its card mid-turn and
+        publishes nothing itself. The answer that says "there is a correction
+        in the thread" must not arrive live while the card waits for a reload."""
+        _ensure_accounts()
+        thread, posts = _thread_with_posts("Hej")
+        cards: list = []
+
+        class _CardWritingClient(FakeLLMClient):
+            def run_turn(self, *args, **kwargs):
+                if not cards:
+                    cards.append(
+                        ThreadRepository.add_post(
+                            thread_id=thread.id,
+                            post_type="agent_text",
+                            actor="agent",
+                            body={"text": "Kortet"},
+                        )
+                    )
+                return super().run_turn(*args, **kwargs)
+
+        broker, _ = _run_turn_synchronously(
+            thread, posts[0], _CardWritingClient([_turn(text="Se kortet.")])
+        )
+
+        completed = [
+            d["id"] for e, d in broker.published if e == EVENT_MESSAGE_COMPLETED
+        ]
+        answer = ThreadRepository.list_posts(thread.id)[-1]
+        assert completed == [cards[0].id, answer.id]
+
     def test_what_streamed_is_what_gets_stored(self, agent_enabled):
         """§4: the client replaces its optimistic rows with the stored post
         at `message.completed` — so they had better agree."""
